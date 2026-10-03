@@ -180,3 +180,24 @@ both hide -- the Hub/wiki count gap. `_is_nameless_name` itself is untouched
 `tests/test_nameless_filter_applies_to_the_hub_people_count.py`. Recorded
 here, not as a patch, for the same reason as the grafts above. Retire by
 landing it in CM041 and re-pinning.
+
+## Fifth graft: a processor crash's failure_reason keeps the tail, not the head (CM051 walk #5, v1.0.107)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+`_conversation_process_background`: one line, `result.stderr[:500]` ->
+`result.stderr[-500:]`, on the branch that records a `failed_step=
+"processor"` reason when the `pwg-convo` CLI subprocess exits non-zero.
+Shape: diagnostic text only, nothing is deleted and no decision changes.
+Reason: a crashing subprocess writes its INFO-level progress logging FIRST
+and any traceback/exception message LAST, so the first 500 characters of a
+long stderr stream is guaranteed to be ordinary logging with the real error
+cut off before it ever printed. Measured on a cold v1.0.107 install: every
+"processor"-failed conversation's `failure_reason` ended abruptly mid
+log-line, e.g. `"...src.processor: Enriching 2026-10-03_0e"` -- not a
+reason at all. The sibling `str(exc)[:500]` branch a few lines below (a
+single exception's own message, not a multi-line subprocess log) is
+untouched on purpose -- that shape puts the useful part first. Matches
+CM041 PR #190 (upstream, not yet merged at time of writing). Guarded by
+`tests/test_vendored_conversation_process_failure_reason.py`. Recorded
+here, not as a patch, for the same reason as the grafts above. Retire by
+landing CM041 PR #190 and re-pinning.

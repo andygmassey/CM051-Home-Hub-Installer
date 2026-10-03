@@ -1848,7 +1848,19 @@ def _conversation_process_background(conversation_id, transcript, metadata):
             state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
         else:
             state["failed_step"] = "processor"
-            state["failure_reason"] = result.stderr[:500] or "Non-zero exit"
+            # CM051 walk #5: this read result.stderr[:500] -- the FIRST 500
+            # characters. A crashing subprocess writes its INFO-level
+            # progress logging first and any traceback/exception message
+            # LAST, so the head of a long stderr stream is the least
+            # interesting part and the actual reason is exactly what gets
+            # cut off. Measured on a cold v1.0.107 install: every
+            # "processor"-failed conversation's failure_reason ended
+            # mid-log-line (".../src.processor: Enriching 2026-10-03_0e")
+            # because stderr ran well past 500 characters of ordinary
+            # logging before the real error ever printed -- the recorded
+            # "reason" was in every case not a reason at all. Take the TAIL
+            # instead, where a traceback actually lives.
+            state["failure_reason"] = result.stderr[-500:] or "Non-zero exit"
             state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
     except FileNotFoundError:
         # pwg-convo not on PATH. CM048 not installed (or install.sh

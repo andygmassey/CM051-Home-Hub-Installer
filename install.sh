@@ -3570,9 +3570,22 @@ _ostler_promote_prelaunch_tree() {
 # copy). This generalises that pattern to every pip install sourced from
 # SCRIPT_DIR.
 #
-# Usage: _ostler_pip_install_pkg <pip-binary> <source-dir> [extra pip args...]
+# Usage: _ostler_pip_install_pkg <pip-binary> <source-dir> [--pip-extras=NAME] [extra pip args...]
 # Returns pip's exit code. Callers keep their own tolerance policy.
 # Where _ostler_pip_install_pkg records its OWN failures.
+#
+# --pip-extras=NAME requests pip's bracket-extras syntax (package[NAME]) on
+# the STAGED install target, e.g. for ostler_security's own "encrypted" extra
+# (CM051 walk #5: ostler_security ships WITHOUT sqlcipher3 by default -- it is
+# an opt-in extra in ostler_security's own pyproject.toml -- so every caller
+# that installs ostler_security plain, as every existing call site here does,
+# gets HAS_SQLCIPHER=False and every encrypted-database write downstream
+# refuses rather than writing plaintext). This cannot be appended to
+# <source-dir> itself: `[[ -d "$src_dir[encrypted]" ]]` would never be a real
+# directory, so the existence check two lines below would refuse a perfectly
+# good source tree. It is parsed here, BEFORE staging, and appended only to
+# the final staged path pip actually sees. A pseudo-flag, not a real pip
+# argument -- consumed here, never forwarded to pip's own argv.
 #
 # TNM's review of #767: two call sites are `... 2>/dev/null || true`, so the
 # helper's diagnostics went to /dev/null and its rc=2 was discarded. "Could not
@@ -3595,6 +3608,11 @@ _ostler_pip_install_pkg() {
     local pip_bin="$1"; shift
     local src_dir="$1"; shift
     local stage rc
+    local extras=""
+    if [[ "${1:-}" == --pip-extras=* ]]; then
+        extras="${1#--pip-extras=}"
+        shift
+    fi
 
     if [[ ! -d "$src_dir" ]]; then
         _ostler_pip_stage_note "no such package dir: $src_dir"
@@ -3662,7 +3680,9 @@ _ostler_pip_install_pkg() {
         return 2
     fi
 
-    "$pip_bin" install "$@" "${stage}/$(basename "$src_dir")"
+    local target="${stage}/$(basename "$src_dir")"
+    [[ -n "$extras" ]] && target="${target}[${extras}]"
+    "$pip_bin" install "$@" "$target"
     rc=$?
     rm -rf "$stage"
     return $rc
@@ -21908,9 +21928,24 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
     # pipeline so the dep is resolvable. Without this every conversation
     # bundle exhausts at step 07, qdrant `conversations` stays at zero,
     # and the wiki /Conversations/ section ships permanently empty.
+    #
+    # v1.0.107 walk #5: that fix installed ostler_security PLAIN, and plain
+    # ostler_security ships WITHOUT sqlcipher3 -- it is an opt-in "encrypted"
+    # extra in ostler_security's own pyproject.toml, not a default dependency.
+    # Without it HAS_SQLCIPHER is False, and ostler_security/database.py's
+    # get_db_connection refuses to open an encryption-key-bearing database in
+    # plaintext (correctly -- the alternative is silently shipping an
+    # unencrypted at-rest database the customer was told is encrypted). The
+    # coach observations DB is opened with a key, so _write_coach raised on
+    # EVERY conversation that reached step 07, which is EXACTLY the "exhausts
+    # at step 07" failure mode the comment above already named -- the earlier
+    # fix closed "ostler_security absent" and left "ostler_security present
+    # but missing its encryption backend" open. Measured on a cold v1.0.107
+    # install: 13 of 18 currently-failed conversations were this exact
+    # RuntimeError, all at failed_step=07_sinks_written.
     if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
         info "$MSG_INFO_INSTALLING_OSTLER_SECURITY_INTO_CM048_VENV"
-        if ! _ostler_pip_install_pkg "$CM048_VENV/bin/pip" "${SCRIPT_DIR}/ostler_security" --quiet 2>"${OSTLER_DIAG_DIR}/cm048-security-pip.log"; then
+        if ! _ostler_pip_install_pkg "$CM048_VENV/bin/pip" "${SCRIPT_DIR}/ostler_security" --pip-extras=encrypted --quiet 2>"${OSTLER_DIAG_DIR}/cm048-security-pip.log"; then
             warn "$MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048"
             if [[ -s "${OSTLER_DIAG_DIR}/cm048-security-pip.log" ]]; then
                 sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm048-security-pip.log" | tail -5
