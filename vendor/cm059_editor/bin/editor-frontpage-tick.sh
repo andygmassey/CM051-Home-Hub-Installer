@@ -257,3 +257,55 @@ fi
 # --- Step 2: the Dashboard front page (unchanged) ----------------------
 PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_frontpage --oxigraph "$OSTLER_OXIGRAPH_URL"
 log "Editor front-page tick complete"
+
+# --- Step 3: close the wiki/front-page staleness gap --------------------
+# CM051 walk #5: the compiled wiki's "Needs you now" and the live app's
+# front_page.json showed ZERO cards in common. Reproduced read-only on
+# macmini16-walk: the wiki-compiler service has the correct editor mount
+# and OSTLER_FRONT_PAGE_JSON, and genuinely reads and uses the feed -- the
+# compile that ran at 2026-10-03T20:54:18Z correctly rendered front_page.json
+# as of its OWN most recent read at that time (confirmed via docker inspect
+# on the live container plus an in-container call to the real
+# _editor_need_cards(), whose returned card content byte-matched the raw
+# feed). The compose service definition is not the bug.
+#
+# The actual gap: this tick runs hourly (StartInterval 3600) and is the only
+# writer of front_page.json, while wiki-recompile ships StartInterval 86400
+# (daily) by deliberate v1 design -- CM051 #20's own "open question" chose
+# daily over hourly for disk/battery cost, which is a decision about the
+# WHOLE wiki (thousands of pages) and is left untouched here. Nothing ever
+# told the wiki that THIS one hourly artefact had changed, so "Needs you
+# now" could run stale by up to a full day in steady state -- exactly the
+# daily-tick-is-a-day-of-latency shape already measured for the container
+# supervisor (3.2a-sup above).
+#
+# Fix: trigger a wiki recompile ONLY when front_page.json's content actually
+# changed since the wiki last picked it up -- not on every hourly tick, so
+# the daily-cadence decision for the rest of the wiki is unaffected when the
+# feed is quiet. Backgrounded and best-effort: a wiki recompile takes
+# minutes and this tick documents itself as sub-second, so it must not
+# block on it, and wiki-recompile-tick.sh has its own single-flight mutex,
+# so a tick already running from the regular/catch-up schedule just makes
+# this one exit 0 immediately -- no double-compile, no stacking.
+FRONT_PAGE_JSON="${OSTLER_DIR}/editor/front_page.json"
+FRONT_PAGE_SEEN="${OSTLER_DIR}/state/wiki-recompile-last-frontpage.sha256"
+WIKI_TICK="${OSTLER_DIR}/bin/wiki-recompile-tick.sh"
+if [ -f "$FRONT_PAGE_JSON" ] && [ -x "$WIKI_TICK" ]; then
+    mkdir -p "${OSTLER_DIR}/state" "${OSTLER_DIR}/logs" 2>/dev/null || true
+    # `|| true` on the assignment: under `set -e`, a failed command
+    # substitution used as a plain assignment DOES abort the script (unlike
+    # inside an `if`/`&&`), and this whole step must stay as non-fatal as the
+    # rest of this tick -- a hash hiccup must never take the front-page emit
+    # above down with it.
+    _new_hash="$(shasum -a 256 "$FRONT_PAGE_JSON" 2>/dev/null | awk '{print $1}')" || true
+    _old_hash="$(cat "$FRONT_PAGE_SEEN" 2>/dev/null || true)"
+    if [ -n "$_new_hash" ] && [ "$_new_hash" != "$_old_hash" ]; then
+        printf '%s' "$_new_hash" > "$FRONT_PAGE_SEEN"
+        log "front_page.json changed (was ${_old_hash:-<none>}, now ${_new_hash}); kicking a background wiki recompile so Needs-you-now catches up within one tick"
+        ( "$WIKI_TICK" >>"${OSTLER_DIR}/logs/wiki-recompile.log" 2>&1 & )
+    else
+        log "front_page.json unchanged since the wiki last saw it; leaving the daily wiki-recompile schedule alone"
+    fi
+elif [ -f "$FRONT_PAGE_JSON" ]; then
+    log "wiki-recompile-tick.sh not present at $WIKI_TICK; wiki will catch up on its own schedule instead"
+fi
