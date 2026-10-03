@@ -343,16 +343,28 @@ def _duplicate_items(
         for m in bucket:
             keep, discard = pick_canonical(persons, m.uri_a, m.uri_b)
             key = tuple(sorted((m.uri_a, m.uri_b)))
+            # CM051 walk #4, item E: filtered on STRATEGY NAME, which missed
+            # the case of two people sharing TWO DIFFERENT VALUES under the
+            # SAME strategy -- e.g. a work number and a mobile number both
+            # matching between the same two nodes produces two separate
+            # phone_match entries for this one pair, and consolidate_matches
+            # keeps only one (confidence ties go to whichever was built
+            # first), silently dropping the OTHER shared phone number from
+            # ever being mentioned anywhere. Measured on a cold v1.0.107
+            # install (walk #4): the pair with 2 shared phones had its
+            # second number named in NO item's evidence at all, even after
+            # the walk #3 fix, because that fix only folded in matches whose
+            # STRATEGY differed from the winner's. Compare by object
+            # identity instead, so a same-strategy sibling is folded in too.
+            other_matches = [
+                om for om in other_matches_by_pair.get(key, []) if om is not m
+            ]
             other_strategies = sorted({
-                om.strategy for om in other_matches_by_pair.get(key, [])
-                if om.strategy != m.strategy
+                om.strategy for om in other_matches if om.strategy != m.strategy
             })
             details = m.details
-            if other_strategies:
-                also = "; ".join(
-                    om.details for om in other_matches_by_pair[key]
-                    if om.strategy != m.strategy
-                )
+            if other_matches:
+                also = "; ".join(om.details for om in other_matches)
                 details = f"{details}; {also}"
             evidence = {
                 "strategy": m.strategy,
