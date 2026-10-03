@@ -70,13 +70,13 @@ def test_canonicalise_syncs_the_chosen_name_to_qdrant():
     name and wrote it to Oxigraph, but nothing told Qdrant."""
     r = _RecordingResolver([
         _binding("person.example@example.com"),
-        _binding("Person Example", given="Person", family="Example"),
+        _binding("Jane Doe", given="Jane", family="Doe"),
     ])
 
     result = r.canonicalise_display_name(PERSON)
 
-    assert result == "Person Example"
-    assert r.qdrant_sync_calls == [(PERSON, "Person Example")], (
+    assert result == "Jane Doe"
+    assert r.qdrant_sync_calls == [(PERSON, "Jane Doe")], (
         "canonicalise_display_name must propagate the chosen name to Qdrant, "
         "not just Oxigraph -- the Hub's People list reads only Qdrant"
     )
@@ -86,11 +86,11 @@ def test_control_a_single_existing_binding_is_a_noop_and_does_not_touch_qdrant()
     """CONTROL: the documented no-op path (<=1 displayName value, nothing
     to collapse) must not issue a Qdrant sync either -- proves the sync is
     tied to an ACTUAL collapse, not fired on every read."""
-    r = _RecordingResolver([_binding("Person Example")])
+    r = _RecordingResolver([_binding("Jane Doe")])
 
     result = r.canonicalise_display_name(PERSON)
 
-    assert result == "Person Example"
+    assert result == "Jane Doe"
     assert r.update_queries == []
     assert r.qdrant_sync_calls == []
 
@@ -122,12 +122,12 @@ def test_sync_sets_payload_on_the_deterministic_point_id():
     fake_client.retrieve.return_value = [object()]  # point exists
 
     with patch("qdrant_client.QdrantClient", return_value=fake_client):
-        r._sync_qdrant_display_name(PERSON, "Person Example")
+        r._sync_qdrant_display_name(PERSON, "Jane Doe")
 
     expected_point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, PERSON))
     fake_client.set_payload.assert_called_once_with(
         collection_name="people",
-        payload={"display_name": "Person Example", "name": "Person Example"},
+        payload={"display_name": "Jane Doe", "name": "Jane Doe"},
         points=[expected_point_id],
     )
 
@@ -141,7 +141,7 @@ def test_control_no_matching_qdrant_point_does_not_set_payload():
     fake_client.retrieve.return_value = []  # no point
 
     with patch("qdrant_client.QdrantClient", return_value=fake_client):
-        r._sync_qdrant_display_name(PERSON, "Person Example")
+        r._sync_qdrant_display_name(PERSON, "Jane Doe")
 
     fake_client.set_payload.assert_not_called()
 
@@ -153,7 +153,7 @@ def test_control_qdrant_client_not_installed_does_not_raise():
     own stance."""
     r = _BareResolver()
     with patch.dict(sys.modules, {"qdrant_client": None}):
-        r._sync_qdrant_display_name(PERSON, "Person Example")  # must not raise
+        r._sync_qdrant_display_name(PERSON, "Jane Doe")  # must not raise
 
 
 def test_control_a_qdrant_exception_does_not_raise():
@@ -164,4 +164,4 @@ def test_control_a_qdrant_exception_does_not_raise():
     fake_client.retrieve.side_effect = RuntimeError("connection refused")
 
     with patch("qdrant_client.QdrantClient", return_value=fake_client):
-        r._sync_qdrant_display_name(PERSON, "Person Example")  # must not raise
+        r._sync_qdrant_display_name(PERSON, "Jane Doe")  # must not raise

@@ -174,7 +174,7 @@ class _ServerHarness:
 
 
 # ---------------------------------------------------------------------------
-# Synthetic Qdrant scroll fixtures. All names are placeholders.
+# Synthetic fixtures for the Qdrant scroll response. All names are placeholders.
 # ---------------------------------------------------------------------------
 
 
@@ -319,7 +319,7 @@ class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
 class TestPeopleListExcludesServiceAndNotificationSenders(unittest.TestCase):
     """Walk #6, bug 1: on macmini16-walk, a carrier notification sender, a
     marketplace, an email SUBJECT LINE, an all-caps company name, a
-    '#channel'-style handle and a 'Rate Advice'-style service all showed
+    '#channel'-style handle and a 'Rate advice'-style service all showed
     up in the Hub's People list. ``_is_nameless_name`` was never designed
     to catch these shapes (it only catches empty / WhatsApp-JID / bare-
     phone names). Every name below is a SYNTHETIC stand-in matching the
@@ -334,10 +334,10 @@ class TestPeopleListExcludesServiceAndNotificationSenders(unittest.TestCase):
             # Shape: all-caps multi-word business name, no legal suffix.
             _point("p3", "EXAMPLE EXECUTIVE SEARCH"),
             # Shape: a notification SUBJECT line that became the "name".
-            _point("p4", "Payment Declined - Update Required"),
-            # Shape: short Title Case notification/alert sender.
-            _point("p5", "Rate Advice"),
-            _point("p6", "ExampleCarrier Notification"),
+            _point("p4", "Payment declined - update required"),
+            # Shape: short title-case notification/alert sender.
+            _point("p5", "Rate advice"),
+            _point("p6", "ExampleCarrier notification"),
             _point("p7", "Bob Example", job_title="Builder"),
         ]
 
@@ -374,7 +374,7 @@ class TestPeopleListExcludesServiceAndNotificationSenders(unittest.TestCase):
         self.assertFalse(server._is_automated_or_service_name("Jane Doe"))
         # A real name that happens to end in a word near the vocabulary
         # but not IN it.
-        self.assertFalse(server._is_automated_or_service_name("Jane Advisor"))
+        self.assertFalse(server._is_automated_or_service_name("John Smith"))
 
     def test_real_names_survive_the_full_endpoint_alongside_junk_rows(self) -> None:
         """CONTROL at the endpoint level, not just the predicate: the
@@ -413,7 +413,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
         points = [
             _point(
                 "p1", "person.example@example.com",
-                given_name="Person", family_name="Example",
+                given_name="Jane", family_name="Doe",
                 person_uri="urn:ostler:person/p1",
             ),
         ]
@@ -428,13 +428,13 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
                 status, body = h.get("/api/v1/people")
 
         self.assertEqual(status, 200)
-        self.assertEqual(body["people"][0]["name"], "Person Example")
+        self.assertEqual(body["people"][0]["name"], "Jane Doe")
 
     def test_phone_shaped_name_is_replaced_when_given_and_family_present(self) -> None:
         points = [
             _point(
                 "p1", "+1 (555) 010-1234",
-                given_name="Person", family_name="Example",
+                given_name="Jane", family_name="Doe",
                 person_uri="urn:ostler:person/p1",
             ),
         ]
@@ -448,7 +448,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
             with _ServerHarness() as h:
                 status, body = h.get("/api/v1/people")
 
-        self.assertEqual(body["people"][0]["name"], "Person Example")
+        self.assertEqual(body["people"][0]["name"], "Jane Doe")
 
     def test_control_email_shaped_name_unchanged_when_no_structured_name_exists(self) -> None:
         """CONTROL: a genuinely email-only contact (no given/family name
@@ -474,7 +474,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
         identifier) must be left exactly as-is, even with given/family
         present -- this fix only ever replaces an identifier-shaped name."""
         points = [
-            _point("p1", "Person Example",
+            _point("p1", "Jane Doe",
                    given_name="Person", family_name="Different",
                    person_uri="urn:ostler:person/p1"),
         ]
@@ -488,7 +488,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
             with _ServerHarness() as h:
                 status, body = h.get("/api/v1/people")
 
-        self.assertEqual(body["people"][0]["name"], "Person Example")
+        self.assertEqual(body["people"][0]["name"], "Jane Doe")
 
 
 class TestPeopleListExcludesTheOwner(unittest.TestCase):
@@ -501,7 +501,7 @@ class TestPeopleListExcludesTheOwner(unittest.TestCase):
 
     def test_a_self_uri_row_is_excluded(self) -> None:
         points = [
-            _point("p1", "Owner Example", person_uri="urn:ostler:person/owner1"),
+            _point("p1", "John Smith", person_uri="urn:ostler:person/owner1"),
             _point("p2", "owner@example.com", person_uri="urn:ostler:person/owner2"),
             _point("p3", "Alice Example", person_uri="urn:ostler:person/alice"),
         ]
@@ -578,13 +578,13 @@ class TestLoadPeopleListSelfUris(unittest.TestCase):
         def fake_select(query):
             if "pwg:displayName" in query and "hasIdentifier" not in query:
                 return [
-                    {"p": "urn:ostler:person/owner", "n": "Example Owner"},
+                    {"p": "urn:ostler:person/owner", "n": "John Smith"},
                     {"p": "urn:ostler:person/other", "n": "Someone Else"},
                 ]
             return []
 
         env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
-        env["USER_DISPLAY_NAME"] = "Example Owner"
+        env["USER_DISPLAY_NAME"] = "John Smith"
         with patch.object(server, "_sparql_select", side_effect=fake_select), \
              patch.dict(server.os.environ, env, clear=True):
             result = server._load_people_list_self_uris()
@@ -623,7 +623,7 @@ class TestLoadPeopleListSelfUris(unittest.TestCase):
         """CONTROL: best-effort -- a degraded Oxigraph must never raise
         out of people_list, only degrade to 'exclude nobody'."""
         env = dict(server.os.environ)
-        env["USER_DISPLAY_NAME"] = "Example Owner"
+        env["USER_DISPLAY_NAME"] = "John Smith"
         with patch.object(server, "_sparql_select",
                            side_effect=RuntimeError("store unreachable")), \
              patch.dict(server.os.environ, env, clear=True):
@@ -652,7 +652,7 @@ class TestPeopleListToEnrichment(unittest.TestCase):
     click-through from fix [4] to fix [5]."""
 
     def test_row_slug_resolves_to_enrichment_200(self) -> None:
-        name = "Carol Example"
+        name = "Alice Example"
         slug = server._wiki_slug(name)
         uri = "urn:ostler:person/carol"
 

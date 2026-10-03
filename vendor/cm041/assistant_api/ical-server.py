@@ -573,9 +573,9 @@ def _is_automated_or_service_name(display_name):
         sender id
       * "EXAMPLE EXECUTIVE SEARCH"             -- an all-caps business
         name with no legal suffix to anchor on
-      * "Payment Declined - Update Required"   -- a notification SUBJECT
+      * "Payment declined - update required"   -- a notification SUBJECT
         line that became the "name"
-      * "ExampleCarrier Notification" / "Rate Advice" -- a short Title
+      * "ExampleCarrier notification" / "Rate advice" -- a short Title
         Case service/alert sender
 
     Four narrow, independently-justified checks:
@@ -640,7 +640,7 @@ def _load_people_list_self_uris():
         (falling back to PWG_USER_NAME) -- the SAME env var contact_syncer
         already reads for the owner's own display name, no new install.sh
         wiring needed. Catches a Contacts-derived owner card (e.g. the
-        install's own "Andrew Massey" card).
+        install's own real-name Contacts card).
       * any Person with a ``pwg:hasIdentifier`` email identifier matching
         CARDDAV_USERNAME, the Apple ID used to authenticate the CardDAV
         sync -- in practice the owner's own address on the large majority

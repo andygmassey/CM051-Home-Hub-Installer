@@ -278,7 +278,7 @@ Andy's screen read of the People page on macmini16-walk found the top 10
 "recent" rows mostly wrong, in three ways (synthetic shapes standing in
 for the real rows, never quoted): (1) 6 of 10 were non-people -- a carrier
 notification sender, a marketplace, an email SUBJECT LINE, an all-caps
-company name, a `#`-prefixed handle, a "Rate Advice"-style service --
+company name, a `#`-prefixed handle, a "Rate advice"-style service --
 shapes `_is_nameless_name` (empty / WhatsApp-JID / bare-phone only) and
 this vendor's own `_is_role_address_name` (role mailboxes) were never
 designed to catch; (2) 1 of 10 showed a known contact (proven by an
