@@ -63,7 +63,7 @@ _STRINGS = {
     "reply_debt_body": "{names} {have} messages awaiting your reply.",
     "reply_debt_action": "See who",
     "gone_quiet_title": "You and {name} have gone quiet",
-    "gone_quiet_body": ("No contact for {months} months. A short message keeps "
+    "gone_quiet_body": ("No contact for {span}. A short message keeps "
                         "the thread alive."),
     "gone_quiet_body_one": ("No contact for a month. A short message keeps the "
                             "thread alive."),
@@ -84,6 +84,49 @@ _NUM_WORDS = {0: "no", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
 
 def _num_word(n: int) -> str:
     return _NUM_WORDS.get(int(n), str(int(n)))
+
+
+def _humanize_months_since(months: float) -> str:
+    """Human phrasing for a reconnect gap, never a raw '{n} months' dump.
+
+    Walk #5 (CM051, 2026-10-01/04): hydrated Home and wiki front-page cards
+    read "No contact for 59 months" and "No contact for 13 months" --
+    database output, not a sentence a person would say, because
+    ``gone_quiet_body`` fed ``_num_word(m)`` straight through for any m and
+    ``_num_word`` only has words for 0-9 (``_num_word(59) == "59"``).
+
+    Buckets:
+      < 1 month    -> "less than a month" (defensive: gone_quiet_card never
+                      builds a card this fresh, but the formatter must still
+                      answer something sane for any input, not just the ones
+                      the caller currently produces)
+      1 month      -> "a month" (the caller special-cases this itself via
+                      gone_quiet_body_one; kept here too for callers that
+                      format a span directly)
+      2-11 months  -> "{n} months"
+      12-23 months -> "over a year" (CM051 walk #5's 13-month case)
+      24+ months   -> "about / almost / just over {N} years", N = the
+                      nearest whole year (CM051 walk #5's 59-month case:
+                      "almost five years")
+    """
+    m = max(0.0, float(months))
+    whole = int(round(m))
+    if whole < 1:
+        return "less than a month"
+    if whole == 1:
+        return "a month"
+    if whole < 12:
+        return f"{_num_word(whole)} months"
+    if whole < 24:
+        return "over a year"
+    nearest_years = max(1, round(whole / 12.0))
+    nearest_months = nearest_years * 12
+    word = _num_word(nearest_years)
+    if whole == nearest_months:
+        return f"about {word} years"
+    if whole < nearest_months:
+        return f"almost {word} years"
+    return f"just over {word} years"
 
 
 def _cap(text: str) -> str:
@@ -365,6 +408,13 @@ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
                     privacy: str = "L2"):
     if not name:
         return None
+    # Upper bound (CM051 walk #5; fp.GONE_QUIET_IGNORE_AFTER_MONTHS's own
+    # comment has the full history). Five years of silence is history, not a
+    # reconnect nudge. This is the last point in the pipeline that can refuse
+    # to build the card, so it checks regardless of what the upstream source
+    # does or does not bound.
+    if months_since is None or months_since > fp.GONE_QUIET_IGNORE_AFTER_MONTHS:
+        return None
     cid = fp.card_id("signal", f"gone_quiet::{name}")
     fe = _parse_dt(card_ledger.first_emitted(ledger, cid))
     # Lifecycle window (spec 1.3): active for TTL days, then a cooldown, then
@@ -382,7 +432,8 @@ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
     expires = cycle_start + timedelta(days=fp.GONE_QUIET_TTL_DAYS)
     m = int(round(months_since))
     body = (_STRINGS["gone_quiet_body_one"] if m == 1
-            else _STRINGS["gone_quiet_body"].format(months=_num_word(m)))
+            else _STRINGS["gone_quiet_body"].format(
+                span=_humanize_months_since(months_since)))
     card = fp._make_card(
         "signal", f"gone_quiet::{name}",
         title=_STRINGS["gone_quiet_title"].format(name=name), body=body, now=now,

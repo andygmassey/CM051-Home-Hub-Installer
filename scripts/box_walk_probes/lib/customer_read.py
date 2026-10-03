@@ -86,6 +86,73 @@ BIDI = re.compile(r"[‪-‮⁦-⁩]")
 OSTLER_PROCS = re.compile(r"Virtualization\.VirtualMachine|llama-server|ollama|colima", re.I)
 
 WIDTH_MIN = 0.95
+EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[A-Za-z]{2,}")
+URL = re.compile(r"https?://\S+", re.I)
+SERVICE_PHRASE = re.compile(
+    r"\b(notifications?|no-?reply|do-?not-?reply|payments?|updates?|alerts?|receipts?|statements?|"
+    r"newsletters?|rewards?|gifts?|offers?|verif(y|ication)|members?hip|accounts?|orders?|deliver(y|ies)|"
+    r"subscriptions?|invoices?|promotions?|deals?|unsubscribe|via \w*sign)\b", re.I)
+SERVICE_LOCAL = re.compile(
+    r"^(no-?reply|noreply|do-?not-?reply|support|help(desk)?|team|info|news(letter)?|promo(tions?)?|"
+    r"marketing|notifications?|alerts?|billing|sales|service|accounts?|orders?|ebill\w*)$", re.I)
+MARKETPLACES = re.compile(
+    r"\b(amazon|ebay|etsy|aliexpress|alibaba|shopee|lazada|taobao|tmall|rakuten|walmart|temu|shein|"
+    r"zalando|asos|wish)\b", re.I)
+DOMAIN_NAME = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr|shop|store)$", re.I)
+GONE_QUIET = re.compile(r"gone quiet|no contact for|not been in touch|haven.t (spoken|been in touch)", re.I)
+QUIET_SPAN = re.compile(r"(\d[\d,]*)\s+(day|week|month|year)s?\b", re.I)
+RAW_MONTHS = re.compile(r"\b(\d[\d,]*)\s+months?\b", re.I)
+
+
+def _digest(v):
+    import hashlib
+    return hashlib.sha256(v.encode()).hexdigest()
+
+
+def _norm_handle(h):
+    h = (h or "").strip().lower()
+    if "@" in h:
+        return h
+    d = re.sub(r"\D", "", h)
+    return d[-9:] if len(d) >= 7 else ""
+
+
+def _norm_name(n):
+    return re.sub(r"\s+", " ", (n or "").strip().lower())
+
+
+def _name_windows(text, lo=2, hi=4):
+    w = re.findall(r"[^\W\d_][\w'.-]*", (text or "").lower())
+    for k in range(lo, hi + 1):
+        for i in range(0, max(0, len(w) - k + 1)):
+            yield " ".join(w[i:i + k])
+
+
+def service_sender(name):
+    """A People row name that is a service, organisation or subject line, not a person."""
+    n = (name or "").strip()
+    if not n:
+        return None
+    if n.startswith("#"):
+        return "hash-prefixed"
+    if "@" in n:
+        local = n.split("@", 1)[0]
+        if SERVICE_LOCAL.match(local) or MARKETPLACES.search(n):
+            return "service mailbox"
+        return None
+    words = re.findall(r"[A-Za-z]+", n)
+    if len(words) >= 2 and all(w.isupper() for w in words) and sum(len(w) for w in words) >= 4:
+        return "all-caps multiword"
+    if SERVICE_PHRASE.search(n):
+        return "notification phrasing"
+    if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
+        return "marketplace or domain"
+    return None
+
+
+def _months(num, unit):
+    v = float(str(num).replace(",", ""))
+    return {"day": v / 30.44, "week": v / 4.35, "month": v, "year": v * 12}[unit.lower()]
 # Emails and URLs carry underscores and ports legitimately; judge the prose around them.
 STRIP_ADDRESSES = re.compile(r"\S+@\S+|https?://\S+|\S*\?\S*=\S*")
 
@@ -170,9 +237,12 @@ def card_titles(seg):
 
 
 def count_after(text, label):
-    """'8,137 PEOPLE' or '8,138\\nPEOPLE' -> 8137."""
-    m = re.search(r"([\d,]{1,9})\s*\n?\s*" + label + r"\b", text or "")
-    return _num(m.group(1)) if m else None
+    """'8,137 PEOPLE' or '8,138\\nPEOPLE' -> 8137. The LARGEST labelled count wins:
+    a card band such as 'Needs you now 5 PEOPLE' also matches the shape, and the
+    first draft read that card count as the people total (measured, walk #5)."""
+    vals = [_num(m.group(1)) for m in re.finditer(r"([\d,]{1,9})\s*\n?\s*" + label + r"\b", text or "")]
+    vals = [v for v in vals if v is not None]
+    return max(vals) if vals else None
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +264,7 @@ DECLARED = [
     "timeline: every message row is titled, with no doubled word",
     "people: no phone number is an internal id (14+ digits) or carries bidi controls",
     "people: no UNREVIEWED phone number appears on two rows",
-    "counts: people agree across the Hub, the wiki front page and the People index",
+    "counts: each people count matches its own source (Hub = people-list API total; wiki tile = compiled People page)",
     "counts: organisations agree across the wiki front page and the Organisations page",
     "sources: the wiki source list has no duplicate source",
     "sources: no internal operation is listed as a source",
@@ -203,6 +273,12 @@ DECLARED = [
     "wiki: every table and box is at least 95% of the page width",
     "doctor: the Hub's own config read (as the app sends it) is accepted",
     "bursar: model calls recorded within 5% of Ollama's logged calls",
+    "people: no row is named by an email address when a human-named row shares that address",
+    "people: no service, organisation or subject-line sender is listed as a person",
+    "people: the owner is not listed as a person, nor named in a you-keep-seeing card",
+    "hub: the status pill never reads Status unavailable, on any route",
+    "home/wiki: no gone-quiet card over 18 months, and no raw month count over 23",
+    "customer text: no raw http(s) URL in customer copy",
 ]
 
 
@@ -386,16 +462,28 @@ def judge(f, declared=None):
                 "{} already surfaced as a duplicate-review card".format(
                     len(silent), len(dup), len(dup & reviewed)))
 
-    ppl = {"hub": count_after((screens.get("people") or {}).get("text"), "PEOPLE"),
-           "wiki front": count_after(wfront, "PEOPLE"),
-           "People index": _num((re.search(r"([\d,]+) (?:contacts|people)\b",
-                                           (wiki.get("people") or {}).get("text") or "") or [None, None])[1])}
-    got = {k: v for k, v in ppl.items() if v}
-    if len(got) < 2:
-        add(DECLARED[14], None, "NOT MEASURED: {}".format(ppl))
+    # Ruling 2026-10-04 (#2546): each screen labels what it counts, so there is
+    # no cross-equality. The Hub counts named people and must equal the
+    # people-list API it renders; the wiki tile counts people with a page and
+    # must equal the compiled People page. Each is checked against its own source.
+    hub_n = count_after((screens.get("people") or {}).get("text"), "PEOPLE")
+    api_n = f.get("people_api_total")
+    if api_n is None and f.get("people_api") is not None:
+        api_n = len(f["people_api"])
+    tile_n = count_after(wfront, "PEOPLE")
+    index_n = _num((re.search(r"([\d,]+) (?:contacts|people)\b",
+                              (wiki.get("people") or {}).get("text") or "") or [None, None])[1])
+    pairs = [("Hub vs people API", hub_n, api_n), ("wiki tile vs People page", tile_n, index_n)]
+    measured_pairs = [(k, a, b) for k, a, b in pairs if a is not None and b is not None]
+    if not measured_pairs:
+        add(DECLARED[14], None, "NOT MEASURED: hub={} api={} tile={} index={}".format(hub_n, api_n, tile_n, index_n))
     else:
-        lo, hi = min(got.values()), max(got.values())
-        add(DECLARED[14], lo >= hi * 0.99, ", ".join("{} {}".format(k, v) for k, v in got.items()))
+        bad = ["{} {} vs {}".format(k, a, b) for k, a, b in measured_pairs if a != b]
+        unmeasured = [k for k, a, b in pairs if a is None or b is None]
+        detail = "; ".join("{} {} vs {}".format(k, a, b) for k, a, b in measured_pairs)
+        if unmeasured:
+            detail += "; not measured: " + ", ".join(unmeasured)
+        add(DECLARED[14], (not bad) if not unmeasured else (False if bad else None), detail)
     org = {"wiki front": count_after(wfront, "ORGANISATIONS"),
            "Organisations page": count_after((wiki.get("organisations") or {}).get("text"), "ORGANISATIONS")}
     if not all(org.values()):
@@ -462,6 +550,104 @@ def judge(f, declared=None):
         add(DECLARED[22], (jr or 0) >= 0.95 * oc,
             "{} recorded vs {} Ollama calls in {} min ({}%)".format(jr, oc, bx.get("window_min"), int(100 * (jr or 0) / oc)))
 
+    # ---- walk #5 additions (all details are COUNTS or product copy; no person names) ----
+    papi = f.get("people_api")
+    if papi is None:
+        add(DECLARED[23], None, "NOT MEASURED: the People list was not read from /api/v1/people")
+        add(DECLARED[24], None, "NOT MEASURED: the People list was not read from /api/v1/people")
+    else:
+        human_by_email = {}
+        for r in papi:
+            nm, em = (r.get("name") or "").strip(), (r.get("email") or "").strip().lower()
+            if em and nm and "@" not in nm:
+                human_by_email.setdefault(em, True)
+        email_named = [r for r in papi if EMAIL.fullmatch((r.get("name") or "").strip())]
+        shadowed = [r for r in email_named
+                    if (r.get("name") or "").strip().lower() in human_by_email
+                    or ((r.get("email") or "").strip().lower() in human_by_email
+                        and (r.get("email") or "").strip().lower() != "")]
+        add(DECLARED[23], not shadowed,
+            "{} of {} People rows are named by an email address while a human-named row shares that address "
+            "({} email-named rows in all; names withheld)".format(len(shadowed), len(papi), len(email_named)))
+        kinds = {}
+        for r in papi:
+            k = service_sender(r.get("name"))
+            if k:
+                kinds[k] = kinds.get(k, 0) + 1
+        add(DECLARED[24], not kinds,
+            "{} of {} People rows look like services, organisations or subject lines: {} (names withheld)".format(
+                sum(kinds.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(kinds.items()))))
+
+    selfd = set(f.get("self_digests") or [])
+    if not selfd or papi is None:
+        add(DECLARED[25], None, "NOT MEASURED: {}".format(
+            "the owner's own handles were not read from the box" if not selfd else "the People list was not read"))
+    else:
+        own_rows = [r for r in papi
+                    if _digest(_norm_handle(r.get("email"))) in selfd
+                    or _digest(_norm_handle(r.get("name"))) in selfd
+                    or _digest(_norm_name(r.get("name"))) in selfd]
+        texts = [(screens.get("home") or {}).get("text") or "", (wiki.get("front") or {}).get("text") or ""]
+        cards, in_cards = 0, 0
+        for t in texts:
+            for m in re.finditer(r"keep seeing", t, re.I):
+                cards += 1
+                seg = t[max(0, m.start() - 200): m.start() + 400]
+                hits = [h for h in EMAIL.findall(seg) + re.findall(r"\+?\d[\d ]{6,}\d", seg)
+                        if _digest(_norm_handle(h)) in selfd]
+                if hits or any(_digest(w) in selfd for w in _name_windows(seg)):
+                    in_cards += 1
+        add(DECLARED[25], not own_rows and not in_cards,
+            "owner listed as {} People row(s); named in {} of {} you-keep-seeing card(s) (names withheld)".format(
+                len(own_rows), in_cards, cards))
+
+    pills = []
+    for k, v in screens.items():
+        if not isinstance(v, dict):
+            continue
+        if v.get("header") is not None:
+            pills.append(("app " + k, v["header"]))
+        if v.get("header_browser") is not None:
+            pills.append(("browser " + k, v["header_browser"]))
+    if not pills:
+        add(DECLARED[26], None, "NOT MEASURED: no route's header was read")
+    else:
+        bad = sorted(k for k, h in pills if re.search(r"status unavailable", h or "", re.I))
+        add(DECLARED[26], not bad, "{} of {} route reads show Status unavailable: {}".format(len(bad), len(pills), ", ".join(bad)))
+
+    quiet_texts = [("hub home", (screens.get("home") or {}).get("text") or ""),
+                   ("wiki front", (wiki.get("front") or {}).get("text") or "")]
+    if not any(t for _, t in quiet_texts) and not measured:
+        add(DECLARED[27], None, "NOT MEASURED: neither Home nor the wiki front page was read")
+    else:
+        old_cards, raw = 0, 0
+        for where, t in quiet_texts:
+            for m in GONE_QUIET.finditer(t):
+                seg = t[m.start(): m.start() + 300]
+                spans = [_months(n, u) for n, u in QUIET_SPAN.findall(seg)]
+                if spans and max(spans) > 18:
+                    old_cards += 1
+        for where, t in measured:
+            raw += sum(1 for n in RAW_MONTHS.findall(t) if int(n.replace(",", "")) > 23)
+        add(DECLARED[27], not old_cards and not raw,
+            "{} gone-quiet card(s) over 18 months; {} raw month count(s) over 23".format(old_cards, raw))
+
+    url_exempt = {r.get("title") or "" for r in (f.get("timeline_rows") or [])
+                  if r.get("kind") == "event" and URL.search(r.get("title") or "")}
+    if not measured:
+        add(DECLARED[28], None, "NOT MEASURED: no screen text was collected")
+    else:
+        bad = []
+        for w, t in measured:
+            if w == "hub timeline":
+                for title in sorted(url_exempt, key=len, reverse=True):
+                    t = t.replace(title, "")
+            n = len(URL.findall(t))
+            if n:
+                bad.append("{}: {}".format(w, n))
+        # TODO(#2565): the Timeline exemption keys on kind == "event" until the API names a source.
+        add(DECLARED[28], not bad, "raw URLs, by screen: " + "; ".join(bad))
+
     # a judge that produced no assertion, or skipped a declared one, is itself a failure
     names = [n for n, _, _ in out]
     missing = [d for d in declared if d not in names]
@@ -510,7 +696,7 @@ WIDTH_JS = r"""() => {
 }"""
 
 
-def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
+def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
     from playwright.sync_api import sync_playwright
 
     os.makedirs(out_dir, exist_ok=True)
@@ -592,6 +778,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
         def read(name, path):
             s = {"path": path, "nav": nav_labels.get(path)}
             s["title"] = page.evaluate("() => { const h = document.querySelector('header h1'); return h ? h.innerText.trim() : null }")
+            s["header"] = page.evaluate("() => { const h = document.querySelector('header'); return h ? h.innerText : null }")
             s["text"] = page.evaluate("() => { const m = document.querySelector('main'); return m ? m.innerText : '' }")
             page.screenshot(path=os.path.join(out_dir, "cr-%s.png" % name))
             f["screens"][name] = s
@@ -616,30 +803,59 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
                     f["screens"]["doctor_sources"] = {"rows": [[r[0], r[-1]] for r in rows if len(r) >= 2]}
                     page.screenshot(path=os.path.join(out_dir, "cr-doctor-sources.png"))
 
-        # wiki
+        # wiki, read THROUGH the app's own frame, exactly as hub_screens does it.
+        # The pages above route the Doctor-port calls to the forwarded Doctor,
+        # which is what Ostler.app does; with that routing, the app's hydration
+        # gate (#2496) can hold the wiki frame back on a box still hydrating.
+        # Record what the app-faithful page shows, then read the wiki from a
+        # page set up like hub_screens (no Doctor routing), which renders the
+        # frame. There is NO token-URL fallback any more (#2558): since oa #444
+        # a ?token= navigation is refused, and a probe must never put the bearer
+        # in a URL. No frame is a CANNOT-RUN for the wiki arms, never a guess.
         go("/wiki")
+        f["wiki"]["app_view_frame"] = bool(next((x for x in page.frames if "/wiki/" in (x.url or "")), None))
+        wpage = ctx.new_page()
+        wpage.set_viewport_size({"width": 1440, "height": 944})   # frame = 1440 - 240 sidebar, the app width
+        # Waits on this page use wpage.wait_for_timeout, never time.sleep: the sync
+        # Playwright API only processes browser events (frame attach, route
+        # handlers) while a Playwright call is running, so a time.sleep loop
+        # reads a frames list that never updates. That, not hydration, is why
+        # the in-app wiki frame was never found.
+        # No catch-all route on this page: a WebKit route on every request breaks
+        # the wiki iframe's 303 hand-off to /wiki/s/<session>/ (it is why the
+        # frame was never found). Writes are still refused: only API calls are
+        # routed, and a non-GET there is aborted.
+        wpage.route("**/api/**", lambda route, request: route.abort()
+                    if request.method not in ("GET", "HEAD", "OPTIONS") else route.continue_())
+        wpage.on("request", lambda r: saw(r.url))
+        wpage.on("websocket", lambda ws: saw(ws.url))
+        wpage.goto(base + "/", wait_until="domcontentloaded", timeout=60000)
+        wpage.wait_for_selector('a[href="/wiki"]', timeout=180000)
+        # The same routes as a customer opening the Hub in a browser (#2514):
+        # read each route's header, where the status pill lives.
+        for path, name in HUB_ROUTES:
+            try:
+                lk = wpage.locator('a[href="%s"]' % path)
+                if lk.count():
+                    lk.first.click()
+                wpage.wait_for_timeout(6000)
+                f["screens"].setdefault(name, {})["header_browser"] = wpage.evaluate(
+                    "() => { const h = document.querySelector('header'); return h ? h.innerText : null }")
+            except Exception as exc:
+                f["wiki"].setdefault("errors", []).append("browser header {}: {}".format(name, str(exc)[:120]))
+        wpage.locator('a[href="/wiki"]').first.click()
         fr, t0 = None, time.time()
+        try:
+            wpage.wait_for_selector("iframe", timeout=wiki_wait_s * 1000)
+        except Exception:
+            pass
         while time.time() - t0 < wiki_wait_s:
-            fr = next((x for x in page.frames if "/wiki/" in (x.url or "")), None)
+            fr = next((x for x in wpage.frames if "/wiki/" in (x.url or "")), None)
             if fr:
                 break
-            time.sleep(2)
+            wpage.wait_for_timeout(1000)
         if fr is None:
-            # #2496: while hydration is incomplete the Hub shows no wiki frame. The
-            # wiki itself is still served; read it the way the frame would have
-            # (one gateway navigation, redirected to a /wiki/s/ session) in a
-            # separate page, so the probe's own token URL is not counted above.
-            f["wiki"]["frame_absent"] = "no wiki frame in the Hub within {}s (#2496)".format(wiki_wait_s)
-            # Same geometry as the in-app frame (viewport minus the 240px sidebar):
-            # the wiki's tables collapse to content width below a breakpoint,
-            # so a wider read would hide exactly the defect it is measuring.
-            wpage = ctx.new_page()
-            wpage.set_viewport_size({"width": 1440 - 240, "height": 944})
-            # TODO(#2558): this mirrors the app's own iframe navigation, which puts the device
-            # bearer in the URL. When the single-use wiki ticket lands, mint one with a Bearer
-            # fetch and navigate with the ticket instead; then no URL here carries the token.
-            wpage.goto(base + "/wiki/?token=" + token, wait_until="load", timeout=90000)
-            fr = wpage.main_frame
+            f["wiki"]["error"] = "no wiki frame inside the app within {}s".format(wiki_wait_s)
         if fr is not None:
             fr.wait_for_load_state("load", timeout=60000)
             wbase = re.match(r"(.*/wiki/s/[^/]+/)", fr.url)
@@ -647,16 +863,26 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
             for name, rel in WIKI_SECTIONS.items():
                 try:
                     fr.goto(wbase + rel, wait_until="load", timeout=60000)
-                    time.sleep(2)
+                    fr.page.wait_for_timeout(2000)
                     pg = {"text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
                           "boxes": fr.evaluate(WIDTH_JS) or []}
                     if name == "front":
+                        # The list directly under the heading, and only that list: the
+                        # first draft took the heading's parent box, which also held a
+                        # second copy of the same labels elsewhere on the page and read
+                        # every source as listed twice.
                         pg["sources"] = fr.evaluate(r"""() => {
-                          const h = [...document.querySelectorAll('h2,h3,div,p')].find(e => /where your information is coming from/i.test(e.innerText || '') && e.children.length < 3);
-                          if (!h) return null;
-                          const box = h.parentElement; const lines = box.innerText.split('\n').map(s => s.trim()).filter(Boolean);
-                          const out = []; for (let i = 0; i < lines.length - 1; i++) {
-                            if (/^(Up to date|Nothing found|Not started|Working|Failed)/i.test(lines[i + 1])) out.push([lines[i], lines[i + 1]]); }
+                          const lines = (document.querySelector('article') || document.body).innerText
+                            .split('\n').map(s => s.trim()).filter(Boolean);
+                          const at = lines.findIndex(l => /where your information is coming from/i.test(l));
+                          if (at < 0) return null;
+                          const st = /^(Up to date|Nothing found|Not started|Working|Failed)/i;
+                          const out = []; let i = at + 1;
+                          while (i < lines.length) {
+                            if (lines[i].length <= 2) { i++; continue; }          // the status icon
+                            if (i + 1 < lines.length && st.test(lines[i + 1])) { out.push([lines[i], lines[i + 1]]); i += 2; continue; }
+                            break;                                                 // left the list
+                          }
                           return out; }""")
                         pg["freshness"] = fr.evaluate(r"""() => {
                           const h = [...document.querySelectorAll('h2,h3')].find(e => /data freshness/i.test(e.innerText || ''));
@@ -664,13 +890,37 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
                           if (!t) return []; const tb = t.tagName === 'TABLE' ? t : t.querySelector('table');
                           return Array.from(tb.querySelectorAll('tbody tr')).map(tr => tr.cells[0].innerText.trim()); }""")
                     f["wiki"]["pages"][name] = pg
-                    page.screenshot(path=os.path.join(out_dir, "cr-wiki-%s.png" % name))
+                    wpage.screenshot(path=os.path.join(out_dir, "cr-wiki-%s.png" % name))
                 except Exception as exc:
                     f["wiki"].setdefault("errors", []).append("{}: {}".format(name, str(exc)[:160]))
         browser.close()
 
     # GETs the app makes, sent the way the app sends them (read-only)
     import urllib.request
+    try:
+        req = urllib.request.Request(base + "/api/v1/people", headers={"Authorization": "Bearer " + token})
+        with _local_urlopen(req, timeout=60) as r:
+            body = json.load(r)
+            f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or ""}
+                               for p in body.get("people") or []]
+            f["people_api_total"] = body.get("total", len(f["people_api"]))
+    except Exception as exc:
+        f["people_api_error"] = str(exc)[:160]
+    if self_handles:
+        names, handles = [], []
+        for x in self_handles:
+            (handles if ("@" in x or re.search(r"\d{6,}", x)) else names).append(x)
+        try:
+            req = urllib.request.Request(base + "/api/identity", headers={"Authorization": "Bearer " + token})
+            with _local_urlopen(req, timeout=20) as r:
+                first = (json.load(r).get("user_first_name") or "").strip()
+        except Exception:
+            first = ""
+        full = [_norm_name(n) for n in names if len(_norm_name(n).split()) >= 2]
+        if first:
+            full += [_norm_name(first + " " + n.split()[-1]) for n in full]
+        f["self_digests"] = sorted({_digest(h) for h in (_norm_handle(x) for x in handles) if h}
+                                   | {_digest(n) for n in full})
     if doctor_base:
         try:
             with _local_urlopen(doctor_base + "/api/v1/sources", timeout=20) as r:
@@ -751,7 +1001,7 @@ def _good():
     """A synthetic box on which every assertion holds. No real names or numbers."""
     return {
         "screens": {
-            "home": {"nav": "Home", "title": "Home", "text":
+            "home": {"nav": "Home", "title": "Home", "header": "Home\nBusy", "text":
                      "From the Editor\nNeeds you now\n2\nDATES\nJane Doe's birthday is in five days\nIn five days.\n"
                      "PEOPLE\nYou've gone quiet with John Doe\nLast spoke in March.\nFor you\n1\n"},
             "people": {"nav": "People", "title": "People", "text": "YOUR NETWORK\nPeople\n1,000 PEOPLE\n"},
@@ -763,7 +1013,8 @@ def _good():
             "doctor_sources": {"rows": [["Email conversations", "Working"], ["WhatsApp conversations", "Working"]]},
             "bursar": {"nav": "Bursar", "title": "Bursar", "text": "October 2026\nMODEL CALLS\n1,234\nrates read on 15 Jan 2026\n"},
             "settings": {"nav": "Settings", "title": "Settings", "text": "Your timezone\nthe owner's time zone\n"},
-            "timeline": {"nav": "Timeline", "title": "Timeline", "text": "Today\nEVENT\nOffsite \u2014 day one\n1 OCT\n"},
+            "timeline": {"nav": "Timeline", "title": "Timeline", "header": "Timeline\nBusy",
+                         "text": "Today\nEVENT\nOffsite \u2014 day one\n1 OCT\nEVENT\nCheck in https://example.com/checkin\n"},
         },
         "requests": [{"m": "GET", "u": "/api/status", "s": 200}],
         "bearer_in_url": 0,
@@ -772,11 +1023,13 @@ def _good():
         "timeline_titles": ["WhatsApp with Jane Doe", "Lunch with John Doe", "Offsite \u2014 day one"],
         "timeline_rows": [{"kind": "message", "title": "WhatsApp with Jane Doe"},
                           {"kind": "meeting", "title": "Lunch with John Doe"},
-                          {"kind": "event", "title": "Offsite \u2014 day one"}],
+                          {"kind": "event", "title": "Offsite \u2014 day one"},
+                          {"kind": "event", "title": "Check in https://example.com/checkin"}],
         "people_rows": ["Jane Doe\n+44 7700 900001", "John Doe\n+" + "1 555 0100 222"],
         "duplicate_review_phones": [],
         "wiki": {"pages": {
             "front": {"text": "Your Front Page\nNeeds you now\n2\nDATES\n\nJane Doe's birthday is in five days\n\n"
+                              "3\nPEOPLE\n"
                               "PEOPLE\nYou've gone quiet with John Doe\nFor you\n1,000\nPEOPLE\n50\nORGANISATIONS\n",
                       "sources": [["Mail", "Up to date · 1 hour ago"], ["WhatsApp", "Up to date · 1 hour ago"],
                                   ["Contacts", "Up to date · 1 hour ago"]],
@@ -788,6 +1041,11 @@ def _good():
         "api": {"sources": [["email", "ok"], ["whatsapp", "ok"], ["contacts", "ok"], ["people", "ok"]],
                 "config_as_app": 200},
         "box": {"ollama_calls": 1000, "journal_calls": 990, "window_min": 60},
+        "people_api_total": 1000,
+        "people_api": [{"name": "Jane Doe", "email": "jane.doe@example.com"},
+                       {"name": "John Doe", "email": "john.doe@example.com"},
+                       {"name": "riley@example.org", "email": "riley@example.org"}],
+        "self_digests": [_digest(_norm_handle("owner@example.net")), _digest(_norm_name("John Smith"))],
     }
 
 
@@ -850,7 +1108,8 @@ MUTANTS = [
     ("WhatsApp LID as a phone (#2543)", _app(["people_rows"], "Unknown contact\n+" + "1" + "0" * 13 + "1")),
     ("bidi control in a phone (#2543)", _app(["people_rows"], "Jane Doe\n+44‭ 7700 900003")),
     ("one phone on two rows (#2545)", _app(["people_rows"], "Unknown contact\n+44 7700 900001")),
-    ("People index count 40% low (#2546)", _set(["wiki", "pages", "people", "text"], "600 contacts in the graph\n")),
+    ("wiki tile disagrees with its own People page (#2546)", _set(["wiki", "pages", "people", "text"], "600 contacts in the graph\n")),
+    ("Hub count disagrees with its own people API (#2546)", _set(["people_api_total"], 990)),
     ("org counts differ (#2547)", _set(["wiki", "pages", "organisations", "text"], "60\nORGANISATIONS\n")),
     ("Mail listed twice (#2533)", _app(["wiki", "pages", "front", "sources"], ["Mail messages", "Nothing found to read yet"])),
     ("Privacy labelling as a source (#2533)", _app(["wiki", "pages", "front", "sources"], ["Privacy labelling", "Up to date"])),
@@ -859,11 +1118,30 @@ MUTANTS = [
     ("half-width table (#2551, #2548)", _app(["wiki", "pages", "front", "boxes"], {"what": "table", "label": "RDF Types", "w": 222, "aw": 912})),
     ("config 403 from the app (#2552)", _set(["api", "config_as_app"], 403)),
     ("Bursar records 62% of Ollama calls (#2472)", _set(["box", "journal_calls"], 620)),
+    ("an email-named row shadowing a human-named row (walk #5 a)",
+     _app(["people_api"], {"name": "jane.doe@example.com", "email": "jane.doe@example.com"})),
+    ("hash-prefixed SMS sender as a person (walk #5 b)", _app(["people_api"], {"name": "#EXAMPLEBANK", "email": ""})),
+    ("all-caps multiword sender as a person (walk #5 b)", _app(["people_api"], {"name": "EXAMPLE BANK ALERTS", "email": ""})),
+    ("subject-line phrasing as a person (walk #5 b)", _app(["people_api"], {"name": "Your rewards update", "email": ""})),
+    ("marketplace domain as a person (walk #5 b)", _app(["people_api"], {"name": "examplemart.com", "email": ""})),
+    ("the owner listed in People by handle (walk #5 c)", _app(["people_api"], {"name": "O. Example", "email": "owner@example.net"})),
+    ("the owner listed in People by name only (walk #5 c)", _app(["people_api"], {"name": "John  Smith", "email": ""})),
+    ("the owner in a you-keep-seeing card (walk #5 c)",
+     _txt(["screens", "home", "text"], "PEOPLE\nYou keep seeing owner@example.net\n")),
+    ("Status unavailable on one route (walk #5 d)", _set(["screens", "timeline", "header"], "Timeline\nStatus unavailable")),
+    ("Status unavailable on the browser-served Hub (walk #5 d)", _set(["screens", "home", "header_browser"], "Home\nStatus unavailable")),
+    ("no contact for 59 months card (walk #5 e)", _txt(["screens", "home", "text"], "PEOPLE\nNo contact for 19 months.\n")),
+    ("gone quiet for 26 months (walk #5 e)", _txt(["screens", "home", "text"], "You've gone quiet with Jane Doe\nIt's been 800 days\n")),
+    ("a raw 31 months count (walk #5 e)", _txt(["wiki", "pages", "front", "text"], "last spoke 31 months ago\n")),
+    ("a raw URL in Ostler copy (walk #5 f)", _txt(["screens", "home", "text"], "Read more at https://example.com/x\n")),
+    ("a URL in a NON-event Timeline row is not exempt (walk #5 f)",
+     lambda f: (f["timeline_rows"].append({"kind": "message", "title": "See http://example.com/y"}),
+                f["screens"]["timeline"].__setitem__("text", f["screens"]["timeline"]["text"] + "See http://example.com/y\n"))),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 28]))
 
 
 def _proxy_bypass_self_test():
@@ -990,6 +1268,17 @@ def self_test():
     else:
         print("  ok    a duplicate with the review surface unreadable is CANNOT-RUN, never a pass")
 
+    # Ruling 2026-10-04 (#2546): the Hub and the wiki may count different things;
+    # different totals that each match their own source must PASS.
+    labelled = copy.deepcopy(_good())
+    labelled["wiki"]["pages"]["front"]["text"] = labelled["wiki"]["pages"]["front"]["text"].replace("1,000\nPEOPLE", "900\nPEOPLE")
+    labelled["wiki"]["pages"]["people"]["text"] = "People\n900 people with a page.\n"
+    got14 = [ok for n, ok, _ in judge(labelled) if n == DECLARED[14]]
+    if got14 != [True]:
+        missed.append("a Hub total and a wiki total that each match their own source still fail ({!r})".format(got14))
+    else:
+        print("  ok    Hub 1,000 and wiki 900, each matching its own source, PASS (no cross-equality)")
+
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})
     if any(ok is True for n, ok, _ in empty if not n.startswith("customer read:")):
@@ -1035,7 +1324,20 @@ def main(argv):
             print("CANNOT-RUN: token unreadable: {}".format(exc))
             return EX_CANNOT
         try:
-            facts = collect(a["--base"], token, a.get("--doctor-base"), a.get("--front-page-json"), a["--out"])
+            handles = []
+            if a.get("--self-handles-file"):
+                try:
+                    # one entry per line: handles (comma-separated allowed) and the owner's full name
+                    handles = []
+                    for line in open(a["--self-handles-file"]).read().splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        handles += [h.strip() for h in line.split(",") if h.strip()] if ("@" in line or re.search(r"\d{6,}", line)) else [line]
+                except Exception:
+                    handles = []
+            facts = collect(a["--base"], token, a.get("--doctor-base"), a.get("--front-page-json"), a["--out"],
+                            self_handles=handles)
         except ImportError as exc:
             print("CANNOT-RUN: no Playwright on this driver ({})".format(exc))
             return EX_CANNOT
