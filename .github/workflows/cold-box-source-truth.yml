@@ -94,6 +94,11 @@ on:
       # Oxigraph's Person set must also resync the Qdrant people index it
       # feeds, or the Doctor's count can read stale against the graph's.
       - 'tests/test_converge_must_resync_qdrant_people_too.sh'
+      # The gate AND its subject (board #2562-G): the ai_summaries phase must
+      # trust its own done/total numbers, and wiki_ready must not depend on
+      # the unrelated conversations phase.
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_wiki_ready_ignores_conversations_and_ai_summaries_trusts_its_own_numbers.py'
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
       - 'tests/test_unknown_consent_is_not_declined.sh'
       - 'tests/test_every_question_declares_its_persistence.sh'
@@ -291,6 +296,12 @@ jobs:
       - name: A converge that changes the graph must resync Qdrant people too
         if: always()
         run: bash tests/test_converge_must_resync_qdrant_people_too.sh
+
+      # Board #2562-G: ai_summaries must trust done>=total over a late or
+      # missing upstream flag, and wiki_ready must ignore conversations.
+      - name: ai_summaries trusts its own numbers, and wiki_ready ignores conversations
+        if: always()
+        run: python3 tests/test_wiki_ready_ignores_conversations_and_ai_summaries_trusts_its_own_numbers.py
 
       # v1063-D010. Line order IS the property: install.sh runs top to bottom,
       # so "later in the file" is "later in time" for two statements at the

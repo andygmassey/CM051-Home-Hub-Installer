@@ -180,3 +180,39 @@ both hide -- the Hub/wiki count gap. `_is_nameless_name` itself is untouched
 `tests/test_nameless_filter_applies_to_the_hub_people_count.py`. Recorded
 here, not as a patch, for the same reason as the grafts above. Retire by
 landing it in CM041 and re-pinning.
+
+## Fifth graft: ai_summaries trusts its own numbers, and wiki_ready ignores conversations (board #2562-G, v1.0.107 candidate #5, 2026-10-03)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+function `api_hydration_status`. Regeneration tool re-run today: CANNOT-RUN
+(no `$CM041` source checkout available in this environment to verify
+against), not a refusal -- recorded here by location and shape rather than
+left unrecorded while the tool cannot be exercised.
+
+Two changes, both inside `api_hydration_status`:
+
+- The `ai_summaries` phase's `else` branch (compiler status present, `complete`
+  not set) gained one new arm: when `done >= total` (and `total > 0`, the
+  existing zero-total branch above still owns "no work yet"), the phase now
+  reads "done" the same way the explicit `complete` flag already does two
+  branches up. MEASURED on a walk box: stage_done=200, stage_total=200,
+  `complete` unset, phase stuck at "running" forever -- the branch trusted
+  the upstream flag exclusively and never compared the numbers it already
+  had. Mirrors v1018-D007 above in this same function (there the flag said
+  done and the numbers were ignored; here the numbers say done and the flag
+  is ignored).
+- A new top-level `wiki_ready` boolean in the returned dict: `all(s == "done"
+  for s in gating)`, reusing the `gating` list (contacts/graph/ai_summaries)
+  the function already computes for `overall_state`. Andy's decision: one
+  failed phase must never hide the whole wiki. `overall_state` reads
+  "needs_attention" the instant conversations has any failure (MEASURED on
+  the same walk box: 10 of 17 dispatched), with the wiki itself fully built
+  underneath. `wiki_ready` answers the narrower question a wiki-frame gate
+  actually needs, independent of conversations, which is still surfaced via
+  `overall_state` and the `conversations` phase's own counts, never hidden.
+
+Shape: additive. No existing field, key or branch removed; `overall_state`'s
+own semantics are untouched. Guarded by
+`tests/test_wiki_ready_ignores_conversations_and_ai_summaries_trusts_its_own_numbers.py`.
+Recorded here, not as a patch, for the same reason as the grafts above.
+Retire by landing it in CM041 and re-pinning.
