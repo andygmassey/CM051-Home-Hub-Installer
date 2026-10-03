@@ -891,3 +891,40 @@ existing `is_possible_number` check. Guarded by
 `tests/test_vendored_is_possible_phone_14_digit_gap.py` (CM051 repo root,
 mirroring CM041 PR #187's own test suite). Retire by landing CM041 PR #187
 and re-pinning.
+
+## Added 2026-10-03, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, a duplicate pair's evidence names every shared identifier, not just the winner (walk #3, item E)
+
+v1.0.107 walk #3 (cold Mini16) found E still failing: 12 of 47 duplicated
+phone numbers were on NO review card, while 35 were correctly surfaced via
+`/api/v1/contacts/diff`. Traced from the consumer on the box: the pair is
+NOT invisible to the resolver -- `detect_phone_matches` DOES produce a
+match for it, and the pair IS merged or listed for review. The gap is in
+`consolidate_matches`: it keeps only the HIGHEST-confidence match per pair,
+so a pair that ALSO shares an email is filed under `email_match`
+(confidence 1.0, beats `phone_match`'s 0.95 ceiling), and that winning
+item's evidence never mentioned the phone at all. Measured directly: 34 of
+104 phone-matched pairs were won by a different strategy this way.
+
+Fix, in `vendor/cm041/identity_resolver/tidy.py`'s `_duplicate_items`:
+before consolidating, index every raw match by its person-pair. When
+building each surviving item, if any OTHER strategy also matched the same
+pair, append its details to the winning item's evidence and record the
+strategy names under `evidence["other_strategies"]`. No change to which
+strategy wins, no change to auto/review thresholds or RULE 2. Matches
+CM041 PR #188 (upstream, not yet merged at time of writing).
+
+Companion fix, `scripts/box_walk_probes/lib/customer_read.py`: the walk
+probe's own phone-review check filtered `/api/v1/contacts/diff` items by
+`evidence["strategy"].startswith("phone")`, which is exactly the filter
+that made these 34 pairs invisible to the probe even once this fix lands.
+Removed the filter entirely -- the probe now scans every item's evidence
+text for a phone-shaped substring regardless of which strategy nominally
+won, which is both correct and more robust to a future strategy rename.
+
+### What a future sync must preserve
+
+The `other_matches_by_pair` indexing and the `evidence["other_strategies"]`
+enrichment in `_duplicate_items`. Guarded by
+`tests/test_vendored_tidy_cross_strategy_phone_visibility.py` (CM051 repo
+root, mirroring CM041 PR #188's own test suite). Retire by landing CM041
+PR #188 and re-pinning.
