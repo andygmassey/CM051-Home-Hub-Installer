@@ -7934,6 +7934,23 @@ def api_hydration_status():
         ai["done"], ai["total"] = done, total
         if total <= 0:
             ai["state"] = "pending"        # no fake spinner with total 0
+        elif done >= total:
+            # Board #2562-G, MEASURED on a walk box: the compiler's status
+            # file reported stage_done == stage_total == 200 while `complete`
+            # stayed unset, and this branch trusted `complete` EXCLUSIVELY --
+            # the mirror image of v1018-D007 above (there the flag said done
+            # and the numbers were ignored; here the numbers say done and the
+            # flag is ignored). The phase read "running" forever at 200/200,
+            # never reaching the `elif comp.get("complete")` branch above no
+            # matter how long the compiler had actually been finished.
+            # done >= total is unambiguous once total is a real positive
+            # number (the total <= 0 branch above already excludes the "no
+            # work yet" case), so it is trusted here exactly like the
+            # explicit `complete` flag is trusted above -- the NUMBERS are
+            # the honesty rule this function's own docstring promises; a
+            # missing or late upstream flag must not override them.
+            ai["count"] = done
+            ai["state"] = "done"
         else:
             ai["state"] = "running"
             ai["eta_utc"] = comp.get("eta_utc")
@@ -7968,8 +7985,20 @@ def api_hydration_status():
     else:
         overall = "pending"
 
+    # Board #2562-G (Andy's decision): one failed phase must never hide the
+    # whole wiki. `overall_state` reads `needs_attention` the moment
+    # conversations has ANY failure, which a customer's own mailbox/chat
+    # history can produce at scale (10 of 17 dispatched, measured on a walk
+    # box) with the wiki itself -- contacts, graph, ai_summaries -- fully
+    # built underneath. `wiki_ready` answers the narrower, correct question
+    # for gating the wiki frame: are the phases that actually BUILD the wiki
+    # done, independent of conversations (which is surfaced, never
+    # suppressed, but must not be a gate on content that is already there).
+    wiki_ready = all(s == "done" for s in gating)
+
     return {
         "overall_state": overall,
+        "wiki_ready": wiki_ready,
         "phases": phases,
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
