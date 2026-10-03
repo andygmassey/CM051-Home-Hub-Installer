@@ -516,16 +516,16 @@ def _card_html(card: dict) -> str:
         head += f'<span class="l2">{_icon("shield")}L2</span>'
     head += "</div>"
 
-    # CM051 v1.0.107 incident (graft, acks upstream andygmassey/CM059-Ostler-
-    # Editor@a86d49e, PR #29): birthday_card() (signals.py) emits body=None
-    # (the title already carries the full timing, #2535). `.get("body", "")`
-    # only substitutes its default when the KEY IS ABSENT -- the key is
-    # present here, valued None, so this crashed with AttributeError:
-    # 'NoneType' object has no attribute 'replace' inside html.escape, on
-    # every editor-frontpage LaunchAgent tick, every hour, on every box. `or
-    # ""` treats None (and any other falsy value) as empty, not just a
-    # missing key. The body div is omitted entirely when there is no body,
-    # rather than rendering an empty one.
+    # CM051 v1.0.107 incident: birthday_card() (signals.py) was changed to
+    # emit body=None (the title already carries the full timing, #2535), and
+    # `.get("body", "")` only substitutes its default when the KEY IS
+    # ABSENT -- the key is present here, valued None, so this crashed with
+    # AttributeError: 'NoneType' object has no attribute 'replace' inside
+    # html.escape, on every run, every hour, for every box. `or ""` treats
+    # None (and any other falsy value) as empty, not just a missing key.
+    # The body div is omitted entirely when there is no body, rather than
+    # rendering an empty one -- an empty card-body div is dead markup a
+    # customer would never see any value in.
     title = html.escape(card.get("title") or "")
     body_text = card.get("body") or ""
     core = f'<div class="card-title">{title}</div>'
