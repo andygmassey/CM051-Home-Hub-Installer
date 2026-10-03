@@ -605,3 +605,114 @@ def test_phase2_backfill_does_not_stack(stub_env):
     assert "wiki summary backfill already running" in WRAPPER.read_text(), (
         "tick script must carry the no-stack backfill guard"
     )
+
+
+# ---------------------------------------------------------------------------
+# v1.0.107: the stall watchdog cannot see a containerised payload, so the
+# full (summaries) compile was being killed before it could ever flip
+# hydration to complete.
+# ---------------------------------------------------------------------------
+#
+# The shared ingest-slot library's stall check (_ostler_slot_tree_cpu, in
+# lib/ostler-ingest-slot.sh) measures cumulative HOST cpu of the process
+# tree under the watched pid via `ps`/`pgrep`. That is the right read for
+# the conversation feeds, whose watched pid IS the real work (a host Python
+# process). For `docker compose run wiki-compiler` the watched pid is the
+# docker CLIENT: the actual compile runs inside the container runtime's own
+# VM, a tree this Mac's `ps` cannot see. The client reads back as burning
+# ZERO cpu for its whole life, which is exactly the shape the watchdog is
+# built to call HUNG -- so every full compile was being TERM'd then KILL'd
+# mid-run, every time, and hydration.complete() (only reached by a full
+# compile that finishes) was never written.
+#
+# This test drives the REAL wiki-recompile-tick.sh against the REAL shared
+# slot library (not a mock of either), with a stub `docker` whose "full
+# compile" arm sleeps -- burning no host cpu of its own, exactly like the
+# real client -- then touches a marker file. The stall window is forced low
+# so the test does not need to wait out the production default (2100s). On
+# the pre-fix script this reliably fails: reverting the
+# `OSTLER_SLOT_STALL_SECS=0` line in the tick script (restoring the bare
+# `. "$_lib"`) makes the watchdog apply the test's low stall window to the
+# sleeping stub exactly as it would the production default to a real
+# multi-hour compile, and the marker is never written.
+_SLOT_LIB = REPO_ROOT / "lib" / "ostler-ingest-slot.sh"
+
+
+def _make_slow_container_docker(stub_dir: Path, *, log_path: Path,
+                                 done_marker: Path,
+                                 full_compile_seconds: int) -> Path:
+    """A docker stub whose FULL (non-SKIP_LLM) compile arm models a real
+    `docker compose run` client: it does nothing but sleep (no host cpu),
+    while the container "does its work" invisibly, then touches
+    ``done_marker`` to prove it ran to completion rather than being killed
+    partway through."""
+    stub = stub_dir / "docker"
+    stub.write_text(f"""#!/usr/bin/env bash
+echo "$@" >> "{log_path}"
+if [ "$1" = "info" ]; then
+    exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
+    for a in "$@"; do
+        case "$a" in
+            *OSTLER_WIKI_SKIP_LLM*) exit 0 ;;   # baseline: instant
+        esac
+    done
+    # Full compile: the client burns no cpu of its own while the
+    # (unmodelled) container does its work.
+    sleep {full_compile_seconds}
+    : > "{done_marker}"
+    exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "up" ]; then
+    exit 0
+fi
+exit 0
+""")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return stub
+
+
+@_skip_if_real_docker
+def test_full_compile_survives_past_the_stall_window(stub_env, tmp_path):
+    """The detached full compile must not be killed by the cpu-stall
+    watchdog just because the docker client (correctly) shows no host cpu
+    activity of its own. Regression for v1.0.107 (hydration never
+    reaching complete: true)."""
+    assert _SLOT_LIB.exists(), f"shared slot lib missing at {_SLOT_LIB}"
+
+    log = stub_env["tmp_path"] / "docker.log"
+    done_marker = tmp_path / "full-compile-done"
+    # The stub's full-compile arm sleeps longer than the forced-low stall
+    # window below, so an armed watchdog would kill it before the marker
+    # is written.
+    _make_slow_container_docker(
+        stub_env["stub_dir"], log_path=log, done_marker=done_marker,
+        full_compile_seconds=6,
+    )
+    slot_state = tmp_path / "slot-state"
+
+    result = _run_wrapper(
+        {
+            "OSTLER_DIR": str(stub_env["ostler_dir"]),
+            "OSTLER_INGEST_SLOT_LIB": str(_SLOT_LIB),
+            "OSTLER_STATE_DIR": str(slot_state),
+            # Forced low so a RE-ARMED watchdog (i.e. this fix reverted)
+            # would fire well within this test's patience.
+            "OSTLER_SLOT_STALL_SECS": "2",
+            "OSTLER_SLOT_POLL_SECS": "1",
+        },
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, (
+        f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline and not done_marker.exists():
+        time.sleep(0.1)
+
+    assert done_marker.exists(), (
+        "the full compile never ran to completion -- the stall watchdog "
+        "killed it mid-run even though it was not hung (v1.0.107)"
+    )
