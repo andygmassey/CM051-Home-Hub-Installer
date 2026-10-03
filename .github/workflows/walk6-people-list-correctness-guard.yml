@@ -1,0 +1,105 @@
+# CM051 walk #6 (v1.0.107): the Hub's People list excludes service/
+# notification senders, prefers a known real name over a bare email/phone
+# identifier, and excludes the owner's own identities. Mirrors CM041 PR
+# #191 (identity_resolver Qdrant-sync graft) and #192 (ical-server.py
+# people_list fixes). Two jobs: identity_resolver's Qdrant-sync half, and
+# ical-server.py's people_list half.
+#
+# vendor/cm041/assistant_api/tests/ has NO existing CI coverage at all --
+# measured: a repo-wide grep for any workflow invoking that directory (this
+# file's own comment excepted) returns nothing, for this file or its three
+# pre-existing siblings (test_ical_server_wire_shape.py,
+# test_subscription_endpoint.py, test_subscription_gate.py). Fixing those
+# three is a separate, larger PR; wiring the one this walk adds is this
+# one's job, per "a new test that is not invoked is not wired."
+name: walk6-people-list-correctness-guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_canonicalise_syncs_qdrant.py'
+      - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - '.github/workflows/walk6-people-list-correctness-guard.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_canonicalise_syncs_qdrant.py'
+      - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - '.github/workflows/walk6-people-list-correctness-guard.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  canonicalise-syncs-qdrant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # The test drives the REAL vendored IdentityResolver (sys.path
+      # points at vendor/cm041, same shim as tests/test_resolver_robustness.py)
+      # with _sparql_query/_sparql_update overridden and qdrant_client
+      # mocked, so no live Oxigraph/Qdrant is needed -- just resolver.py's
+      # own import chain: httpx, phonenumbers, rapidfuzz (via normalise.py),
+      # qdrant_client (patched, but must be importable to patch).
+      - name: Install dependencies
+        run: python -m pip install --quiet pytest httpx qdrant-client phonenumbers rapidfuzz
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
+      # separate step would SKIP the run below and hide the real result
+      # behind an earlier red.
+      - name: canonicalise_display_name syncs the chosen name to Qdrant
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_canonicalise_syncs_qdrant.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_canonicalise_syncs_qdrant.py -v
+
+  people-list-correctness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # ical-server.py's module-level imports are stdlib plus two local,
+      # dependency-free files (pwg_privacy.py, identity_resolver/compartment.py)
+      # -- measured by reading every top-level import in the file. No
+      # third-party package is needed to import and exercise people_list.
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: The Hub's People list excludes junk senders, fixes bare-identifier names, excludes the owner
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py -v
