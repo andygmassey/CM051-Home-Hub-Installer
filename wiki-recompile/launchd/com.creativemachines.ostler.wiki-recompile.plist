@@ -100,5 +100,24 @@
 
     <key>Nice</key>
     <integer>5</integer>
+
+    <!--
+        v1.0.107 hydration never completes, root cause measured on a
+        walked box. The wrapper launches the full (summaries ON) compile
+        detached, nohup plus disown, so the wrapper itself can return
+        the moment the fast baseline is published. disown only tells
+        THIS shell not to send SIGHUP on its own exit; it does not move
+        the detached process to a new process group. Without this key
+        launchd tracks the job by process group and, once the wrapper
+        exits, sends SIGKILL to every process still in that group,
+        including the detached compile, often before it has written a
+        single byte to its own log. Measured: a wiki_hydration.json that
+        never reaches complete true, a wiki recompile summaries log at
+        zero bytes, and no compile process or container anywhere, every
+        single tick. True here tells launchd to leave the group alone so
+        the detached process survives its parent LaunchAgent exiting.
+    -->
+    <key>AbandonProcessGroup</key>
+    <true/>
 </dict>
 </plist>

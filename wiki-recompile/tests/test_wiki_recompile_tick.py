@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import time
@@ -756,4 +757,92 @@ def test_full_compile_survives_past_the_stall_window(stub_env, tmp_path):
     assert done_marker.exists(), (
         "the full compile never ran to completion -- the stall watchdog "
         "killed it mid-run even though it was not hung (v1.0.107)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# v1.0.107 walk #4: the stall-watchdog fix above was not enough. launchd
+# tracks a LaunchAgent job by PROCESS GROUP and, by default, SIGKILLs every
+# process still in that group the instant the job's main process exits.
+# `nohup ... & disown` does not move the detached compile out of that group --
+# disown only stops THIS shell sending it SIGHUP on exit -- so the detached
+# Phase-2 compile was being killed by launchd itself, often before it could
+# write a single byte, independently of (and before) the stall watchdog ever
+# got a chance to matter. Measured on a walk: wiki-recompile-tick.sh on disk
+# already carried the stall-watchdog fix (OSTLER_SLOT_STALL_SECS=0 present),
+# and hydration STILL never completed -- phase 4, 0/0, a 0-byte summaries
+# log, no compile process or container anywhere.
+# ---------------------------------------------------------------------------
+
+
+@_skip_if_real_docker
+def test_detached_compile_survives_a_launchd_process_group_kill(stub_env, tmp_path):
+    """Starts the real wiki-recompile-tick.sh as the leader of a FRESH
+    process group -- exactly how launchd starts each job it runs -- waits for
+    it to exit (it does, once the baseline publishes and Phase 2 is
+    launched), then sends SIGKILL to that WHOLE process group, mirroring
+    launchd's default behaviour for a job with no AbandonProcessGroup. The
+    detached compile must not be a member of that group by then (see the
+    `set -m` comment at the Phase-2 launch site) and so must survive and run
+    to completion untouched.
+
+    RED without that `set -m`: the detached compile shares the wrapper's
+    process group (the default), the simulated kill reaches it exactly as a
+    real launchd kill would, and it dies before writing its done marker.
+    """
+    log = stub_env["tmp_path"] / "docker.log"
+    done_marker = tmp_path / "full-compile-done"
+    # Long enough that the simulated kill (sent moments after the wrapper
+    # exits) lands well before a correctly-escaped compile would finish on
+    # its own -- so survival here is evidence of process-group escape, not
+    # of the kill simply arriving too late to matter.
+    _make_slow_container_docker(
+        stub_env["stub_dir"], log_path=log, done_marker=done_marker,
+        full_compile_seconds=4,
+    )
+
+    env = os.environ.copy()
+    env["OSTLER_DIR"] = str(stub_env["ostler_dir"])
+    env["PATH"] = f"{stub_env['stub_dir']}:{env.get('PATH', '')}"
+
+    proc = subprocess.Popen(
+        ["bash", str(WRAPPER)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        # The leader of a brand-new process group (pgid == its own pid),
+        # which is exactly how launchd starts every job it runs.
+        preexec_fn=os.setpgrp,
+    )
+    wrapper_pgid = proc.pid
+    try:
+        out, _ = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise AssertionError("the wrapper (simulated launchd job) never returned")
+    assert proc.returncode == 0, (
+        f"wrapper (the simulated launchd job) failed: {out!r}"
+    )
+
+    # THE SIMULATED LAUNCHD KILL. A real launchd, with AbandonProcessGroup
+    # unset, sends SIGKILL to every process still in the job's process group
+    # the instant the job's main process exits -- which just happened above.
+    # A ProcessLookupError here means the group was ALREADY empty (every
+    # member had already escaped it), which is itself a PASS signal, not an
+    # error: it is what a correctly-escaped detached compile looks like by
+    # the time Popen.communicate() has reaped the parent.
+    try:
+        os.killpg(wrapper_pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline and not done_marker.exists():
+        time.sleep(0.1)
+
+    assert done_marker.exists(), (
+        "the detached compile did not survive a simulated launchd "
+        "process-group kill sent the instant the wrapper exited -- it is "
+        "still a member of the wrapper's process group (v1.0.107 walk #4)"
     )

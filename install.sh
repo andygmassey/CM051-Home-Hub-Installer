@@ -27288,6 +27288,19 @@ WCUEOF
     <string>Background</string>
     <key>Nice</key>
     <integer>5</integer>
+    <!--
+        v1.0.107 hydration never completes. This agent runs the same
+        wiki-recompile-tick.sh wrapper, which launches the full compile
+        detached (nohup plus disown). disown only stops THIS shell
+        sending SIGHUP on exit; it does not move the detached process to
+        a new process group. Without this key launchd tracks the job by
+        process group and kills every process still in it, detached
+        compile included, the moment this wrapper exits, often before a
+        single byte reaches its log. True here tells launchd to leave
+        the group alone so the detached compile survives.
+    -->
+    <key>AbandonProcessGroup</key>
+    <true/>
 </dict>
 </plist>
 WCUPLIST
@@ -36337,12 +36350,20 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         _wiki_slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
         _wiki_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
         nohup bash -c '
+            # FIRST STATEMENT, before cd can even fail (v1.0.107 parity with
+            # wiki-recompile-tick.sh). This site is not launchd-managed -- it
+            # runs from the long-lived installer process, not a LaunchAgent,
+            # so it is not exposed to the process-group kill that motivated
+            # moving the print here -- but the two sites are kept identical
+            # on purpose (see below), so this one moves too rather than
+            # drifting one `cd` ahead of its pair.
+            printf "%s wiki-summaries: process started (pid %s)\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$"
             set -u
             _slot="$1"; _wd="$2"; _lib="$3"
             cd "$_wd" || exit 1
             printf "%s wiki-summaries: starting, slot %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_slot"
 
-            # THE SHAPE HERE IS wiki-recompile-tick.sh:410-440, DELIBERATELY.
+            # THE SHAPE HERE IS wiki-recompile-tick.sh:477-504, DELIBERATELY.
             # That site already did this correctly and install.sh did not. Two
             # launch sites for the same payload that disagree is how one of
             # them stays broken. tests/test_ingest_offpeak_throttle.sh checks
