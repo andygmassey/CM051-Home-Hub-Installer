@@ -31879,7 +31879,7 @@ if ( cd "$PIPELINE_DIR" && \
     # had just reshaped the Person set; it closed on its own within the next
     # scheduled tick, but a walk landing inside that window reads a false
     # disagreement on two surfaces that are both individually correct for
-    # the instant they were read. Resync Qdrant HERE, same as the wiki
+    # the instant they were read. So the vector store is resynced HERE, as the wiki
     # recompile above, so a converge that changes the graph closes the gap
     # immediately rather than waiting for an independent schedule. Mirrors
     # the main installer's own invocation (install.sh's fda-rerun tick):
