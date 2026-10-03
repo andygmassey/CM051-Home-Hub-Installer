@@ -308,8 +308,8 @@ log "Editor front-page tick complete"
 #
 # Cost: wiki-recompile-tick.sh's Phase 2 (the LLM summary backfill, by far
 # the most expensive part) has no time-based throttle of its own, only an
-# anti-STACKING check (skip if one is still running). Triggering Phase 1
-# hourly is cheap (seconds-to-minutes, no LLM), but doing so would make
+# anti-STACKING check (skip if one is still running). An hourly Phase 1
+# trigger is cheap (seconds-to-minutes, no LLM), but doing so would make
 # Phase 2 restart as soon as each run finishes -- turning the deliberate
 # daily LLM cost (CM051 #20) into a near-continuous one. wiki-recompile-
 # tick.sh therefore also gained a Phase-2 debounce (next section) so this

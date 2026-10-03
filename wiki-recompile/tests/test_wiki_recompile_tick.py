@@ -715,7 +715,7 @@ def test_phase2_backfill_runs_once_the_floor_has_elapsed(stub_env):
 
 @_skip_if_real_docker
 def test_phase2_debounce_state_file_written_on_launch(stub_env):
-    """Launching Phase 2 must record the start time, or the floor above
+    """A Phase 2 launch must record the start time, or the floor above
     never has anything to measure against on the NEXT tick."""
     _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
     ostler_dir = stub_env["ostler_dir"]
