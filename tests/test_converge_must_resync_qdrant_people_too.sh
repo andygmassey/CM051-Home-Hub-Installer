@@ -36,7 +36,7 @@ if [ -z "$BODY" ]; then
     echo "CANNOT-RUN: could not extract the dedupe-catchup wrapper body from install.sh" >&2
     exit 2
 fi
-echo "$BODY" | grep -q "ingest_people_to_qdrant" \
+grep -q "ingest_people_to_qdrant" <<< "$BODY" \
     && ok "the wrapper body mentions ingest_people_to_qdrant" \
     || bad "the wrapper body never mentions ingest_people_to_qdrant"
 # Position check: the call must be reachable from the SAME success branch as
@@ -44,7 +44,7 @@ echo "$BODY" | grep -q "ingest_people_to_qdrant" \
 # anywhere in the file (which the behavioural check below proves properly,
 # this just pins the obvious regression of moving it out of that branch).
 AFTER_DONE="$(echo "$BODY" | awk '/: >"\$DONE_MARKER"/{f=1} f')"
-echo "$AFTER_DONE" | grep -q "ingest_people_to_qdrant" \
+grep -q "ingest_people_to_qdrant" <<< "$AFTER_DONE" \
     && ok "the resync call is positioned after the .done marker is written" \
     || bad "the resync call is not reachable from the converge-succeeded branch"
 
