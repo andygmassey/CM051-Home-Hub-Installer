@@ -264,7 +264,7 @@ DECLARED = [
     "timeline: every message row is titled, with no doubled word",
     "people: no phone number is an internal id (14+ digits) or carries bidi controls",
     "people: no UNREVIEWED phone number appears on two rows",
-    "counts: people agree across the Hub, the wiki front page and the People index",
+    "counts: each people count matches its own source (Hub = people-list API total; wiki tile = compiled People page)",
     "counts: organisations agree across the wiki front page and the Organisations page",
     "sources: the wiki source list has no duplicate source",
     "sources: no internal operation is listed as a source",
@@ -462,16 +462,28 @@ def judge(f, declared=None):
                 "{} already surfaced as a duplicate-review card".format(
                     len(silent), len(dup), len(dup & reviewed)))
 
-    ppl = {"hub": count_after((screens.get("people") or {}).get("text"), "PEOPLE"),
-           "wiki front": count_after(wfront, "PEOPLE"),
-           "People index": _num((re.search(r"([\d,]+) (?:contacts|people)\b",
-                                           (wiki.get("people") or {}).get("text") or "") or [None, None])[1])}
-    got = {k: v for k, v in ppl.items() if v}
-    if len(got) < 2:
-        add(DECLARED[14], None, "NOT MEASURED: {}".format(ppl))
+    # Ruling 2026-10-04 (#2546): each screen labels what it counts, so there is
+    # no cross-equality. The Hub counts named people and must equal the
+    # people-list API it renders; the wiki tile counts people with a page and
+    # must equal the compiled People page. Each is checked against its own source.
+    hub_n = count_after((screens.get("people") or {}).get("text"), "PEOPLE")
+    api_n = f.get("people_api_total")
+    if api_n is None and f.get("people_api") is not None:
+        api_n = len(f["people_api"])
+    tile_n = count_after(wfront, "PEOPLE")
+    index_n = _num((re.search(r"([\d,]+) (?:contacts|people)\b",
+                              (wiki.get("people") or {}).get("text") or "") or [None, None])[1])
+    pairs = [("Hub vs people API", hub_n, api_n), ("wiki tile vs People page", tile_n, index_n)]
+    measured_pairs = [(k, a, b) for k, a, b in pairs if a is not None and b is not None]
+    if not measured_pairs:
+        add(DECLARED[14], None, "NOT MEASURED: hub={} api={} tile={} index={}".format(hub_n, api_n, tile_n, index_n))
     else:
-        lo, hi = min(got.values()), max(got.values())
-        add(DECLARED[14], lo >= hi * 0.99, ", ".join("{} {}".format(k, v) for k, v in got.items()))
+        bad = ["{} {} vs {}".format(k, a, b) for k, a, b in measured_pairs if a != b]
+        unmeasured = [k for k, a, b in pairs if a is None or b is None]
+        detail = "; ".join("{} {} vs {}".format(k, a, b) for k, a, b in measured_pairs)
+        if unmeasured:
+            detail += "; not measured: " + ", ".join(unmeasured)
+        add(DECLARED[14], (not bad) if not unmeasured else (False if bad else None), detail)
     org = {"wiki front": count_after(wfront, "ORGANISATIONS"),
            "Organisations page": count_after((wiki.get("organisations") or {}).get("text"), "ORGANISATIONS")}
     if not all(org.values()):
@@ -888,8 +900,10 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
     try:
         req = urllib.request.Request(base + "/api/v1/people", headers={"Authorization": "Bearer " + token})
         with _local_urlopen(req, timeout=60) as r:
+            body = json.load(r)
             f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or ""}
-                               for p in json.load(r).get("people") or []]
+                               for p in body.get("people") or []]
+            f["people_api_total"] = body.get("total", len(f["people_api"]))
     except Exception as exc:
         f["people_api_error"] = str(exc)[:160]
     if self_handles:
@@ -1027,6 +1041,7 @@ def _good():
         "api": {"sources": [["email", "ok"], ["whatsapp", "ok"], ["contacts", "ok"], ["people", "ok"]],
                 "config_as_app": 200},
         "box": {"ollama_calls": 1000, "journal_calls": 990, "window_min": 60},
+        "people_api_total": 1000,
         "people_api": [{"name": "Jane Doe", "email": "jane.doe@example.com"},
                        {"name": "John Doe", "email": "john.doe@example.com"},
                        {"name": "riley@example.org", "email": "riley@example.org"}],
@@ -1093,7 +1108,8 @@ MUTANTS = [
     ("WhatsApp LID as a phone (#2543)", _app(["people_rows"], "Unknown contact\n+" + "1" + "0" * 13 + "1")),
     ("bidi control in a phone (#2543)", _app(["people_rows"], "Jane Doe\n+44‭ 7700 900003")),
     ("one phone on two rows (#2545)", _app(["people_rows"], "Unknown contact\n+44 7700 900001")),
-    ("People index count 40% low (#2546)", _set(["wiki", "pages", "people", "text"], "600 contacts in the graph\n")),
+    ("wiki tile disagrees with its own People page (#2546)", _set(["wiki", "pages", "people", "text"], "600 contacts in the graph\n")),
+    ("Hub count disagrees with its own people API (#2546)", _set(["people_api_total"], 990)),
     ("org counts differ (#2547)", _set(["wiki", "pages", "organisations", "text"], "60\nORGANISATIONS\n")),
     ("Mail listed twice (#2533)", _app(["wiki", "pages", "front", "sources"], ["Mail messages", "Nothing found to read yet"])),
     ("Privacy labelling as a source (#2533)", _app(["wiki", "pages", "front", "sources"], ["Privacy labelling", "Up to date"])),
@@ -1125,7 +1141,7 @@ MUTANTS = [
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 28]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 28]))
 
 
 def _proxy_bypass_self_test():
@@ -1251,6 +1267,17 @@ def self_test():
                        "CANNOT-RUN ({!r}, want [None])".format(got13))
     else:
         print("  ok    a duplicate with the review surface unreadable is CANNOT-RUN, never a pass")
+
+    # Ruling 2026-10-04 (#2546): the Hub and the wiki may count different things;
+    # different totals that each match their own source must PASS.
+    labelled = copy.deepcopy(_good())
+    labelled["wiki"]["pages"]["front"]["text"] = labelled["wiki"]["pages"]["front"]["text"].replace("1,000\nPEOPLE", "900\nPEOPLE")
+    labelled["wiki"]["pages"]["people"]["text"] = "People\n900 people with a page.\n"
+    got14 = [ok for n, ok, _ in judge(labelled) if n == DECLARED[14]]
+    if got14 != [True]:
+        missed.append("a Hub total and a wiki total that each match their own source still fail ({!r})".format(got14))
+    else:
+        print("  ok    Hub 1,000 and wiki 900, each matching its own source, PASS (no cross-equality)")
 
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})
