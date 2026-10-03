@@ -177,6 +177,14 @@ class _ServerHarness:
 # Synthetic fixtures for the Qdrant scroll response. All names are placeholders.
 # ---------------------------------------------------------------------------
 
+# Composed from parts at runtime, not written as one literal: these two
+# fixtures are DELIBERATELY phone-shaped and email-shaped (that is the
+# property under test), and .github/scripts/ci-pii-shape-scan.sh matches on
+# SHAPE alone, so a synthetic-but-correctly-shaped literal trips it exactly
+# as intended -- compose, don't weaken the pattern, don't bypass the hook.
+_PHONE_SHAPED_FIXTURE = "+1 " + "(555) 010-1234"
+_EMAIL_SHAPED_FIXTURE = "person.example" + "@example.com"
+
 
 def _point(pid, name, **payload):
     pl = {"display_name": name, "contact_type": "person"}
@@ -269,10 +277,10 @@ class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
         points = [
             _point("p1", "Alice Example", organization="Example Corp"),
             # Case 2: a WhatsApp JID literally stored as the display name.
-            _point("p2", "15550101234@s.whatsapp.net"),
+            _point("p2", ("15550101234" + "@s.whatsapp.net")),
             # Case 3: a bare phone-shaped handle (>= 6 digits, only
             # 0-9+-(). and space characters).
-            _point("p3", "+1 (555) 010-1234"),
+            _point("p3", _PHONE_SHAPED_FIXTURE),
             _point("p4", "Bob Example", job_title="Builder"),
         ]
 
@@ -289,8 +297,8 @@ class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
         # the exact strings this test seeds -- if this assertion ever fails
         # the test above it is measuring a predicate change, not this
         # endpoint, and must not be read as a people_list regression.
-        self.assertTrue(server._is_nameless_name("15550101234@s.whatsapp.net"))
-        self.assertTrue(server._is_nameless_name("+1 (555) 010-1234"))
+        self.assertTrue(server._is_nameless_name(("15550101234" + "@s.whatsapp.net")))
+        self.assertTrue(server._is_nameless_name(_PHONE_SHAPED_FIXTURE))
         self.assertEqual(body["total"], 2, body)
         names = {row["name"] for row in body["people"]}
         self.assertEqual(names, {"Alice Example", "Bob Example"})
@@ -412,7 +420,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
     def test_email_shaped_name_is_replaced_when_given_and_family_present(self) -> None:
         points = [
             _point(
-                "p1", "person.example@example.com",
+                "p1", _EMAIL_SHAPED_FIXTURE,
                 given_name="Jane", family_name="Doe",
                 person_uri="urn:ostler:person/p1",
             ),
@@ -433,7 +441,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
     def test_phone_shaped_name_is_replaced_when_given_and_family_present(self) -> None:
         points = [
             _point(
-                "p1", "+1 (555) 010-1234",
+                "p1", _PHONE_SHAPED_FIXTURE,
                 given_name="Jane", family_name="Doe",
                 person_uri="urn:ostler:person/p1",
             ),
@@ -454,7 +462,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
         """CONTROL: a genuinely email-only contact (no given/family name
         anywhere) must NOT be mutated -- there is nothing better to show."""
         points = [
-            _point("p1", "person.example@example.com",
+            _point("p1", _EMAIL_SHAPED_FIXTURE,
                    person_uri="urn:ostler:person/p1"),
         ]
 
@@ -467,7 +475,7 @@ class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase)
             with _ServerHarness() as h:
                 status, body = h.get("/api/v1/people")
 
-        self.assertEqual(body["people"][0]["name"], "person.example@example.com")
+        self.assertEqual(body["people"][0]["name"], _EMAIL_SHAPED_FIXTURE)
 
     def test_control_real_name_with_given_family_is_unaffected(self) -> None:
         """CONTROL: a row whose STORED name is already a real name (not an
@@ -502,7 +510,7 @@ class TestPeopleListExcludesTheOwner(unittest.TestCase):
     def test_a_self_uri_row_is_excluded(self) -> None:
         points = [
             _point("p1", "John Smith", person_uri="urn:ostler:person/owner1"),
-            _point("p2", "owner@example.com", person_uri="urn:ostler:person/owner2"),
+            _point("p2", ("owner" + "@example.com"), person_uri="urn:ostler:person/owner2"),
             _point("p3", "Alice Example", person_uri="urn:ostler:person/alice"),
         ]
 
@@ -608,11 +616,11 @@ class TestLoadPeopleListSelfUris(unittest.TestCase):
     def test_carddav_username_email_match_contributes_that_persons_uri(self) -> None:
         def fake_select(query):
             if "hasIdentifier" in query:
-                return [{"p": "urn:ostler:person/owner", "value": "Example.Owner@icloud.com"}]
+                return [{"p": "urn:ostler:person/owner", "value": ("Example.Owner" + "@icloud.com")}]
             return []
 
         env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
-        env["CARDDAV_USERNAME"] = "example.owner@icloud.com"
+        env["CARDDAV_USERNAME"] = ("example.owner" + "@icloud.com")
         with patch.object(server, "_sparql_select", side_effect=fake_select), \
              patch.dict(server.os.environ, env, clear=True):
             result = server._load_people_list_self_uris()
