@@ -58,6 +58,7 @@ on:
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'tests/test_canonical_keys_must_not_merge.py'
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
+      - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -432,6 +433,21 @@ jobs:
       - name: the Front Page tick emits the interest-profile artefact
         if: always()
         run: bash tests/test_frontpage_tick_emits_interest_profile.sh
+
+      # CM051 walk #5, finding 2: the compiled wiki's "Needs you now" and the
+      # live app's front_page.json showed ZERO cards in common. Reproduced
+      # read-only on macmini16-walk: the compose service definition was never
+      # the bug (mount + env correct, feed genuinely read and used) -- the gap
+      # is that nothing ever told the wiki a NEW front_page.json had landed:
+      # this tick runs hourly, wiki-recompile ships daily by deliberate v1
+      # design (#20), and the two are not linked. Behavioural test (not a
+      # grep): runs the tick's real Step 3 logic against a fake OSTLER_DIR and
+      # a stub wiki-recompile-tick.sh, proves a changed feed triggers exactly
+      # one background recompile, an unchanged one triggers none, and carries
+      # its own negative control.
+      - name: the Front Page tick recompiles the wiki when front_page.json changes
+        if: always()
+        run: bash tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
