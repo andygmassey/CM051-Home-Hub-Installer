@@ -406,22 +406,76 @@ else
             # source: the lib resolves its tunables at source time.
             OSTLER_SLOT_MAX_HOLD_SECS="${OSTLER_SLOT_WIKI_MAX_HOLD_SECS:-3600}"
             export OSTLER_SLOT_MAX_HOLD_SECS
+            # THE STALL WATCHDOG MUST BE DISARMED FOR THIS PAYLOAD, AND ONLY
+            # THIS ONE (v1.0.107 hydration-never-completes defect).
+            #
+            # The library'\''s stall check (_ostler_slot_tree_cpu, invoked from
+            # _ostler_slot_watchdog) measures cumulative CPU of the HOST
+            # process tree under the watched pid via `ps`/`pgrep` on THIS
+            # Mac. For the conversation feeds that watched pid IS the real
+            # work -- a host Python process that shells out to a host
+            # subprocess, so the tree is visible and the measurement is
+            # honest. For `docker compose run wiki-compiler` it is not: the
+            # watched pid is the docker CLIENT, and the actual compile runs
+            # inside the container runtime'\''s own VM (Docker Desktop'\''s
+            # LinuxKit VM, or the Colima VM) -- a process tree this Mac'\''s
+            # `ps` cannot see at all, by construction. The client reads back
+            # as burning ZERO cpu for its entire life, no matter how hard
+            # the container is working, which is exactly the signature the
+            # watchdog is built to call HUNG.
+            #
+            # MEASURED (v1.0.107): every full (non-SKIP_LLM) backfill
+            # crossed the default stall window and was TERM'\''d then KILL'\''d
+            # mid-"rendering conversations" -- the one phase slow enough to
+            # run past it -- every time. hydration.complete() (CM044
+            # compiler/compile.py:1403) is only ever reached by a full
+            # compile that is allowed to finish, so the wiki never left
+            # "hydrating": the watchdog was killing the one pass that could
+            # flip it, over and over, each tick re-launching into the same
+            # fate. tests/test_a_hung_slot_holder_is_stopped.sh'\''s negative
+            # controls cover a host subprocess tree; none of them cover a
+            # container client, which is why this shipped.
+            #
+            # The max-hold bound set above is UNAFFECTED and stays armed:
+            # it is a clock, not a cpu read, and it only fires once another
+            # feed is actually enrolled and waiting -- exactly the
+            # behaviour a multi-hour backfill needs. Only the cpu-based
+            # stall check, which cannot observe this payload at all, is
+            # disarmed.
+            OSTLER_SLOT_STALL_SECS=0
+            export OSTLER_SLOT_STALL_SECS
             . "$_lib"
             command -v ostler_slot_acquire >/dev/null 2>&1 && _active=1
         fi
 
         if [ "$_active" = "1" ]; then
+            printf "%s wiki-summaries: starting, slot %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_slot"
             # Blocking acquire, but each attempt is internally bounded, so
             # this can no longer spin against a holder that never yields.
+            # AND IT MUST NEVER AGAIN EXIT WITHOUT WRITING A LINE (#2112):
+            # every yield prints who holds it, so a quiet log is a real
+            # symptom again, not the expected output of this call site.
             until ostler_slot_acquire "wiki-recompile"; do
+                printf "%s wiki-summaries: yielded; holder is %s (pid %s). Enrolled, retrying.\n" \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    "$(cat "$_slot/holder" 2>/dev/null || echo "not recorded")" \
+                    "$(cat "$_slot/pid" 2>/dev/null || echo "not recorded")"
                 sleep 10
             done
+            printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            _rc=0
             if [ -n "$_workers" ]; then
-                ostler_slot_run docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler
+                ostler_slot_run docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler || _rc=$?
             else
-                ostler_slot_run docker compose --profile compile run --rm -T wiki-compiler
+                ostler_slot_run docker compose --profile compile run --rm -T wiki-compiler || _rc=$?
             fi
-            exit $?
+            if [ "$_rc" = "0" ]; then
+                printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            else
+                printf "%s wiki-summaries: compile FAILED (exit %s). The wiki will show pages without summaries until the next daily compile.\n" \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_rc"
+            fi
+            exit "$_rc"
         fi
 
         # Fail-safe: installer has not delivered the lib yet. Unchanged

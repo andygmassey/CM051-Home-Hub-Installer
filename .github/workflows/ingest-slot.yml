@@ -114,6 +114,67 @@ jobs:
         if: success() || failure()
         run: bash tests/test_prelaunch_libs_survive_promote.sh
 
+      # v1.0.107 / PR #2611 review (Archie): this behaviour suite was
+      # previously UNWIRED -- no workflow ran it, so a "pass" on the PR
+      # proved nothing (launch directive item 9). It also could not have
+      # proven anything on a developer Mac: real Docker Desktop installs at
+      # /usr/local/bin/docker, which the wrapper hard-prepends ahead of the
+      # test's own stub, so every stub-docker case (including the new
+      # stall-watchdog one) silently SKIPPED there. ubuntu-latest has no
+      # docker at /usr/local/bin or /opt/homebrew/bin, so the stub wins here
+      # and every case actually runs rather than skipping.
+      - name: Install pytest for the wiki-recompile-tick behaviour suite
+        if: success() || failure()
+        run: python -m pip install --quiet pytest
+
+      - name: wiki-recompile-tick.sh behaviour (stub docker, now actually runs)
+        if: success() || failure()
+        run: python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py -v
+
+      # THE MUTATION PROOF Archie asked for: a wired test that only ever
+      # passes has been run, not tested (see "Before you say it works" in
+      # CLAUDE.md). Strip the stall-watchdog disarm back out of a COPY of
+      # the script, confirm the copy actually differs (a mutant that did not
+      # apply would pass this trivially and prove nothing), then assert the
+      # new regression case REDS against it and GREENS against the real,
+      # shipped script. Both appear in this job's log on every run, so a
+      # future edit that quietly drops the disarm is caught here.
+      - name: Build the stall-watchdog mutant (disarm line removed)
+        if: success() || failure()
+        run: |
+          set -e
+          sed '/^            OSTLER_SLOT_STALL_SECS=0$/,+1d' \
+            wiki-recompile/bin/wiki-recompile-tick.sh > /tmp/mutant-wiki-recompile-tick.sh
+          if diff -q wiki-recompile/bin/wiki-recompile-tick.sh /tmp/mutant-wiki-recompile-tick.sh >/dev/null; then
+            echo "REFUSING: the mutant is byte-identical to the real script -- the sed pattern did not match, so running a test against it would prove nothing." >&2
+            exit 1
+          fi
+          if grep -q 'OSTLER_SLOT_STALL_SECS' /tmp/mutant-wiki-recompile-tick.sh; then
+            echo "REFUSING: the mutant still disarms the stall watchdog -- the removal did not take." >&2
+            exit 1
+          fi
+          bash -n /tmp/mutant-wiki-recompile-tick.sh
+          echo "OK: mutant built, confirmed to differ from the shipped script, and confirmed to still parse."
+
+      - name: RED -- the new case fails against the mutant (watchdog re-armed)
+        if: success() || failure()
+        env:
+          WIKI_RECOMPILE_TICK_SH: /tmp/mutant-wiki-recompile-tick.sh
+        run: |
+          set +e
+          python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_full_compile_survives_past_the_stall_window -v
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: the regression test PASSED against the mutant (stall watchdog re-armed). It does not discriminate a real fix from a reverted one -- see PR #2611 review." >&2
+            exit 1
+          fi
+          echo "OK: the regression test correctly FAILED against the mutant (pytest exit ${rc}). It can discriminate."
+
+      - name: GREEN -- the new case passes against the real, shipped script
+        if: success() || failure()
+        run: python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_full_compile_survives_past_the_stall_window -v
+
   shell-3-2:
     name: The shipped ticks parse under bash 3.2, the customer's shell
     runs-on: macos-latest

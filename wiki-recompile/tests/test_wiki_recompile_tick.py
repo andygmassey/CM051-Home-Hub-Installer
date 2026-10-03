@@ -31,6 +31,7 @@ without a live Docker daemon. Asserts:
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 import time
@@ -40,7 +41,16 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WRAPPER = REPO_ROOT / "wiki-recompile" / "bin" / "wiki-recompile-tick.sh"
+# Overridable so CI can point a single, targeted run at a MUTANT copy of the
+# script (e.g. the stall-watchdog disarm stripped back out) without touching
+# every other test in this file, which all want the real, shipped script.
+# See test_full_compile_survives_past_the_stall_window and the dedicated
+# "mutant" CI step in .github/workflows/ingest-slot.yml that proves this
+# regression test can actually fail.
+WRAPPER = Path(os.environ.get(
+    "WIKI_RECOMPILE_TICK_SH",
+    str(REPO_ROOT / "wiki-recompile" / "bin" / "wiki-recompile-tick.sh"),
+))
 
 
 def _real_docker_shadows_stub() -> bool:
@@ -55,6 +65,33 @@ def _real_docker_shadows_stub() -> bool:
         if (Path(d) / "docker").exists():
             return True
     return False
+
+
+def _minimal_path_without_docker(target_dir: Path) -> str:
+    """Build ``target_dir`` with symlinks to exactly the binaries the script
+    needs before it reaches its own ``command -v docker`` check (bash itself,
+    so subprocess can even find the interpreter, plus ``date`` for the
+    ``log()`` helper) -- and nothing else -- then return it as a PATH.
+
+    A hardcoded directory list ("/usr/bin:/bin") used to stand in for "no
+    docker reachable": true on a Mac, where Docker Desktop's CLI lives at
+    /usr/local/bin/docker, but false on ubuntu-latest, which ships Docker
+    Engine at /usr/bin/docker. FILTERING directories by "does this one carry
+    docker" does not fix that either: Ubuntu's usr-merge makes /bin a symlink
+    to /usr/bin, so bash and docker live in the literal same directory --
+    excluding the one that carries docker excludes bash with it
+    (measured: ``FileNotFoundError: ... 'bash'`` the first time this was
+    tried). Cherry-picking exactly the named binaries into a fresh directory
+    sidesteps the question of how the host's real directories happen to be
+    laid out, on any platform.
+    """
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("bash", "date"):
+        real = shutil.which(name)
+        assert real, f"'{name}' not found on the real PATH -- cannot build a sterile one without it"
+        (target_dir / name).symlink_to(real)
+    assert not (target_dir / "docker").exists()
+    return str(target_dir)
 
 
 # Applied to the three stub-driven behaviour tests below. The
@@ -394,13 +431,17 @@ def test_missing_compose_file_fails_loudly(stub_env):
 def test_missing_docker_fails_loudly(stub_env):
     """If `docker` is not on PATH, exit 127 with a clear message
     rather than running compose blind."""
-    # Sterile PATH that contains /usr/bin + /bin (so `bash`, `date`,
-    # and so on are findable) but NOT a docker binary. We also
-    # don't install a docker stub in stub_dir, so docker is truly
-    # unreachable. NB: the wrapper hard-prepends /usr/local/bin +
-    # /opt/homebrew/bin, so on a dev box with Docker Desktop this
-    # "no docker" premise is unsatisfiable -- hence the skip guard.
-    sterile_path = "/usr/bin:/bin"
+    # Sterile PATH: a fresh directory holding ONLY symlinks to bash + date
+    # (see _minimal_path_without_docker) -- so the script's own interpreter
+    # and its log() helper stay findable but docker is genuinely unreachable,
+    # on any platform's real directory layout. We also don't install a
+    # docker stub in stub_dir. NB: the wrapper ADDITIONALLY hard-prepends
+    # /usr/local/bin + /opt/homebrew/bin regardless of our PATH, so on a dev
+    # box with Docker Desktop installed at one of those two this "no docker"
+    # premise is unsatisfiable no matter how the sterile PATH is built --
+    # hence the skip guard, which is a separate concern from (and is not
+    # fixed by) the PATH construction here.
+    sterile_path = _minimal_path_without_docker(stub_env["tmp_path"] / "sterile-no-docker")
     full_env = {
         "HOME": os.environ.get("HOME", str(stub_env["tmp_path"])),
         "OSTLER_DIR": str(stub_env["ostler_dir"]),
@@ -604,4 +645,115 @@ def test_phase2_backfill_does_not_stack(stub_env):
     # and we are asserting purely on the guard's existence in the script.
     assert "wiki summary backfill already running" in WRAPPER.read_text(), (
         "tick script must carry the no-stack backfill guard"
+    )
+
+
+# ---------------------------------------------------------------------------
+# v1.0.107: the stall watchdog cannot see a containerised payload, so the
+# full (summaries) compile was being killed before it could ever flip
+# hydration to complete.
+# ---------------------------------------------------------------------------
+#
+# The shared ingest-slot library's stall check (_ostler_slot_tree_cpu, in
+# lib/ostler-ingest-slot.sh) measures cumulative HOST cpu of the process
+# tree under the watched pid via `ps`/`pgrep`. That is the right read for
+# the conversation feeds, whose watched pid IS the real work (a host Python
+# process). For `docker compose run wiki-compiler` the watched pid is the
+# docker CLIENT: the actual compile runs inside the container runtime's own
+# VM, a tree this Mac's `ps` cannot see. The client reads back as burning
+# ZERO cpu for its whole life, which is exactly the shape the watchdog is
+# built to call HUNG -- so every full compile was being TERM'd then KILL'd
+# mid-run, every time, and hydration.complete() (only reached by a full
+# compile that finishes) was never written.
+#
+# This test drives the REAL wiki-recompile-tick.sh against the REAL shared
+# slot library (not a mock of either), with a stub `docker` whose "full
+# compile" arm sleeps -- burning no host cpu of its own, exactly like the
+# real client -- then touches a marker file. The stall window is forced low
+# so the test does not need to wait out the production default (2100s). On
+# the pre-fix script this reliably fails: reverting the
+# `OSTLER_SLOT_STALL_SECS=0` line in the tick script (restoring the bare
+# `. "$_lib"`) makes the watchdog apply the test's low stall window to the
+# sleeping stub exactly as it would the production default to a real
+# multi-hour compile, and the marker is never written.
+_SLOT_LIB = REPO_ROOT / "lib" / "ostler-ingest-slot.sh"
+
+
+def _make_slow_container_docker(stub_dir: Path, *, log_path: Path,
+                                 done_marker: Path,
+                                 full_compile_seconds: int) -> Path:
+    """A docker stub whose FULL (non-SKIP_LLM) compile arm models a real
+    `docker compose run` client: it does nothing but sleep (no host cpu),
+    while the container "does its work" invisibly, then touches
+    ``done_marker`` to prove it ran to completion rather than being killed
+    partway through."""
+    stub = stub_dir / "docker"
+    stub.write_text(f"""#!/usr/bin/env bash
+echo "$@" >> "{log_path}"
+if [ "$1" = "info" ]; then
+    exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
+    for a in "$@"; do
+        case "$a" in
+            *OSTLER_WIKI_SKIP_LLM*) exit 0 ;;   # baseline: instant
+        esac
+    done
+    # Full compile: the client burns no cpu of its own while the
+    # (unmodelled) container does its work.
+    sleep {full_compile_seconds}
+    : > "{done_marker}"
+    exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "up" ]; then
+    exit 0
+fi
+exit 0
+""")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return stub
+
+
+@_skip_if_real_docker
+def test_full_compile_survives_past_the_stall_window(stub_env, tmp_path):
+    """The detached full compile must not be killed by the cpu-stall
+    watchdog just because the docker client (correctly) shows no host cpu
+    activity of its own. Regression for v1.0.107 (hydration never
+    reaching complete: true)."""
+    assert _SLOT_LIB.exists(), f"shared slot lib missing at {_SLOT_LIB}"
+
+    log = stub_env["tmp_path"] / "docker.log"
+    done_marker = tmp_path / "full-compile-done"
+    # The stub's full-compile arm sleeps longer than the forced-low stall
+    # window below, so an armed watchdog would kill it before the marker
+    # is written.
+    _make_slow_container_docker(
+        stub_env["stub_dir"], log_path=log, done_marker=done_marker,
+        full_compile_seconds=6,
+    )
+    slot_state = tmp_path / "slot-state"
+
+    result = _run_wrapper(
+        {
+            "OSTLER_DIR": str(stub_env["ostler_dir"]),
+            "OSTLER_INGEST_SLOT_LIB": str(_SLOT_LIB),
+            "OSTLER_STATE_DIR": str(slot_state),
+            # Forced low so a RE-ARMED watchdog (i.e. this fix reverted)
+            # would fire well within this test's patience.
+            "OSTLER_SLOT_STALL_SECS": "2",
+            "OSTLER_SLOT_POLL_SECS": "1",
+        },
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, (
+        f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline and not done_marker.exists():
+        time.sleep(0.1)
+
+    assert done_marker.exists(), (
+        "the full compile never ran to completion -- the stall watchdog "
+        "killed it mid-run even though it was not hung (v1.0.107)"
     )

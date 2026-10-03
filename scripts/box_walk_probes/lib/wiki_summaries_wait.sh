@@ -55,15 +55,39 @@
 #             ${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}
 #             taken by lib/ostler-ingest-slot.sh: mkdir, then pid, holder,
 #             acquired_at and max_hold files inside it
-#   :394-447  the wrapper: nohup bash -c, BLOCKING acquire of that slot
-#             (:416-418, sleeping 10 s between attempts), then
+#   :394-501  the wrapper: nohup bash -c, BLOCKING acquire of that slot
+#             (:458-464, sleeping 10 s between attempts, now printing who
+#             holds it on every yield -- v1.0.107, see below), then
 #             `docker compose --profile compile run --rm -T wiki-compiler`
-#             under it. :447 redirects BOTH streams into the summaries log:
+#             under it. :501 redirects BOTH streams into the summaries log:
 #             the backfill has no separate stderr file
-#   :448-449  the wrapper's pid is written to the pidfile
-#   :450      disown
-#   :451      "wiki summary backfill launched in background (...)"
-#   :454      "wiki recompile tick complete (baseline published; summaries backfilling)"
+#   :502-503  the wrapper's pid is written to the pidfile
+#   :504      disown
+#   :505      "wiki summary backfill launched in background (...)"
+#   :508      "wiki recompile tick complete (baseline published; summaries backfilling)"
+#
+# v1.0.107 FIX, READ ALONGSIDE THE ABOVE (do not re-diagnose this from
+# scratch; it was done once, at cost):
+#
+# THE BACKFILL WRITING NOTHING, below, was never a logging gap on its own --
+# the wrapper is now instrumented (printf on start/yield/finish, matching the
+# install-time site's own #2112 fix) AND the actual cause is fixed. The slot
+# library's stall watchdog (_ostler_slot_tree_cpu /_ostler_slot_watchdog,
+# lib/ostler-ingest-slot.sh:592-696) measures HOST cpu of the process tree
+# under the watched pid via `ps`/`pgrep`. For `docker compose run
+# wiki-compiler` the watched pid is the docker CLIENT; the real compile runs
+# inside the container runtime's own VM, invisible to this Mac's `ps`. The
+# client reads back as burning ZERO cpu for its whole life no matter how hard
+# the container works, which is exactly the signature the watchdog calls
+# HUNG -- so the one compile that can ever write hydration's `complete: true`
+# (CM044 compiler/compile.py:1403-1404) was being TERM'd then KILL'd inside
+# "rendering conversations" every single attempt, and this probe's "BACKFILL
+# WROTE NOTHING" finding was the resulting 0-byte log. Fixed at
+# wiki-recompile-tick.sh:409-446 by disarming just the cpu-stall check
+# (`OSTLER_SLOT_STALL_SECS=0`) for this one payload; the max-hold bound
+# (armed only once another feed is waiting) is untouched. Regression:
+# wiki-recompile/tests/test_wiki_recompile_tick.py::
+# test_full_compile_survives_past_the_stall_window.
 #
 # THERE IS NO HOST-SIDE COMPLETION MARKER, and the pid is not enough. The
 # pidfile is never removed; the summaries log is the container's own output and
@@ -347,7 +371,7 @@ exit 0
 # ONE POLL OF THE TICK. $1 = the tick log's line count before the kickstart.
 # Prints the tick's NEW lines that decide anything, prefixed TICK, plus the
 # pidfile and the summaries log size. The tick's own words are matched, from
-# wiki-recompile-tick.sh: :365 already running, :451 launched, :454 complete,
+# wiki-recompile-tick.sh: :365 already running, :505 launched, :508 complete,
 # :231 another tick holds the mutex, and the ERROR / not ready / paused lines
 # that end a tick without a backfill.
 # ---------------------------------------------------------------------------
@@ -554,7 +578,7 @@ _ww_print_diag() {
         printf '%s\n' "$et" | tr '|' '\n' | grep -v '^$' | sed 's/^/      /'
     fi
     printf '  summaries   : %s (%s)\n' "$(_ww_sum_desc "$1")" "$(_ww_field "$1" SUMLOG | cut -d' ' -f2-)"
-    printf '                the backfill has no separate stderr: wiki-recompile-tick.sh:447 sends both\n'
+    printf '                the backfill has no separate stderr: wiki-recompile-tick.sh:501 sends both\n'
     printf '                streams here. Its content is never printed; it names people.\n'
     printf '  pidfile     : wrapper pid %s\n' "$(_ww_field "$1" PID)"
     local si
@@ -583,7 +607,7 @@ wiki_summaries_wait() {
 
     printf -- '--- WIKI SUMMARIES: kickstart the recompile and wait for its backfill, before the journal is read ---\n'
     printf '  cm044_wiki_compiler writes a cm044-compile- row only from the summary pass, which\n'
-    printf '  the tick runs as a DETACHED backfill (wiki-recompile-tick.sh:394-451). On the wiped\n'
+    printf '  the tick runs as a DETACHED backfill (wiki-recompile-tick.sh:394-505). On the wiped\n'
     printf '  v1.0.82 box that backfill had launched 3 minutes before the probe read the journal,\n'
     printf '  and twenty minutes later it was gone with a 0-byte log and every signal green.\n'
     printf '  budget: %ss (OSTLER_WIKI_WAIT_BUDGET_S), reading every %ss\n' "$budget" "$gap"
@@ -626,7 +650,7 @@ wiki_summaries_wait() {
     printf '  tick log       : %s\n' "$(_ww_field "$st0" TICKLOG)"
     printf '  tick last line : %s\n' "${tick_last0:-<empty>}"
     printf '  summaries log  : %s\n' "$(_ww_field "$st0" SUMLOG)"
-    printf '  backfill pid   : %s %s (pidfile written by wiki-recompile-tick.sh:449)\n' "$pid0" "$pid0_state"
+    printf '  backfill pid   : %s %s (pidfile written by wiki-recompile-tick.sh:502)\n' "$pid0" "$pid0_state"
     printf '  slot lock      : %s\n' "$(_ww_field "$st0" SLOT)"
     printf '  tick script    : %s\n' "$(_ww_field "$st0" TICKBIN)"
     case "$tick0" in absent|''|*[!0-9]*) tick0=0 ;; esac
@@ -1021,7 +1045,7 @@ wiki_summaries_wait() {
         # log never received a byte, and the tick exited 0 for having launched
         # it. Every liveness signal reads green; nothing ran.
         WIKI_WAIT_STATE="finding"
-        WIKI_WAIT_DETAIL="THE BACKFILL WROTE NOTHING: $(_ww_field "$reading" SUMLOG | cut -d' ' -f2-) is 0 bytes, the wrapper pid ${pid} is gone after ${WIKI_WAIT_ELAPSED}s, nothing of ours is alive (${procs_n} matching process(es); container: ${cont:-not checked}; slot ${slot_s}) and the journal gained 0 rows carrying ${_WW_SESSION_PREFIX}; the tick exited 0 for having launched it (wiki-recompile-tick.sh:451-454)"
+        WIKI_WAIT_DETAIL="THE BACKFILL WROTE NOTHING: $(_ww_field "$reading" SUMLOG | cut -d' ' -f2-) is 0 bytes, the wrapper pid ${pid} is gone after ${WIKI_WAIT_ELAPSED}s, nothing of ours is alive (${procs_n} matching process(es); container: ${cont:-not checked}; slot ${slot_s}) and the journal gained 0 rows carrying ${_WW_SESSION_PREFIX}; the tick exited 0 for having launched it (wiki-recompile-tick.sh:505-508)"
         printf '  FINDING: THE BACKFILL WROTE NOTHING. %s\n' "$(_ww_field "$reading" SUMLOG | cut -d' ' -f2-)"
         printf '  is 0 bytes, the wrapper pid %s is gone after %ss, nothing of ours is alive\n' "$pid" "$WIKI_WAIT_ELAPSED"
         printf '  (%s matching process(es); container: %s; slot %s) and the journal gained 0\n' "$procs_n" "${cont:-not checked}" "$slot_s"
