@@ -52,16 +52,19 @@ class _NoGraphEngine(TidyEngine):
 
 
 def test_a_pair_sharing_both_email_and_phone_mentions_both_in_one_item():
-    # Different given names so exact_name does NOT also fire; fuzzy_name
-    # fires naturally (Mike/Michael are similar), which is correct -- every
-    # strategy that matched this pair belongs in the evidence.
+    # Jane/John share a surname (so fuzzy_name also fires on "doe"), but
+    # neither the given names nor the full names match (so exact_name does
+    # NOT fire) -- measured directly: phone_match registers at 0.6
+    # (names_agree returns "unsure" for jane/john) and fuzzy_name at 0.7.
+    # Both are correct: every strategy that matched this pair belongs in
+    # the evidence, not just the highest-scoring one.
     persons = _persons(
         _make_person(
-            "f1", "Mike User",
+            "f1", "Jane Doe",
             emails={"tuser@example.test"}, phones={"+447700900140"},
         ),
         _make_person(
-            "f2", "Michael User",
+            "f2", "John Doe",
             emails={"tuser@example.test"}, phones={"+447700900140"},
         ),
     )
@@ -89,11 +92,11 @@ def test_a_pair_sharing_both_email_and_phone_mentions_both_in_one_item():
 
 def test_a_pair_sharing_only_one_identifier_lists_no_other_strategies():
     """CONTROL: the enrichment must not invent a second reason where there
-    is only one. Unrelated names so nothing else (exact_name, fuzzy_name,
-    name_subset) also fires."""
+    is only one. Names with zero similarity (measured directly: no
+    exact_name, fuzzy_name or name_subset match) so nothing else fires."""
     persons = _persons(
-        _make_person("f3", "Mike User", emails={"single@example.test"}),
-        _make_person("f4", "Priya Patel", emails={"single@example.test"}),
+        _make_person("f3", "Jane Doe", emails={"single@example.test"}),
+        _make_person("f4", "Carl Stewart", emails={"single@example.test"}),
     )
     engine = _NoGraphEngine()
     try:
