@@ -145,6 +145,24 @@ INTEREST_COOLDOWN_DAYS = 20
 GONE_QUIET_TTL_DAYS = 14
 GONE_QUIET_COOLDOWN_DAYS = 30
 
+# 🔴 THE UPPER BOUND THAT WENT MISSING WHEN THE SOURCE BECAME A MAX-OF-FOUR.
+# Walk #5 hydrated screens (Home and the wiki front page, same feed since
+# #2537) showed "You and X have gone quiet: No contact for 59 months" and a
+# second card at 13 months. Five years of silence is history, not a
+# reconnect nudge -- CM044's own _gone_quiet() (compiler/pages/dashboard.py)
+# always had an ignore_after_days=540 (18 months) upper bound for exactly
+# this reason, applied to months_since BEFORE this card existed. That bound
+# lives on the SOURCE side (CM044 / CM041's people_stale), not here, so it
+# protected the old single-source (meeting-date-only) months_since but was
+# never re-applied to the NEW combined-MAX-of-sources value this card reads
+# over the loopback feed (reconnect[].months_since_contact) -- nothing
+# between the source and this card ever re-checked it. Enforced HERE,
+# independently of whatever the upstream source does or does not bound,
+# because this is the last place in the pipeline that can refuse to build
+# the card at all. 18 months, matching CM044's own figure exactly so the
+# two surfaces agree on what "too old to reconnect" means.
+GONE_QUIET_IGNORE_AFTER_MONTHS = 18.0
+
 # Privacy fail-closed (spec section 4): only L1 (about the operator) and L2
 # (names another person, counts-only) may reach the feed. Anything else - most
 # importantly an L3-sourced card - is dropped. A card with NO privacy field is
