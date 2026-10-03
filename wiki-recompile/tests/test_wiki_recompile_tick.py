@@ -31,6 +31,7 @@ without a live Docker daemon. Asserts:
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 import time
@@ -66,28 +67,31 @@ def _real_docker_shadows_stub() -> bool:
     return False
 
 
-def _sterile_path_without_docker() -> str:
-    """A PATH with every standard-util directory EXCEPT any that carry a
-    `docker` binary, computed from the real environment rather than
-    hardcoded.
+def _minimal_path_without_docker(target_dir: Path) -> str:
+    """Build ``target_dir`` with symlinks to exactly the binaries the script
+    needs before it reaches its own ``command -v docker`` check (bash itself,
+    so subprocess can even find the interpreter, plus ``date`` for the
+    ``log()`` helper) -- and nothing else -- then return it as a PATH.
 
-    "/usr/bin:/bin" used to be hand-picked as "the directories with bash,
-    date, etc. but no docker" -- true on a Mac, where Docker Desktop's CLI
-    lives at /usr/local/bin/docker, but FALSE on ubuntu-latest, which ships
-    Docker Engine at /usr/bin/docker. The hardcoded list silently stopped
-    meaning "no docker" the day a runner image changed, and
-    test_missing_docker_fails_loudly then measured "docker exists but took
-    `no such service` on an empty compose file" instead of "docker is
-    absent" -- a different failure shape, read as the one this test asserts.
-    Filtering live, by what is actually on disk, cannot go stale that way.
+    A hardcoded directory list ("/usr/bin:/bin") used to stand in for "no
+    docker reachable": true on a Mac, where Docker Desktop's CLI lives at
+    /usr/local/bin/docker, but false on ubuntu-latest, which ships Docker
+    Engine at /usr/bin/docker. FILTERING directories by "does this one carry
+    docker" does not fix that either: Ubuntu's usr-merge makes /bin a symlink
+    to /usr/bin, so bash and docker live in the literal same directory --
+    excluding the one that carries docker excludes bash with it
+    (measured: ``FileNotFoundError: ... 'bash'`` the first time this was
+    tried). Cherry-picking exactly the named binaries into a fresh directory
+    sidesteps the question of how the host's real directories happen to be
+    laid out, on any platform.
     """
-    dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
-    kept = [d for d in dirs if not (Path(d) / "docker").exists()]
-    # A real PATH always has SOME non-docker directories (bash itself has to
-    # be findable to get this far); falling back to a guess would silently
-    # relax the "truly no docker" guarantee this function exists to give.
-    assert kept, f"every PATH directory carries a docker binary: {dirs!r}"
-    return os.pathsep.join(kept)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("bash", "date"):
+        real = shutil.which(name)
+        assert real, f"'{name}' not found on the real PATH -- cannot build a sterile one without it"
+        (target_dir / name).symlink_to(real)
+    assert not (target_dir / "docker").exists()
+    return str(target_dir)
 
 
 # Applied to the three stub-driven behaviour tests below. The
@@ -427,16 +431,17 @@ def test_missing_compose_file_fails_loudly(stub_env):
 def test_missing_docker_fails_loudly(stub_env):
     """If `docker` is not on PATH, exit 127 with a clear message
     rather than running compose blind."""
-    # Sterile PATH: every real-PATH directory EXCEPT one carrying a `docker`
-    # binary (see _sterile_path_without_docker) -- so `bash`, `date` and so
-    # on stay findable but docker is truly unreachable from the test's own
-    # PATH. We also don't install a docker stub in stub_dir. NB: the wrapper
-    # ADDITIONALLY hard-prepends /usr/local/bin + /opt/homebrew/bin
-    # regardless of our PATH, so on a dev box with Docker Desktop installed
-    # at one of those two this "no docker" premise is unsatisfiable no
-    # matter how the sterile PATH is built -- hence the skip guard, which is
-    # a separate concern from (and does not fix) the PATH construction.
-    sterile_path = _sterile_path_without_docker()
+    # Sterile PATH: a fresh directory holding ONLY symlinks to bash + date
+    # (see _minimal_path_without_docker) -- so the script's own interpreter
+    # and its log() helper stay findable but docker is genuinely unreachable,
+    # on any platform's real directory layout. We also don't install a
+    # docker stub in stub_dir. NB: the wrapper ADDITIONALLY hard-prepends
+    # /usr/local/bin + /opt/homebrew/bin regardless of our PATH, so on a dev
+    # box with Docker Desktop installed at one of those two this "no docker"
+    # premise is unsatisfiable no matter how the sterile PATH is built --
+    # hence the skip guard, which is a separate concern from (and is not
+    # fixed by) the PATH construction here.
+    sterile_path = _minimal_path_without_docker(stub_env["tmp_path"] / "sterile-no-docker")
     full_env = {
         "HOME": os.environ.get("HOME", str(stub_env["tmp_path"])),
         "OSTLER_DIR": str(stub_env["ostler_dir"]),
