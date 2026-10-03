@@ -1,3 +1,30 @@
+--- a/_vendor/ostler_usage_journal/usage_journal.py
++++ b/_vendor/ostler_usage_journal/usage_journal.py
+@@ -143,6 +143,7 @@
+     session_id: str,
+     *,
+     journal_path: Optional[Path] = None,
++    calls: int = 1,
+ ) -> bool:
+     """Append one MEASURED local-model usage record. Returns True if written.
+ 
+@@ -178,6 +179,8 @@
+             .isoformat(timespec="seconds")
+             .replace("+00:00", "Z"),
+             "purpose": purpose,
++            # #2603 follow-up: how many real calls this record represents.
++            "calls": max(1, int(calls)),
+         },
+     }
+ 
+@@ -402,6 +405,7 @@
+                 purpose=self._purpose,
+                 session_id=self._session_id,
+                 journal_path=self._journal_path,
++                calls=self._calls,
+             )
+         except Exception:  # noqa: BLE001 - accounting must never raise
+             logger.warning(
 --- a/corrections.py
 +++ b/corrections.py
 @@ -28,6 +28,8 @@
@@ -30,16 +57,7 @@
          except Exception:
 --- a/frontpage.py
 +++ b/frontpage.py
-@@ -241,7 +241,7 @@
- # Card constructors
- # ---------------------------------------------------------------------------
- 
--def _make_card(kind: str, key: str, *, title: str, body: str, now: datetime,
-+def _make_card(kind: str, key: str, *, title: str, body: str | None, now: datetime,
-                domain: str | None = None, priority: float = 10.0,
-                expires_utc: datetime | None = None, action: dict | None = None,
-                evidence: str | None = None, source: str | None = None,
-@@ -742,8 +742,83 @@
+@@ -760,8 +760,83 @@
              signals_kept += 1
          kept.append(c)
      return kept[:MAX_FEED_CARDS]
@@ -123,7 +141,7 @@
  def build_frontpage(profile: dict, *, now: datetime | None = None,
                      settling: dict | None = None,
                      card_states: dict | None = None,
-@@ -768,6 +843,7 @@
+@@ -786,6 +861,7 @@
      ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
      anything else = fail-closed deny -> proactive families suppressed and one
      honest pro-locked card shown."""
@@ -718,30 +736,3 @@
 +    print(f"projected {r['nodes']} preference nodes "
 +          f"({r['triples']} triples) from {r['points']} Qdrant points; "
 +          f"{r['skipped']} skipped as unqueryable")
---- a/render_frontpage.py
-+++ b/render_frontpage.py
-@@ -516,9 +516,21 @@
-         head += f'<span class="l2">{_icon("shield")}L2</span>'
-     head += "</div>"
- 
--    title = html.escape(card.get("title", ""))
--    body = html.escape(card.get("body", ""))
--    core = f'<div class="card-title">{title}</div><div class="card-body">{body}</div>'
-+    # CM051 v1.0.107 incident (graft, acks upstream andygmassey/CM059-Ostler-
-+    # Editor@a86d49e, PR #29): birthday_card() (signals.py) emits body=None
-+    # (the title already carries the full timing, #2535). `.get("body", "")`
-+    # only substitutes its default when the KEY IS ABSENT -- the key is
-+    # present here, valued None, so this crashed with AttributeError:
-+    # 'NoneType' object has no attribute 'replace' inside html.escape, on
-+    # every editor-frontpage LaunchAgent tick, every hour, on every box. `or
-+    # ""` treats None (and any other falsy value) as empty, not just a
-+    # missing key. The body div is omitted entirely when there is no body,
-+    # rather than rendering an empty one.
-+    title = html.escape(card.get("title") or "")
-+    body_text = card.get("body") or ""
-+    core = f'<div class="card-title">{title}</div>'
-+    if body_text:
-+        core += f'<div class="card-body">{html.escape(body_text)}</div>'
- 
-     # per-area completeness card
-     areas = card.get("areas")
