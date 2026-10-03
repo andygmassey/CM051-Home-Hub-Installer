@@ -128,6 +128,34 @@ def _name_windows(text, lo=2, hi=4):
             yield " ".join(w[i:i + k])
 
 
+FRESH_STATUS = re.compile(r"^(Up to date|Nothing found|Not started|Working|Failed|Behind|Stale)", re.I)
+
+
+def freshness_labels(section):
+    """Source labels in the wiki's Data freshness section, from either shape:
+    {kind: table, rows: [...]} or {kind: list, text: '<icon>\\n<label>\\n<status>...'}.
+    None when the section is absent (NOT MEASURED), [] when it is present but empty."""
+    if section is None:
+        return None
+    kind = section.get("kind")
+    if kind == "table":
+        return [r for r in section.get("rows") or [] if r]
+    if kind != "list":
+        return []
+    lines = [x.strip() for x in (section.get("text") or "").splitlines() if x.strip()]
+    out, i = [], 0
+    while i < len(lines):
+        if len(lines[i]) <= 2:            # the status icon
+            i += 1
+            continue
+        if i + 1 < len(lines) and FRESH_STATUS.match(lines[i + 1]):
+            out.append(lines[i])
+            i += 2
+            continue
+        i += 1
+    return out
+
+
 def service_sender(name):
     """A People row name that is a service, organisation or subject line, not a person."""
     n = (name or "").strip()
@@ -884,11 +912,19 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                             break;                                                 // left the list
                           }
                           return out; }""")
-                        pg["freshness"] = fr.evaluate(r"""() => {
+                        # The section's own content, whatever its shape. It was a table
+                        # (v1.0.106); CM044 now renders it as a .pwg-freshness-box list.
+                        # The first draft only looked for a table, walked past the list
+                        # into the next section, and reported every source missing
+                        # (walk #5 finding 3). Parsed in Python by freshness_labels().
+                        pg["freshness"] = freshness_labels(fr.evaluate(r"""() => {
                           const h = [...document.querySelectorAll('h2,h3')].find(e => /data freshness/i.test(e.innerText || ''));
-                          if (!h) return null; let t = h.nextElementSibling; while (t && !t.querySelector('table') && t.tagName !== 'TABLE') t = t.nextElementSibling;
-                          if (!t) return []; const tb = t.tagName === 'TABLE' ? t : t.querySelector('table');
-                          return Array.from(tb.querySelectorAll('tbody tr')).map(tr => tr.cells[0].innerText.trim()); }""")
+                          if (!h) return null;
+                          const t = h.nextElementSibling;
+                          if (!t || /^H[1-4]$/.test(t.tagName)) return {kind: 'empty'};
+                          const tb = t.tagName === 'TABLE' ? t : t.querySelector('table');
+                          if (tb) return {kind: 'table', rows: Array.from(tb.querySelectorAll('tbody tr')).map(tr => tr.cells[0].innerText.trim())};
+                          return {kind: 'list', text: t.innerText}; }"""))
                     f["wiki"]["pages"][name] = pg
                     wpage.screenshot(path=os.path.join(out_dir, "cr-wiki-%s.png" % name))
                 except Exception as exc:
@@ -1278,6 +1314,27 @@ def self_test():
         missed.append("a Hub total and a wiki total that each match their own source still fail ({!r})".format(got14))
     else:
         print("  ok    Hub 1,000 and wiki 900, each matching its own source, PASS (no cross-equality)")
+
+    # Data freshness is read from the list shape as well as the table shape
+    # (walk #5 finding 3: a table-only reader reported all 9 sources missing).
+    list_shape = {"kind": "list", "text": "\u25a1\nMessages\nNothing found to read yet \u00b7 2 hours ago\n"
+                                          "\u2713\nMail messages\nUp to date \u00b7 3 hours ago\n"
+                                          "\u2713\nAddress book\nUp to date \u00b7 3 hours ago\n"}
+    table_shape = {"kind": "table", "rows": ["Meetings", "Contact"]}
+    got_l, got_t = freshness_labels(list_shape), freshness_labels(table_shape)
+    if got_l != ["Messages", "Mail messages", "Address book"] or got_t != ["Meetings", "Contact"] \
+            or freshness_labels(None) is not None or freshness_labels({"kind": "empty"}) != []:
+        missed.append("freshness_labels misreads a shape: list={!r} table={!r}".format(got_l, got_t))
+    else:
+        print("  ok    Data freshness is read from the list shape and the table shape; absent is NOT MEASURED")
+    listed = copy.deepcopy(_good())
+    listed["wiki"]["pages"]["front"]["freshness"] = freshness_labels(
+        {"kind": "list", "text": "\u2713\nMail\nUp to date\n\u2713\nWhatsApp\nUp to date\n\u2713\nContacts\nUp to date\n"})
+    got19 = [ok for n, ok, _ in judge(listed) if n == DECLARED[19]]
+    if got19 != [True]:
+        missed.append("a list-shaped freshness section naming every working source still fails ({!r})".format(got19))
+    else:
+        print("  ok    a list-shaped freshness section naming every working source PASSES")
 
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})
