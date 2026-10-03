@@ -775,8 +775,9 @@ def _load_people_list_self_uris():
             for r in rows:
                 value_digits = "".join(c for c in (r.get("value") or "") if c.isdigit())
                 # Compare on a shared 7+ digit SUFFIX, not full equality, to
-                # tolerate a country-code prefix mismatch ("+852 1234 5678"
-                # vs "12345678"). KNOWN LIMIT: this is not a full E.164
+                # tolerate a country-code prefix mismatch (a stored number
+                # carrying a leading dialing code against one that omits
+                # it). KNOWN LIMIT: this is not a full E.164
                 # normaliser -- identity_resolver.normalise.normalise_phone
                 # exists for that and is a bigger dependency than this
                 # best-effort self-exclusion arm needs. The 7-digit floor
