@@ -175,6 +175,50 @@ jobs:
         if: success() || failure()
         run: python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_full_compile_survives_past_the_stall_window -v
 
+      # v1.0.107 walk #4: the stall-watchdog fix above was NOT enough. launchd
+      # kills a job's whole PROCESS GROUP when its main process exits unless
+      # AbandonProcessGroup is set, and `nohup ... & disown` never moves the
+      # detached compile out of that group. The fix is `set -m` at the launch
+      # site, which makes bash give the backgrounded job its OWN process
+      # group -- a second, independent mutation proof, same shape as the one
+      # above: strip `set -m` from a copy, assert the new case REDS against
+      # it, then assert it GREENS against the real script.
+      - name: Build the process-group mutant (set -m removed)
+        if: success() || failure()
+        run: |
+          set -e
+          sed '/^    set -m$/d' \
+            wiki-recompile/bin/wiki-recompile-tick.sh > /tmp/mutant-no-setm-wiki-recompile-tick.sh
+          if diff -q wiki-recompile/bin/wiki-recompile-tick.sh /tmp/mutant-no-setm-wiki-recompile-tick.sh >/dev/null; then
+            echo "REFUSING: the mutant is byte-identical to the real script -- the sed pattern did not match, so running a test against it would prove nothing." >&2
+            exit 1
+          fi
+          if grep -q '^    set -m$' /tmp/mutant-no-setm-wiki-recompile-tick.sh; then
+            echo "REFUSING: the mutant still enables job control -- the removal did not take." >&2
+            exit 1
+          fi
+          bash -n /tmp/mutant-no-setm-wiki-recompile-tick.sh
+          echo "OK: process-group mutant built, confirmed to differ from the shipped script, and confirmed to still parse."
+
+      - name: RED -- the detached compile does not survive a group kill against the mutant
+        if: success() || failure()
+        env:
+          WIKI_RECOMPILE_TICK_SH: /tmp/mutant-no-setm-wiki-recompile-tick.sh
+        run: |
+          set +e
+          python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_detached_compile_survives_a_launchd_process_group_kill -v
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: the regression test PASSED against the mutant (set -m removed). It does not discriminate a real fix from a reverted one -- see the v1.0.107 walk #4 review." >&2
+            exit 1
+          fi
+          echo "OK: the regression test correctly FAILED against the mutant (pytest exit ${rc}). It can discriminate."
+
+      - name: GREEN -- the detached compile survives a group kill against the real, shipped script
+        if: success() || failure()
+        run: python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_detached_compile_survives_a_launchd_process_group_kill -v
+
   shell-3-2:
     name: The shipped ticks parse under bash 3.2, the customer's shell
     runs-on: macos-latest

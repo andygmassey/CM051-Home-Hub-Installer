@@ -474,7 +474,7 @@ fi
 # one measured embedding call. usage_journal_producers also needs
 # cm044_wiki_compiler to have written, and on the wiped v1.0.82 box it had not:
 # the compiler writes a cm044-compile- row only from its summary pass, which
-# wiki-recompile-tick.sh:394-451 runs as a DETACHED background backfill. Measured
+# wiki-recompile-tick.sh:410-531 runs as a DETACHED background backfill. Measured
 # at 18:53:06Z on that walk: the install-time tick had launched the backfill at
 # 18:48:11Z, wiki-recompile-summaries.log was still 0 bytes, and the probe had
 # read the journal at about 18:51Z. Asked too early, the same shape as the two
