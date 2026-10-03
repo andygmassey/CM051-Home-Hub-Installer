@@ -130,3 +130,10 @@ wiki_image_absent|wiki-compiler:/app/compiler/pages|message\("home_l2_chip"\)|CM
 wiki_image_grep|wiki-compiler:/app/compiler/pages|heading\(["']people_with_page["']\)|CM044 #298 the People tile (dashboard.py) and the People index heading (person_pages.py) say what they count ('people with a page'). Either quote style, because the tile uses double quotes. 0 -> 2.
 wiki_image_grep|wiki-compiler:/app/compiler/pages|pwg:identifierType "email"|CM044 #298 self-exclusion finds the operator through pwg:hasIdentifier -> identifierType email, the shape the writers actually produce. 0 -> 2.
 wiki_image_absent|wiki-compiler:/app/compiler/pages|pwg:Person ; pwg:email \?e \.|CM044 #298 LOCK: the self query no longer uses a bare pwg:email predicate on the Person node, which nothing writes. 1 -> 0.
+# --- v1.0.107 wiki v0.1.40 (CM044 81205f53: #299 + #300). v0.1.39 (d4278ace, #299 only) was published and
+# NEVER PINNED: the photos fix landed after its tag. Each line below FAILED against the v0.1.38 digests
+# (compiler bcc50585) and PASSED against v0.1.40 through this verifier. Counts measured inside the images.
+wiki_image_absent|wiki-compiler:/app/compiler/locale.py|"Qdrant Collections"|CM044 #299 LOCK: the fallback heading for the search store no longer leaks its product name (now 'Search index'). 1 -> 0. One store per line: this manifest is pipe-delimited, so an ERE alternation would split the pattern field.
+wiki_image_absent|wiki-compiler:/app/compiler/locale.py|"Oxigraph Triple Store"|CM044 #299 LOCK: the fallback heading for the graph store no longer leaks its product name (now 'Your connections graph'). 1 -> 0.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|exists but could not be read|CM044 #299 an unreadable editor feed is logged as a WARN, not swallowed, before falling back to the SPARQL-derived cards. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|^[[:space:]]+"photos",[[:space:]]*$|CM044 #300 photos is a declared hydrate source (the only such line in the file sits inside KNOWN_HYDRATE_SOURCES), so its freshness row renders. 0 -> 1.
