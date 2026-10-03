@@ -40,7 +40,16 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WRAPPER = REPO_ROOT / "wiki-recompile" / "bin" / "wiki-recompile-tick.sh"
+# Overridable so CI can point a single, targeted run at a MUTANT copy of the
+# script (e.g. the stall-watchdog disarm stripped back out) without touching
+# every other test in this file, which all want the real, shipped script.
+# See test_full_compile_survives_past_the_stall_window and the dedicated
+# "mutant" CI step in .github/workflows/ingest-slot.yml that proves this
+# regression test can actually fail.
+WRAPPER = Path(os.environ.get(
+    "WIKI_RECOMPILE_TICK_SH",
+    str(REPO_ROOT / "wiki-recompile" / "bin" / "wiki-recompile-tick.sh"),
+))
 
 
 def _real_docker_shadows_stub() -> bool:
