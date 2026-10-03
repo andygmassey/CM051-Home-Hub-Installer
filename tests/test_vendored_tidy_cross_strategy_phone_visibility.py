@@ -1,15 +1,20 @@
-"""CM051 walk #3, item E (v1.0.107): a duplicate pair's evidence must name
-every shared identifier, not just the strategy that won the confidence slot.
-Mirrors CM041 PR #188's own test suite against the copy that actually ships
-(vendor/cm041).
+"""CM051 walk #3 and #4, item E (v1.0.107): a duplicate pair's evidence must
+name every shared identifier, not just the strategy that won the confidence
+slot. Mirrors CM041 PR #188 and #189's own test suites against the copy that
+actually ships (vendor/cm041).
 
-consolidate_matches keeps only the HIGHEST-confidence match per pair, so a
-pair that shares both an email and a phone is filed under email_match
-(1.0 beats phone_match's 0.95 ceiling) -- measured on a cold v1.0.107
-install: 34 of 104 phone-matched pairs were "won" by a different strategy
-this way, so the winning item's own evidence never mentioned the phone.
-The pair WAS already merged/reviewed; nothing reading evidence for "is this
-phone already surfaced" (the walk probe) could tell.
+Walk #3: consolidate_matches keeps only the HIGHEST-confidence match per
+pair, so a pair that shares both an email and a phone is filed under
+email_match (1.0 beats phone_match's 0.95 ceiling) -- measured on a cold
+v1.0.107 install: 34 of 104 phone-matched pairs were "won" by a different
+strategy this way, so the winning item's own evidence never mentioned the
+phone. The pair WAS already merged/reviewed; nothing reading evidence for
+"is this phone already surfaced" (the walk probe) could tell.
+
+Walk #4: the walk #3 fix only folded in matches whose STRATEGY differed
+from the winner's, so two people sharing TWO DIFFERENT phone numbers (two
+phone_match entries for the same pair) still had one number dropped --
+same strategy, different value, not caught by a strategy-name filter.
 
 All identifiers/numbers here are synthetic (Rule 0): no real personal data.
 """
@@ -106,3 +111,30 @@ def test_a_pair_sharing_only_one_identifier_lists_no_other_strategies():
     dup_items = [it for it in report.items if it.item_type == ITEM_MERGE_DUPLICATE]
     assert len(dup_items) == 1
     assert "other_strategies" not in dup_items[0].evidence
+
+
+def test_a_pair_sharing_two_different_phone_numbers_mentions_both():
+    """CM051 walk #4, item E. Two shared phone numbers between the same pair
+    produce TWO phone_match DuplicateMatch objects for that one pair-key.
+    consolidate_matches keeps only the highest-confidence one per pair -- a
+    tie, since both are phone_match at the same confidence -- so the walk
+    #3 fix (which only folded in OTHER STRATEGIES) still dropped the second
+    number: same strategy, just a different value.
+    """
+    persons = _persons(
+        _make_person("g1", "Jane Doe", phones={"+447700900151", "+447700900152"}),
+        _make_person("g2", "John Doe", phones={"+447700900151", "+447700900152"}),
+    )
+    engine = _NoGraphEngine()
+    try:
+        report = engine.build_report(persons=persons)
+    finally:
+        engine.close()
+
+    dup_items = [it for it in report.items if it.item_type == ITEM_MERGE_DUPLICATE]
+    assert len(dup_items) == 1, (
+        "one pair sharing two phone numbers must produce ONE item, not two"
+    )
+    details = dup_items[0].evidence["details"]
+    assert "+447700900151" in details
+    assert "+447700900152" in details
