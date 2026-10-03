@@ -124,3 +124,9 @@ wiki_image_grep|wiki-compiler:/app/compiler|def _human_date_relative|CM044 #294 
 wiki_image_grep|wiki-compiler:/app/compiler/pages|def _editor_need_cards|CM044 #295 / CM051 #2537 Needs you now is built from the Hub's front_page.json feed. 0 -> 1. Only useful with CM051 #2576's ~/.ostler/editor read-only mount in the same compose, carried in this PR.
 wiki_image_grep|wiki-compiler:/app/compiler/pages|OSTLER_FRONT_PAGE_JSON|CM044 #295 the compiler reads the feed path from OSTLER_FRONT_PAGE_JSON, which install.sh now sets on the wiki-compiler service. 0 -> 1.
 wiki_image_absent|wiki-compiler:/app/compiler/pages|message\("home_l2_chip"\)|CM044 #295 / CM051 #2534 LOCK: no L2 chip is rendered on a front page card. 1 -> 0 (the locale key itself stays, unused).
+# --- v1.0.107 wiki v0.1.38 (CM044 c6e83c14, #298). Each line below FAILED against the v0.1.37 digests
+# (site ae3df9a1, compiler 629bab59) and PASSED against v0.1.38 (site 737bac06, compiler bcc50585) through this
+# verifier. Counts measured inside the images, old -> new.
+wiki_image_grep|wiki-compiler:/app/compiler/pages|heading\('people_with_page'\)|CM044 #298 the People tile says what it counts ('people with a page'). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages|pwg:identifierType "email"|CM044 #298 self-exclusion finds the operator through pwg:hasIdentifier -> identifierType email, the shape the writers actually produce. 0 -> 2.
+wiki_image_absent|wiki-compiler:/app/compiler/pages|pwg:Person ; pwg:email \?e \.|CM044 #298 LOCK: the self query no longer uses a bare pwg:email predicate on the Person node, which nothing writes. 1 -> 0.
