@@ -27,10 +27,10 @@ _PY="${OSTLER_SCREENS_PYTHON:-${HOME}/walkdriver/pwvenv/bin/python}"
 
 self_test() {
     if python3 "${_HERE}/lib/customer_read.py" --self-test; then
-        probe_examined 32 "mutated customer-read facts"
+        probe_examined 47 "mutated customer-read facts"
         probe_fail "negative control behaved: every known-bad fixture went red by its own assertion, an empty read is CANNOT-RUN, and a silent declared assertion FAILS"
     fi
-    probe_examined 32 "mutated customer-read facts"
+    probe_examined 47 "mutated customer-read facts"
     probe_pass "SELF-TEST BROKEN: the customer-read judge let a known-bad fixture through (see above)"
 }
 
@@ -38,11 +38,11 @@ run_probe() {
     [ -n "${OSTLER_BOX_HOST:-}" ] || probe_cannot_run "OSTLER_BOX_HOST is unset: this probe runs on the walk driver against a box"
     [ -x "${_PY}" ] || probe_cannot_run "no Playwright python at ${_PY} (set OSTLER_SCREENS_PYTHON)"
 
-    local out tokfile feed boxf port dport fwd_pid rc n
+    local out tokfile feed boxf selff port dport fwd_pid rc n
     out="${OSTLER_WALK_SCREENS_DIR:-$PWD/walk-screens/$(date -u +%Y%m%dT%H%M%SZ)}/customer-read"
     mkdir -p "${out}" || probe_cannot_run "cannot create ${out}"
-    tokfile="$(mktemp)"; feed="$(mktemp)"; boxf="$(mktemp)"
-    trap 'rm -f "${tokfile}" "${feed}" "${boxf}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT
+    tokfile="$(mktemp)"; feed="$(mktemp)"; boxf="$(mktemp)"; selff="$(mktemp)"
+    trap 'rm -f "${tokfile}" "${feed}" "${boxf}" "${selff}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT
 
     box_run "cat \$HOME/.ostler/secrets/zeroclaw_admin_token" > "${tokfile}" 2>/dev/null
     [ -s "${tokfile}" ] || probe_cannot_run "could not read the box's Hub token over ssh"
@@ -74,6 +74,12 @@ for p in [os.path.expanduser('~/.ostler/assistant-config/workspace/state/costs.j
 print(json.dumps({'ollama_calls':n,'journal_calls':j,'window_min':60}))
 PY" > "${boxf}" 2>/dev/null
     [ -s "${boxf}" ] || probe_note "could not count Ollama calls on the box: the Bursar arm will be CANNOT-RUN"
+    # The owner's own handles, as install.sh recorded them for the assistant. Read
+    # read-only, passed to the judge as a file, hashed there, never written out.
+    box_run "/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:OSTLER_IMESSAGE_SELF_HANDLES' \$HOME/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" > "${selff}" 2>/dev/null
+    # and the owner's full name: the macOS account's RealName on the box
+    box_run "dscl . -read /Users/\$(id -un) RealName | tail -n 1" | sed 's/^ *//' >> "${selff}" 2>/dev/null
+    [ -s "${selff}" ] || probe_note "could not read the owner's own handles on the box: the owner-in-People arm will be CANNOT-RUN"
 
     port="$(( 20000 + RANDOM % 20000 ))"; dport="$(( port + 1 ))"
     ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 \
@@ -88,6 +94,7 @@ PY" > "${boxf}" 2>/dev/null
         --token-file "${tokfile}" --out "${out}"
     [ -s "${feed}" ] && set -- "$@" --front-page-json "${feed}"
     [ -s "${boxf}" ] && set -- "$@" --box-facts "${boxf}"
+    [ -s "${selff}" ] && set -- "$@" --self-handles-file "${selff}"
     "${_PY}" "${_HERE}/lib/customer_read.py" "$@" | tee "${out}/verdict.txt"
     rc=${PIPESTATUS[0]}
     # A run that printed no assertion row is a FAIL, never a quiet pass.
