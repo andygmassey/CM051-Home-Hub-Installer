@@ -363,6 +363,69 @@ class TestPeopleListExcludesServiceAndNotificationSenders(unittest.TestCase):
         self.assertEqual(names, {"Alice Example", "Bob Example"})
         self.assertEqual(body["total"], 2, body)
 
+    def test_a_contacts_card_always_wins_even_with_a_junk_shaped_name(self) -> None:
+        """Archie's review of walk #6 round 1: measured on the live box,
+        2 of 6 live ' - '-shaped rows across 2,796 people carry an
+        icloud_uid (a real Contacts card) with given_name/family_name
+        populated, and on synthetic input the predicate also caught
+        "JANE DOE" and "Jane Doe - Plumber" -- a real name typed in caps,
+        and a real name plus a role/title, both legitimate Contacts-card
+        shapes. The premise that Contacts always title-cases on entry was
+        asserted, not measured, and is false. A Contacts card (icloud_uid
+        non-empty) is ground truth the shape heuristics cannot outrank:
+        people_list must never apply them to a carded record, whatever
+        its display_name looks like."""
+        points = [
+            _point(
+                "p1", "JANE DOE",
+                icloud_uid="00000000-0000-0000-0000-000000000001:ABPerson",
+                given_name="Jane", family_name="Doe",
+            ),
+            _point(
+                "p2", "Jane Doe - Plumber",
+                icloud_uid="00000000-0000-0000-0000-000000000002:ABPerson",
+                given_name="Jane", family_name="Doe",
+            ),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(status, 200)
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"JANE DOE", "Jane Doe - Plumber"}, body)
+        self.assertEqual(body["total"], 2, body)
+
+    def test_control_the_same_junk_shapes_without_a_card_are_still_excluded(self) -> None:
+        """CONTROL, the other direction (Archie: 'tests in both
+        directions'): the SAME two shapes with NO Contacts card are still
+        excluded -- proves the fix is the card gate, not a weakening of
+        the shape checks themselves."""
+        points = [
+            _point("p1", "JANE DOE"),
+            _point("p2", "Jane Doe - Plumber"),
+            _point("p3", "Alice Example", organization="Example Corp"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example"}, body)
+        self.assertEqual(body["total"], 1, body)
+
     def test_known_limit_a_bare_single_word_brand_is_not_caught(self) -> None:
         """CONTROL / KNOWN LIMIT: a single ordinary-looking word (e.g. a
         marketplace brand with no space, no caps-shape, no suffix word)

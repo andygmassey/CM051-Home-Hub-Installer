@@ -557,9 +557,23 @@ _SERVICE_NAME_SUFFIX_WORDS = frozenset({
 
 
 def _is_automated_or_service_name(display_name):
-    """True when ``display_name`` reads as a company/service/notification
-    sender, not a human being -- shapes ``_is_nameless_name`` does not
-    cover.
+    """True when ``display_name`` SHAPE reads as a company/service/
+    notification sender -- shapes ``_is_nameless_name`` does not cover.
+
+    CALL THIS ONLY FOR A RECORD WITH NO CONTACTS CARD. It is a vocabulary-
+    and-shape heuristic, not a structural law, and it WILL mis-fire on a
+    real name: "JANE DOE" is plainly a real name in all caps, and "Jane
+    Doe - Plumber" (a real name plus a role/title) is byte-for-byte the
+    same shape as a notification subject line. Archie's review of walk #6
+    round 1 measured BOTH on real data -- 2 of 6 live " - "-shaped rows
+    across 2,796 people carry an ``icloud_uid`` (a real Contacts card)
+    with ``given_name``/``family_name`` populated -- and on the synthetic
+    pair above. The first version of this function asserted "Contacts
+    always title-cases on entry" as the reason a real name could not reach
+    the multi-word-all-caps check; that premise was never measured and
+    Archie's measurement shows it is false. See ``people_list``'s call
+    site: a Contacts card is ground truth this function cannot outrank, so
+    the caller gates on ``icloud_uid`` being EMPTY before ever calling this.
 
     ``_is_nameless_name`` is LOCKED byte-identical across three surfaces
     (wiki, iOS, Hub -- Ref #664), so this is a NEW, Hub-local check rather
@@ -578,17 +592,17 @@ def _is_automated_or_service_name(display_name):
       * "ExampleCarrier notification" / "Rate advice" -- a short Title
         Case service/alert sender
 
-    Four narrow, independently-justified checks:
-      1. Starts with '#' (len > 1) -- an SMS/channel handle.
-      2. Multi-word AND fully upper-case -- a real Contacts/CardDAV name
-         is never multi-word all-caps in practice (Contacts title-cases
-         on entry). A SINGLE all-caps word is deliberately NOT matched --
-         a real name typed in capitals ("JOHN") must not be caught, the
-         same concern email-intelligence's looks_like_subject_or_sender_id
-         documents for its own single-token case.
-      3. Contains ' - ' (a SPACED hyphen) -- the shape a notification
-         subject reads as ("X - Y"). A hyphenated human surname is
-         written with no surrounding spaces ("Smith-Jones").
+    Four narrow checks, each with a MEASURED false-positive against a
+    real, uncarded name, which is exactly why the caller never applies
+    them to a carded record:
+      1. Starts with '#' (len > 1) -- an SMS/channel handle. A human given
+         name does not begin with '#'; no measured false positive.
+      2. Multi-word AND fully upper-case -- catches "JANE DOE" (measured
+         false positive, see above) as well as the intended all-caps
+         company name.
+      3. Contains ' - ' (a SPACED hyphen) -- catches "Jane Doe - Plumber"
+         (measured false positive: a real name plus a role/title) as well
+         as the intended notification-subject shape.
       4. The LAST whitespace-separated word, case-insensitive and
          stripped of trailing punctuation, is in
          ``_SERVICE_NAME_SUFFIX_WORDS`` -- a specific, measured
@@ -5659,11 +5673,34 @@ def people_list(sort=None, ceiling=10000):
         # search and by the assistant.
         if _is_role_address_name(name):
             continue
-        # Walk #6, bug 1: a service/notification/company sender name --
-        # shapes _is_nameless_name and _is_role_address_name were never
-        # designed to catch. See _is_automated_or_service_name's docstring
-        # for the four checks.
-        if _is_automated_or_service_name(name):
+        # Walk #6, bug 1 -- CORRECTED after Archie's review (walk #6 round
+        # 2). The service/notification shape checks are vocabulary-and-shape
+        # heuristics, not a structural law, and Archie measured two classes
+        # of false positive the first version did not consider: (a) on the
+        # live box, 2 of 6 " - " (spaced-hyphen) rows across 2,796 people
+        # carry an icloud_uid (a REAL Contacts card) with given_name AND
+        # family_name populated -- a real name followed by a role/title
+        # ("Jane Doe - Plumber") reads identically, by shape, to a
+        # notification subject ("Payment declined - update required"); (b)
+        # on synthetic input, "JANE DOE" -- a real name a customer's own
+        # address book can legitimately hold in all-caps -- matched the
+        # multi-word-all-caps check. The premise that Contacts always
+        # title-cases on entry was asserted, not measured, and Archie's
+        # measurement shows it is false.
+        #
+        # A Contacts card is ground truth a shape heuristic can never
+        # outrank: nothing OTHER than a real contact the customer (or their
+        # phone's address book) created carries one. So the shape checks
+        # below now apply ONLY to records with NO Contacts card
+        # (icloud_uid empty) -- a carded record is ALWAYS treated as a
+        # person, regardless of what its display_name looks like. An
+        # automated sender can acquire given_name/family_name too (e.g. a
+        # naive "ExampleCarrier Notification" split into given="ExampleCarrier",
+        # family="Notification"), which is why the gate is the CARD
+        # specifically, not "has a given/family name" generically -- only a
+        # card is proof of a real address-book entry.
+        has_contacts_card = bool((p.get("icloud_uid") or "").strip())
+        if not has_contacts_card and _is_automated_or_service_name(name):
             continue
 
         # Sort keys -- prefer the parsed given/family name, fall back to a
