@@ -1,0 +1,59 @@
+# CM051 walk-defect E (v1.0.107, walk #3): a duplicate pair's evidence must
+# name every shared identifier, not just the strategy that won the
+# confidence slot, in the copy that actually ships (vendor/cm041). Mirrors
+# CM041 PR #188's own test suite against the vendored tree.
+name: walk-defect-e-duplicate-evidence-guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/identity_resolver/tidy.py'
+      - 'tests/test_vendored_tidy_cross_strategy_phone_visibility.py'
+      - '.github/workflows/walk-defect-e-duplicate-evidence-guard.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/identity_resolver/tidy.py'
+      - 'tests/test_vendored_tidy_cross_strategy_phone_visibility.py'
+      - '.github/workflows/walk-defect-e-duplicate-evidence-guard.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  walk-defect-e-duplicate-evidence-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # identity_resolver.tidy imports identity_resolver.batch_resolver,
+      # which imports httpx + rapidfuzz + phonenumbers at module scope.
+      # Verified together in a clean venv with none of this repo's other
+      # test dependencies present.
+      - name: Install pytest and the vendored module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
+      # separate step would SKIP the run below and hide the real result
+      # behind an earlier red.
+      - name: A duplicate pair's evidence names every shared identifier
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_vendored_tidy_cross_strategy_phone_visibility.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_tidy_cross_strategy_phone_visibility.py -v
