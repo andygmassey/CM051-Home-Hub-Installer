@@ -90,6 +90,10 @@ on:
       - 'tests/test_the_source_table_covers_the_fda_extract_family.sh'
       - 'vendor/ostler_fda/extract_all.py'
       - 'tests/test_converge_path_enforces_rule2.sh'
+      # The gate AND its subject (board #2562-F): a converge that changes
+      # Oxigraph's Person set must also resync the Qdrant people index it
+      # feeds, or the Doctor's count can read stale against the graph's.
+      - 'tests/test_converge_must_resync_qdrant_people_too.sh'
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
       - 'tests/test_unknown_consent_is_not_declined.sh'
       - 'tests/test_every_question_declares_its_persistence.sh'
@@ -279,6 +283,14 @@ jobs:
       - name: RULE 2 must be enforced on the CONVERGE path, not just resolve
         if: always()
         run: PATH="/tmp/convergetest/bin:$PATH" bash tests/test_converge_path_enforces_rule2.sh
+
+      # Board #2562-F: a converge that merges/splits Person nodes must also
+      # resync Qdrant's people index, or the Doctor's count (Qdrant-backed)
+      # can read stale against Oxigraph's until an independent tick catches
+      # up -- which a walk can land inside and read as a false disagreement.
+      - name: A converge that changes the graph must resync Qdrant people too
+        if: always()
+        run: bash tests/test_converge_must_resync_qdrant_people_too.sh
 
       # v1063-D010. Line order IS the property: install.sh runs top to bottom,
       # so "later in the file" is "later in time" for two statements at the

@@ -928,3 +928,34 @@ enrichment in `_duplicate_items`. Guarded by
 `tests/test_vendored_tidy_cross_strategy_phone_visibility.py` (CM051 repo
 root, mirroring CM041 PR #188's own test suite). Retire by landing CM041
 PR #188 and re-pinning.
+
+## Added 2026-10-03, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, same-strategy siblings folded into evidence too (walk #4, item E)
+
+v1.0.107 walk #4 (cold Mini16) found E improved from 12/47 to 1/43
+unreviewed after walk #3's fix landed, but one shape still escaped. Traced
+from the consumer: two people shared TWO DIFFERENT phone numbers, so
+`detect_phone_matches` produced two `phone_match` `DuplicateMatch` objects
+for the same pair-key. `consolidate_matches` keeps only the
+highest-confidence match per pair, and with both at the same confidence (a
+tie), it kept whichever was built first -- the walk #3 fix only folded in
+matches whose STRATEGY differed from the winner's, so a same-strategy
+sibling (same strategy name, different value) was still silently dropped
+from every item's evidence.
+
+Fix, in `vendor/cm041/identity_resolver/tidy.py`'s `_duplicate_items`:
+filter the per-pair sibling matches by object identity instead of strategy
+name, so a same-strategy/different-value match is folded into `details`
+exactly like a cross-strategy one already was.
+`evidence["other_strategies"]` keeps its original, narrower meaning
+(distinct OTHER strategy names) unchanged. Matches CM041 PR #189 (upstream,
+not yet merged at time of writing).
+
+### What a future sync must preserve
+
+The `is not m` object-identity filter (replacing the walk #3 fix's
+`strategy != m.strategy` filter) when building `other_matches` in
+`_duplicate_items`. Guarded by
+`tests/test_vendored_tidy_cross_strategy_phone_visibility.py`'s
+`test_a_pair_sharing_two_different_phone_numbers_mentions_both` (CM051 repo
+root, mirroring CM041 PR #189's own test). Retire by landing CM041 PR #189
+and re-pinning.

@@ -185,6 +185,7 @@ test_container_runtime_guard_tests_the_engine_not_the_client.sh	WIRED	.github/wo
 test_container_runtime_precondition.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_context_refresh_vendor_sha.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_context_refresh_wired.sh	WIRED	.github/workflows/context-digest-auth.yml
+test_converge_must_resync_qdrant_people_too.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_converge_path_enforces_rule2.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_conversation_bundle_user_id_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/vendor-integrity.yml
