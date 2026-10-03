@@ -201,3 +201,31 @@ CM041 PR #190 (upstream, not yet merged at time of writing). Guarded by
 `tests/test_vendored_conversation_process_failure_reason.py`. Recorded
 here, not as a patch, for the same reason as the grafts above. Retire by
 landing CM041 PR #190 and re-pinning.
+
+## Sixth graft: a transient processor crash is retried once before the conversation job is marked failed (CM051 walk #5, v1.0.107)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+`_conversation_process_background`: the single `_invoke_pwg_convo(...)` call
+is now a bounded loop (max 2 attempts, 15s backoff) that retries ONLY on a
+non-zero exit or a timeout; `FileNotFoundError` (pwg-convo missing from
+PATH) and any other setup/config exception break the loop immediately and
+are not retried, since those are deterministic. Shape: control flow only --
+every existing failure-reason string and the step name are unchanged;
+`state["retry_count"]` now reflects attempts actually made instead of
+always being left at its initial 0. Reason: 4 of 18 cold-install
+conversation jobs failed_step=processor, all created in the same second (a
+backfill burst, identical metadata shape), all crashing during the first or
+second Ollama call. Re-running the exact saved input for all 4 in
+isolation, and again concurrently in the original 4-at-once shape, on the
+same box, succeeded cleanly every time (exit 0, full pipeline) -- the input
+is provably processable, so this is a transient cold-start contention
+window (Ollama/model still loading while install.sh is also still running
+its own setup steps), not legitimately unprocessable input. CM052's
+cli.py (~446-481) watermarks a conversation on a successful POST
+regardless of this downstream failure, so nothing else ever retries it;
+this is the smallest fix that does not require touching CM052. Matches
+CM041 PR #190 (upstream, not yet merged at time of writing). Guarded by
+`tests/test_vendored_conversation_process_failure_reason.py`
+(`TestConversationProcessBackgroundRetry`-equivalent cases). Recorded
+here, not as a patch, for the same reason as the grafts above. Retire by
+landing CM041 PR #190 and re-pinning.

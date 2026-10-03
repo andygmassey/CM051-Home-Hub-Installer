@@ -1838,15 +1838,47 @@ def _conversation_process_background(conversation_id, transcript, metadata):
     # Invoke pwg-convo (CM048) as a CLI subprocess.
     transcript_path = str(state_dir / "00_raw_transcript.md")
     metadata_path = str(state_dir / "00_metadata.json")
-    try:
-        result = _invoke_pwg_convo(
-            ["process", transcript_path, metadata_path],
-            timeout=900,  # 15 min max
-        )
-        if result.returncode == 0:
-            state["current_step"] = "completed"
-            state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
-        else:
+
+    # CM051 walk #5, second finding: 4 of 18 cold-install conversations
+    # failed_step="processor" with identical metadata shape and no
+    # deterministic cause. Re-running the SAME saved input (alone, and
+    # concurrently in the same 4-at-once shape as the original dispatch) on
+    # the walk box succeeded every time -- the input is provably
+    # processable, so this is not "legitimately unprocessable" input and
+    # must not be marked skipped. All 4 were created in the SAME second (a
+    # cold-install backfill burst) and crashed during the FIRST or SECOND
+    # Ollama call, which is exactly the window in which a cold install is
+    # also still pulling/loading the Ollama model for the first time and
+    # running its own setup steps -- contention this process cannot see or
+    # wait out. There is no tick that re-dispatches a failed conversation
+    # (CM052's cli.py ~446-481: a successful POST watermarks the
+    # conversation regardless of whether this background processor later
+    # fails it), so without a retry HERE a transient cold-start failure is
+    # permanent. A bounded, same-process retry is the smallest fix that
+    # does not touch CM052: one retry, after a short backoff, ONLY on the
+    # subprocess actually failing or timing out -- never on FileNotFoundError
+    # or another setup exception, which is deterministic and retrying it
+    # would just double the wait.
+    max_attempts = 2
+    retry_delay_seconds = 15
+    attempt = 0
+    while attempt < max_attempts:
+        attempt += 1
+        is_last_attempt = attempt >= max_attempts
+        try:
+            result = _invoke_pwg_convo(
+                ["process", transcript_path, metadata_path],
+                timeout=900,  # 15 min max
+            )
+            if result.returncode == 0:
+                state["current_step"] = "completed"
+                state["retry_count"] = attempt - 1
+                state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
+                break
+            if not is_last_attempt:
+                import time
+                time.sleep(retry_delay_seconds)
+                continue
             state["failed_step"] = "processor"
             # CM051 walk #5: this read result.stderr[:500] -- the FIRST 500
             # characters. A crashing subprocess writes its INFO-level
@@ -1861,27 +1893,38 @@ def _conversation_process_background(conversation_id, transcript, metadata):
             # "reason" was in every case not a reason at all. Take the TAIL
             # instead, where a traceback actually lives.
             state["failure_reason"] = result.stderr[-500:] or "Non-zero exit"
+            state["retry_count"] = attempt - 1
             state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
-    except FileNotFoundError:
-        # pwg-convo not on PATH. CM048 not installed (or install.sh
-        # 3.10b was skipped via --allow-plaintext). Log + surface as
-        # a failed step rather than crashing the whole assistant_api
-        # process; the rest of the API remains usable.
-        state["failed_step"] = "processor"
-        state["failure_reason"] = (
-            "Conversation processing service (pwg-convo) is not "
-            "installed. Re-run the Ostler installer or set "
-            "PWG_CONVO_BIN to its path."
-        )
-        state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
-    except subprocess.TimeoutExpired:
-        state["failed_step"] = "processor"
-        state["failure_reason"] = "Processing timed out (15 min limit)"
-        state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
-    except Exception as exc:
-        state["failed_step"] = "processor"
-        state["failure_reason"] = str(exc)[:500]
-        state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
+        except FileNotFoundError:
+            # pwg-convo not on PATH. CM048 not installed (or install.sh
+            # 3.10b was skipped via --allow-plaintext). Deterministic --
+            # not retried. Log + surface as a failed step rather than
+            # crashing the whole assistant_api process; the rest of the
+            # API remains usable.
+            state["failed_step"] = "processor"
+            state["failure_reason"] = (
+                "Conversation processing service (pwg-convo) is not "
+                "installed. Re-run the Ostler installer or set "
+                "PWG_CONVO_BIN to its path."
+            )
+            state["retry_count"] = attempt - 1
+            state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
+            break
+        except subprocess.TimeoutExpired:
+            if not is_last_attempt:
+                continue  # the 900s wait was itself the backoff
+            state["failed_step"] = "processor"
+            state["failure_reason"] = "Processing timed out (15 min limit)"
+            state["retry_count"] = attempt - 1
+            state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
+        except Exception as exc:
+            # Not retried: a setup/config exception is deterministic, so a
+            # retry would only reproduce it after an extra wait.
+            state["failed_step"] = "processor"
+            state["failure_reason"] = str(exc)[:500]
+            state["retry_count"] = attempt - 1
+            state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
+            break
 
     (state_dir / "state.json").write_text(
         json.dumps(state, indent=2), encoding="utf-8"

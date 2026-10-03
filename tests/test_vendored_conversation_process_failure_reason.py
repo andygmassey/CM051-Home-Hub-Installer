@@ -26,6 +26,7 @@ import pathlib
 import subprocess
 import tempfile
 from datetime import datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -105,3 +106,114 @@ def test_short_stderr_is_unaffected(background_fn, tmp_path):
 
     state = _run(background_fn, tmp_path, _FakeResult())
     assert state["failure_reason"] == "ValueError: bad input\n"
+
+
+# ---------------------------------------------------------------------------
+# CM051 walk #5, second finding: bounded retry on a transient "processor"
+# failure.
+#
+# 4 of 18 cold-install conversations failed_step="processor" with identical
+# metadata shape and no deterministic cause. Re-running the SAME saved input
+# (alone, and concurrently in the same 4-at-once shape as the original
+# dispatch) on the walk box succeeded every time -- the input is provably
+# processable, so this is not "legitimately unprocessable" input and must
+# not be marked skipped. All 4 were created in the SAME second (a
+# cold-install backfill burst) and crashed during the FIRST or SECOND Ollama
+# call, which is exactly the window in which a cold install is also still
+# pulling/loading the Ollama model for the first time -- contention this
+# process cannot see or wait out. There is no tick that re-dispatches a
+# failed conversation (CM052's cli.py ~446-481 watermarks on a successful
+# POST regardless of downstream pipeline failure), so without a retry HERE a
+# transient cold-start failure is permanent.
+# ---------------------------------------------------------------------------
+
+
+def _run_sequence(background_fn, tmp_path, results, conv_id="2026-10-03_walk5retry"):
+    """Like _run, but _invoke_pwg_convo returns/raises a DIFFERENT value on
+    each successive call, in order -- for exercising the retry loop."""
+    queue = list(results)
+    calls = {"n": 0}
+
+    def fake_invoke(*a, **k):
+        calls["n"] += 1
+        item = queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    fn = background_fn
+    fn.__globals__["PROCESSING_DIR"] = tmp_path
+    fn.__globals__["_invoke_pwg_convo"] = fake_invoke
+    fn(conv_id, "a transcript", {"date": "2026-10-03"})
+    state = json.loads((tmp_path / conv_id / "state.json").read_text())
+    return state, calls["n"]
+
+
+def test_transient_failure_retries_once_then_succeeds(background_fn, tmp_path):
+    """RED before the fix: a single non-zero exit was recorded as a
+    permanent failure with no second attempt."""
+
+    class _FakeFailed:
+        returncode = 1
+        stdout = ""
+        stderr = "RuntimeError: transient cold-start contention\n"
+
+    class _FakeOk:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    with patch("time.sleep") as fake_sleep:
+        state, call_count = _run_sequence(background_fn, tmp_path, [_FakeFailed(), _FakeOk()])
+
+    assert call_count == 2, "a transient failure must be retried, not given up on after one attempt"
+    assert state["current_step"] == "completed"
+    assert state["failed_step"] is None
+    assert state["retry_count"] == 1
+    fake_sleep.assert_called_once()
+
+
+def test_failure_persists_after_exhausting_retries(background_fn, tmp_path):
+    """CONTROL: a failure that never clears is still reported failed after
+    retrying, with the LAST attempt's reason (not the first), proving this
+    adds bounded retry rather than masking a real defect."""
+
+    class _FakeFailedFirst:
+        returncode = 1
+        stdout = ""
+        stderr = "RuntimeError: FIRST_ATTEMPT_MARKER\n"
+
+    class _FakeFailedSecond:
+        returncode = 1
+        stdout = ""
+        stderr = "RuntimeError: SECOND_ATTEMPT_MARKER\n"
+
+    with patch("time.sleep"):
+        state, call_count = _run_sequence(
+            background_fn, tmp_path, [_FakeFailedFirst(), _FakeFailedSecond()],
+            conv_id="2026-10-03_walk5retryfail",
+        )
+
+    assert call_count == 2, "must stop after the bounded retry budget, not loop forever"
+    assert state["failed_step"] == "processor"
+    assert state["retry_count"] == 1
+    assert "SECOND_ATTEMPT_MARKER" in (state["failure_reason"] or "")
+    assert "FIRST_ATTEMPT_MARKER" not in (state["failure_reason"] or ""), (
+        "the recorded reason must be the LAST attempt's, not the first"
+    )
+
+
+def test_file_not_found_is_not_retried(background_fn, tmp_path):
+    """CONTROL: pwg-convo missing from PATH is deterministic (vendor-only
+    branch -- CM041 source has no pwg-convo binary to go missing), so
+    retrying it only doubles the wait for the same outcome."""
+    with patch("time.sleep") as fake_sleep:
+        state, call_count = _run_sequence(
+            background_fn, tmp_path, [FileNotFoundError("no such file: pwg-convo")],
+            conv_id="2026-10-03_walk5retryfnf",
+        )
+
+    assert call_count == 1, "a missing-binary failure must not be retried"
+    fake_sleep.assert_not_called()
+    assert state["failed_step"] == "processor"
+    assert "not installed" in (state["failure_reason"] or "")
