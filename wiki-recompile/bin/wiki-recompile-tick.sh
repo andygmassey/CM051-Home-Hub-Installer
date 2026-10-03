@@ -391,7 +391,33 @@ else
     # and only ticks daily; a yield would cost a whole day.
     _slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
     _slot_lib="${OSTLER_INGEST_SLOT_LIB:-$HOME/.ostler/lib/ostler-ingest-slot.sh}"
+    # SECOND LAYER AGAINST THE SAME v1.0.107 DEFECT, independent of the
+    # AbandonProcessGroup plist key. `nohup ... & disown` only stops THIS
+    # shell sending SIGHUP on its own exit; neither changes the detached
+    # process's process group, so by default it stays a member of THIS
+    # script's group -- the one launchd tracks and kills in full the moment
+    # this script (the LaunchAgent's main process) exits. `set -m` turns on
+    # job control, and under job control bash makes every backgrounded
+    # pipeline the leader of a BRAND NEW process group rather than inheriting
+    # this one. Measured: without it, `ps -o pgid=` on the backgrounded job
+    # prints THIS script's pgid; with it, the job's own pid. A kill aimed at
+    # the old group -- launchd's default, or this script's own parent dying
+    # for any other reason -- then cannot reach it at all, with no dependency
+    # on launchd configuration being correct. Silent when not attached to a
+    # terminal (measured: no extra "[1] PID" / "Done" lines land in the log
+    # this redirects to), so it costs nothing to leave on.
+    set -m
     nohup bash -c '
+        # FIRST STATEMENT, BEFORE ANYTHING ELSE CAN FAIL OR BLOCK (v1.0.107
+        # launchd process-group defect). If the LaunchAgent that forked this
+        # process is reaped before this subshell finishes -- which is what
+        # happens without AbandonProcessGroup in the plist, see the comment
+        # on that key -- launchd kills every process in the jobs process
+        # group, this one included, and a kill that lands before the first
+        # print leaves a 0-byte log indistinguishable from "never launched".
+        # Printing here, before cd, before sourcing anything, before the
+        # slot acquire, turns that into "started at T, never seen again".
+        printf "%s wiki-summaries: process started (pid %s)\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$"
         set -u
         _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"
         cd "$_wd" || exit 1
