@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -618,6 +619,71 @@ class IdentityResolver:
 
         logger.info("Merged %s into %s", discard_uri, keep_uri)
 
+    def _sync_qdrant_display_name(self, person_uri: str, display_name: str) -> None:
+        """Push a just-canonicalised name into the Qdrant `people` point for
+        this person, if one exists (walk #6, bug 2).
+
+        This class is Oxigraph-only by construction (see __init__): it has
+        no Qdrant URL/collection and nothing else in this module ever
+        touches Qdrant. ``batch_resolver.py`` has its OWN, separate merge
+        path with its OWN Qdrant sync (``_merge_qdrant``) -- but THIS path
+        (``merge_persons`` / ``canonicalise_display_name``) had none. The
+        two merge paths are both live (see the ``merge_persons`` comments
+        on the pwg:Person-typing divergence measured between them), so a
+        canonicalise that only writes Oxigraph leaves the Hub's People list
+        -- which reads ONLY Qdrant, never Oxigraph, see
+        assistant_api/ical-server.py's people_list -- showing the OLD name
+        forever. Measured on macmini16-walk: a Contacts-linked person (an
+        icloud_contact_uid identifier proves a real address-book card
+        exists) still displayed by their bare email in the Hub.
+
+        Deliberately narrow: only the ONE field this method just changed.
+        Merging phones/emails/other scalars across two Qdrant points on a
+        full person-merge is `batch_resolver._merge_qdrant`'s job, not
+        this one's -- duplicating that here would be a second place for
+        those two to drift apart.
+
+        Best-effort and silent on failure, matching `_merge_qdrant`'s own
+        stance: the graph-side canonicalisation has already succeeded and
+        must not be undone by a Qdrant hiccup. Logs loudly so the gap is
+        at least visible, per the SAME reasoning `_merge_qdrant`'s own
+        docstring gives for why "skipping" must never be silent.
+        """
+        try:
+            from qdrant_client import QdrantClient
+        except ImportError:
+            logger.warning(
+                "qdrant-client not installed: canonical display name for %s "
+                "was NOT propagated to Qdrant. The Hub's People list reads "
+                "Qdrant, so it will keep showing the old name.",
+                person_uri,
+            )
+            return
+        qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333")
+        collection = os.environ.get("QDRANT_COLLECTION", "people")
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+        try:
+            client = QdrantClient(url=qdrant_url, timeout=10)
+            points = client.retrieve(
+                collection_name=collection, ids=[point_id], with_payload=False,
+            )
+            if not points:
+                # No Qdrant point for this person (e.g. never contact-synced
+                # into Qdrant) -- legitimately nothing to sync.
+                return
+            client.set_payload(
+                collection_name=collection,
+                payload={"display_name": display_name, "name": display_name},
+                points=[point_id],
+            )
+        except Exception as exc:
+            logger.warning(
+                "Qdrant display-name sync failed for %s: %s. The graph is "
+                "correct; the Hub will keep showing the old name until a "
+                "reconcile runs.",
+                person_uri, exc,
+            )
+
     def canonicalise_display_name(self, person_uri: str) -> Optional[str]:
         """Collapse a person's possibly-multiple displayName values to ONE.
 
@@ -661,6 +727,11 @@ class IdentityResolver:
             f"WHERE {{ <{person_uri}> <{PWG}displayName> ?old }} ; "
             f'INSERT DATA {{ <{person_uri}> <{PWG}displayName> "{_escape(canonical)}" }}'
         )
+        # Walk #6, bug 2: the graph is now correct; the Hub's People list
+        # reads Qdrant, not the graph, so without this the Hub keeps
+        # showing whichever of the collapsed values it last saw. See
+        # _sync_qdrant_display_name's docstring.
+        self._sync_qdrant_display_name(person_uri, canonical)
         logger.info(
             "Canonicalised displayName for %s -> %r (was %d values)",
             person_uri, canonical, len(candidates),
