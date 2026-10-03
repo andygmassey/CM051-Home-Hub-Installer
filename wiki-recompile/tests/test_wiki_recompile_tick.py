@@ -30,6 +30,7 @@ without a live Docker daemon. Asserts:
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -650,28 +651,59 @@ def test_phase2_backfill_does_not_stack(stub_env):
 
 
 # ---------------------------------------------------------------------------
-# CM051 walk #5 follow-up (Archie review on #2633): editor-frontpage-tick.sh
-# now kickstarts this whole tick on every front_page.json change. Phase 1 is
-# cheap, but the anti-STACKING guard above only stops two backfills
-# overlapping -- it does nothing to stop a new one starting the moment the
-# previous one finishes. On a thin graph (Phase 2 finishes in minutes) an
-# hourly trigger would restart the LLM backfill on every tick, turning the
-# deliberate daily cost (#20's "daily vs hourly" decision) into a
-# near-continuous one. This floor is independent of the no-stack guard and
+# CM051 walk #5 follow-up (Archie review round 1 on #2633): editor-
+# frontpage-tick.sh now kickstarts this whole tick on every front_page.json
+# change. Phase 1 is cheap, but the anti-STACKING guard above only stops two
+# backfills overlapping -- it does nothing to stop a new one starting the
+# moment the previous one finishes. On a thin graph (Phase 2 finishes in
+# minutes) an hourly trigger would restart the LLM backfill on every tick,
+# turning the deliberate daily cost (#20's "daily vs hourly" decision) into
+# a near-continuous one. This floor is independent of the no-stack guard and
 # of who triggered the tick.
+#
+# ROUND 2 (Archie): keying the floor on the last START meant a Phase 2
+# killed mid-way through FIRST-RUN hydration (the v1.0.107 stall-watchdog
+# defect just above says this happens routinely) blocked every retry for a
+# full day on nothing but a timer, with the wiki left hidden the whole time.
+# Fixed two ways, both covered below: the floor is now keyed on the last
+# SUCCESSFUL completion, written inside the detached subshell only on
+# success; and the floor is skipped entirely while CM044's own
+# wiki_hydration.json has not yet reported complete=true.
 # ---------------------------------------------------------------------------
 
 
+def _write_hydration_status(ostler_dir: Path, *, complete: bool) -> Path:
+    """CM044's own progress file (install.sh's WIKI_HYDRATION_STATUS_FILE,
+    bind-mounted at ~/.ostler/state/wiki_hydration.json). The script reads
+    this with grep for a single top-level boolean -- these fixtures are
+    deliberately minimal, matching only what that grep actually looks at."""
+    state_dir = ostler_dir / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    p = state_dir / "wiki_hydration.json"
+    p.write_text(json.dumps({"complete": complete}))
+    return p
+
+
+def _full_compile_lines(log: Path, timeout: float) -> list[str]:
+    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=timeout)
+    return [
+        line for line in lines
+        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
+    ]
+
+
 @_skip_if_real_docker
-def test_phase2_backfill_debounced_when_started_recently(stub_env):
-    """A Phase-2 backfill that already STARTED inside the cost floor must not
-    be relaunched just because it has since finished (no live pidfile)."""
+def test_phase2_backfill_debounced_when_completed_recently_and_hydration_complete(stub_env):
+    """The floor's actual job: once hydration has finished at least once,
+    a Phase-2 backfill that COMPLETED inside the cost floor must not be
+    relaunched."""
     log = stub_env["tmp_path"] / "docker.log"
     _make_fake_docker(stub_env["stub_dir"], log_path=log)
     ostler_dir = stub_env["ostler_dir"]
+    _write_hydration_status(ostler_dir, complete=True)
     state_dir = ostler_dir / "state" / "wiki-recompile"
     state_dir.mkdir(parents=True)
-    (state_dir / "last-phase2-start-epoch").write_text(str(int(time.time())))
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time())))
 
     result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
     assert result.returncode == 0, result.stderr
@@ -679,81 +711,159 @@ def test_phase2_backfill_debounced_when_started_recently(stub_env):
 
     # Give a would-be detached launch a moment to appear, then confirm it
     # never does -- same poll primitive as the happy-path test, inverted.
-    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=2.0)
-    full_lines = [
-        line for line in lines
-        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
-    ]
-    assert not full_lines, f"Phase 2 launched despite the cost floor: {lines}"
+    full_lines = _full_compile_lines(log, timeout=2.0)
+    assert not full_lines, f"Phase 2 launched despite the cost floor: {full_lines}"
 
 
 @_skip_if_real_docker
 def test_phase2_backfill_runs_once_the_floor_has_elapsed(stub_env):
     """The same box, once WIKI_PHASE2_MIN_INTERVAL_SECONDS has actually
-    elapsed since the last Phase-2 start, must launch again -- the floor
-    delays, it does not permanently disable, the backfill."""
+    elapsed since the last SUCCESSFUL Phase-2 completion, must launch again
+    -- the floor delays, it does not permanently disable, the backfill."""
     log = stub_env["tmp_path"] / "docker.log"
     _make_fake_docker(stub_env["stub_dir"], log_path=log)
     ostler_dir = stub_env["ostler_dir"]
+    _write_hydration_status(ostler_dir, complete=True)
     state_dir = ostler_dir / "state" / "wiki-recompile"
     state_dir.mkdir(parents=True)
-    (state_dir / "last-phase2-start-epoch").write_text(str(int(time.time()) - 100))
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 100))
 
     result = _run_wrapper(
         {"OSTLER_DIR": str(ostler_dir), "WIKI_PHASE2_MIN_INTERVAL_SECONDS": "10"},
         stub_env["stub_dir"],
     )
     assert result.returncode == 0, result.stderr
-
-    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=10.0)
-    full_lines = [
-        line for line in lines
-        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
-    ]
-    assert full_lines, f"Phase 2 did not launch once the floor elapsed: {lines}"
+    full_lines = _full_compile_lines(log, timeout=10.0)
+    assert full_lines, f"Phase 2 did not launch once the floor elapsed: {full_lines}"
 
 
 @_skip_if_real_docker
-def test_phase2_debounce_state_file_written_on_launch(stub_env):
-    """A Phase 2 launch must record the start time, or the floor above
-    never has anything to measure against on the NEXT tick."""
+def test_phase2_debounce_state_file_written_on_successful_completion(stub_env):
+    """A SUCCESSFUL Phase 2 run must record its completion time, or the
+    floor above never has anything to measure against on the NEXT tick.
+    Written inside the detached subshell, after the compile exits 0 --
+    polled for, since this is no longer a synchronous pre-launch write."""
     _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
     ostler_dir = stub_env["ostler_dir"]
-    state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-start-epoch"
+    _write_hydration_status(ostler_dir, complete=True)
+    state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-complete-epoch"
     assert not state_file.exists()
 
     before = int(time.time())
     result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
-    after = int(time.time())
     assert result.returncode == 0, result.stderr
 
-    # The state-file write happens synchronously, before the detached nohup
-    # launch, so it must exist the moment the wrapper returns -- no polling.
-    assert state_file.exists(), "Phase 2 launch must record its start epoch"
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline and not state_file.exists():
+        time.sleep(0.05)
+    after = int(time.time())
+    assert state_file.exists(), "a successful Phase 2 run must record its completion epoch"
     recorded = int(state_file.read_text().strip())
     assert before <= recorded <= after + 2, f"recorded epoch {recorded} not in [{before}, {after}]"
 
 
 @_skip_if_real_docker
-def test_phase2_debounce_control_the_floor_actually_fires(stub_env):
-    """Negative control for the three tests above: WITHOUT any state file
-    (the common case -- first tick ever, or an upgrade from a build that
-    predates this guard), Phase 2 must still launch. Otherwise the floor's
-    absence-handling, not the floor itself, would be what the other tests
-    measure."""
+def test_phase2_debounce_state_file_NOT_written_on_failure(stub_env):
+    """The mirror case: a FAILED Phase 2 run must NOT record a completion
+    epoch -- an interrupted compile is not a completion, and recording one
+    anyway would floor out the very retry this fix exists to allow."""
+    _make_fake_docker(stub_env["stub_dir"], run_exit=0, up_exit=0,
+                       log_path=stub_env["tmp_path"] / "docker.log")
+    # Override just the full-compile arm to fail; baseline (SKIP_LLM) and
+    # `up` still succeed so the tick reaches Phase 2 at all.
+    stub = stub_env["stub_dir"] / "docker"
+    stub.write_text("""#!/usr/bin/env bash
+echo "$@" >> "%s"
+if [ "$1" = "info" ]; then exit 0; fi
+if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
+    for a in "$@"; do case "$a" in *OSTLER_WIKI_SKIP_LLM*) exit 0 ;; esac; done
+    exit 1
+fi
+if [ "$1" = "compose" ] && [ "$2" = "up" ]; then exit 0; fi
+exit 0
+""" % (stub_env["tmp_path"] / "docker.log"))
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    ostler_dir = stub_env["ostler_dir"]
+    _write_hydration_status(ostler_dir, complete=True)
+    state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-complete-epoch"
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr  # the TICK succeeds; Phase 2 failing is non-fatal
+    _wait_for_line(stub_env["tmp_path"] / "docker.log", "run --rm -T wiki-compiler", timeout=10.0)
+    assert not state_file.exists(), (
+        "a FAILED Phase 2 run recorded a completion epoch -- this would floor "
+        "out the retry an interrupted compile needs"
+    )
+
+
+@_skip_if_real_docker
+def test_an_interrupted_first_run_phase2_is_retried_on_the_next_trigger(stub_env):
+    """THE round-2 regression, named explicitly. Hydration has NOT yet
+    completed (wiki_hydration.json reports complete=false -- a first-run
+    Phase 2 was interrupted partway, e.g. by the v1.0.107 stall watchdog or
+    a bounced box), but a completion epoch happens to be on disk and RECENT
+    (a different phase, or an earlier partial pass, completed quickly).
+    The floor must be skipped entirely and Phase 2 must launch anyway --
+    exactly the case that keying on "last start" got wrong."""
     log = stub_env["tmp_path"] / "docker.log"
     _make_fake_docker(stub_env["stub_dir"], log_path=log)
     ostler_dir = stub_env["ostler_dir"]
-    # Deliberately no state/wiki-recompile/last-phase2-start-epoch file.
+    _write_hydration_status(ostler_dir, complete=False)
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    # Recorded 10 seconds ago -- well inside the default 86400s floor, which
+    # must not matter at all while hydration is not complete.
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 10))
 
     result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
     assert result.returncode == 0, result.stderr
-    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=10.0)
-    full_lines = [
-        line for line in lines
-        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
-    ]
-    assert full_lines, f"absent state file must not itself block Phase 2: {lines}"
+    assert "skipping the Phase-2 cost floor" in result.stdout, result.stdout
+    full_lines = _full_compile_lines(log, timeout=10.0)
+    assert full_lines, (
+        f"an interrupted first-run compile was blocked by the floor: {full_lines}"
+    )
+
+
+@_skip_if_real_docker
+def test_a_completed_hydration_IS_floored_for_24_hours_by_default(stub_env):
+    """The companion half, named explicitly: once hydration has completed,
+    the DEFAULT floor (no override) is a full day, matching CM051 #20's
+    deliberate daily cadence."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    _write_hydration_status(ostler_dir, complete=True)
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 3600))  # 1h ago
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    full_lines = _full_compile_lines(log, timeout=2.0)
+    assert not full_lines, (
+        f"1 hour after completion, with no override, the default 24h floor "
+        f"must still apply: {full_lines}"
+    )
+
+
+@_skip_if_real_docker
+def test_phase2_debounce_control_the_floor_actually_fires(stub_env):
+    """Negative control: WITHOUT any state file and without a
+    wiki_hydration.json at all (the common case -- first tick ever, or an
+    upgrade from a build that predates both guards), Phase 2 must still
+    launch. Otherwise the floor's absence-handling, not the floor itself,
+    would be what the other tests measure."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    # Deliberately no wiki_hydration.json and no
+    # state/wiki-recompile/last-phase2-complete-epoch file.
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    full_lines = _full_compile_lines(log, timeout=10.0)
+    assert full_lines, f"absent state must not itself block Phase 2: {full_lines}"
 
 
 # ---------------------------------------------------------------------------

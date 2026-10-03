@@ -362,31 +362,67 @@ if [ -f "$_bg_pidfile" ]; then
     fi
 fi
 
-# No-SOON-AFTER guard (CM051 walk #5 follow-up, Archie review on #2633): the
-# anti-STACKING check above only stops two backfills overlapping; it does
-# nothing to stop a new one starting the moment the previous one finishes.
-# editor-frontpage-tick.sh now kickstarts this whole tick on every
-# front_page.json change, which Phase 1 (above) handles cheaply -- but
-# without a time floor here, a box where Phase 2 finishes in minutes (a thin
-# graph, as on a walk box) would restart the LLM backfill on every such
-# trigger, turning the deliberate daily cost (CM051 #20's "daily vs hourly"
-# decision) into a near-continuous one. This floor is independent of WHO
-# triggered the tick -- the regular daily schedule, the first-day catch-up,
-# or the front-page change -- so it protects the cost decision regardless of
-# trigger source rather than special-casing one caller.
+# No-SOON-AFTER guard (CM051 walk #5 follow-up, Archie review round 1 on
+# #2633): the anti-STACKING check above only stops two backfills
+# overlapping; it does nothing to stop a new one starting the moment the
+# previous one finishes. editor-frontpage-tick.sh now kickstarts this whole
+# tick on every front_page.json change, which Phase 1 (above) handles
+# cheaply -- but without a time floor here, a box where Phase 2 finishes in
+# minutes (a thin graph, as on a walk box) would restart the LLM backfill on
+# every such trigger, turning the deliberate daily cost (CM051 #20's "daily
+# vs hourly" decision) into a near-continuous one. This floor is independent
+# of WHO triggered the tick -- the regular daily schedule, the first-day
+# catch-up, or the front-page change -- so it protects the cost decision
+# regardless of trigger source rather than special-casing one caller.
+#
+# 🔴 ROUND 2 (Archie): keying the floor on the last START, not the last
+# SUCCESSFUL completion, meant a Phase 2 killed mid-way through FIRST-RUN
+# hydration -- which the v1.0.107 fix just above this block says happens
+# routinely: the stall watchdog, a bounced box, a crashed Colima VM -- wrote
+# a start timestamp and then blocked every retry for a full day on nothing
+# but a timer, with the wiki left hidden the whole time. hydration.complete()
+# (CM044 compiler/compile.py:1403) is only ever reached by a full compile
+# that is ALLOWED TO FINISH; a half-finished one must never cost a day.
+#
+# Fix, two parts:
+#   1. The floor is now keyed on the last SUCCESSFUL completion (written
+#      inside the detached subshell below, only on _rc = 0), not the start.
+#   2. The floor is SKIPPED ENTIRELY while CM044's own wiki_hydration.json
+#      has not yet reported complete=true. The floor's whole purpose is
+#      bounding the STEADY-STATE daily LLM cost; there is no steady state
+#      to bound until first-run hydration has actually finished once, and
+#      an interrupted first-run compile must always be free to retry on the
+#      very next trigger.
+#
+# Read with grep, not a JSON parser: this script has no python3 dependency
+# today and the one field needed is a single top-level boolean written by a
+# trusted producer (CM044's compiler). Any read problem -- file absent,
+# unreadable, malformed, or complete=false/missing -- reads as "not
+# complete", the SAME direction as "skip the floor", so a read failure can
+# only ever produce MORE retries, never fewer.
+WIKI_HYDRATION_STATUS_FILE="${WIKI_HYDRATION_STATUS_FILE:-${OSTLER_DIR}/state/wiki_hydration.json}"
+_hydration_complete=false
+if [ -f "$WIKI_HYDRATION_STATUS_FILE" ] \
+    && grep -q '"complete"[[:space:]]*:[[:space:]]*true' "$WIKI_HYDRATION_STATUS_FILE" 2>/dev/null; then
+    _hydration_complete=true
+fi
+
 WIKI_PHASE2_MIN_INTERVAL_SECONDS="${WIKI_PHASE2_MIN_INTERVAL_SECONDS:-86400}"
-_phase2_last_start_file="${OSTLER_DIR}/state/wiki-recompile/last-phase2-start-epoch"
+_phase2_last_complete_file="${OSTLER_DIR}/state/wiki-recompile/last-phase2-complete-epoch"
 _phase2_too_soon=false
-if [ "$_bg_running" != true ] && [ -f "$_phase2_last_start_file" ]; then
-    _last_start="$(cat "$_phase2_last_start_file" 2>/dev/null || true)"
-    if [ -n "${_last_start:-}" ] && [ "$_last_start" -eq "$_last_start" ] 2>/dev/null; then
+if [ "$_bg_running" != true ] && [ "$_hydration_complete" = true ] \
+    && [ -f "$_phase2_last_complete_file" ]; then
+    _last_complete="$(cat "$_phase2_last_complete_file" 2>/dev/null || true)"
+    if [ -n "${_last_complete:-}" ] && [ "$_last_complete" -eq "$_last_complete" ] 2>/dev/null; then
         _now_epoch="$(date -u +%s)"
-        _elapsed=$((_now_epoch - _last_start))
+        _elapsed=$((_now_epoch - _last_complete))
         if [ "$_elapsed" -lt "$WIKI_PHASE2_MIN_INTERVAL_SECONDS" ]; then
             _phase2_too_soon=true
-            log "wiki summary backfill last started ${_elapsed}s ago (floor ${WIKI_PHASE2_MIN_INTERVAL_SECONDS}s); not launching another yet"
+            log "wiki summary backfill last completed ${_elapsed}s ago (floor ${WIKI_PHASE2_MIN_INTERVAL_SECONDS}s); not launching another yet"
         fi
     fi
+elif [ "$_bg_running" != true ] && [ "$_hydration_complete" != true ]; then
+    log "wiki hydration not yet complete (${WIKI_HYDRATION_STATUS_FILE}); skipping the Phase-2 cost floor so an interrupted first-run compile is never blocked by it"
 fi
 
 if [ "$_bg_running" = true ]; then
@@ -394,8 +430,7 @@ if [ "$_bg_running" = true ]; then
 elif [ "$_phase2_too_soon" = true ]; then
     : # already logged above
 else
-    mkdir -p "$(dirname "$_phase2_last_start_file")" 2>/dev/null || true
-    date -u +%s > "$_phase2_last_start_file" 2>/dev/null || true
+    mkdir -p "$(dirname "$_phase2_last_complete_file")" 2>/dev/null || true
     # --- Shared background-LLM slot lock (v1.0.0 chat-saturation fix) ------
     # The full-summary backfill is the single biggest Ollama producer on the
     # box. It MUST share the one background-LLM slot lock with the
@@ -451,7 +486,7 @@ else
         # slot acquire, turns that into "started at T, never seen again".
         printf "%s wiki-summaries: process started (pid %s)\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$"
         set -u
-        _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"
+        _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"; _complete_file="$5"
         cd "$_wd" || exit 1
         exec </dev/null
         mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
@@ -529,6 +564,10 @@ else
             fi
             if [ "$_rc" = "0" ]; then
                 printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                # Floor is keyed on this, not on when the attempt STARTED
+                # (Archie review round 2): only a compile that actually
+                # finished should ever start the cost-floor clock.
+                date -u +%s > "$_complete_file" 2>/dev/null || true
             else
                 printf "%s wiki-summaries: compile FAILED (exit %s). The wiki will show pages without summaries until the next daily compile.\n" \
                     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_rc"
@@ -551,12 +590,17 @@ else
         # Pass the tier-capped parallel summary worker count to the compile
         # container only when the governor resolved one; otherwise let the
         # compiler use its own default (pre-governor behaviour).
+        _rc=0
         if [ -n "$_workers" ]; then
-            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler
+            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler || _rc=$?
         else
-            docker compose --profile compile run --rm -T wiki-compiler
+            docker compose --profile compile run --rm -T wiki-compiler || _rc=$?
         fi
-    ' _ "$_slot" "$OSTLER_DIR" "$WIKI_TIER_WORKERS" "$_slot_lib" >"$_bg_log" 2>&1 &
+        if [ "$_rc" = "0" ]; then
+            date -u +%s > "$_complete_file" 2>/dev/null || true
+        fi
+        exit "$_rc"
+    ' _ "$_slot" "$OSTLER_DIR" "$WIKI_TIER_WORKERS" "$_slot_lib" "$_phase2_last_complete_file" >"$_bg_log" 2>&1 &
     _bg_new_pid=$!
     printf '%s\n' "$_bg_new_pid" > "$_bg_pidfile"
     disown || true
