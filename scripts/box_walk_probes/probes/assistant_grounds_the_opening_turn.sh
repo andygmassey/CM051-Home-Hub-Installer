@@ -557,54 +557,71 @@ _read_the_battery() {
 # The body is `run_probe` now, which is the contract, and
 # tests/test_no_probe_shadows_the_dispatcher.sh fails the build if any probe
 # in this directory takes the dispatcher's name again.
+# _settle_purge_seed_person <initial read-output>
+#
+# SHARED by _restore_precondition_before_opening (i>1) AND run_probe's own
+# precondition-1 check (i=1). Forgets every key the read named, then re-reads
+# with a settle sleep between rounds, up to OSTLER_PROBE_PURGE_ROUNDS bounded
+# rounds, re-forgetting anything consolidation re-wrote in the meantime.
+#
+# WHY A SECOND CALL SITE NEEDED THIS. The daemon consolidates a turn into
+# memory AFTER the reply (daily_ and core_ entries, written asynchronously),
+# so a purge made right after a turn can be followed by fresh entries about
+# the same person -- i>1 already tolerated this (Archie, review; 9/9 walk
+# 2026-09-30). The v1.0.107 candidate 3 symptom, "FORGOT 1 0 api=1 db=0;
+# re-read: PRESENT", came from the OTHER call site: precondition-1, before
+# opening 1, did a single forget-and-reread with no settle round at all, so
+# the exact same async-consolidation landing that i>1 absorbs just failed
+# i=1 outright. One copy now, so both get the same tolerance.
+#
+# Sets (plain globals, read by the caller immediately after -- not `local`,
+# and not a return value, because bash cannot hand back five fields cleanly
+# through $()): _settle_ans _settle_cn _settle_round _settle_lastread _settle_cf
+_settle_purge_seed_person() {
+    local _settle_cm="$1" _settle_ck _settle_cm2
+    _settle_ck="$(printf '%s\n' "$_settle_cm" | sed -n 's/^KEY //p' | tr '\n' ' ')"
+    _settle_cn="$(printf '%s\n' "$_settle_cm" | awk 'NR==1 {print $3}')"
+    _settle_cf="$(_memory_forget_keys ${_settle_ck})"
+    _settle_round=1
+    _settle_lastread="$(_memory_mentions_person)"
+    _settle_ans="$(_read_memory_answer "$_settle_lastread")"
+    while [ "$_settle_ans" != "ABSENT" ] && [ "$_settle_round" -lt "${OSTLER_PROBE_PURGE_ROUNDS:-4}" ]; do
+        sleep "${OSTLER_PROBE_PURGE_SETTLE_S:-15}"
+        _settle_cm2="$(_memory_mentions_person)"
+        _settle_lastread="$_settle_cm2"
+        _settle_ans="$(_read_memory_answer "$_settle_cm2")"
+        if [ "$_settle_ans" = "PRESENT" ]; then
+            _settle_cf="${_settle_cf}
+round $((_settle_round + 1)): $(_memory_forget_keys $(printf '%s\n' "$_settle_cm2" | sed -n 's/^KEY //p' | tr '\n' ' '))"
+            _settle_lastread="$(_memory_mentions_person)"
+            _settle_ans="$(_read_memory_answer "$_settle_lastread")"
+        fi
+        _settle_round=$((_settle_round + 1))
+    done
+}
+
 # _restore_precondition_before_opening <i>. See the loop in run_probe for why.
 # Returns 0 to go on; on a memory it cannot read or clear it has already called
 # probe_cannot_run, and returns 1 so the caller stops. Adds to _carried_total.
 _restore_precondition_before_opening() {
-    local i="$1" _cm _ck _cn _cf
+    local i="$1" _cm
     [ "$i" -gt 1 ] || return 0
     [ "${OSTLER_SEED_PERSON_IS_SYNTHETIC:-0}" = "1" ] || return 0
     _cm="$(_memory_mentions_person)"
     case "$(_read_memory_answer "$_cm")" in
         ABSENT) return 0 ;;
         PRESENT)
-            _ck="$(printf '%s\n' "$_cm" | sed -n 's/^KEY //p' | tr '\n' ' ')"
-            _cn="$(printf '%s\n' "$_cm" | awk 'NR==1 {print $3}')"
-            _cf="$(_memory_forget_keys ${_ck})"
-            _carried_total=$((_carried_total + ${_cn:-0}))
-            # The daemon consolidates a turn into memory AFTER the reply
-            # (daily_ and core_ entries, written asynchronously), so a purge
-            # made right after an opening can be followed by fresh entries
-            # about the same person. Let consolidation settle and purge again,
-            # a bounded number of times, before calling the precondition lost.
-            # An UNREADABLE re-read is retried inside the same rounds and is
-            # never reported as "did not take": a read that failed is not a
-            # memory that survived (Archie, review; 9/9 walk 2026-09-30).
-            local _round=1 _cm2 _ans _lastread
-            _lastread="$(_memory_mentions_person)"
-            _ans="$(_read_memory_answer "$_lastread")"
-            while [ "$_ans" != "ABSENT" ] && [ "$_round" -lt "${OSTLER_PROBE_PURGE_ROUNDS:-4}" ]; do
-                sleep "${OSTLER_PROBE_PURGE_SETTLE_S:-15}"
-                _cm2="$(_memory_mentions_person)"
-                _lastread="$_cm2"
-                _ans="$(_read_memory_answer "$_cm2")"
-                if [ "$_ans" = "PRESENT" ]; then
-                    _cf="${_cf}
-round $((_round + 1)): $(_memory_forget_keys $(printf '%s\n' "$_cm2" | sed -n 's/^KEY //p' | tr '\n' ' '))"
-                    _lastread="$(_memory_mentions_person)"
-                    _ans="$(_read_memory_answer "$_lastread")"
-                fi
-                _round=$((_round + 1))
-            done
-            if [ "$_ans" = "UNREADABLE" ]; then
-                probe_cannot_run "before opening ${i}: memory read failed: $(printf '%s' "${_lastread:-<no output>}" | head -1 | cut -c1-200) (after ${_round} round(s); the purge itself answered ${_cf:-nothing}). Precondition 1 is unestablished, so the battery stops here. A failed read, not a surviving memory."
+            _settle_purge_seed_person "$_cm"
+            _carried_total=$((_carried_total + ${_settle_cn:-0}))
+            if [ "$_settle_ans" = "UNREADABLE" ]; then
+                probe_cannot_run "before opening ${i}: memory read failed: $(printf '%s' "${_settle_lastread:-<no output>}" | head -1 | cut -c1-200) (after ${_settle_round} round(s); the purge itself answered ${_settle_cf:-nothing}). Precondition 1 is unestablished, so the battery stops here. A failed read, not a surviving memory."
                 return 1
             fi
-            if [ "$_ans" != "ABSENT" ]; then
-                probe_cannot_run "before opening ${i} the daemon remembered the seed person from opening $((i - 1)) and removing it did not take (${_cf:-no forget answer}). Openings after this would be asked against memory, so the battery stops here. Nothing about the model was learned from the remainder."
+            if [ "$_settle_ans" != "ABSENT" ]; then
+                probe_cannot_run "before opening ${i} the daemon remembered the seed person from opening $((i - 1)) and removing it did not take (${_settle_cf:-no forget answer}). Openings after this would be asked against memory, so the battery stops here. Nothing about the model was learned from the remainder."
                 return 1
             fi
-            probe_note "opening ${i}: removed ${_cn} memory entr(y/ies) about the seed person left by the previous opening (${_cf})"
+            probe_note "opening ${i}: removed ${_settle_cn} memory entr(y/ies) about the seed person left by the previous opening (${_settle_cf})"
             return 0 ;;
         *)
             probe_cannot_run "before opening ${i} daemon memory could not be read ($(printf '%s' "${_cm:-<nothing>}" | head -1)), so precondition 1 is unestablished for the rest of the battery."
@@ -652,14 +669,18 @@ run_probe() {
         # precondition. When the operator keyed a REAL contact, customer memory
         # is never touched and the old refusal stands.
         if [ "${OSTLER_SEED_PERSON_IS_SYNTHETIC:-0}" = "1" ]; then
-            _keys="$(printf '%s\n' "$_mem" | sed -n 's/^KEY //p' | tr '\n' ' ')"
-            _forgot="$(_memory_forget_keys ${_keys})"
-            _mem="$(_memory_mentions_person)"
-            _memstate="$(_read_memory_answer "$_mem")"
+            # Same settle-and-retry the precondition before every LATER
+            # opening already gets (_restore_precondition_before_opening):
+            # a single-shot forget-and-reread here is exactly what let the
+            # v1.0.107 candidate 3 symptom ("FORGOT 1 0 api=1 db=0; re-read:
+            # PRESENT") report CANNOT-RUN for a transient async-consolidation
+            # landing that a settle round would have absorbed.
+            _settle_purge_seed_person "$_mem"
+            _memstate="$_settle_ans"
             if [ "$_memstate" = "ABSENT" ]; then
-                probe_note "precondition 1 RESTORED: removed ${_hits} memory entr(y/ies) the walk itself created about the synthetic seed person (${_forgot:-no forget answer}); re-read shows none"
+                probe_note "precondition 1 RESTORED: removed ${_hits} memory entr(y/ies) the walk itself created about the synthetic seed person (${_settle_cf:-no forget answer}); re-read shows none"
             else
-                probe_cannot_run "the daemon remembers the synthetic seed person ${KNOWN_PERSON} from earlier in this walk, and removing those entries did not take (${_forgot:-no forget answer}; re-read: ${_memstate}). It could answer from memory without calling a tool. Nothing about the model was learned."
+                probe_cannot_run "the daemon remembers the synthetic seed person ${KNOWN_PERSON} from earlier in this walk, and removing those entries did not take after ${_settle_round} settle round(s) (${_settle_cf:-no forget answer}; last read: $(printf '%s' "${_settle_lastread:-<no output>}" | head -1 | cut -c1-200)). It could answer from memory without calling a tool. Nothing about the model was learned."
                 return
             fi
         else

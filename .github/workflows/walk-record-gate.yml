@@ -74,6 +74,8 @@ on:
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
       - 'tests/test_the_walk_seeds_the_grounded_probe.sh'
       - 'tests/test_every_opening_starts_from_clean_memory.sh'
+      - 'tests/test_precondition_one_settles_like_every_later_opening.sh'
+      - 'scripts/box_walk_probes/probes/assistant_grounds_the_opening_turn.sh'
       - 'tests/test_every_walk_ssh_gives_up_on_a_dead_link.sh'
       - 'tests/test_the_seed_forgets_what_the_walk_taught.sh'
       - 'scripts/box_walk_probes/lib/daemon_memory.sh'
@@ -753,6 +755,10 @@ jobs:
       - name: Every opening of the opening-turn battery starts from clean memory
         if: always()
         run: /bin/bash tests/test_every_opening_starts_from_clean_memory.sh
+
+      - name: Precondition 1 settles a consolidation re-write the same way every later opening already does
+        if: always()
+        run: /bin/bash tests/test_precondition_one_settles_like_every_later_opening.sh
 
       - name: Every walk ssh gives up on a dead link instead of hanging the walk
         if: always()
