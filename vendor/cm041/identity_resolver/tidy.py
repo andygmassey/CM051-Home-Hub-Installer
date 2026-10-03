@@ -317,20 +317,53 @@ def _duplicate_items(
     all_matches.extend(detect_fuzzy_name_matches(persons, config, stats=stats))
     all_matches.extend(detect_name_subset_matches(persons, config))
 
+    # CM051 walk #3, item E: consolidate_matches keeps only the HIGHEST-
+    # confidence match per pair, so a pair that shares BOTH an email and a
+    # phone is filed under whichever strategy scored higher (email_match is
+    # 1.0, phone_match tops out at 0.95) -- the phone-sharing fact is then
+    # never recorded in that item's evidence at all. Measured on a cold
+    # v1.0.107 install (walk #3): 34 of 104 phone-matched pairs were "won"
+    # by a different strategy this way. The underlying pair IS already
+    # merged or listed for review -- RULE 2 and the auto/review split are
+    # unaffected -- but anything reading evidence for "is this phone
+    # already surfaced" (the walk probe; a future Doctor UI detail view)
+    # found nothing, because the winning item's details text never
+    # mentions the phone at all. Record every OTHER strategy's match for
+    # the same pair so the evidence is honest about every reason the pair
+    # looks like a duplicate, not just the highest-scoring one.
+    other_matches_by_pair: Dict[Tuple[str, str], List[DuplicateMatch]] = {}
+    for m in all_matches:
+        key = tuple(sorted((m.uri_a, m.uri_b)))
+        other_matches_by_pair.setdefault(key, []).append(m)
+
     auto, review = consolidate_matches(all_matches, config)
 
     items: List[TidyItem] = []
     for bucket, action in ((auto, ACTION_PROPOSE_MERGE), (review, ACTION_REVIEW)):
         for m in bucket:
             keep, discard = pick_canonical(persons, m.uri_a, m.uri_b)
+            key = tuple(sorted((m.uri_a, m.uri_b)))
+            other_strategies = sorted({
+                om.strategy for om in other_matches_by_pair.get(key, [])
+                if om.strategy != m.strategy
+            })
+            details = m.details
+            if other_strategies:
+                also = "; ".join(
+                    om.details for om in other_matches_by_pair[key]
+                    if om.strategy != m.strategy
+                )
+                details = f"{details}; {also}"
             evidence = {
                 "strategy": m.strategy,
-                "details": m.details,
+                "details": details,
                 "name_a": persons[m.uri_a].display_name,
                 "name_b": persons[m.uri_b].display_name,
                 "keep_name": persons[keep].display_name,
                 "discard_name": persons[discard].display_name,
             }
+            if other_strategies:
+                evidence["other_strategies"] = other_strategies
             items.append(TidyItem(
                 item_type=ITEM_MERGE_DUPLICATE,
                 person_refs=[m.uri_a, m.uri_b],

@@ -719,11 +719,21 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
                 "Authorization": "Bearer " + token})
             with _local_urlopen(req, timeout=180) as r:
                 diff = json.load(r)
+            # CM051 walk #3, item E: do NOT filter by evidence["strategy"].
+            # consolidate_matches keeps only the HIGHEST-confidence match per
+            # pair, so a pair sharing both an email and a phone is filed
+            # under whichever strategy scored higher -- measured on a cold
+            # install, 34 of 104 phone-matched pairs were "won" by a
+            # different strategy. The pair was already merged or listed for
+            # review either way; filtering on strategy=="phone*" here just
+            # meant this probe could not see it. identity_resolver.tidy now
+            # records every OTHER strategy that also matched the same pair
+            # in the winning item's own details text, so scanning ALL
+            # items' text for a phone-shaped substring -- regardless of
+            # which strategy nominally won -- finds it. This is also more
+            # robust to a future strategy rename than matching the name.
             reviewed = set()
             for item in diff.get("items") or []:
-                strategy = (item.get("evidence") or {}).get("strategy") or ""
-                if not strategy.startswith("phone"):
-                    continue
                 details = (item.get("evidence") or {}).get("details") or ""
                 for p in PHONE.findall(details):
                     reviewed.add(re.sub(r"\D", "", p))
