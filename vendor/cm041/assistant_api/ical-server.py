@@ -544,16 +544,80 @@ def _looks_like_bare_email_or_phone(display_name):
     return False
 
 
-# Walk #6, bug 1: a small, specific vocabulary of notification/alert/service
-# nouns, matched ONLY as the last whitespace-separated word of a display
-# name (not a substring scan -- a real surname containing one of these as
-# a substring must not match). Earned the same way as
-# email-intelligence's _AUTOMATED_LOCAL_RE: read off the real shapes, not
-# imagined. See _is_automated_or_service_name.
+# Walk #6, bug 1 (round 1) + round 4 (Archie's second screen-read, 7 more
+# measured rows): a small, specific vocabulary of notification/alert/
+# service/reward nouns. Round 1 matched ONLY the last whitespace-separated
+# word (a real surname containing one of these as a substring must not
+# match). Round 4 measured TWO rows where the vocabulary word is NOT last
+# ("rewards", 3 words, word in the MIDDLE position; "delivery", 3 words,
+# word in the MIDDLE position) -- a last-word-only check cannot catch
+# either. Promoted to a whole-string word-boundary regex, matching the
+# SAME shape customer_read.py's SERVICE_PHRASE already uses (CM051's own
+# box-walk audit tooling, scripts/box_walk_probes/lib/customer_read.py) --
+# two independent implementations agreeing is a stronger signal than one
+# shared one. KNOWN, ACCEPTED LIMIT (widened from round 1's docstring): a
+# real given name that IS one of these words (e.g. "Gift", a real given
+# name in several cultures) would now false-positive if uncarded. Round 1
+# already accepted this shape of risk for "JANE DOE"/"Jane Doe - Plumber"
+# and the caller's uncarded-only gate is the same backstop here: a
+# Contacts card still always wins regardless of what this check decides.
 _SERVICE_NAME_SUFFIX_WORDS = frozenset({
     "notification", "notifications", "alert", "alerts", "advice",
-    "marketplace",
+    "marketplace", "reward", "rewards", "gift", "gifts", "update",
+    "updates", "delivery", "deliveries",
 })
+_SERVICE_NAME_PHRASE_RE = re.compile(
+    r"\b(" + "|".join(sorted(_SERVICE_NAME_SUFFIX_WORDS)) + r")\b", re.I)
+
+# Round 4: marketplace BRAND tokens, matched ANYWHERE in a display name or
+# email address -- not a vocabulary NOUN (notification/alert/...), a
+# specific company name. Measured: a 3-word Title-case row containing one
+# of these (no email field), and 3 of the 4 service-mailbox rows below
+# carry one in the domain or local part of an email-shaped name. Same list
+# as customer_read.py's MARKETPLACES (CM051 box-walk audit tooling) --
+# kept as a second, independently-written copy rather than an import for
+# the same reason _load_people_list_self_uris reimplements rather than
+# imports person_facts: this file ships to a vendor tree that does not
+# carry CM051's scripts/ directory.
+_MARKETPLACE_BRAND_RE = re.compile(
+    r"\b(amazon|ebay|etsy|aliexpress|alibaba|shopee|lazada|taobao|tmall|"
+    r"rakuten|walmart|temu|shein|zalando|asos|wish)\b", re.I)
+
+# Round 4: a bare-email-shaped display name (_looks_like_bare_email_or_phone
+# already detects the SHAPE; this detects the SERVICE flavour of that
+# shape) whose LOCAL PART is a generic service/no-reply mailbox alias.
+# Measured: 1 of the 4 service-mailbox rows has an `ebill`-prefixed local
+# part specifically -- same vocabulary as customer_read.py's SERVICE_LOCAL.
+_SERVICE_MAILBOX_LOCAL_RE = re.compile(
+    r"^(no-?reply|noreply|do-?not-?reply|support|help(desk)?|team|info|"
+    r"news(letter)?|promo(tions?)?|marketing|notifications?|alerts?|"
+    r"billing|sales|service|accounts?|orders?|ebill\w*)$", re.I)
+
+
+def _is_service_mailbox_name(display_name):
+    """True when ``display_name`` IS an email address (the bare-identifier
+    shape ``_looks_like_bare_email_or_phone`` already detects) AND that
+    address itself reads as a service/no-reply mailbox or a marketplace
+    domain -- round 4's 4 "service mailbox" rows, none of which trip
+    ``_is_automated_or_service_name``'s four checks (an email address is
+    one unspaced token, so it is never multi-word-all-caps and never
+    contains a spaced hyphen; it also never reaches the suffix-word check
+    because that check runs on whitespace-split WORDS and an email has
+    none). CALL THIS ONLY FOR AN UNCARDED RECORD, same gate as
+    ``_is_automated_or_service_name`` -- a real Contacts card can legally
+    carry an email-shaped display name with no human name parts (an
+    email-only contact the customer saved by hand) and this check has no
+    way to tell that apart from a service mailbox by shape alone.
+    """
+    s = (display_name or "").strip()
+    if "@" not in s:
+        return False
+    local = s.split("@", 1)[0]
+    if _SERVICE_MAILBOX_LOCAL_RE.match(local):
+        return True
+    if _MARKETPLACE_BRAND_RE.search(s):
+        return True
+    return False
 
 
 def _is_automated_or_service_name(display_name):
@@ -609,10 +673,18 @@ def _is_automated_or_service_name(display_name):
          vocabulary, not a general dictionary scan.
 
     KNOWN LIMIT, stated rather than hidden: a bare brand name with none of
-    these four shapes (a single ordinary-looking word, e.g. a marketplace
-    whose name is one plain word) is NOT caught here -- there is no
-    structural signal left once a sender name is one unremarkable word,
-    and guessing a brand-name allowlist would be a guess dressed as data.
+    these four shapes (a single ordinary-looking word with no vocabulary
+    hit) is NOT caught here -- there is no structural signal left once a
+    sender name is one unremarkable word, and guessing a brand-name
+    allowlist would be a guess dressed as data. Round 4 added a NAMED
+    brand list (``_MARKETPLACE_BRAND_RE``) for the specific companies
+    Archie measured; a brand not on that list is still this same limit.
+
+    ROUND 4 (Archie's second screen-read, 7 more measured rows): check 4
+    was last-word-only and missed two measured rows where the vocabulary
+    word sits in the MIDDLE of the name ("rewards"/"delivery", 3 words
+    each). Promoted to a whole-string regex (``_SERVICE_NAME_PHRASE_RE``);
+    see that constant's comment for the accepted risk this widens.
     """
     name = (display_name or "").strip()
     if not name:
@@ -624,7 +696,9 @@ def _is_automated_or_service_name(display_name):
         return True
     if " - " in name:
         return True
-    if words and words[-1].strip(".,!?:;").lower() in _SERVICE_NAME_SUFFIX_WORDS:
+    if _SERVICE_NAME_PHRASE_RE.search(name):
+        return True
+    if _MARKETPLACE_BRAND_RE.search(name):
         return True
     return False
 
@@ -5716,6 +5790,28 @@ def people_list(sort=None, ceiling=10000):
     # lists the operator among their own contacts.
     self_uris = _load_people_list_self_uris()
 
+    # Round 4: every email address held by a record with a REAL human name
+    # of its own (given_name or family_name populated), so a SEPARATE,
+    # uncarded, bare-email-named record sharing one of those addresses can
+    # be recognised as a duplicate below rather than shown as a second
+    # person. Built from the SAME already-fetched points plus the SAME
+    # Oxigraph identifier join as the rest of this function -- no second
+    # Qdrant or Oxigraph round-trip.
+    human_named_emails = set()
+    for _pt in points:
+        _pl = _pt.get("payload", {}) or {}
+        if not ((_pl.get("given_name") or "").strip() or (_pl.get("family_name") or "").strip()):
+            continue
+        for _e in (_pl.get("emails") or []):
+            _e_norm = (_e or "").strip().lower()
+            if _e_norm:
+                human_named_emails.add(_e_norm)
+        _uri = _pl.get("person_uri") or ""
+        for _e in ident_by_uri.get(_uri, {}).get("email", []):
+            _e_norm = (_e or "").strip().lower()
+            if _e_norm:
+                human_named_emails.add(_e_norm)
+
     people = []
     for pt in points:
         p = pt.get("payload", {}) or {}
@@ -5784,8 +5880,40 @@ def people_list(sort=None, ceiling=10000):
         # specifically, not "has a given/family name" generically -- only a
         # card is proof of a real address-book entry.
         has_contacts_card = bool((p.get("icloud_uid") or "").strip())
-        if not has_contacts_card and _is_automated_or_service_name(name):
+        if not has_contacts_card and (
+            _is_automated_or_service_name(name)
+            or _is_service_mailbox_name(name)
+        ):
             continue
+
+        # Round 4 (Archie's second screen-read): a bare-email-shaped name
+        # with no given/family of its own (the upgrade above could not
+        # fire) that shares its address with ANOTHER row that DOES have a
+        # human name is a duplicate Person record for the same real
+        # contact, not a second real person. Measured on macmini16-walk:
+        # 2 clean pairs this way (an uncarded, email-named record with no
+        # given/family, alongside a separate uncarded human-named record
+        # sharing one of its stored emails). A THIRD pair Archie reported
+        # turned out to be a record that HAS given/family on itself --
+        # the bug-2 upgrade above already re-labels it with its own human
+        # name on every read, so it is not "a name that is a bare email
+        # address" by the time this check runs; not a new defect, see the
+        # walk report. human_named_emails is built once per call, same
+        # shape as self_uris/ident_by_uri above.
+        if (
+            not has_contacts_card
+            and not given and not family
+            and _looks_like_bare_email_or_phone(name)
+        ):
+            row_emails = {
+                (e or "").strip().lower() for e in (p.get("emails") or [])
+            }
+            row_emails.update(
+                (v or "").strip().lower()
+                for v in ident_by_uri.get(uri, {}).get("email", [])
+            )
+            if row_emails & human_named_emails:
+                continue
 
         # Sort keys -- prefer the parsed given/family name, fall back to a
         # split of the display name so LinkedIn/email-only people still sort.

@@ -868,5 +868,229 @@ class TestPeopleListToEnrichment(unittest.TestCase):
         self.assertEqual(body["person"]["organisation"], "Example Corp")
 
 
+class TestServiceShapesRound4(unittest.TestCase):
+    """Predicate-level: Archie's second screen-read measured 7 notification-
+    phrasing rows (some with the vocabulary word NOT last) and 1 marketplace
+    row, none of which round 1's last-word-only check could catch."""
+
+    def test_middle_position_vocabulary_word_now_matches(self) -> None:
+        # Archie: "rewards (middle, 3 words, Title)" and
+        # "delivery (middle, 3 words, Title)" -- the vocabulary word is
+        # NEITHER the first nor the last word.
+        self.assertTrue(server._is_automated_or_service_name("Your Rewards Balance"))
+        self.assertTrue(server._is_automated_or_service_name("Your Delivery Today"))
+
+    def test_last_position_still_matches_for_the_new_words(self) -> None:
+        self.assertTrue(server._is_automated_or_service_name("your account Update"))
+        self.assertTrue(server._is_automated_or_service_name("Delivery"))
+        self.assertTrue(server._is_automated_or_service_name("your special holiday Gift"))
+
+    def test_marketplace_brand_token_anywhere_in_a_title_case_name(self) -> None:
+        # Archie: a 3-word Title-case name containing a marketplace BRAND,
+        # no email field.
+        self.assertTrue(server._is_automated_or_service_name("your Amazon orders"))
+
+    def test_control_vocabulary_word_as_a_substring_is_not_a_whole_word_match(self) -> None:
+        """CONTROL: the regex is word-BOUNDARY, not substring -- a name
+        that merely contains a vocabulary word as a prefix of a longer
+        word must not match."""
+        self.assertFalse(server._is_automated_or_service_name("Rewardson family"))
+        self.assertFalse(server._is_automated_or_service_name("Updegraff"))
+
+    def test_control_real_names_still_survive_round_4(self) -> None:
+        self.assertFalse(server._is_automated_or_service_name("Jane Doe"))
+        self.assertFalse(server._is_automated_or_service_name("John Smith"))
+
+
+class TestServiceMailboxNames(unittest.TestCase):
+    """Round 4: the 4 'service mailbox' rows, all email-SHAPED display
+    names, none of which trip _is_automated_or_service_name (an email is
+    one unspaced token: never multi-word, never spaced-hyphenated, and the
+    suffix/phrase vocabulary never sees it because there are no
+    whitespace-split words to search within an email string's LOCAL part
+    alone -- though the whole-string regex now also matches the domain)."""
+
+    def test_ebill_prefixed_local_part(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "ebillnotice" + "@examplebank.com"))
+
+    def test_marketplace_brand_in_domain(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "orders" + "@amazon.example.com"))
+
+    def test_marketplace_brand_in_local_part(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "amazon.orders" + "@example.com"))
+
+    def test_generic_service_local_part(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "no-reply" + "@example.com"))
+
+    def test_control_a_non_service_email_is_not_a_mailbox_shape(self) -> None:
+        """CONTROL: an ordinary-looking personal email address (no service
+        local part, no marketplace brand) is NOT a service mailbox by this
+        check -- it is still a bare-identifier shape (handled elsewhere),
+        just not THIS specific vocabulary-and-brand check."""
+        self.assertFalse(server._is_service_mailbox_name(
+            "alice.example" + "@example.com"))
+
+    def test_control_not_an_email_at_all(self) -> None:
+        self.assertFalse(server._is_service_mailbox_name("Jane Doe"))
+
+    def test_service_mailbox_excluded_when_uncarded(self) -> None:
+        points = [
+            _point("p1", "ebillnotice" + "@examplebank.com"),
+            _point("p2", "Alice Example"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example"}, body)
+
+    def test_control_a_carded_service_shaped_email_stays(self) -> None:
+        """CONTROL (Archie: 'Keep the filter UNCARDED-ONLY'): a real
+        Contacts entry can legitimately be saved with an email-only name
+        that happens to match a service-mailbox shape -- the card always
+        wins, same as round 2's carded-gate fix.
+
+        Vendor-only note: the local part here is `ebill...`, NOT one of
+        this vendor's own `_ROLE_ADDRESS_LOCAL_RE` words (no-reply,
+        support, ...) -- that PRE-EXISTING vendor check (v1.0.106 walk)
+        runs unconditionally, with no card gate, so a `no-reply@`-shaped
+        name would be dropped regardless of this round's fix and would
+        not isolate what THIS test is for. `ebill` is round 4's own,
+        newly-added vocabulary, which IS card-gated, same as
+        `_is_automated_or_service_name`.
+        """
+        points = [
+            _point(
+                "p1", "ebillnotice" + "@example.com",
+                icloud_uid="00000000-0000-0000-0000-000000000003:ABPerson",
+            ),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(body["total"], 1, body)
+
+
+class TestEmailNamePrecedenceRound4(unittest.TestCase):
+    """Round 4: a bare-email-named, uncarded, given/family-less row that
+    shares its address with a separate human-named row is a duplicate
+    Person record, not a second real person. Measured on macmini16-walk:
+    2 clean pairs this shape (word counts 2 and 3 on the human side)."""
+
+    def test_email_named_duplicate_is_hidden_behind_its_human_sibling(self) -> None:
+        shared = "sibling" + "@example.com"
+        points = [
+            _point("p1", shared, emails=[shared]),
+            _point("p2", "Alice Example", given_name="Alice",
+                    family_name="Example", emails=[shared]),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(status, 200)
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example"}, body)
+        self.assertEqual(body["total"], 1, body)
+
+    def test_control_email_named_row_with_no_sibling_is_unaffected(self) -> None:
+        """CONTROL: this is a DUPLICATE check, not a blanket hide of every
+        bare-email name -- a lone email-named row with nothing else
+        sharing its address is untouched by this specific fix (it may
+        still be caught by _is_service_mailbox_name/_is_nameless_name on
+        its own merits, but not by the collision logic)."""
+        lone = "lone" + "@example.com"
+        points = [_point("p1", lone, emails=[lone])]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(body["total"], 1, body)
+
+    def test_control_a_carded_email_named_duplicate_stays(self) -> None:
+        """CONTROL (uncarded-only): a Contacts card on the email-named
+        side always wins, even with a human-named sibling sharing the
+        address."""
+        shared = "carded" + "@example.com"
+        points = [
+            _point("p1", shared, emails=[shared],
+                    icloud_uid="00000000-0000-0000-0000-000000000004:ABPerson"),
+            _point("p2", "Bob Example", given_name="Bob",
+                    family_name="Example", emails=[shared]),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(body["total"], 2, body)
+
+    def test_control_given_family_on_the_email_named_side_is_not_this_bug(self) -> None:
+        """CONTROL: when the email-named record itself carries
+        given_name/family_name, the EXISTING bug-2 upgrade (round 1)
+        already re-labels it with its own human name on every read -- it
+        is no longer 'a name that is a bare email address' by the time
+        round 4's check runs, so round 4 must not also drop it. Measured
+        on macmini16-walk: this is exactly the shape of the third
+        collision Archie's facts file reported; it is not a new defect."""
+        shared = "upgraded" + "@example.com"
+        points = [
+            _point("p1", shared, given_name="Jane", family_name="Doe",
+                    emails=[shared]),
+            _point("p2", "John Smith", given_name="John",
+                    family_name="Smith", emails=[shared]),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Jane Doe", "John Smith"}, body)
+        self.assertEqual(body["total"], 2, body)
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
