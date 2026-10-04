@@ -257,3 +257,84 @@ fi
 # --- Step 2: the Dashboard front page (unchanged) ----------------------
 PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_frontpage --oxigraph "$OSTLER_OXIGRAPH_URL"
 log "Editor front-page tick complete"
+
+# --- Step 3: close the wiki/front-page staleness gap --------------------
+# CM051 walk #5: the compiled wiki's "Needs you now" and the live app's
+# front_page.json showed ZERO cards in common. Reproduced read-only on
+# macmini16-walk: the wiki-compiler service has the correct editor mount
+# and OSTLER_FRONT_PAGE_JSON, and genuinely reads and uses the feed -- the
+# compile that ran at 2026-10-03T20:54:18Z correctly rendered front_page.json
+# as of its OWN most recent read at that time (confirmed via docker inspect
+# on the live container plus an in-container call to the real
+# _editor_need_cards(), whose returned card content byte-matched the raw
+# feed). The compose service definition is not the bug.
+#
+# The actual gap: this tick runs hourly (StartInterval 3600) and is the only
+# writer of front_page.json, while wiki-recompile ships StartInterval 86400
+# (daily) by deliberate v1 design -- CM051 #20's own "open question" chose
+# daily over hourly for disk/battery cost, which is a decision about the
+# WHOLE wiki (thousands of pages) and is left untouched here. Nothing ever
+# told the wiki that THIS one hourly artefact had changed, so "Needs you
+# now" could run stale by up to a full day in steady state -- exactly the
+# daily-tick-is-a-day-of-latency shape already measured for the container
+# supervisor (3.2a-sup above).
+#
+# Fix: trigger a wiki recompile ONLY when front_page.json's content actually
+# changed since the wiki last picked it up -- not on every hourly tick, so
+# the daily-cadence decision for the rest of the wiki is unaffected when the
+# feed is quiet.
+#
+# 🔴 DO NOT FORK wiki-recompile-tick.sh AS A CHILD OF THIS PROCESS. This
+# plist (vendor/cm059_editor/launchd/com.creativemachines.ostler.editor-
+# frontpage.plist) has NO AbandonProcessGroup key, so launchd kills this
+# job's WHOLE PROCESS GROUP the moment this script exits -- including any
+# plain `( cmd & )` backgrounded child, which stays a member of this group
+# by default. That is the exact v1.0.107 defect (see wiki-recompile-tick.sh's
+# own Phase-2 launch, which exists only because of this same failure mode,
+# and solves it with `set -m` + the sibling plist's AbandonProcessGroup).
+# An earlier version of this fix forked directly and would have silently
+# killed the recompile the instant this tick's own process exited.
+#
+# Fix: ask launchd itself to start the SEPARATE wiki-recompile LaunchAgent
+# job (com.creativemachines.ostler.wiki-recompile, whose own plist DOES set
+# AbandonProcessGroup) via `launchctl kickstart`. That job runs under its
+# own launchd-managed lifetime, entirely independent of this script's --
+# nothing here needs to outlive this process for the recompile to survive.
+# Without `-k`, kickstart is idempotent: if the job is already running (the
+# regular/catch-up schedule, or a previous trigger) it is a no-op, so this
+# never double-compiles or interrupts an in-flight run; wiki-recompile-
+# tick.sh's own single-flight mutex is a second, independent guard against
+# the same thing.
+#
+# Cost: wiki-recompile-tick.sh's Phase 2 (the LLM summary backfill, by far
+# the most expensive part) has no time-based throttle of its own, only an
+# anti-STACKING check (skip if one is still running). An hourly Phase 1
+# trigger is cheap (seconds-to-minutes, no LLM), but doing so would make
+# Phase 2 restart as soon as each run finishes -- turning the deliberate
+# daily LLM cost (CM051 #20) into a near-continuous one. wiki-recompile-
+# tick.sh therefore also gained a Phase-2 debounce (next section) so this
+# trigger can fire hourly without reopening that cost decision.
+FRONT_PAGE_JSON="${OSTLER_DIR}/editor/front_page.json"
+FRONT_PAGE_SEEN="${OSTLER_DIR}/state/wiki-recompile-last-frontpage.sha256"
+WIKI_RECOMPILE_LABEL="com.creativemachines.ostler.wiki-recompile"
+if [ -f "$FRONT_PAGE_JSON" ]; then
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+    # `|| true` on the assignment: under `set -e`, a failed command
+    # substitution used as a plain assignment DOES abort the script (unlike
+    # inside an `if`/`&&`), and this whole step must stay as non-fatal as the
+    # rest of this tick -- a hash hiccup must never take the front-page emit
+    # above down with it.
+    _new_hash="$(shasum -a 256 "$FRONT_PAGE_JSON" 2>/dev/null | awk '{print $1}')" || true
+    _old_hash="$(cat "$FRONT_PAGE_SEEN" 2>/dev/null || true)"
+    if [ -n "$_new_hash" ] && [ "$_new_hash" != "$_old_hash" ]; then
+        printf '%s' "$_new_hash" > "$FRONT_PAGE_SEEN"
+        log "front_page.json changed (was ${_old_hash:-<none>}, now ${_new_hash}); kickstarting ${WIKI_RECOMPILE_LABEL} so Needs-you-now catches up within one tick"
+        _kick_rc=0
+        launchctl kickstart "gui/$(id -u)/${WIKI_RECOMPILE_LABEL}" || _kick_rc=$?
+        if [ "$_kick_rc" -ne 0 ]; then
+            log "launchctl kickstart ${WIKI_RECOMPILE_LABEL} returned rc=${_kick_rc} (job not loaded? agent not installed?); the daily/catch-up schedule will pick this up instead"
+        fi
+    else
+        log "front_page.json unchanged since the wiki last saw it; leaving the daily wiki-recompile schedule alone"
+    fi
+fi
