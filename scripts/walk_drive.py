@@ -210,6 +210,7 @@ def _locale_defaults():
 
 
 def build_table():
+    record_owner_source()
     loc = _locale_defaults()
     cc = loc["country_code"]
     tz = loc["timezone"]
@@ -235,12 +236,20 @@ def build_table():
         # is a first+last pair like any other -- and the registry's own header
         # says the fix for that is to RENAME, never to add a cast row to turn a
         # red green. Renaming into the existing cast is the move it wants.
-        ("Full name",                                   "Sam Doe"),
+        # THE OWNER. "@owner_name" resolves from ~/.walk-owner.env (staged by
+        # ttywalk.sh from an operator-local file on the driver, never in this
+        # repo); with no file it falls back to the cast name below, and the
+        # walk records that its owner is SYNTHETIC, so the owner-in-People
+        # probe reads CANNOT-RUN rather than a pass it could not have earned.
+        ("Full name",                                   "@owner_name"),
         # iMessage refuses an empty list and re-asks forever. The value is the
         # installer's OWN documented example, and +447700900000 is inside Ofcom's
         # reserved drama range (07700 900000-900999), so it is provably fictional
         # and can never reach a real person.
-        ("Allowed contacts",                            "+447700900000"),
+        # With a configured owner, the owner's own phone and email: install.sh
+        # falls back to this list for the assistant's self-handles when the
+        # me-card cannot be read over ssh. Without one, the fictional number.
+        ("Allowed contacts",                            "@owner_allowed"),
         # Two distinct titles: COUNTRY_CODE_ENTER has no default, COUNTRY_CODE_DEFAULT
         # ships "[44]". Matching only the first let the walk silently take the
         # shipped default on a box that is not in that country. Both are
@@ -333,7 +342,71 @@ def load_overrides():
     return rows
 
 
+# THE WALK'S OWNER IDENTITY. KEY=VALUE lines, OWNER_NAME, OWNER_EMAIL and
+# OWNER_PHONE, staged 0600 by ttywalk.sh. Its values are answered but never
+# written to the Q&A record or the trace.
+OWNER_FILE = os.path.join(HOME, ".walk-owner.env")
+OWNER_SOURCE_FILE = os.path.join(HOME, ".walk-owner-source")
+SYNTHETIC_OWNER_NAME = "Sam Doe"            # both tokens in the approved cast
+SYNTHETIC_ALLOWED = "+447700900000"          # Ofcom drama range, provably fictional
+_OWNER_VALUES = set()
+
+
+def load_owner():
+    """{OWNER_NAME, OWNER_EMAIL, OWNER_PHONE} from the staged file, or None."""
+    vals = {}
+    try:
+        with open(OWNER_FILE) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                v = v.strip().strip('"').strip("'")
+                if k.strip() in ("OWNER_NAME", "OWNER_EMAIL", "OWNER_PHONE") and v:
+                    vals[k.strip()] = v
+    except IOError:
+        return None
+    return vals if vals.get("OWNER_NAME") else None
+
+
+def record_owner_source():
+    """Write 'configured' or 'synthetic' so the probes can tell which owner the
+    install was given. Returns the value written."""
+    src = "configured" if load_owner() else "synthetic"
+    try:
+        with open(OWNER_SOURCE_FILE, "w") as fh:
+            fh.write(src + "\n")
+    except IOError:
+        pass
+    return src
+
+
+def shown_for(prompt, ans, matched):
+    """What the Q&A record and the trace may say about an answer. Secrets and
+    the owner's identity are answered but never written down."""
+    if SECRET_RE.search(prompt):
+        return "<SECRET WITHHELD, %d chars>" % len(ans)
+    if ans and ans in _OWNER_VALUES:
+        return "<OWNER IDENTITY WITHHELD>"
+    if ans:
+        return ans
+    if matched:
+        return "<ENTER (deliberate)>"
+    return UNMATCHED_MARK
+
+
 def resolve(ans):
+    if ans in ("@owner_name", "@owner_allowed"):
+        owner = load_owner()
+        if not owner:
+            return SYNTHETIC_OWNER_NAME if ans == "@owner_name" else SYNTHETIC_ALLOWED
+        if ans == "@owner_name":
+            val = owner["OWNER_NAME"]
+        else:
+            val = ",".join(x for x in (owner.get("OWNER_PHONE"), owner.get("OWNER_EMAIL")) if x) or SYNTHETIC_ALLOWED
+        _OWNER_VALUES.add(val)
+        return val
     if ans == "@passphrase":
         try:
             return open(PASSPHRASE_FILE).read().strip()
@@ -1204,14 +1277,7 @@ def main(argv):
         # The walk record gets quoted into PRs and a PUBLIC repo, so a secret
         # must never reach it. Record that the question was answered and that
         # the answer was withheld, which is the honest thing to write down.
-        if SECRET_RE.search(prompt):
-            shown = "<SECRET WITHHELD, %d chars>" % len(ans)
-        elif ans:
-            shown = ans
-        elif matched:
-            shown = "<ENTER (deliberate)>"
-        else:
-            shown = UNMATCHED_MARK
+        shown = shown_for(prompt, ans, matched)
         with open(QA, "a") as fh:
             fh.write("%s\t%s\t%s\n" % (
                 time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), prompt, shown))

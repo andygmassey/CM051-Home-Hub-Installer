@@ -38,7 +38,7 @@ run_probe() {
     [ -n "${OSTLER_BOX_HOST:-}" ] || probe_cannot_run "OSTLER_BOX_HOST is unset: this probe runs on the walk driver against a box"
     [ -x "${_PY}" ] || probe_cannot_run "no Playwright python at ${_PY} (set OSTLER_SCREENS_PYTHON)"
 
-    local out tokfile feed boxf selff port dport fwd_pid rc n
+    local out tokfile feed boxf selff owner_src port dport fwd_pid rc n
     out="${OSTLER_WALK_SCREENS_DIR:-$PWD/walk-screens/$(date -u +%Y%m%dT%H%M%SZ)}/customer-read"
     mkdir -p "${out}" || probe_cannot_run "cannot create ${out}"
     tokfile="$(mktemp)"; feed="$(mktemp)"; boxf="$(mktemp)"; selff="$(mktemp)"
@@ -76,9 +76,17 @@ PY" > "${boxf}" 2>/dev/null
     [ -s "${boxf}" ] || probe_note "could not count Ollama calls on the box: the Bursar arm will be CANNOT-RUN"
     # The owner's own handles, as install.sh recorded them for the assistant. Read
     # read-only, passed to the judge as a file, hashed there, never written out.
-    box_run "/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:OSTLER_IMESSAGE_SELF_HANDLES' \$HOME/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" > "${selff}" 2>/dev/null
-    # and the owner's full name: the macOS account's RealName on the box
-    box_run "dscl . -read /Users/\$(id -un) RealName | tail -n 1" | sed 's/^ *//' >> "${selff}" 2>/dev/null
+    # THE CONFIGURED OWNER: the identity the install was GIVEN, never a guess.
+    # The name install.sh wrote to config/.env (USER_NAME) and to the wiki's
+    # operator line, the operator emails, and the assistant's self-handles.
+    # Read read-only, passed as a file, hashed by the judge, never written out.
+    box_run "sed -n 's/^USER_NAME=//p' \$HOME/.ostler/config/.env; sed -n 's/^WIKI_OPERATOR_NAME=//p; s/^WIKI_OPERATOR_EMAILS=//p' \$HOME/.ostler/.env; /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:OSTLER_IMESSAGE_SELF_HANDLES' \$HOME/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null | tr -d '\"' > "${selff}"
+    # On a walk box, which owner the walk gave the installer (walk_drive.py
+    # writes it): "synthetic" means the owner is the cast name, so the
+    # owner-in-People arm cannot measure the product and reads CANNOT-RUN.
+    # A walk box from before this marker existed cannot say which owner it was
+    # given, so it is treated as unknown (CANNOT-RUN), never as configured.
+    owner_src="$(box_run "if [ -s \$HOME/.walk-owner-source ]; then cat \$HOME/.walk-owner-source; elif [ -e \$HOME/.walk-log ]; then echo unknown-walk; fi" | tr -d '[:space:]')"
     [ -s "${selff}" ] || probe_note "could not read the owner's own handles on the box: the owner-in-People arm will be CANNOT-RUN"
 
     port="$(( 20000 + RANDOM % 20000 ))"; dport="$(( port + 1 ))"
@@ -95,6 +103,7 @@ PY" > "${boxf}" 2>/dev/null
     [ -s "${feed}" ] && set -- "$@" --front-page-json "${feed}"
     [ -s "${boxf}" ] && set -- "$@" --box-facts "${boxf}"
     [ -s "${selff}" ] && set -- "$@" --self-handles-file "${selff}"
+    [ -n "${owner_src}" ] && set -- "$@" --owner-source "${owner_src}"
     "${_PY}" "${_HERE}/lib/customer_read.py" "$@" | tee "${out}/verdict.txt"
     rc=${PIPESTATUS[0]}
     # A run that printed no assertion row is a FAIL, never a quiet pass.

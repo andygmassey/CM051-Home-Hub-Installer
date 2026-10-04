@@ -607,9 +607,15 @@ def judge(f, declared=None):
                 sum(kinds.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(kinds.items()))))
 
     selfd = set(f.get("self_digests") or [])
-    if not selfd or papi is None:
+    if f.get("owner_source") in ("synthetic", "unknown-walk"):
+        add(DECLARED[25], None, "NOT MEASURED: {} -- the configured owner is not known to be the person whose "
+                                "data is on this box".format(
+                                    "the walk installed a SYNTHETIC owner (no owner identity file on the driver)"
+                                    if f.get("owner_source") == "synthetic" else
+                                    "this walk box predates the owner marker, so its owner is unknown"))
+    elif not selfd or papi is None:
         add(DECLARED[25], None, "NOT MEASURED: {}".format(
-            "the owner's own handles were not read from the box" if not selfd else "the People list was not read"))
+            "the configured owner identity could not be read from the box" if not selfd else "the People list was not read"))
     else:
         own_rows = [r for r in papi
                     if _digest(_norm_handle(r.get("email"))) in selfd
@@ -1304,6 +1310,24 @@ def self_test():
     else:
         print("  ok    a duplicate with the review surface unreadable is CANNOT-RUN, never a pass")
 
+    # The owner is the CONFIGURED identity. A walk that installed a synthetic
+    # owner cannot measure the product: the arm must read CANNOT-RUN, never pass.
+    synth = copy.deepcopy(_good())
+    synth["owner_source"] = "synthetic"
+    synth["people_api"].append({"name": "John Smith", "email": "owner@example.net"})
+    got25 = [ok for n, ok, _ in judge(synth) if n == DECLARED[25]]
+    configured = copy.deepcopy(synth)
+    configured["owner_source"] = "configured"
+    got25c = [ok for n, ok, _ in judge(configured) if n == DECLARED[25]]
+    unknown = copy.deepcopy(synth)
+    unknown["owner_source"] = "unknown-walk"
+    if [ok for n, ok, _ in judge(unknown) if n == DECLARED[25]] != [None]:
+        missed.append("owner arm: a walk box with no owner marker is not CANNOT-RUN")
+    if got25 != [None] or got25c != [False]:
+        missed.append("owner arm: synthetic owner gave {!r} (want [None]), configured owner gave {!r} (want [False])".format(got25, got25c))
+    else:
+        print("  ok    a synthetic walk owner is CANNOT-RUN; the configured owner in People FAILS")
+
     # Ruling 2026-10-04 (#2546): the Hub and the wiki may count different things;
     # different totals that each match their own source must PASS.
     labelled = copy.deepcopy(_good())
@@ -1395,6 +1419,8 @@ def main(argv):
                     handles = []
             facts = collect(a["--base"], token, a.get("--doctor-base"), a.get("--front-page-json"), a["--out"],
                             self_handles=handles)
+            if a.get("--owner-source"):
+                facts["owner_source"] = a["--owner-source"]
         except ImportError as exc:
             print("CANNOT-RUN: no Playwright on this driver ({})".format(exc))
             return EX_CANNOT
