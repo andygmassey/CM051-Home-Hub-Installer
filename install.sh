@@ -17257,7 +17257,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.98}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.99}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -17370,7 +17370,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="024b0fe8da0470e919482f865a8fe00357f017d1c9c12c5b344e5637c21eeda6"
+DEFAULT_ASSISTANT_TARBALL_SHA256="79fc71ed49676875c957c1ec8e40167b02f4a51bd6e9ad882ca85b0649b7a981"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -21191,7 +21191,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.4.98"
+OSTLER_KNOWLEDGE_READER_VERSION="0.4.99"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -25579,6 +25579,28 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              isolation. -->
         <key>USER_NAME</key>
         <string>${USER_NAME}</string>
+        <!-- USER_EMAIL reaches the read API ONLY through this block, same
+             shape as USER_NAME two keys above. people_list's self-uri
+             exclusion (walk #6) has a NAME arm and an EMAIL arm; the name
+             arm alone (USER_NAME) catches a Contacts card displayed by
+             name, not a second node for the SAME person displayed by
+             their own email address. CARDDAV_USERNAME, the var that arm
+             originally checked, is MEASURED unset by any part of this
+             installer or by contact_syncer's own config, a reader with no
+             writer anywhere in this tree. USER_EMAIL is the confirmed
+             me-card identity already captured earlier in this onboarding
+             flow, the same value WIKI_OPERATOR_EMAILS now carries to the
+             wiki compiler, not a new detection. -->
+        <key>USER_EMAIL</key>
+        <string>${USER_EMAIL}</string>
+        <!-- USER_PHONE reaches the read API ONLY through this block, same
+             shape as USER_EMAIL above: a second identifier arm for the
+             SAME self-uri exclusion, for an owner node displayed by a bare
+             phone number rather than a name or an email. Also the
+             confirmed me-card identity captured earlier in this onboarding
+             flow. -->
+        <key>USER_PHONE</key>
+        <string>${USER_PHONE}</string>
         <!-- REPLY_DEBT_PROJECT_DIR reaches the read API ONLY through this
              block, and without it the "N people are waiting on you" card, the
              FIRST card on the public front-page design, can never render.
