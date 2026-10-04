@@ -168,7 +168,7 @@ def norm_title(t):
 
 
 def doctor_list_count(doc):
-    """(tile, listed) from the Doctor Health text, or (tile, None) when the list
+    """(tile, listed) from the Doctor health-tab text, or (tile, None) when the list
     is not there. Two shapes are read: the old 'Active' list of channel rows
     with a Streaming-style status, and the current list under a second
     CONNECTED SOURCES heading: an 'All' filter chip, then name/status pairs,
