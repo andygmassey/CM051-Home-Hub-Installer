@@ -156,6 +156,45 @@ def freshness_labels(section):
     return out
 
 
+CHIP_WORDS = {"private", "l0", "l1", "l2", "l3"}
+
+
+def norm_title(t):
+    """A card title compared across surfaces: case, curly quotes, punctuation
+    and spacing differ between the app and the wiki and carry no meaning."""
+    t = (t or "").replace("\u2019", "'").replace("\u2018", "'").lower()
+    t = re.sub(r"[^\w' ]+", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def doctor_list_count(doc):
+    """(tile, listed) from the Doctor Health text, or (tile, None) when the list
+    is not there. Two shapes are read: the old 'Active' list of channel rows
+    with a Streaming-style status, and the current list under a second
+    CONNECTED SOURCES heading: an 'All' filter chip, then name/status pairs,
+    ending at the next ALL-CAPS heading."""
+    lines = [x.strip() for x in (doc or "").splitlines()]
+    m = re.search(r"CONNECTED SOURCES\s*\n\s*(\d+)", doc or "")
+    tile = int(m.group(1)) if m else None
+    heads = [i for i, x in enumerate(lines) if x.upper() == "CONNECTED SOURCES"]
+    if len(heads) >= 2:
+        body = []
+        for x in lines[heads[1] + 1:]:
+            if not x:
+                continue
+            if len(x) > 3 and x.isupper() and x not in ("ALL",):
+                break
+            body.append(x)
+        while body and body[0].lower() in ("all", "active"):
+            body = body[1:]
+        if body and len(body) % 2 == 0:
+            return tile, len(body) // 2
+    seg = _segment(doc, "Active", ["WHAT'S RUNNING", "DIAGNOSTICS"])
+    if seg is not None:
+        return tile, len([x for x in seg if re.fullmatch(r"Streaming|Connected|Idle|Paused|Offline|Error|Waiting", x)])
+    return tile, None
+
+
 def service_sender(name):
     """A People row name that is a service, organisation or subject line, not a person."""
     n = (name or "").strip()
@@ -257,6 +296,8 @@ def card_titles(seg):
             continue
         if re.fullmatch(r"[A-Z][A-Z '&]+", x):      # DATES, PEOPLE, DUPLICATE (CSS uppercase)
             want = True
+            continue
+        if want and x.strip().lower() in CHIP_WORDS:  # the app's privacy chip, not a title
             continue
         if want:
             titles.append(x)
@@ -401,13 +442,23 @@ def judge(f, declared=None):
             "{} of {} feedback cards carry no interest_id, so their POST is refused 400".format(len(missing), len(fb)))
 
     wfront = (wiki.get("front") or {}).get("text")
-    a = card_titles(_segment(home, "Needs you now", ["For you", "Getting set up"])) if home else None
-    b = card_titles(_segment(wfront, "Needs you now", ["For you", "Getting set up"])) if wfront else None
-    if a is None or b is None:
-        add(DECLARED[8], None, "NOT MEASURED: app={} wiki={}".format(a is not None, b is not None))
+    # Titles come from each surface's own card markup when the collector read
+    # it (app .fpc-card, wiki .pw-fcard); the text parse is the fallback. The
+    # first draft took the first line after the category label, which in the
+    # app is the privacy chip ("Private"), so every app title was the chip and
+    # the two identical lists shared nothing (walk #6).
+    a = f.get("needs_now_app") or f.get("needs_now_app_settled")
+    if a is None and home:
+        a = card_titles(_segment(home, "Needs you now", ["For you", "Getting set up"]))
+    b = f.get("needs_now_wiki")
+    if b is None and wfront:
+        b = card_titles(_segment(wfront, "Needs you now", ["For you", "Getting set up"]))
+    if not a or b is None:
+        add(DECLARED[8], None, "NOT MEASURED: app={} wiki={}".format(bool(a), b is not None))
     else:
-        add(DECLARED[8], sorted(a) == sorted(b),
-            "app has {} card(s), wiki has {}; {} in common".format(len(a), len(b), len(set(a) & set(b))))
+        na, nb = sorted(norm_title(x) for x in a), sorted(norm_title(x) for x in b)
+        add(DECLARED[8], na == nb,
+            "app has {} card(s), wiki has {}; {} in common".format(len(a), len(b), len(set(na) & set(nb))))
 
     gov = (screens.get("governor") or {}).get("text")
     seg = _segment(gov, "Other apps", ["Pause", "Processing speed"]) if gov else None
@@ -421,13 +472,11 @@ def judge(f, declared=None):
     if not doc:
         add(DECLARED[10], None, "NOT MEASURED: Doctor not read")
     else:
-        m = re.search(r"CONNECTED SOURCES\s*\n\s*(\d+)", doc)
-        seg = _segment(doc, "Active", ["WHAT'S RUNNING", "DIAGNOSTICS"])
-        listed = len([x for x in (seg or []) if re.fullmatch(r"Streaming|Connected|Idle|Paused|Offline|Error|Waiting", x)])
-        if not m or seg is None:
-            add(DECLARED[10], None, "NOT MEASURED: tile={} list={}".format(bool(m), seg is not None))
+        tile, listed = doctor_list_count(doc)
+        if tile is None or listed is None:
+            add(DECLARED[10], None, "NOT MEASURED: tile={} list={}".format(tile is not None, listed is not None))
         else:
-            add(DECLARED[10], int(m.group(1)) == listed, "tile says {}, list shows {}".format(m.group(1), listed))
+            add(DECLARED[10], tile == listed, "tile says {}, list shows {}".format(tile, listed))
 
     tl = f.get("timeline_titles")
     if tl is None:
@@ -666,20 +715,14 @@ def judge(f, declared=None):
         add(DECLARED[27], not old_cards and not raw,
             "{} gone-quiet card(s) over 18 months; {} raw month count(s) over 23".format(old_cards, raw))
 
-    url_exempt = {r.get("title") or "" for r in (f.get("timeline_rows") or [])
-                  if r.get("kind") == "event" and URL.search(r.get("title") or "")}
+    # Only VISIBLE raw "http(s)://" text fails. The texts here are innerText,
+    # so a link the app renders as its domain (oa, walk #6) is not counted,
+    # and the calendar-title exemption is no longer needed: a title whose URL
+    # still shows raw is exactly what this checks.
     if not measured:
         add(DECLARED[28], None, "NOT MEASURED: no screen text was collected")
     else:
-        bad = []
-        for w, t in measured:
-            if w == "hub timeline":
-                for title in sorted(url_exempt, key=len, reverse=True):
-                    t = t.replace(title, "")
-            n = len(URL.findall(t))
-            if n:
-                bad.append("{}: {}".format(w, n))
-        # TODO(#2565): the Timeline exemption keys on kind == "event" until the API names a source.
+        bad = ["{}: {}".format(w, len(URL.findall(t))) for w, t in measured if URL.search(t)]
         add(DECLARED[28], not bad, "raw URLs, by screen: " + "; ".join(bad))
 
     # a judge that produced no assertion, or skipped a declared one, is itself a failure
@@ -696,6 +739,23 @@ def judge(f, declared=None):
 
 DOCTOR_PATHS = ("/api/v1/box-status", "/api/v1/config", "/api/v1/governor-status", "/api/v1/hydration/status",
                 "/api/v1/pause", "/api/v1/remote-access", "/api/v1/routines", "/doctor/api/", "/api/v1/sources")
+# Card titles in the "Needs you now" band, read from each surface's own card
+# markup: every card after the band heading and before the next band heading.
+NEEDS_NOW_JS = r"""(arg) => {
+  const [cardSel, titleSel] = arg;
+  const band = e => { const t = (e.innerText || '').trim();
+    return t.length < 40 && /^(needs you now|for you|getting set up|your world at a glance)\b/i.test(t); };
+  const heads = [...document.querySelectorAll('*')].filter(band);
+  const now = heads.find(h => /^needs you now/i.test(h.innerText.trim()));
+  if (!now) return null;
+  const F = Node.DOCUMENT_POSITION_FOLLOWING;
+  const next = heads.find(h => !/^needs you now/i.test(h.innerText.trim()) && (now.compareDocumentPosition(h) & F));
+  return [...document.querySelectorAll(cardSel)]
+    .filter(c => (now.compareDocumentPosition(c) & F) && (!next || (c.compareDocumentPosition(next) & F)))
+    .map(c => { const t = c.querySelector(titleSel); return t ? t.innerText.trim() : ''; })
+    .filter(Boolean);
+}"""
+
 HUB_ROUTES = [("/", "home"), ("/chat", "chat"), ("/timeline", "timeline"), ("/people", "people"),
               ("/cost", "bursar"), ("/doctor", "doctor"), ("/governor", "governor"),
               ("/pairing", "pairing"), ("/preferences", "settings")]
@@ -826,6 +886,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             if name == "timeline":
                 f["timeline_rows"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-timeline-row]')).map(e => ({kind: e.getAttribute('data-timeline-kind') || '', title: e.getAttribute('data-timeline-title') || ''}))")
                 f["timeline_titles"] = [r["title"] for r in f["timeline_rows"]]
+            if name == "home":
+                f["needs_now_app"] = page.evaluate(NEEDS_NOW_JS, [".fpc-card", "h3,h4,[class*='title']"])
             if name == "people":
                 f["people_rows"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-person-row]')).map(e => e.innerText)")
             if name == "doctor":
@@ -877,6 +939,21 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     "() => { const h = document.querySelector('header'); return h ? h.innerText : null }")
             except Exception as exc:
                 f["wiki"].setdefault("errors", []).append("browser header {}: {}".format(name, str(exc)[:120]))
+        # The app's Home cards, read on this page too: the app-emulated page can
+        # sit on the first-run Home (no cards) while the box is still hydrating.
+        if feed_json is not None:
+            try:
+                wpage.evaluate("""feed => { window.__TAURI_INTERNALS__ = { invoke: async (cmd) => {
+                    if (cmd === 'get_front_page') return {available: true, feed: feed};
+                    if (cmd.startsWith('get_')) return null;
+                    throw new Error('read-only probe refuses ' + cmd); }, transformCallback: () => 0 }; }""", feed_json)
+                wpage.locator('a[href="/people"]').first.click()
+                wpage.wait_for_timeout(3000)
+                wpage.locator('a[href="/"]').first.click()
+                wpage.wait_for_timeout(8000)
+                f["needs_now_app_settled"] = wpage.evaluate(NEEDS_NOW_JS, [".fpc-card", "h3,h4,[class*='title']"])
+            except Exception as exc:
+                f["wiki"].setdefault("errors", []).append("settled home: {}".format(str(exc)[:120]))
         wpage.locator('a[href="/wiki"]').first.click()
         fr, t0 = None, time.time()
         try:
@@ -901,6 +978,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     pg = {"text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
                           "boxes": fr.evaluate(WIDTH_JS) or []}
                     if name == "front":
+                        f["needs_now_wiki"] = fr.evaluate(NEEDS_NOW_JS, [".pw-fcard", "h3,h4,strong,[class*='title']"])
                         # The list directly under the heading, and only that list: the
                         # first draft took the heading's parent box, which also held a
                         # second copy of the same labels elsewhere on the page and read
@@ -1056,7 +1134,7 @@ def _good():
             "bursar": {"nav": "Bursar", "title": "Bursar", "text": "October 2026\nMODEL CALLS\n1,234\nrates read on 15 Jan 2026\n"},
             "settings": {"nav": "Settings", "title": "Settings", "text": "Your timezone\nthe owner's time zone\n"},
             "timeline": {"nav": "Timeline", "title": "Timeline", "header": "Timeline\nBusy",
-                         "text": "Today\nEVENT\nOffsite \u2014 day one\n1 OCT\nEVENT\nCheck in https://example.com/checkin\n"},
+                         "text": "Today\nEVENT\nOffsite \u2014 day one\n1 OCT\nEVENT\nCheck in example.com\n"},
         },
         "requests": [{"m": "GET", "u": "/api/status", "s": 200}],
         "bearer_in_url": 0,
@@ -1176,9 +1254,8 @@ MUTANTS = [
     ("gone quiet for 26 months (walk #5 e)", _txt(["screens", "home", "text"], "You've gone quiet with Jane Doe\nIt's been 800 days\n")),
     ("a raw 31 months count (walk #5 e)", _txt(["wiki", "pages", "front", "text"], "last spoke 31 months ago\n")),
     ("a raw URL in Ostler copy (walk #5 f)", _txt(["screens", "home", "text"], "Read more at https://example.com/x\n")),
-    ("a URL in a NON-event Timeline row is not exempt (walk #5 f)",
-     lambda f: (f["timeline_rows"].append({"kind": "message", "title": "See http://example.com/y"}),
-                f["screens"]["timeline"].__setitem__("text", f["screens"]["timeline"]["text"] + "See http://example.com/y\n"))),
+    ("a calendar title whose URL still shows raw (walk #6 f)",
+     _txt(["screens", "timeline", "text"], "EVENT\nCheck in https://example.com/checkin\n")),
 ]
 
 
@@ -1327,6 +1404,36 @@ def self_test():
         missed.append("owner arm: synthetic owner gave {!r} (want [None]), configured owner gave {!r} (want [False])".format(got25, got25c))
     else:
         print("  ok    a synthetic walk owner is CANNOT-RUN; the configured owner in People FAILS")
+
+    # Walk #6: "Needs you now" compared in each surface's REAL format. The app
+    # card reads CATEGORY / privacy chip / title; the wiki card CATEGORY / title.
+    app_text = ("From the Editor\nNeeds you now\n2\nDATES\nPrivate\nJane Doe\u2019s birthday is in five days\n"
+                "PEOPLE\nPrivate\nYou\u2019ve gone quiet with John Doe\nFor you\n1\n")
+    wiki_text = ("Your Front Page\nNeeds you now\n2\nDATES\n\nJane Doe's birthday is in five days\n\n"
+                 "PEOPLE\nYou've gone quiet with John Doe\nFor you\n")
+    same = copy.deepcopy(_good())
+    same["screens"]["home"]["text"] = app_text
+    same["wiki"]["pages"]["front"]["text"] = wiki_text + "1,000\nPEOPLE\n50\nORGANISATIONS\n"
+    dom = copy.deepcopy(_good())
+    dom["needs_now_app"] = ["Jane Doe\u2019s birthday is in five days", "You\u2019ve gone quiet with John Doe"]
+    dom["needs_now_wiki"] = ["You've gone quiet with John Doe", "Jane Doe's birthday is in five days"]
+    differ = copy.deepcopy(dom)
+    differ["needs_now_wiki"] = ["You've gone quiet with John Doe", "Two records for Jane Doe?"]
+    r8 = [[ok for n, ok, _ in judge(x) if n == DECLARED[8]] for x in (same, dom, differ)]
+    if r8 != [[True], [True], [False]]:
+        missed.append("Needs you now: chip-format text {} / DOM titles {} / a different card {} (want True, True, False)".format(*r8))
+    else:
+        print("  ok    Needs you now: the same cards in app and wiki formats PASS (chip skipped, quotes normalised); a different card FAILS")
+    # Walk #6: the Doctor list in its current shape.
+    new_doc = ("CONNECTED SOURCES\n3\nBringing in your data\nTHIS DEVICE\nNot paired\nCONNECTED SOURCES\nAll\n"
+               "Apple Notes\nImported\nCalendar\nImported\niMessage\nStreaming\nWHAT'S RUNNING\nGateway\nRunning\n")
+    good_doc = copy.deepcopy(_good()); good_doc["screens"]["doctor"]["text"] = new_doc
+    short_doc = copy.deepcopy(_good()); short_doc["screens"]["doctor"]["text"] = new_doc.replace("CONNECTED SOURCES\n3", "CONNECTED SOURCES\n14")
+    r10 = [[ok for n, ok, _ in judge(x) if n == DECLARED[10]] for x in (good_doc, short_doc)]
+    if r10 != [[True], [False]]:
+        missed.append("Doctor list in the current shape: matching {} / 14 vs 3 {} (want True, False)".format(*r10))
+    else:
+        print("  ok    the Doctor's current list shape is read: tile 3 = list 3 PASSES, tile 14 vs list 3 FAILS")
 
     # Ruling 2026-10-04 (#2546): the Hub and the wiki may count different things;
     # different totals that each match their own source must PASS.
