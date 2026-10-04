@@ -1476,6 +1476,22 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
     echo \"  stores:     \$(cat ~/.walk-stores-provenance 2>/dev/null)\"
 " || die "could not write the walk config on the host."
 
+# THE WALK'S OWNER. The installer is given the owner identity from an
+# operator-local file on the DRIVER (never in this repo; CM051 is public), so
+# the owner-in-People probe measures the product against the identity the
+# install really holds. Streamed over ssh into a 0600 file; never an argument,
+# never printed. With no local file the walk installs a synthetic owner, says
+# so, and that probe reads CANNOT-RUN.
+OWNER_FILE_LOCAL="${OSTLER_WALK_OWNER_FILE:-$HOME/walkdriver/owner_identity.env}"
+if [[ -s "$OWNER_FILE_LOCAL" ]]; then
+    "${SSH[@]}" "umask 077; cat > ~/.walk-owner.env && chmod 600 ~/.walk-owner.env" < "$OWNER_FILE_LOCAL" \
+        || die "could not stage the owner identity on the host."
+    say "owner identity: staged from ${OWNER_FILE_LOCAL} (values not printed)"
+else
+    "${SSH[@]}" "rm -f ~/.walk-owner.env" || true
+    say "owner identity: no ${OWNER_FILE_LOCAL} -- the walk installs a SYNTHETIC owner; the owner-in-People probe will read CANNOT-RUN"
+fi
+
 if [[ "$STAGE_ONLY" -eq 1 ]]; then
     say "staged only, as asked. Not running."
     exit "$PASS"
