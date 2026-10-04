@@ -665,18 +665,32 @@ def test_phase2_backfill_does_not_stack(stub_env):
 # killed mid-way through FIRST-RUN hydration (the v1.0.107 stall-watchdog
 # defect just above says this happens routinely) blocked every retry for a
 # full day on nothing but a timer, with the wiki left hidden the whole time.
-# Fixed two ways, both covered below: the floor is now keyed on the last
-# SUCCESSFUL completion, written inside the detached subshell only on
-# success; and the floor is skipped entirely while CM044's own
-# wiki_hydration.json has not yet reported complete=true.
+# Fixed by keying the floor on the last SUCCESSFUL completion, written
+# inside the detached subshell only on success, PLUS (at the time) gating
+# the floor on CM044's wiki_hydration.json reporting complete=true.
+#
+# ROUND 3 (Archie, walk #6): that hydration gate was itself a REGRESSION,
+# caught live. Every compile (CM044 compiler/compile.py) rewrites
+# wiki_hydration.json with complete=false partway through its own run --
+# including an ordinary STEADY-STATE recompile on a box that finished
+# hydrating long ago, not just a first-run one. The gate therefore read
+# "not complete" on literally every tick, the floor never applied AT ALL,
+# and the full summary backfill relaunched 5 minutes after the previous one
+# finished. Archie's fix: drop the hydration condition entirely. The
+# completion-file check alone is already sufficient -- no file means Phase
+# 2 has never actually finished (first run, or every attempt so far was
+# interrupted), so there is nothing to floor against, which is exactly the
+# "never block an interrupted first run" property the hydration gate was
+# trying (and failing) to provide.
 # ---------------------------------------------------------------------------
 
 
 def _write_hydration_status(ostler_dir: Path, *, complete: bool) -> Path:
-    """CM044's own progress file (install.sh's WIKI_HYDRATION_STATUS_FILE,
-    bind-mounted at ~/.ostler/state/wiki_hydration.json). The script reads
-    this with grep for a single top-level boolean -- these fixtures are
-    deliberately minimal, matching only what that grep actually looks at."""
+    """CM044's wiki_hydration.json. No longer read by the script's floor
+    logic (round 3) -- kept only for
+    test_hydration_rewritten_to_incomplete_after_a_recorded_success_is_
+    STILL_floored, which proves the file's content is now irrelevant to the
+    floor decision, the exact regression this round fixes."""
     state_dir = ostler_dir / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     p = state_dir / "wiki_hydration.json"
@@ -693,14 +707,12 @@ def _full_compile_lines(log: Path, timeout: float) -> list[str]:
 
 
 @_skip_if_real_docker
-def test_phase2_backfill_debounced_when_completed_recently_and_hydration_complete(stub_env):
-    """The floor's actual job: once hydration has finished at least once,
-    a Phase-2 backfill that COMPLETED inside the cost floor must not be
-    relaunched."""
+def test_phase2_backfill_debounced_when_completed_recently(stub_env):
+    """The floor's actual job: a Phase-2 backfill that COMPLETED inside the
+    cost floor must not be relaunched."""
     log = stub_env["tmp_path"] / "docker.log"
     _make_fake_docker(stub_env["stub_dir"], log_path=log)
     ostler_dir = stub_env["ostler_dir"]
-    _write_hydration_status(ostler_dir, complete=True)
     state_dir = ostler_dir / "state" / "wiki-recompile"
     state_dir.mkdir(parents=True)
     (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time())))
@@ -723,7 +735,6 @@ def test_phase2_backfill_runs_once_the_floor_has_elapsed(stub_env):
     log = stub_env["tmp_path"] / "docker.log"
     _make_fake_docker(stub_env["stub_dir"], log_path=log)
     ostler_dir = stub_env["ostler_dir"]
-    _write_hydration_status(ostler_dir, complete=True)
     state_dir = ostler_dir / "state" / "wiki-recompile"
     state_dir.mkdir(parents=True)
     (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 100))
@@ -745,7 +756,6 @@ def test_phase2_debounce_state_file_written_on_successful_completion(stub_env):
     polled for, since this is no longer a synchronous pre-launch write."""
     _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
     ostler_dir = stub_env["ostler_dir"]
-    _write_hydration_status(ostler_dir, complete=True)
     state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-complete-epoch"
     assert not state_file.exists()
 
@@ -785,7 +795,6 @@ exit 0
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     ostler_dir = stub_env["ostler_dir"]
-    _write_hydration_status(ostler_dir, complete=True)
     state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-complete-epoch"
 
     result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
@@ -798,42 +807,12 @@ exit 0
 
 
 @_skip_if_real_docker
-def test_an_interrupted_first_run_phase2_is_retried_on_the_next_trigger(stub_env):
-    """THE round-2 regression, named explicitly. Hydration has NOT yet
-    completed (wiki_hydration.json reports complete=false -- a first-run
-    Phase 2 was interrupted partway, e.g. by the v1.0.107 stall watchdog or
-    a bounced box), but a completion epoch happens to be on disk and RECENT
-    (a different phase, or an earlier partial pass, completed quickly).
-    The floor must be skipped entirely and Phase 2 must launch anyway --
-    exactly the case that keying on "last start" got wrong."""
-    log = stub_env["tmp_path"] / "docker.log"
-    _make_fake_docker(stub_env["stub_dir"], log_path=log)
-    ostler_dir = stub_env["ostler_dir"]
-    _write_hydration_status(ostler_dir, complete=False)
-    state_dir = ostler_dir / "state" / "wiki-recompile"
-    state_dir.mkdir(parents=True)
-    # Recorded 10 seconds ago -- well inside the default 86400s floor, which
-    # must not matter at all while hydration is not complete.
-    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 10))
-
-    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
-    assert result.returncode == 0, result.stderr
-    assert "skipping the Phase-2 cost floor" in result.stdout, result.stdout
-    full_lines = _full_compile_lines(log, timeout=10.0)
-    assert full_lines, (
-        f"an interrupted first-run compile was blocked by the floor: {full_lines}"
-    )
-
-
-@_skip_if_real_docker
-def test_a_completed_hydration_IS_floored_for_24_hours_by_default(stub_env):
-    """The companion half, named explicitly: once hydration has completed,
-    the DEFAULT floor (no override) is a full day, matching CM051 #20's
+def test_a_completed_backfill_IS_floored_for_24_hours_by_default(stub_env):
+    """The DEFAULT floor (no override) is a full day, matching CM051 #20's
     deliberate daily cadence."""
     log = stub_env["tmp_path"] / "docker.log"
     _make_fake_docker(stub_env["stub_dir"], log_path=log)
     ostler_dir = stub_env["ostler_dir"]
-    _write_hydration_status(ostler_dir, complete=True)
     state_dir = ostler_dir / "state" / "wiki-recompile"
     state_dir.mkdir(parents=True)
     (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 3600))  # 1h ago
@@ -844,6 +823,36 @@ def test_a_completed_hydration_IS_floored_for_24_hours_by_default(stub_env):
     assert not full_lines, (
         f"1 hour after completion, with no override, the default 24h floor "
         f"must still apply: {full_lines}"
+    )
+
+
+@_skip_if_real_docker
+def test_hydration_rewritten_to_incomplete_after_a_recorded_success_is_STILL_floored(stub_env):
+    """THE round-3 regression, named explicitly (walk #6, Archie). Phase 2
+    completed successfully and recorded its epoch; CM044's wiki_hydration.json
+    is THEN rewritten to complete=false, exactly as every ordinary compile
+    (including a steady-state one) does partway through its own run. The
+    floor must still apply -- hydration.json's content must not be consulted
+    at all. Under the round-2 design this failed: the hydration gate read
+    "not complete" and the floor never applied, so the backfill relaunched
+    five minutes after the previous one finished."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 300))  # 5m ago
+    # The regression: hydration.json says NOT complete, despite the recorded
+    # success above. Must not matter to the floor decision at all.
+    _write_hydration_status(ostler_dir, complete=False)
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    assert "not launching another yet" in result.stdout, result.stdout
+    full_lines = _full_compile_lines(log, timeout=2.0)
+    assert not full_lines, (
+        f"wiki_hydration.json reporting complete=false relaunched the "
+        f"backfill 5 minutes after a recorded success: {full_lines}"
     )
 
 

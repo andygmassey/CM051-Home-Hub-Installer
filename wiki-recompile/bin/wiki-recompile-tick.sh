@@ -384,34 +384,33 @@ fi
 # (CM044 compiler/compile.py:1403) is only ever reached by a full compile
 # that is ALLOWED TO FINISH; a half-finished one must never cost a day.
 #
-# Fix, two parts:
-#   1. The floor is now keyed on the last SUCCESSFUL completion (written
-#      inside the detached subshell below, only on _rc = 0), not the start.
-#   2. The floor is SKIPPED ENTIRELY while CM044's own wiki_hydration.json
-#      has not yet reported complete=true. The floor's whole purpose is
-#      bounding the STEADY-STATE daily LLM cost; there is no steady state
-#      to bound until first-run hydration has actually finished once, and
-#      an interrupted first-run compile must always be free to retry on the
-#      very next trigger.
+# Fix: the floor is keyed on the last SUCCESSFUL completion (written
+# inside the detached subshell below, only on _rc = 0), not the start.
+# A run that is killed or fails writes nothing, so it cannot floor out its
+# own retry -- "has Phase 2 ever actually finished" is exactly the
+# condition that already protects an interrupted first run, with no extra
+# signal needed.
 #
-# Read with grep, not a JSON parser: this script has no python3 dependency
-# today and the one field needed is a single top-level boolean written by a
-# trusted producer (CM044's compiler). Any read problem -- file absent,
-# unreadable, malformed, or complete=false/missing -- reads as "not
-# complete", the SAME direction as "skip the floor", so a read failure can
-# only ever produce MORE retries, never fewer.
-WIKI_HYDRATION_STATUS_FILE="${WIKI_HYDRATION_STATUS_FILE:-${OSTLER_DIR}/state/wiki_hydration.json}"
-_hydration_complete=false
-if [ -f "$WIKI_HYDRATION_STATUS_FILE" ] \
-    && grep -q '"complete"[[:space:]]*:[[:space:]]*true' "$WIKI_HYDRATION_STATUS_FILE" 2>/dev/null; then
-    _hydration_complete=true
-fi
-
+# 🔴 ROUND 3 (Archie, walk #6): an earlier version of this fix ALSO gated
+# the floor on CM044's wiki_hydration.json reporting complete=true, on the
+# theory that the floor's cost-bounding purpose only applies once there is
+# a steady state to bound. MEASURED to be wrong: every compile (CM044
+# compiler/compile.py) rewrites wiki_hydration.json with complete=false
+# partway through its own run, including ordinary STEADY-STATE recompiles
+# on a box that finished hydrating long ago. The hydration check therefore
+# read "not complete" on every tick, unconditionally, and the floor never
+# applied at all -- the full summary backfill relaunched 5 minutes after
+# the previous one finished, every time, which is precisely the
+# near-continuous cost this floor exists to prevent.
+#
+# Dropped the hydration condition entirely. The completion-file check below
+# is already sufficient on its own: no file means Phase 2 has never
+# completed (first run, or every prior attempt was interrupted), so nothing
+# can be floored -- there is nothing recorded to measure a floor against.
 WIKI_PHASE2_MIN_INTERVAL_SECONDS="${WIKI_PHASE2_MIN_INTERVAL_SECONDS:-86400}"
 _phase2_last_complete_file="${OSTLER_DIR}/state/wiki-recompile/last-phase2-complete-epoch"
 _phase2_too_soon=false
-if [ "$_bg_running" != true ] && [ "$_hydration_complete" = true ] \
-    && [ -f "$_phase2_last_complete_file" ]; then
+if [ "$_bg_running" != true ] && [ -f "$_phase2_last_complete_file" ]; then
     _last_complete="$(cat "$_phase2_last_complete_file" 2>/dev/null || true)"
     if [ -n "${_last_complete:-}" ] && [ "$_last_complete" -eq "$_last_complete" ] 2>/dev/null; then
         _now_epoch="$(date -u +%s)"
@@ -421,8 +420,6 @@ if [ "$_bg_running" != true ] && [ "$_hydration_complete" = true ] \
             log "wiki summary backfill last completed ${_elapsed}s ago (floor ${WIKI_PHASE2_MIN_INTERVAL_SECONDS}s); not launching another yet"
         fi
     fi
-elif [ "$_bg_running" != true ] && [ "$_hydration_complete" != true ]; then
-    log "wiki hydration not yet complete (${WIKI_HYDRATION_STATUS_FILE}); skipping the Phase-2 cost floor so an interrupted first-run compile is never blocked by it"
 fi
 
 if [ "$_bg_running" = true ]; then
