@@ -22,6 +22,7 @@ fix issues).
 
 from __future__ import annotations
 
+import asyncio
 import getpass
 import html
 import json
@@ -3286,11 +3287,28 @@ async def api_box_status():
     default). The whole call is still wrapped so an unexpected import or
     environment failure returns a well-formed unknown payload instead of
     a 500.
+
+    v1.0.107 walk defect: the Hub header pill read "Status unavailable" on
+    every route except Home. box_status.py's own "FORK BUDGET" comment
+    already documents that `top -l 2` "BLOCKS FOR ABOUT A SECOND" on a cache
+    miss, and its other probes carry their own subprocess timeouts (3s/3s/
+    4s/6s/5s). This coroutine used to call that synchronous, subprocess-
+    shelling aggregator DIRECTLY (`return _box_status()`), which blocks
+    uvicorn's single event loop for the Doctor (:8089) -- not just this
+    request, every concurrent /api/v1/* request the Doctor is holding,
+    including a DIFFERENT tab's own box-status poll. Measured on
+    macmini16-walk: a cache-miss call took 1.43s against a ~0.03s cache hit;
+    chained probe timeouts reach past the Hub's 15s client fetch timeout in
+    the worst case. People/Wiki/Bursar each add their own concurrent Doctor
+    requests on top of the chip's poll, which is what made the stall land on
+    those routes and not the lighter Home route. `asyncio.to_thread` moves
+    the blocking call off the event loop so a slow aggregator run no longer
+    starves every other concurrent request.
     """
     try:
         from box_status import box_status as _box_status
 
-        return _box_status()
+        return await asyncio.to_thread(_box_status)
     except Exception:
         # Last-resort degrade: a well-formed, honest "unknown" payload the
         # chip can render as "Status unavailable" -- never a 500 that would

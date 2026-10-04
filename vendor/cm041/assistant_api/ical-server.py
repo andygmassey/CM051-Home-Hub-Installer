@@ -523,6 +523,278 @@ def _is_nameless_name(display_name):
     return False
 
 
+def _looks_like_bare_email_or_phone(display_name):
+    """True when ``display_name`` IS the identifier (an email address, or a
+    bare-digit phone/handle), not a resolved human name.
+
+    Walk #6, bug 2: distinct from ``_is_nameless_name`` above, which hides a
+    row outright. This one answers a narrower question -- "is the stored
+    name itself just an identifier?" -- asked only when a BETTER name
+    (given_name/family_name) is available on the SAME record, so the row
+    is never hidden, only re-labelled. See the call site in ``people_list``.
+    """
+    s = (display_name or "").strip()
+    if not s:
+        return False
+    if "@" in s:
+        return True
+    if all(c in _NAMELESS_BARE_ID_CHARS for c in s) and \
+            sum(c.isdigit() for c in s) >= 6:
+        return True
+    return False
+
+
+# Walk #6, bug 1: a small, specific vocabulary of notification/alert/service
+# nouns, matched ONLY as the last whitespace-separated word of a display
+# name (not a substring scan -- a real surname containing one of these as
+# a substring must not match). Earned the same way as
+# email-intelligence's _AUTOMATED_LOCAL_RE: read off the real shapes, not
+# imagined. See _is_automated_or_service_name.
+_SERVICE_NAME_SUFFIX_WORDS = frozenset({
+    "notification", "notifications", "alert", "alerts", "advice",
+    "marketplace",
+})
+
+
+def _is_automated_or_service_name(display_name):
+    """True when ``display_name`` SHAPE reads as a company/service/
+    notification sender -- shapes ``_is_nameless_name`` does not cover.
+
+    CALL THIS ONLY FOR A RECORD WITH NO CONTACTS CARD. It is a vocabulary-
+    and-shape heuristic, not a structural law, and it WILL mis-fire on a
+    real name: "JANE DOE" is plainly a real name in all caps, and "Jane
+    Doe - Plumber" (a real name plus a role/title) is byte-for-byte the
+    same shape as a notification subject line. Archie's review of walk #6
+    round 1 measured BOTH on real data -- 2 of 6 live " - "-shaped rows
+    across 2,796 people carry an ``icloud_uid`` (a real Contacts card)
+    with ``given_name``/``family_name`` populated -- and on the synthetic
+    pair above. The first version of this function asserted "Contacts
+    always title-cases on entry" as the reason a real name could not reach
+    the multi-word-all-caps check; that premise was never measured and
+    Archie's measurement shows it is false. See ``people_list``'s call
+    site: a Contacts card is ground truth this function cannot outrank, so
+    the caller gates on ``icloud_uid`` being EMPTY before ever calling this.
+
+    ``_is_nameless_name`` is LOCKED byte-identical across three surfaces
+    (wiki, iOS, Hub -- Ref #664), so this is a NEW, Hub-local check rather
+    than an edit to it: widening the locked predicate would silently
+    diverge the other two copies.
+
+    Measured on macmini16-walk's People page (walk #6); shapes below are
+    SYNTHETIC stand-ins for the real rows, matching their structure:
+
+      * "#ExampleCarrier-Roam"                -- an SMS/data-roaming
+        sender id
+      * "EXAMPLE EXECUTIVE SEARCH"             -- an all-caps business
+        name with no legal suffix to anchor on
+      * "Payment declined - update required"   -- a notification SUBJECT
+        line that became the "name"
+      * "ExampleCarrier notification" / "Rate advice" -- a short Title
+        Case service/alert sender
+
+    Four narrow checks, each with a MEASURED false-positive against a
+    real, uncarded name, which is exactly why the caller never applies
+    them to a carded record:
+      1. Starts with '#' (len > 1) -- an SMS/channel handle. A human given
+         name does not begin with '#'; no measured false positive.
+      2. Multi-word AND fully upper-case -- catches "JANE DOE" (measured
+         false positive, see above) as well as the intended all-caps
+         company name.
+      3. Contains ' - ' (a SPACED hyphen) -- catches "Jane Doe - Plumber"
+         (measured false positive: a real name plus a role/title) as well
+         as the intended notification-subject shape.
+      4. The LAST whitespace-separated word, case-insensitive and
+         stripped of trailing punctuation, is in
+         ``_SERVICE_NAME_SUFFIX_WORDS`` -- a specific, measured
+         vocabulary, not a general dictionary scan.
+
+    KNOWN LIMIT, stated rather than hidden: a bare brand name with none of
+    these four shapes (a single ordinary-looking word, e.g. a marketplace
+    whose name is one plain word) is NOT caught here -- there is no
+    structural signal left once a sender name is one unremarkable word,
+    and guessing a brand-name allowlist would be a guess dressed as data.
+    """
+    name = (display_name or "").strip()
+    if not name:
+        return False
+    if name.startswith("#") and len(name) > 1:
+        return True
+    words = name.split()
+    if len(words) >= 2 and name.isupper():
+        return True
+    if " - " in name:
+        return True
+    if words and words[-1].strip(".,!?:;").lower() in _SERVICE_NAME_SUFFIX_WORDS:
+        return True
+    return False
+
+
+def _load_people_list_self_uris():
+    """Return the set of Person URIs that are the OWNER, for excluding the
+    owner from their own People list (walk #6, bug 3).
+
+    Same CONCEPT as ``person_facts.sources.load_self_uris`` (that module's
+    docstring: "THERE IS NO GRAPH MARKER FOR SELF... identification is
+    CONFIGURED"), reimplemented locally with this file's own
+    ``_sparql_select`` rather than imported: ``person_facts`` is a sibling
+    package in the CM041 source repo but is NOT part of CM051's vendored
+    ``vendor/cm041`` tree (measured -- vendor/cm041 carries assistant_api,
+    contact_syncer, identity_resolver, meeting_syncer, ostler_hygiene; no
+    person_facts). An import of it would work in CM041's own test suite and
+    silently no-op (caught by the except below) on every shipped install,
+    which is exactly the "ships dark" shape this fix exists to avoid
+    elsewhere in the tree. Configured from whatever this install actually
+    set:
+
+      * the owner anchor node ``pwg:user_<USER_ID>`` minted by
+        ``contact_syncer.owner_node`` (``pwg:isOwner true``) whenever
+        USER_ID is set -- which install.sh's onboarding prompt always sets
+        (``gui_read ... MSG_PROMPT_USER_ID_TITLE``).
+      * any Person whose displayName EXACTLY matches USER_DISPLAY_NAME /
+        PWG_USER_NAME / USER_NAME (checked in that order -- see HISTORY
+        for why there are three).
+      * any Person with a ``pwg:hasIdentifier`` email identifier matching
+        USER_EMAIL (falling back to CARDDAV_USERNAME) -- the confirmed
+        me-card email captured at onboarding, now delivered to this
+        process's plist (see install.sh). Catches an email-derived owner
+        node whose displayName is the email itself, which a name-match
+        alone cannot reach.
+
+    HISTORY / MEASURED FIXES (walk #6, Archie's round 2+3 reviews --
+    recorded so the next person does not re-walk the same wrong turns):
+
+      * Originally checked USER_DISPLAY_NAME/PWG_USER_NAME only, which
+        matched NOTHING contact_syncer's own ``.env`` actually sets
+        (USER_NAME, USER_FIRST_NAME) -- added as a third fallback.
+      * ical-server.py's OWN LaunchAgent plist (what install.sh actually
+        writes) was measured injecting ONLY USER_ID into this process's
+        environment, re-measured after realising the first grep never
+        checked for USER_NAME specifically -- USER_NAME IS present
+        (``plutil -p`` / PlistBuddy on macmini16-walk confirms it, with a
+        real value), fixed earlier (comment two keys up). USER_EMAIL was
+        genuinely absent and is now added alongside it, same plist, same
+        pattern.
+      * CARDDAV_USERNAME (the var the email arm originally checked) is
+        MEASURED unset anywhere in this installer or in contact_syncer's
+        own config -- a reader with no writer in this tree. Do not reach
+        for it as a signal elsewhere without re-verifying it was ever
+        wired up.
+      * A candidate THIRD fix -- wiring a bash-level WIKI_OPERATOR_NAME /
+        WIKI_OPERATOR_EMAILS for CM044's own self-exclusion -- was
+        investigated and INTENTIONALLY NOT MADE: CM044 PR #92 already
+        delivers these correctly via install.sh's compose ``.env`` file
+        (``$OSTLER_ENV_FILE``, not a bash variable the heredoc
+        substitutes directly), confirmed populated with real values on
+        macmini16-walk's own ``~/.ostler/.env``. CM044 was never actually
+        broken the same way; an earlier report that it shared this gap
+        was wrong and is corrected here.
+      * The owner anchor node itself (bullet one, ``pwg:isOwner true``) is
+        STILL unconfirmed as ever minted on a real install --
+        ``contact_syncer.owner_node`` has no install.sh call site found yet.
+        This arm degrades harmlessly (excludes a URI with no matching
+        Qdrant point) when that is true; the name and email arms above do
+        not depend on it.
+
+    Best-effort regardless: any failure here (a degraded Oxigraph, an
+    unset env var) must not blank the People list, so this returns an
+    empty set rather than raising.
+    """
+    uris = set()
+    try:
+        user_id = (os.environ.get("USER_ID") or "").strip()
+        if user_id:
+            uris.add(f"{PWG_NS}user_{user_id}")
+
+        operator_name = (
+            os.environ.get("USER_DISPLAY_NAME")
+            or os.environ.get("PWG_USER_NAME")
+            # Measured on macmini16-walk: contact_syncer's OWN .env sets
+            # USER_NAME (and USER_FIRST_NAME), never USER_DISPLAY_NAME --
+            # the name this function originally checked for was simply
+            # wrong. Kept as a third fallback, not a replacement: a CORRECT
+            # var name alone does not make this arm live (see KNOWN GAP
+            # above -- ical-server.py's own LaunchAgent plist injects
+            # ONLY USER_ID, so none of these three reach this process
+            # today regardless of which is spelled right).
+            or os.environ.get("USER_NAME")
+            or ""
+        )
+        name_norm = " ".join(operator_name.strip().lower().split())
+        if name_norm:
+            rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?p ?n WHERE {{ ?p a pwg:Person ; pwg:displayName ?n }}'
+                .format(ns=PWG_NS)
+            )
+            for r in rows:
+                display = " ".join((r.get("n") or "").strip().lower().split())
+                if display == name_norm:
+                    uris.add(r["p"])
+
+        # Walk #6 round 3 (Archie / coordinator review): CARDDAV_USERNAME
+        # is MEASURED unset anywhere in this installer or in contact_syncer's
+        # own config -- a reader with no writer in this tree. USER_EMAIL is
+        # the confirmed me-card email captured during onboarding (now also
+        # delivered to this process's plist -- see install.sh), the SAME
+        # source CM044's WIKI_OPERATOR_EMAILS already uses successfully
+        # (confirmed populated on macmini16-walk's own ~/.ostler/.env).
+        # CARDDAV_USERNAME kept as a second-choice fallback in case it is
+        # ever wired up for its originally-intended purpose.
+        operator_email = (
+            os.environ.get("USER_EMAIL")
+            or os.environ.get("CARDDAV_USERNAME")
+            or ""
+        ).strip().lower()
+        if operator_email:
+            rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?p ?value WHERE {{\n'
+                '  ?p a pwg:Person ; pwg:hasIdentifier ?id .\n'
+                '  ?id pwg:identifierType "email" ; pwg:identifierValue ?value .\n'
+                '}}'.format(ns=PWG_NS)
+            )
+            for r in rows:
+                if (r.get("value") or "").strip().lower() == operator_email:
+                    uris.add(r["p"])
+
+        # Walk #6 round 3: a second identifier arm for an owner node
+        # displayed by a bare phone number rather than a name or email.
+        # USER_PHONE is the SAME me-card identity captured alongside
+        # USER_NAME/USER_EMAIL, now also delivered to this process's plist.
+        operator_phone_digits = "".join(
+            c for c in (os.environ.get("USER_PHONE") or "") if c.isdigit()
+        )
+        if len(operator_phone_digits) >= 7:
+            rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?p ?value WHERE {{\n'
+                '  ?p a pwg:Person ; pwg:hasIdentifier ?id .\n'
+                '  ?id pwg:identifierType "phone" ; pwg:identifierValue ?value .\n'
+                '}}'.format(ns=PWG_NS)
+            )
+            for r in rows:
+                value_digits = "".join(c for c in (r.get("value") or "") if c.isdigit())
+                # Compare on a shared 7+ digit SUFFIX, not full equality, to
+                # tolerate a country-code prefix mismatch (a stored number
+                # carrying a leading dialing code against one that omits
+                # it). KNOWN LIMIT: this is not a full E.164
+                # normaliser -- identity_resolver.normalise.normalise_phone
+                # exists for that and is a bigger dependency than this
+                # best-effort self-exclusion arm needs. The 7-digit floor
+                # (matching _is_nameless_name's own >=6-digit bare-ID
+                # threshold, rounded up for a two-way suffix compare) keeps
+                # a short, coincidentally-shared tail from false-matching.
+                if len(value_digits) >= 7 and (
+                    value_digits == operator_phone_digits
+                    or value_digits.endswith(operator_phone_digits)
+                    or operator_phone_digits.endswith(value_digits)
+                ):
+                    uris.add(r["p"])
+    except Exception:
+        return set()
+    return uris
+
+
 def _event_has_human_attendee(event):
     """True when a calendar event has at least one named/emailed attendee.
 
@@ -5439,10 +5711,36 @@ def people_list(sort=None, ceiling=10000):
         # must not blank the People list. Fall back to payload-only contact info.
         ident_by_uri = {}
 
+    # Walk #6, bug 3: resolve the owner's own identities ONCE per call (not
+    # per-row -- same shape as the identifier join above), so the Hub never
+    # lists the operator among their own contacts.
+    self_uris = _load_people_list_self_uris()
+
     people = []
     for pt in points:
         p = pt.get("payload", {}) or {}
+        # Contact fields: payload first (CardDAV), Oxigraph identifiers backfill.
+        uri = p.get("person_uri") or ""
+        if uri and uri in self_uris:
+            continue
         name = p.get("display_name") or p.get("name") or ""
+        given = (p.get("given_name") or "").strip()
+        family = (p.get("family_name") or "").strip()
+
+        # Walk #6, bug 2: the STORED name can be a bare email/phone
+        # fallback even though this same record now carries a real
+        # given_name/family_name (measured: a Contacts-linked record,
+        # proven by its icloud_contact_uid, whose displayed name was still
+        # its email). The write-time precedence rule (human name > email >
+        # phone) never re-fires once a point already has a name, so fix it
+        # here at render time: prefer the structured name whenever the
+        # STORED one is itself just an identifier. MUST run before the
+        # nameless/automated checks below -- a bare-phone fallback is
+        # exactly what _is_nameless_name hides outright, so upgrading
+        # first is the only way this row ever reaches the list at all.
+        if (given or family) and _looks_like_bare_email_or_phone(name):
+            name = " ".join(x for x in (given, family) if x)
+
         # CM051 #2568: this used to be `if not name: continue`, which only
         # catches an EMPTY name (case 1 of _is_nameless_name's three). A
         # WhatsApp-JID-shaped or bare-phone-shaped "name" (cases 2 and 3)
@@ -5459,6 +5757,43 @@ def people_list(sort=None, ceiling=10000):
         # search and by the assistant.
         if _is_role_address_name(name):
             continue
+        # Walk #6, bug 1 -- CORRECTED after Archie's review (walk #6 round
+        # 2). The service/notification shape checks are vocabulary-and-shape
+        # heuristics, not a structural law, and Archie measured two classes
+        # of false positive the first version did not consider: (a) on the
+        # live box, 2 of 6 " - " (spaced-hyphen) rows across 2,796 people
+        # carry an icloud_uid (a REAL Contacts card) with given_name AND
+        # family_name populated -- a real name followed by a role/title
+        # ("Jane Doe - Plumber") reads identically, by shape, to a
+        # notification subject ("Payment declined - update required"); (b)
+        # on synthetic input, "JANE DOE" -- a real name a customer's own
+        # address book can legitimately hold in all-caps -- matched the
+        # multi-word-all-caps check. The premise that Contacts always
+        # title-cases on entry was asserted, not measured, and Archie's
+        # measurement shows it is false.
+        #
+        # A Contacts card is ground truth a shape heuristic can never
+        # outrank: nothing OTHER than a real contact the customer (or their
+        # phone's address book) created carries one. So the shape checks
+        # below now apply ONLY to records with NO Contacts card
+        # (icloud_uid empty) -- a carded record is ALWAYS treated as a
+        # person, regardless of what its display_name looks like. An
+        # automated sender can acquire given_name/family_name too (e.g. a
+        # naive "ExampleCarrier Notification" split into given="ExampleCarrier",
+        # family="Notification"), which is why the gate is the CARD
+        # specifically, not "has a given/family name" generically -- only a
+        # card is proof of a real address-book entry.
+        has_contacts_card = bool((p.get("icloud_uid") or "").strip())
+        if not has_contacts_card and _is_automated_or_service_name(name):
+            continue
+
+        # Sort keys -- prefer the parsed given/family name, fall back to a
+        # split of the display name so LinkedIn/email-only people still sort.
+        if not given and not family:
+            parts = name.strip().split()
+            given = parts[0] if parts else ""
+            family = parts[-1] if len(parts) > 1 else ""
+
         # slug + wiki_url let the Hub People row click through to the
         # person's wiki page (and resolve the enrichment card). Same slug
         # derivation and WIKI_BASE_URL as people_search / people_recent.
@@ -5477,20 +5812,9 @@ def people_list(sort=None, ceiling=10000):
         if recency:
             row["recency"] = recency
         row["_lc_ts"] = lc_ts
-
-        # Sort keys -- prefer the parsed given/family name, fall back to a
-        # split of the display name so LinkedIn/email-only people still sort.
-        given = (p.get("given_name") or "").strip()
-        family = (p.get("family_name") or "").strip()
-        if not given and not family:
-            parts = name.strip().split()
-            given = parts[0] if parts else ""
-            family = parts[-1] if len(parts) > 1 else ""
         row["_first"] = given.casefold()
         row["_last"] = (family or given).casefold()
 
-        # Contact fields: payload first (CardDAV), Oxigraph identifiers backfill.
-        uri = p.get("person_uri") or ""
         ids = ident_by_uri.get(uri, {})
         phones = [x for x in (p.get("phones") or []) if x]
         emails = [x for x in (p.get("emails") or []) if x]

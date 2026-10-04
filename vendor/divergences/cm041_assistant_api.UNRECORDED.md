@@ -265,3 +265,115 @@ CM041 PR #190 (upstream, not yet merged at time of writing). Guarded by
 (`TestConversationProcessBackgroundRetry`-equivalent cases). Recorded
 here, not as a patch, for the same reason as the grafts above. Retire by
 landing CM041 PR #190 and re-pinning.
+
+## Seventh graft: the Hub's People list excludes service/notification senders, prefers a known real name over a bare identifier, and excludes the owner (CM051 walk #6, v1.0.107)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+three additions in and around `people_list`, plus three new module-level
+helpers (`_looks_like_bare_email_or_phone`, `_SERVICE_NAME_SUFFIX_WORDS` +
+`_is_automated_or_service_name`, `_load_people_list_self_uris`). Shape:
+exclusion/relabelling only, nothing deleted.
+
+Andy's screen read of the People page on macmini16-walk found the top 10
+"recent" rows mostly wrong, in three ways (synthetic shapes standing in
+for the real rows, never quoted): (1) 6 of 10 were non-people -- a carrier
+notification sender, a marketplace, an email SUBJECT LINE, an all-caps
+company name, a `#`-prefixed handle, a "Rate advice"-style service --
+shapes `_is_nameless_name` (empty / WhatsApp-JID / bare-phone only) and
+this vendor's own `_is_role_address_name` (role mailboxes) were never
+designed to catch; (2) 1 of 10 showed a known contact (proven by an
+`icloud_contact_uid` identifier) by their bare email although
+given_name/family_name were present on the SAME record -- the write-time
+precedence rule never re-fires once a point already has a stored name, and
+the read layer trusted the stored value as-is; (3) 2 of 10 were the OWNER
+himself, once by name and once by his own email -- two separate Person
+nodes for the same physical person, neither excluded.
+
+`_load_people_list_self_uris` is a LOCAL reimplementation of the concept in
+CM041 source's `person_facts.sources.load_self_uris`, not an import of it:
+`person_facts` is a sibling package in the CM041 source repo but is NOT
+part of this vendored `vendor/cm041` tree (measured: assistant_api,
+contact_syncer, identity_resolver, meeting_syncer, ostler_hygiene only).
+An import would have worked in CM041's own test suite and silently no-op'd
+on every shipped install -- the exact "ships dark" shape this fix exists to
+avoid elsewhere in this tree.
+
+Matches CM041 PR #191 -- CORRECTED 2026-10-04: this previously cited PR #192,
+which does not carry this content. #191 squash-merged to CM041 main as
+`51aba0f` and its 4-commit log (readable via `gh pr view 191 --json commits`)
+confirms rounds 1 AND 2 of this walk landed there, not round 1 alone as an
+earlier draft of this entry assumed. #192 was opened on the mistaken belief
+that rounds 2-3 were still unmerged, found CONFLICTING against CM041 main for
+exactly this reason (its branch replayed round-1/2 content already present at
+`51aba0f`), and was closed in favour of #193, which carries ONLY round 3 (see
+the Eighth graft below) -- adapted here to run alongside this vendor's own
+`_is_role_address_name` check, which CM041 source does not yet have. Guarded
+by `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` (ported
+from CM041 source's own file of the same name, with this vendor's
+Authorization-token enforcement wired into the test harness -- CM041
+source's copy of `ical-server.py` does not enforce it in this test
+context). RED confirmed against the unmodified vendored `ical-server.py`
+via `git stash`, GREEN after. Recorded here, not as a patch, for the same
+reason as the grafts above. Retire by re-pinning to CM041 main, which
+already contains this via #191 (`51aba0f`) -- no further PR to land for
+rounds 1-2.
+
+## Eighth graft: owner-exclusion by email/phone, plus the plist delivery that feeds it (CM051 walk #6 round 3, v1.0.107, #2629)
+
+Tree `cm041/assistant_api`, same file, same function
+(`_load_people_list_self_uris`). The Seventh graft's owner-exclusion arm
+could only match by NAME (`USER_NAME`, confirmed delivered to this process's
+LaunchAgent plist) or by `USER_ID`-derived anchor. Archie's round-3 review
+found that insufficient: the box's own screen read showed the owner also
+duplicated by his own EMAIL, which no arm there could reach.
+
+Two coupled changes, one PR (#2629), both needed together:
+
+1. `install.sh`'s `com.ostler.ical-server` LaunchAgent plist heredoc now also
+   writes `USER_EMAIL` and `USER_PHONE` into `EnvironmentVariables`, same
+   `<key>X</key><string>${X}</string>` pattern as the pre-existing `USER_NAME`
+   key. Verified `plutil -lint`: OK; `tests/test_v1010_ical_doctor_service_auth.sh`:
+   7/7 pass; no `--` inside any XML comment (checked explicitly, CM051's own
+   XML-comment gate catches that class).
+2. `_load_people_list_self_uris`'s email arm now reads `USER_EMAIL` (falling
+   back to the historically-named but unwired `CARDDAV_USERNAME`); a new
+   phone arm reads `USER_PHONE`, matching on a shared 7+ digit SUFFIX rather
+   than full equality, to tolerate a stored number carrying a country-code
+   prefix the configured value omits (or vice versa) -- KNOWN LIMIT: not a
+   full E.164 normaliser.
+
+MEASURED REGENERATE REFUSAL (Archie's requirement for this entry, run
+2026-10-04 with `VENDOR_SRC_CM041_ASSISTANT_API` pointed at a CM041 source
+checkout): `scripts/regenerate_divergence_patch.sh cm041/assistant_api`
+refuses with
+
+    The SOURCE has advanced past the pin. Unshipped commits touching this tree:
+        72bf3a3 fix: reword the phone-suffix comment to avoid a literal PII-shaped example
+        81daa9e fix: owner-email/phone self-exclusion arms read USER_EMAIL/USER_PHONE; correct a wrong CM044 claim (walk #6 round 3)
+        51aba0f fix(assistant_api,identity_resolver): People list excludes service senders, ... (#191)
+        6307197 fix(assistant_api): a processor crash's failure_reason must keep the tail, not the head (walk #5) (#190)
+        4940790 fix(people): the Hub's own count now applies the locked nameless filter (#183)
+
+    REFUSED: this is a RE-PIN, not a graft to record.
+
+Exactly the tool's documented behaviour for a tree whose pin trails its
+source by several commits (exit 1, not a crash) -- regenerating now would
+fold four unrelated, already-upstream commits into the divergence patch as
+if they were local edits to this repo. This is NOT a new defect: the pin has
+trailed CM041 main since before this walk; it is recorded here because
+Archie asked for the measurement, not because this graft caused it.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py`,
+class `TestLoadPeopleListSelfUris`:
+`test_user_email_match_contributes_that_persons_uri`,
+`test_user_email_takes_precedence_over_carddav_username`,
+`test_user_phone_match_contributes_that_persons_uri`,
+`test_user_phone_match_tolerates_a_country_code_prefix_mismatch`, and the
+negative control `test_control_a_short_shared_phone_suffix_does_not_false_match`
+(a short shared tail must NOT false-match). RED confirmed against the
+unmodified vendored `ical-server.py` via `git stash`, GREEN after.
+
+Matches CM041 PR #193 (upstream, open at time of writing -- supersedes the
+now-closed #192, see the correction above). Recorded here, not as a patch,
+for the same reason as the grafts above. Retire by landing CM041 PR #193 and
+re-pinning.
