@@ -137,3 +137,7 @@ wiki_image_absent|wiki-compiler:/app/compiler/locale.py|"Qdrant Collections"|CM0
 wiki_image_absent|wiki-compiler:/app/compiler/locale.py|"Oxigraph Triple Store"|CM044 #299 LOCK: the fallback heading for the graph store no longer leaks its product name (now 'Your connections graph'). 1 -> 0.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|exists but could not be read|CM044 #299 an unreadable editor feed is logged as a WARN, not swallowed, before falling back to the SPARQL-derived cards. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|^[[:space:]]+"photos",[[:space:]]*$|CM044 #300 photos is a declared hydrate source (the only such line in the file sits inside KNOWN_HYDRATE_SOURCES), so its freshness row renders. 0 -> 1.
+# --- v1.0.107 wiki v0.1.41 (CM044 7e643a57, #301). Each line below FAILED against the v0.1.40 digests
+# (compiler 85f4f08d) and PASSED against v0.1.41 through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/locale.py|"rdf_triples": "Data points"|CM044 #301 the dashboard's store count uses the customer term 'Data points' from the locale, not 'RDF triples' jargon. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|_locale\.term\('rdf_triples'\)\.lower\(\)|CM044 #301 the hero card's store count reads that term from the locale rather than hard-coding the jargon. Keyed on the .lower() form: the bare term call already exists in the stats table. 0 -> 1.
