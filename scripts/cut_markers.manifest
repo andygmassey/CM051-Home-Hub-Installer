@@ -141,3 +141,7 @@ wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|^[[:space:]]+"photos",[
 # (compiler 85f4f08d) and PASSED against v0.1.41 through this verifier.
 wiki_image_grep|wiki-compiler:/app/compiler/locale.py|"rdf_triples": "Data points"|CM044 #301 the dashboard's store count uses the customer term 'Data points' from the locale, not 'RDF triples' jargon. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|_locale\.term\('rdf_triples'\)\.lower\(\)|CM044 #301 the hero card's store count reads that term from the locale rather than hard-coding the jargon. Keyed on the .lower() form: the bare term call already exists in the stats table. 0 -> 1.
+# --- v1.0.107 wiki v0.1.42 (CM044 ae83efa8, #302). Each line below FAILED against the v0.1.41 digests
+# (compiler 3a35b63c) and PASSED against v0.1.42 through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/compile.py|preserve_complete=not first_run|CM044 #302 every non-first-run compile asks hydration to preserve a completed status, so a baseline recompile never downgrades the wiki to settling. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|if preserve_complete and existing and existing\.get\("complete"\) is True|CM044 #302 hydration.begin keeps complete=True and freezes when asked to preserve it. 0 -> 1.
