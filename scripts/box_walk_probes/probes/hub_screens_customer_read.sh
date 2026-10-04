@@ -38,16 +38,21 @@ run_probe() {
     [ -n "${OSTLER_BOX_HOST:-}" ] || probe_cannot_run "OSTLER_BOX_HOST is unset: this probe runs on the walk driver against a box"
     [ -x "${_PY}" ] || probe_cannot_run "no Playwright python at ${_PY} (set OSTLER_SCREENS_PYTHON)"
 
-    local out tokfile feed boxf selff owner_src port dport fwd_pid rc n
+    local out tokfile feed boxf selff fresh owner_src port dport fwd_pid rc n
     out="${OSTLER_WALK_SCREENS_DIR:-$PWD/walk-screens/$(date -u +%Y%m%dT%H%M%SZ)}/customer-read"
     mkdir -p "${out}" || probe_cannot_run "cannot create ${out}"
-    tokfile="$(mktemp)"; feed="$(mktemp)"; boxf="$(mktemp)"; selff="$(mktemp)"
-    trap 'rm -f "${tokfile}" "${feed}" "${boxf}" "${selff}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT
+    tokfile="$(mktemp)"; feed="$(mktemp)"; boxf="$(mktemp)"; selff="$(mktemp)"; fresh="$(mktemp)"
+    trap 'rm -f "${tokfile}" "${feed}" "${boxf}" "${selff}" "${fresh}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT
 
     box_run "cat \$HOME/.ostler/secrets/zeroclaw_admin_token" > "${tokfile}" 2>/dev/null
     [ -s "${tokfile}" ] || probe_cannot_run "could not read the box's Hub token over ssh"
     box_run "cat \$HOME/.ostler/editor/front_page.json" > "${feed}" 2>/dev/null
     [ -s "${feed}" ] || probe_note "no front_page.json on the box: the Front Page arms will be CANNOT-RUN"
+    # Epoch seconds, read-only: the feed's mtime, the compiled wiki front page's
+    # mtime (inside the wiki container) and the box clock. Lets "Needs you now"
+    # tolerate the one legitimate lag: a feed refreshed after the wiki compiled,
+    # inside the #2633 recompile window.
+    box_run "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; printf 'feed %s\\nwiki %s\\nnow %s\\n' \"\$(stat -f %m \$HOME/.ostler/editor/front_page.json 2>/dev/null)\" \"\$(docker exec ostler-wiki-site stat -c %Y /docs/docs/index.md 2>/dev/null)\" \"\$(date +%s)\"" > "${fresh}" 2>/dev/null
     # Ollama's logged model calls vs the Bursar's journal rows over the last hour.
     box_run "/usr/bin/python3 - <<'PY'
 import json,re,os,datetime as dt
@@ -103,6 +108,7 @@ PY" > "${boxf}" 2>/dev/null
     [ -s "${feed}" ] && set -- "$@" --front-page-json "${feed}"
     [ -s "${boxf}" ] && set -- "$@" --box-facts "${boxf}"
     [ -s "${selff}" ] && set -- "$@" --self-handles-file "${selff}"
+    [ -s "${fresh}" ] && set -- "$@" --freshness-file "${fresh}"
     [ -n "${owner_src}" ] && set -- "$@" --owner-source "${owner_src}"
     "${_PY}" "${_HERE}/lib/customer_read.py" "$@" | tee "${out}/verdict.txt"
     rc=${PIPESTATUS[0]}
