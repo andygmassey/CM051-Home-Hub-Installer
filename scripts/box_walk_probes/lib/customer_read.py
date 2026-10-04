@@ -457,8 +457,26 @@ def judge(f, declared=None):
         add(DECLARED[8], None, "NOT MEASURED: app={} wiki={}".format(bool(a), b is not None))
     else:
         na, nb = sorted(norm_title(x) for x in a), sorted(norm_title(x) for x in b)
-        add(DECLARED[8], na == nb,
-            "app has {} card(s), wiki has {}; {} in common".format(len(a), len(b), len(set(na) & set(nb))))
+        detail = "app has {} card(s), wiki has {}; {} in common".format(len(a), len(b), len(set(na) & set(nb)))
+        if na == nb:
+            add(DECLARED[8], True, detail)
+        else:
+            # Ruling 2026-10-04: a mismatch is tolerated ONLY when the feed is
+            # newer than the wiki's last compile AND under 15 minutes old (the
+            # #2633 recompile window). Every other mismatch FAILS, including one
+            # where the times could not be read. The case is always named.
+            fr = f.get("freshness") or {}
+            fm, wm, now = fr.get("feed"), fr.get("wiki"), fr.get("now")
+            if fm is None or wm is None or now is None:
+                add(DECLARED[8], False, detail + "; FAIL: feed or wiki compile time unreadable, so no lag can be tolerated")
+            elif fm > wm and now - fm <= 900:
+                add(DECLARED[8], NA, detail + "; TOLERATED: the feed is {}s newer than the wiki compile and {}s old, "
+                                              "inside the 15-minute recompile window".format(fm - wm, now - fm))
+            elif fm <= wm:
+                add(DECLARED[8], False, detail + "; FAIL: the wiki compiled {}s AFTER the feed, so it is not lag".format(wm - fm))
+            else:
+                add(DECLARED[8], False, detail + "; FAIL: the feed is newer than the wiki compile but {}s old, past "
+                                                 "the 15-minute recompile window".format(now - fm))
 
     gov = (screens.get("governor") or {}).get("text")
     seg = _segment(gov, "Other apps", ["Pause", "Processing speed"]) if gov else None
@@ -1420,6 +1438,21 @@ def self_test():
     differ = copy.deepcopy(dom)
     differ["needs_now_wiki"] = ["You've gone quiet with John Doe", "Two records for Jane Doe?"]
     r8 = [[ok for n, ok, _ in judge(x) if n == DECLARED[8]] for x in (same, dom, differ)]
+    # The lag ruling: tolerated only when the feed is newer than the compile and
+    # under 15 minutes old; every other mismatch, and unreadable times, FAIL.
+    lag_cases = [({"feed": 1000, "wiki": 900, "now": 1300}, NA),      # newer, 5 min old: tolerated
+                 ({"feed": 1000, "wiki": 1001, "now": 1100}, False),  # wiki compiled after the feed
+                 ({"feed": 1000, "wiki": 900, "now": 2000}, False),   # newer but 16+ min old
+                 ({}, False)]                                         # times unreadable
+    lag_got = []
+    for fr_, want in lag_cases:
+        x = copy.deepcopy(differ); x["freshness"] = fr_
+        lag_got.append(([ok for n, ok, _ in judge(x) if n == DECLARED[8]] or [None])[0] == want)
+    if not all(lag_got):
+        missed.append("Needs you now lag ruling misapplied: {}".format(lag_got))
+    else:
+        print("  ok    a mismatch is tolerated only when the feed is newer than the compile and under 15 minutes old; "
+              "wiki-after-feed, a stale feed and unreadable times FAIL")
     if r8 != [[True], [True], [False]]:
         missed.append("Needs you now: chip-format text {} / DOM titles {} / a different card {} (want True, True, False)".format(*r8))
     else:
@@ -1528,6 +1561,16 @@ def main(argv):
                             self_handles=handles)
             if a.get("--owner-source"):
                 facts["owner_source"] = a["--owner-source"]
+            if a.get("--freshness-file"):
+                fresh = {}
+                try:
+                    for line in open(a["--freshness-file"]).read().splitlines():
+                        k, _, v = line.partition(" ")
+                        if k in ("feed", "wiki", "now") and v.strip().isdigit():
+                            fresh[k] = int(v.strip())
+                except Exception:
+                    fresh = {}
+                facts["freshness"] = fresh
         except ImportError as exc:
             print("CANNOT-RUN: no Playwright on this driver ({})".format(exc))
             return EX_CANNOT
