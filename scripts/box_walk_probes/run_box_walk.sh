@@ -586,7 +586,7 @@ trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
 # (each lib's header names its consumer). Every other probe reads live state,
 # and its phase 2 re-run stays an independent second measurement: on v1.0.89
 # that second reading is what caught the stores diverging by 44 mid-tick.
-SEED_DEPENDENT_PROBES="assistant_answers_grounded ingest_coverage usage_journal_producers"
+SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers"
 _record_verdict() {
     [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
     local fixture=live
