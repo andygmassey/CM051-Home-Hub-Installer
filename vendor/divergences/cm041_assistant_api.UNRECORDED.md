@@ -373,7 +373,66 @@ negative control `test_control_a_short_shared_phone_suffix_does_not_false_match`
 (a short shared tail must NOT false-match). RED confirmed against the
 unmodified vendored `ical-server.py` via `git stash`, GREEN after.
 
-Matches CM041 PR #193 (upstream, open at time of writing -- supersedes the
+Matches CM041 PR #193 -- UPDATED 2026-10-04: merged to CM041 main as
+`c6230ac` shortly after this entry was first written (supersedes the
 now-closed #192, see the correction above). Recorded here, not as a patch,
-for the same reason as the grafts above. Retire by landing CM041 PR #193 and
-re-pinning.
+for the same reason as the grafts above. Retire by re-pinning to CM041
+main, which now contains this via #193.
+
+## Ninth graft: widened service/notification coverage + email-name duplicate precedence (CM051 walk #6 round 4, v1.0.107)
+
+Tree `cm041/assistant_api`, same file, `_is_automated_or_service_name`
+(widened), two new helpers (`_is_service_mailbox_name`,
+`_SERVICE_NAME_PHRASE_RE`/`_MARKETPLACE_BRAND_RE`/`_SERVICE_MAILBOX_LOCAL_RE`),
+and `people_list`'s main loop (a new `human_named_emails` precomputation
+plus a new skip branch). Shape: widening + one new exclusion branch,
+nothing deleted.
+
+Archie's SECOND screen-read of macmini16-walk's People page (2,584 rows,
+post-round-3) found two more defect classes: (1) 12 rows that are
+services/notifications/subject lines round 1-3's checks could not reach --
+7 where the vocabulary word (rewards/gift/update/delivery) is not the LAST
+word (round 1 checked last-word-only), 1 marketplace-brand row, and 4
+"service mailbox" rows whose NAME IS an email address (3 brand-bearing, 1
+`ebill`-prefixed); (2) 3 rows named by a bare email address while a
+separate, human-named row shares that same address -- two Person records
+for one real contact. Still uncarded-only throughout, per Archie's
+explicit instruction.
+
+Widened vocabulary and the new marketplace-brand/service-local regexes are
+independently-written copies of the SAME shapes CM051's own box-walk audit
+tooling already uses (`scripts/box_walk_probes/lib/customer_read.py`:
+`SERVICE_PHRASE`, `MARKETPLACES`, `SERVICE_LOCAL`) -- not an import, for
+the same reason `_load_people_list_self_uris` reimplements rather than
+imports `person_facts`: this file ships to a vendor tree that does not
+carry CM051's `scripts/` directory. Two independent implementations
+agreeing is a stronger signal than one shared one.
+
+MEASURED on macmini16-walk, read-only, same box as the Eighth graft's
+regenerate-refusal measurement: 2,584 -> 2,567 (delta 17). Breakdown:
+self-exclusion 4 (already proven round 3), nameless 194 (pre-existing),
+automated-or-service 38 (pre-existing round 1-2 catches plus this round's
+widened vocabulary -- the 3 brand-bearing service-mailbox rows are caught
+here too, since an email address containing a marketplace brand token now
+also trips this check), service_mailbox 1 (the `ebill` row specifically),
+email_collision_dup 3 (matches Archie's reported count exactly). The box
+was still background-hydrating during measurement (created_at timestamps
+spanning the same session), so a repeat measurement will not reproduce
+bit-for-bit -- the SHAPE of each number was validated against Archie's
+facts file, not an exact repeat count.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py`,
+classes `TestServiceShapesRound4`, `TestServiceMailboxNames`,
+`TestEmailNamePrecedenceRound4` -- including controls for word-boundary
+(no substring false-positive), carded-always-wins (using an `ebill`-shaped
+local part specifically, since this vendor's own PRE-EXISTING
+`_is_role_address_name` check already catches `no-reply@`-shaped names
+UNCONDITIONALLY and would have confounded a card-gating test built on that
+vocabulary), lone-email-unaffected, and the given/family-on-itself case
+that round 1's existing upgrade handles, not this one's. RED confirmed
+against the unmodified vendored `ical-server.py` via `git stash`, GREEN
+after.
+
+Matches CM041 PR #194 (upstream, open at time of writing). Recorded here,
+not as a patch, for the same reason as the grafts above. Retire by landing
+CM041 PR #194 and re-pinning.
