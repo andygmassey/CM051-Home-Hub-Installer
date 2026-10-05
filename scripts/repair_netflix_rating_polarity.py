@@ -45,10 +45,12 @@ Usage:
 """
 
 import argparse
+import json
+import os
 import sys
+import urllib.error
+import urllib.request
 from typing import Any
-
-import httpx
 
 DEFAULT_QDRANT_URL = "http://127.0.0.1:6333"
 DEFAULT_COLLECTION = "preferences"
@@ -123,16 +125,46 @@ def plan_for_point(payload: dict) -> dict | None:
     return {"action": "set_payload", "payload": new_payload}
 
 
-def _scroll_all(client: httpx.Client, base: str, collection: str, flt: dict) -> list[dict]:
+# urllib, not httpx: this script ships to a vendor tree and must run under
+# install.sh's repair step with no dependency beyond the interpreter
+# itself -- stdlib only.
+#
+# EXPLICIT auth, not an implicit venv shim: a customer Qdrant requires the
+# "api-key" header (QDRANT_API_KEY, the same variable install.sh already
+# seeds and exports for every other store consumer). Same header name and
+# same env-var default as identity_resolver.repair_lid_as_phone's own
+# _qdrant_headers -- that script's auth is explicit for exactly this
+# reason, not an accident this one should diverge from: which Python
+# interpreter install.sh ends up invoking this under is not this script's
+# business to assume, so it does not rely on any interpreter-specific
+# credential shim being present.
+def _qdrant_headers(api_key: str | None) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["api-key"] = api_key
+    return headers
+
+
+def _qdrant(method: str, base: str, path: str, api_key: str | None, body: dict | None = None, timeout: float = 60.0) -> dict:
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        f"{base}{path}",
+        data=data,
+        headers=_qdrant_headers(api_key),
+        method=method,
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def _scroll_all(base: str, collection: str, api_key: str | None, flt: dict) -> list[dict]:
     points: list[dict] = []
     offset = None
     while True:
         body: dict[str, Any] = {"limit": 500, "with_payload": True, "filter": flt}
         if offset is not None:
             body["offset"] = offset
-        resp = client.post(f"{base}/collections/{collection}/points/scroll", json=body)
-        resp.raise_for_status()
-        result = resp.json()["result"]
+        result = _qdrant("POST", base, f"/collections/{collection}/points/scroll", api_key, body)["result"]
         batch = result.get("points", [])
         points.extend(batch)
         offset = result.get("next_page_offset")
@@ -145,6 +177,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qdrant-url", default=DEFAULT_QDRANT_URL)
     parser.add_argument("--collection", default=DEFAULT_COLLECTION)
+    parser.add_argument("--qdrant-api-key", default=os.environ.get("QDRANT_API_KEY"))
     parser.add_argument(
         "--apply",
         action="store_true",
@@ -154,82 +187,83 @@ def main() -> int:
 
     base = args.qdrant_url.rstrip("/")
 
-    with httpx.Client(timeout=60.0, trust_env=False) as client:
-        try:
-            resp = client.post(f"{base}/collections/{args.collection}/points/count", json={"exact": True})
-            resp.raise_for_status()
-            total = resp.json()["result"]["count"]
-        except Exception as exc:  # noqa: BLE001 - operator-facing tool
-            print(f"CANNOT REACH QDRANT at {base}: {exc}", file=sys.stderr)
-            print(
-                "Refusing to report 0 candidates. An unreachable store is not "
-                "an empty one, and a 0 printed here would be read as "
-                "'nothing to repair'.",
-                file=sys.stderr,
-            )
-            return 2
+    try:
+        total = _qdrant("POST", base, f"/collections/{args.collection}/points/count", args.qdrant_api_key, {"exact": True})["result"]["count"]
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, KeyError, ValueError) as exc:
+        print(f"CANNOT REACH QDRANT at {base}: {exc}", file=sys.stderr)
+        print(
+            "Refusing to report 0 candidates. An unreachable store is not "
+            "an empty one, and a 0 printed here would be read as "
+            "'nothing to repair'.",
+            file=sys.stderr,
+        )
+        return 2
 
-        candidates = _scroll_all(client, base, args.collection, _candidate_filter())
+    candidates = _scroll_all(base, args.collection, args.qdrant_api_key, _candidate_filter())
 
-        plans = [(p["id"], plan_for_point(p.get("payload", {}))) for p in candidates]
-        to_reclassify = [(pid, pl) for pid, pl in plans if pl["action"] == "set_payload"]
-        to_delete = [pid for pid, pl in plans if pl["action"] == "delete"]
+    plans = [(p["id"], plan_for_point(p.get("payload", {}))) for p in candidates]
+    to_reclassify = [(pid, pl) for pid, pl in plans if pl["action"] == "set_payload"]
+    to_delete = [pid for pid, pl in plans if pl["action"] == "delete"]
 
-        print(f"collection      : {args.collection} @ {base}")
-        print(f"points total    : {total}")
-        print(f"candidates found: {len(candidates)} (wrong label, not yet repaired)")
-        print(f"  to reclassify : {len(to_reclassify)}")
-        print(f"  to delete     : {len(to_delete)} (Thumbs Value=0, not rated)")
+    print(f"collection      : {args.collection} @ {base}")
+    print(f"points total    : {total}")
+    print(f"candidates found: {len(candidates)} (wrong label, not yet repaired)")
+    print(f"  to reclassify : {len(to_reclassify)}")
+    print(f"  to delete     : {len(to_delete)} (Thumbs Value=0, not rated)")
 
-        if not candidates:
-            print("\nNothing to do.")
-            return 0
+    if not candidates:
+        print("\nNothing to do.")
+        return 0
 
-        if not args.apply:
-            print(f"\nDRY RUN. Re-run with --apply to repair {len(candidates)} point(s).")
-            return 0
+    if not args.apply:
+        print(f"\nDRY RUN. Re-run with --apply to repair {len(candidates)} point(s).")
+        return 0
 
-        for pid, pl in to_reclassify:
-            # set_payload, NOT the upsert endpoint: upsert requires a vector
-            # and this script never fetched one (with_vector was False on
-            # the scroll above, deliberately -- it is not needed to decide
-            # or apply this fix, and fetching it for ~100 points only to
-            # discard it would be wasted work). set_payload merges at the
-            # TOP LEVEL only, replacing preference_type/strength/extra
-            # wholesale while leaving every other payload key (category,
-            # subject, user_id, ...) and the point's vector untouched.
-            resp = client.put(
-                f"{base}/collections/{args.collection}/points/payload",
-                json={
-                    "points": [pid],
-                    "payload": {
-                        "preference_type": pl["payload"]["preference_type"],
-                        "strength": pl["payload"]["strength"],
-                        "extra": pl["payload"]["extra"],
-                    },
+    for pid, pl in to_reclassify:
+        # set_payload, NOT the upsert endpoint: upsert requires a vector
+        # and this script never fetched one (with_vector was False on
+        # the scroll above, deliberately -- it is not needed to decide
+        # or apply this fix, and fetching it for ~100 points only to
+        # discard it would be wasted work). set_payload merges at the
+        # TOP LEVEL only, replacing preference_type/strength/extra
+        # wholesale while leaving every other payload key (category,
+        # subject, user_id, ...) and the point's vector untouched.
+        _qdrant(
+            "PUT",
+            base,
+            f"/collections/{args.collection}/points/payload",
+            args.qdrant_api_key,
+            {
+                "points": [pid],
+                "payload": {
+                    "preference_type": pl["payload"]["preference_type"],
+                    "strength": pl["payload"]["strength"],
+                    "extra": pl["payload"]["extra"],
                 },
-            )
-            resp.raise_for_status()
+            },
+        )
 
-        if to_delete:
-            resp = client.post(
-                f"{base}/collections/{args.collection}/points/delete",
-                json={"points": to_delete},
-            )
-            resp.raise_for_status()
+    if to_delete:
+        _qdrant(
+            "POST",
+            base,
+            f"/collections/{args.collection}/points/delete",
+            args.qdrant_api_key,
+            {"points": to_delete},
+        )
 
-        remaining = len(_scroll_all(client, base, args.collection, _candidate_filter()))
-        print(f"\nreclassified    : {len(to_reclassify)}")
-        print(f"deleted         : {len(to_delete)}")
-        print(f"remaining       : {remaining}")
+    remaining = len(_scroll_all(base, args.collection, args.qdrant_api_key, _candidate_filter()))
+    print(f"\nreclassified    : {len(to_reclassify)}")
+    print(f"deleted         : {len(to_delete)}")
+    print(f"remaining       : {remaining}")
 
-        if remaining:
-            print(
-                "\nREPAIR DID NOT FULLY APPLY. Re-run to confirm before "
-                "treating this as done.",
-                file=sys.stderr,
-            )
-            return 1
+    if remaining:
+        print(
+            "\nREPAIR DID NOT FULLY APPLY. Re-run to confirm before "
+            "treating this as done.",
+            file=sys.stderr,
+        )
+        return 1
 
     return 0
 

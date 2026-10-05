@@ -21,13 +21,17 @@ on:
     paths:
       - 'scripts/repair_netflix_rating_polarity.py'
       - 'tests/test_repair_netflix_rating_polarity.py'
+      - 'tests/test_repair_netflix_rating_polarity_marker_skip.sh'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/netflix.py'
+      - 'install.sh'
       - '.github/workflows/netflix-polarity-repair.yml'
   pull_request:
     paths:
       - 'scripts/repair_netflix_rating_polarity.py'
       - 'tests/test_repair_netflix_rating_polarity.py'
+      - 'tests/test_repair_netflix_rating_polarity_marker_skip.sh'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/netflix.py'
+      - 'install.sh'
       - '.github/workflows/netflix-polarity-repair.yml'
 
 concurrency:
@@ -47,12 +51,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      # httpx is the only runtime import in the repair script (the Qdrant
-      # REST calls). The tests exercise plan_for_point() only -- pure
-      # decision logic, no network -- but importing the module at all still
-      # needs httpx on the path.
-      - name: Install pytest and httpx
-        run: python -m pip install --quiet pytest httpx
+      # Stdlib only (urllib, json) -- deliberately, so this script runs
+      # under install.sh's repair step with no dependency on anything
+      # beyond the interpreter itself. pytest is the only install needed.
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE (same reasoning as
       # contact-card-repair.yml): a floor failure must not be maskable by a
       # later step never running.
@@ -64,3 +67,11 @@ jobs:
             exit 1
           fi
           python -m pytest -q tests/test_repair_netflix_rating_polarity.py
+
+  marker-skip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.sh's one-time repair step runs, skips, and never aborts the install
+        run: bash tests/test_repair_netflix_rating_polarity_marker_skip.sh
