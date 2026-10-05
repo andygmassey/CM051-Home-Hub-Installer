@@ -348,6 +348,8 @@ DECLARED = [
     "hub: the status pill never reads Status unavailable, on any route",
     "home/wiki: no gone-quiet card over 18 months, and no raw month count over 23",
     "customer text: no raw http(s) URL in customer copy",
+    "wiki: every page linked from the nav was read (the text checks cover all of them)",
+    "wiki: no date is set in the old monospace style, on any page",
 ]
 
 
@@ -362,6 +364,10 @@ def judge(f, declared=None):
     wiki = (f.get("wiki") or {}).get("pages") or {}
     texts = [("hub " + k, (v or {}).get("text") or "") for k, v in screens.items()]
     texts += [("wiki " + k, (v or {}).get("text") or "") for k, v in wiki.items()]
+    # Every nav-linked wiki page (walk #6: em dashes, raw keys and mono dates sat
+    # on System sub-pages the front-page read never opened).
+    crawl = (f.get("wiki") or {}).get("crawl") or {}
+    texts += [("wiki page " + k, (v or {}).get("text") or "") for k, v in crawl.items()]
     measured = [t for t in texts if t[1].strip()]
 
     def over_text(name, pred, show):
@@ -743,6 +749,24 @@ def judge(f, declared=None):
         bad = ["{}: {}".format(w, len(URL.findall(t))) for w, t in measured if URL.search(t)]
         add(DECLARED[28], not bad, "raw URLs, by screen: " + "; ".join(bad))
 
+    # ---- every nav-linked wiki page ----
+    links = (f.get("wiki") or {}).get("nav_links")
+    if links is None:
+        add(DECLARED[29], None, "NOT MEASURED: the wiki nav was not read")
+        add(DECLARED[30], None, "NOT MEASURED: the wiki nav was not read")
+    else:
+        unread = sorted(set(links) - set(crawl))
+        add(DECLARED[29], bool(links) and not unread,
+            "{} of {} nav-linked pages read{}".format(len(set(links) & set(crawl)), len(set(links)),
+                                                     "; unread: " + ", ".join(unread[:6]) if unread else ""))
+        mono = {k: v.get("mono_dates") or 0 for k, v in crawl.items()}
+        for k, v in wiki.items():
+            if v and v.get("mono_dates"):
+                mono["section " + k] = v["mono_dates"]
+        badm = sorted((k, n) for k, n in mono.items() if n)
+        add(DECLARED[30], not badm, "{} page(s) with monospace dates: {}".format(
+            len(badm), "; ".join("{} ({})".format(k, n) for k, n in badm[:8])))
+
     # a judge that produced no assertion, or skipped a declared one, is itself a failure
     names = [n for n, _, _ in out]
     missing = [d for d in declared if d not in names]
@@ -772,6 +796,15 @@ NEEDS_NOW_JS = r"""(arg) => {
     .filter(c => (now.compareDocumentPosition(c) & F) && (!next || (c.compareDocumentPosition(next) & F)))
     .map(c => { const t = c.querySelector(titleSel); return t ? t.innerText.trim() : ''; })
     .filter(Boolean);
+}"""
+
+# Leaf elements set in a monospace face whose text is a date (the old mono
+# styling the reskin removed). Counted per page; the text is not kept.
+MONO_DATES_JS = r"""() => {
+  const art = document.querySelector('article') || document.body;
+  const date = /\b(\d{4}-\d{2}-\d{2}|\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*( \d{4})?|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{4})\b/i;
+  return [...art.querySelectorAll('*')].filter(e => e.children.length === 0 && date.test(e.innerText || '')
+    && /mono|courier|menlo|consolas/i.test(getComputedStyle(e).fontFamily)).length;
 }"""
 
 HUB_ROUTES = [("/", "home"), ("/chat", "chat"), ("/timeline", "timeline"), ("/people", "people"),
@@ -1027,10 +1060,37 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                           const tb = t.tagName === 'TABLE' ? t : t.querySelector('table');
                           if (tb) return {kind: 'table', rows: Array.from(tb.querySelectorAll('tbody tr')).map(tr => tr.cells[0].innerText.trim())};
                           return {kind: 'list', text: t.innerText}; }"""))
+                    pg["mono_dates"] = fr.evaluate(MONO_DATES_JS)
                     f["wiki"]["pages"][name] = pg
                     wpage.screenshot(path=os.path.join(out_dir, "cr-wiki-%s.png" % name))
                 except Exception as exc:
                     f["wiki"].setdefault("errors", []).append("{}: {}".format(name, str(exc)[:160]))
+            # Every page the 7 nav sections link to, through the same frame.
+            try:
+                fr.goto(wbase, wait_until="load", timeout=60000)
+                fr.page.wait_for_timeout(1500)
+                hrefs = fr.evaluate("""() => [...document.querySelectorAll('.md-nav a.md-nav__link, .md-tabs a')]
+                    .map(a => a.href).filter(h => h && !h.includes('#'))""")
+                rels = []
+                for h in hrefs:
+                    rel = h.split("/wiki/s/", 1)[-1].split("/", 1)[-1] if "/wiki/s/" in h else None
+                    if rel is not None and rel not in rels:
+                        rels.append(rel)
+                f["wiki"]["nav_links"] = rels
+                crawl = {}
+                for rel in rels:
+                    try:
+                        fr.goto(wbase + rel, wait_until="load", timeout=60000)
+                        fr.page.wait_for_timeout(1200)
+                        crawl[rel or "(front)"] = {
+                            "text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
+                            "mono_dates": fr.evaluate(MONO_DATES_JS)}
+                    except Exception as exc:
+                        f["wiki"].setdefault("errors", []).append("crawl {}: {}".format(rel, str(exc)[:120]))
+                f["wiki"]["nav_links"] = [r or "(front)" for r in rels]
+                f["wiki"]["crawl"] = crawl
+            except Exception as exc:
+                f["wiki"].setdefault("errors", []).append("crawl: {}".format(str(exc)[:160]))
         browser.close()
 
     # GETs the app makes, sent the way the app sends them (read-only)
@@ -1165,7 +1225,11 @@ def _good():
                           {"kind": "event", "title": "Check in https://example.com/checkin"}],
         "people_rows": ["Jane Doe\n+44 7700 900001", "John Doe\n+" + "1 555 0100 222"],
         "duplicate_review_phones": [],
-        "wiki": {"pages": {
+        "wiki": {"nav_links": ["System/Declining/", "System/New-discoveries/", "System/Monthly-volume/"],
+                 "crawl": {"System/Declining/": {"text": "Declining\nTopics you have engaged with less this year.\nFilms 12\n", "mono_dates": 0},
+                           "System/New-discoveries/": {"text": "New discoveries\nFirst seen in March.\n", "mono_dates": 0},
+                           "System/Monthly-volume/": {"text": "Monthly volume\nMarch 120\nApril 98\n", "mono_dates": 0}},
+                 "pages": {
             "front": {"text": "Your Front Page\nNeeds you now\n2\nDATES\n\nJane Doe's birthday is in five days\n\n"
                               "3\nPEOPLE\n"
                               "PEOPLE\nYou've gone quiet with John Doe\nFor you\n1,000\nPEOPLE\n50\nORGANISATIONS\n",
@@ -1272,13 +1336,23 @@ MUTANTS = [
     ("gone quiet for 26 months (walk #5 e)", _txt(["screens", "home", "text"], "You've gone quiet with Jane Doe\nIt's been 800 days\n")),
     ("a raw 31 months count (walk #5 e)", _txt(["wiki", "pages", "front", "text"], "last spoke 31 months ago\n")),
     ("a raw URL in Ostler copy (walk #5 f)", _txt(["screens", "home", "text"], "Read more at https://example.com/x\n")),
+    ("an em dash on a System sub-page (walk #6 crawl)",
+     _txt(["wiki", "crawl", "System/Declining/", "text"], "Films \u2014 down 40%\n")),
+    ("a raw category key on a System sub-page (walk #6 crawl)",
+     _txt(["wiki", "crawl", "System/New-discoveries/", "text"], "tv_show\t14\n")),
+    ("an ISO date on a System sub-page (walk #6 crawl)",
+     _txt(["wiki", "crawl", "System/Monthly-volume/", "text"], "since 2026-03-01\n")),
+    ("a monospace date on a System sub-page (walk #6 crawl)",
+     _set(["wiki", "crawl", "System/Monthly-volume/", "mono_dates"], 3)),
+    ("a nav-linked page the crawl never read (walk #6 crawl)",
+     _app(["wiki", "nav_links"], "System/Statistics/")),
     ("a calendar title whose URL still shows raw (walk #6 f)",
      _txt(["screens", "timeline", "text"], "EVENT\nCheck in https://example.com/checkin\n")),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 28]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28]))
 
 
 def _proxy_bypass_self_test():
