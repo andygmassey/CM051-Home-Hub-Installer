@@ -16205,14 +16205,33 @@ TOMLPREAMBLE
     # fall back to its compiled-in default. Always emit; Vane is
     # bundled by default.
     echo
-    echo "[tools.web_search]"
-    echo "provider = \"vane\""
-    # #1660/#1672: :3000 now demands a credential, and THE ASSISTANT IS A
-    # CONSUMER, not just the customer's browser. web_search_tool.rs:157 sends a
-    # bare `client.get(&search_url)` with no Authorization header, so without
-    # this every web search 401s and the tool reports "the local Vane container
-    # did not respond" -- blaming the container for a credential.
+    # v1.0.107 console walk (Andy, candidate #9): web_search 401s on a FRESH
+    # install and the assistant tells the customer the search tool "returned
+    # an authorization error". #1660/#1672 already found that :3000 now
+    # demands a credential and the assistant is a consumer, not just the
+    # customer's browser, and added the block below to carry that credential
+    # -- but wrote it under "[tools.web_search]", a table NOTHING in the
+    # schema reads. `Config.web_search` (crates/zeroclaw-config/src/
+    # schema.rs:289, WebSearchConfig at :3242) is a TOP-LEVEL field, so the
+    # correct header is "[web_search]". Under the wrong header the TOML
+    # parses (no deny_unknown_fields) but the table is simply never looked
+    # at: WebSearchConfig::default() wins, vane_url falls back to
+    # "http://localhost:3000" with no credential, and web_search_tool.rs's
+    # own resolve_vane_url() (:393-409) never sees the one install.sh wrote.
+    # Confirmed on the walk box: config.toml carried a (correctly-named, by
+    # the daemon's own Config::save() round-trip) "[web_search]" section
+    # with the DEFAULT uncredentialed vane_url -- the credentialed line this
+    # block emits had been landing in a table nobody parses, and the
+    # daemon's own save() then overwrote it with its in-memory default under
+    # the right name, which is why the live file showed the right header
+    # with the wrong value.
     #
+    # The Rust side needs no change: resolve_vane_url() already prefers
+    # config.web_search.vane_url, and reqwest's RequestBuilder already takes
+    # basic auth from a URL's userinfo automatically (see MEASURED note
+    # below) -- `[tools.web_search]` -> `[web_search]` is the whole fix.
+    echo "[web_search]"
+    echo "provider = \"vane\""
     # reqwest takes basic auth from the URL's userinfo. MEASURED against the
     # pinned nginx with the shipped server block, proxy disabled so the result
     # is about reqwest and not about a local proxy answering:
