@@ -965,6 +965,28 @@ entries:
       kind: box_walk_probe
       probe: "hub_screens_customer_read"
 
+  # ==========================================================================
+  # Andy asked Ostler "Where have I worked?" and was told there was no record,
+  # on a box holding real history. assistant_answers_grounded already measures
+  # whether a seeded THIRD PARTY's facts reach an answer; nothing asked about
+  # the OWNER at all. ADVISORY in walk_promote_scope.tsv: a brand-new
+  # instrument, first PR, never yet run on a real box. It reports a
+  # per-domain score across identity, work, education, family/partner,
+  # friends, places, food, media, hobbies, routines, health, money, recent
+  # events, upcoming commitments and drifting relationships; it does not
+  # refuse a promote. Promote to blocking only after a real-box run, same
+  # path assistant_grounds_the_opening_turn took.
+  # ==========================================================================
+  - id: box-walk-assistant-knows-the-owner
+    title: across 15 domains, does what the graph holds about the OWNER reach a plain question about themselves?
+    incident: >-
+      Andy asked his own Hub "Where have I worked?" and was told there was no
+      record, despite the box holding real history. Every existing probe
+      measures a seeded third party reaching an answer, never the owner
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_knows_the_owner"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical
