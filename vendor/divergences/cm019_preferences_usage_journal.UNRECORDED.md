@@ -89,3 +89,48 @@ honestly, are decisions for Archie/Andy, not assumed here.
 Proven by execution, same two files: both now also assert that an
 unmeasured call writes one ESTIMATED row (not zero), with the `-est` suffix
 and the correct chars/4 value.
+
+## Second, unrelated hand-edit: the Netflix thumbs-value polarity bug (walk #6, candidate #10)
+
+Tree `cm019_preferences`, file
+`vendor/cm019_preferences/services/ingest/src/parsers/netflix.py`,
+`_parse_ratings()`. UNRELATED to the vectorizer change above (different
+file, different root cause); recorded in this same journal because the
+manifest points one `unrecorded_divergence` pointer at this tree and that
+pointer is this file.
+
+A customer console walk (macmini16-walk) found shows rated positively
+listed under "Dislikes" on the wiki. Root cause: this parser's docstring
+documented the WRONG Netflix GDPR "Thumbs Value" encoding (0=down,
+1=up, 2=strong-down, 3=strong-up) and the code matched it exactly. The
+real encoding is 0=not rated, 1=down, 2=up, 3=strong up -- there is no
+"strong down" tier. Values 1 and 2 were swapped, and 0 ("not rated") was
+being stored as an explicit Dislike.
+
+Matches CM019 PR #396 (upstream, open at time of writing), applied here
+via `git apply` of that PR's own diff against this vendor copy's
+byte-identical `_parse_ratings()` (confirmed identical before this fix --
+the only pre-existing divergence in this file is the
+`NETFLIX_UNIQUE_PATTERNS`/`NETFLIX_EXACT_LEAF_NAMES` file-detection fix
+for a Foursquare filename collision, landed earlier, which this patch
+does not touch). CM019's test suite
+(`services/ingest/tests/test_netflix_parser.py`) is NOT vendored (tests/
+is outside this tree's shipping subset per this manifest row's own
+note), so there is no vendor-side test to point at here -- proof is
+upstream, at CM019 PR #396.
+
+Also ships, as a SEPARATE file not vendored FROM anywhere (CM019's own
+`scripts/` directory is likewise outside the shipping subset, so this is
+a CM051-native script, not a graft): `scripts/repair_netflix_rating_polarity.py`
+plus `tests/test_repair_netflix_rating_polarity.py`. One-time, idempotent
+repair for Netflix preference points already written by the buggy parser
+on an upgraded box. Dry-run by default, `--apply` to mutate. Measured on
+macmini16-walk's own `preferences` collection (a test/walk box): 95 of
+5,000 Netflix points carried a wrong label; repaired, then re-run twice
+more with zero candidates found both times (idempotent, proven by
+execution, not asserted). NOT wired into install.sh as an automatic
+upgrade step in this PR -- that decision (same shape as `repair_lid_as_
+phone`'s install.sh wiring) is flagged for Archie/Andy, not assumed here.
+Retire the parser-fix portion by landing CM019 PR #396 and re-pinning;
+the repair script has no upstream to retire against since it is native
+to this repo.
