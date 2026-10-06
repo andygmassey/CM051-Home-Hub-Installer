@@ -46,6 +46,13 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/owner_employer_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it and, only "
+        "when the walk may write, imports a synthetic LinkedIn Positions.csv "
+        "through ostler-import so owner_digest_knows_the_owner has a known "
+        "employer to ask about; it removes the position again after phase 2. "
+        "It has no PROBE_NAME and no verdict. Its wiring and its seeded/failed "
+        "states are pinned by tests/test_the_walk_seeds_the_owner_employer.sh.",
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
     "lib/converge_wait.sh":

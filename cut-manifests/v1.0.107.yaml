@@ -489,6 +489,22 @@ entries:
     proof:
       kind: box_walk_probe
       probe: ostler_unlock_reachable_by_name
+  - id: probe-owner-digest-knows-the-owner
+    title: "box-walk probe must PASS: owner_digest_knows_the_owner"
+    why: |
+      v1.0.107 #10. CONTEXT.md is the digest the assistant reads on every
+      turn. After hydration it must carry a "## About you" section whose
+      "- Work:" line names at least one organisation, with non-empty top
+      people and preferences; no section may say "nothing stored" while its
+      store (measured on the box, never assumed) holds data; and the chat
+      must answer "Where have I worked?" with the seed organisation, which
+      the walk imports through the customer's own LinkedIn-export path.
+      Self-test: an empty digest FAILs (a) and (b), a digest without the
+      organisation FAILs (c), seven mutants each caught by their own
+      assertion. BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: owner_digest_knows_the_owner
 
 
 open_issues:
