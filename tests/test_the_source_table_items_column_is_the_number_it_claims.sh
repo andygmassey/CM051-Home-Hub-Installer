@@ -114,7 +114,15 @@ done
 # Lifting is not copying: the bytes come from the file that ships.
 # ---------------------------------------------------------------------------
 CELLS="${WORK}/cells.txt"
-OSTLER_HOME="${WORK}/boxroot" python3 - "$WEBUI" > "$CELLS" <<'PY'
+# OSTLER_DIR alongside OSTLER_HOME (v1.0.107 walk candidate #9 fix): the
+# renderer's new last_run_count read pulls in _settling_progress_total,
+# which resolves its OWN directory from OSTLER_DIR, not OSTLER_HOME --
+# unset, it falls through to the REAL ~/.ostler on whatever machine runs
+# this. MEASURED on a dev Mac with real settling-progress files on disk
+# (messages.imessage.json: total=194439): two assertions failed on a
+# leaked LOCAL total, not on anything this harness wrote. Sandboxed, same
+# as the hydrate dir already is.
+OSTLER_HOME="${WORK}/boxroot" OSTLER_DIR="${WORK}/boxroot" python3 - "$WEBUI" > "$CELLS" <<'PY'
 import html, re, sys
 from pathlib import Path
 
