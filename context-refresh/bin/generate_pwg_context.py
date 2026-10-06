@@ -139,7 +139,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # ── Configuration ───────────────────────────────────────────────────────────
@@ -172,7 +172,7 @@ REQUEST_TIMEOUT_SECS = 8
 # How many of each section to surface. Kept small to respect MAX_CHARS.
 MAX_PEOPLE = 6
 MAX_MEETINGS = 5
-MAX_PREFERENCES = 6
+MAX_PREFERENCES = 8
 MAX_ORGS = 6
 # Calendar events (flights, trips, appointments) surfaced grouped by whose
 # calendar they came from, so the brief never merges one person's trip into
@@ -216,12 +216,24 @@ SERVICE_TOKEN_PATH = Path(
     or (Path.home() / ".ostler" / "secrets" / "service_token")
 )
 
+# OXIGRAPH NOW REQUIRES A BEARER (measured 2026-10-07 on a v1.0.107 candidate:
+# a bare SPARQL POST to 127.0.0.1:7878/query -> 401, the same POST carrying
+# `Authorization: Bearer <secrets/oxigraph_token>` -> 200). install.sh seeds the
+# token 0600 and fronts the store with a proxy that refuses anything else. This
+# script sent no header, so both of its SPARQL sections would have rendered
+# COULD NOT BE READ on every tick after the store restarted with auth on.
+_OXIGRAPH_TOKEN_ENV_VARS = ("OSTLER_OXIGRAPH_TOKEN", "OXIGRAPH_TOKEN")
+OXIGRAPH_TOKEN_PATH = Path(
+    os.environ.get("OSTLER_OXIGRAPH_TOKEN_FILE")
+    or (Path.home() / ".ostler" / "secrets" / "oxigraph_token")
+)
+
 # Exit codes. The LaunchAgent's exit status is the only signal launchd and
 # the Doctor get, so it has to carry the verdict rather than always saying
 # "fine". Documented here because the wrapper and the plist both cite them.
 EXIT_OK = 0                 # digest written, every source answered
 EXIT_WRITE_FAILED = 1       # digest built but could not be written to disk
-EXIT_NOTHING_PRODUCED = 2   # zero of six sections; no digest exists to write
+EXIT_NOTHING_PRODUCED = 2   # zero of seven sections; no digest exists to write
 EXIT_DEGRADED = 3           # digest written, but one or more sources failed
 
 
@@ -310,6 +322,142 @@ def _token_provenance() -> str:
     )
 
 
+def oxigraph_token() -> str:
+    """The Oxigraph store bearer, or "" when none can be found. Env first,
+    then the 0600 file install.sh writes. The value is never logged."""
+    for name in _OXIGRAPH_TOKEN_ENV_VARS:
+        raw = (os.environ.get(name) or "").strip()
+        if raw:
+            return raw
+    try:
+        return OXIGRAPH_TOKEN_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+# ── Owner identity ───────────────────────────────────────────────────────────
+#
+# The digest has to know WHO the owner is to say anything about them. This
+# LaunchAgent's plist carries only PATH, so the identity is read the same way
+# the other consumers on the box get it: the environment first, then the
+# installer-written env files under $OSTLER_DIR (config/.env carries USER_ID
+# and USER_NAME; .env carries WIKI_OPERATOR_NAME and WIKI_OPERATOR_EMAILS).
+# Parsed as KEY=value text, never sourced, so nothing in them executes.
+
+_IDENTITY_KEYS = ("USER_ID", "USER_NAME", "USER_EMAIL",
+                  "WIKI_OPERATOR_NAME", "WIKI_OPERATOR_EMAILS")
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return out
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key not in _IDENTITY_KEYS:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        out.setdefault(key, value.strip())
+    return out
+
+
+def _owner_identity() -> dict:
+    """Return {"user_id", "name", "emails"} for the owner. Empty values when
+    nothing on this box names them; never raises."""
+    ostler_dir = Path(os.environ.get("OSTLER_DIR") or (Path.home() / ".ostler"))
+    merged: dict[str, str] = {}
+    for key in _IDENTITY_KEYS:
+        val = (os.environ.get(key) or "").strip()
+        if val:
+            merged[key] = val
+    for path in (ostler_dir / "config" / ".env", ostler_dir / ".env"):
+        for key, val in _read_env_file(path).items():
+            if val and key not in merged:
+                merged[key] = val
+    emails: list[str] = []
+    for raw in (merged.get("USER_EMAIL", ""),
+                merged.get("WIKI_OPERATOR_EMAILS", "")):
+        for part in raw.replace(";", ",").split(","):
+            e = part.strip().lower()
+            if "@" in e and e not in emails:
+                emails.append(e)
+    return {
+        "user_id": merged.get("USER_ID", "").strip().lower(),
+        "name": (merged.get("USER_NAME") or merged.get("WIKI_OPERATOR_NAME")
+                 or "").strip(),
+        "emails": emails,
+    }
+
+
+def _sparql_literal(value: str) -> str:
+    """A SPARQL string literal, escaped. Values come from env files and the
+    graph, so they are escaped rather than trusted."""
+    esc = (value.replace("\\", "\\\\").replace('"', '\\"')
+           .replace("\n", "\\n").replace("\r", "\\r"))
+    return f'"{esc}"'
+
+
+def _iri_ok(uri: str) -> bool:
+    return bool(uri) and not any(c in uri for c in '<>"{}|^`\\ \n')
+
+
+def _owner_uris(identity: dict) -> list[str] | None:
+    """Every Person node that is the owner. None when the read failed.
+
+    Same three arms the ical-server uses to exclude the owner from their own
+    People list (_load_people_list_self_uris), plus pwg:isOwner: the anchor
+    node pwg:user_<USER_ID>, a Person whose displayName is the owner's name,
+    and a Person carrying one of the owner's email identifiers. A box's owner
+    is routinely spread over several nodes (identity_fragmented), so this is
+    a set, not a single URI.
+    """
+    uris: list[str] = []
+    if identity["user_id"]:
+        uris.append(f"{PWG_NS}user_{identity['user_id']}")
+    arms = ["{ ?p pwg:isOwner true }"]
+    if identity["name"]:
+        arms.append(
+            "{ ?p a pwg:Person ; pwg:displayName ?n . "
+            f"FILTER(LCASE(STR(?n)) = {_sparql_literal(identity['name'].lower())}) }}"
+        )
+    if identity["emails"]:
+        vals = ", ".join(_sparql_literal(e) for e in identity["emails"])
+        arms.append(
+            "{ ?p pwg:hasIdentifier ?id . ?id pwg:identifierValue ?v . "
+            f"FILTER(LCASE(STR(?v)) IN ({vals})) }}"
+        )
+    rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\nSELECT DISTINCT ?p WHERE {{\n  "
+        + "\n  UNION\n  ".join(arms)
+        + "\n} LIMIT 50"
+    )
+    if rows is None:
+        return None
+    for row in rows:
+        uri = (row.get("p") or "").strip() if isinstance(row, dict) else ""
+        if _iri_ok(uri) and uri.startswith("http") and uri not in uris:
+            uris.append(uri)
+    return uris
+
+
+def _values_clause(var: str, uris: list[str]) -> str:
+    return "VALUES ?%s { %s }" % (var, " ".join(f"<{u}>" for u in uris if _iri_ok(u)))
+
+
+def _today() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 # ── HTTP helper ──────────────────────────────────────────────────────────────
 
 
@@ -377,19 +525,24 @@ def _sparql_select(sparql: str) -> list[dict] | None:
     omitted without crashing the LaunchAgent. Does not raise, and like
     ``_get_json`` it RECORDS every non-delivery rather than absorbing it.
 
-    Oxigraph is unauthenticated on the Hub (measured 2026-08-18 on a v1.0.36
-    install: a bare SPARQL POST to 127.0.0.1:7878/query returns 200), so no
-    bearer is attached here. If that ever changes, this is the second site to
-    teach about ``service_token()``.
+    Oxigraph WAS unauthenticated on the Hub (measured 2026-08-18 on a v1.0.36
+    install). It no longer is (measured 2026-10-07, bare POST -> 401), so the
+    per-install store bearer is attached when one can be found. Absent a
+    token the request still goes out and the 401 is recorded, so the section
+    says COULD NOT BE READ rather than "nothing stored".
     """
     label = "POST oxigraph /query"
+    headers = {
+        "Content-Type": "application/sparql-query",
+        "Accept": "application/sparql-results+json",
+    }
+    token = oxigraph_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
         OXIGRAPH_URL.rstrip("/") + "/query",
         data=sparql.encode("utf-8"),
-        headers={
-            "Content-Type": "application/sparql-query",
-            "Accept": "application/sparql-results+json",
-        },
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECS) as resp:
@@ -454,6 +607,7 @@ def _user_asserted_section() -> list[str]:
         '             OPTIONAL {{ ?p pwg:displayName ?name }}\n'
         '             OPTIONAL {{ ?p pwg:relationshipType ?rel }} }}\n'
         '  OPTIONAL {{ ?f pwg:createdAt ?created }}\n'
+        '  OPTIONAL {{ ?f pwg:privacyLevel ?level }}\n'
         '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
         '}} ORDER BY DESC(?created) LIMIT {limit}'.format(
             ns=PWG_NS, limit=MAX_USER_ASSERTED * 3
@@ -465,7 +619,7 @@ def _user_asserted_section() -> list[str]:
     lines: list[str] = []
     seen: set[str] = set()
     for row in rows:
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or _is_withheld({"level": row.get("level")}):
             continue
         text = (row.get("text") or "").strip()
         if not text:
@@ -481,39 +635,284 @@ def _user_asserted_section() -> list[str]:
     return lines
 
 
-def _people_section() -> list[str]:
-    """Recently-active people: name, role, last contact.
+# Interaction weights for ranking people. A meeting is a deliberate block of
+# the owner's time and much rarer than a message, so one meeting is worth
+# MEETING_WEIGHT messages. Tuned to keep a weekly 1:1 above a noisy group
+# thread, not derived from data.
+MEETING_WEIGHT = 5
+_RANK_POOL = 200
 
-    Uses /api/v1/suggestions which already composes recent meetings (the
-    people the customer actually interacts with). Falls back to nothing if the
-    endpoint is unavailable.
+
+def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
+    """People ranked by REAL interaction counts in the graph.
+
+    Two counts, both read off the default graph CM041 writes:
+      messages: SUM of pwg:totalMessages on pwg:RelationshipSignal ?s
+                pwg:about ?person (the per-thread message tallies);
+      meetings: COUNT of pwg:Meeting nodes listing the person as a
+                pwg:meetingAttendee.
+    L3 signals, L3 meetings and L3 people are dropped. The owner is
+    excluded by URI and by name, and a "name" that is an email address is
+    an organiser mailbox, not a person, so it is excluded too.
+
+    Returns None when any read failed (the caller then reports COULD NOT
+    BE READ); [] when the store answered and held no interactions.
+
+    This replaces /api/v1/suggestions.recent_meetings, which lists the
+    ORGANISERS of recent calendar entries: on the box that surfaced it,
+    four of five rows were mailbox addresses and the fifth was the owner.
     """
-    data = _get_json("/api/v1/suggestions")
-    if not data:
-        return []
-    contacts = data.get("recent_meetings") or data.get("follow_up") or []
-    if not isinstance(contacts, list):
-        return []
+    not_l3 = 'FILTER(!BOUND(?l) || UCASE(STR(?l)) != "L3")'
+    msg_rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+        "SELECT ?p (SUM(xsd:integer(?t)) AS ?n) WHERE {\n"
+        "  ?s a pwg:RelationshipSignal ; pwg:about ?p ; pwg:totalMessages ?t .\n"
+        f"  OPTIONAL {{ ?s pwg:privacyLevel ?l }} {not_l3}\n"
+        f"}} GROUP BY ?p ORDER BY DESC(?n) LIMIT {_RANK_POOL}"
+    )
+    meet_rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT ?p (COUNT(DISTINCT ?m) AS ?n) WHERE {\n"
+        "  ?m a pwg:Meeting ; pwg:meetingAttendee ?p .\n"
+        f"  OPTIONAL {{ ?m pwg:privacyLevel ?l }} {not_l3}\n"
+        f"}} GROUP BY ?p ORDER BY DESC(?n) LIMIT {_RANK_POOL}"
+    )
+    if msg_rows is None or meet_rows is None:
+        return None
 
+    def _int(v) -> int:
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+
+    owners = set(owner_uris)
+    tally: dict[str, list[int]] = {}
+    for rows, idx in ((msg_rows, 0), (meet_rows, 1)):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            uri = (row.get("p") or "").strip()
+            if not _iri_ok(uri) or uri in owners:
+                continue
+            tally.setdefault(uri, [0, 0])[idx] += _int(row.get("n"))
+    if not tally:
+        return []
+    ranked = sorted(tally.items(),
+                    key=lambda kv: kv[1][0] + MEETING_WEIGHT * kv[1][1],
+                    reverse=True)[:_RANK_POOL]
+    detail = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT ?p ?name ?org ?l WHERE {\n"
+        f"  {_values_clause('p', [u for u, _ in ranked])}\n"
+        "  ?p pwg:displayName ?name .\n"
+        "  OPTIONAL { ?p pwg:organization ?org }\n"
+        "  OPTIONAL { ?p pwg:privacyLevel ?l }\n"
+        "  FILTER NOT EXISTS { ?p pwg:mergedInto ?x }\n"
+        "}"
+    )
+    if detail is None:
+        return None
+    info: dict[str, dict] = {}
+    for row in detail:
+        if not isinstance(row, dict):
+            continue
+        uri = row.get("p") or ""
+        if uri in info:
+            continue
+        info[uri] = row
+    owner_norm = " ".join(owner_name.lower().split())
+    out: list[dict] = []
+    for uri, (msgs, meets) in ranked:
+        row = info.get(uri)
+        if not row or _is_withheld({"level": row.get("l")}):
+            continue
+        name = (row.get("name") or "").strip()
+        if not name or "@" in name:
+            continue
+        if owner_norm and " ".join(name.lower().split()) == owner_norm:
+            continue
+        out.append({
+            "uri": uri, "name": name,
+            "org": (row.get("org") or "").strip(),
+            "messages": msgs, "meetings": meets,
+            "score": msgs + MEETING_WEIGHT * meets,
+        })
+    return out
+
+
+def _people_section() -> list[str]:
+    """The people the owner interacts with most, by messages and meetings."""
+    identity = _owner_identity()
+    owners = _owner_uris(identity)
+    if owners is None:
+        return []
+    people = _ranked_people(owners, identity["name"])
+    if not people:
+        return []
     lines: list[str] = []
-    for c in contacts:
-        if not isinstance(c, dict) or _is_withheld(c):
-            continue
-        name = (c.get("name") or "").strip()
-        if not name:
-            continue
-        role = (c.get("role") or c.get("title") or "").strip()
-        org = (c.get("organisation") or c.get("organization") or "").strip()
-        last = (c.get("last_contact") or c.get("meeting_date") or "").strip()
-        bits = [name]
-        if role:
-            bits.append(role)
+    for p in people[:MAX_PEOPLE]:
+        bits = [p["name"]] + ([p["org"]] if p["org"] else [])
+        counts = []
+        if p["messages"]:
+            counts.append(f"{p['messages']} messages")
+        if p["meetings"]:
+            counts.append(f"{p['meetings']} meetings")
+        lines.append(f"- {', '.join(bits)} ({', '.join(counts)})")
+    return lines
+
+
+def _norm_org(org: str) -> str:
+    return " ".join(org.lower().replace(",", " ").split())
+
+
+def _about_you_section() -> list[str]:
+    """Who the owner is: name, work history, places, family and close people.
+
+    THIS SECTION DID NOT EXIST, and it is why the assistant answered "Where
+    have I worked?" with "I have no record" on a box whose graph held the
+    owner's LinkedIn positions and whose ical-server resolved their employer.
+
+    Sources, each read and each recorded:
+      * /api/v1/employer: the ical-server's deterministic current-employer
+        resolver (corrections and hygiene applied), plus former employers.
+      * pwg:PersonFact factType "career_position" about any owner node (the
+        LinkedIn Positions.csv import): organisation, title, dates.
+      * pwg:organization / pwg:jobTitle on the owner's own Person nodes (the
+        Contacts me-card).
+      * urn:ostler:Fact in the owner's named graph, type "location" (places)
+        and domain "family" or type "relationship" (family and close people).
+    L3 is withheld everywhere. The "- Work:" line lists organisations
+    comma-separated, current first; roles and dates go on their own line so
+    the list stays machine-readable.
+    """
+    identity = _owner_identity()
+    lines: list[str] = []
+    if identity["name"]:
+        lines.append(f"- Name: {identity['name']}")
+
+    # entries: (org, title, start, end, is_current)
+    entries: list[tuple[str, str, str, str, bool]] = []
+
+    employer = _get_json("/api/v1/employer")
+    former_from_endpoint: list[str] = []
+    if isinstance(employer, dict) and employer.get("found") and not _is_withheld(employer):
+        org = str(employer.get("employer") or "").strip()
         if org:
-            bits.append(org)
-        suffix = f" (last contact {last})" if last else ""
-        lines.append(f"- {', '.join(bits)}{suffix}")
-        if len(lines) >= MAX_PEOPLE:
-            break
+            entries.append((org, str(employer.get("job_title") or "").strip(),
+                            str(employer.get("start_date") or "").strip(), "", True))
+        for f in employer.get("former_employers") or []:
+            name = (f.get("employer") if isinstance(f, dict) else f) or ""
+            if str(name).strip():
+                former_from_endpoint.append(str(name).strip())
+
+    owners = _owner_uris(identity)
+    careers_open: list[tuple] = []
+    careers_closed: list[tuple] = []
+    mecard: list[tuple] = []
+    if owners:
+        values = _values_clause("p", owners)
+        career_rows = _sparql_select(
+            f"PREFIX pwg: <{PWG_NS}>\n"
+            "SELECT ?org ?title ?start ?end ?l WHERE {\n"
+            f"  {values}\n"
+            '  ?f a pwg:PersonFact ; pwg:factType "career_position" ;\n'
+            "     pwg:aboutPerson ?p ; pwg:organization ?org .\n"
+            "  OPTIONAL { ?f pwg:jobTitle ?title }\n"
+            "  OPTIONAL { ?f pwg:startDate ?start }\n"
+            "  OPTIONAL { ?f pwg:endDate ?end }\n"
+            "  OPTIONAL { ?f pwg:privacyLevel ?l }\n"
+            "  FILTER NOT EXISTS { ?f pwg:validTo ?gone }\n"
+            "} LIMIT 60"
+        ) or []
+        for row in career_rows:
+            if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+                continue
+            org = (row.get("org") or "").strip()
+            if not org:
+                continue
+            item = (org, (row.get("title") or "").strip(),
+                    (row.get("start") or "").strip(), (row.get("end") or "").strip())
+            (careers_closed if item[3] else careers_open).append(item)
+        mecard_rows = _sparql_select(
+            f"PREFIX pwg: <{PWG_NS}>\n"
+            "SELECT ?org ?title ?l WHERE {\n"
+            f"  {values}\n"
+            "  ?p pwg:organization ?org .\n"
+            "  OPTIONAL { ?p pwg:jobTitle ?title }\n"
+            "  OPTIONAL { ?p pwg:privacyLevel ?l }\n"
+            "} LIMIT 20"
+        ) or []
+        for row in mecard_rows:
+            if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+                continue
+            org = (row.get("org") or "").strip()
+            if org:
+                mecard.append((org, (row.get("title") or "").strip(), "", ""))
+
+    careers_open.sort(key=lambda e: e[2], reverse=True)
+    careers_closed.sort(key=lambda e: e[3] or e[2], reverse=True)
+    for org, title, start, end in careers_open + mecard:
+        entries.append((org, title, start, end, True))
+    for org, title, start, end in careers_closed:
+        entries.append((org, title, start, end, False))
+    for org in former_from_endpoint:
+        entries.append((org, "", "", "", False))
+
+    seen: set[str] = set()
+    orgs: list[str] = []
+    roles: list[str] = []
+    for org, title, start, end, current in entries:
+        key = _norm_org(org)
+        if not key or key in seen:
+            # A later duplicate can still contribute the title the first lacked.
+            continue
+        seen.add(key)
+        orgs.append(org.replace(",", ""))
+        if title:
+            span = ""
+            if start or end or current:
+                span = f" ({start[:4] or '?'} to {end[:4] if end else 'present'})"
+            roles.append(f"{title} at {org}{span}")
+    if orgs:
+        lines.append(f"- Work: {', '.join(orgs[:8])}")
+    if roles:
+        lines.append(f"- Roles: {'; '.join(roles[:5])}")
+
+    uid = identity["user_id"]
+    if uid:
+        fact_rows = _sparql_select(
+            "SELECT ?text ?t ?d ?l ?at WHERE {\n"
+            "  GRAPH ?g {\n"
+            "    ?f a <urn:ostler:Fact> ; <urn:ostler:text> ?text ;\n"
+            "       <urn:ostler:userId> ?uid .\n"
+            "    OPTIONAL { ?f <urn:ostler:type> ?t }\n"
+            "    OPTIONAL { ?f <urn:ostler:domain> ?d }\n"
+            "    OPTIONAL { ?f <urn:ostler:privacyLevel> ?l }\n"
+            "    OPTIONAL { ?f <urn:ostler:observedAt> ?at }\n"
+            "  }\n"
+            f"  FILTER(LCASE(STR(?uid)) = {_sparql_literal(uid)})\n"
+            '  FILTER(STR(?t) = "location" || STR(?t) = "relationship" || STR(?d) = "family")\n'
+            "} ORDER BY DESC(?at) LIMIT 40"
+        ) or []
+        places: list[str] = []
+        family: list[str] = []
+        for row in fact_rows:
+            if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+                continue
+            text = " ".join((row.get("text") or "").split())
+            if not text:
+                continue
+            if len(text) > 110:
+                text = text[:107].rstrip() + "..."
+            bucket = places if row.get("t") == "location" else family
+            if text not in bucket and len(bucket) < 4:
+                bucket.append(text)
+        if places:
+            lines.append(f"- Places: {'; '.join(places)}")
+        if family:
+            lines.append(f"- Family and close people: {'; '.join(family)}")
     return lines
 
 
@@ -535,13 +934,12 @@ def _meetings_section() -> list[str]:
     reads the CM041 owner + type provenance and fails closed on L3.
     """
     data = _get_json("/api/v1/timeline?days=7")
-    if not data:
-        return []
-    items = data.get("items")
+    items = data.get("items") if isinstance(data, dict) else None
     if not isinstance(items, list):
-        return []
+        items = []
 
     recent: list[str] = []
+    seen: set[str] = set()
     for item in items:
         if not isinstance(item, dict) or _is_withheld(item):
             continue
@@ -554,9 +952,65 @@ def _meetings_section() -> list[str]:
             continue
         date = (item.get("date") or "").strip()
         label = f"- {summary}" + (f" ({date})" if date else "")
-        if len(recent) < MAX_MEETINGS:
+        if len(recent) < MAX_MEETINGS and summary.lower() not in seen:
+            seen.add(summary.lower())
             recent.append(label)
+
+    # Second source: the pwg:Meeting nodes themselves, last 7 days. The
+    # section says "nothing stored" only when EVERY source behind it is
+    # empty, so the graph is asked directly rather than trusting one
+    # endpoint's window.
+    for row in _meeting_rows(past=True):
+        if len(recent) >= MAX_MEETINGS:
+            break
+        summary = row["summary"]
+        if summary.lower() in seen:
+            continue
+        seen.add(summary.lower())
+        recent.append(f"- {summary} ({row['date']})")
     return recent
+
+
+def _meeting_rows(*, past: bool, days: int = 7, limit: int = 20) -> list[dict]:
+    """pwg:Meeting rows in the last (past=True) or next ``days`` days.
+
+    Read off the default graph CM041's meeting syncer writes (pwg:Meeting,
+    pwg:meetingSummary, pwg:meetingDate "YYYY-MM-DD HH:MM:SS+ZZ:ZZ"). Day
+    granularity on the date string, L3 withheld. Returns [] on a failed read
+    (the failure is recorded by _sparql_select and surfaces as COULD NOT BE
+    READ for the calling section).
+    """
+    today = _today().date()
+    if past:
+        lo, hi = today - timedelta(days=days), today + timedelta(days=1)
+        order = "DESC(?d)"
+    else:
+        lo, hi = today, today + timedelta(days=days + 1)
+        order = "?d"
+    rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT ?summary ?d ?l WHERE {\n"
+        "  ?m a pwg:Meeting ; pwg:meetingSummary ?summary ; pwg:meetingDate ?d .\n"
+        "  OPTIONAL { ?m pwg:privacyLevel ?l }\n"
+        f'  FILTER(STR(?d) >= "{lo.isoformat()}" && STR(?d) < "{hi.isoformat()}")\n'
+        f"}} ORDER BY {order} LIMIT {limit}"
+    ) or []
+    now_s = _today().strftime("%Y-%m-%d %H:%M")
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+            continue
+        summary = " ".join((row.get("summary") or "").split())
+        date = (row.get("d") or "").strip().replace("T", " ")[:16]
+        if not summary or not date:
+            continue
+        # Same-day split: past means already started, upcoming means not yet.
+        if past and date > now_s:
+            continue
+        if not past and date < now_s:
+            continue
+        out.append({"summary": summary, "date": date})
+    return out
 
 
 def _calendar_by_owner_section() -> list[str]:
@@ -588,9 +1042,7 @@ def _calendar_by_owner_section() -> list[str]:
         '}} ORDER BY DESC(?valid) LIMIT {limit}'.format(
             ns=PWG_NS, limit=MAX_CALENDAR_TOTAL * 4
         )
-    )
-    if not rows:
-        return []
+    ) or []
 
     # Group by owner, preserving most-recent-first order, honouring caps and
     # dropping L3. "Unattributed" is the bucket for unlabelled-owner events --
@@ -621,6 +1073,28 @@ def _calendar_by_owner_section() -> list[str]:
         total += 1
         if total >= MAX_CALENDAR_TOTAL:
             break
+
+    # Second source: the owner's synced diary, pwg:Meeting, next 7 days.
+    # On the box that surfaced #10 the factDomain "calendar" path held 0 rows
+    # while 3,989 pwg:Meeting rows existed, and the digest told the model
+    # "Calendar events by owner: nothing stored", which it is instructed to
+    # treat as the answer. pwg:Meeting carries no owner field, so these go in
+    # the "Unattributed" bucket: never presented as the operator's own diary.
+    for row in _meeting_rows(past=False, limit=MAX_CALENDAR_PER_OWNER * 2):
+        if total >= MAX_CALENDAR_TOTAL:
+            break
+        text = f"{row['summary']} ({row['date']})"
+        key = ("unattributed", text.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        bucket = grouped.setdefault("Unattributed", [])
+        if "Unattributed" not in order:
+            order.append("Unattributed")
+        if len(bucket) >= MAX_CALENDAR_PER_OWNER:
+            break
+        bucket.append(f"- {text}")
+        total += 1
 
     if not grouped:
         return []
@@ -680,14 +1154,40 @@ def _preferences_section() -> list[str]:
     # body rather than pretending. That is a declared empty-reason, not a
     # silent zero -- and whether the coach DB should exist at all is a
     # separate question, filed, not answered here.
+    # FIRST SOURCE (#10, 2026-10-07): the compiled interest profile. This
+    # section read ONLY the coach surface above, whose database does not exist
+    # on a customer box, so it said "nothing stored" beside an interest
+    # profile of 4,628 entries that /api/v1/preferences serves score-sorted.
+    lines: list[str] = []
+    prefs = _get_json(f"/api/v1/preferences?limit={MAX_PREFERENCES * 5}")
+    interests = prefs.get("interests") if isinstance(prefs, dict) else None
+    seen: set[str] = set()
+    for it in interests if isinstance(interests, list) else []:
+        if not isinstance(it, dict):
+            continue
+        if _is_withheld({"level": it.get("privacy") or it.get("privacy_level")}):
+            continue
+        subject = " ".join(str(it.get("subject") or "").split())
+        if not subject or subject.lower() in seen:
+            continue
+        seen.add(subject.lower())
+        domain = str(it.get("domain") or "").strip()
+        polarity = str(it.get("polarity") or "").lower()
+        label = f"{subject} ({domain})" if domain else subject
+        if polarity.startswith(("neg", "dis")) or polarity == "-1":
+            lines.append(f"- Not keen on: {label}")
+        else:
+            lines.append(f"- {label}")
+        if len(lines) >= MAX_PREFERENCES:
+            return lines
+
     data = _get_json("/api/v1/coach/recent?hours=336&limit=8&user_id=me")
     if not data:
-        return []
+        return lines
     observations = data.get("observations")
     if not isinstance(observations, list):
-        return []
+        return lines
 
-    lines: list[str] = []
     for obs in observations:
         if not isinstance(obs, dict) or _is_withheld(obs):
             continue
@@ -701,31 +1201,33 @@ def _preferences_section() -> list[str]:
 
 
 def _orgs_section() -> list[str]:
-    """Key organisations, derived from the people the customer meets.
+    """Key organisations: where the people the owner interacts with work.
 
-    The graph does not expose a dedicated "top orgs" endpoint, so we aggregate
-    the organisations seen across recent meetings. This keeps the digest local
-    and avoids a separate query.
+    Ranked by the summed interaction score of those people (the same ranking
+    as the People section), so an organisation shows up because the owner
+    actually deals with it. The old version aggregated an ``organisation``
+    field from /api/v1/suggestions rows that do not carry one, so it said
+    "nothing stored" beside 4,652 pwg:organization triples.
     """
-    data = _get_json("/api/v1/suggestions")
-    if not data:
+    identity = _owner_identity()
+    owners = _owner_uris(identity)
+    if owners is None:
         return []
-    pools = []
-    for key in ("recent_meetings", "reconnect", "birthdays"):
-        section = data.get(key)
-        if isinstance(section, list):
-            pools.extend(section)
-
-    seen: list[str] = []
-    for c in pools:
-        if not isinstance(c, dict) or _is_withheld(c):
+    people = _ranked_people(owners, identity["name"])
+    if not people:
+        return []
+    score: dict[str, list] = {}
+    for p in people:
+        org = p["org"]
+        key = _norm_org(org)
+        if not key:
             continue
-        org = (c.get("organisation") or c.get("organization") or "").strip()
-        if org and org not in seen:
-            seen.append(org)
-        if len(seen) >= MAX_ORGS:
-            break
-    return [f"- {o}" for o in seen]
+        slot = score.setdefault(key, [org, 0, 0])
+        slot[1] += p["score"]
+        slot[2] += 1
+    ranked = sorted(score.values(), key=lambda v: v[1], reverse=True)
+    return [f"- {org} ({n} {'person' if n == 1 else 'people'})"
+            for org, _, n in ranked[:MAX_ORGS]]
 
 
 # ── Digest assembly ──────────────────────────────────────────────────────────
@@ -827,6 +1329,7 @@ def build_digest() -> str | None:
     # states rather than two. The heading passed here is the one the reader
     # sees, so the gap declaration below names sections the way the document
     # names them and not by an internal key.
+    about = _run_section("About you", _about_you_section)
     user_asserted = _run_section("Confirmed by you", _user_asserted_section)
     people = _run_section("People you interact with most", _people_section)
     recent = _run_section("Recent meetings (last 7 days)", _meetings_section)
@@ -837,6 +1340,7 @@ def build_digest() -> str | None:
     orgs = _run_section("Key organisations", _orgs_section)
 
     _SECTION_COUNTS.extend([
+        ("about-you", len(about)),
         ("confirmed-by-you", len(user_asserted)),
         ("people", len(people)),
         ("recent-meetings", len(recent)),
@@ -845,7 +1349,7 @@ def build_digest() -> str | None:
         ("key-organisations", len(orgs)),
     ])
 
-    if not (user_asserted or people or recent
+    if not (about or user_asserted or people or recent
             or calendar_by_owner or preferences or orgs):
         return None
 
@@ -866,9 +1370,17 @@ def build_digest() -> str | None:
     # MAX_CHARS clip, which cuts from the end, can never remove it.
     out.extend(_unreadable_and_empty_block())
 
+    # Who the owner is comes first: every other section is about the people
+    # and things around them, and a model that does not know the owner's
+    # own employer answers "Where have I worked?" with "no record".
+    if about:
+        out.append("## About you")
+        out.append("")
+        out.extend(about)
+        out.append("")
+
     # User-asserted facts are authoritative -- things the customer told the
-    # assistant directly -- so they lead the digest, above anything mined or
-    # derived from activity.
+    # assistant directly -- so they lead the mined sections.
     if user_asserted:
         out.append("## Confirmed by you")
         out.append("")
@@ -1088,7 +1600,7 @@ def main() -> int:
     digest = build_digest()
 
     if digest is None:
-        # Zero of six sections. The prior CONTEXT.md is left in place (a stale
+        # Zero of seven sections. The prior CONTEXT.md is left in place (a stale
         # digest beats none), but this is a FAILED run and the exit code says
         # so. It used to return 0, which is why nothing ever noticed that this
         # script had not produced a digest on a single install.

@@ -88,8 +88,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install pytest
-        run: python -m pip install --quiet pytest
+      # pyoxigraph: the owner-digest suite runs the generator against a REAL
+      # SPARQL engine, so a query with the wrong predicate finds nothing there
+      # exactly as it does on a box.
+      - name: Install pytest and pyoxigraph
+        run: python -m pip install --quiet pytest pyoxigraph
 
       # The regression suite for the defect. Two halves, and the PR does not
       # land without both: a valid token must produce a non-empty CONTEXT.md,
@@ -104,6 +107,14 @@ jobs:
       - name: Digest layout, L3 withholding and calendar-owner attribution
         if: always()
         run: python -m pytest context-refresh/tests/test_generate_pwg_context.py -v
+
+      # v1.0.107 candidate #10. RED: the shipped generator (pinned by SHA) on a
+      # synthetic seed graph renders no About you, no Work line, and "nothing
+      # stored" beside data the stores hold. GREEN: the fixed one renders every
+      # section. HONEST: a refused store read says COULD NOT BE READ.
+      - name: The digest knows its owner (seed graph, real SPARQL engine)
+        if: always()
+        run: python -m pytest context-refresh/tests/test_digest_knows_its_owner.py -v
 
       # The end-to-end chain guard. Also previously dark (TEST_WIRING.tsv:53
       # UNWIRED), and it had encoded the defect as a REQUIREMENT: its final

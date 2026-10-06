@@ -86,6 +86,13 @@ _TIMELINE = {
     ],
 }
 _COACH = {"observations": []}
+_EMPLOYER = {"found": True, "employer": "Fixture Industries",
+             "job_title": "Fixture Engineer", "start_date": "2024-01-01",
+             "former_employers": []}
+_PREFERENCES = {"interests": [
+    {"subject": "Fixture gardening", "domain": "Hobbies",
+     "polarity": "positive", "privacy": "L2"},
+]}
 
 _EMPTY_SPARQL = {"head": {"vars": []}, "results": {"bindings": []}}
 
@@ -138,6 +145,10 @@ class _FakeHubHandler(BaseHTTPRequestHandler):
             self._send(200, _TIMELINE)
         elif path == "/api/v1/coach/recent":
             self._send(200, _COACH)
+        elif path == "/api/v1/employer":
+            self._send(200, _EMPLOYER)
+        elif path == "/api/v1/preferences":
+            self._send(200, _PREFERENCES)
         else:
             self._send(404, {"error": "not found"})
 
@@ -182,6 +193,13 @@ def _base_env(workspace: Path) -> dict:
     env["no_proxy"] = "127.0.0.1,localhost,::1"
     env["NO_PROXY"] = env["no_proxy"]
     env["ZEROCLAW_WORKSPACE_DIR"] = str(workspace)
+    # Owner identity and the store bearer are read from $OSTLER_DIR and the
+    # env; pin both so a developer's own install cannot reach the run.
+    for name in ("USER_ID", "USER_NAME", "USER_EMAIL", "WIKI_OPERATOR_NAME",
+                 "WIKI_OPERATOR_EMAILS", "OSTLER_OXIGRAPH_TOKEN", "OXIGRAPH_TOKEN"):
+        env.pop(name, None)
+    env["OSTLER_DIR"] = str(workspace / "no-ostler-dir")
+    env["OSTLER_OXIGRAPH_TOKEN_FILE"] = str(workspace / "no-oxigraph-token")
     return env
 
 
@@ -257,9 +275,10 @@ def test_context_md_written_with_valid_token(hub, tmp_path):
     # It carries real content from the AUTHENTICATED surface, not just the
     # digest's own boilerplate. Oxigraph returned zero bindings, so every one
     # of these strings had to come through a bearer-guarded route.
-    assert "Fixture Person" in body
+    assert "Fixture Industries" in body
     assert "Fixture standup" in body
-    assert "## People you interact with most" in body
+    assert "## About you" in body
+    assert "- Work: Fixture Industries" in body
 
     assert result.returncode == _EXIT_OK, (
         f"expected clean exit, got {result.returncode}\nstderr={result.stderr}"
@@ -332,7 +351,7 @@ def test_exits_non_zero_when_token_absent(hub, tmp_path):
     result = _run(hub, workspace, token=None)
 
     assert result.returncode != 0, (
-        "a run that produced zero of six sections exited 0 -- this is the "
+        "a run that produced zero of seven sections exited 0 -- this is the "
         "original defect.\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
@@ -365,7 +384,7 @@ def test_failure_message_names_the_measured_status(hub, tmp_path):
         f"stderr={result.stderr}"
     )
     assert "/api/v1/timeline" in result.stderr
-    assert "0 of 6 sections produced content" in result.stderr
+    assert "0 of 7 sections produced content" in result.stderr
 
 
 def test_failure_message_does_not_invent_a_cause(hub, tmp_path):
