@@ -34778,6 +34778,73 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     fi
 fi
 
+# One-time repair: the Netflix thumbs-value polarity bug (walk #6
+# candidate #10) ------------------------------------------------------
+#
+# The parser fix (CM019 PR #396, grafted into
+# vendor/cm019_preferences/.../netflix.py) stops NEW ingests writing the
+# wrong polarity. It cannot un-write points a pre-fix install already put
+# in the `preferences` Qdrant collection, and the wiki renders what is in
+# the store, not what the parser would do today. Same marker-file pattern
+# as the WhatsApp LID repair immediately above (state/<name>_v1.done): a
+# marker absent means "not yet run or did not complete", never "nothing
+# to repair" -- that fact lives inside the marker's own content.
+#
+# Runs scripts/repair_netflix_rating_polarity.py DIRECTLY from
+# ${SCRIPT_DIR}, not copied into PIPELINE_DIR first: unlike
+# identity_resolver (a package other long-running services also import),
+# this is a one-shot script with no runtime dependency anything else on
+# the box needs after install finishes, so there is nothing to persist a
+# copy of. Stdlib-only (urllib, json) -- deliberately, so it runs under
+# whatever interpreter is available with no extra pip install. Explicit
+# Qdrant auth via QDRANT_API_KEY (seeded earlier in this script), same
+# header and env var as the LID repair's own _qdrant_headers -- this
+# script does not assume any interpreter-specific credential shim.
+# Counts only; no titles reach this log.
+if [[ -f "${SCRIPT_DIR}/scripts/repair_netflix_rating_polarity.py" ]]; then
+    _NETFLIX_REPAIR_MARKER="${OSTLER_DIR}/state/repair_netflix_rating_polarity_v1.done"
+    if [[ ! -f "$_NETFLIX_REPAIR_MARKER" ]]; then
+        _NETFLIX_REPAIR_LOG="${OSTLER_DIR}/logs/repair-netflix-rating-polarity.log"
+        mkdir -p "$(dirname "$_NETFLIX_REPAIR_LOG")" 2>/dev/null || true
+        # 🔴 set -euo pipefail IS ACTIVE HERE, same trap and same fix as the
+        # LID repair above: `VAR="$(cmd)"` is a SIMPLE COMMAND, so a failing
+        # `cmd` inside the substitution would abort the WHOLE INSTALL at
+        # this line. The `; rc=$?` runs UNCONDITIONALLY inside the SAME
+        # subshell, so the substitution's own exit status is always 0 and
+        # errexit never sees the python command's real code -- it travels
+        # OUT as the final `___RC___<n>` line instead.
+        _NETFLIX_REPAIR_PY="${PIPELINE_DIR}/.venv/bin/python3"
+        [[ -x "$_NETFLIX_REPAIR_PY" ]] || _NETFLIX_REPAIR_PY="python3"
+        _NETFLIX_REPAIR_RAW="$(
+            _netflix_repair_rc=0
+            QDRANT_API_KEY="${QDRANT_API_KEY:-}" \
+            "$_NETFLIX_REPAIR_PY" "${SCRIPT_DIR}/scripts/repair_netflix_rating_polarity.py" \
+                --qdrant-url "${QDRANT_URL:-http://localhost:6333}" \
+                --apply 2>>"$_NETFLIX_REPAIR_LOG" || _netflix_repair_rc=$?
+            printf '___RC___%d\n' "$_netflix_repair_rc"
+        )" || true
+        _NETFLIX_REPAIR_RC="$(printf '%s\n' "$_NETFLIX_REPAIR_RAW" | sed -n 's/^___RC___//p' | tail -1)"
+        _NETFLIX_REPAIR_OUT="$(printf '%s\n' "$_NETFLIX_REPAIR_RAW" | grep -v '^___RC___' || true)"
+        # An empty/non-numeric rc is treated as a failure, never as 0 -- a
+        # missing signal must not read as success.
+        if [[ "$_NETFLIX_REPAIR_RC" =~ ^[0-9]+$ ]] && [[ "$_NETFLIX_REPAIR_RC" -eq 0 ]]; then
+            printf '%s\n' "$_NETFLIX_REPAIR_OUT" >>"$_NETFLIX_REPAIR_LOG"
+            mkdir -p "${OSTLER_DIR}/state" \
+                && { printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+                     printf '%s\n' "$_NETFLIX_REPAIR_OUT"; } > "$_NETFLIX_REPAIR_MARKER" \
+                && ok "Netflix rating-polarity repair completed (${_NETFLIX_REPAIR_LOG})"  # i18n-exempt
+        else
+            # No marker written: the next install (or upgrade) retries it.
+            # NEVER abort the install over this -- a one-time preference
+            # repair is not worth a failed customer install.
+            printf '%s\n' "$_NETFLIX_REPAIR_OUT" >>"$_NETFLIX_REPAIR_LOG"
+            warn "Netflix rating-polarity repair did not complete (exit ${_NETFLIX_REPAIR_RC:-unknown}); the next install retries it. See ${_NETFLIX_REPAIR_LOG}"  # i18n-exempt
+        fi
+        unset _NETFLIX_REPAIR_LOG _NETFLIX_REPAIR_PY _NETFLIX_REPAIR_RAW _NETFLIX_REPAIR_OUT _NETFLIX_REPAIR_RC
+    fi
+    unset _NETFLIX_REPAIR_MARKER
+fi
+
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
 #
 # Reads apple_notes.json (written by the Phase 3 fda_extract step when
