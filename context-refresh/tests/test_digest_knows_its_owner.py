@@ -51,14 +51,15 @@ PWG = "https://schema.ostler.ai/ontology#"
 STORE_TOKEN = "synthetic-oxigraph-token-0000"
 SERVICE_TOKEN = "synthetic-service-token-0000"
 
-OWNER_ID = "riley"
-OWNER_NAME = "Riley Testperson"
-OWNER_EMAIL = "riley@example.invalid"
+OWNER_ID = "jane"
+OWNER_NAME = "Jane Doe"
+OWNER_EMAIL = "jane@example.com"
 
 # Strings that must NEVER reach the digest (L3, or not a person).
 FORBIDDEN = (
-    "Secret Skunkworks", "L3 SECRET FAMILY FACT", "Casey Hidden",
+    "Skunkworks", "L3 SECRET FAMILY FACT", "Tom Brown",
     "L3 private appointment", "Secret hobby", "organiser@example.invalid",
+    "Hushco",
 )
 
 
@@ -92,7 +93,7 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     add(owner, rdf_type, _n("Person"))
     add(owner, "displayName", _lit(OWNER_NAME))
     add(owner, "privacyLevel", _lit("L0"))
-    owner2 = ox.NamedNode("https://example.invalid/person/riley-mecard")
+    owner2 = ox.NamedNode("https://example.invalid/person/jane-mecard")
     add(owner2, rdf_type, _n("Person"))
     add(owner2, "displayName", _lit(OWNER_NAME))
     add(owner2, "privacyLevel", _lit("L0"))
@@ -115,8 +116,8 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
         add(f, "privacyLevel", _lit(level))
         add(f, "factText", _lit(f"{title} at {org}"))
 
-    career("c1", "Lantern Labs", "Engineer", "2015-03-01", "2019-06-30")
-    career("c2", "Secret Skunkworks", "Agent", "2019-07-01", "2020-01-01",
+    career("c1", "Initech", "Engineer", "2015-03-01", "2019-06-30")
+    career("c2", "Skunkworks", "Agent", "2019-07-01", "2020-01-01",
            level="L3")
     if linkedin_current:
         career("c3", linkedin_current, "Director", "2021-01-01")
@@ -138,14 +139,14 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     # writes exactly this shape).
     af = ox.NamedNode("https://example.invalid/fact/asserted-1")
     add(af, rdf_type, _n("PersonFact"))
-    add(af, "factText", _lit("Riley confirmed: the boat is called Fictional Dawn"))
+    add(af, "factText", _lit("the boat is called seaworthy"))
     add(af, "factSource", _lit("user_asserted"))
     add(af, "privacyLevel", _lit("L1"))
     add(af, "belongsToUser", owner)
     add(af, "createdAt", _lit(stamp(-1)))
 
     ufact("u1", "Lives in Fictionville", "location", "general")
-    ufact("u2", "Has a sister called Morgan Example", "relationship", "family")
+    ufact("u2", "Has a sister called Liz Doe", "relationship", "family")
     ufact("u3", "L3 SECRET FAMILY FACT", "relationship", "family", level="L3")
 
     # People the owner interacts with.
@@ -158,11 +159,11 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
             add(p, "organization", _lit(org))
         return p
 
-    avery = person("avery", "Avery Sample", "Quillfeather Ltd")
-    blake = person("blake", "Blake Sample", "Example Shipping")
-    drew = person("drew", "Drew Sample", "Quillfeather Ltd")
+    mary = person("mary", "Mary Smith", "Acme Corp")
+    bob = person("bob", "Bob Jones", "Globex")
+    sam = person("sam", "Sam Patel", "Acme Corp")
     mailbox = person("organiser", "organiser@example.invalid")
-    hidden = person("casey", "Casey Hidden", "Hidden Org", level="L3")
+    hidden = person("tom", "Tom Brown", "Hushco", level="L3")
 
     def signal(sid, about, total):
         s = ox.NamedNode(f"https://example.invalid/signal/{sid}")
@@ -172,9 +173,9 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
         add(s, "totalMessages", _lit(total))
         add(s, "privacyLevel", _lit("L2"))
 
-    signal("s1", avery, 40)
-    signal("s2", blake, 12)
-    signal("s3", drew, 3)
+    signal("s1", mary, 40)
+    signal("s2", bob, 12)
+    signal("s3", sam, 3)
     signal("s4", hidden, 500)
     signal("s5", owner, 900)
 
@@ -188,10 +189,10 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
         for a in attendees:
             add(m, "meetingAttendee", a)
 
-    meeting("m1", "Design review with Avery", -2, [avery, owner, mailbox])
-    meeting("m2", "Planning with Blake", 2, [blake, owner, mailbox])
+    meeting("m1", "Design review with Mary", -2, [mary, owner, mailbox])
+    meeting("m2", "Planning with Bob", 2, [bob, owner, mailbox])
     meeting("m3", "Supplier call", -40, [mailbox, owner])
-    meeting("m4", "Quarterly sync", -60, [mailbox, avery])
+    meeting("m4", "Quarterly sync", -60, [mailbox, mary])
     meeting("m5", "L3 private appointment", 1, [owner], level="L3")
     for i in range(30):
         meeting(f"x{i}", f"Organiser block {i}", -100 - i, [mailbox])
@@ -418,14 +419,14 @@ def test_red_shipped_generator_does_not_know_its_owner(env, prefix_module):
     assert ": COULD NOT BE READ" not in digest
     assert "## About you" not in digest
     assert "- Work:" not in digest
-    assert "ExampleCo" not in digest and "Lantern Labs" not in digest
+    assert "ExampleCo" not in digest and "Initech" not in digest
     # It claims emptiness beside data the stores hold.
     assert _gap_line(digest, "Preferences and things to keep in mind").endswith(
         "nothing stored.")
     assert _gap_line(digest, "Key organisations").endswith("nothing stored.")
     # Its People section is the organiser mailbox and the owner.
     people = _section(digest, "People you interact with most")
-    assert "Avery Sample" not in people
+    assert "Mary Smith" not in people
     assert "organiser@example.invalid" in people or OWNER_NAME in people
 
 
@@ -440,20 +441,20 @@ def test_green_every_section_from_the_seed(env, capsys):
     about = _section(digest, "About you")
     assert f"- Name: {OWNER_NAME}" in about
     work = [ln for ln in about.splitlines() if ln.startswith("- Work:")]
-    assert work == ["- Work: ExampleCo, Lantern Labs"], about
-    assert "Engineer at Lantern Labs (2015 to 2019)" in about
+    assert work == ["- Work: ExampleCo, Initech"], about
+    assert "Engineer at Initech (2015 to 2019)" in about
     assert "Lives in Fictionville" in about
-    assert "Morgan Example" in about
+    assert "Liz Doe" in about
 
     people = _section(digest, "People you interact with most")
     names = [ln for ln in people.splitlines() if ln.startswith("- ")]
-    assert names[0].startswith("- Avery Sample, Quillfeather Ltd")
-    assert any(ln.startswith("- Blake Sample") for ln in names)
+    assert names[0].startswith("- Mary Smith, Acme Corp")
+    assert any(ln.startswith("- Bob Jones") for ln in names)
     assert OWNER_NAME not in people
 
-    assert "Design review with Avery" in _section(digest, "Recent meetings (last 7 days)")
+    assert "Design review with Mary" in _section(digest, "Recent meetings (last 7 days)")
     calendar = _section(digest, "Calendar events by owner")
-    assert "Planning with Blake" in calendar
+    assert "Planning with Bob" in calendar
     assert "**Unattributed:**" in calendar  # pwg:Meeting has no owner field
 
     prefs = _section(digest, "Preferences and things to keep in mind")
@@ -462,13 +463,13 @@ def test_green_every_section_from_the_seed(env, capsys):
     assert "- Not keen on: Opera (Music)" in prefs
 
     orgs = _section(digest, "Key organisations")
-    assert orgs.strip().splitlines()[0] == "- Quillfeather Ltd (2 people)"
+    assert orgs.strip().splitlines()[0] == "- Acme Corp (2 people)"
 
     for bad in FORBIDDEN:
         assert bad not in digest, f"withheld or non-person value leaked: {bad}"
     assert ": nothing stored." not in digest
     assert ": COULD NOT BE READ" not in digest
-    assert "Riley confirmed: the boat is called Fictional Dawn" in _section(
+    assert "the boat is called seaworthy" in _section(
         digest, "Confirmed by you")
     assert len(digest.encode("utf-8")) < 6000
     with capsys.disabled():
@@ -482,7 +483,7 @@ def test_linkedin_positions_alone_reach_work(env):
     store = _seed_store(mecard_org=None, linkedin_current="ExampleCo")
     _, digest = _build(env, _SCRIPT, store)
     about = _section(digest, "About you")
-    assert "- Work: ExampleCo, Lantern Labs" in about
+    assert "- Work: ExampleCo, Initech" in about
 
 
 def test_mecard_organisation_alone_reaches_work(env):
@@ -495,13 +496,13 @@ def test_employer_resolver_leads_work(env):
     """The ical-server's deterministic resolver, when it has an answer, is
     the current employer and goes first."""
     store = _seed_store(mecard_org=None)
-    routes = _routes(employer={"found": True, "employer": "Resolver Corp",
+    routes = _routes(employer={"found": True, "employer": "Globex",
                                "job_title": "CTO", "start_date": "2022-02-01",
-                               "former_employers": ["Lantern Labs", "Older Co"]})
+                               "former_employers": ["Initech", "Riverside"]})
     _, digest = _build(env, _SCRIPT, store, routes=routes)
     work = [ln for ln in _section(digest, "About you").splitlines()
             if ln.startswith("- Work:")]
-    assert work == ["- Work: Resolver Corp, Lantern Labs, Older Co"]
+    assert work == ["- Work: Globex, Initech, Riverside"]
 
 
 # ── HONEST: a failed store read is never "nothing stored" ────────────────────

@@ -86,8 +86,8 @@ _TIMELINE = {
     ],
 }
 _COACH = {"observations": []}
-_EMPLOYER = {"found": True, "employer": "Fixture Industries",
-             "job_title": "Fixture Engineer", "start_date": "2024-01-01",
+_EMPLOYER = {"found": True, "employer": "Acme Corp",
+             "job_title": "engineer", "start_date": "2024-01-01",
              "former_employers": []}
 _PREFERENCES = {"interests": [
     {"subject": "Fixture gardening", "domain": "Hobbies",
@@ -275,10 +275,10 @@ def test_context_md_written_with_valid_token(hub, tmp_path):
     # It carries real content from the AUTHENTICATED surface, not just the
     # digest's own boilerplate. Oxigraph returned zero bindings, so every one
     # of these strings had to come through a bearer-guarded route.
-    assert "Fixture Industries" in body
+    assert "Acme Corp" in body
     assert "Fixture standup" in body
     assert "## About you" in body
-    assert "- Work: Fixture Industries" in body
+    assert "- Work: Acme Corp" in body
 
     assert result.returncode == _EXIT_OK, (
         f"expected clean exit, got {result.returncode}\nstderr={result.stderr}"
