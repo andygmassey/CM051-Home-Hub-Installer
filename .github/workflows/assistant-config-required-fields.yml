@@ -137,7 +137,7 @@ jobs:
       # WRONG TABLE NAME ("[tools.web_search]" instead of the schema's
       # top-level "[web_search]"), so the daemon's parser never sees it and
       # falls back to an uncredentialed default against a Vane endpoint
-      # that now demands HTTP Basic Auth. RED on pre-fix install.sh (proved
+      # that now demands HTTP basic auth. RED on pre-fix install.sh (proved
       # by reverting just the table-name line); carries its own negative
       # control (a reconstructed [tools.web_search] fragment must fail the
       # same checker).
