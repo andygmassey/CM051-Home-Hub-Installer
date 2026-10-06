@@ -1,7 +1,7 @@
 # Personal Context
 
 Baseline awareness of the people, meetings, and preferences that matter to the person you assist. Generated locally from their personal graph; treat it as background, not a transcript.
-_Last updated: 2026-10-06 18:34 UTC._
+_Last updated: 2026-10-06 19:36 UTC._
 
 ## What is not in this digest
 
@@ -19,7 +19,7 @@ Do not fill either kind of gap. Do not offer an example, a typical case, an illu
 
 ## About you
 
-- Name: Riley Testperson
+- Name: Jane Doe
 
 ## Preferences and things to keep in mind
 

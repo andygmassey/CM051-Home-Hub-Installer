@@ -348,7 +348,7 @@ def box_main(argv):
 # self-test
 # ---------------------------------------------------------------------------
 
-# The REAL output of generate_pwg_context.py from CM051 #2654 (the About-you
+# The REAL output of generate_pwg_context.py from CM051 #2654 at merged main 05390fb9 (the About-you
 # fix), rendered by its own test harness (a real SPARQL engine holding its
 # synthetic seed graph) with the owner's employer reaching it only through a
 # LinkedIn career_position, which is the path the walk seeds. Not hand-written:
