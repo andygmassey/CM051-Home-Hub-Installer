@@ -24,6 +24,7 @@ on:
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
+      - 'scripts/box_walk_probes/fixtures/owner_digest/**'
       - 'scripts/box_walk_probes/lib/owner_employer_seed.sh'
       - 'scripts/box_walk_probes/probes/owner_digest_knows_the_owner.sh'
       - 'scripts/box_walk_probes/run_box_walk.sh'

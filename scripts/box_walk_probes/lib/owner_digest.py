@@ -53,6 +53,7 @@ SECTION_STORE = {
     "Key organisations": "people_with_org",
     "Confirmed by you": "user_asserted_facts",
     "Recent meetings (last 7 days)": "meetings_7d",
+    "Calendar events by owner": "calendar_events",
 }
 
 DECLARED = [
@@ -223,7 +224,15 @@ def measure_stores():
     import datetime
     since = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
     today = datetime.date.today().isoformat()
-    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingDate ?d . FILTER(SUBSTR(STR(?d),1,10) >= "%s" && SUBSTR(STR(?d),1,10) <= "%s")' % (since, today))
+    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+    ahead = (datetime.date.today() + datetime.timedelta(days=8)).isoformat()
+    # The same windows and predicates generate_pwg_context.py reads (#2654):
+    # past 7 days for Recent meetings; calendar PersonFacts plus the next 7
+    # days of pwg:Meeting for Calendar events by owner.
+    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (since, tomorrow))
+    cal_facts = sparql_count('?f a pwg:PersonFact ; pwg:factDomain "calendar" ; pwg:factText ?t .')
+    cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (today, ahead))
+    out["calendar_events"] = None if cal_facts is None or cal_ahead is None else cal_facts + cal_ahead
     uid = ""
     try:
         for line in open(os.path.expanduser("~/.ostler/config/.env")):
@@ -339,32 +348,35 @@ def box_main(argv):
 # self-test
 # ---------------------------------------------------------------------------
 
-GOOD_DIGEST = """# Personal Context
+# The REAL output of generate_pwg_context.py from CM051 #2654 (the About-you
+# fix), rendered by its own test harness (a real SPARQL engine holding its
+# synthetic seed graph) with the owner's employer reaching it only through a
+# LinkedIn career_position, which is the path the walk seeds. Not hand-written:
+# a probe judged against a digest we typed would prove our idea of the format.
+_FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "owner_digest")
 
-## About you
 
-- Work: ExampleCo, ExampleWorks
-- Based in Riverside.
+def _fixture(name):
+    # The box half is staged alone (no fixtures dir on the box), so a missing
+    # fixture is None here and only the self-test refuses on it.
+    try:
+        with open(os.path.join(_FIX, name), encoding="utf-8") as fh:
+            return fh.read()
+    except IOError:
+        return None
 
-## People you interact with most
 
-- Jane Doe (ExampleWorks)
-
-## Preferences and things to keep in mind
-
-- Likes jazz.
-
-## Key organisations
-
-- ExampleCo
-"""
+GOOD_DIGEST = _fixture("context_seed.md")
+# The same generator over an EMPTY graph: About you holds only a name, and
+# five sections say "nothing stored".
+EMPTY_STORE_DIGEST = _fixture("context_empty_store.md")
 
 
 def _good():
     return {"hydrated": True, "hydration_state": "complete", "seed_state": "seeded",
             "digest": digest_facts(GOOD_DIGEST),
-            "stores": {"people": 10, "preferences": 5, "people_with_org": 3, "user_asserted_facts": 0,
-                       "meetings_7d": 0, "owner_facts": 2},
+            "stores": {"people": 10, "preferences": 5, "people_with_org": 3, "user_asserted_facts": 1,
+                       "meetings_7d": 1, "calendar_events": 1, "owner_facts": 2},
             "chat": {"answered": True, "names_seed_org": True}}
 
 
@@ -375,6 +387,9 @@ def self_test():
     def row(f, i):
         return [ok for n, ok, _ in judge(f) if n == DECLARED[i]]
 
+    if GOOD_DIGEST is None or EMPTY_STORE_DIGEST is None:
+        print("SELF-TEST CANNOT-RUN: the #2654 digest fixtures are missing from " + _FIX)
+        return EX_CANNOT
     g = _good()
     if any(ok is not True for _, ok, _ in judge(g)):
         print("SELF-TEST BROKEN: the good fixture fails: {}".format([(n, d) for n, ok, d in judge(g) if ok is not True]))
@@ -384,10 +399,7 @@ def self_test():
     # The empty digest the generator writes when its sources answer nothing,
     # while the stores hold data: FAILS (a) and (b).
     empty = copy.deepcopy(g)
-    empty["digest"] = digest_facts("# Personal Context\n\n## What is not in this digest\n\n"
-                                   "- People you interact with most: nothing stored.\n"
-                                   "- Preferences and things to keep in mind: nothing stored.\n"
-                                   "- Key organisations: nothing stored.\n\n## Looking something up\n\n- use the tools\n")
+    empty["digest"] = digest_facts(EMPTY_STORE_DIGEST)
     if row(empty, 0) != [False] or row(empty, 1) != [False]:
         fails.append("empty digest: (a) {} (b) {} (want False, False)".format(row(empty, 0), row(empty, 1)))
     else:
@@ -395,7 +407,7 @@ def self_test():
 
     # A digest without the organisation, and a chat that cannot name it: FAILS (c).
     no_org = copy.deepcopy(g)
-    no_org["digest"] = digest_facts(GOOD_DIGEST.replace("- Work: ExampleCo, ExampleWorks\n", ""))
+    no_org["digest"] = digest_facts(WORK_LINE.sub("", GOOD_DIGEST))
     no_org["chat"] = {"answered": True, "names_seed_org": False}
     if row(no_org, 2) != [False] or row(no_org, 0) != [False]:
         fails.append("digest without the organisation: (c) {} (a) {} (want False, False)".format(row(no_org, 2), row(no_org, 0)))
@@ -405,7 +417,7 @@ def self_test():
     # Mutants, each caught by its own assertion.
     mutants = [
         ("no About you section", 0, lambda f: f.update(digest=digest_facts(GOOD_DIGEST.replace("## About you", "## About me")))),
-        ("Work line with no organisation", 0, lambda f: f.update(digest=digest_facts(GOOD_DIGEST.replace("ExampleCo, ExampleWorks", "")))),
+        ("Work line with no organisation", 0, lambda f: f.update(digest=digest_facts(WORK_LINE.sub("- Work: ", GOOD_DIGEST)))),
         ("top people empty", 0, lambda f: f["digest"].update(top_people_lines=0)),
         ("preferences empty", 0, lambda f: f["digest"].update(preferences_lines=0)),
         ("nothing stored over a full people store", 1, lambda f: f["digest"]["nothing_stored"].append(TOP_PEOPLE)),
@@ -423,8 +435,8 @@ def self_test():
     # Honest gaps: a "nothing stored" line over an EMPTY store passes; one with
     # no store measure is CANNOT-RUN; an unseeded walk, an unhydrated box and an
     # unanswered chat are CANNOT-RUN, never a pass.
-    honest = copy.deepcopy(g); honest["digest"]["nothing_stored"].append("Confirmed by you")
-    unmeasured = copy.deepcopy(g); unmeasured["digest"]["nothing_stored"].append("Calendar events by owner")
+    honest = copy.deepcopy(g); honest["stores"]["user_asserted_facts"] = 0; honest["digest"]["nothing_stored"].append("Confirmed by you")
+    unmeasured = copy.deepcopy(g); unmeasured["stores"]["calendar_events"] = None; unmeasured["digest"]["nothing_stored"].append("Calendar events by owner")
     unseeded = copy.deepcopy(g); unseeded["seed_state"] = "skipped"
     dry = copy.deepcopy(g); dry["hydrated"] = False
     silent = copy.deepcopy(g); silent["chat"] = {"answered": False, "error": "timeout"}

@@ -23,7 +23,7 @@ export OSTLER_OWNER_SEED_ORG OSTLER_OWNER_SEED_STATE
 
 _oes_box() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
-        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o BatchMode=yes "$OSTLER_BOX_HOST" "$1"
+        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" "$OSTLER_BOX_HOST" "$1"
     else
         bash -lc "$1"
     fi
