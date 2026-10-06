@@ -23,6 +23,12 @@ on:
       - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
+      - 'scripts/box_walk_probes/lib/owner_digest.py'
+      - 'scripts/box_walk_probes/lib/owner_employer_seed.sh'
+      - 'scripts/box_walk_probes/probes/owner_digest_knows_the_owner.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'vendor/cm041/contact_syncer/linkedin_career.py'
+      - 'tests/test_the_walk_seeds_the_owner_employer.sh'
       - '.github/workflows/hub-screens-and-106c.yml'
   push:
     branches: [main]
@@ -89,3 +95,24 @@ jobs:
         # vendored copy, not upstream CM059 -- the two disagreed.
         if: always()
         run: python3 tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
+      - name: The owner-digest judge catches every mutant (v1.0.107 #10)
+        if: always()
+        run: python3 scripts/box_walk_probes/lib/owner_digest.py --self-test
+      - name: The owner-digest probe's own self-test
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/owner_digest_knows_the_owner.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
+          if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+
+  owner-employer-seed:
+    # The seed runs on the Hub and uses BSD stat, so it is proven on macOS.
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: The walk seeds the owner's employer through the LinkedIn import
+        run: bash tests/test_the_walk_seeds_the_owner_employer.sh

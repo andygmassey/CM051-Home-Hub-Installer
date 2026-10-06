@@ -965,6 +965,19 @@ entries:
       kind: box_walk_probe
       probe: "hub_screens_customer_read"
 
+  - id: box-walk-owner-digest-knows-the-owner
+    title: after hydration the assistant's digest knows its owner, and the chat can say where they have worked
+    incident: >-
+      v1.0.107 #10. CONTEXT.md, the digest injected into every chat turn,
+      carried no section about the owner at all, and said "nothing stored"
+      for sections whose stores were full, so the assistant answered
+      questions about its own customer from nothing. The walk seeds a
+      synthetic employer through the customer's own LinkedIn import and the
+      probe asks the chat where the owner has worked. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "owner_digest_knows_the_owner"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical
