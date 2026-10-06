@@ -45,12 +45,25 @@ bad() { echo "  [FAIL] $*"; FAIL=$((FAIL+1)); }
 [ -f "$INSTALL" ] || { echo "CANNOT-RUN: no $INSTALL"; exit 2; }
 
 # Extract the block between its own start and end comments, verbatim.
+#
+# Walk #6 candidate #10: the end anchor was "# Apple Notes knowledge
+# hydration" until a NEW one-time-repair block (Netflix rating-polarity)
+# was inserted between this block and Apple Notes. That insertion made
+# this extraction swallow the new block too -- arm 3 then failed for a
+# reason that had nothing to do with the LID repair: the swallowed
+# block's own `${SCRIPT_DIR}` reference is unbound in this test's
+# sandbox (which never sets it), and `set -u` turned that into an abort
+# BEFORE the "reached_end" sentinel, misread as "install.sh aborted when
+# the repair failed". The end anchor now names the actual next section
+# (whatever it is today), not a section two blocks away that happened to
+# be adjacent when this test was written.
 BLOCK="$(awk '
     /^# One-time repair: a WhatsApp LID written as a "phone" identifier/ {f=1}
     f {print}
-    f && /^# Apple Notes knowledge hydration/ {exit}
+    f && /^# One-time repair: the Netflix thumbs-value polarity bug/ {exit}
 ' "$INSTALL")"
-# Drop the trailing "# Apple Notes..." line the exit condition also printed.
+# Drop the trailing "# One-time repair: the Netflix..." line the exit
+# condition also printed.
 BLOCK="$(printf '%s\n' "$BLOCK" | sed '$ d')"
 
 echo "== control: the extraction is non-empty and carries what this test exercises =="
