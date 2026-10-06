@@ -635,6 +635,7 @@ test_the_shipped_compose_mounts_the_editor_feed.sh	WIRED	.github/workflows/edito
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_the_source_table_items_column_shows_the_live_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_the_store_auth_guard_says_when_it_skips.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_store_port_table_cites_anchors_not_line_numbers.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_store_proxy_rereads_the_credential_it_enforces.sh	WIRED	.github/workflows/cold-box-source-truth.yml

@@ -997,3 +997,36 @@ execs the REAL shipped function with a stubbed, deliberately slow
 `box_status.box_status` and proves a concurrent coroutine on the same event
 loop is not delayed by it. Retire this entry if/when `doctor` re-pins past
 this commit with the fix intact upstream.
+
+## Added 2026-10-05, CM051 v1.0.107 (Aesop) -- `doctor`, the rendered Items column now prefers a live count over a stale sentinel (walk candidate #9)
+
+v1.0.107 walk candidate #9, Andy's console walk, read-only: the Doctor's
+"Where your data came from" table (`render_source_status()`,
+`agent/web_ui.py`) printed "email ... read in ... 0" and
+"imessage ... read in ... 0" while `/api/v1/sources` itself already knew
+better -- `last_run_count` on both rows held the real figures (11,883 and
+29,157 respectively), via the existing #2526/#2529 live-count mechanism.
+That mechanism was working; the one human-visible renderer of its output
+had simply never been taught the field exists, so the Items column kept
+reading the install-time `item_count` alone -- 0 whenever a run found no
+NEW items, which answers a narrower question than "how much is there".
+
+Fix: `render_source_status()` now overrides its `item_count` read with
+`last_run_count` whenever the latter says MORE (never less, so a stale
+sentinel can never make a demonstrably larger real total disappear, and
+never when there is nothing live to prefer). `item_count` itself, and
+`read_source_status()`'s own `last_run_count` computation, are both
+UNCHANGED -- this is a render-layer fix only.
+
+### What a future sync must preserve
+
+The `last_run_count` comparison block in `render_source_status()`
+(`agent/web_ui.py`). Guarded by the new
+`tests/test_the_source_table_items_column_shows_the_live_count.sh`: RED on
+origin/main (2 of 4 assertions fail, matching the measured walk symptom),
+GREEN with the fix. Also fixed, same diff: a pre-existing test-isolation
+gap in the sibling `tests/test_the_source_table_items_column_is_the_number_it_claims.sh`
+(missing `OSTLER_DIR` export let `_settling_progress_total` read whatever
+real settling-progress files happen to exist on the machine running the
+test, rather than its own sandbox -- measured leaking two of that test's
+eight assertions on a dev Mac with real `~/.ostler` state on disk).

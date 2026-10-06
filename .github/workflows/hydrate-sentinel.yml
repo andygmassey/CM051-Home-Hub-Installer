@@ -57,6 +57,7 @@ on:
       - 'tests/test_ostler_home_root_is_one_class.sh'
       - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
       - 'tests/test_the_source_table_items_column_is_the_number_it_claims.sh'
+      - 'tests/test_the_source_table_items_column_shows_the_live_count.sh'
       - 'vendor/doctor/agent/extension_token.py'
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
@@ -258,6 +259,19 @@ jobs:
       - name: The source table's Items column is the number it claims (#946)
         if: always()
         run: /bin/bash tests/test_the_source_table_items_column_is_the_number_it_claims.sh
+
+      # v1.0.107 walk candidate #9, Andy's console walk, read-only:
+      # /api/v1/sources already knew email held 11,883 items and imessage
+      # 29,157 (last_run_count, #2526/#2529's own live-count mechanism,
+      # working correctly) while the ONE human-visible rendering of this
+      # data -- this same Items column -- still printed 0 beside "read in",
+      # because render_source_status() had never been taught last_run_count
+      # exists. Sibling to the gate immediately above; kept separate because
+      # that one drives install-time sentinel shapes only and this one drives
+      # the live-routine/settling-ledger shapes the #2526 board added.
+      - name: The source table's Items column prefers the live count over a stale sentinel (v1.0.107 walk #9)
+        if: always()
+        run: /bin/bash tests/test_the_source_table_items_column_shows_the_live_count.sh
 
       # 🔴 #2313, MEASURED ON macmini16-walk 2026-09-23. Every gate above this
       # line asks whether the sentinel FILE is honest about the run that wrote

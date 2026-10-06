@@ -1376,6 +1376,28 @@ def render_source_status() -> str:
         st = (r.get("status") or "not_run")
         when = r.get("last_update_at") or r.get("recorded_at")
         n = r.get("item_count")
+
+        # v1.0.107 walk candidate #9, Andy's console walk: this table showed
+        # "email ... read in ... 0" and "imessage ... read in ... 0" while
+        # email-ingest.log had just emitted 11,883 real messages (29,157 for
+        # imessage, the settling ledger's own total) -- status correctly
+        # promoted to "ok" already (read_source_status, board #2562-C), but
+        # the COUNT column still read the install-time item_count alone,
+        # which is a different, narrower question (new items AT INSTALL,
+        # #2529 review) and is legitimately 0 whenever a run finds nothing
+        # NEW. `last_run_count` is the field that carries the real, ongoing
+        # total; prefer it here whenever it says MORE than item_count does,
+        # so the one column a customer reads as "how much did you find" never
+        # prints a number smaller than what read_source_status has already
+        # measured for this exact row.
+        last_run_count = r.get("last_run_count")
+        if (
+            isinstance(last_run_count, int)
+            and not isinstance(last_run_count, bool)
+            and (n is None or last_run_count > n)
+        ):
+            n = last_run_count
+
         # None and 0 are different answers and must not print the same.
         #
         # AND A STATE THAT TOOK NO MEASUREMENT MUST NOT PRINT ONE (#1587).
