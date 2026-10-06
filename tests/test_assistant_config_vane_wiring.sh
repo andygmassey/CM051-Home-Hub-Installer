@@ -17,7 +17,7 @@
 #
 #   This test pins the wiring so the customer's first assistant
 #   run uses the bundled Vane instance:
-#     1. The TOML emitter unconditionally writes [tools.web_search]
+#     1. The TOML emitter unconditionally writes [web_search]
 #     2. provider = "vane"
 #     3. vane_url reaches that instance at localhost:3000 AND
 #        carries the credential :3000 has demanded since #1672
@@ -26,6 +26,18 @@
 #   in `if [[ "$CHANNEL_..." == true ]]` would silently disable
 #   the wiring whenever the user skips channel config. Vane is
 #   bundled by default; the wiring follows.
+#
+# v1.0.107 console walk (candidate #9, BLOCKING): this test used to require
+# "[tools.web_search]" here -- the WRONG table, which is the exact defect it
+# exists to catch, just pinned as the requirement instead of the bug. The
+# daemon's Config has no `tools` field; WebSearchConfig is a top-level
+# `[web_search]` field (ostler-assistant crates/zeroclaw-config/src/
+# schema.rs:289), so the unrecognised table was silently dropped and every
+# web search 401'd against an uncredentialed default. The checks below now
+# require the correct header and ALSO fail on the wrong one, both anchored
+# to the actual `echo` line rather than a bare substring grep -- a loose
+# grep for "web_search" would have been satisfied by a comment ABOUT the
+# bug, which is exactly how this test kept passing while main was broken.
 #
 # Sister tests:
 #   - test_vane_bundle.sh -- locks the compose-layer Vane bundle
@@ -47,12 +59,28 @@ if ! bash -n "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: install.sh parses"
 
-# ── Block presence ──────────────────────────────────────────────
-if ! grep -q '\[tools\.web_search\]' "$INSTALL_SCRIPT"; then
-    echo "FAIL [tools-web-search-header]: install.sh does not emit [tools.web_search] header" >&2
+# ── Block presence, anchored to the CODE line ───────────────────
+# Anchored (^...$ on the echo statement itself), not a bare substring grep
+# over the whole file: a substring grep is satisfied by a comment that
+# merely MENTIONS the string, which is how this test's previous form kept
+# passing on main while the real emitter shipped the wrong table.
+if ! grep -qE '^[[:space:]]+echo "\[web_search\]"$' "$INSTALL_SCRIPT"; then
+    echo "FAIL [web-search-header]: install.sh does not emit a top-level [web_search] echo line" >&2
     exit 1
 fi
-echo "PASS: install.sh emits [tools.web_search] header"
+echo "PASS: install.sh emits [web_search] header"
+
+# MUST-MISS, and the one that names the shipped regression (v1.0.107,
+# candidate #9). ostler-assistant's Config has no `tools` field, so a
+# "[tools.web_search]" table is silently dropped by the parser and
+# WebSearchConfig::default() wins -- the exact defect this test used to
+# require as correct.
+if grep -qE '^[[:space:]]+echo "\[tools\.web_search\]"$' "$INSTALL_SCRIPT"; then
+    echo "FAIL [tools-web-search-regressed]: install.sh emits the WRONG table, [tools.web_search]." >&2
+    echo "      WebSearchConfig is a top-level [web_search] field; this table is never parsed." >&2
+    exit 1
+fi
+echo "PASS: install.sh does not regress to the unparsed [tools.web_search] table"
 
 # ── provider = "vane" ───────────────────────────────────────────
 if ! grep -q 'provider = \\"vane\\"' "$INSTALL_SCRIPT"; then
@@ -117,24 +145,24 @@ echo 'PASS: the vane_url credential is interpolated from ${VANE_PASSWORD}'
 # 4 spaces. A statement nested inside `if [[ ... ]]; then` is
 # indented 8+ spaces.
 #
-# So: the line that emits the [tools.web_search] header must have
+# So: the line that emits the [web_search] header must have
 # exactly 4 leading spaces. Anything deeper means a future edit
 # wrapped the block in a channel-gated if and silently disabled
 # the wiring whenever the user skipped channel config.
-INDENT="$(grep -nE '^[[:space:]]+echo "\[tools\.web_search\]"$' "$INSTALL_SCRIPT" \
+INDENT="$(grep -nE '^[[:space:]]+echo "\[web_search\]"$' "$INSTALL_SCRIPT" \
     | head -n 1 | sed -E 's/^[0-9]+:( +).*/\1/' | awk '{ print length }')"
 
 if [[ -z "$INDENT" ]]; then
-    echo "FAIL [emitter-header-missing]: could not locate the [tools.web_search] echo line" >&2
+    echo "FAIL [emitter-header-missing]: could not locate the [web_search] echo line" >&2
     exit 1
 fi
 
 if [[ "$INDENT" -ne 4 ]]; then
-    echo "FAIL [tools-web-search-conditional]: [tools.web_search] is indented ${INDENT} spaces (expected 4)" >&2
+    echo "FAIL [web-search-conditional]: [web_search] is indented ${INDENT} spaces (expected 4)" >&2
     echo "      Vane is bundled by default; the wiring must be at the top level of the brace block." >&2
     exit 1
 fi
-echo "PASS: [tools.web_search] block is emitted unconditionally (top-level indent)"
+echo "PASS: [web_search] block is emitted unconditionally (top-level indent)"
 
 echo ""
 echo "ALL ASSISTANT-CONFIG VANE WIRING TESTS PASSED"
