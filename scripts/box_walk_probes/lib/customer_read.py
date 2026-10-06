@@ -567,7 +567,8 @@ def judge(f, declared=None):
     # no cross-equality. The Hub counts named people and must equal the
     # people-list API it renders; the wiki tile counts people with a page and
     # must equal the compiled People page. Each is checked against its own source.
-    hub_n = count_after((screens.get("people") or {}).get("text"), "PEOPLE")
+    hub_n = count_after((screens.get("people") or {}).get("count_text")
+                        or (screens.get("people") or {}).get("text"), "PEOPLE")
     api_n = f.get("people_api_total")
     if api_n is None and f.get("people_api") is not None:
         api_n = len(f["people_api"])
@@ -582,6 +583,8 @@ def judge(f, declared=None):
         bad = ["{} {} vs {}".format(k, a, b) for k, a, b in measured_pairs if a != b]
         unmeasured = [k for k, a, b in pairs if a is None or b is None]
         detail = "; ".join("{} {} vs {}".format(k, a, b) for k, a, b in measured_pairs)
+        if f.get("people_read_gap_s") is not None:
+            detail += "; Hub and API read {}s apart".format(f["people_read_gap_s"])
         if unmeasured:
             detail += "; not measured: " + ", ".join(unmeasured)
         add(DECLARED[14], (not bad) if not unmeasured else (False if bad else None), detail)
@@ -842,6 +845,7 @@ WIDTH_JS = r"""() => {
 
 
 def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
+    import urllib.request
     from playwright.sync_api import sync_playwright
 
     os.makedirs(out_dir, exist_ok=True)
@@ -940,6 +944,24 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             if name == "home":
                 f["needs_now_app"] = page.evaluate(NEEDS_NOW_JS, [".fpc-card", "h3,h4,[class*='title']"])
             if name == "people":
+                # The Hub's count and the API total it renders are read BACK TO
+                # BACK in this one step, nothing between them, so a person added
+                # while the probe crawled the wiki cannot make two honest numbers
+                # disagree (7869 vs 7870 on the walk box, Archie 2026-10-05).
+                # The comparison stays exact: no tolerance.
+                t0 = time.time()
+                f["screens"]["people"]["count_text"] = page.evaluate(
+                    "() => { const m = document.querySelector('main'); return m ? m.innerText : '' }")
+                try:
+                    preq = urllib.request.Request(base + "/api/v1/people", headers={"Authorization": "Bearer " + token})
+                    with _local_urlopen(preq, timeout=60) as r:
+                        body = json.load(r)
+                    f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or ""}
+                                       for p in body.get("people") or []]
+                    f["people_api_total"] = body.get("total", len(f["people_api"]))
+                except Exception as exc:
+                    f["people_api_error"] = str(exc)[:160]
+                f["people_read_gap_s"] = round(time.time() - t0, 2)
                 f["people_rows"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-person-row]')).map(e => e.innerText)")
             if name == "doctor":
                 tab = page.locator("button", has_text="Data sources")
@@ -1095,15 +1117,6 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
 
     # GETs the app makes, sent the way the app sends them (read-only)
     import urllib.request
-    try:
-        req = urllib.request.Request(base + "/api/v1/people", headers={"Authorization": "Bearer " + token})
-        with _local_urlopen(req, timeout=60) as r:
-            body = json.load(r)
-            f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or ""}
-                               for p in body.get("people") or []]
-            f["people_api_total"] = body.get("total", len(f["people_api"]))
-    except Exception as exc:
-        f["people_api_error"] = str(exc)[:160]
     if self_handles:
         names, handles = [], []
         for x in self_handles:
@@ -1541,6 +1554,18 @@ def self_test():
         missed.append("Doctor list in the current shape: matching {} / 14 vs 3 {} (want True, False)".format(*r10))
     else:
         print("  ok    the Doctor's current list shape is read: tile 3 = list 3 PASSES, tile 14 vs list 3 FAILS")
+
+    # The Hub count judged is the one read back to back with the API total.
+    b2b = copy.deepcopy(_good())
+    b2b["screens"]["people"]["text"] = "YOUR NETWORK\nPeople\n999 PEOPLE\n"        # an earlier, stale read
+    b2b["screens"]["people"]["count_text"] = "YOUR NETWORK\nPeople\n1,000 PEOPLE\n"  # read beside the API
+    b2b_off = copy.deepcopy(b2b)
+    b2b_off["screens"]["people"]["count_text"] = "YOUR NETWORK\nPeople\n999 PEOPLE\n"
+    r14 = [[ok for n, ok, _ in judge(x) if n == DECLARED[14]] for x in (b2b, b2b_off)]
+    if r14 != [[True], [False]]:
+        missed.append("people count: back-to-back read {} / still differing by one {} (want True, False)".format(*r14))
+    else:
+        print("  ok    the Hub count read beside the API total is the one judged; still 1 apart FAILS (no tolerance)")
 
     # Ruling 2026-10-04 (#2546): the Hub and the wiki may count different things;
     # different totals that each match their own source must PASS.
