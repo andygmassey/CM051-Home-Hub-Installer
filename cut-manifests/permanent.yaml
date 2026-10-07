@@ -978,6 +978,21 @@ entries:
       kind: box_walk_probe
       probe: "owner_digest_knows_the_owner"
 
+  - id: box-walk-conversation-capture-end-to-end
+    title: iPhone/Watch conversation capture works end to end on a real Hub install
+    incident: >-
+      v1.0.107 #10. Conversation capture is CORE to the product (Andy), and
+      nothing on any walk had ever POSTed through the device-facing path a
+      paired iPhone or Watch actually uses -- lib/conversation_seed.sh
+      exercises the same pipeline but deliberately through a direct CLI
+      call, never through the gateway. The walk now submits two synthetic
+      conversations through the TLS companion gateway (:8443, device
+      bearer) and the probe asserts acceptance, completion, all three
+      four-artefact-spec files present and frontmatter-tagged, findability
+      afterward, and isolation between the two conversations. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "conversation_capture_end_to_end"
   - id: box-walk-db-key-reaches-every-service
     title: the installed database key reaches every service that opens an encrypted store, and the store is genuinely encrypted
     incident: >-
