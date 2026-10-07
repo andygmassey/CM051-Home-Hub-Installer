@@ -46,15 +46,22 @@ Two halves, kept apart so the judge can be mutation-tested without a box:
               process, status/{id} and {id}/speakers) -- speakers is the
               best available "is this conversation still known to the Hub"
               instrument, not a claim that a search feature exists.
-          NOT CONFIRMED FROM SOURCE (the companion gateway at :8443 is a
-          compiled ZeroClaw binary, not vendored into this repo): the exact
-          JSON field and header an already-paired device presents on calls
-          AFTER /pair. This probe mints a pairing code the same way
-          probes/pairing_recovers_without_a_repair_storm.sh does (admin
-          token at :8000 -> POST :8443/pair with X-Pairing-Code) and then
-          tries each plausible bearer field/header combination, recording
-          exactly which one (if any) worked, rather than assuming one
-          silently. See lib/conversation_capture_seed.sh for the writer.
+          CONFIRMED FROM SOURCE (ostler-assistant crates/zeroclaw-gateway/
+          src/lib.rs, handle_pair(), bound to .route("/pair", post(handle_pair))):
+          a successful POST /pair with X-Pairing-Code returns
+          {"paired": true, "persisted": <bool>, "token": "<bearer>", ...},
+          and that bearer authenticates the proxied /api/v1/* calls this
+          probe needs via Authorization: Bearer <token>, same as the admin
+          token's own scheme. This probe mints its pairing code the same
+          way probes/pairing_recovers_without_a_repair_storm.sh does (admin
+          token at :8000 -> POST :8443/pair with X-Pairing-Code). NOT the
+          "device_token" field some WebAuthn-passkey documentation names:
+          that belongs to the separate POST /auth/pair/register endpoint
+          (ostler-assistant PR #461), which needs a real Secure Enclave
+          assertion no non-interactive probe can produce and whose response
+          has no "token" field at all -- checked directly against that PR's
+          source, not inferred. See lib/conversation_capture_seed.sh for the
+          writer.
   judge(facts) -> rows    pure.
 
 Usage:
@@ -312,10 +319,24 @@ def _http(method, url, data=None, headers=None, timeout=30, insecure=False):
 def _mint_device_bearer(gateway_https_base, admin_token_path, pairing_code_url, insecure=True):
     """Mint a pairing code (admin, :8000) and spend it at :8443/pair (same
     mechanism as probes/pairing_recovers_without_a_repair_storm.sh). Returns
-    (token_or_None, detail_str). The field/header a PAIRED device then
-    presents is not confirmed from any source in this repo (the companion
-    gateway is a compiled ZeroClaw binary); every plausible field name is
-    tried and the one that answered is recorded, never assumed silently.
+    (token_or_None, detail_str).
+
+    CONFIRMED FROM SOURCE (ostler-assistant crates/zeroclaw-gateway/src/lib.rs,
+    handle_pair(), bound to `.route("/pair", post(handle_pair))`): a
+    successful POST /pair with X-Pairing-Code returns
+    {"paired": true, "persisted": <bool>, "token": "<bearer>", "message": ...}
+    -- the field is "token", used thereafter as `Authorization: Bearer
+    <token>`. That token lands in the SAME PairingGuard trusted-token set a
+    passkey-registered device's token does (api_auth_pair.rs's
+    handle_pair_register calls the identical state.pairing.trust_plaintext_
+    token()), so it authenticates the proxied /api/v1/* calls this probe
+    needs identically. Do NOT read this as the "device_token" field: that
+    name belongs to the SEPARATE WebAuthn passkey-registration endpoint
+    (POST /auth/pair/register, PairRegisterResponse.device_token,
+    ostler-assistant PR #461) which needs a real Secure Enclave assertion
+    signature no non-interactive probe can produce, and whose response has
+    no "token" field at all -- the two endpoints are not interchangeable and
+    do not share a response shape.
     """
     try:
         admin = open(os.path.expanduser(admin_token_path)).read().strip()
@@ -345,10 +366,9 @@ def _mint_device_bearer(gateway_https_base, admin_token_path, pairing_code_url, 
         parsed = json.loads(pair_body)
     except Exception:
         parsed = {}
-    for field in ("token", "device_token", "bearer_token", "access_token", "paired_token"):
-        if parsed.get(field):
-            return str(parsed[field]), "field '{}' from /pair response".format(field)
-    return None, "pair accepted (paired:true) but no recognised token field in the response; tried token/device_token/bearer_token/access_token/paired_token"
+    if parsed.get("token"):
+        return str(parsed["token"]), "field 'token' from /pair response (confirmed: lib.rs handle_pair())"
+    return None, "pair accepted (paired:true) but the response carried no 'token' field, which contradicts the confirmed handle_pair() response shape -- this is a real defect, not a naming guess"
 
 
 def _submit_conversation(gateway_https_base, device_token, transcript, metadata, insecure=True):

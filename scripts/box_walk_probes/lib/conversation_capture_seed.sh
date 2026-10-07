@@ -76,11 +76,7 @@ CODE=\$(curl -sk --noproxy '*' -m 10 -X POST -H \"Authorization: Bearer \$ADMIN\
 [ -n \"\$CODE\" ] || { echo 'CCS no-pairing-code'; exit 2; }
 PAIR=\$(curl -sk --noproxy '*' -m 10 -X POST -H \"X-Pairing-Code: \$CODE\" \"\$GW/pair\")
 case \"\$PAIR\" in *'\"paired\":true'*|*'\"paired\": true'*) : ;; *) echo \"CCS pair-rejected \${PAIR:0:120}\"; exit 2 ;; esac
-TOKEN=\$(printf '%s' \"\$PAIR\" | /usr/bin/python3 -c 'import json,sys
-d=json.load(sys.stdin)
-for k in (\"token\",\"device_token\",\"bearer_token\",\"access_token\",\"paired_token\"):
-    if d.get(k):
-        print(d[k]); break' 2>/dev/null)
+TOKEN=\$(printf '%s' \"\$PAIR\" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"token\",\"\"))' 2>/dev/null)
 [ -n \"\$TOKEN\" ] || { echo 'CCS pair-no-token-field'; exit 2; }
 echo \"CCS token-len=\${#TOKEN}\"
 mkdir -p \"\$HOME/.ostler/walk-seed\" || { echo 'CCS no-token-dir'; exit 2; }
