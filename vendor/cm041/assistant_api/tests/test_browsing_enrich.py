@@ -259,7 +259,7 @@ class _Hub:
 GOOD_VISIT_REPLY = json.dumps({
     "summary": "A fictional field guide to harbour cities and their ferry timetables.",
     "tags": ["Travel", "harbours", "ferries", "travel"],
-    "entities": ["Harbourmaster Quill", "Port of Examplia"],
+    "entities": ["Jane Doe", "Port of Examplia"],
 })
 GOOD_KNOWLEDGE_REPLY = json.dumps({
     "summary": "An invented essay on slow bread. It explains starter care and long cold proofs.",
@@ -334,7 +334,7 @@ class Lane6Base(unittest.TestCase):
         return list(Path(self.spool).glob("*.json")) if Path(self.spool).exists() else []
 
 
-PAGE_TEXT = (f"Harbour cities rely on ferries. {SENTINEL} Harbourmaster Quill keeps the timetable "
+PAGE_TEXT = (f"Harbour cities rely on ferries. {SENTINEL} Jane Doe keeps the timetable "
              "for the Port of Examplia. " * 30)
 
 
@@ -350,7 +350,7 @@ class TestA_PageSummaries(Lane6Base):
         self.assertEqual(stored["summary_status"], "done")
         self.assertIn("harbour cities", stored["summary"].lower())
         self.assertEqual(stored["tags"], ["travel", "harbours", "ferries"])  # lowercased, deduped
-        self.assertIn("Harbourmaster Quill", stored["entities"])
+        self.assertIn("Jane Doe", stored["entities"])
         self.assertEqual(stored["dwell_ms"], 21000)
         # the model really saw the page text
         self.assertTrue(any(SENTINEL in p for p in self.backend.generate_prompts))
