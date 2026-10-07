@@ -52,8 +52,8 @@ jobs:
           n="$(python -m pytest tests/test_cm048_multilingual_vendored.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 20 ]; then
-            echo "REFUSING: expected at least 20 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 21 ]; then
+            echo "REFUSING: expected at least 21 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_cm048_multilingual_vendored.py -v

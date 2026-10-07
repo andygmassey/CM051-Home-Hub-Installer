@@ -49,11 +49,11 @@ SAMPLES = {
 # What the stub "model" writes per language when told to.
 CANNED = {
     "de": {
-        "overall_summary": "Greta Brandt und Tom Reiter besprachen das Angebot für die Bäckerei Sonnenschein.",
-        "topics": [{"name": "Angebot Bäckerei", "points": ["Tom schickt die Unterlagen bis morgen.", "Greta prüft das Budget."]}],
+        "overall_summary": "Jane Doe und Tom Smith besprachen das Angebot für die Bäckerei am Markt.",
+        "topics": [{"name": "Angebot der Bäckerei", "points": ["Tom schickt die Unterlagen bis morgen.", "Greta prüft das Budget."]}],
         "todos": [
-            {"text": "Überarbeitete Unterlagen an Greta schicken", "owner": "other", "deadline": None},
-            {"text": "Budget prüfen und Zusammenfassung schreiben", "owner": "user", "deadline": None},
+            {"text": "überarbeitete Unterlagen an Jane schicken", "owner": "other", "deadline": None},
+            {"text": "Budget prüfen und eine Zusammenfassung schreiben", "owner": "user", "deadline": None},
         ],
     },
     "ja": {
@@ -180,8 +180,8 @@ def test_german_conversation_flows_to_german_summary_and_todos(tmp_path):
         "conversation_id": "2026-10-01_greta_brandt_de",
         "date": "2026-10-01", "source": "in-person", "language": "de",
         "participants": [
-            {"id": "user", "display": "Greta Brandt", "role": "user"},
-            {"id": "tom_reiter", "display": "Tom Reiter", "role": "other"},
+            {"id": "user", "display": "Jane Doe", "role": "user"},
+            {"id": "tom_smith", "display": "Tom Smith", "role": "other"},
         ],
     }
     bundle = make_bundle(
@@ -191,8 +191,8 @@ def test_german_conversation_flows_to_german_summary_and_todos(tmp_path):
     out = cw.write_conversation(bundle, root=tmp_path / "Conversations")
     summary = out.summary_path.read_text(encoding="utf-8")
     todos = out.todos_path.read_text(encoding="utf-8")
-    assert "Bäckerei Sonnenschein" in summary and "Angebot Bäckerei" in summary
-    assert "Überarbeitete Unterlagen" in todos and "Zusammenfassung" in todos
+    assert "Bäckerei am Markt" in summary and "Angebot der Bäckerei" in summary
+    assert "überarbeitete Unterlagen" in todos and "Zusammenfassung" in todos
     assert todos.count("\n- ") == 2  # nothing silently dropped
     assert "Größe" in out.transcript_path.read_text(encoding="utf-8")
 
@@ -230,8 +230,8 @@ Kurz.
 
 | Owner | Action | Deadline | Priority | Notes |
 |---|---|---|---|---|
-| Tom Reiter | Die Unterlagen an Greta schicken | morgen | hoch | - |
-| Greta Brandt | Budget prüfen | 2026-10-09 | mittel | erledigt |
+| Tom Smith | Unterlagen an Greta schicken | morgen | hoch | - |
+| Jane Doe | Budget prüfen | 2026-10-09 | mittel | erledigt |
 """
 
 GERMAN_TABLE_DE_HEADINGS = """## Zusammenfassung
@@ -241,15 +241,15 @@ Kurz.
 
 | Verantwortlich | Aufgabe | Frist | Priorität | Notizen |
 |---|---|---|---|---|
-| Tom Reiter | Die Unterlagen an Greta schicken | morgen | hoch | - |
-| Greta Brandt | Budget prüfen | 2026-10-09 | mittel | erledigt |
+| Tom Smith | Unterlagen an Greta schicken | morgen | hoch | - |
+| Jane Doe | Budget prüfen | 2026-10-09 | mittel | erledigt |
 """
 
 _META = {
     "conversation_id": "c1", "date": "2026-10-07",
     "participants": [
-        {"id": "user", "display": "Greta Brandt", "role": "user"},
-        {"id": "tom_reiter", "display": "Tom Reiter", "role": "other"},
+        {"id": "user", "display": "Jane Doe", "role": "user"},
+        {"id": "tom_smith", "display": "Tom Smith", "role": "other"},
     ],
 }
 
@@ -258,7 +258,7 @@ _META = {
 def test_german_action_table_is_extracted_not_silently_dropped(md):
     todos = outstanding_todos.extract_outstanding_todos(md, _META)
     assert [t.action_text for t in todos] == [
-        "Die Unterlagen an Greta schicken", "Budget prüfen",
+        "Unterlagen an Greta schicken", "Budget prüfen",
     ]
     first, second = todos
     assert first.deadline == "2026-10-08"  # "morgen" -> tomorrow
@@ -311,3 +311,39 @@ def test_non_latin_speaker_labels_are_turn_boundaries():
 
 def test_cjk_sentence_end_splits_without_a_space():
     assert len(chunker._SENTENCE_END.findall("今日は雨です。明日は晴れ！")) >= 2
+
+
+# ── CJK round trip through the writer (the wiki's source files) ───────
+
+
+def test_cjk_conversation_round_trips_through_the_four_artefacts(tmp_path):
+    ja = _text("ja")
+    summary_text = "田中花子と佐藤健は新しい店舗の予算について話し合った。"
+    extraction = bundle_extractor.BundleExtraction(
+        overall_summary=summary_text,
+        topics=[{"name": "店舗の予算", "points": ["佐藤さんが明日までに見積書を送る。"]}],
+        todos=[{"text": "見積書を送る", "owner": "other", "deadline": None}],
+    )
+    metadata = {
+        "conversation_id": "2026-10-01_ja_round_trip",
+        "date": "2026-10-01", "source": "in-person", "language": "ja",
+        "participants": [
+            {"id": "user", "display": "田中花子", "role": "user"},
+            {"id": "sato", "display": "佐藤健", "role": "other"},
+        ],
+    }
+    bundle = make_bundle(
+        metadata=metadata, classification=_classification(),
+        extraction=extraction, transcript=ja,
+    )
+    out = cw.write_conversation(bundle, root=tmp_path / "Conversations")
+
+    assert out.folder.is_dir()
+    assert out.transcript_path.read_bytes().decode("utf-8").count("予算") >= 1
+    transcript = out.transcript_path.read_text(encoding="utf-8")
+    assert ja.strip() in transcript  # the transcript body is byte for byte
+    assert summary_text in out.summary_path.read_text(encoding="utf-8")
+    todos = out.todos_path.read_text(encoding="utf-8")
+    assert "見積書を送る" in todos and "\\u" not in todos
+    for p in (out.summary_path, out.transcript_path, out.todos_path):
+        assert "�" not in p.read_text(encoding="utf-8"), p.name  # no replacement characters
