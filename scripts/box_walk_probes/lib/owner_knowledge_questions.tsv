@@ -1,0 +1,72 @@
+# domain	question	expect_fact	alt_fact	accept_tools	seed_method	seed_key
+identity	What do you know about me?	ExampleCo		ANY	linkedin_csv	employer
+identity	What is my name?			ANY		
+identity	How would you describe me to someone who has never met me?			ANY		
+identity	What matters most to me?			ANY		
+identity	What have I told you about myself?			ANY		
+work and career	Where have I worked?	ExampleCo	senior field engineer	pwg_people pwg_person_timeline	linkedin_csv	employer
+work and career	What is my job title?			pwg_people pwg_person_timeline		
+work and career	How long have I been in my current role?			pwg_people pwg_person_timeline		
+work and career	Who have I worked with professionally?			pwg_people pwg_person_timeline		
+work and career	What industry do I work in?			pwg_people pwg_person_timeline		
+work and career	Have I changed jobs recently?			pwg_people pwg_person_timeline		
+education	Where did I study?	Riverside college	mechanical engineering	ANY	sparql_owner	education
+education	What did I study?			ANY		
+education	Did I go to university?			ANY		
+education	What qualifications do I hold?			ANY		
+education	Have I done any training or courses recently?			ANY		
+family and partner	Who is my partner?	Alison Coe		pwg_people pwg_person_timeline	memory_assert	partner
+family and partner	When did I last see my sister?	March 2026	Riverside	pwg_people pwg_person_timeline	memory_assert	sister
+family and partner	Who are my family members?			pwg_people pwg_person_timeline		
+family and partner	Do I have any children?			pwg_people pwg_person_timeline		
+family and partner	What are my parents' names?			pwg_people pwg_person_timeline		
+family and partner	Is my family nearby or far away?			pwg_people pwg_person_timeline		
+close friends	Who are my closest friends?	Alexander Patel	Mary Stewart	ANY	memory_assert	friend1
+close friends	Who do I see socially most often?			ANY		
+close friends	Who did I grow up with?			ANY		
+close friends	Who would I call in an emergency?			ANY		
+close friends	Have I made any new friends recently?			ANY		
+places lived and travelled	Where did I go on holiday last year?	Riverside bay		ANY	sparql_owner	places
+places lived and travelled	Where do I live now?			ANY		
+places lived and travelled	Where have I lived before?			ANY		
+places lived and travelled	Where would I like to travel next?			ANY		
+places lived and travelled	What is my favourite place I have visited?			ANY		
+food and drink	What food do I like?	Thai food	green curry	pwg_preferences	sparql_owner	food
+food and drink	What do I usually drink?			pwg_preferences		
+food and drink	Do I have any dietary restrictions?			pwg_preferences		
+food and drink	What is my favourite restaurant?			pwg_preferences		
+food and drink	What do I usually cook at home?			pwg_preferences		
+films, TV, music, books	What have I been watching lately?	Saltmarsh		pwg_preferences	sparql_owner	media
+films, TV, music, books	What music do I listen to?			pwg_preferences		
+films, TV, music, books	What was the last book I read?			pwg_preferences		
+films, TV, music, books	Who are my favourite artists or directors?			pwg_preferences		
+films, TV, music, books	What shows have I finished recently?			pwg_preferences		
+hobbies	What are my hobbies?	woodworking		pwg_preferences	sparql_owner	hobbies
+hobbies	What do I do in my spare time?			pwg_preferences		
+hobbies	Have I picked up any new hobbies recently?			pwg_preferences		
+hobbies	What sports or activities do I take part in?			pwg_preferences		
+routines and habits	What does my morning routine look like?	6am	run	ANY	sparql_owner	routines
+routines and habits	What time do I usually wake up?			ANY		
+routines and habits	Do I have an evening routine?			ANY		
+routines and habits	What day-to-day habits do I have?			ANY		
+routines and habits	How do I usually spend my weekends?			ANY		
+health and fitness	What do my fitness numbers look like lately?	9000 steps		pwg_preferences	sparql_owner	health
+health and fitness	How active have I been recently?			pwg_preferences		
+health and fitness	Have I logged any exercise this month?			pwg_preferences		
+health and fitness	Is there anything in my imported health data worth flagging gently?			pwg_preferences		
+money and subscriptions	What subscriptions do I pay for?	Globex streaming		ANY	sparql_owner	money
+money and subscriptions	What services am I subscribed to?			ANY		
+money and subscriptions	Are there any subscriptions I might not be using?			ANY		
+money and subscriptions	What recurring payments do I have?			ANY		
+recent life events	What has changed in my life recently?	moved house	Riverside	pwg_topics	sparql_owner	recent_events
+recent life events	Has anything significant happened to me lately?			pwg_topics		
+recent life events	Did I move house recently?			pwg_topics		
+recent life events	What have I been dealing with lately?			pwg_topics		
+upcoming commitments	What do I have coming up?	dentist appointment		pwg_commitments	sparql_owner	upcoming
+upcoming commitments	What is on my plate this week?			pwg_commitments		
+upcoming commitments	Do I have any appointments soon?			pwg_commitments		
+upcoming commitments	What have I committed to that I still owe?			pwg_commitments		
+relationships drifting	Are there any friendships I have been neglecting?	Mary Stewart	four months	ANY	memory_assert	friend2
+relationships drifting	Who have I lost touch with?			ANY		
+relationships drifting	Is there anyone I should reach out to?			ANY		
+relationships drifting	Have any of my relationships gone quiet recently?			ANY		
