@@ -7765,6 +7765,7 @@ def _enrich_store(job, result):
             timestamp=job.get("timestamp") or now, device=job.get("device", ""),
             visit_id=visit_id, result=result,
             user_tags=job.get("user_tags") or [], note=job.get("note") or "",
+            failure_reason=job.get("failure_reason") or "",
         )
         vector = _embed_text(point["content"][:6000])
         bn.qdrant_ensure_collection(QDRANT_URL, bn.KNOWLEDGE_COLLECTION, len(vector))
@@ -7780,7 +7781,8 @@ def _enrich_store(job, result):
         return False
     if result is None:
         return bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id,
-                                     {"summary_status": "failed"})
+                                     {"summary_status": "failed",
+                                      "summary_error": job.get("failure_reason") or "no_summary"})
     ok = bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id, {
         "summary": result["summary"], "tags": result["tags"],
         "entities": result["entities"], "summary_status": "done",

@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -184,11 +185,46 @@ def user_active(now_ms: Optional[int] = None, lease_path: Optional[str] = None) 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 
-def summary_model() -> str:
-    # AI_MODEL is the install-time chat/enrichment model (install.sh,
-    # default qwen3.5:9b). OSTLER_BROWSING_MODEL overrides for browsing only.
+class ModelUnavailable(Exception):
+    """The summary model cannot be used. ``reason`` is the stored,
+    customer-visible code. Never retried: the same call fails the same way."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _ostler_env_file() -> str:
+    return os.environ.get("OSTLER_ENV_FILE") or os.path.expanduser("~/.ostler/.env")
+
+
+def _model_from_env_file() -> str:
+    """AI_MODEL from the compose ``~/.ostler/.env``. install.sh writes the
+    model it actually pulled there (CM051 install.sh:15087-15091), and the
+    wiki compiler reads it from the same file (install.sh:19885). The
+    ical-server launchd job has no AI_MODEL in its own environment, so this
+    file is the one place on an installed Hub that names the pulled model."""
+    try:
+        with open(_ostler_env_file(), encoding="utf-8") as fh:
+            val = ""
+            for line in fh:
+                if line.startswith("AI_MODEL="):
+                    val = line.split("=", 1)[1].strip().strip("\"'").strip()
+            return val
+    except OSError:
+        return ""
+
+
+def summary_model() -> Optional[str]:
+    """The model the installer pulled, or None. OSTLER_BROWSING_MODEL
+    overrides for browsing only; then AI_MODEL from the environment; then
+    AI_MODEL from ``~/.ostler/.env``. There is NO built-in default: a name
+    the installer did not pull fails every summary silently (measured on
+    macmini16-walk 2026-10-07, qwen3.5:9b absent, gemma4:e2b present)."""
     return (os.environ.get("OSTLER_BROWSING_MODEL")
-            or os.environ.get("AI_MODEL") or "qwen3.5:9b")
+            or os.environ.get("AI_MODEL")
+            or _model_from_env_file()
+            or None)
 
 
 def _num_ctx() -> int:
@@ -207,6 +243,11 @@ def ollama_generate(prompt: str, *, timeout: float = 120.0) -> str:
     ``{}``), so JSON is requested in the prompt and recovered by
     ``extract_json``."""
     model = summary_model()
+    if not model:
+        print("[browsing-enrich] ERROR no summary model configured: AI_MODEL is "
+              f"not in the environment or in {_ostler_env_file()}. Summaries "
+              "will be marked failed (no_model_configured).", file=sys.stderr, flush=True)
+        raise ModelUnavailable("no_model_configured")
     body = {
         "model": model,
         "prompt": prompt,
@@ -221,8 +262,17 @@ def ollama_generate(prompt: str, *, timeout: float = 120.0) -> str:
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read()).get("response", "")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read()).get("response", "")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            print(f"[browsing-enrich] ERROR summary model {model!r} is not installed "
+                  "in Ollama (HTTP 404). Summaries will be marked failed "
+                  "(model_not_installed). Run `ollama list` and check AI_MODEL in "
+                  f"{_ostler_env_file()}.", file=sys.stderr, flush=True)
+            raise ModelUnavailable("model_not_installed") from exc
+        raise
 
 
 def extract_json(raw: str) -> Optional[dict]:
@@ -362,7 +412,8 @@ def render_knowledge_markdown(title: str, url: str, result: Optional[dict],
 
 def build_knowledge_point(*, url: str, title: str, timestamp: str, device: str,
                           visit_id: str, result: Optional[dict],
-                          user_tags: List[str], note: str) -> dict:
+                          user_tags: List[str], note: str,
+                          failure_reason: str = "") -> dict:
     """Return the Qdrant payload (no vector) for a Saved web page.
 
     Field names are the union the real writers and the real reader use:
@@ -402,6 +453,8 @@ def build_knowledge_point(*, url: str, title: str, timestamp: str, device: str,
         "visit_id": visit_id,
         "device": device,
         "summarised": bool(result),
+        "summary_status": "done" if result else "failed",
+        "summary_error": "" if result else (failure_reason or "no_summary"),
     }
 
 
@@ -599,11 +652,15 @@ class EnrichQueue:
             self._sleep(gap)
         self._last_call = self._clock()
         result = None
+        unusable = ""
         try:
             result = self.summarise(job)
+        except ModelUnavailable as exc:
+            unusable = exc.reason
+            job["failure_reason"] = unusable
         except Exception:
             result = None
-        if result is None and job.get("attempts", 0) + 1 < MAX_ATTEMPTS:
+        if result is None and not unusable and job.get("attempts", 0) + 1 < MAX_ATTEMPTS:
             job["attempts"] = job.get("attempts", 0) + 1
             with self._lock:
                 p = self._path(jid)

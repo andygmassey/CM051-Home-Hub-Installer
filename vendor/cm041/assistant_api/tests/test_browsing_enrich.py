@@ -113,6 +113,8 @@ class FakeBackend:
     def __init__(self):
         self.collections = {}   # name -> {id: {"vector": [...], "payload": {...}}}
         self.generate_prompts = []
+        self.generate_models = []
+        self.installed_models = None  # None = every model is installed
         self.generate_reply = None  # callable(prompt) -> str
         outer = self
 
@@ -171,6 +173,10 @@ class FakeBackend:
                 if p == "/api/embed":
                     return self._send(200, {"embeddings": [[0.1, 0.2, 0.3, 0.4]]})
                 if p == "/api/generate":
+                    outer.generate_models.append(body.get("model"))
+                    if (outer.installed_models is not None
+                            and body.get("model") not in outer.installed_models):
+                        return self._send(404, {"error": f"model '{body.get('model')}' not found"})
                     outer.generate_prompts.append(body.get("prompt", ""))
                     reply = outer.generate_reply(body.get("prompt", "")) if outer.generate_reply else ""
                     return self._send(200, {"response": reply})
@@ -275,6 +281,9 @@ class Lane6Base(unittest.TestCase):
         env = {
             "OSTLER_SERVICE_TOKEN": TOKEN,
             "OSTLER_TEST_AUTOAUTH": "",
+            "AI_MODEL": "gemma4:e2b",
+            "OSTLER_BROWSING_MODEL": "",
+            "OSTLER_ENV_FILE": os.path.join(self.tmp, "absent.env"),
             "NO_PROXY": "127.0.0.1,localhost",
             "no_proxy": "127.0.0.1,localhost",
         }
@@ -499,6 +508,88 @@ class TestA_PageSummaries(Lane6Base):
         self.assertIn("Port of Examplia", hit["entities"])
         status, none = self.hub.request("GET", "/api/v1/browsing/search?q=zzzznothing")
         self.assertEqual(none["count"], 1 if none["results"] else 0)  # vector fallback may return the single fake entry
+
+
+class TestD_SummaryModelIsTheInstalledOne(Lane6Base):
+    """Measured 2026-10-07 on macmini16-walk: the job env has no AI_MODEL, the
+    old default qwen3.5:9b was not pulled, so every summary failed silently."""
+
+    def _no_env_model(self):
+        p = patch.dict(os.environ, {"AI_MODEL": "", "OSTLER_BROWSING_MODEL": ""})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _write_env_file(self, text):
+        path = os.path.join(self.tmp, "ostler.env")
+        Path(path).write_text(text)
+        p = patch.dict(os.environ, {"OSTLER_ENV_FILE": path})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_d1_model_read_from_installer_env_file_when_job_env_has_none(self):
+        self._no_env_model()
+        self._write_env_file("USER_FIRST_NAME=Sam\nAI_MODEL=gemma4:e2b\nOTHER=1\n")
+        self.backend.installed_models = {"gemma4:e2b"}
+        status, body = self.visit(text=PAGE_TEXT, dwell_ms=21000)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(self.queue.run_once())
+        stored = self.visits()[body["id"]]["payload"]
+        self.assertEqual(stored["summary_status"], "done")
+        self.assertEqual(stored["summary_model"], "gemma4:e2b")
+        self.assertEqual(self.backend.generate_models, ["gemma4:e2b"])
+
+    def test_d2_no_model_anywhere_is_failed_loudly_never_a_guess(self):
+        self._no_env_model()  # env file is absent too
+        self.assertIsNone(bn.summary_model())
+        status, body = self.visit(text=PAGE_TEXT, dwell_ms=21000)
+        self.assertEqual(status, 200, body)
+        with patch("sys.stderr") as err:
+            self.assertTrue(self.queue.run_once())
+        self.assertIn("no summary model configured",
+                      "".join(str(c.args[0]) for c in err.write.call_args_list))
+        stored = self.visits()[body["id"]]["payload"]
+        self.assertEqual(stored["summary_status"], "failed")
+        self.assertEqual(stored["summary_error"], "no_model_configured")
+        self.assertEqual(self.backend.generate_models, [])  # nothing was asked of Ollama
+        self.assertEqual(self.spool_files(), [])  # not retried, text gone
+
+    def test_d3_model_not_pulled_is_failed_with_reason_and_not_retried(self):
+        self.backend.installed_models = {"gemma4:e2b", "nomic-embed-text:latest"}
+        with patch.dict(os.environ, {"AI_MODEL": "qwen3.5:9b"}):
+            status, body = self.visit(text=PAGE_TEXT, dwell_ms=21000)
+            with patch("sys.stderr") as err:
+                self.assertTrue(self.queue.run_once())
+        self.assertIn("not installed", "".join(str(c.args[0]) for c in err.write.call_args_list))
+        stored = self.visits()[body["id"]]["payload"]
+        self.assertEqual(stored["summary_status"], "failed")
+        self.assertEqual(stored["summary_error"], "model_not_installed")
+        self.assertEqual(self.backend.generate_models, ["qwen3.5:9b"])  # one call, no retries
+        self.assertEqual(self.spool_files(), [])
+
+    def test_d4_saved_page_with_missing_model_is_visibly_failed(self):
+        self._no_env_model()
+        status, body = self.hub.request("POST", "/api/safari/save", {
+            "url": "https://harbour.example.invalid/guide/ferries", "title": "Ferries",
+            "text": PAGE_TEXT, "timestamp": "2026-10-01T10:00:00Z", "device": "Chrome",
+            "tags": ["travel"], "note": "keep"})
+        self.assertEqual(status, 202, body)
+        self.assertTrue(self.queue.run_once())
+        items = list(self.backend.collections[bn.KNOWLEDGE_COLLECTION].values())
+        self.assertEqual(len(items), 1)
+        pl = items[0]["payload"]
+        self.assertEqual(pl["summary_status"], "failed")
+        self.assertEqual(pl["summary_error"], "no_model_configured")
+        self.assertEqual(pl["user_tags"], ["travel"])  # the user's own save is kept
+        self.assertEqual(pl["user_note"], "keep")
+
+    def test_d5_override_beats_env_and_env_beats_file(self):
+        self._write_env_file("AI_MODEL=from-file\n")
+        with patch.dict(os.environ, {"AI_MODEL": "from-env", "OSTLER_BROWSING_MODEL": ""}):
+            self.assertEqual(bn.summary_model(), "from-env")
+        with patch.dict(os.environ, {"AI_MODEL": "", "OSTLER_BROWSING_MODEL": ""}):
+            self.assertEqual(bn.summary_model(), "from-file")
+        with patch.dict(os.environ, {"OSTLER_BROWSING_MODEL": "override"}):
+            self.assertEqual(bn.summary_model(), "override")
 
 
 class TestB_SaveToKnowledge(Lane6Base):
