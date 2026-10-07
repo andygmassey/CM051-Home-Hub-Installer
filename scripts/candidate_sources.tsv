@@ -1,0 +1,10 @@
+# placeholder in VENDOR_MANIFEST.toml source_repo	GitHub owner/repo the API reads
+# One row per placeholder, tab separated. The slug is where the API reads the
+# commit and the compare from; the LOCAL checkout sync_vendor.sh grafts from is
+# still the directory named by the same environment variable.
+# Only rows that have been confirmed against a real repository belong here: a
+# wrong slug makes candidate_vendor.sh refuse, never graft from the wrong place.
+CM041	andygmassey/CM041-People-Graph
+CM059	andygmassey/CM059-Ostler-Editor
+CM024	andygmassey/evernote-knowledge
+HR015	andygmassey/HR015-Gaming-PC
