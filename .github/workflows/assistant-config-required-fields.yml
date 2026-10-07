@@ -43,6 +43,9 @@ on:
       # install.sh emits -- and it ran nowhere: scripts/tests/ was outside
       # verify_test_wiring.sh's glob.
       - 'scripts/tests/test_email_channel_toml.sh'
+      # v1.0.107 console walk (candidate #9): web_search 401s on a fresh
+      # install because its credential lands in a table nobody parses.
+      - 'tests/test_vane_web_search_credential_reaches_config.sh'
       - '.github/workflows/assistant-config-required-fields.yml'
   push:
     branches: [main]
@@ -125,3 +128,19 @@ jobs:
       - name: A reuse re-run must not silently delete the customer's daily briefs (#619)
         if: always()
         run: bash tests/test_reuse_run_keeps_the_daily_briefs.sh
+
+      # v1.0.107 console walk (Andy, candidate #9, BLOCKING): web_search
+      # 401s on a fresh install; the assistant tells the customer the
+      # search tool "returned an authorization error". SAME EMITTER, a
+      # THIRD failure shape again: not a missing field in a present table,
+      # not an emptied table, but a credentialed value written under the
+      # WRONG TABLE NAME ("[tools.web_search]" instead of the schema's
+      # top-level "[web_search]"), so the daemon's parser never sees it and
+      # falls back to an uncredentialed default against a Vane endpoint
+      # that now demands HTTP basic auth. RED on pre-fix install.sh (proved
+      # by reverting just the table-name line); carries its own negative
+      # control (a reconstructed [tools.web_search] fragment must fail the
+      # same checker).
+      - name: web_search's Vane credential lands in the table the daemon reads
+        if: always()
+        run: bash tests/test_vane_web_search_credential_reaches_config.sh

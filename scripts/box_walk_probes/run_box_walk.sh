@@ -402,6 +402,18 @@ else
     printf '  SKIPPED (read-only): preference seed not applied.\n\n'
 fi
 
+# ── AND THE OWNER'S EMPLOYER, through the customer's own import path ──
+# owner_digest_knows_the_owner (v1.0.107 #10) asks the chat "Where have I
+# worked?" and needs a known answer. Gated on READ_ONLY like every writer.
+. "$HERE/lib/owner_employer_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+    # Flush left: see the grounding seed's comment above this same shape.
+owner_employer_seed_apply || true
+else
+    OSTLER_OWNER_SEED_STATE="skipped-read-only"; export OSTLER_OWNER_SEED_STATE
+    printf '  SKIPPED (read-only): owner employer seed not applied.\n\n'
+fi
+
 # ── AND THE CONVERSATION SEED, the third write route, and the only one that
 #    needs a model call ──
 #
@@ -722,6 +734,7 @@ grounding_seed_forget || true
 preference_seed_forget || true
 conversation_seed_forget || true
 usage_seed_forget || true
+owner_employer_seed_forget || true
 
 # But post_walk_qa.sh replays probes against this box AFTER this script exits
 # (the cut manifest's runtime proofs), and the compiled wiki still counts the
