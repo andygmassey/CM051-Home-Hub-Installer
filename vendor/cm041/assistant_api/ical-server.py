@@ -869,6 +869,40 @@ def _load_people_list_self_uris():
     return uris
 
 
+def _load_carded_uris(uris):
+    """Walk #6 candidate #10 (Archie): given an iterable of Person URIs,
+    return the subset that carry a real Contacts card (an
+    ``icloud_contact_uid`` identifier) -- the SAME ground-truth signal
+    ``people_list`` reads from the Qdrant payload's ``icloud_uid`` field,
+    here resolved from Oxigraph instead because ``people_birthdays`` and
+    ``people_recent`` read SPARQL directly and never touch the Qdrant
+    payload at all.
+
+    Batched (one VALUES query for every candidate URI), same shape as the
+    rest of this file's identifier joins -- never one query per person.
+    Best-effort: any failure returns an empty set (nothing is treated as
+    carded) rather than raising, so a degraded Oxigraph narrows coverage
+    of the automated/service-mailbox checks rather than blanking the
+    whole suggestions list.
+    """
+    uris = sorted({u for u in uris if u})
+    if not uris:
+        return set()
+    try:
+        values = " ".join(f"<{u}>" for u in uris)
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person WHERE {{\n'
+            '  VALUES ?person {{ {values} }}\n'
+            '  ?person pwg:hasIdentifier ?id .\n'
+            '  ?id pwg:identifierType "icloud_contact_uid" .\n'
+            '}}'.format(ns=PWG_NS, values=values)
+        )
+    except Exception:
+        return set()
+    return {r["person"] for r in rows if r.get("person")}
+
+
 def _event_has_human_attendee(event):
     """True when a calendar event has at least one named/emailed attendee.
 
@@ -6056,6 +6090,9 @@ def people_stale(months=3, limit=5):
     except Exception as exc:
         return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
 
+    # Walk #6 candidate #10 (Archie): resolved once, not per-candidate.
+    self_uris = _load_people_list_self_uris()
+
     now = time.time()
     candidates = []
     for pt in result.get("result", {}).get("points", []):
@@ -6096,6 +6133,29 @@ def people_stale(months=3, limit=5):
         if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
         if _is_service_sender(name, p.get("emails")):
+            continue
+        # Walk #6 candidate #10 (Archie): a SECOND, complementary layer,
+        # not a replacement for the two checks above. _is_not_a_person_to_
+        # suggest only catches the owner by an EXACT USER_NAME string
+        # match; _load_people_list_self_uris also catches an owner node
+        # identified by email or phone (people_list's own owner-exclusion
+        # mechanism, walk #6 rounds 1-3). _is_service_sender only catches
+        # a fixed brand denylist or an all-role-mailbox address list;
+        # _is_automated_or_service_name/_is_service_mailbox_name catch
+        # shape patterns (notification phrasing, marketplace brands,
+        # ebill-style mailboxes) the denylist was never meant to enumerate.
+        # Both existing checks apply UNCONDITIONALLY (no card gate) --
+        # that is a PRE-EXISTING property of this vendor's own mechanism,
+        # not something this change alters; the new checks below stay
+        # uncarded-only, same gate people_list itself uses.
+        uri_candidate = p.get("person_uri") or ""
+        if uri_candidate and uri_candidate in self_uris:
+            continue
+        has_card = bool((p.get("icloud_uid") or "").strip())
+        if not has_card and (
+            _is_automated_or_service_name(name)
+            or _is_service_mailbox_name(name)
+        ):
             continue
         months_since = int((now - lc_ts) / (30 * 86400))
         candidates.append({
@@ -6218,7 +6278,7 @@ def people_recent(days=7, limit=5):
     try:
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?name ?summary ?date ?location WHERE {{\n'
+            'SELECT ?p ?name ?summary ?date ?location WHERE {{\n'
             '  ?m a pwg:Meeting ; pwg:meetingAttendee ?p ;\n'
             '     pwg:meetingDate ?date .\n'
             '  ?p pwg:displayName ?name .\n'
@@ -6232,13 +6292,36 @@ def people_recent(days=7, limit=5):
     except Exception as exc:
         return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
 
+    # Walk #6 candidate #10 (Archie): unlike people_stale/people_birthdays,
+    # this producer had NEITHER of this vendor's own suggestion screens
+    # (_is_not_a_person_to_suggest / _is_service_sender) NOR the People-
+    # list filters -- a meeting attendee named like an organisation, a
+    # service sender, or the owner's own calendar entry could all surface
+    # here. Brought up to the same standard as the other two producers,
+    # plus the new People-list-derived checks.
+    self_uris = _load_people_list_self_uris()
+    carded_uris = _load_carded_uris(r.get("p") for r in rows)
+
     seen = set()
     contacts = []
     for r in rows:
         name = r.get("name", "")
+        uri = r.get("p") or ""
         if not name or name in seen:
             continue
         if _is_nameless_name(name):
+            continue
+        if _is_not_a_person_to_suggest(name, USER_NAME):
+            continue
+        if _is_service_sender(name):
+            continue
+        if uri and uri in self_uris:
+            continue
+        has_card = uri in carded_uris
+        if not has_card and (
+            _is_automated_or_service_name(name)
+            or _is_service_mailbox_name(name)
+        ):
             continue
         seen.add(name)
         contacts.append({
@@ -6262,16 +6345,24 @@ def people_birthdays(days=7):
     try:
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?name ?bday WHERE {{\n'
+            'SELECT ?p ?name ?bday WHERE {{\n'
             '  ?p a pwg:Person ; pwg:displayName ?name ; pwg:birthday ?bday .\n'
             '}}'.format(ns=PWG_NS)
         )
     except Exception as exc:
         return {"people": [], "degraded": True, "reason": str(exc), "error": str(exc)}
 
+    # Walk #6 candidate #10 (Archie): a SECOND, complementary layer on top
+    # of _is_not_a_person_to_suggest / _is_service_sender below -- see the
+    # long comment in people_stale for why both stay, rather than one
+    # replacing the other.
+    self_uris = _load_people_list_self_uris()
+    carded_uris = _load_carded_uris(r.get("p") for r in rows)
+
     for r in rows:
         name = r.get("name", "")
         bday = r.get("bday", "")
+        uri = r.get("p") or ""
         if not name or not bday or len(bday) < 5:
             continue
         # Hide raw-handle "people" (bare phone numbers, WhatsApp JIDs) from the
@@ -6285,6 +6376,14 @@ def people_birthdays(days=7):
         if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
         if _is_service_sender(name):
+            continue
+        if uri and uri in self_uris:
+            continue
+        has_card = uri in carded_uris
+        if not has_card and (
+            _is_automated_or_service_name(name)
+            or _is_service_mailbox_name(name)
+        ):
             continue
         try:
             # Parse MM-DD or YYYY-MM-DD

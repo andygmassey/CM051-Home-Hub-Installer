@@ -433,6 +433,65 @@ that round 1's existing upgrade handles, not this one's. RED confirmed
 against the unmodified vendored `ical-server.py` via `git stash`, GREEN
 after.
 
-Matches CM041 PR #194 (upstream, open at time of writing). Recorded here,
-not as a patch, for the same reason as the grafts above. Retire by landing
-CM041 PR #194 and re-pinning.
+Matches CM041 PR #194 -- UPDATED 2026-10-07: merged to CM041 main as
+`a5cbb52` since this entry was first written. Recorded here, not as a
+patch, for the same reason as the grafts above. Retire by re-pinning to
+CM041 main, which now contains this via #194.
+
+## Tenth graft: suggestion producers never applied the People-list filters (CM051 walk #6 candidate #10)
+
+Tree `cm041/assistant_api`, same file: `people_stale`, `people_recent`,
+`people_birthdays`, plus a new reusable helper, `_load_carded_uris(uris)`.
+Matches CM041 PR #195 (upstream, open at time of writing).
+
+Archie: the phone's People tab reads `/api/v1/suggestions`
+(`api_suggestions`, a composite of these three producers), which never
+applied the filters `people_list()` already uses -- an organisation, an
+unresolved service record, or the owner's own entry could all surface as
+a suggestion.
+
+**This vendor tree was ALREADY AHEAD of CM041 source on part of this**,
+which changes the shape of the graft from a straight port. `people_stale`
+and `people_birthdays` already call this vendor's OWN
+`_is_not_a_person_to_suggest` (exact `USER_NAME` string match, plus
+`#`-shortcode and bare-address shapes) and `_is_service_sender` (a fixed
+brand denylist, e.g. `paypal`/`skype`, plus an all-role-mailbox address
+check) -- both measured and walked on real boxes (v1.0.100, v1.0.105) per
+their own docstrings. `people_recent` had NEITHER mechanism at all, the
+exact same gap as CM041 source.
+
+Decision: ADD CM041's new checks (`_load_people_list_self_uris`,
+`_is_automated_or_service_name`, `_is_service_mailbox_name`, uncarded-only)
+as a SECOND, complementary layer in `people_stale`/`people_birthdays`,
+not a replacement -- grafting upstream over a vendor-side improvement, or
+deleting one to make room, is the exact failure this manifest's own
+history already warns about. The two layers catch different things: this
+vendor's own checks reach a brand denylist and an exact-name match; the
+new checks reach an owner identified by email/phone (not just an exact
+`USER_NAME` string) and shape patterns (notification phrasing, marketplace
+brands, `ebill`-style mailboxes) no fixed denylist enumerates. Neither of
+this vendor's own two checks is card-gated -- a PRE-EXISTING property of
+its own mechanism, unchanged here, not something this graft fixes or
+widens. `people_recent` gets BOTH mechanisms, brought up to the same
+(now doubly-protected) standard as the other two.
+
+MEASURED, not assumed: `_is_service_mailbox_name` is fully subsumed by
+this vendor's own `_is_not_a_person_to_suggest` for every email-shaped
+case (its "contains @, no space" rule is unconditional and strictly
+broader), confirmed by this PR's own test suite -- two of the twelve new
+tests pass on UNMODIFIED code too and are labelled as controls, not
+isolating proof, rather than claiming coverage the measurement does not
+show.
+
+Guarded by
+`vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py`,
+12 tests (ported from CM041 PR #195, adapted: the owner-dropped tests use
+`USER_EMAIL` + `_load_people_list_self_uris`'s dynamic email-match arm
+rather than `USER_NAME`, since this vendor's `_is_not_a_person_to_suggest`
+reads `USER_NAME` as a MODULE-LEVEL global frozen at import time, which a
+test-time env patch cannot reach). RED confirmed against the unmodified
+vendored `ical-server.py` via `git stash` (7 of 12 fail -- the 2
+subsumed-shape controls above pass on both sides, by design, alongside
+the 3 carded-human-stays controls), GREEN after.
+
+Retire by landing CM041 PR #195 and re-pinning.
