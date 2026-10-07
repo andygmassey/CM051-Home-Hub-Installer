@@ -36,7 +36,7 @@ jobs:
         run: bash tests/test_email_allowlist_installer.sh
       - name: The email judge catches every mutant by its own assertion
         if: always()
-        run: python3 scripts/box_walk_probes/lib/email_channel_probe.py --self-test; test $? -eq 1
+        run: set +e; python3 scripts/box_walk_probes/lib/email_channel_probe.py --self-test; rc=$?; test "$rc" -eq 1
       - name: The loopback IMAP and SMTP servers speak to stdlib clients
         if: always()
         run: python3 scripts/box_walk_probes/lib/email_channel_probe.py --server-test
