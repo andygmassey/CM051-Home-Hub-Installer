@@ -17394,7 +17394,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.1}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.4}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -17507,7 +17507,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="9775e29d2a0adb9e46bd5672d71e17b963c763e350a3d9eb0910fc1504ec0da9"
+DEFAULT_ASSISTANT_TARBALL_SHA256="7aad63a6357ed37c96beaa19c4b19238180369d751355054e92181a58596cb36"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -21328,7 +21328,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.1"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.4"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
