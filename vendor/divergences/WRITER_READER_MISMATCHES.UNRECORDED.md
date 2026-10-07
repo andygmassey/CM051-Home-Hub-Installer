@@ -1030,3 +1030,24 @@ gap in the sibling `tests/test_the_source_table_items_column_is_the_number_it_cl
 real settling-progress files happen to exist on the machine running the
 test, rather than its own sandbox -- measured leaking two of that test's
 eight assertions on a dev Mac with real `~/.ostler` state on disk).
+
+## doctor: extension credential widened to the save route (CM051 Lane 6)
+
+Tree `doctor`, file `agent/proxy.py`. Not a writer/reader vocabulary fix:
+recorded here because this file is the doctor tree's declared
+`unrecorded_divergence` pointer and the edit has no patch.
+
+Location and shape. `_EXTENSION_ONLY_PATH` (one path) gains a sibling
+tuple `_EXTENSION_WRITE_PATHS = (_EXTENSION_ONLY_PATH, "/api/safari/save")`,
+and `_is_extension_credential` compares the concrete upstream path against
+that tuple instead of the single constant. Method, loopback and own-token
+conditions are unchanged; no prefix match, no env var. Two comment lines
+and one log string follow. Reason: the extension's "Save to Knowledge"
+button is a second WRITE from the same extension, and a Hub-only customer
+(no paired iPhone) authenticates only with the extension token.
+
+Pinned by `tests/test_extension_credential_covers_the_save_route.py`, which
+also pins that reads, remote callers, wrong tokens and every other path
+(including look-alikes such as `/api/safari/save/` and `/api/safari/saved`)
+stay refused. There is no HR015 upstream twin yet: OWED, and a
+security-boundary change that wants a human read before it ships.
