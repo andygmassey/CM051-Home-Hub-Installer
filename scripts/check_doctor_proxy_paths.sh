@@ -97,13 +97,15 @@ REQUIRED_PROXY_PATHS=(
     # every customer-facing surface even though the handler itself answered
     # 200 on the loopback-only ical-server port a browser never reaches.
     "/api/v1/contacts/diff"
+    "/api/safari/save"
+    "/api/v1/browsing/search"
 )
 
 # A floor, in the ratchet sense. If someone deletes an entry above, the
 # array silently shrinks and the gate silently checks less while still
 # printing PASS. Removing a required endpoint is a real decision and it has
 # to be made in two places, deliberately.
-EXPECTED_REQUIRED_COUNT=20
+EXPECTED_REQUIRED_COUNT=22
 
 INSTALL_SH="${1:-}"
 if [[ -z "$INSTALL_SH" ]]; then

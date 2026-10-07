@@ -27,7 +27,9 @@ Endpoints:
   GET /api/v1/memory               – list facts Ostler has learnt about the user (CM031 iOS Memory tab v1.0)
   POST /api/v1/conversation/process – submit conversation for processing (CM048)
   POST /api/v1/ingest/ios          – batch upload from iOS companion
-  POST /api/safari/ingest          – live capture from Safari/Chrome extension (HR015 #180)
+  POST /api/safari/ingest          – live capture from Safari/Chrome extension (HR015 #180); optional readable text is summarised locally
+  POST /api/safari/save            – "Save to Knowledge": the page becomes a Knowledge item (Lane 6)
+  GET  /api/v1/browsing/search?q=&days=&limit= – browsing entries with summary, tags, entities (Lane 6)
   GET  /api/v1/health/day?date=    – day's physiology joined to its context (#680)
   POST /api/v1/people/{slug}/forget – GDPR Art. 17 right-of-erasure (one-click forget)
   POST /api/v1/memory/correct/{id} – correct ({"newValue":...}) or forget ({"forget":true}) a fact
@@ -7580,6 +7582,14 @@ def api_safari_ingest(payload):
     html = payload.get("html") or ""  # accepted but not stored raw
     timestamp = (payload.get("timestamp") or "").strip()
     device = (payload.get("device") or "").strip() or "browser"
+    # Lane 6: optional readable page text (capped) and visible dwell. The
+    # raw text is never stored; it only feeds the summary worker, then is
+    # dropped (see browsing_enrich.py).
+    bn = _bn()
+    text = bn.clamp_text(payload.get("text"), bn.TEXT_CAP_CHARS)
+    dwell_ms = payload.get("dwell_ms")
+    if not isinstance(dwell_ms, int) or isinstance(dwell_ms, bool) or not 0 <= dwell_ms <= 86_400_000:
+        dwell_ms = None
 
     host = _safari_extract_host(url)
 
@@ -7653,9 +7663,46 @@ def api_safari_ingest(payload):
         "html_len": len(html),
     }
 
-    ok = _safari_qdrant_upsert(point_id, vector, qdrant_payload)
-    if not ok:
-        return {"error": "qdrant upsert failed"}, 502
+    # Lane 6: page-text eligibility. The skip list is explicit and editable
+    # (browsing_enrich.DEFAULT_TEXT_SKIPLIST plus the customer's own file).
+    # A skip-listed page keeps its visit but no text is queued.
+    skip_reason = bn.text_skip_reason(url) if text else ""
+    want_text = bool(text) and not skip_reason
+    qdrant_payload["summary_status"] = "pending" if want_text else "unsummarised"
+    if dwell_ms is not None:
+        qdrant_payload["dwell_ms"] = dwell_ms
+
+    # A re-post of a visit that already exists (the extension's second send
+    # with the text, or a retry) must never erase a stored summary, so an
+    # existing point is left alone and only moved to "pending" if needed.
+    existing = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id)
+    if existing is None:
+        ok = _safari_qdrant_upsert(point_id, vector, qdrant_payload)
+        if not ok:
+            return {"error": "qdrant upsert failed"}, 502
+    elif want_text:
+        if (existing.get("summary_status") or "unsummarised") in ("unsummarised", "failed"):
+            bn.qdrant_set_payload(
+                QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
+                {"summary_status": "pending"} if dwell_ms is None
+                else {"summary_status": "pending", "dwell_ms": dwell_ms},
+            )
+        else:
+            want_text = False  # already pending or done
+
+    summary_status = "skipped_text" if skip_reason else "unsummarised"
+    if want_text:
+        queued = _enrich_queue().enqueue({
+            "id": point_id, "kind": bn.KIND_VISIT, "point_id": point_id,
+            "url": url, "title": title, "text": text,
+        })
+        summary_status = "queued"
+        if not queued:
+            summary_status = "unsummarised"
+            bn.qdrant_set_payload(
+                QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
+                {"summary_status": "unsummarised"},
+            )
 
     # Update the state file so the Doctor row can render "active,
     # last write N minutes ago". Best-effort; never fails the request.
@@ -7665,7 +7712,281 @@ def api_safari_ingest(payload):
         "last_write_device": device,
     })
 
-    return {"ok": True, "stored": 1, "id": point_id}, 200
+    return {"ok": True, "stored": 1, "id": point_id, "summary_status": summary_status}, 200
+
+
+# ── Lane 6: page summaries, Save to Knowledge, browsing search ───────
+#
+# browsing_enrich.py holds the pure logic (skip list, prompts, queue). The
+# functions below are the thin wiring to this server's own Qdrant, Ollama
+# embedder and routes. The extension credential and Doctor proxy path for
+# these routes live in CM051 vendor/doctor (see the CM051 PR).
+
+_ENRICH_QUEUE = None
+_ENRICH_QUEUE_LOCK = threading.Lock()
+
+
+def _bn():
+    """browsing_enrich lives beside this file; put the directory on
+    sys.path so the import also works when this module is loaded by file
+    path (the test harness and the vendored layout)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import browsing_enrich
+    return browsing_enrich
+
+
+def _enrich_summarise(job):
+    bn = _bn()
+    text = job.get("text") or ""
+    if job.get("kind") == bn.KIND_KNOWLEDGE:
+        if not text.strip():
+            return None
+        raw = bn.ollama_generate(bn.knowledge_prompt(
+            job.get("title", ""), job.get("url", ""), text,
+            job.get("user_tags") or [], job.get("note") or "",
+        ), timeout=300.0)
+        return bn.normalise_knowledge_result(bn.extract_json(raw))
+    raw = bn.ollama_generate(bn.visit_prompt(
+        job.get("title", ""), job.get("url", ""), text,
+    ))
+    return bn.normalise_visit_result(bn.extract_json(raw))
+
+
+def _enrich_store(job, result):
+    """Write the outcome. ``job`` arrives WITHOUT its raw text."""
+    bn = _bn()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    visit_id = job.get("point_id")
+    if job.get("kind") == bn.KIND_KNOWLEDGE:
+        point = bn.build_knowledge_point(
+            url=job["url"], title=job.get("title", ""),
+            timestamp=job.get("timestamp") or now, device=job.get("device", ""),
+            visit_id=visit_id, result=result,
+            user_tags=job.get("user_tags") or [], note=job.get("note") or "",
+        )
+        vector = _embed_text(point["content"][:6000])
+        bn.qdrant_ensure_collection(QDRANT_URL, bn.KNOWLEDGE_COLLECTION, len(vector))
+        if not bn.qdrant_upsert(QDRANT_URL, bn.KNOWLEDGE_COLLECTION,
+                                point["note_id"], vector, point):
+            return False
+        if visit_id:
+            bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id, {
+                "saved_to_knowledge": True, "knowledge_id": point["note_id"],
+            })
+        return True
+    if not visit_id:
+        return False
+    if result is None:
+        return bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id,
+                                     {"summary_status": "failed"})
+    ok = bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id, {
+        "summary": result["summary"], "tags": result["tags"],
+        "entities": result["entities"], "summary_status": "done",
+        "summarised_at": now, "summary_model": bn.summary_model(),
+    })
+    # Make the entry findable by meaning: re-embed with the summary. Best
+    # effort; the payload above is already stored.
+    try:
+        got = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id) or {}
+        doc = " ".join(p for p in (
+            got.get("title", ""), got.get("domain", ""), got.get("url", ""),
+            result["summary"], " ".join(result["tags"]),
+        ) if p)
+        vec = _embed_text(doc)
+        if vec:
+            bn.qdrant_update_vector(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id, vec)
+    except Exception:
+        pass
+    return ok
+
+
+def _enrich_queue():
+    global _ENRICH_QUEUE
+    with _ENRICH_QUEUE_LOCK:
+        if _ENRICH_QUEUE is None:
+            bn = _bn()
+            _ENRICH_QUEUE = bn.EnrichQueue(bn.SPOOL_DIR, _enrich_summarise, _enrich_store)
+            _ENRICH_QUEUE.start()
+        return _ENRICH_QUEUE
+
+
+def api_safari_save(payload):
+    """POST /api/safari/save -- the user marked the open page as important.
+
+    Body: {"url", "title", "text" (fuller readable text, capped at 200 KB),
+           "timestamp", "device", "tags": [...], "note": "..."}
+
+    An explicit user action: the text skip list does not apply, the
+    sensitive-domain filter still does. The visit is stored (or reused),
+    then a Knowledge item is written asynchronously by the summary worker
+    into the SAME collection and shape the Evernote / Notes / Obsidian /
+    Notion importers use, so the CM044 Knowledge wing renders it unchanged.
+    The raw text is dropped once summarised.
+    """
+    # Rule 0.8: Save to Knowledge is browser capture too, so it pauses
+    # without Ostler Pro exactly like api_safari_ingest. (CM051-only line:
+    # CM041 source has no subscription gate.)
+    paused = _subscription_paused("safari_capture")
+    if paused is not None:
+        return paused
+
+    import uuid as _uuid
+    import time as _time
+
+    if not isinstance(payload, dict):
+        return {"error": "body must be a JSON object"}, 400
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return {"error": "missing 'url'"}, 400
+    bn = _bn()
+    title = (payload.get("title") or "").strip()
+    timestamp = (payload.get("timestamp") or "").strip() or datetime.now(
+        timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    device = (payload.get("device") or "").strip() or "browser"
+    text = bn.clamp_text(payload.get("text"), bn.KNOWLEDGE_TEXT_CAP_CHARS)
+    user_tags = bn.clean_user_tags(payload.get("tags"))
+    note = bn.clean_note(payload.get("note"))
+    host = _safari_extract_host(url)
+
+    if _safari_is_sensitive_domain(host):
+        return {"ok": True, "stored": 0, "skipped_sensitive": 1,
+                "reason": "sensitive_domain"}, 200
+    if not (text.strip() or note):
+        return {"error": "nothing to save: send 'text' or 'note'"}, 400
+
+    point_id = str(_uuid.uuid5(
+        _uuid.NAMESPACE_URL, f"browsing|safari_history|{url}|{timestamp}"))
+    existing = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id)
+    if existing is None:
+        try:
+            vector = _embed_text(" ".join(p for p in (title, host, url) if p))
+        except Exception as exc:
+            return {"error": f"embed failed: {type(exc).__name__}"}, 502
+        if not vector:
+            return {"error": "empty embedding vector"}, 502
+        try:
+            _safari_qdrant_ensure_collection(len(vector))
+        except Exception as exc:
+            return {"error": f"qdrant collection ensure failed: {type(exc).__name__}"}, 502
+        if not _safari_qdrant_upsert(point_id, vector, {
+            "url": url, "domain": host, "title": title, "timestamp": timestamp,
+            "visit_date": timestamp, "created_at": timestamp, "date": timestamp,
+            "visit_count": 1, "source": "safari_extension_live", "type": "web_visit",
+            "device": device, "summary_status": "unsummarised",
+            "saved_to_knowledge": True,
+        }):
+            return {"error": "qdrant upsert failed"}, 502
+    else:
+        bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
+                              {"saved_to_knowledge": True})
+
+    kid = bn.knowledge_id(url, timestamp)
+    _enrich_queue().enqueue({
+        "id": "k-" + kid, "kind": bn.KIND_KNOWLEDGE, "point_id": point_id,
+        "url": url, "title": title, "text": text, "timestamp": timestamp,
+        "device": device, "user_tags": user_tags, "note": note,
+    })
+    _safari_write_state({
+        "last_write_ts": int(_time.time()),
+        "last_write_host": host,
+        "last_write_device": device,
+    })
+    return {"ok": True, "status": "queued", "id": kid, "visit_id": point_id}, 202
+
+
+def _browsing_item(payload):
+    return {
+        "url": payload.get("url", ""),
+        "title": payload.get("title", ""),
+        "domain": payload.get("domain", ""),
+        "timestamp": payload.get("timestamp") or payload.get("visit_date") or "",
+        "summary": payload.get("summary", ""),
+        "tags": payload.get("tags") or [],
+        "entities": payload.get("entities") or [],
+        # Entries written by the History.db / Chrome history importers carry
+        # no page text and no field: they read as unsummarised.
+        "summary_status": payload.get("summary_status") or "unsummarised",
+        "source": payload.get("source", ""),
+        "device": payload.get("device", ""),
+        "knowledge_id": payload.get("knowledge_id", ""),
+    }
+
+
+def api_browsing_search(q="", days=0, limit=10):
+    """GET /api/v1/browsing/search?q=&days=&limit= -- what the assistant
+    reads to answer "what did I read about X". Returns the visit with its
+    summary, tags and entities so the entry means something; the assistant
+    can fetch the full URL itself when it needs more.
+    """
+    bn = _bn()
+    collection = _SAFARI_QDRANT_COLLECTION
+    limit = max(1, min(int(limit or 10), 50))
+    tokens = [t for t in re.findall(r"[a-z0-9]{3,}", (q or "").lower())]
+    cutoff = None
+    if days and int(days) > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
+
+    points = []
+    offset = None
+    for _ in range(5):  # at most 5000 entries scanned
+        body = {"limit": 1000, "with_payload": True, "with_vector": False}
+        if offset is not None:
+            body["offset"] = offset
+        try:
+            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/scroll", "POST", body)
+        except Exception as exc:
+            return {"results": [], "count": 0, "degraded": True,
+                    "reason": type(exc).__name__}, 200
+        r = res.get("result") or {}
+        points.extend(r.get("points") or [])
+        offset = r.get("next_page_offset")
+        if offset is None:
+            break
+
+    scored = {}
+    for pt in points:
+        pl = pt.get("payload") or {}
+        ts = (pl.get("timestamp") or pl.get("visit_date") or "")
+        if cutoff and ts and ts[:10] < cutoff:
+            continue
+        hay = " ".join([
+            str(pl.get("title", "")), str(pl.get("domain", "")), str(pl.get("summary", "")),
+            " ".join(pl.get("tags") or []), " ".join(pl.get("entities") or []),
+        ]).lower()
+        kw = sum(1 for t in tokens if t in hay)
+        if tokens and kw == 0:
+            continue
+        scored[pt.get("id")] = (kw, 0.0, ts, pl)
+
+    if tokens:
+        try:
+            vec = _embed_text(q)
+            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/search", "POST",
+                        {"vector": vec, "limit": limit * 3, "with_payload": True})
+            for hit in res.get("result") or []:
+                pl = hit.get("payload") or {}
+                ts = (pl.get("timestamp") or pl.get("visit_date") or "")
+                if cutoff and ts and ts[:10] < cutoff:
+                    continue
+                prev = scored.get(hit.get("id"))
+                kw = prev[0] if prev else 0
+                scored[hit.get("id")] = (kw, float(hit.get("score") or 0.0), ts, pl)
+        except Exception:
+            pass  # keyword results still stand
+
+    ranked = sorted(scored.values(), key=lambda v: (v[0], v[1], v[2]), reverse=True)
+    seen, results = set(), []
+    for _kw, _score, _ts, pl in ranked:
+        key = pl.get("url", "")
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(_browsing_item(pl))
+        if len(results) >= limit:
+            break
+    return {"results": results, "count": len(results)}, 200
 
 
 # ── Hub health helpers ───────────────────────────────────────────────
@@ -9062,6 +9383,27 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        if parsed.path == "/api/v1/browsing/search":
+            params = parse_qs(parsed.query)
+            limit, err = _safe_int(params, "limit", 10)
+            days, err2 = _safe_int(params, "days", 0)
+            if err or err2:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err or err2).encode())
+                return
+            try:
+                result, status = api_browsing_search(
+                    params.get("q", [""])[0], days, limit)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/people/search":
             params = parse_qs(parsed.query)
             q = params.get("q", [""])[0]
@@ -9908,6 +10250,20 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        # Lane 6: "Save to Knowledge" from the extension. Same auth wall as
+        # ingest (_guard above, Doctor paired-bearer or extension token
+        # upstream); never reachable without credentials.
+        if parsed.path == "/api/safari/save":
+            try:
+                result, status = api_safari_save(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         # User-asserted fact: POST /api/v1/memory/assert. Banks a fact the
         # user stated in chat ("Jane is my wife") as an authoritative,
         # user_asserted PersonFact in Oxigraph. Body shape:
@@ -10087,4 +10443,9 @@ if __name__ == "__main__":
     # daemon_threads: a hung handler must not keep the process alive at
     # shutdown, or launchd's stop turns into a kill.
     ThreadingHTTPServer.daemon_threads = True
+    # Lane 6: resume any spooled page-summary jobs left by a restart.
+    try:
+        _enrich_queue()
+    except Exception as exc:
+        print(f"[browsing] summary worker not started: {exc}", file=sys.stderr, flush=True)
     ThreadingHTTPServer((BIND_HOST, PORT), Handler).serve_forever()
