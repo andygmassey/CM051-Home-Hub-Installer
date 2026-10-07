@@ -596,3 +596,42 @@ unchanged by running the full suite against the pre-fix file via the same
 `git checkout origin/main --` swap, not `git stash`.
 
 Retire by landing CM041 PR #197 and re-pinning.
+
+## Twelfth graft: commitments extension and handle resolution for the Follow-Up Detector (Lane 8)
+
+Tree `cm041/assistant_api`, same file: `commitments_list` (new optional
+fields and `min_confidence`), new `api_commitments_detected`,
+`api_commitment_set_status`, `people_resolve` and their helpers, plus the
+three routes. Matches CM041 PR #199 (upstream, open at time of writing).
+
+The assistant daemon's Follow-Up Detector finds promises in iMessage,
+WhatsApp and email and must land them in the SAME `OutstandingTodo` wing
+`/api/v1/commitments` already reads, not a second store. Additive only:
+meeting todos read exactly as before and are never hidden; detector rows
+carry `person`, `channel`, `origin`, `confidence` and are hidden below
+`min_confidence` (default 0.6). The write routes are scoped to nodes under
+`urn:ostler:todo/detected/`, so a CM048 todo cannot be edited through them.
+
+**What differs from CM041 source.** Nothing in the code. The behavioural
+difference is the read path: CM041 wraps `commitments_list` in
+`read_across_graphs`; this tree has no such symbol and relies on the central
+`_graph_scoped` rewriter on every `_sparql_select` (see the note above
+`_sparql_select`). The vendored copy of `commitments_list` already had that
+wrapper removed and the graft keeps it that way. Detector rows are written to
+the DEFAULT graph, which the scoper unions with the user's CM048 graphs.
+`test_commitments_detected.py::TestNewQueriesSurviveTheVendoredGraphScoper`
+executes the real rewriter over each new SELECT rather than assuming it.
+
+NOT MEASURED: against a real Oxigraph with the shipped compartment set-up.
+Writes to the default graph and the scoper's union are reasoned from the code
+and tested against a stub, not walked on a box.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_commitments_detected.py` and
+`test_people_resolve.py`, 26 tests, wired in
+`.github/workflows/walk8-followups-guard.yml`. RED confirmed against the
+unmodified vendored `ical-server.py` via `git stash` (37 of 38 fail), GREEN
+after. Full vendored `assistant_api` suite: 163 passed, the same 5
+pre-existing unrelated `test_ical_server_wire_shape.py` failures before and
+after.
+
+Retire by landing CM041 PR #199 and re-pinning.
