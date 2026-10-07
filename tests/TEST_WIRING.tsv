@@ -250,6 +250,7 @@ test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-inte
 test_editor_feedback_accepts_the_real_client_action_strings.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_egress_pool_member_is_not_a_policy_violation.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
+test_email_allowlist_installer.sh	WIRED	.github/workflows/email-channel.yml
 test_email_checkpoint_lives_under_dot_ostler.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_folder_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -292,6 +293,7 @@ test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
+test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml
@@ -524,6 +526,8 @@ test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_runtime_ready_does_not_require_optional_imports.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_runtime_ready_invariant.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_runtime_ready_status_is_read_not_fatal.sh	WIRED	.github/workflows/colima-autostart.yml
+test_safari_extension_bearer_reaches_doctor.py	WIRED	.github/workflows/safari-extension-paired-bearer.yml
+test_safari_extension_paired_bearer_write.sh	WIRED	.github/workflows/safari-extension-paired-bearer.yml
 test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-failure-is-loud.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
@@ -649,6 +653,7 @@ test_the_uninstaller_speaks_the_gui_marker_protocol.sh	WIRED	.github/workflows/u
 test_the_vane_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_walk_record_says_whether_the_stores_are_history.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_seeds_the_conversation.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_the_walk_seeds_the_conversation_capture.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_walk_seeds_the_grounded_probe.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_seeds_the_owner_employer.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_walk_seeds_the_preference_pair.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -767,6 +772,7 @@ gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ErrorCodeBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/FDAPresetSubtitleFaceRecognitionClaimTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FailureStateMachineTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FingerprintStateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/HardwareFingerprintTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -804,6 +810,7 @@ gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
+context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml

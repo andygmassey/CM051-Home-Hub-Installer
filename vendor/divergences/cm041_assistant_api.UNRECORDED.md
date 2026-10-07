@@ -596,3 +596,53 @@ unchanged by running the full suite against the pre-fix file via the same
 `git checkout origin/main --` swap, not `git stash`.
 
 Retire by landing CM041 PR #197 and re-pinning.
+
+## Eleventh graft: browsing page summaries, Save to Knowledge, browsing search (CM051 Lane 6)
+
+Tree `cm041/assistant_api`. Files: `ical-server.py` (`api_safari_ingest`
+extended; new `api_safari_save`, `api_browsing_search`, `_enrich_*` wiring,
+routes `POST /api/safari/save` and `GET /api/v1/browsing/search`, worker
+resume on startup), new sibling module `browsing_enrich.py` (copied
+byte-identical from CM041), `TOOLS.md` is NOT changed here (it differs from
+upstream already and the BROWSING routing line is owed in the same re-pin).
+Matches CM041 branch `claude/lane6-page-summaries` (open at time of writing,
+not yet on CM041 main, so no sha exists to ack; the manifest ack is OWED
+after that merge, same shape as #2642 and #2658).
+
+What the measurement found first. The shipped `api_safari_ingest` stored
+only url, title, domain, timestamp (plus `html_len`); it never summarised
+anything, although the extension README claimed it did. There was no browsing
+read endpoint at all: nothing in this tree reads `safari_history` except the
+wiki, so "the assistant's existing history search" does not exist and
+`/api/v1/browsing/search` is new.
+
+Behaviour added. Optional `text` (clamped to 20480 chars) and `dwell_ms` on
+ingest. Text goes to a spool-backed, bounded, rate limited worker that yields
+to the chat lease (`~/.ostler/run/ollama-user-active`, same contract as
+CM024 and CM048), calls the loopback Ollama, writes summary, tags and
+entities onto the stored visit, and DELETES the raw text. Skip-listed pages
+(explicit default list plus the customer's own
+`~/.ostler/config/browsing_text_skiplist.txt`) keep the visit and capture no
+text. History.db and Chrome history rows have no field and read as
+`unsummarised`. Save to Knowledge writes a `web_clip` item to the
+`evernote_knowledge` collection at `compartment_level` 2 in the importers'
+shape, linked to the visit.
+
+THE ONE CM051-ONLY LINE. `api_safari_save` calls
+`_subscription_paused("safari_capture")` first (Rule 0.8, browser capture
+pauses without Ostler Pro). CM041 source has no subscription gate, so this
+is a divergence by construction, pinned by
+`TestD_VendoredSubscriptionGate` in the vendored test. The startup hunk
+also differs in context only (`ThreadingHTTPServer` here).
+
+Doctor: `vendor/doctor/agent/proxy.py` widens the extension credential from
+one path to exactly two POST paths (`/api/safari/ingest`,
+`/api/safari/save`), pinned by
+`tests/test_extension_credential_covers_the_save_route.py`, which also pins
+that every other path, GET, a remote caller and a wrong token stay refused.
+`install.sh` DOCTOR_PROXY_PATHS gains `/api/safari/save` and
+`/api/v1/browsing/search`. The proxy.py change has no upstream (HR015) twin
+yet: OWED, and it is a security-boundary change that wants a human read.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
+(20 tests). Retire by landing the CM041 branch and re-pinning.

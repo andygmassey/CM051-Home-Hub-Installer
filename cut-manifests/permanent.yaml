@@ -978,6 +978,74 @@ entries:
       kind: box_walk_probe
       probe: "owner_digest_knows_the_owner"
 
+  - id: box-walk-email-channel-round-trip
+    title: an allowed sender's email gets a threaded reply from the assistant; backlog, unlisted and automated mail get none
+    incident: >-
+      v1.0.107 #10 (Andy ruling): the email channel ships. Nothing on any walk
+      had sent the assistant an email. BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: "email_channel_round_trip"
+
+  - id: box-walk-conversation-capture-end-to-end
+    title: iPhone/Watch conversation capture works end to end on a real Hub install
+    incident: >-
+      v1.0.107 #10. Conversation capture is CORE to the product (Andy), and
+      nothing on any walk had ever POSTed through the device-facing path a
+      paired iPhone or Watch actually uses -- lib/conversation_seed.sh
+      exercises the same pipeline but deliberately through a direct CLI
+      call, never through the gateway. The walk now submits two synthetic
+      conversations through the TLS companion gateway (:8443, device
+      bearer) and the probe asserts acceptance, completion, all three
+      four-artefact-spec files present and frontmatter-tagged, findability
+      afterward, and isolation between the two conversations. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "conversation_capture_end_to_end"
+  - id: box-walk-db-key-reaches-every-service
+    title: the installed database key reaches every service that opens an encrypted store, and the store is genuinely encrypted
+    incident: >-
+      v1.0.107, FLOW_CENSUS gap #1. PR #1956 fixed install.sh never setting
+      OSTLER_DB_KEY at all: ical-server and the CM048 ingest pipeline both
+      took their plaintext fallback on every install ever shipped, one line
+      after the installer printed "Databases encrypted". That fix has ridden
+      through 7 walks with no box-walk probe naming a failure -- an absence
+      of anyone looking, not a standing guarantee. This probe seeds a
+      synthetic row with the installed key, reads it back through a
+      DIFFERENT process's independently-resolved key, and confirms the file
+      is not openable as plain SQLite without one. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "db_key_reaches_every_service"
+
+  - id: box-walk-todos-reach-reminders
+    title: a synthetic commitment, written through the shipped gate, becomes a reminder the customer can actually see
+    incident: >-
+      v1.0.107, FLOW_CENSUS gap #6. The write direction (assistant ->
+      Reminders.app) had no coverage at all; only the read direction
+      (install-time hydrate) was tested. This probe writes a synthetic
+      commitment through the real reminders_push gate, waits for the
+      installed daemon to claim the pending row, and tries to read the
+      result back from Reminders.app itself via AppleScript -- never
+      trusting the mapping table's "pushed" status alone. The AppleScript
+      read needs the same Automation TCC grant as the iMessage probe; see
+      console_only_probes.tsv. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "todos_reach_reminders"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv): v1.0.107 has no on-demand send
+  # endpoint and no email delivery channel, so this probe measures only the
+  # config-correctness shape (an enabled channel with a written recipient).
+  # Declared here because every probe on disk must be invoked by the cut; the
+  # promote scope, not this row, decides that it never refuses a promote.
+  - id: box-walk-assistant-sends-over-whatsapp-and-email
+    title: "advisory: an enabled WhatsApp or email channel has a non-empty recipient written by install.sh"
+    incident: "FLOW_CENSUS_2026-10-07 gaps #3 and #5: delivery channels had no walk coverage"
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_sends_over_whatsapp_and_email"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical

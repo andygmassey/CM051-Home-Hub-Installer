@@ -414,6 +414,24 @@ else
     printf '  SKIPPED (read-only): owner employer seed not applied.\n\n'
 fi
 
+# ── AND TWO CONVERSATIONS THROUGH THE PAIRED GATEWAY, the device-facing path ──
+# conversation_capture_end_to_end (v1.0.107 #10, CORE to the product) asks
+# whether a paired iPhone or Watch, calling the network API it actually
+# calls, gets a working conversation out the other end. lib/conversation_seed.sh
+# above already exercises the pipeline through a direct CLI call for
+# reasons that file documents; it never touches :8443, so nothing before
+# this seed had put a conversation through the device-facing door. Gated on
+# READ_ONLY like every writer: it mints a device bearer and POSTs two
+# synthetic transcripts.
+. "$HERE/lib/conversation_capture_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+    # Flush left: see the grounding seed's comment above this same shape.
+conversation_capture_seed_apply || true
+else
+    OSTLER_CONVCAP_SEED_STATE="skipped-read-only"; export OSTLER_CONVCAP_SEED_STATE
+    printf '  SKIPPED (read-only): conversation capture seed not applied.\n\n'
+fi
+
 # ── AND THE CONVERSATION SEED, the third write route, and the only one that
 #    needs a model call ──
 #
@@ -735,6 +753,7 @@ preference_seed_forget || true
 conversation_seed_forget || true
 usage_seed_forget || true
 owner_employer_seed_forget || true
+conversation_capture_seed_forget || true
 
 # But post_walk_qa.sh replays probes against this box AFTER this script exits
 # (the cut manifest's runtime proofs), and the compiled wiki still counts the
