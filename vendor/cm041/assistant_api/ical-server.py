@@ -2148,6 +2148,65 @@ def coach_recent(user_id=None, hours=168, limit=10):
 
 # ── Conversation processing (CM048 tier 1) ───────────────────────────
 
+# Placed here, BEFORE _conversation_process_background, rather than
+# between it and api_conversation_process: several tests (e.g.
+# tests/test_vendored_conversation_process_failure_reason.py,
+# tests/test_conversation_process_metadata_conversation_id.sh) extract
+# _conversation_process_background's body by slicing from its own def
+# line to the NEXT top-level 'def '/'class ' line, on the assumption
+# that nothing else sits in that gap. A module-level statement placed
+# there gets silently captured into the extracted snippet; the failure
+# mode is a NameError in a wholly unrelated test once SOMETHING in that
+# gap uses a name the extractor's minimal exec namespace never binds.
+_MEETING_ID_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+_MEETING_ID_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _is_safe_meeting_id(meeting_id):
+    """True when meeting_id is a UUID or a plain slug with no path
+    characters (no '/', '.', or whitespace). Guards metadata.meeting_id
+    -- the per-session id the iOS/Watch capture app attaches -- before
+    it is used as a processing-directory name.
+    """
+    if not isinstance(meeting_id, str) or not meeting_id:
+        return False
+    return bool(
+        _MEETING_ID_UUID_RE.match(meeting_id)
+        or _MEETING_ID_SLUG_RE.match(meeting_id)
+    )
+
+
+def _resolve_fallback_conversation_id(base_id, transcript):
+    """Collision guard for the legacy date+speaker-label id scheme.
+
+    That scheme is not unique across same-day, same-speaker-label
+    captures (e.g. two Watch recordings both labelled s1 on the same
+    date) -- CM051 v1.0.107 candidate #10: the second overwrote the
+    first's raw transcript, CM048 then skipped it as already complete,
+    and the Hub still returned 202 so the app deleted its copy. Silent
+    data loss.
+
+    If base_id already holds a DIFFERENT raw transcript, this is a
+    distinct conversation and must not overwrite it: return a suffixed
+    id instead. A resend of the identical transcript is the same
+    conversation re-posted and reuses base_id (idempotent, no
+    duplicate).
+    """
+    existing = PROCESSING_DIR / base_id / "00_raw_transcript.md"
+    if not existing.exists():
+        return base_id
+    try:
+        existing_text = existing.read_text(encoding="utf-8")
+    except OSError:
+        existing_text = None
+    if existing_text == transcript:
+        return base_id
+    return f"{base_id}_{uuid.uuid4().hex[:6]}"
+
+
 def _invoke_pwg_convo(args, timeout=900):
     """Invoke the pwg-convo CLI (CM048) as a subprocess.
 
@@ -2351,13 +2410,25 @@ def api_conversation_process(payload):
                      "installed but not responding. Check ~/.ostler/logs."
         }, 503
 
-    # Generate conversation_id from metadata or UUID
+    # Generate conversation_id. metadata.meeting_id is the per-session
+    # UUID the iOS/Watch capture app sends with every recording; when
+    # present and well-formed it IS the conversation_id, because unlike
+    # the date+speaker-label scheme below it is unique per session and
+    # never collides across same-day captures sharing a speaker label.
+    # Fall back to the old scheme only when meeting_id is absent or
+    # fails validation, and guard that fallback against the same
+    # collision (see _resolve_fallback_conversation_id).
+    meeting_id = metadata.get("meeting_id")
     date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
     participants = metadata.get("participants", [])
     conv_type = metadata.get("type", "conversation")
-    if participants:
+    if meeting_id and _is_safe_meeting_id(meeting_id):
+        conversation_id = meeting_id
+    elif participants:
         slug = "_".join(p.replace(" ", "_").lower() for p in participants[:2])
-        conversation_id = f"{date}_{slug}_{conv_type}"
+        conversation_id = _resolve_fallback_conversation_id(
+            f"{date}_{slug}_{conv_type}", transcript
+        )
     else:
         conversation_id = f"{date}_{uuid.uuid4().hex[:8]}"
 
