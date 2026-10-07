@@ -273,3 +273,19 @@ Update this doc in the SAME commit. Then:
 
 The half-life of an undocumented recipe is roughly two weeks – by then
 the next release is needed and somebody is reconstructing.
+
+## Candidate bookkeeping: `scripts/candidate.sh`
+
+The steps between "feature PRs merged" and "dispatch a candidate" that need no
+judgement are scripts. Each is idempotent, refuses in words on an inconsistency,
+and reads every sha and digest from the GitHub API or the registry.
+
+    scripts/candidate.sh v1.0.108 --wiki-tag 0.1.44 --hub-version 0.5.2 \
+        --vendor cm041/assistant_api=<ref> --manifest-rows rows.tsv --dry-run
+
+`--dry-run` shows the whole change set as one diff and changes nothing. Run it
+without `--dry-run`, commit, then `--pin` and `--freeze [--push] [--dispatch]` in
+a second invocation. The OS003 half (BOM rows, digest re-keys, re-cites) is
+`bin/candidate.sh` in OS003 and runs after this PR merges. Still a person's:
+the `cut_markers.manifest` rows and manifest patterns that say what a fix looks
+like, the OS003 capability rows, reading the source diff, and the walk.
