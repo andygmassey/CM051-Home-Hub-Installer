@@ -41,16 +41,23 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install pytest
         run: python -m pip install --quiet pytest
-      - name: Commitments extension, detector write routes and handle resolution
+      - name: Commitments extension and detector write routes
         if: always()
         run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py \
-                 vendor/cm041/assistant_api/tests/test_people_resolve.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 26 ]; then
-            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 19 ]; then
+            echo "REFUSING: expected at least 19 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py \
-            vendor/cm041/assistant_api/tests/test_people_resolve.py -v
+          python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py -v
+      - name: Handle resolution
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_people_resolve.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_people_resolve.py -v
