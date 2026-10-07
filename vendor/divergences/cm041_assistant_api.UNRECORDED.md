@@ -666,5 +666,5 @@ the counter sat flat while pwg-convo logged completions. Completed is now
 Test `vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py`
 (5 tests), wired in `.github/workflows/walk-meeting-id-collision-guard.yml`.
 
-Retire by landing CM041 PR #201 and re-pinning. The `hold_ack_shas` ack in
-`vendor/VENDOR_MANIFEST.toml` is added once #201 has a squash sha.
+Upstream landed as CM041 #201, squash sha `1e18c6b0`, acked in `hold_ack_shas`
+in `vendor/VENDOR_MANIFEST.toml`. Retire by re-pinning.
