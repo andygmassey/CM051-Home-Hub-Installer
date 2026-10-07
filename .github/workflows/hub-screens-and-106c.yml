@@ -36,6 +36,15 @@ on:
       - 'scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh'
       - 'tests/test_the_walk_seeds_the_conversation_capture.sh'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'scripts/box_walk_probes/lib/db_key_probe.py'
+      - 'scripts/box_walk_probes/probes/db_key_reaches_every_service.sh'
+      - 'scripts/box_walk_probes/lib/brief_channel_probe.py'
+      - 'scripts/box_walk_probes/probes/assistant_sends_over_whatsapp_and_email.sh'
+      - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
+      - 'scripts/box_walk_probes/lib/todo_reminders_box.py'
+      - 'scripts/box_walk_probes/probes/todos_reach_reminders.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'scripts/box_walk_probes/console_only_probes.tsv'
       - '.github/workflows/hub-screens-and-106c.yml'
   push:
     branches: [main]
@@ -122,10 +131,45 @@ jobs:
         run: |
           set +e
           out=$(bash scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh --self-test 2>&1); rc=$?
+      - name: The db-key judge catches every mutant (v1.0.107 #10 follow-up, FLOW_CENSUS gap #1)
+        if: always()
+        run: python3 scripts/box_walk_probes/lib/db_key_probe.py --self-test
+      - name: The db-key probe's own self-test
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/db_key_reaches_every_service.sh --self-test 2>&1); rc=$?
           set -e
           printf '%s\n' "$out"
           if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
           if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+      - name: The brief-channel judge catches every mutant (FLOW_CENSUS gap #5/#3)
+        if: always()
+        run: python3 scripts/box_walk_probes/lib/brief_channel_probe.py --self-test
+      - name: The brief-channel probe's own self-test
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/assistant_sends_over_whatsapp_and_email.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
+          if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+      - name: The todo-reminders judge catches every mutant (FLOW_CENSUS gap #6)
+        if: always()
+        run: python3 scripts/box_walk_probes/lib/todo_reminders_probe.py --self-test
+      - name: The todo-reminders probe's own self-test
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/todos_reach_reminders.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
+          if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+      - name: The todo-reminders box script at least compiles
+        if: always()
+        run: python3 -m py_compile scripts/box_walk_probes/lib/todo_reminders_box.py
 
   owner-employer-seed:
     # The seed runs on the Hub and uses BSD stat, so it is proven on macOS.
