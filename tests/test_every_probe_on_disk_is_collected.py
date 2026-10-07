@@ -46,6 +46,22 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/conversation_capture_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, after owner_employer_seed and before "
+        "conversation_seed, and calls conversation_capture_seed_apply, which "
+        "mints a device bearer against the paired gateway (:8443) and POSTs "
+        "two synthetic conversations through /api/v1/conversation/process "
+        "-- the network path a paired iPhone or Watch actually uses, which "
+        "lib/conversation_seed.sh deliberately does not exercise (it calls "
+        "pwg-convo directly). It has no PROBE_NAME and no probe_pass/"
+        "probe_fail verdict, so the collector could not report it; "
+        "collecting it would run a seed as if it were a measurement. It IS "
+        "invoked, and that invocation is pinned by "
+        "tests/test_the_walk_seeds_the_conversation_capture.sh, which fails "
+        "if the runner stops sourcing it, stops calling "
+        "conversation_capture_seed_apply, or moves the call below the "
+        "phase-2 loop.",
     "lib/owner_employer_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it and, only "
         "when the walk may write, imports a synthetic LinkedIn Positions.csv "
