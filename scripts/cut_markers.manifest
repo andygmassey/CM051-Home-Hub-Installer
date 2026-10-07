@@ -145,3 +145,7 @@ wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|_locale\.term\('r
 # (compiler 3a35b63c) and PASSED against v0.1.42 through this verifier.
 wiki_image_grep|wiki-compiler:/app/compiler/compile.py|preserve_complete=not first_run|CM044 #302 every non-first-run compile asks hydration to preserve a completed status, so a baseline recompile never downgrades the wiki to settling. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|if preserve_complete and existing and existing\.get\("complete"\) is True|CM044 #302 hydration.begin keeps complete=True and freezes when asked to preserve it. 0 -> 1.
+# --- v1.0.107 wiki v0.1.43 (CM044 ba0ce754, #305 + #306). Each line below FAILED against the v0.1.42 digests
+# (compiler 6aa459d7) and PASSED against v0.1.43 through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/meeting_pages.py|def _event_kind\(|CM044 #305 calendar entries are classified meeting, travel, appointment or event, so a flight or a dentist is no longer listed as a meeting. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/place_pages.py|chip = pw_source_chip\(source\)|CM044 #306 a place page shows a source chip, not a raw strength float. 0 -> 1.
