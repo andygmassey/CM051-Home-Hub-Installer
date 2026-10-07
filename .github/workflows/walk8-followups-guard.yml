@@ -1,0 +1,56 @@
+# Lane 8 (Follow-Up Detector, Reconnect Cadence): the vendored ical-server
+# carries the Hub half. Mirrors CM041 PR #199. Pins the commitments extension
+# (id/person/channel/origin/confidence, low confidence hidden by default), the
+# detector write routes (validated upsert, sticky dismissal, detector nodes
+# only), GET /api/v1/people/resolve, and that every new SELECT survives this
+# tree's central graph scoper (_graph_scoped), which is how CM051 reaches
+# CM048's named graph in place of CM041's read_across_graphs.
+name: walk8-followups-guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_commitments_detected.py'
+      - 'vendor/cm041/assistant_api/tests/test_people_resolve.py'
+      - '.github/workflows/walk8-followups-guard.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_commitments_detected.py'
+      - 'vendor/cm041/assistant_api/tests/test_people_resolve.py'
+      - '.github/workflows/walk8-followups-guard.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  followups-hub-routes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: Commitments extension, detector write routes and handle resolution
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py \
+                 vendor/cm041/assistant_api/tests/test_people_resolve.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 26 ]; then
+            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py \
+            vendor/cm041/assistant_api/tests/test_people_resolve.py -v

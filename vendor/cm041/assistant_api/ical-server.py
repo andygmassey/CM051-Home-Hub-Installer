@@ -5473,8 +5473,272 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
     }, 200
 
 
+# ── Detected promises (FOLLOW-UP DETECTOR, Lane 8) ───────────────────
+#
+# /api/v1/commitments above is the read side of CM048's OutstandingTodo
+# wing, and it only ever knew about todos pulled out of MEETINGS. The
+# Follow-Up Detector (the assistant daemon, local model) finds promises in
+# the owner's iMessage, WhatsApp and email, in both directions. Those must
+# land in the SAME wing so the wiki, the Companion and the assistant's
+# pwg_commitments tool all see one list, rather than a second store that
+# drifts. So this is an extension of the existing endpoint, not a new one:
+#
+#   * same node type and predicates (urn:ostler:OutstandingTodo, todoText,
+#     owner, deadline, status, sourceConversationDate, todoCreatedAt);
+#   * four new OPTIONAL predicates (person, channel, confidence, origin)
+#     that only detector-written nodes carry, so every existing meeting todo
+#     reads exactly as before;
+#   * two write routes, scoped to nodes this code minted. The IRI prefix
+#     below is the scope: a CM048 todo can never be edited through them.
+#
+# The detector never stores message text beyond the one-line ``what`` it
+# extracted ("send Jane the deck"). ``source_ref`` is an opaque hash the
+# assistant computed; the Hub cannot get back to the message from it.
+#
+# DISMISSAL IS STICKY. The assistant re-sends the items it still believes in
+# on every pass; without the guard in api_commitments_detected a dismissed
+# promise would come back the next morning.
+_DETECTED_IRI_PREFIX = "urn:ostler:todo/detected/"
+_DETECTED_ID_RE = re.compile(r"^[0-9a-f]{16,64}$")
+_DETECTED_STATUSES = ("open", "done", "stale", "dismissed")
+_DETECTED_OWNERS = ("user", "other")
+_DETECTED_CHANNELS = ("imessage", "whatsapp", "email")
+_DETECTED_MAX_ITEMS = 100
+_DETECTED_MAX_WHAT = 280
+_DETECTED_MAX_PERSON = 120
+_DETECTED_DEFAULT_MIN_CONFIDENCE = 0.6
+_DETECTED_DATE_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}"
+    r"([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$"
+)
+_DETECTED_REF_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+def _detected_confidence(raw):
+    """Parse a stored confidence literal. ``None`` for absent/garbage, which
+    the reader treats as 'not a detector row, never hide it'."""
+    if raw in (None, ""):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if value != value:  # NaN
+        return None
+    return value
+
+
+def _detected_text(value, field, max_len, required):
+    if value is None or value == "":
+        if required:
+            return None, f"'{field}' is required"
+        return "", None
+    if not isinstance(value, str):
+        return None, f"'{field}' must be a string"
+    value = value.strip()
+    if required and not value:
+        return None, f"'{field}' is required"
+    if len(value) > max_len:
+        return None, f"'{field}' exceeds {max_len} characters"
+    if _SPARQL_CONTROL_CHARS.search(value):
+        return None, f"'{field}' contains control characters"
+    return value, None
+
+
+def _validate_detected_item(item):
+    """Return ``(clean_dict, None)`` or ``(None, reason)``. Every string
+    that reaches SPARQL passes through here and through
+    ``_sparql_str_literal`` after it."""
+    if not isinstance(item, dict):
+        return None, "item must be an object"
+    todo_id = item.get("id")
+    if not isinstance(todo_id, str) or not _DETECTED_ID_RE.match(todo_id):
+        return None, "'id' must be 16-64 lowercase hex characters"
+    what, err = _detected_text(item.get("what"), "what", _DETECTED_MAX_WHAT, True)
+    if err:
+        return None, err
+    person, err = _detected_text(
+        item.get("person"), "person", _DETECTED_MAX_PERSON, False
+    )
+    if err:
+        return None, err
+    owner = item.get("owner")
+    if owner not in _DETECTED_OWNERS:
+        return None, "'owner' must be 'user' (owner promised) or 'other'"
+    channel = item.get("channel")
+    if channel not in _DETECTED_CHANNELS:
+        return None, "'channel' must be one of " + ", ".join(_DETECTED_CHANNELS)
+    status = item.get("status", "open")
+    if status not in _DETECTED_STATUSES:
+        return None, "'status' must be one of " + ", ".join(_DETECTED_STATUSES)
+    conf = item.get("confidence")
+    if isinstance(conf, bool) or not isinstance(conf, (int, float)):
+        return None, "'confidence' must be a number between 0 and 1"
+    if not (0.0 <= float(conf) <= 1.0):
+        return None, "'confidence' must be a number between 0 and 1"
+    dates = {}
+    for field, required in (("promised_at", True), ("due", False)):
+        raw = item.get(field)
+        if raw in (None, ""):
+            if required:
+                return None, f"'{field}' is required"
+            dates[field] = ""
+            continue
+        if not isinstance(raw, str) or not _DETECTED_DATE_RE.match(raw):
+            return None, f"'{field}' must be an ISO date or datetime"
+        dates[field] = raw
+    ref = item.get("source_ref", "")
+    if ref and (not isinstance(ref, str) or not _DETECTED_REF_RE.match(ref)):
+        return None, "'source_ref' must be 1-64 of [A-Za-z0-9_.:-]"
+    return {
+        "id": todo_id, "what": what, "person": person, "owner": owner,
+        "channel": channel, "status": status, "confidence": float(conf),
+        "promised_at": dates["promised_at"], "due": dates["due"],
+        "source_ref": ref or "",
+    }, None
+
+
+def _detected_triples(iri, c, created_at):
+    lit = _sparql_str_literal
+    lines = [
+        f"<{iri}> a <urn:ostler:OutstandingTodo> ;",
+        f"  <urn:ostler:todoText> {lit(c['what'])} ;",
+        f"  <urn:ostler:owner> {lit(c['owner'])} ;",
+        f"  <urn:ostler:status> {lit(c['status'])} ;",
+        f"  <urn:ostler:sourceConversationDate> {lit(c['promised_at'])} ;",
+        f"  <urn:ostler:todoCreatedAt> {lit(created_at)} ;",
+        f"  <urn:ostler:channel> {lit(c['channel'])} ;",
+        f"  <urn:ostler:confidence> {lit('%.4f' % c['confidence'])} ;",
+        f"  <urn:ostler:origin> {lit('message_detector')} ;",
+        # Same level the read side declares for this endpoint.
+        f"  <urn:ostler:privacyLevel> {lit('L2')}",
+    ]
+    tail = ""
+    if c["due"]:
+        tail += f" ;\n  <urn:ostler:deadline> {lit(c['due'])}"
+    if c["person"]:
+        tail += f" ;\n  <urn:ostler:person> {lit(c['person'])}"
+    if c["source_ref"]:
+        tail += f" ;\n  <urn:ostler:sourceRef> {lit(c['source_ref'])}"
+    return "\n".join(lines) + tail + " ."
+
+
+def api_commitments_detected(payload):
+    """Handle POST /api/v1/commitments/detected.
+
+    Body: ``{"items": [{id, what, owner, person?, channel, promised_at,
+    due?, confidence, status?, source_ref?}, ...]}`` (max 100). ``id`` is a
+    stable hash the assistant derives from the source message, so re-sending
+    an item upserts it instead of duplicating it. All items are validated
+    before anything is written; one bad item rejects the batch (400, with the
+    index) so a half-applied batch never exists.
+
+    Returns ``{"written": N, "skipped_dismissed": M}``. An item whose stored
+    status is ``dismissed`` is left alone (sticky dismissal). Degrades to a
+    503 with ``degraded: true`` if Oxigraph fails, like the other writers.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        return {"error": "Body must be {\"items\": [...]}"}, 400
+    items = payload["items"]
+    if len(items) > _DETECTED_MAX_ITEMS:
+        return {"error": f"At most {_DETECTED_MAX_ITEMS} items per request"}, 400
+    clean = []
+    for idx, item in enumerate(items):
+        c, reason = _validate_detected_item(item)
+        if reason:
+            return {"error": f"items[{idx}]: {reason}"}, 400
+        clean.append(c)
+    if not clean:
+        return {"written": 0, "skipped_dismissed": 0}, 200
+
+    ids = sorted({c["id"] for c in clean})
+    try:
+        values = " ".join(f"<{_DETECTED_IRI_PREFIX}{i}>" for i in ids)
+        existing = _sparql_select(
+            "SELECT ?todo ?status WHERE {\n"
+            f"  VALUES ?todo {{ {values} }}\n"
+            "  ?todo <urn:ostler:status> ?status .\n"
+            "}"
+        )
+    except Exception as exc:
+        return {"written": 0, "degraded": True,
+                "reason": f"oxigraph_query_failed: {str(exc)[:200]}"}, 503
+    dismissed = {
+        r.get("todo", "")
+        for r in existing
+        if (r.get("status", "") or "").strip().lower() == "dismissed"
+    }
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    statements = []
+    written = skipped = 0
+    seen = set()
+    for c in clean:
+        iri = _DETECTED_IRI_PREFIX + c["id"]
+        if iri in dismissed:
+            skipped += 1
+            continue
+        if iri in seen:
+            continue  # same id twice in one batch: first wins
+        seen.add(iri)
+        statements.append(f"DELETE WHERE {{ <{iri}> ?p ?o }}")
+        statements.append(
+            "INSERT DATA {\n" + _detected_triples(iri, c, now_iso) + "\n}"
+        )
+        written += 1
+    if statements:
+        try:
+            # One prologue-free request, statements joined by ';'. No PREFIX
+            # is declared, so there is no repeated-prologue parse error.
+            _sparql_update(";\n".join(statements))
+        except Exception as exc:
+            return {"written": 0, "degraded": True,
+                    "reason": f"oxigraph_update_failed: {str(exc)[:200]}"}, 503
+    return {"written": written, "skipped_dismissed": skipped}, 200
+
+
+def api_commitment_set_status(todo_id, payload):
+    """Handle POST /api/v1/commitments/<id>/status.
+
+    Body ``{"status": "open|done|stale|dismissed"}``. Only nodes under
+    ``urn:ostler:todo/detected/`` can be changed: the id is a bare hex hash,
+    the prefix is added here, so a CM048 meeting todo is unreachable.
+    404 when the node does not exist (so a typo is not a silent success).
+    """
+    if not isinstance(todo_id, str) or not _DETECTED_ID_RE.match(todo_id):
+        return {"error": "Invalid commitment id."}, 400
+    if not isinstance(payload, dict) or payload.get("status") not in _DETECTED_STATUSES:
+        return {"error": "'status' must be one of "
+                + ", ".join(_DETECTED_STATUSES)}, 400
+    iri = _DETECTED_IRI_PREFIX + todo_id
+    try:
+        found = _sparql_select(
+            "SELECT ?status WHERE {\n"
+            f"  <{iri}> <urn:ostler:status> ?status .\n"
+            "}"
+        )
+    except Exception as exc:
+        return {"degraded": True,
+                "reason": f"oxigraph_query_failed: {str(exc)[:200]}"}, 503
+    if not found:
+        return {"error": "No such detected commitment."}, 404
+    new_status = payload["status"]
+    try:
+        _sparql_update(
+            f"DELETE WHERE {{ <{iri}> <urn:ostler:status> ?s }};\n"
+            f"INSERT DATA {{ <{iri}> <urn:ostler:status> "
+            f"{_sparql_str_literal(new_status)} }}"
+        )
+    except Exception as exc:
+        return {"degraded": True,
+                "reason": f"oxigraph_update_failed: {str(exc)[:200]}"}, 503
+    return {"id": todo_id, "status": new_status}, 200
+
+
+
 def commitments_list(owner=None, due_before=None, status="open",
-                     limit=_MOAT_DEFAULT_LIMIT):
+                     limit=_MOAT_DEFAULT_LIMIT,
+                     min_confidence=_DETECTED_DEFAULT_MIN_CONFIDENCE):
     """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
 
     Read-only listing of ``pwg:OutstandingTodo`` nodes -- the
@@ -5499,8 +5763,17 @@ def commitments_list(owner=None, due_before=None, status="open",
         when this filter is set, kept otherwise).
 
     Newest first by deadline then created-at. Returns
-    ``({"commitments": [{action, owner, due, status, source}], "count":
-    N}, 200)`` or the 503 degraded shape on Oxigraph failure.
+    ``({"commitments": [{id, action, owner, due, status, source, person,
+    channel, origin, confidence}], "count": N,
+    "hidden_low_confidence": M}, 200)`` or the 503 degraded shape on
+    Oxigraph failure.
+
+    FOLLOW-UP DETECTOR (Lane 8) additions, all additive. ``person``,
+    ``channel``, ``origin`` and ``confidence`` are only set on todos the
+    message detector wrote (``POST /api/v1/commitments/detected``); a
+    meeting todo CM048 wrote reads ``""``/``null`` there and is never
+    hidden. ``min_confidence`` (default 0.6) hides detector rows below it,
+    counted in ``hidden_low_confidence``; ``min_confidence=0`` shows all.
     """
     status_norm = (status or "").strip().lower()
     status_filter = ''
@@ -5567,7 +5840,8 @@ def commitments_list(owner=None, due_before=None, status="open",
         # DISTINCT is new and is load-bearing: without it a todo present in
         # BOTH graphs would be listed twice by the UNION.
         rows = _sparql_select(
-            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
+            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt '
+            '?person ?channel ?confidence ?origin WHERE {\n'
             + (
                 '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
                 '        <urn:ostler:todoText> ?action ;\n'
@@ -5576,6 +5850,10 @@ def commitments_list(owner=None, due_before=None, status="open",
                 '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
                 '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
                 '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
+                '  OPTIONAL { ?todo <urn:ostler:person> ?person }\n'
+                '  OPTIONAL { ?todo <urn:ostler:channel> ?channel }\n'
+                '  OPTIONAL { ?todo <urn:ostler:confidence> ?confidence }\n'
+                '  OPTIONAL { ?todo <urn:ostler:origin> ?origin }\n'
                 + status_filter
             )
             + '\n}'
@@ -5592,8 +5870,13 @@ def commitments_list(owner=None, due_before=None, status="open",
     due_norm = (due_before or "").strip()
 
     commitments = []
+    hidden_low = 0
     for r in rows:
         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
+            continue
+        conf = _detected_confidence(r.get("confidence"))
+        if conf is not None and conf < min_confidence:
+            hidden_low += 1
             continue
         deadline = r.get("deadline", "")
         if due_norm:
@@ -5601,11 +5884,16 @@ def commitments_list(owner=None, due_before=None, status="open",
             if not deadline or deadline >= due_norm:
                 continue
         commitments.append({
+            "id": r.get("todo", ""),
             "action": r.get("action", ""),
             "owner": r.get("owner", ""),
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
+            "person": r.get("person", ""),
+            "channel": r.get("channel", ""),
+            "origin": r.get("origin", ""),
+            "confidence": conf,
             "_created": r.get("createdAt", ""),
         })
 
@@ -5618,7 +5906,114 @@ def commitments_list(owner=None, due_before=None, status="open",
     # Same contract as /api/v1/suggestions above, and the same measurement:
     # untagged means L3 means dropped, so this payload declares its level.
     return {"commitments": commitments, "count": len(commitments),
+            "hidden_low_confidence": hidden_low,
             "privacy_level": "L2"}, 200
+
+
+# ── Handle resolution (FOLLOW-UP DETECTOR / RECONNECT, Lane 8) ───────
+#
+# The assistant reads iMessage and email by HANDLE (a phone number, an email
+# address). Nothing on the Hub answered "who is this handle", so a promise
+# found in a thread could only be attributed to "+44 7700 900001". This is the
+# smallest read that fixes that: handles in, display names out, using the same
+# identifier nodes (pwg:hasIdentifier / identifierType / identifierValue) the
+# owner-exclusion and card lookups already read.
+#
+# A handle that resolves to NO human-looking name is simply not returned, so
+# the caller keeps treating it as unresolved. That is deliberate and matches
+# the People-list rule: a raw handle is not a person to write about.
+_RESOLVE_MAX_HANDLES = 50
+_RESOLVE_MAX_HANDLE_LEN = 120
+
+
+def _phone_key(raw):
+    """A comparison key for a phone number: digits only, trunk zeros dropped,
+    last nine digits. '+44 7700 900001' and '07700 900001' share a key; the
+    nine-digit tail trades a rare cross-country collision for not needing a
+    country-code table here."""
+    digits = "".join(c for c in (raw or "") if c.isdigit()).lstrip("0")
+    return digits[-9:] if len(digits) >= 7 else ""
+
+
+def _handle_kind(handle):
+    h = (handle or "").strip()
+    if "@" in h:
+        return "email", h.lower()
+    key = _phone_key(h)
+    if key:
+        return "phone", key
+    return None, ""
+
+
+def people_resolve(handles):
+    """Handle GET /api/v1/people/resolve?handle=<h>&handle=<h2>...
+
+    Returns ``({"resolved": {handle: {"name", "slug"}}, "count": N}, 200)``.
+    Unknown, ambiguous-to-nobody or nameless handles are omitted. A bad
+    request (no handle, too many, over-long) is a 400; an Oxigraph failure is
+    the usual degraded 503.
+    """
+    cleaned = []
+    for h in handles or []:
+        h = (h or "").strip()
+        if not h:
+            continue
+        if len(h) > _RESOLVE_MAX_HANDLE_LEN or _SPARQL_CONTROL_CHARS.search(h):
+            return {"error": "Invalid handle."}, 400
+        cleaned.append(h)
+    if not cleaned:
+        return {"error": "At least one 'handle' is required."}, 400
+    if len(cleaned) > _RESOLVE_MAX_HANDLES:
+        return {"error": f"At most {_RESOLVE_MAX_HANDLES} handles per request."}, 400
+
+    wanted_email = {}
+    wanted_phone = {}
+    for h in cleaned:
+        kind, norm = _handle_kind(h)
+        if kind == "email":
+            wanted_email[norm] = h
+        elif kind == "phone":
+            wanted_phone[norm] = h
+    if not wanted_email and not wanted_phone:
+        return {"resolved": {}, "count": 0}, 200
+
+    rows = []
+    try:
+        if wanted_email:
+            values = " ".join(_sparql_str_literal(e) for e in sorted(wanted_email))
+            rows += [("email", r) for r in _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?p ?n ?value WHERE {{\n'
+                '  ?p a pwg:Person ; pwg:displayName ?n ; pwg:hasIdentifier ?id .\n'
+                '  ?id pwg:identifierType "email" ; pwg:identifierValue ?value .\n'
+                '  VALUES ?value {{ {values} }}\n'
+                '}}'.format(ns=PWG_NS, values=values)
+            )]
+        if wanted_phone:
+            rows += [("phone", r) for r in _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?p ?n ?value WHERE {{\n'
+                '  ?p a pwg:Person ; pwg:displayName ?n ; pwg:hasIdentifier ?id .\n'
+                '  ?id pwg:identifierType "phone" ; pwg:identifierValue ?value .\n'
+                '}}'.format(ns=PWG_NS)
+            )]
+    except Exception as exc:
+        return {"resolved": {}, "count": 0, "degraded": True,
+                "reason": f"oxigraph_query_failed: {str(exc)[:200]}"}, 503
+
+    resolved = {}
+    for kind, r in rows:
+        name = (r.get("n") or "").strip()
+        value = (r.get("value") or "").strip()
+        if not name or _is_nameless_name(name):
+            continue
+        if kind == "email":
+            handle = wanted_email.get(value.lower())
+        else:
+            handle = wanted_phone.get(_phone_key(value))
+        if handle and handle not in resolved:
+            resolved[handle] = {"name": name, "slug": _wiki_slug(name)}
+    return {"resolved": resolved, "count": len(resolved)}, 200
 
 
 # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
@@ -9560,16 +9955,40 @@ class Handler(BaseHTTPRequestHandler):
             owner = params.get("owner", [None])[0]
             due_before = params.get("due_before", [None])[0]
             status_param = params.get("status", ["open"])[0]
+            min_conf, conf_err = _safe_float(
+                params, "min_confidence", _DETECTED_DEFAULT_MIN_CONFIDENCE
+            )
+            if conf_err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(conf_err).encode())
+                return
             try:
                 result, status = commitments_list(
                     owner=owner, due_before=due_before,
                     status=status_param, limit=limit,
+                    min_confidence=min_conf,
                 )
             except Exception as exc:
                 result, status = {
                     "commitments": [], "count": 0, "degraded": True,
                     "reason": str(exc)[:200],
                 }, 503
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        # GET /api/v1/people/resolve?handle=<h>&handle=<h2>  (handle -> display name)
+        if parsed.path == "/api/v1/people/resolve":
+            params = parse_qs(parsed.query)
+            try:
+                result, status = people_resolve(params.get("handle", []))
+            except Exception as exc:
+                result, status = {"resolved": {}, "count": 0, "degraded": True,
+                                  "reason": str(exc)[:200]}, 503
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -9761,7 +10180,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/v1/decisions?about=<slug>&q=<text>&limit=N": "Typed pwg:Decision nodes (what was decided), newest first",
             "/api/v1/topics?q=<text>&limit=N": "Conversation topics ranked by mention weight",
             "/api/v1/topics/{slug}/mentions": "Conversations a topic appears in, newest first",
-            "/api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N": "Open commitments (pwg:OutstandingTodo), newest first",
+            "/api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N": "Open commitments (pwg:OutstandingTodo), newest first; detector rows carry person/channel/confidence, low confidence hidden unless min_confidence=0",
+            "/api/v1/people/resolve?handle=<phone|email>&handle=...": "Resolve phone numbers / email addresses to display names (unresolved or nameless handles are omitted)",
             "/people/stale?months=3&limit=5": "Contacts not spoken to in N months",
             "/people/recent?days=7&limit=5": "Recently met people (from meetings)",
             "/people/birthdays?days=7": "Upcoming birthdays",
@@ -9956,6 +10376,32 @@ class Handler(BaseHTTPRequestHandler):
                 result, status = api_memory_correct(fact_id, payload)
             except Exception as exc:
                 result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        # FOLLOW-UP DETECTOR (Lane 8) write path.
+        #   POST /api/v1/commitments/detected      {"items": [...]}
+        #   POST /api/v1/commitments/<id>/status   {"status": "..."}
+        if parsed.path == "/api/v1/commitments/detected":
+            try:
+                result, status = api_commitments_detected(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)[:200]}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+        if (parsed.path.startswith("/api/v1/commitments/")
+                and parsed.path.endswith("/status")):
+            todo_id = parsed.path[len("/api/v1/commitments/"):-len("/status")]
+            try:
+                result, status = api_commitment_set_status(todo_id, payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)[:200]}, 500
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
