@@ -2,16 +2,19 @@
 # notification senders, prefers a known real name over a bare email/phone
 # identifier, and excludes the owner's own identities. Mirrors CM041 PR
 # #191 (identity_resolver Qdrant-sync graft) and #192 (ical-server.py
-# people_list fixes). Two jobs: identity_resolver's Qdrant-sync half, and
-# ical-server.py's people_list half.
+# people_list fixes). Three jobs: identity_resolver's Qdrant-sync half,
+# ical-server.py's people_list half, and (candidate #10) the suggestion
+# producers (people_stale/people_recent/people_birthdays) that read from
+# the same filters but never applied them.
 #
-# vendor/cm041/assistant_api/tests/ has NO existing CI coverage at all --
-# measured: a repo-wide grep for any workflow invoking that directory (this
-# file's own comment excepted) returns nothing, for this file or its three
-# pre-existing siblings (test_ical_server_wire_shape.py,
-# test_subscription_endpoint.py, test_subscription_gate.py). Fixing those
-# three is a separate, larger PR; wiring the one this walk adds is this
-# one's job, per "a new test that is not invoked is not wired."
+# vendor/cm041/assistant_api/tests/ had NO CI coverage at all until this
+# file -- measured: a repo-wide grep for any workflow invoking that
+# directory (this file's own comment excepted) returned nothing, for this
+# file's first test or its three pre-existing siblings
+# (test_ical_server_wire_shape.py, test_subscription_endpoint.py,
+# test_subscription_gate.py). Fixing those three is a separate, larger PR;
+# wiring each test this walk adds is this file's job, per "a new test
+# that is not invoked is not wired."
 name: walk6-people-list-correctness-guard
 
 on:
@@ -22,6 +25,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
     paths:
@@ -29,6 +33,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
 concurrency:
@@ -103,3 +108,32 @@ jobs:
             exit 1
           fi
           python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py -v
+
+  suggestions-apply-people-list-filters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Same dependency profile as people-list-correctness above: this
+      # file exercises people_stale/people_recent/people_birthdays, which
+      # pull in no third-party package either.
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: The suggestion producers apply the same owner/automated/service-mailbox filters people_list does
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 12 ]; then
+            echo "REFUSING: expected at least 12 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py -v
