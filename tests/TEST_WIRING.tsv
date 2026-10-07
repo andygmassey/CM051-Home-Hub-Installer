@@ -510,6 +510,8 @@ test_rehearse_tag_is_the_tag_preflight.sh	WIRED	.github/workflows/cut-gate-wrapp
 test_remote_access_reads_the_installers_tailscale.py	WIRED	.github/workflows/vendor-integrity.yml
 test_repair_lid_as_phone_marker_skip.sh	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
 test_repair_lid_as_phone_vendored.py	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
+test_repair_netflix_rating_polarity.py	WIRED	.github/workflows/netflix-polarity-repair.yml
+test_repair_netflix_rating_polarity_marker_skip.sh	WIRED	.github/workflows/netflix-polarity-repair.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
 test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
@@ -648,6 +650,7 @@ test_the_vane_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autost
 test_the_walk_record_says_whether_the_stores_are_history.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_seeds_the_conversation.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_seeds_the_grounded_probe.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_the_walk_seeds_the_owner_employer.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_walk_seeds_the_preference_pair.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_seeds_the_usage_producer.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_waits_for_converge.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -696,6 +699,7 @@ test_v1010_store_front_proxy.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.y
 test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1_sweep_install_gating.sh	WIRED	(via test_codename_sweep_sees_an_early_leak.sh)
 test_vane_bundle.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_vane_web_search_credential_reaches_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_vendor_cm052_ai_conversations.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_vendor_doctor_knowledge_embed_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_vendor_entrypoint_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -801,6 +805,7 @@ gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/w
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
 scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_grades_what_it_names.sh	WIRED	.github/workflows/cut-manifest.yml

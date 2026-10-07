@@ -37,6 +37,17 @@ def gen():
     return _load_module()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_owner_identity(monkeypatch, tmp_path):
+    """The generator reads the owner's identity from the environment and from
+    $OSTLER_DIR env files. Pin both to nothing, so a developer's own install
+    can never leak into (or rescue) a test."""
+    for key in ("USER_ID", "USER_NAME", "USER_EMAIL", "WIKI_OPERATOR_NAME",
+                "WIKI_OPERATOR_EMAILS", "OSTLER_OXIGRAPH_TOKEN", "OXIGRAPH_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "no-ostler-dir"))
+
+
 # ── Helpers to inject graph data ─────────────────────────────────────────────
 
 
@@ -66,7 +77,13 @@ _MINED_HUB = {
     },
     "/api/v1/timeline": {"items": []},
     "/api/v1/coach/recent": {"observations": []},
+    "/api/v1/preferences": {"interests": [
+        {"subject": "Sea kayaking", "domain": "Sport",
+         "polarity": "positive", "privacy": "L2"},
+    ]},
 }
+
+_PREFS_HEADING = "## Preferences and things to keep in mind"
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -89,14 +106,13 @@ def test_user_asserted_section_present_and_first(monkeypatch, gen):
     # (c) the user-asserted fact text is included
     assert "Robin is your wife" in digest
 
-    # (b) it lands BEFORE the mined People section
+    # (b) it lands BEFORE the mined sections
     confirmed_at = digest.index("## Confirmed by you")
-    people_at = digest.index("## People you interact with most")
-    assert confirmed_at < people_at
+    assert confirmed_at < digest.index(_PREFS_HEADING)
 
     # And above the digest's own per-section ordering generally: the confirmed
     # block precedes every mined heading present.
-    for mined in ("## People you interact with most",):
+    for mined in (_PREFS_HEADING,):
         assert confirmed_at < digest.index(mined)
 
 
@@ -110,7 +126,7 @@ def test_user_asserted_section_omitted_when_none(monkeypatch, gen):
     assert digest is not None
     assert "## Confirmed by you" not in digest
     # mined content still present, proving the digest itself was built
-    assert "## People you interact with most" in digest
+    assert _PREFS_HEADING in digest
 
 
 def test_user_asserted_survives_unreachable_oxigraph(monkeypatch, gen):
@@ -122,7 +138,7 @@ def test_user_asserted_survives_unreachable_oxigraph(monkeypatch, gen):
     digest = gen.build_digest()
     assert digest is not None
     assert "## Confirmed by you" not in digest
-    assert "## People you interact with most" in digest
+    assert _PREFS_HEADING in digest
 
 
 def test_user_asserted_dedupes_and_caps(monkeypatch, gen):
@@ -136,7 +152,7 @@ def test_user_asserted_dedupes_and_caps(monkeypatch, gen):
     assert digest is not None
 
     section = digest.split("## Confirmed by you", 1)[1]
-    section = section.split("## People you interact with most", 1)[0]
+    section = section.split("\n## ", 1)[0]
     bullets = [ln for ln in section.splitlines() if ln.startswith("- ")]
     # de-duplicated: one "Robin" bullet, not three
     assert sum(1 for b in bullets if "Robin is your wife" in b) == 1

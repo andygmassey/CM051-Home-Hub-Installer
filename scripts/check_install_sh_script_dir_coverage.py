@@ -148,6 +148,16 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "scripts/migrate_graph_namespace.py": [
         '${SRCROOT}/../scripts/migrate_graph_namespace.py'
     ],
+    # Walk #6 candidate #10: the Netflix thumbs-value polarity repair.
+    # install.sh probes ${SCRIPT_DIR}/scripts/repair_netflix_rating_polarity.py
+    # before running its one-time upgrade-step repair of already-ingested
+    # Netflix preference points. Same reasoning as migrate_graph_namespace.py
+    # immediately above: the source-path needle alone would survive a
+    # deleted cp line, so the cp-unique needle in CP_ONLY_NEEDLES below is
+    # what actually makes a future removal go red.
+    "scripts/repair_netflix_rating_polarity.py": [
+        '${SRCROOT}/../scripts/repair_netflix_rating_polarity.py'
+    ],
     # ⚠️ THIS ONE IS STILL COVERAGE-BLIND AND I AM SAYING SO RATHER THAN
     # HIDING IT. A cp-unique needle for this asset would have to be the cp
     # LINE itself, because its source is assigned three lines earlier as
@@ -291,6 +301,12 @@ CP_ONLY_NEEDLES: dict[str, list[str]] = {
     # so only the cp line itself is unique to the copy actually happening.
     "scripts/migrate_graph_namespace.py": [
         'cp "${SRC_NS}" "${DEST}/scripts/migrate_graph_namespace.py"'
+    ],
+    # Walk #6 candidate #10, same shape and reason as migrate_graph_namespace.py
+    # immediately above: SRC_NETFLIX is assigned above the cp, so only the cp
+    # line itself is unique to the copy actually happening.
+    "scripts/repair_netflix_rating_polarity.py": [
+        'cp "${SRC_NETFLIX}" "${DEST}/scripts/repair_netflix_rating_polarity.py"'
     ],
 }
 SCRIPT_DIR_REGEX = re.compile(r'"\$\{SCRIPT_DIR\}/([^"$]+?)"')

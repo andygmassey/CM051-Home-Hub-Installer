@@ -124,13 +124,11 @@ for required in ("build_digest", "_note_failure", "_get_json", "_sparql_select")
         print("CANNOT-RUN: module has no %s" % required, file=sys.stderr)
         sys.exit(97)
 
-PEOPLE = {
-    "recent_meetings": [
-        {"name": "Sam Patel", "organisation": "Acme Ltd",
-         "last_contact": "2026-09-10"},
-    ],
-    "birthdays": [],
-}
+# The populated section in these fixtures is "About you", fed by the
+# ical-server's employer resolver. (Until #10 it was People, fed by
+# /api/v1/suggestions organiser rows, which the generator no longer reads.)
+EMPLOYER = {"found": True, "employer": "Acme Ltd", "job_title": "Analyst",
+            "start_date": "2024-01-01", "former_employers": []}
 
 
 def _hub(mapping, failing=()):
@@ -158,14 +156,14 @@ scenario = sys.argv[1]
 if scenario == "one-failed-one-empty":
     # People has content. Preferences (coach/recent) REFUSED. Calendar and the
     # user-asserted store answered and held nothing.
-    gen._get_json = _hub({"/api/v1/suggestions": PEOPLE},
+    gen._get_json = _hub({"/api/v1/employer": EMPLOYER},
                          failing=("/api/v1/coach/recent",))
     gen._sparql_select = lambda sparql: []
     out = gen.build_digest()
 
 elif scenario == "all-sections-full":
     gen._get_json = _hub({
-        "/api/v1/suggestions": PEOPLE,
+        "/api/v1/employer": EMPLOYER,
         "/api/v1/timeline": {"items": [
             {"kind": "meeting", "summary": "Quarterly review",
              "date": "2026-09-12"},
@@ -174,19 +172,31 @@ elif scenario == "all-sections-full":
             {"tip": "Prefers short written updates"},
         ]},
     })
-    gen._sparql_select = lambda sparql: [
+    ROWS = [
         {"text": "Mary is your spouse", "name": "Mary Jones",
          "rel": "spouse", "created": "2026-06-16T09:00:00Z"},
         {"calendarOwner": "Mary Jones", "summary": "Flight to the coast",
          "start": "2026-10-04T07:15:00Z", "calendarType": "personal"},
         {"orgName": "Acme Ltd", "role": "client"},
+        # One interaction-ranked person (People) who works somewhere (Key
+        # organisations). Same row answers the count and the detail query.
+        {"p": "https://example.invalid/person/sam", "n": "12",
+         "name": "Sam Patel", "org": "Acme Ltd"},
     ]
+
+    def _sparql(sparql):
+        # The owner-node lookup must not see the person row, or Sam would be
+        # taken for the owner and excluded from their own People list.
+        if "isOwner" in sparql:
+            return []
+        return ROWS
+    gen._sparql_select = _sparql
     out = gen.build_digest()
 
 elif scenario == "oversized-with-a-gap":
     # Enough user-asserted facts to blow MAX_CHARS, plus one refused read. The
     # gap block must survive the clip, which cuts from the END.
-    gen._get_json = _hub({"/api/v1/suggestions": PEOPLE},
+    gen._get_json = _hub({"/api/v1/employer": EMPLOYER},
                          failing=("/api/v1/coach/recent",))
     gen._sparql_select = lambda sparql: [
         {"text": "Synthetic standing fact number %03d, padded so the digest "
@@ -235,7 +245,7 @@ echo
 
 if drive_or_cant "one-failed-one-empty" "${WORK}/mixed.md"; then
     if [ "$(cat "${WORK}/mixed.md")" != "NONE" ] \
-       && grep -q "Sam Patel" "${WORK}/mixed.md"; then
+       && grep -q "Acme Ltd" "${WORK}/mixed.md"; then
         ok "premise: the mixed fixture built a digest and it carries the populated section"
     else
         bad "premise: the mixed fixture produced no usable digest, so limbs 2-4 would be vacuous"
@@ -284,7 +294,7 @@ fi
 # assert nothing at all.
 
 if drive_or_cant "all-sections-full" "${WORK}/full.md"; then
-    if [ "$(cat "${WORK}/full.md")" != "NONE" ] && grep -q "Sam Patel" "${WORK}/full.md"; then
+    if [ "$(cat "${WORK}/full.md")" != "NONE" ] && grep -q "Acme Ltd" "${WORK}/full.md"; then
         if grep -q "What is not in this digest" "${WORK}/full.md"; then
             bad "the gap block rendered on a digest with no gaps, so it is boilerplate and limbs 2-3 prove nothing"
         else
