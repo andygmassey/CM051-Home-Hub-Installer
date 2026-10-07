@@ -771,6 +771,7 @@ gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ErrorCodeBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/FDAPresetSubtitleFaceRecognitionClaimTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FailureStateMachineTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FingerprintStateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/HardwareFingerprintTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -808,6 +809,7 @@ gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
+context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
