@@ -208,7 +208,6 @@ repin(wiki): both wiki images at CM044 v0.1.45 (cc59f35f)	CM051	07e0fce7	no	wiki
 wiki: a raw call-URL location renders as plain text (CM044 #307)	CM051	07e0fce7	no	wiki_v0144_call_location_is_plain_text	TBD	CM044 #307 (CM051 #2666)
 wiki: a Dislike is never an all-time favourite (CM044 #308)	CM051	07e0fce7	no	wiki_v0144_dislike_is_never_a_favourite	TBD	CM044 #308 (CM051 #2666)
 wiki: browsing items render as [Title](url), never a raw URL (CM044 #310)	CM051	07e0fce7	no	wiki_v0145_browsing_items_are_links	TBD	CM044 #310 (CM051 #2666)
-pin(remote-capture): RemoteCapture 0.1.4 (CM042 #24 store auth, #25 Hub-outage queue)	CM051	00a8ce2f	no	remote_capture_pinned_at_v014	TBD	CM042 #24 #25 (CM051 #2668)
 # 2026-10-07 (ORM, candidate #10 freeze): rows for the eight other #10 merges, which had none (#2662 #2664 #2665 #2667 #2669 #2670 #2672 #2673).
 The installer pairs the Safari extension's bearer at install time, so the extension's saves reach the Hub authenticated	CM051	4dc4b687	no	safari_ext_bearer_paired_at_install	TBD	CM051 #2662
 The box walk runs conversation_capture_end_to_end as a BLOCKING probe	CM051	e0808782	no	probe_conversation_capture_end_to_end	TBD	CM051 #2664
@@ -218,3 +217,5 @@ The Everything preset subtitle no longer says it adds face recognition; it says 
 Vendored CM041 assistant API carries browsing page summaries, Save to Knowledge and browsing search	CM051	200d190e	no	browsing_enrich_vendored	TBD	CM051 #2670
 The Confirmed-by-you context query returns ?level, so L3 facts stop reaching every chat prompt	CM051	d89eed5b	no	confirmed_by_you_projects_level	TBD	CM051 #2672
 The installer asks who may email the assistant and writes the allowlist	CM051	f4904ccd	no	email_allowlist_asked_at_install	TBD	CM051 #2673
+# 2026-10-08 (ORM, candidate #10): RemoteCapture 0.1.4 (CM051 #2668) regressed rc#9/rc#10 (CM042 #28) and never shipped; its row is replaced by 0.1.5 (CM051 #2681, afc376a3). remote_capture_pinned_at_v014 is downgraded to required=no in the manifest.
+pin(remote-capture): RemoteCapture 0.1.5 (CM042 #24 store auth, #25 Hub-outage queue, #29 restores rc#9 identity header and rc#10 capture copy)	CM051	afc376a3	no	remote_capture_pinned_at_v015	TBD	CM042 #24 #25 #29 (CM051 #2681)
