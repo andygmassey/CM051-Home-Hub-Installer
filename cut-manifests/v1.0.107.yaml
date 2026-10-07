@@ -505,6 +505,42 @@ entries:
     proof:
       kind: box_walk_probe
       probe: owner_digest_knows_the_owner
+  - id: probe-db-key-reaches-every-service
+    title: "box-walk probe must PASS: db_key_reaches_every_service"
+    why: |
+      v1.0.107, FLOW_CENSUS gap #1. PR #1956 fixed install.sh never setting
+      OSTLER_DB_KEY: ical-server and CM048 ingest both took their plaintext
+      fallback on every install ever shipped, one line after the installer
+      printed "Databases encrypted". Seven walks have ridden through with no
+      probe naming a failure -- absence of a look, not a guarantee. The probe
+      seeds a synthetic row with the installed key, reads it back through a
+      DIFFERENT process's independently-resolved key, and confirms the file
+      is not openable as plain SQLite without one. Self-test: 5 mutants
+      (disabled posture, a seed that did not increase the count, a
+      cross-process read-back that found nothing, a database that opened
+      unkeyed, a missing posture marker) each caught by their own assertion.
+      BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: db_key_reaches_every_service
+  - id: probe-todos-reach-reminders
+    title: "box-walk probe must PASS: todos_reach_reminders"
+    why: |
+      v1.0.107, FLOW_CENSUS gap #6. The write direction (assistant ->
+      Reminders.app) had no coverage at all. The probe writes a synthetic
+      commitment through the real reminders_push gate, waits for the
+      installed daemon to claim the pending row, and tries to read the
+      result back from Reminders.app itself via AppleScript, never trusting
+      the mapping table's own "pushed" status. The AppleScript read needs
+      the same Automation TCC grant as the iMessage probe (see
+      console_only_probes.tsv); when refused for that reason this is
+      CANNOT-RUN, never a pass. Self-test: 4 mutants (a failed write, a row
+      never claimed, a permission_denied daemon, a pushed-but-invisible
+      reminder) each caught by their own assertion. BLOCKING in
+      walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: todos_reach_reminders
 
 
 open_issues:
