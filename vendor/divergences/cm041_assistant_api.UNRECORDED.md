@@ -646,3 +646,48 @@ yet: OWED, and it is a security-boundary change that wants a human read.
 
 Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
 (20 tests). Retire by landing the CM041 branch and re-pinning.
+
+
+## Twelfth graft: failed conversations retry automatically on a backoff and are never lost (CM051 v1.0.107 #11)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 PR
+andygmassey/CM041-People-Graph (branch `fix/failed-conversations-auto-retry-
+v1.0.107-11`, open at time of writing; the squash sha is added to
+`hold_ack_shas` in the follow-up once Archie merges it, see the PR text).
+
+2 of 129 conversations failed at the processor step on the walk box
+(macmini16-walk). The one in-process retry above was spent
+(`retry_count=1`) and the only thing that resumes a failed conversation is
+the manual `pwg-convo retry-all`, which nothing schedules and a customer
+cannot run. They sat failed forever and the hydration panel showed
+`needs_attention` with no way out.
+
+Added to this tree's `ical-server.py`: `CONVERSATION_RETRY_*` constants,
+`_conversation_process_tracked`, `_preserve_cm048_progress`,
+`_retry_one_conversation`, `_conversation_retry_sweep`,
+`_conversation_retry_rearm`, `_start_conversation_retry_thread`,
+`api_conversation_retry_failed` (`POST /api/v1/conversation/retry-failed`),
+the sidecar helpers, and edits to `_conversation_process_background` (one
+call before its final state write), `api_conversation_process` (thread
+target), `_wiki_conversations_progress` (`retrying`, `gave_up`),
+`api_hydration_status` (retrying is `running`, spent cap is
+`needs_attention` with a `message`), the POST router, and `__main__` (thread
+start). Bookkeeping is a sidecar `auto_retry.json`, NOT a new state.json key,
+because `PipelineState.from_dict` was `cls(**data)` and rejects an unknown
+key. The retry re-runs `_invoke_pwg_convo(["process", ...])`, this tree's own
+CM048 invocation (CM041 source uses `OSTLER_VENV_PYTHON -m src.cli`), the
+one adaptation against the source graft.
+
+Not taken from CM041 #201 (the `09_bundle` completion predicate and
+`stalled`): that is a separate graft; this tree's `_wiki_conversations_progress`
+still uses the older `current_step == "completed"` test, and the two edits
+touch adjacent lines.
+
+### What a future sync must preserve
+
+All of the above. Guarded by
+`vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py`
+(12 tests, 12 fail against main's ical-server) and by
+`tests/test_vendored_conversation_process_failure_reason.py`, whose fixture
+now loads the real `_preserve_cm048_progress` helpers. Wired into
+`.github/workflows/failed-conversations-auto-retry-guard.yml`.
