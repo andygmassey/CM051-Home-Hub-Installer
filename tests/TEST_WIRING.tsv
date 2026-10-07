@@ -807,6 +807,7 @@ gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-t
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_owner_brief.py	WIRED	.github/workflows/context-digest-auth.yml
 scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_grades_what_it_names.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_v1013_probe.sh	WIRED	.github/workflows/cut-manifest.yml

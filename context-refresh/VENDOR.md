@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `a4d2229380725f79292131dc75c2be3ac54822f574d177f73db93e7c9e1d7868` (post-graft, this repo) |
+| Current SHA-256 | `b39f9f4c6a5823ebed864fa3c903f99044951394a9abb7c40c2c119bfb6d6176` (post-graft, this repo) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-07 (the digest must know its owner, v1.0.107 candidate #10). NOT upstream: a graft, like items 1 to 5 and 7. |
+| Last divergence | 2026-10-07 (the owner brief, Lane 7; before it, the digest must know its owner, #10). NOT upstream: a graft, like items 1 to 5, 7 and 9. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -165,6 +165,19 @@ says "the CM051 installer wires a LaunchAgent that calls this"), so
 the script has to reach the customer's disk through CM051. Vendoring a
 byte-identical copy is the self-contained launch-fix and mirrors the
 existing `vendor/` pattern in this repo.
+
+9. **The owner brief** (2026-10-07, Lane 7). NOT upstream. Four sections
+   added to the digest, each read from a shipped source: `Routines and
+   priorities` (`pwg:Meeting` timing + `GET /api/v1/commitments`), `Tastes`
+   (`GET /api/v1/preferences`, Food / Music / Film & TV, the profile's own
+   score), `Autonomy calibration` (asserted + corrected counts, and only the
+   `[autonomy]` table of `assistant-config/config.toml`) and `Channel style`
+   (`pwg:userMessages` / `pwg:otherMessages` counts, no text). Also: the digest
+   now drops whole low-priority sections to meet `MAX_CHARS` and declares them
+   ("Left out to fit the size cap"), and `_user_asserted_section` now SELECTs
+   `?level` (it filtered on a variable the query never returned, so an L3
+   asserted fact reached the digest). Guarded by
+   `tests/test_owner_brief.py`. A re-vendor from upstream drops all of it.
 
 ## Post-launch follow-up
 
