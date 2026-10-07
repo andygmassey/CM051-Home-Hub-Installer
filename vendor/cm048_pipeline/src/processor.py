@@ -90,6 +90,21 @@ def process(
     state_dir = settings.processing_state_dir / conversation_id
     state_dir.mkdir(parents=True, exist_ok=True)
 
+    # v1.0.107 #11: the Hub's assistant API (CM041 ical-server) records a
+    # dispatch failure in state.json as failed_step="processor", which is a
+    # DISPATCHER label, not a pipeline step. ``retry`` / ``retry-all`` pass
+    # failed_step straight in here, and _should_run then did
+    # PIPELINE_STEP_ORDER.index("processor") -> ValueError, so the manual
+    # retry crashed on exactly the conversations it exists for. A resume
+    # point we do not recognise means "resume from whatever is not yet
+    # completed", which is what resume_from_step=None already does.
+    if resume_from_step is not None and resume_from_step not in PIPELINE_STEP_ORDER:
+        logger.warning(
+            "resume_from_step %r is not a pipeline step; resuming from the "
+            "first incomplete step", resume_from_step,
+        )
+        resume_from_step = None
+
     # Step 00  –  write raw transcript (always, idempotent)
     _write_raw(state_dir, conversation_id, transcript, metadata)
 

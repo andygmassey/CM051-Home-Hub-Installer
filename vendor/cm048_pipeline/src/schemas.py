@@ -455,7 +455,11 @@ class PipelineState:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PipelineState":
-        return cls(**data)
+        # Tolerate keys this version does not know (a newer or foreign
+        # writer, e.g. the Hub dispatcher). ``cls(**data)`` raised TypeError
+        # on any extra key and made the conversation unresumable.
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 # ── JSON helpers ─────────────────────────────────────────────────────
