@@ -17,12 +17,14 @@ on:
     branches: [main]
     paths:
       - 'vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py'
+      - 'vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py'
       - '.github/workflows/walk-meeting-id-collision-guard.yml'
   pull_request:
     paths:
       - 'vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py'
+      - 'vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py'
       - '.github/workflows/walk-meeting-id-collision-guard.yml'
@@ -75,3 +77,14 @@ jobs:
             exit 1
           fi
           python -m pytest vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py -v
+      - name: coach reader reads where CM048 writes and refuses loudly
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py -v

@@ -646,3 +646,29 @@ yet: OWED, and it is a security-boundary change that wants a human read.
 
 Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
 (20 tests). Retire by landing the CM041 branch and re-pinning.
+
+## Twelfth graft: the coach reader read a path the writer never wrote (CM051 v1.0.107 #11)
+
+Mirrors CM041 PR #202. `vendor/cm041/assistant_api/ical-server.py`:
+`COACH_DB`, `coach_recent`, and the `/api/v1/coach/recent` handler.
+
+CM048 writes coach observations to `~/.ostler/coach/observations.db`
+(`vendor/cm048_pipeline/src/ostler_paths.py:52`, `ingest.py` `_write_coach`),
+SQLCipher-encrypted. The reader defaulted to `PWG_HOME/coach/...`
+(`~/.pwg`), opened an empty file and returned an empty list, silently.
+
+Now: `COACH_DB` is `~/.ostler/coach/observations.db` (`OSTLER_COACH_DB`
+overrides, `PWG_HOME` no longer does). An absent db, an encrypted db with no
+key, a wrong key or a missing table raises `CoachDbError`, logs to stderr and
+answers HTTP 500 with an `error` and no `observations` key. The key is the one
+already resolved at import by `resolve_db_key()` (CM051 #1956 precedent, which
+CM041 source does not carry; that is why this file differs from upstream there).
+
+The walk probe `db_key_reaches_every_service` had the same hard-coded
+`~/.pwg` path (and created the 0-byte decoy by connecting to it); it now
+resolves the writer's path and never creates the file.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`
+(7 tests; one loads the vendored CM048 `coach_db_path()` itself). Retire by
+landing CM041 #202 and re-pinning. ACK OWED: the VENDOR_MANIFEST hold_ack for
+the CM041 squash sha is added once #202 merges and the sha exists.

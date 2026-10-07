@@ -129,6 +129,18 @@ def measure_posture():
     return out
 
 
+from pathlib import Path  # noqa: E402
+
+
+def coach_db_path():
+    """The coach db where its WRITER puts it: CM048 ostler_paths.coach_db_path()
+    = ~/.ostler/coach/observations.db (OSTLER_COACH_DB overrides, as in
+    ical-server). This used to be ~/.pwg/coach/..., which on the walk box was a
+    0-byte decoy this probe itself created, so the probe could not see the real
+    encrypted store. PWG_HOME deliberately has no say."""
+    return Path(os.environ.get("OSTLER_COACH_DB") or os.path.expanduser("~/.ostler/coach/observations.db"))
+
+
 def _user_id():
     try:
         for line in open(os.path.expanduser("~/.ostler/config/.env")):
@@ -165,8 +177,12 @@ def seed_and_readback(token, service_token):
         out_seed["error"] = "resolve_db_key() returned no key (reason={})".format(resolved.reason)
         return out_seed, out_rb, out_raw
 
-    db_path = Path(os.environ.get("PWG_HOME", os.path.expanduser("~/.pwg"))) / "coach" / "observations.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = coach_db_path()
+    # Never mkdir and never create: connecting to a missing path makes an
+    # empty decoy file, which is how ~/.pwg/coach/observations.db appeared.
+    if not db_path.exists():
+        out_seed["error"] = "the coach db does not exist at {} (the writer has not created it)".format(db_path)
+        return out_seed, out_rb, out_raw
     try:
         conn = get_db_connection(str(db_path), resolved.key)
         # The probe does not own this schema: it reads the INSTALLED table's
@@ -208,6 +224,7 @@ def seed_and_readback(token, service_token):
     # (c) cross-process read-back through ical-server's own HTTP API.
     if user_id and service_token:
         try:
+            import urllib.error
             import urllib.request
             url = "http://127.0.0.1:8089/api/v1/coach/recent?user_id={}&hours=1&limit=50".format(user_id)
             req = urllib.request.Request(url, headers={"Authorization": "Bearer " + service_token})
@@ -217,6 +234,10 @@ def seed_and_readback(token, service_token):
                 body = json.loads(r.read().decode() or "null")
             found = any((o.get("conversation_id") == token) for o in (body.get("observations") or []))
             out_rb.update(attempted=True, found=found, http_status=status)
+        except urllib.error.HTTPError as exc:
+            # ical-server now refuses loudly (500) when it cannot read the
+            # coach db: that is a FAIL of the read-back, not a CANNOT-RUN.
+            out_rb.update(attempted=True, found=False, http_status=exc.code)
         except Exception as exc:
             out_rb["error"] = str(exc)[:160]
     else:
@@ -263,7 +284,7 @@ def box_forget(argv):
         if not resolved.key:
             print(json.dumps({"deleted": False, "error": "no key"}))
             return 0
-        db_path = Path(os.environ.get("PWG_HOME", os.path.expanduser("~/.pwg"))) / "coach" / "observations.db"
+        db_path = coach_db_path()
         conn = get_db_connection(str(db_path), resolved.key)
         before = conn.execute("SELECT COUNT(*) FROM observations WHERE conversation_id = ?", (token,)).fetchone()[0]
         conn.execute("DELETE FROM observations WHERE conversation_id = ?", (token,))
@@ -326,6 +347,21 @@ def self_test():
         fails.append("an unattempted seed is not CANNOT-RUN for seed/readback: {} {}".format(row(dry, 2), row(dry, 3)))
     else:
         print("  ok    an unattempted seed is CANNOT-RUN, not a pass, for both seed and read-back")
+
+    # The probe must open the WRITER's path, never the legacy ~/.pwg decoy.
+    _saved = {k: os.environ.pop(k, None) for k in ("OSTLER_COACH_DB",)}
+    os.environ["PWG_HOME"] = "/nonexistent-pwg-home"
+    try:
+        p = str(coach_db_path())
+    finally:
+        os.environ.pop("PWG_HOME", None)
+        for k, v in _saved.items():
+            if v is not None:
+                os.environ[k] = v
+    if not p.endswith("/.ostler/coach/observations.db") or "/.pwg/" in p or "nonexistent-pwg-home" in p:
+        fails.append("coach_db_path() resolved to {!r}, not the writer's ~/.ostler path".format(p))
+    else:
+        print("  ok    the probe opens the writer's ~/.ostler coach path, PWG_HOME has no say")
 
     if [ok for n, ok, _ in judge({}) if n in DECLARED and ok is True]:
         fails.append("an empty collection reads as a pass")

@@ -984,7 +984,16 @@ INTEREST_PROFILE_PATH = (
 
 # ── CM048 conversation processing integration ────────────────────────
 PWG_HOME = Path(os.environ.get("PWG_HOME", os.path.expanduser("~/.pwg")))
-COACH_DB = PWG_HOME / "coach" / "observations.db"
+# The coach DB lives where its WRITER puts it: CM048 ostler_paths.coach_db_path()
+# = ~/.ostler/coach/observations.db (ingest.py `_write_coach`). It used to be
+# derived from PWG_HOME (default ~/.pwg), so on a Hub where PWG_HOME is unset
+# the reader opened an empty ~/.pwg file while the writer filled an encrypted
+# file elsewhere, and /api/v1/coach/recent returned nothing, silently.
+# OSTLER_COACH_DB is the only override; PWG_HOME no longer moves it.
+COACH_DB = Path(
+    os.environ.get("OSTLER_COACH_DB")
+    or os.path.expanduser("~/.ostler/coach/observations.db")
+)
 # H2b fix (vendor graft of CM041 PR #197): CM048's actual
 # processor (andygmassey/CM048-PWG-Conversation-Processing, installed on
 # this Hub at ${OSTLER_DIR}/services/cm048, invoked here via pwg-convo)
@@ -2111,6 +2120,20 @@ def people_search(query, limit=10):
 
 # ── Coach observations (CM048 tier 3) ────────────────────────────────
 
+class CoachDbError(RuntimeError):
+    """The coach DB is absent or unreadable (no key, wrong key, no table).
+    Surfaced as a 500, never as an empty observation list."""
+
+
+def _coach_db_is_plaintext(path) -> bool:
+    """True when the file starts with the plaintext SQLite header."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
 def coach_recent(user_id=None, hours=168, limit=10):
     """Return recent coaching observations from the SQLite DB.
 
@@ -2127,28 +2150,45 @@ def coach_recent(user_id=None, hours=168, limit=10):
     """
     if not user_id:
         raise ValueError("user_id is required")
+    # An absent db is a REFUSAL, not an empty list: the silent empty is what
+    # hid the path mismatch. The writer creates the file on first observation.
     if not COACH_DB.exists():
-        return {"observations": [], "note": "Coach database not found"}
+        msg = f"coach database not found at {COACH_DB}"
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        raise CoachDbError(msg)
 
     cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
-    # ostler_security is guaranteed importable (hard-fails at module
-    # load if not). The remaining branch is whether a key is set.
-    if _ENCRYPTION_KEY:
-        conn = _secure_connect(str(COACH_DB), _ENCRYPTION_KEY)
-    else:
-        _warn_plaintext_once(str(COACH_DB))
-        conn = sqlite3.connect(str(COACH_DB))
-    conn.row_factory = sqlite3.Row
+    # A missing key against an encrypted file must be LOUD too.
+    if not _ENCRYPTION_KEY and not _coach_db_is_plaintext(COACH_DB):
+        msg = (
+            f"coach database {COACH_DB} is encrypted but no database key "
+            "reached ical-server (OSTLER_DB_KEY / resolved key is empty)"
+        )
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        raise CoachDbError(msg)
+
+    conn = None
     try:
+        if _ENCRYPTION_KEY:
+            conn = _secure_connect(str(COACH_DB), _ENCRYPTION_KEY)
+        else:
+            _warn_plaintext_once(str(COACH_DB))
+            conn = sqlite3.connect(str(COACH_DB))
+        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM observations "
             "WHERE user_id = ? AND observed_at > ? "
             "ORDER BY observed_at DESC LIMIT ?",
             (user_id, cutoff, limit),
         ).fetchall()
+    except Exception as exc:
+        msg = f"coach database {COACH_DB} could not be read: {exc}"
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        raise CoachDbError(msg) from exc
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
     observations = []
     for row in rows:
@@ -9697,7 +9737,13 @@ class Handler(BaseHTTPRequestHandler):
                     user_id=user_id, hours=hours, limit=limit
                 )
             except Exception as exc:
-                result = {"observations": [], "error": str(exc)}
+                print(f"ERROR: /api/v1/coach/recent failed: {exc}",
+                      file=sys.stderr, flush=True)
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(exc)}).encode())
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
