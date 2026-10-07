@@ -1,0 +1,85 @@
+name: safari-extension-paired-bearer
+
+# CM020 fix, v1.0.107: THE EXTENSION'S BEARER WAS NEVER WRITTEN.
+#
+# CAPTURE_AUDIT_2026-10-07.md (CM020 Send row): Shared/SharedCode/APIService.swift
+# hard-gates every send on Constants.pairedBearer() (SharedConsts.swift), read
+# from the App Group UserDefaults suite group.com.creativemachines.SafariHistoryExt.
+# SharedConsts.swift's own comment says "the Hub GUI writes" that key. A
+# repo-wide search found no writer anywhere outside the extension's own repo.
+# Every install shipped browsing capture permanently off, failing closed to
+# .unpaired with no customer-visible signal -- while the Doctor's half of the
+# SAME contract (OSTLER_EXTENSION_TOKEN, vendor/doctor/agent/proxy.py's
+# _is_extension_credential) was already built, already seeded to
+# ${SECRETS_DIR}/extension_token, and already injected into the Doctor
+# LaunchAgent's own environment. The server accepted a credential nobody ever
+# handed the client.
+#
+# TWO HALVES, TWO JOBS, BECAUSE EACH CAN BE RIGHT WHILE THE OTHER IS WRONG:
+#
+#   writer   (macOS, needs plutil + PlistBuddy) -- install.sh's new
+#            SAFARI_EXTENSION_PAIR_BEGIN..END block actually writes
+#            OSTLER_EXTENSION_TOKEN into the extension's App Group plist as
+#            pairedBearer. Extracted from install.sh, not reimplemented, so a
+#            future edit that silently drops the write is caught here and not
+#            just in prose. Carries a MUTATION arm: a blanked token (the exact
+#            pre-fix shape) must warn and must not clobber an existing pairing.
+#
+#   predicate (any OS) -- the value that writer proves lands in the plist is
+#            the SAME one vendor/doctor/agent/proxy.py's _is_extension_credential
+#            admits, scoped to POST, one path, loopback only, and a WRONG
+#            token is rejected (the predicate going False is what turns into
+#            the 401 Response in proxy_request's dispatch).
+#
+# Neither job alone proves the customer's send reaches the Doctor with auth.
+# Together: writer proves the bearer exists after install; predicate proves
+# that exact bearer is the one the Doctor was already built to accept.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'vendor/doctor/agent/proxy.py'
+      - 'tests/test_safari_extension_paired_bearer_write.sh'
+      - 'tests/test_safari_extension_bearer_reaches_doctor.py'
+      - '.github/workflows/safari-extension-paired-bearer.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  writer:
+    # macOS: the subject is a real plist write with plutil + PlistBuddy, and
+    # a gate that only ever ran on Linux could not notice either tool missing.
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          sw_vers | head -2
+          /usr/bin/plutil -h >/dev/null 2>&1 && echo "plutil: present"
+          [[ -x /usr/libexec/PlistBuddy ]] && echo "PlistBuddy: present"
+      - name: install.sh actually writes the extension's paired bearer
+        run: /bin/bash tests/test_safari_extension_paired_bearer_write.sh
+
+  predicate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies the real proxy.py module imports
+        run: python3 -m pip install --quiet fastapi httpx
+      - name: The Doctor admits the exact bearer install.sh now pairs, and rejects a wrong one
+        run: python3 tests/test_safari_extension_bearer_reaches_doctor.py -v

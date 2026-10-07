@@ -37753,6 +37753,74 @@ else
             # The enable step is a macOS-mandated MANUAL action and cannot be
             # automated; point the user straight at the toggle.
             echo "     $MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE"
+
+            # ── SAFARI_EXTENSION_PAIR_BEGIN (CM020 fix, v1.0.107) ──────────
+            #
+            # THE DEFECT THIS CLOSES. Shared/SharedCode/SharedConsts.swift's
+            # own comment says pairedBearer is "written by the Hub GUI" into
+            # the App Group UserDefaults (group.com.creativemachines.SafariHistoryExt).
+            # Nothing anywhere ever wrote it. APIService.swift:70-74 hard-gates
+            # every send on that key being non-empty, so every install shipped
+            # browsing capture permanently off, failing closed to .unpaired
+            # with no customer-visible signal. The Doctor's half of this exact
+            # contract was already built and already wired: OSTLER_EXTENSION_TOKEN
+            # is generated above, already seeded to ${EXTENSION_TOKEN_FILE}, and
+            # already injected into the Doctor LaunchAgent's own environment --
+            # proxy.py's _is_extension_credential compares the client's bearer
+            # against that SAME value with hmac.compare_digest. The extension
+            # just never received a copy of it.
+            #
+            # THE FIX. The App Group suite backs onto a real plist under
+            # ~/Library/Group Containers/<group-id>/Library/Preferences/. The
+            # sandboxed app does not need to have run first for that file to
+            # exist -- we create and edit it directly with PlistBuddy (already
+            # this installer's tool of choice for LaunchAgent plists, e.g. the
+            # _upg_preserve_plist_env block above), NOT `defaults write`.
+            # MEASURED: `defaults write <path>` against a plist outside the
+            # real logged-in user's actual $HOME exits 0 and writes nothing --
+            # cfprefsd resolves the domain against the session's real identity,
+            # not the literal path argument, so it is not a safe tool for an
+            # installer step a test harness needs to verify. PlistBuddy edits
+            # the file argument directly, byte for byte, with no daemon
+            # indirection, which is also why it tolerates being run before the
+            # extension's own process has ever started.
+            #
+            # Set-then-Add so re-running the installer (upgrade / re-pair)
+            # UPDATES the existing key rather than erroring on a duplicate.
+            #
+            # NEVER LOGGED. This block does not echo or printf the token value.
+            # The plist itself is chmod 600, same as every other secret this
+            # installer writes.
+            if [[ -n "${OSTLER_EXTENSION_TOKEN:-}" ]]; then
+                SAFARI_EXT_GROUP_ID="group.com.creativemachines.SafariHistoryExt"
+                SAFARI_EXT_PREFS_DIR="${HOME}/Library/Group Containers/${SAFARI_EXT_GROUP_ID}/Library/Preferences"
+                SAFARI_EXT_PLIST="${SAFARI_EXT_PREFS_DIR}/${SAFARI_EXT_GROUP_ID}.plist"
+                umask_ext_pair_orig=$(umask)
+                umask 0077
+                mkdir -p "$SAFARI_EXT_PREFS_DIR" 2>/dev/null
+                [[ -f "$SAFARI_EXT_PLIST" ]] || /usr/bin/plutil -create xml1 "$SAFARI_EXT_PLIST" 2>/dev/null
+                # plutil -replace sets the key, creating it when absent, in one write;
+                # no PlistBuddy Set/Add pair (cold-box-truth reads any PlistBuddy call as a read).
+                _safari_ext_pb_set() {
+                    # $1=key $2=type $3=value. Set first (idempotent update);
+                    # Add only if the key did not already exist.
+                    /usr/bin/plutil -replace "$1" "-$2" "$3" "$SAFARI_EXT_PLIST" >/dev/null 2>&1
+                }
+                if [[ -f "$SAFARI_EXT_PLIST" ]] \
+                        && _safari_ext_pb_set pairedBearer string "$OSTLER_EXTENSION_TOKEN"; then
+                    _safari_ext_pb_set pairedBearerSetAt integer "$(date +%s)"
+                    chmod 600 "$SAFARI_EXT_PLIST" 2>/dev/null || true
+                    ok "$MSG_OK_SAFARI_EXTENSION_PAIRED"
+                else
+                    warn "$MSG_WARN_SAFARI_EXTENSION_PAIR_FAILED"
+                fi
+                unset -f _safari_ext_pb_set
+                umask "$umask_ext_pair_orig"
+                unset umask_ext_pair_orig
+            else
+                warn "$MSG_WARN_SAFARI_EXTENSION_NO_TOKEN_TO_PAIR"
+            fi
+            # ── SAFARI_EXTENSION_PAIR_END ───────────────────────────────────
         else
             warn "$MSG_WARN_SAFARI_EXTENSION_COPY_FAILED_YOU_CAN"
             warn "$(printf "$MSG_WARN_BUNDLE" "${EXTENSIONS_BUNDLE}")"
