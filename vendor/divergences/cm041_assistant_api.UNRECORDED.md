@@ -495,3 +495,52 @@ subsumed-shape controls above pass on both sides, by design, alongside
 the 3 carded-human-stays controls), GREEN after.
 
 Retire by landing CM041 PR #195 and re-pinning.
+
+## Eleventh graft: conversation_id ignored metadata.meeting_id, causing silent data loss (CM051 v1.0.107 candidate #10)
+
+Tree `cm041/assistant_api`, same file: `api_conversation_process`, plus two
+new helpers, `_is_safe_meeting_id` and `_resolve_fallback_conversation_id`.
+Matches CM041 PR #196 (upstream, open at time of writing).
+
+`conversation_id` was built as `date_firstTwoSpeakerLabels_type` and
+ignored `metadata.meeting_id`, the per-session UUID the iOS/Watch app
+sends with every recording. Every Watch conversation on the same day
+collided as `<date>_s1_wearable`: the second POST overwrote the first
+conversation's raw transcript, CM048 then skipped the overwritten one as
+already-complete, and the Hub still returned 202 so the app deleted its
+(now only) copy. The conversation was gone. Affects any capture path
+whose speaker labels repeat on the same day, including the Mac's.
+
+This vendor tree's `api_conversation_process` has its own divergence from
+CM041 source (the Rule 0.8 subscription-pause gate, and a pre-flight probe
+of the `pwg-convo` CLI via `_invoke_pwg_convo` in place of CM041's direct
+`OSTLER_VENV_PYTHON` subprocess call) -- both untouched by this graft. The
+id-generation block the graft touches is byte-identical between the two
+trees before this change, so the port is a straight copy of the new
+block, not an adaptation.
+
+`conversation_id` now prefers `metadata.meeting_id` when it validates as a
+UUID or a path-safe slug (`_is_safe_meeting_id`: no `/`, `.`, or
+whitespace). Falls back to the old date+label scheme otherwise, guarded
+by `_resolve_fallback_conversation_id`: if the target already holds a
+DIFFERENT raw transcript, suffix instead of overwriting; a resend of
+identical content reuses the same id.
+
+Guarded by
+`vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py`,
+7 tests (ported from CM041 PR #196, adapted for this tree's own
+divergence: `_invoke_pwg_convo` is stubbed so the pre-flight probe and the
+background processor's own call both succeed without a real `pwg-convo`
+binary on PATH, and `_subscription_paused` is stubbed directly because
+`assistant_api/subscription_gate.py` sits on `sys.path` in this test
+environment -- same mechanism the gate's own docstring describes for
+production -- and reports the default unlicensed state as paused rather
+than failing open). RED confirmed against the unmodified vendored
+`ical-server.py` via `git checkout origin/main --
+vendor/cm041/assistant_api/ical-server.py` (4 of 7 fail, including the
+exact overwrite scenario), GREEN after.
+
+Wired into CI by `.github/workflows/walk-meeting-id-collision-guard.yml`
+in the same diff (new-tests-must-be-wired gate).
+
+Retire by landing CM041 PR #196 and re-pinning.
