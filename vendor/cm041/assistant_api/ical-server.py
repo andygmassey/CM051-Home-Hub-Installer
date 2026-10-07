@@ -983,7 +983,29 @@ INTEREST_PROFILE_PATH = (
 # ── CM048 conversation processing integration ────────────────────────
 PWG_HOME = Path(os.environ.get("PWG_HOME", os.path.expanduser("~/.pwg")))
 COACH_DB = PWG_HOME / "coach" / "observations.db"
-PROCESSING_DIR = PWG_HOME / "processing"
+# H2b fix (vendor graft of CM041 PR #197): CM048's actual
+# processor (andygmassey/CM048-PWG-Conversation-Processing, installed on
+# this Hub at ${OSTLER_DIR}/services/cm048, invoked here via pwg-convo)
+# writes conversation state under the two-zone engine room,
+# ~/.ostler/processing, NOT under PWG_HOME (~/.pwg). Confirmed by
+# src/ostler_paths.py:42-44 (`processing_dir()` default), src/settings.py:
+# 93-94 (`Settings.processing_state_dir` default) and shipped production
+# config settings.yaml.production:143 (`processing_state_dir: ~/.ostler/
+# processing`); the real per-conversation state.json write is
+# src/processor.py:88. CM048's own two-zone migration
+# (ostler_paths.py:124-128 `_ENGINE_ROOM_MAPPING`) moves `.pwg/processing`
+# to `.ostler/processing` and rmdirs the legacy root on first launch, so
+# PWG_HOME-derived PROCESSING_DIR was reading a directory CM048 no longer
+# writes to at all post-migration -- the status endpoint could never see
+# "completed". Resolved independently of PWG_HOME: COACH_DB and
+# CONVERSATIONS_DIR share the same stale-default shape and are a known,
+# separate follow-up (not fixed here -- see PR description).
+PROCESSING_DIR = Path(
+    os.environ.get("OSTLER_PROCESSING_DIR")
+    or os.environ.get("OSTLER_STATE_DIR")
+    or os.environ.get("PWG_PROCESSING_DIR")
+    or os.path.expanduser("~/.ostler/processing")
+)
 CONVERSATIONS_DIR = PWG_HOME / "conversations"
 OSTLER_VENV_PYTHON = os.environ.get("OSTLER_PYTHON", "")
 OSTLER_PROJECT_DIR = os.environ.get("OSTLER_PROJECT_DIR", "")
