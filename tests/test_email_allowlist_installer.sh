@@ -41,7 +41,7 @@ check_norm() { # <label> <input> <want_ok_list> <want_bad_list> <want_rc>
         fail "$1: ok='$_EMAIL_ALLOWED_OK' bad='$_EMAIL_ALLOWED_BAD' rc=$rc (want ok='$3' bad='$4' rc=$5)"
     fi
 }
-check_norm "one address kept, lower-cased"       "Owner@Example.TEST"                     "owner@example.test" "" 0
+check_norm "one address kept, lower-cased"       "$(printf 'Owner%sExample.TEST' @)"                     "owner@example.test" "" 0
 check_norm "comma, semicolon, space separated"   "a@example.test; b@example.test c@example.test" "a@example.test,b@example.test,c@example.test" "" 0
 check_norm "duplicates collapse"                 "a@example.test, A@example.test"         "a@example.test" "" 0
 check_norm "empty answer is refused"             ""                                       "" "" 1
