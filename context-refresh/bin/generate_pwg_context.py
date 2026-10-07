@@ -599,7 +599,7 @@ def _user_asserted_section() -> list[str]:
     """
     rows = _sparql_select(
         'PREFIX pwg: <{ns}>\n'
-        'SELECT ?text ?name ?rel ?created WHERE {{\n'
+        'SELECT ?text ?name ?rel ?created ?level WHERE {{\n'
         '  ?f a pwg:PersonFact ;\n'
         '     pwg:factSource "user_asserted" ;\n'
         '     pwg:factText ?text .\n'
