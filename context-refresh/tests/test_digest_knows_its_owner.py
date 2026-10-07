@@ -459,15 +459,26 @@ def test_green_every_section_from_the_seed(env, capsys):
 
     prefs = _section(digest, "Preferences and things to keep in mind")
     assert "- Trail running (Sport)" in prefs
-    assert "- Jazz (Music)" in prefs
-    assert "- Not keen on: Opera (Music)" in prefs
+    # Music is a taste: it moved to "Tastes" with its score.
+    assert "Jazz" not in prefs
+    assert "Jazz (0.80)" in _section(digest, "Tastes")
+    assert "dislikes Opera (0.50)" in _section(digest, "Tastes")
 
     orgs = _section(digest, "Key organisations")
     assert orgs.strip().splitlines()[0] == "- Acme Corp (2 people)"
 
     for bad in FORBIDDEN:
         assert bad not in digest, f"withheld or non-person value leaked: {bad}"
-    assert ": nothing stored." not in digest
+    # The seven original sections all hold data. (The brief sections added
+    # later are seeded in test_owner_brief.py; this older seed has no
+    # sent-message counts, so those are honestly empty here.)
+    for heading in ("About you", "Confirmed by you",
+                    "People you interact with most",
+                    "Recent meetings (last 7 days)",
+                    "Calendar events by owner",
+                    "Preferences and things to keep in mind",
+                    "Key organisations"):
+        assert not _gap_line(digest, heading), heading
     assert ": COULD NOT BE READ" not in digest
     assert "the boat is called seaworthy" in _section(
         digest, "Confirmed by you")

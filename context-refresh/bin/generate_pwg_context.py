@@ -136,6 +136,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -233,7 +234,7 @@ OXIGRAPH_TOKEN_PATH = Path(
 # "fine". Documented here because the wrapper and the plist both cite them.
 EXIT_OK = 0                 # digest written, every source answered
 EXIT_WRITE_FAILED = 1       # digest built but could not be written to disk
-EXIT_NOTHING_PRODUCED = 2   # zero of seven sections; no digest exists to write
+EXIT_NOTHING_PRODUCED = 2   # zero of eleven sections; no digest exists to write
 EXIT_DEGRADED = 3           # digest written, but one or more sources failed
 
 
@@ -255,6 +256,9 @@ _SECTION_COUNTS: list[tuple[str, int]] = []
 # answered and held nothing" apart from "the source did not answer"; see
 # _unreadable_and_empty_block.
 _SECTION_STATUS: list[tuple[str, int, list[str]]] = []
+# /api/v1/preferences is read by two sections (Tastes, Preferences); one read
+# per build, so the ledger counts one read and one failure, not two.
+_PREFS_CACHE: dict = {}
 
 
 def _reset_measurements() -> None:
@@ -264,6 +268,7 @@ def _reset_measurements() -> None:
     _FAILURES.clear()
     _SECTION_COUNTS.clear()
     _SECTION_STATUS.clear()
+    _PREFS_CACHE.clear()
 
 
 def _note_read(line: str) -> None:
@@ -1159,12 +1164,13 @@ def _preferences_section() -> list[str]:
     # on a customer box, so it said "nothing stored" beside an interest
     # profile of 4,628 entries that /api/v1/preferences serves score-sorted.
     lines: list[str] = []
-    prefs = _get_json(f"/api/v1/preferences?limit={MAX_PREFERENCES * 5}")
-    interests = prefs.get("interests") if isinstance(prefs, dict) else None
+    interests = _interests()
     seen: set[str] = set()
-    for it in interests if isinstance(interests, list) else []:
+    for it in interests:
         if not isinstance(it, dict):
             continue
+        if _taste_domain(it) is not None:
+            continue  # already rendered, with strength, under "Tastes"
         if _is_withheld({"level": it.get("privacy") or it.get("privacy_level")}):
             continue
         subject = " ".join(str(it.get("subject") or "").split())
@@ -1228,6 +1234,336 @@ def _orgs_section() -> list[str]:
     ranked = sorted(score.values(), key=lambda v: v[1], reverse=True)
     return [f"- {org} ({n} {'person' if n == 1 else 'people'})"
             for org, _, n in ranked[:MAX_ORGS]]
+
+
+
+# ── Owner brief: tastes, routines, priorities, autonomy, channel style ───────
+#
+# Four sections that turn the digest from "facts about the graph" into a brief
+# on the owner. Every one reads a source that ships in this Hub and cites it
+# below; a fact with no shipped source is a GAP, listed in the section or in
+# the PR, never read from a guessed field.
+
+
+def _interests() -> list:
+    """The compiled interest profile, score-sorted, read once per build.
+
+    GET /api/v1/preferences (vendor/cm041/assistant_api/ical-server.py
+    api_preferences): {"interests": [{subject, domain, polarity, privacy,
+    score, confidence, ...}]}, sorted by score descending, written by CM059
+    (vendor/cm059_editor/compiler/interest_profile.py:757-771).
+    """
+    if "interests" not in _PREFS_CACHE:
+        prefs = _get_json("/api/v1/preferences?limit=300")
+        got = prefs.get("interests") if isinstance(prefs, dict) else None
+        _PREFS_CACHE["interests"] = got if isinstance(got, list) else []
+    return _PREFS_CACHE["interests"]
+
+
+# CM059 category_domain() values (interest_profile.py:331-333): "Food", "Music",
+# "Film & TV". Matched case-insensitively on the whole domain string.
+_TASTE_DOMAINS = (("food", "Food"), ("music", "Music"), ("film & tv", "Film and TV"))
+MAX_TASTES_PER_DOMAIN = 3
+
+
+def _taste_domain(it: dict) -> str | None:
+    dom = " ".join(str(it.get("domain") or "").lower().split())
+    for key, label in _TASTE_DOMAINS:
+        if dom == key:
+            return label
+    return None
+
+
+def _is_negative(it: dict) -> bool:
+    polarity = str(it.get("polarity") or "").lower()
+    return polarity.startswith(("neg", "dis")) or polarity == "-1"
+
+
+def _tastes_section() -> list[str]:
+    """Top food, music and film preferences, each with its stored strength.
+
+    Strength is the profile's own ``score``, printed as stored (two decimals).
+    No scale is assumed: the digest does not turn it into "strong" or "mild"
+    because the shipped profile does not define such bands.
+    """
+    by_domain: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for it in _interests():
+        if not isinstance(it, dict):
+            continue
+        if _is_withheld({"level": it.get("privacy") or it.get("privacy_level")}):
+            continue
+        label = _taste_domain(it)
+        subject = " ".join(str(it.get("subject") or "").split())
+        if label is None or not subject or (label, subject.lower()) in seen:
+            continue
+        seen.add((label, subject.lower()))
+        bucket = by_domain.setdefault(label, [])
+        if len(bucket) >= MAX_TASTES_PER_DOMAIN:
+            continue
+        try:
+            score = f" {float(it.get('score')):.2f}"
+        except (TypeError, ValueError):
+            score = " unscored"
+        bucket.append(f"{'dislikes ' if _is_negative(it) else ''}{subject[:40]} ({score.strip()})")
+    return [f"- {label}: {'; '.join(items)}"
+            for _, label in _TASTE_DOMAINS if (items := by_domain.get(label))]
+
+
+ROUTINE_WINDOW_DAYS = 90
+_ROUTINE_MIN_SAMPLE = 5
+_WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+             "Saturday", "Sunday")
+MAX_COMMITMENTS = 4
+
+
+def _routines_lines() -> list[str]:
+    """When the owner's diary is busy, from pwg:Meeting dates they attend.
+
+    Source: pwg:Meeting / pwg:meetingAttendee / pwg:meetingDate, the same
+    triples the People ranking reads (_ranked_people). Timing only: counts of
+    weekday and start hour, never a title or an attendee.
+    """
+    owners = _owner_uris(_owner_identity())
+    if not owners:
+        return []
+    today = _today().date()
+    lo = (today - timedelta(days=ROUTINE_WINDOW_DAYS)).isoformat()
+    rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT DISTINCT ?m ?d ?l WHERE {\n"
+        f"  {_values_clause('p', owners)}\n"
+        "  ?m a pwg:Meeting ; pwg:meetingAttendee ?p ; pwg:meetingDate ?d .\n"
+        "  OPTIONAL { ?m pwg:privacyLevel ?l }\n"
+        '  FILTER(!BOUND(?l) || UCASE(STR(?l)) != "L3")\n'
+        f'  FILTER(STR(?d) >= "{lo}" && STR(?d) < "{today.isoformat()}")\n'
+        "} LIMIT 2000"
+    ) or []
+    days = [0] * 7
+    hours: dict[int, int] = {}
+    total = 0
+    for row in rows:
+        if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+            continue
+        raw = (row.get("d") or "").strip().replace("T", " ")
+        try:
+            when = datetime.strptime(raw[:16], "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        total += 1
+        days[when.weekday()] += 1
+        hours[when.hour] = hours.get(when.hour, 0) + 1
+    if not total:
+        return []
+    per_week = total / (ROUTINE_WINDOW_DAYS / 7)
+    line = (f"- Routines: {total} meetings in the last {ROUTINE_WINDOW_DAYS} "
+            f"days (about {per_week:.1f} a week)")
+    if total >= _ROUTINE_MIN_SAMPLE:
+        top = sorted(range(7), key=lambda i: (-days[i], i))[:2]
+        busiest = " and ".join(_WEEKDAYS[i] for i in top if days[i])
+        peak = max(hours, key=lambda h: (hours[h], -h))
+        line += f"; busiest {busiest}; most often start around {peak:02d}:00"
+    return [line + ". Timing only, taken from the diary."]
+
+
+def _commitment_lines() -> list[str]:
+    """Open commitments the owner owes, from GET /api/v1/commitments.
+
+    Row shape (ical-server commitments_list): {action, owner, due, status,
+    source}; owner=user selects what the operator owes. That endpoint is
+    deliberately not privacy-gated (see its comment: the rows carry no
+    privacyLevel), so the text is capped to 90 characters and the route's own
+    privacy_level is honoured when present.
+    """
+    data = _get_json(f"/api/v1/commitments?owner=user&status=open&limit=50")
+    if not isinstance(data, dict) or _is_withheld(data):
+        return []
+    rows = data.get("commitments")
+    if not isinstance(rows, list):
+        return []
+    today = _today().date().isoformat()
+    items: list[tuple[tuple, str]] = []
+    seen: set[str] = set()
+    for r in rows:
+        if not isinstance(r, dict) or _is_withheld(r):
+            continue
+        action = " ".join(str(r.get("action") or "").split())
+        if not action or action.lower() in seen:
+            continue
+        seen.add(action.lower())
+        due = str(r.get("due") or "").strip()[:10]
+        if len(action) > 90:
+            action = action[:87].rstrip() + "..."
+        # Soonest upcoming first, then overdue, then undated.
+        key = (0, due) if due >= today else ((1, due) if due else (2, ""))
+        items.append((key, f"- Open: {action}" + (f" (due {due})" if due else "")))
+    items.sort(key=lambda kv: kv[0])
+    out = [text for _, text in items[:MAX_COMMITMENTS]]
+    if len(items) > MAX_COMMITMENTS:
+        out.append(f"- ({len(items) - MAX_COMMITMENTS} more open commitments not shown)")
+    return out
+
+
+def _routines_priorities_section() -> list[str]:
+    """Routines (from diary timing) and open commitments. Upcoming diary items
+    are in "Calendar events by owner", not repeated here."""
+    return _routines_lines() + _commitment_lines()
+
+
+# What the assistant may do unasked is a daemon setting, not a fact the digest
+# can infer. install.sh writes only [autonomy].non_cli_excluded_tools
+# (install.sh:16442-16443) and leaves level / auto_approve to the daemon's
+# defaults (install.sh:16438-16440), so those two are read if, and only if,
+# they are present in the config. The file is parsed line by line and ONLY the
+# [autonomy] table is looked at: the same file holds [gateway].paired_tokens.
+_AUTONOMY_SCALARS = ("level", "auto_approve")
+_NOTABLE_EXCLUDED = ("shell", "file_write", "file_edit", "browser", "git_operations")
+
+
+def _assistant_config_path() -> Path:
+    ostler_dir = Path(os.environ.get("OSTLER_DIR") or (Path.home() / ".ostler"))
+    return ostler_dir / "assistant-config" / "config.toml"
+
+
+def _stored_autonomy() -> tuple[dict[str, str], list[str]] | None:
+    """({level, auto_approve} as written, excluded tool names), or None when the
+    config is unreadable. An absent [autonomy] table gives ({}, [])."""
+    path = _assistant_config_path()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        _note_read(f"read {_tilde(path)} -> absent")
+        return {}, []
+    except OSError as exc:
+        _note_failure(f"read {_tilde(path)} -> unreadable ({type(exc).__name__})")
+        return None
+    _note_read(f"read {_tilde(path)} -> ok")
+    scalars: dict[str, str] = {}
+    excluded: list[str] = []
+    in_table = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            in_table = line.rstrip().startswith("[autonomy]")
+            continue
+        if not in_table or "=" not in line or line.startswith("#"):
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if key in _AUTONOMY_SCALARS:
+            scalars[key] = value.strip("\"'")[:60]
+        elif key == "non_cli_excluded_tools":
+            excluded = [t for t in re.findall(r'"([a-z_]+)"', value)]
+    return scalars, excluded
+
+
+def _autonomy_section() -> list[str]:
+    """What the owner has confirmed or corrected, and the stored limits.
+
+    Confirmed: pwg:PersonFact factSource "user_asserted" (the same rows as
+    "Confirmed by you", counted). Corrected: /api/v1/memory facts with
+    corrected == true (ical-server api_memory_list; the route returns at most
+    MEMORY_LIMIT facts and hides ones the owner asked to forget, so this is a
+    floor). Limits: the [autonomy] table of the assistant config. Nothing here
+    is a rule the digest made up; with no stored setting it says so.
+    """
+    lines: list[str] = []
+    rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT (COUNT(DISTINCT ?f) AS ?n) WHERE {\n"
+        '  ?f a pwg:PersonFact ; pwg:factSource "user_asserted" .\n'
+        "  OPTIONAL { ?f pwg:privacyLevel ?l }\n"
+        '  FILTER(!BOUND(?l) || UCASE(STR(?l)) != "L3")\n'
+        "  FILTER NOT EXISTS { ?f pwg:validTo ?end }\n"
+        "}"
+    )
+    confirmed = 0
+    if rows:
+        try:
+            confirmed = int(float(rows[0].get("n", 0)))
+        except (TypeError, ValueError):
+            confirmed = 0
+    mem = _get_json("/api/v1/memory")
+    corrected = 0
+    if isinstance(mem, dict) and isinstance(mem.get("facts"), list):
+        corrected = sum(1 for f in mem["facts"]
+                        if isinstance(f, dict) and f.get("corrected") is True
+                        and not _is_withheld(f))
+    if confirmed or corrected:
+        lines.append(f"- The owner has confirmed {confirmed} fact(s) and corrected "
+                     f"{corrected} (at least). Confirmed facts are listed "
+                     "above and override anything inferred.")
+    stored = _stored_autonomy()
+    if stored is not None:
+        scalars, excluded = stored
+        for key in _AUTONOMY_SCALARS:
+            if key in scalars:
+                lines.append(f"- Stored setting {key} = {scalars[key]}")
+        if excluded:
+            named = [t for t in _NOTABLE_EXCLUDED if t in excluded]
+            lines.append(
+                f"- Chat is configured without {len(excluded)} tools"
+                + (f", including {', '.join(named)}" if named else "") + ".")
+    if lines:
+        lines.append("- No other permission is recorded here; an action not "
+                     "covered above has no stored approval.")
+    return lines
+
+
+_CHANNEL_LABELS = {"linkedin_messaging": "LinkedIn messages"}
+
+
+def _channel_style_section() -> list[str]:
+    """How much the owner writes on each channel, as counts only.
+
+    Source: pwg:RelationshipSignal pwg:signalType / pwg:userMessages /
+    pwg:otherMessages (vendor/cm041/contact_syncer/linkedin_messages.py:184-189),
+    summed per signalType, L3 dropped. userMessages is the owner's own sent
+    count. No message text is read or stored by this section.
+
+    GAP, stated in the section: the Hub stores no per-message length,
+    formality, emoji or language measure for the owner on any channel (iMessage
+    and WhatsApp read the owner's sent text at ingest, vendor/imessage_source/
+    reader.py:60 and vendor/whatsapp_source/reader.py:77, and persist only
+    utterances for the extractor, no style statistic), and only LinkedIn writes
+    a sent/received split. So those descriptors are declared unmeasured.
+    """
+    rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+        "SELECT ?t (SUM(xsd:integer(?u)) AS ?sent) (SUM(xsd:integer(?o)) AS ?got)\n"
+        "       (COUNT(DISTINCT ?s) AS ?threads) WHERE {\n"
+        "  ?s a pwg:RelationshipSignal ; pwg:signalType ?t ;\n"
+        "     pwg:userMessages ?u ; pwg:otherMessages ?o .\n"
+        "  OPTIONAL { ?s pwg:privacyLevel ?l }\n"
+        '  FILTER(!BOUND(?l) || UCASE(STR(?l)) != "L3")\n'
+        "} GROUP BY ?t ORDER BY DESC(?sent) LIMIT 8"
+    )
+    if not rows:
+        return []
+
+    def _int(v) -> int:
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+
+    out: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sent, got, threads = _int(row.get("sent")), _int(row.get("got")), _int(row.get("threads"))
+        if sent + got == 0:
+            continue
+        kind = re.sub(r"[^a-z_]", "", str(row.get("t") or "").lower()) or "other"
+        label = _CHANNEL_LABELS.get(kind, kind.replace("_", " "))
+        share = round(100 * sent / (sent + got))
+        out.append(f"- {label}: the owner sent {sent}, received {got} "
+                   f"({share}% yours) across {threads} thread(s)")
+    if out:
+        out.append("- Length, formality, emoji and language: not measured; "
+                   "the Hub stores no such statistic for their messages.")
+    return out
 
 
 # ── Digest assembly ──────────────────────────────────────────────────────────
@@ -1330,8 +1666,13 @@ def build_digest() -> str | None:
     # sees, so the gap declaration below names sections the way the document
     # names them and not by an internal key.
     about = _run_section("About you", _about_you_section)
+    autonomy = _run_section("Autonomy calibration", _autonomy_section)
     user_asserted = _run_section("Confirmed by you", _user_asserted_section)
+    routines = _run_section("Routines and priorities",
+                            _routines_priorities_section)
     people = _run_section("People you interact with most", _people_section)
+    tastes = _run_section("Tastes", _tastes_section)
+    channel = _run_section("Channel style", _channel_style_section)
     recent = _run_section("Recent meetings (last 7 days)", _meetings_section)
     calendar_by_owner = _run_section(
         "Calendar events by owner", _calendar_by_owner_section)
@@ -1341,138 +1682,131 @@ def build_digest() -> str | None:
 
     _SECTION_COUNTS.extend([
         ("about-you", len(about)),
+        ("autonomy-calibration", len(autonomy)),
         ("confirmed-by-you", len(user_asserted)),
+        ("routines-and-priorities", len(routines)),
         ("people", len(people)),
+        ("tastes", len(tastes)),
+        ("channel-style", len(channel)),
         ("recent-meetings", len(recent)),
         ("calendar-by-owner", len(calendar_by_owner)),
         ("preferences", len(preferences)),
         ("key-organisations", len(orgs)),
     ])
 
-    if not (about or user_asserted or people or recent
-            or calendar_by_owner or preferences or orgs):
+    if not (about or autonomy or user_asserted or routines or people or tastes
+            or channel or recent or calendar_by_owner or preferences or orgs):
         return None
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    out: list[str] = []
-    out.append("# Personal Context")
-    out.append("")
-    out.append(
-        "Baseline awareness of the people, meetings, and preferences that "
-        "matter to the person you assist. Generated locally from their "
-        "personal graph; treat it as background, not a transcript."
+    # Content blocks in order of usefulness: (name, heading, intro, lines).
+    # Order is the order they are rendered. When the digest is over MAX_CHARS
+    # the LAST-listed blocks are dropped whole, one at a time, and the drop is
+    # declared in the digest, rather than the tail being clipped mid-section.
+    calendar_intro = (
+        "Each item is labelled with WHOSE calendar it came from. Use only "
+        "these facts; never merge two people's events, never reassign one "
+        "person's trip to another, and do not invent flight numbers, "
+        "routings, destinations or times. If an item is under another "
+        "person's calendar, attribute it to that person, not to the "
+        "person you assist."
     )
-    out.append(f"_Last updated: {now}._")
-    out.append("")
-
-    # Before any content: what this digest does NOT hold, and which of those
-    # gaps are "nothing there" versus "we could not look". Placed here so the
-    # MAX_CHARS clip, which cuts from the end, can never remove it.
-    out.extend(_unreadable_and_empty_block())
-
-    # Who the owner is comes first: every other section is about the people
-    # and things around them, and a model that does not know the owner's
-    # own employer answers "Where have I worked?" with "no record".
-    if about:
-        out.append("## About you")
-        out.append("")
-        out.extend(about)
-        out.append("")
-
-    # User-asserted facts are authoritative -- things the customer told the
-    # assistant directly -- so they lead the mined sections.
-    if user_asserted:
-        out.append("## Confirmed by you")
-        out.append("")
-        out.append(
-            "Facts the person confirmed to you directly. Treat these as "
-            "authoritative; they override anything inferred below."
-        )
-        out.append("")
-        out.extend(user_asserted)
-        out.append("")
-
-    if people:
-        out.append("## People you interact with most")
-        out.append("")
-        out.extend(people)
-        out.append("")
-
+    blocks: list[tuple[str, str, str, list[str]]] = [
+        ("About you", "About you", "", about),
+        ("Autonomy calibration", "Autonomy calibration",
+         "What the owner has confirmed or corrected, and the limits stored for "
+         "them. Read from stored settings and confirmed facts only.", autonomy),
+        ("Confirmed by you", "Confirmed by you",
+         "Facts the person confirmed to you directly. Treat these as "
+         "authoritative; they override anything inferred below.",
+         user_asserted),
+        ("Routines and priorities", "Routines and priorities", "", routines),
+        ("People you interact with most", "People you interact with most",
+         "", people),
+        ("Tastes", "Tastes",
+         "The owner's top stored preferences, with the profile's own score.", tastes),
+        ("Channel style", "Channel style",
+         "Counts of the owner's own sent messages per channel; no message text.",
+         channel),
+        ("Recent meetings (last 7 days)", "Recent meetings (last 7 days)",
+         "", recent),
+        ("Calendar events by owner", "Calendar events by owner",
+         calendar_intro, calendar_by_owner),
+        ("Preferences and things to keep in mind",
+         "Preferences and things to keep in mind", "", preferences),
+        ("Key organisations", "Key organisations", "", orgs),
+    ]
     # NOTE: there is deliberately no "## Upcoming meetings" section. Future
-    # calendar events are rendered only via "## Calendar events by owner"
-    # below, which carries per-owner attribution and L3 fail-closed filtering.
-    # The old un-attributed upcoming section leaked shared-calendar events as
-    # the operator's own (BATCH1 #3 F1) and has been retired.
-    if recent:
-        out.append("## Recent meetings (last 7 days)")
-        out.append("")
-        out.extend(recent)
-        out.append("")
+    # calendar events are rendered only via "## Calendar events by owner",
+    # which carries per-owner attribution and L3 fail-closed filtering. The old
+    # un-attributed upcoming section leaked shared-calendar events as the
+    # operator's own (BATCH1 #3 F1) and has been retired.
 
-    if calendar_by_owner:
-        out.append("## Calendar events by owner")
-        out.append("")
-        out.append(
-            "Each item is labelled with WHOSE calendar it came from. Use only "
-            "these facts; never merge two people's events, never reassign one "
-            "person's trip to another, and do not invent flight numbers, "
-            "routings, destinations or times. If an item is under another "
-            "person's calendar, attribute it to that person, not to the "
-            "person you assist."
-        )
-        out.append("")
-        out.extend(calendar_by_owner)
-        out.append("")
-
-    if preferences:
-        out.append("## Preferences and things to keep in mind")
-        out.append("")
-        out.extend(preferences)
-        out.append("")
-
-    if orgs:
-        out.append("## Key organisations")
-        out.append("")
-        out.extend(orgs)
-        out.append("")
-
-    out.append("## Looking something up")
-    out.append("")
     # ONE ROUTE TO THE GRAPH, AND IT IS THE pwg_ TOOLS.
     #
     # This paragraph used to name a SECOND route: `http_request` against
-    # http://127.0.0.1:8090/api/v1/people/*. It works, install.sh enables
-    # allow_private_hosts for exactly that reason and says so at the
-    # LaunchAgent that installs this script, and it reaches the customer's
-    # real graph. It is also invisible to everything downstream that asks
-    # WHICH tool answered a turn, and two of those matter:
-    #
-    #   assistant_answers_grounded grades a turn on whether a tool named pwg_*
-    #   ran, so a correct answer fetched this way scores memory_only. That is a
-    #   defect verdict for the product working as instructed, and it is one of
-    #   the two shapes behind that probe's FAIL on the v1.0.79 walk.
-    #
-    #   the daemon's consolidation gate keyed live-graph state on the same
-    #   prefix, so a count fetched this way was memorised as though it were a
-    #   durable fact and recited stale the next day.
-    #
-    # THIS FILE IS THE COPY THAT SHIPS. The upstream ostler-assistant script
-    # carries the same edit (ostler-assistant#394) and a test for it, but the
-    # release tarball carries the daemon and its .app and never scripts/, so
-    # the customer runs THIS one. Changing only upstream would leave the
-    # instruction live on every machine under a green upstream gate, which is
-    # the failure this file's own header records from 2026-08-18.
-    out.append(
+    # http://127.0.0.1:8090/api/v1/people/*. It works, but it is invisible to
+    # everything downstream that asks WHICH tool answered a turn:
+    # assistant_answers_grounded grades a turn on whether a tool named pwg_*
+    # ran, so a correct answer fetched this way scores memory_only; and the
+    # daemon's consolidation gate keyed live-graph state on the same prefix, so
+    # a count fetched this way was memorised as a durable fact. THIS FILE IS THE
+    # COPY THAT SHIPS (ostler-assistant#394 carries the same edit upstream, but
+    # the release tarball never carries scripts/).
+    footer = [
+        "## Looking something up",
+        "",
         "For a specific person or detail not listed above, call the "
         "`pwg_people` tool with the person's name, or `pwg_person_timeline` "
         "for the user's full history with them. Do not fetch graph data over "
-        "`http_request`: the pwg_ tools are the route to the graph."
-    )
-    out.append("")
+        "`http_request`: the pwg_ tools are the route to the graph.",
+        "",
+    ]
 
-    digest = "\n".join(out)
+    def _render(omitted: list[str]) -> str:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        out: list[str] = [
+            "# Personal Context",
+            "",
+            "Baseline awareness of the people, meetings, and preferences that "
+            "matter to the person you assist. Generated locally from their "
+            "personal graph; treat it as background, not a transcript.",
+            f"_Last updated: {now}._",
+            "",
+        ]
+        # Before any content: what this digest does NOT hold, and which of
+        # those gaps are "nothing there" versus "we could not look". Placed
+        # here so a size clip, which cuts from the end, can never remove it.
+        gaps = _unreadable_and_empty_block()
+        if omitted:
+            note = ("- Left out to fit the size cap (they hold data; ask with "
+                    "the pwg_ tools): " + ", ".join(omitted) + ".")
+            if gaps:
+                gaps.insert(len(gaps) - 1, note)
+            else:
+                gaps = ["## What is not in this digest", "", note, ""]
+        out.extend(gaps)
+        for name, heading, intro, lines in blocks:
+            if not lines or name in omitted:
+                continue
+            out.append(f"## {heading}")
+            out.append("")
+            if intro:
+                out.append(intro)
+                out.append("")
+            out.extend(lines)
+            out.append("")
+        out.extend(footer)
+        return "\n".join(out)
 
-    # Enforce the size cap on a line boundary so we never inject a half-line.
+    omitted: list[str] = []
+    digest = _render(omitted)
+    droppable = [b[0] for b in reversed(blocks) if b[3] and b[0] != "About you"]
+    while len(digest) > MAX_CHARS and droppable:
+        omitted.insert(0, droppable.pop(0))
+        digest = _render(omitted)
+
+    # Last resort, only when every droppable section is already gone: clip on
+    # a line boundary so we never inject a half-line.
     if len(digest) > MAX_CHARS:
         clipped = digest[:MAX_CHARS]
         nl = clipped.rfind("\n")
@@ -1600,7 +1934,7 @@ def main() -> int:
     digest = build_digest()
 
     if digest is None:
-        # Zero of seven sections. The prior CONTEXT.md is left in place (a stale
+        # Zero of eleven sections. The prior CONTEXT.md is left in place (a stale
         # digest beats none), but this is a FAILED run and the exit code says
         # so. It used to return 0, which is why nothing ever noticed that this
         # script had not produced a digest on a single install.
