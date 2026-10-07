@@ -169,39 +169,33 @@ def seed_and_readback(token, service_token):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         conn = get_db_connection(str(db_path), resolved.key)
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS observations (
-                observation_id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                observed_at TEXT NOT NULL,
-                conversation_type TEXT,
-                tone TEXT,
-                what_went_well_json TEXT,
-                what_to_work_on_json TEXT,
-                tip_json TEXT,
-                tags_json TEXT,
-                overall_severity INTEGER,
-                confidence REAL,
-                flags_json TEXT,
-                user_id TEXT NOT NULL,
-                visibility TEXT NOT NULL,
-                retention_tier TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                UNIQUE (conversation_id)
-            )
-            """
-        )
+        # The probe does not own this schema: it reads the INSTALLED table's
+        # columns and fills only what a NOT NULL constraint demands, so the
+        # probe never restates (or drifts from) the coach-db DDL. No table is
+        # a fact about the box, reported, never papered over by creating one.
+        cols = conn.execute("PRAGMA table_info(observations)").fetchall()
+        if not cols:
+            conn.close()
+            out_seed["error"] = "the installed coach db has no observations table"
+            return out_seed, out_rb, out_raw
         pre = conn.execute("SELECT COUNT(*) FROM observations WHERE conversation_id = ?", (token,)).fetchone()[0]
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        values = {
+            "observation_id": token, "conversation_id": token, "observed_at": now,
+            "conversation_type": "walk_probe", "user_id": user_id or "walk-probe",
+            "visibility": "private", "created_at": now,
+            "tip_json": json.dumps(["SYNTHETIC WALK PROBE -- db_key_reaches_every_service, safe to delete"]),
+        }
+        for _cid, name, ctype, notnull, dflt, _pk in cols:
+            if name in values or not notnull or dflt is not None:
+                continue
+            t = (ctype or "").upper()
+            values[name] = 0 if "INT" in t else (0.0 if ("REAL" in t or "FLOA" in t) else "walk_probe")
+        names = [c[1] for c in cols if c[1] in values]
         conn.execute(
-            "INSERT OR REPLACE INTO observations (observation_id, conversation_id, observed_at, "
-            "conversation_type, tone, what_went_well_json, what_to_work_on_json, tip_json, tags_json, "
-            "overall_severity, confidence, flags_json, user_id, visibility, retention_tier, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (token, token, now, "walk_probe", "neutral", "[]", "[]",
-             json.dumps(["SYNTHETIC WALK PROBE -- db_key_reaches_every_service, safe to delete"]),
-             "[]", 0, 1.0, "[]", user_id or "walk-probe", "private", "standard", now),
+            "INSERT OR REPLACE INTO observations ({}) VALUES ({})".format(
+                ", ".join(names), ",".join("?" * len(names))),
+            tuple(values[n] for n in names),
         )
         conn.commit()
         post = conn.execute("SELECT COUNT(*) FROM observations WHERE conversation_id = ?", (token,)).fetchone()[0]
