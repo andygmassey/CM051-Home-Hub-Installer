@@ -38,3 +38,12 @@ one the route accepts, body is under the limit, fields read exist in the respons
 Calls that are red today and not fixed here are listed in the client's
 `contract/known_drift.json`; a listed call that stops violating fails the test, so the list
 cannot rot.
+
+## Auth kinds (Lane 11 addition)
+
+A route's `auth` list names every credential it accepts. Besides the token kinds it can carry
+`loopback_none`: the gateway lets a loopback peer with no relay or browser headers skip the
+bearer on that exact path (`LOOPBACK_UNAUTH_PATHS` in `api_auth.rs`; today only
+`/api/v1/speakers/identify`, which the Mac RemoteCapture app calls with no credential). The
+checker accepts `token_source: "none"` for such a route only when the client dials 127.0.0.1,
+localhost or ::1; a LAN host is still `AUTH_MISSING`.
