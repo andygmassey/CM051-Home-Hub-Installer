@@ -161,11 +161,13 @@ class CoachReaderTests(unittest.TestCase):
         with self.assertRaises(s.CoachDbError):
             s.coach_recent(user_id=USER)
 
-    def test_absent_db_is_loud_not_empty(self):
+    def test_fresh_box_absent_db_is_200_shape_with_db_state(self):
+        # Fresh install: the writer has not created the file yet.
         self.real.unlink()
         s = self._server(KEY)
-        with self.assertRaises(s.CoachDbError):
-            s.coach_recent(user_id=USER)
+        out = s.coach_recent(user_id=USER)
+        self.assertEqual(out["observations"], [])
+        self.assertEqual(out["db_state"], "absent")
 
     def test_zero_byte_decoy_never_masks_the_real_db(self):
         # Pointing the reader at the decoy (the old behaviour) must refuse.

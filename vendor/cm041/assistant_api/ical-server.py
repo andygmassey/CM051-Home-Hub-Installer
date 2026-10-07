@@ -2121,7 +2121,7 @@ def people_search(query, limit=10):
 # ── Coach observations (CM048 tier 3) ────────────────────────────────
 
 class CoachDbError(RuntimeError):
-    """The coach DB is absent or unreadable (no key, wrong key, no table).
+    """The coach DB exists but is unreadable (no key, wrong key, no table).
     Surfaced as a 500, never as an empty observation list."""
 
 
@@ -2150,12 +2150,17 @@ def coach_recent(user_id=None, hours=168, limit=10):
     """
     if not user_id:
         raise ValueError("user_id is required")
-    # An absent db is a REFUSAL, not an empty list: the silent empty is what
-    # hid the path mismatch. The writer creates the file on first observation.
+    # An absent file at the WRITER'S path is a fresh box: CM048 creates the
+    # db on the first observation, and the context-refresh generator polls
+    # this endpoint every tick and counts non-200 as a failure. Say so
+    # explicitly (db_state) rather than looking like "nothing observed".
+    # A file that exists but cannot be read stays a loud error below.
     if not COACH_DB.exists():
-        msg = f"coach database not found at {COACH_DB}"
-        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
-        raise CoachDbError(msg)
+        return {
+            "observations": [],
+            "db_state": "absent",
+            "note": f"coach database not yet created at {COACH_DB}",
+        }
 
     cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 

@@ -75,7 +75,14 @@ def judge(f):
     add(DECLARED[1], ok, detail)
 
     seed = f.get("seed") or {}
-    if not seed.get("attempted"):
+    if seed.get("db_state") == "absent":
+        # Absent file: before hydration the writer has not had a chance, so
+        # CANNOT-RUN; after hydration the observations were lost, so FAIL.
+        if seed.get("hydrated") is True:
+            add(DECLARED[2], False, "the coach db is ABSENT at the writer's path AFTER hydration (conversations were processed, nothing was written)")
+        else:
+            add(DECLARED[2], None, "NOT MEASURED: the coach db is absent and the box is not hydrated yet (hydrated={})".format(seed.get("hydrated")))
+    elif not seed.get("attempted"):
         add(DECLARED[2], None, "NOT MEASURED: could not resolve the key or open the coach database on the box ({})".format(seed.get("error", "no detail")))
     elif seed.get("pre_count") is None or seed.get("post_count") is None:
         add(DECLARED[2], None, "NOT MEASURED: could not count rows before/after seeding")
@@ -182,6 +189,14 @@ def seed_and_readback(token, service_token):
     # empty decoy file, which is how ~/.pwg/coach/observations.db appeared.
     if not db_path.exists():
         out_seed["error"] = "the coach db does not exist at {} (the writer has not created it)".format(db_path)
+        out_seed["db_state"] = "absent"
+        # Hydrated = CM048 has processed at least one conversation, so the
+        # writer has had its first chance to create the file.
+        pdir = Path(os.path.expanduser("~/.ostler/processing"))
+        try:
+            out_seed["hydrated"] = pdir.is_dir() and any(pdir.iterdir())
+        except OSError:
+            out_seed["hydrated"] = None
         return out_seed, out_rb, out_raw
     try:
         conn = get_db_connection(str(db_path), resolved.key)
@@ -347,6 +362,14 @@ def self_test():
         fails.append("an unattempted seed is not CANNOT-RUN for seed/readback: {} {}".format(row(dry, 2), row(dry, 3)))
     else:
         print("  ok    an unattempted seed is CANNOT-RUN, not a pass, for both seed and read-back")
+
+    # Absent db: FAIL after hydration, CANNOT-RUN before it.
+    for hyd, want in ((True, False), (False, None), (None, None)):
+        a = copy.deepcopy(g); a["seed"] = {"attempted": False, "db_state": "absent", "hydrated": hyd}
+        if row(a, 2) != [want]:
+            fails.append("absent db with hydrated={} judged {} not {}".format(hyd, row(a, 2), want))
+        else:
+            print("  ok    absent coach db, hydrated={}: {}".format(hyd, {False: "FAIL", None: "CANNOT-RUN"}[want]))
 
     # The probe must open the WRITER's path, never the legacy ~/.pwg decoy.
     _saved = {k: os.environ.pop(k, None) for k in ("OSTLER_COACH_DB",)}

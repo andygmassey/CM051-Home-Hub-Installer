@@ -658,7 +658,9 @@ SQLCipher-encrypted. The reader defaulted to `PWG_HOME/coach/...`
 (`~/.pwg`), opened an empty file and returned an empty list, silently.
 
 Now: `COACH_DB` is `~/.ostler/coach/observations.db` (`OSTLER_COACH_DB`
-overrides, `PWG_HOME` no longer does). An absent db, an encrypted db with no
+overrides, `PWG_HOME` no longer does). An ABSENT db is a fresh box (the writer creates it on the first
+observation; the context-refresh generator polls and counts non-200 as failure):
+200 with `observations: []` and `db_state: "absent"`. An existing db with no
 key, a wrong key or a missing table raises `CoachDbError`, logs to stderr and
 answers HTTP 500 with an `error` and no `observations` key. The key is the one
 already resolved at import by `resolve_db_key()` (CM051 #1956 precedent, which
