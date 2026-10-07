@@ -672,5 +672,4 @@ resolves the writer's path and never creates the file.
 
 Guarded by `vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`
 (7 tests; one loads the vendored CM048 `coach_db_path()` itself). Retire by
-landing CM041 #202 and re-pinning. ACK OWED: the VENDOR_MANIFEST hold_ack for
-the CM041 squash sha is added once #202 merges and the sha exists.
+landing CM041 #202 and re-pinning. ACKED: CM041 #202 merged as 9f2b883c859d53d65e65fcac1e461c1afe8edea1 and that sha is in the VENDOR_MANIFEST hold_ack for this tree. The pin is still held.
