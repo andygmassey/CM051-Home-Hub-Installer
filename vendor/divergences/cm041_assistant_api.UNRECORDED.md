@@ -646,3 +646,36 @@ yet: OWED, and it is a security-boundary change that wants a human read.
 
 Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
 (20 tests). Retire by landing the CM041 branch and re-pinning.
+
+## Twelfth graft: speaker naming, chunked conversation upload, 405 on POST-only paths (Lane 11)
+
+Source: CM041 branch `claude/lane11-hub-route-gaps` (same shape as the Lane 6
+graft above and #2658). Not yet on CM041 main, so there is no sha to put in
+`hold_ack_shas`: that ack is OWED the moment the CM041 PR merges.
+
+Files. `assistant_api/speaker_identify.py` and
+`assistant_api/conversation_upload.py` are byte-identical to CM041. The four
+new tests (`test_lane11_routes.py`, `test_speaker_identify.py`,
+`test_conversation_upload.py`) are byte-identical too. `ical-server.py` takes 8
+hunks, all applied with the CM041 diff and no hand edit: the route docs, the
+`_POST_ONLY_PATHS` 405 for GET on a POST-only path, the forget 64 KiB body cap,
+three adapters (`api_speakers_identify`, `api_speakers_correct`,
+`api_conversation_upload_part`), their three dispatch blocks and the endpoint
+index.
+
+Behaviour added. `POST /api/v1/speakers/identify` (CM042 RemoteCapture wire
+shape), `POST /api/v1/speakers/correct` (stores a correction so later
+transcripts get the name; also takes CM031's `SpeakerUpdateRequest` shape),
+`POST /api/v1/conversation/upload-part` (parts under one `meeting_id`,
+reassembled server-side, then the normal `conversation/process`).
+
+NOT grafted, deliberately: CM041 upstream's `api_people_forget` is the OLDER
+one. This tree's forget is already the complete one (graph-aware, fact nodes
+scoped by type, honest not-found, audit). The gateway's new
+`POST /api/v1/people/<slug>/forget` reaches THIS handler. Backporting this
+tree's forget to CM041 is separate, and until it lands a re-vendor from CM041
+must not overwrite it.
+
+Guarded by the three vendored tests (25) and
+`tests/test_lane11_client_calls_pass_the_contract.py`. Retire by landing the
+CM041 branch and re-pinning.

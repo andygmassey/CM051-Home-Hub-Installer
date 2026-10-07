@@ -31,6 +31,9 @@ Endpoints:
   POST /api/safari/save            – "Save to Knowledge": the page becomes a Knowledge item (Lane 6)
   GET  /api/v1/browsing/search?q=&days=&limit= – browsing entries with summary, tags, entities (Lane 6)
   GET  /api/v1/health/day?date=    – day's physiology joined to its context (#680)
+  POST /api/v1/speakers/identify   – name transcript speakers from calendar attendees, contacts and stored corrections (CM042 RemoteCapture)
+  POST /api/v1/speakers/correct    – store a speaker-name correction so later transcripts get the real name
+  POST /api/v1/conversation/upload-part – chunked upload for transcripts over 1 MiB; reassembled server-side, then processed
   POST /api/v1/people/{slug}/forget – GDPR Art. 17 right-of-erasure (one-click forget)
   POST /api/v1/memory/correct/{id} – correct ({"newValue":...}) or forget ({"forget":true}) a fact
   GET /health                      – health check (pass ?detailed=1 for deps)
@@ -2714,6 +2717,129 @@ def api_people_forget(slug):
     # iOS Companion shows the gatewayError banner per PR #90 contract).
     status_code = 200 if forgotten else 503
     return response, status_code
+
+
+# ── Speaker naming + chunked conversation upload ─────────────────────
+#
+# Logic lives in speaker_identify.py and conversation_upload.py (beside this
+# file, imported lazily like browsing_enrich). These are the thin adapters.
+
+def _speaker_mod():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import speaker_identify
+    return speaker_identify
+
+
+def _upload_mod():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import conversation_upload
+    return conversation_upload
+
+
+def _speaker_directory_rows():
+    """Every Person displayName on the graph, as [{"name": ...}]. Degrades to
+    an empty list (attendee-only matching) when Oxigraph is unreachable."""
+    try:
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?name WHERE {{ ?p a pwg:Person ; pwg:displayName ?name }}'
+            .format(ns=PWG_NS)
+        )
+    except Exception:
+        return []
+    return [{"name": r["name"]} for r in rows if r.get("name")]
+
+
+def _speaker_operator_names():
+    names = []
+    for var in ("USER_DISPLAY_NAME", "PWG_USER_NAME", "USER_NAME"):
+        val = (os.environ.get(var) or "").strip()
+        if val and val not in names:
+            names.append(val)
+    return names
+
+
+def api_speakers_identify(payload):
+    """Handle POST /api/v1/speakers/identify (CM042 RemoteCapture).
+
+    The adapter names the request and response fields explicitly so the
+    generated hub contract (CM051 scripts/gen_hub_contract.py) can read them.
+    """
+    if not isinstance(payload, dict) or not payload.get("transcript"):
+        return {"error": "Missing 'transcript' field"}, 400
+    _speaker_mod()  # puts this directory on sys.path
+    from speaker_identify import identify
+    body, status = identify(
+        {
+            "transcript": payload.get("transcript"),
+            "attendees": payload.get("attendees"),
+            "timestamp": payload.get("timestamp"),
+            "duration": payload.get("duration"),
+            "source": payload.get("source"),
+        },
+        _speaker_directory_rows(), _speaker_operator_names(), _wiki_slug,
+    )
+    if status != 200:
+        return body, status
+    return {"speakers": body["speakers"]}, status
+
+
+def api_speakers_correct(payload):
+    """Handle POST /api/v1/speakers/correct."""
+    if not isinstance(payload, dict):
+        return {"error": "body must be a JSON object"}, 400
+    _speaker_mod()
+    from speaker_identify import record_corrections
+    body, status = record_corrections(
+        {
+            "meeting_id": payload.get("meeting_id"),
+            "attendees": payload.get("attendees"),
+            "corrections": payload.get("corrections"),
+            "identifications": payload.get("identifications"),
+        },
+        _wiki_slug,
+    )
+    if status != 200:
+        return body, status
+    return {"ok": body["ok"], "stored": body["stored"], "skipped": body["skipped"]}, status
+
+
+def api_conversation_upload_part(payload):
+    """Handle POST /api/v1/conversation/upload-part (transcripts over 1 MiB)."""
+    if (not isinstance(payload, dict) or payload.get("meeting_id") is None
+            or payload.get("part_index") is None or payload.get("part_total") is None
+            or not payload.get("transcript")):
+        return {
+            "error": "Missing 'meeting_id', 'part_index', 'part_total' or 'transcript' field"
+        }, 400
+    _upload_mod()
+    from conversation_upload import receive_part
+    body, status = receive_part(
+        {
+            "meeting_id": payload.get("meeting_id"),
+            "part_index": payload.get("part_index"),
+            "part_total": payload.get("part_total"),
+            "transcript": payload.get("transcript"),
+            "metadata": payload.get("metadata"),
+        },
+        api_conversation_process,
+    )
+    if status == 200:
+        return {
+            "status": body["status"], "meeting_id": body["meeting_id"],
+            "received": body["received"], "part_total": body["part_total"],
+            "missing": body["missing"],
+        }, status
+    if status == 202:
+        return {
+            "job_id": body["job_id"], "status": body["status"],
+            "state_url": body["state_url"], "parts": body["parts"],
+        }, status
+    return body, status
 
 
 # ── User-asserted facts (learning-loop write path) ───────────────────
@@ -9233,6 +9359,19 @@ class Handler(BaseHTTPRequestHandler):
         "/api/v1/calendar/today":   "/calendar/today",
     }
 
+    _POST_ONLY_PATHS = frozenset({
+        "/api/v1/speakers/identify",
+        "/api/v1/speakers/correct",
+        "/api/v1/conversation/upload-part",
+        "/api/safari/ingest",
+        "/api/safari/save",
+    })
+    _FORGET_PATH_RE = re.compile(r"^/api/v1/people/[^/]+/forget$")
+
+    @classmethod
+    def _is_post_only_path(cls, path):
+        return path in cls._POST_ONLY_PATHS or bool(cls._FORGET_PATH_RE.match(path))
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path in self._VERSIONED_TO_LEGACY:
@@ -10091,6 +10230,16 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        # A known POST-only path asked with GET is a method error, not a
+        # missing route (the client should be told which verb to use).
+        if self._is_post_only_path(parsed.path):
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Method not allowed; use POST"}).encode())
+            return
+
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -10125,6 +10274,9 @@ class Handler(BaseHTTPRequestHandler):
             "POST /api/v1/ingest/ios": "Batch upload from the iOS companion (application/json)",
             "POST /api/safari/ingest": "Live capture from the Safari/Chrome extension (HR015 #180). One page per POST; behind the Doctor paired-bearer wall.",
             "/api/v1/health/day?date=YYYY-MM-DD": "A day's Apple Health physiology joined to that day's life-context (defaults to today)",
+            "POST /api/v1/speakers/identify": "Name transcript speakers (body: {transcript, attendees, timestamp, duration, source})",
+            "POST /api/v1/speakers/correct": "Store a speaker-name correction (body: {corrections:[{label, display_name}]})",
+            "POST /api/v1/conversation/upload-part": "Chunked transcript upload (body: {meeting_id, part_index, part_total, transcript})",
             "POST /api/v1/memory/correct/{id}": "Correct or forget a memory fact (body: {\"newValue\":...} or {\"forget\":true})",
             "/health": "Health check (pass ?detailed=1 for dependency checks)",
         }}).encode())
@@ -10145,6 +10297,18 @@ class Handler(BaseHTTPRequestHandler):
         if (parsed.path.startswith("/api/v1/people/")
                 and parsed.path.endswith("/forget")):
             slug = parsed.path[len("/api/v1/people/"):-len("/forget")]
+            # The body is ignored, but an oversized one is still refused
+            # (this branch runs before the general body-size check below).
+            try:
+                _forget_clen = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                _forget_clen = 0
+            if _forget_clen > 65536:
+                self.send_response(413)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Body too large (max 65536 bytes)"}).encode())
+                return
             try:
                 result, status = api_people_forget(slug)
             except Exception as exc:
@@ -10203,6 +10367,39 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/conversation/process":
             try:
                 result, status = api_conversation_process(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        if parsed.path == "/api/v1/conversation/upload-part":
+            try:
+                result, status = api_conversation_upload_part(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        if parsed.path == "/api/v1/speakers/identify":
+            try:
+                result, status = api_speakers_identify(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        if parsed.path == "/api/v1/speakers/correct":
+            try:
+                result, status = api_speakers_correct(payload)
             except Exception as exc:
                 result, status = {"error": str(exc)}, 500
             self.send_response(status)
@@ -10407,7 +10604,7 @@ if __name__ == "__main__":
             flush=True,
         )
     print(f"Assistant API running on http://{BIND_HOST}:{PORT}")
-    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/contacts/diff, /api/v1/meeting/upcoming, /api/v1/reply-debt, /api/v1/hub/health, /api/v1/health/day, /api/v1/memory, POST /api/v1/ingest/ios, POST /api/safari/ingest, POST /api/v1/people/{slug}/forget, POST /api/v1/memory/correct/{id}, POST /api/v1/memory/assert, /health")
+    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/contacts/diff, /api/v1/meeting/upcoming, /api/v1/reply-debt, /api/v1/hub/health, /api/v1/health/day, /api/v1/memory, POST /api/v1/ingest/ios, POST /api/safari/ingest, POST /api/v1/people/{slug}/forget, POST /api/v1/speakers/identify, POST /api/v1/speakers/correct, POST /api/v1/conversation/upload-part, POST /api/v1/memory/correct/{id}, POST /api/v1/memory/assert, /health")
     if BIND_HOST == "0.0.0.0":
         print(
             "WARNING: OSTLER_API_BIND=0.0.0.0 exposes the Assistant API on "

@@ -41,6 +41,9 @@
    "companion_port": 8443,
    "default_body_limit": 65536,
    "default_host": "127.0.0.1",
+   "loopback_unauth_paths": [
+    "/api/v1/speakers/identify"
+   ],
    "pre_auth_allowlist": [
     "/api/pair",
     "/api/v1/frontpage/cards"
@@ -146,7 +149,9 @@
    "query_params": [],
    "request_optional": [
     "device",
+    "dwell_ms",
     "html",
+    "text",
     "timestamp",
     "title"
    ],
@@ -159,7 +164,46 @@
     "ok",
     "reason",
     "skipped_sensitive",
-    "stored"
+    "stored",
+    "summary_status"
+   ],
+   "source": "install.sh"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "doctor POST /api/safari/save",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/safari/save",
+   "ports": [
+    8089
+   ],
+   "proxy_to": "ical:POST:/api/safari/save",
+   "query_params": [],
+   "request_optional": [
+    "device",
+    "note",
+    "tags",
+    "text",
+    "timestamp",
+    "title"
+   ],
+   "request_required": [
+    "url"
+   ],
+   "response_fields": [
+    "error",
+    "id",
+    "ok",
+    "reason",
+    "skipped_sensitive",
+    "status",
+    "stored",
+    "visit_id"
    ],
    "source": "install.sh"
   },
@@ -215,6 +259,34 @@
     "state"
    ],
    "source": "vendor/doctor/agent/web_ui.py"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": null,
+   "id": "doctor GET /api/v1/browsing/search",
+   "listener": "doctor",
+   "method": "GET",
+   "path": "/api/v1/browsing/search",
+   "ports": [
+    8089
+   ],
+   "proxy_to": "ical:GET:/api/v1/browsing/search",
+   "query_params": [
+    "days",
+    "limit",
+    "q"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "reason",
+    "results"
+   ],
+   "source": "install.sh"
   },
   {
    "auth": [
@@ -2701,6 +2773,83 @@
    "auth": [
     "device_bearer"
    ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/safari/ingest",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/safari/ingest",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/safari/ingest",
+   "query_params": [],
+   "request_optional": [
+    "device",
+    "dwell_ms",
+    "html",
+    "text",
+    "timestamp",
+    "title"
+   ],
+   "request_required": [
+    "url"
+   ],
+   "response_fields": [
+    "error",
+    "id",
+    "ok",
+    "reason",
+    "skipped_sensitive",
+    "stored",
+    "summary_status"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/safari/save",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/safari/save",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/safari/save",
+   "query_params": [],
+   "request_optional": [
+    "device",
+    "note",
+    "tags",
+    "text",
+    "timestamp",
+    "title"
+   ],
+   "request_required": [
+    "url"
+   ],
+   "response_fields": [
+    "error",
+    "id",
+    "ok",
+    "reason",
+    "skipped_sensitive",
+    "status",
+    "stored",
+    "visit_id"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
    "body_limit_bytes": null,
    "id": "gateway GET /api/sessions",
    "listener": "gateway",
@@ -2985,6 +3134,44 @@
    "request_required": [],
    "response_fields": [
     "error"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/conversation/upload-part",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/conversation/upload-part",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/conversation/upload-part",
+   "query_params": [],
+   "request_optional": [
+    "metadata"
+   ],
+   "request_required": [
+    "meeting_id",
+    "part_index",
+    "part_total",
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "job_id",
+    "meeting_id",
+    "missing",
+    "part_total",
+    "parts",
+    "received",
+    "state_url",
+    "status"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3411,6 +3598,37 @@
    "auth": [
     "device_bearer"
    ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/v1/people/{slug}/forget",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/forget",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/forget",
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "already_forgotten",
+    "audit_readable",
+    "degraded",
+    "error",
+    "forgotten",
+    "not_found",
+    "reason",
+    "stores_purged",
+    "wiki_recompile_queued"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
    "body_limit_bytes": null,
    "id": "gateway GET /api/v1/preferences",
    "listener": "gateway",
@@ -3534,6 +3752,38 @@
    "response_fields": [
     "count",
     "sources"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer",
+    "loopback_none"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/speakers/identify",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/speakers/identify",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/speakers/identify",
+   "query_params": [],
+   "request_optional": [
+    "attendees",
+    "duration",
+    "source",
+    "timestamp"
+   ],
+   "request_required": [
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "speakers"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -4383,7 +4633,9 @@
    "query_params": [],
    "request_optional": [
     "device",
+    "dwell_ms",
     "html",
+    "text",
     "timestamp",
     "title"
    ],
@@ -4396,7 +4648,72 @@
     "ok",
     "reason",
     "skipped_sensitive",
-    "stored"
+    "stored",
+    "summary_status"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/safari/save",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/safari/save",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "device",
+    "note",
+    "tags",
+    "text",
+    "timestamp",
+    "title"
+   ],
+   "request_required": [
+    "url"
+   ],
+   "response_fields": [
+    "error",
+    "id",
+    "ok",
+    "reason",
+    "skipped_sensitive",
+    "status",
+    "stored",
+    "visit_id"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/browsing/search",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/browsing/search",
+   "ports": [
+    8090
+   ],
+   "query_params": [
+    "days",
+    "limit",
+    "q"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "reason",
+    "results"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -4571,6 +4888,42 @@
    "request_required": [],
    "response_fields": [
     "error"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/conversation/upload-part",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/conversation/upload-part",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "metadata"
+   ],
+   "request_required": [
+    "meeting_id",
+    "part_index",
+    "part_total",
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "job_id",
+    "meeting_id",
+    "missing",
+    "part_total",
+    "parts",
+    "received",
+    "state_url",
+    "status"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5213,6 +5566,64 @@
     "debts",
     "degraded",
     "reason"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/speakers/correct",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/speakers/correct",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "attendees",
+    "corrections",
+    "identifications",
+    "meeting_id"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "error",
+    "ok",
+    "skipped",
+    "stored"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/speakers/identify",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/speakers/identify",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "attendees",
+    "duration",
+    "source",
+    "timestamp"
+   ],
+   "request_required": [
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "speakers"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

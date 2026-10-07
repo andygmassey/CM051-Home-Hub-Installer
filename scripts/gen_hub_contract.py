@@ -419,6 +419,10 @@ def extract_gateway(src_dir, ical_routes, doctor_routes):
 
     m = re.search(r"PRE_AUTH_ALLOWLIST:\s*&\[&str\]\s*=\s*&\[([^\]]*)\]", auth_rs)
     pre_auth = re.findall(r'"([^"]+)"', m.group(1)) if m else None
+    # Paths a LOCAL native client may call with no bearer (api_auth.rs
+    # LOOPBACK_UNAUTH_PATHS). Optional: absent means none.
+    m = re.search(r"LOOPBACK_UNAUTH_PATHS:\s*&\[&str\]\s*=\s*&\[([^\]]*)\]", auth_rs)
+    loopback_paths = re.findall(r'"([^"]+)"', m.group(1)) if m else []
     m = re.search(r"pub const MAX_BODY_SIZE:\s*usize\s*=\s*([\d_]+)", consts_src)
     default_limit = int(m.group(1).replace("_", "")) if m else None
     m = re.search(r"fn default_companion_port\(\)\s*->\s*u16\s*\{\s*(\d+)", cfg_rs)
@@ -454,6 +458,10 @@ def extract_gateway(src_dir, ical_routes, doctor_routes):
         for verb, handler in re.findall(r"\b(get|post|put|delete|patch)\(\s*([\w:]+)", rest):
             V = verb.upper()
             auth = ["device_bearer"] if (path.startswith("/api/") and path not in pre_auth) else None
+            if auth and path in loopback_paths:
+                # Bearer, OR no credential from a loopback client (see the
+                # checker's loopback_none rule).
+                auth = ["device_bearer", "loopback_none"]
             if auth is None:
                 if path.startswith("/ws/") and ws_bearer:
                     auth = ["device_bearer"]
@@ -513,7 +521,8 @@ def extract_gateway(src_dir, ical_routes, doctor_routes):
                 continue
             out.append(rec)
     info = {"default_body_limit": default_limit, "big_body_limit": big_limit,
-            "pre_auth_allowlist": pre_auth, "companion_port": companion_port,
+            "pre_auth_allowlist": pre_auth, "loopback_unauth_paths": loopback_paths,
+            "companion_port": companion_port,
             "default_host": gw_host}
     return out, info
 
