@@ -668,3 +668,30 @@ Test `vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py`
 
 Upstream landed as CM041 #201, squash sha `1e18c6b0`, acked in `hold_ack_shas`
 in `vendor/VENDOR_MANIFEST.toml`. Retire by re-pinning.
+
+## Thirteenth graft: the coach reader read a path the writer never wrote (CM051 v1.0.107 #11)
+
+Mirrors CM041 PR #202. `vendor/cm041/assistant_api/ical-server.py`:
+`COACH_DB`, `coach_recent`, and the `/api/v1/coach/recent` handler.
+
+CM048 writes coach observations to `~/.ostler/coach/observations.db`
+(`vendor/cm048_pipeline/src/ostler_paths.py:52`, `ingest.py` `_write_coach`),
+SQLCipher-encrypted. The reader defaulted to `PWG_HOME/coach/...`
+(`~/.pwg`), opened an empty file and returned an empty list, silently.
+
+Now: `COACH_DB` is `~/.ostler/coach/observations.db` (`OSTLER_COACH_DB`
+overrides, `PWG_HOME` no longer does). An ABSENT db is a fresh box (the writer creates it on the first
+observation; the context-refresh generator polls and counts non-200 as failure):
+200 with `observations: []` and `db_state: "absent"`. An existing db with no
+key, a wrong key or a missing table raises `CoachDbError`, logs to stderr and
+answers HTTP 500 with an `error` and no `observations` key. The key is the one
+already resolved at import by `resolve_db_key()` (CM051 #1956 precedent, which
+CM041 source does not carry; that is why this file differs from upstream there).
+
+The walk probe `db_key_reaches_every_service` had the same hard-coded
+`~/.pwg` path (and created the 0-byte decoy by connecting to it); it now
+resolves the writer's path and never creates the file.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`
+(7 tests; one loads the vendored CM048 `coach_db_path()` itself). Retire by
+landing CM041 #202 and re-pinning. ACKED: CM041 #202 merged as 9f2b883c859d53d65e65fcac1e461c1afe8edea1 and that sha is in the VENDOR_MANIFEST hold_ack for this tree. The pin is still held.
