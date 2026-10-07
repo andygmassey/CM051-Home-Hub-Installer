@@ -31,6 +31,7 @@
 		3F2D87F797014DECDE6E74CA /* StepStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */; };
 		4053CDA189BD519216F95530 /* Outfit-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */; };
 		41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */; };
+		4217257358F1341C6A4ACEFA /* FDAPresetSubtitleFaceRecognitionClaimTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865CDEDEE721BB0D50F6CE6 /* FDAPresetSubtitleFaceRecognitionClaimTests.swift */; };
 		42B4B7E6BB21F1B46D49D459 /* PassphraseMismatchUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */; };
 		4356B5C68B06550290E1A2E5 /* PermissionsPrewarmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */; };
 		47875F42C956EED5EB0353A5 /* PermissionsIntroView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */; };
@@ -147,6 +148,7 @@
 		2BECBCD317ECFB7182B86C35 /* RecoveryApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryApp.swift; sourceTree = "<group>"; };
 		2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = generate_appicon.py; sourceTree = "<group>"; };
 		32536CCF11D7C73D2C7D1170 /* WhatsAppLinkSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsAppLinkSection.swift; sourceTree = "<group>"; };
+		3865CDEDEE721BB0D50F6CE6 /* FDAPresetSubtitleFaceRecognitionClaimTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FDAPresetSubtitleFaceRecognitionClaimTests.swift; sourceTree = "<group>"; };
 		38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; };
 		3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationClientTests.swift; sourceTree = "<group>"; };
 		40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationGateTests.swift; sourceTree = "<group>"; };
@@ -329,6 +331,7 @@
 				4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */,
 				206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */,
 				42B30C4B72F0216B459295F7 /* FailureStateMachineTests.swift */,
+				3865CDEDEE721BB0D50F6CE6 /* FDAPresetSubtitleFaceRecognitionClaimTests.swift */,
 				59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */,
 				FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */,
 				C79B61D716E7D57F5C6D903B /* InstallFailedBannerTest.swift */,
@@ -1263,6 +1266,7 @@
 				41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */,
 				1D6CF8A897FD36AB98603A37 /* EmailSupportMailtoTest.swift in Sources */,
 				3F2BBCBFC481F5B4DD84D30E /* ErrorCodeBannerTest.swift in Sources */,
+				4217257358F1341C6A4ACEFA /* FDAPresetSubtitleFaceRecognitionClaimTests.swift in Sources */,
 				D687020DA04D1B854FB03E39 /* FailureStateMachineTests.swift in Sources */,
 				E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */,
 				A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */,
