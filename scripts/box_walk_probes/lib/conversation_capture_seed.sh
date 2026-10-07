@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # lib/conversation_capture_seed.sh -- two synthetic conversations, through the
-# CUSTOMER's own iPhone/Watch path (v1.0.107 #10, conversation_capture_end_to_end).
+# CUSTOMER's own iPhone/Watch path (v1.0.107 #10, conversation_capture_end_to_end,
+# CM051 PR #2664).
 #
 # WHY A SEPARATE SEED FROM lib/conversation_seed.sh. That seed already puts
 # one fictional voice note through the conversation pipeline, but
