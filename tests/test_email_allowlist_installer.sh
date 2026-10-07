@@ -90,7 +90,7 @@ structural() { # <file> -> prints failures, returns count
         | grep -Ev 'CHANNEL_EMAIL_PASSWORD=|== "\$_email_confirm_input"|echo "password = |unset CHANNEL_EMAIL_PASSWORD' || true)"
     if [ -n "$leaks" ]; then echo "  password referenced where it may be printed: $leaks"; bad=$((bad + 1)); fi
     # no command-substitution or log call may carry the password
-    if grep -nE '(dbg|info|warn|ok|log|printf|echo)[^|]*CHANNEL_EMAIL_PASSWORD' "$f" | grep -v 'echo "password = ' | grep -v '^[0-9]*:[[:space:]]*#' | grep -q .; then
+    if [ "$(grep -nE '(dbg|info|warn|ok|log|printf|echo)[^|]*CHANNEL_EMAIL_PASSWORD' "$f" | grep -v 'echo "password = ' | grep -v '^[0-9]*:[[:space:]]*#' | grep -c .)" -gt 0 ]; then
         echo "  a log/print line carries CHANNEL_EMAIL_PASSWORD"; bad=$((bad + 1))
     fi
     return "$bad"
