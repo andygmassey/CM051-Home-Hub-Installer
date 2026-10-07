@@ -495,3 +495,104 @@ subsumed-shape controls above pass on both sides, by design, alongside
 the 3 carded-human-stays controls), GREEN after.
 
 Retire by landing CM041 PR #195 and re-pinning.
+
+## Eleventh graft: conversation_id ignored metadata.meeting_id, causing silent data loss (CM051 v1.0.107 candidate #10)
+
+Tree `cm041/assistant_api`, same file: `api_conversation_process`, plus two
+new helpers, `_is_safe_meeting_id` and `_resolve_fallback_conversation_id`.
+Matches CM041 PR #196 (upstream, open at time of writing).
+
+`conversation_id` was built as `date_firstTwoSpeakerLabels_type` and
+ignored `metadata.meeting_id`, the per-session UUID the iOS/Watch app
+sends with every recording. Every Watch conversation on the same day
+collided as `<date>_s1_wearable`: the second POST overwrote the first
+conversation's raw transcript, CM048 then skipped the overwritten one as
+already-complete, and the Hub still returned 202 so the app deleted its
+(now only) copy. The conversation was gone. Affects any capture path
+whose speaker labels repeat on the same day, including the Mac's.
+
+This vendor tree's `api_conversation_process` has its own divergence from
+CM041 source (the Rule 0.8 subscription-pause gate, and a pre-flight probe
+of the `pwg-convo` CLI via `_invoke_pwg_convo` in place of CM041's direct
+`OSTLER_VENV_PYTHON` subprocess call) -- both untouched by this graft. The
+id-generation block the graft touches is byte-identical between the two
+trees before this change, so the port is a straight copy of the new
+block, not an adaptation.
+
+`conversation_id` now prefers `metadata.meeting_id` when it validates as a
+UUID or a path-safe slug (`_is_safe_meeting_id`: no `/`, `.`, or
+whitespace). Falls back to the old date+label scheme otherwise, guarded
+by `_resolve_fallback_conversation_id`: if the target already holds a
+DIFFERENT raw transcript, suffix instead of overwriting; a resend of
+identical content reuses the same id.
+
+Guarded by
+`vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py`,
+7 tests (ported from CM041 PR #196, adapted for this tree's own
+divergence: `_invoke_pwg_convo` is stubbed so the pre-flight probe and the
+background processor's own call both succeed without a real `pwg-convo`
+binary on PATH, and `_subscription_paused` is stubbed directly because
+`assistant_api/subscription_gate.py` sits on `sys.path` in this test
+environment -- same mechanism the gate's own docstring describes for
+production -- and reports the default unlicensed state as paused rather
+than failing open). RED confirmed against the unmodified vendored
+`ical-server.py` via `git checkout origin/main --
+vendor/cm041/assistant_api/ical-server.py` (4 of 7 fail, including the
+exact overwrite scenario), GREEN after.
+
+Wired into CI by `.github/workflows/walk-meeting-id-collision-guard.yml`
+in the same diff (new-tests-must-be-wired gate).
+
+Retire by landing CM041 PR #196 and re-pinning.
+
+## Eleventh graft: the conversation-status endpoint reads the path CM048 actually writes (H2b, v1.0.107)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+module-level `PROCESSING_DIR`. Matches CM041 PR #197.
+
+`GET /api/v1/conversation/status/{id}` (`api_conversation_status`) read
+`PROCESSING_DIR` derived from `PWG_HOME`, which defaults to `~/.pwg`.
+CM048's real processor (`andygmassey/CM048-PWG-Conversation-Processing`,
+installed on this Hub at `${OSTLER_DIR}/services/cm048`, invoked here via
+`pwg-convo`) writes each conversation's `state.json` under the two-zone
+engine room, `~/.ostler/processing`, by default -- confirmed at
+`src/ostler_paths.py:42-44` (`processing_dir()`), `src/settings.py:93-94`
+(`Settings.processing_state_dir` default) and the shipped production
+config `settings.yaml.production:143`
+(`processing_state_dir: ~/.ostler/processing`); the real write is
+`src/processor.py:88` (and 480, 590). CM048's own two-zone migration
+(`ostler_paths.py:124-128`, `_ENGINE_ROOM_MAPPING`) moves `.pwg/processing`
+to `.ostler/processing` and removes the legacy root on first launch, so
+past first launch `~/.pwg/processing` does not exist at all, and this
+endpoint was reading a directory CM048 could never write to -- a phone
+polling status never saw "completed".
+
+`PROCESSING_DIR` now resolves independently of `PWG_HOME`, honouring the
+same override chain CM048's own `settings.py:270-276` uses
+(`OSTLER_PROCESSING_DIR` > `OSTLER_STATE_DIR` > `PWG_PROCESSING_DIR`),
+defaulting to `~/.ostler/processing`. `COACH_DB` and `CONVERSATIONS_DIR`
+still derive from `PWG_HOME` and share the same stale-default shape; that
+is a separate, pre-existing divergence, flagged not fixed here, to keep
+this graft to the one reported defect.
+
+The brief that opened this ticket named `andygmassey/CM052` ("PWG AI
+Conversation Ingest") as the writer. That repo contains no code that
+writes a processing marker anywhere; the real writer is the separate,
+still-independently-existing `andygmassey/CM048-PWG-Conversation-Processing`
+repo, confirmed by reading it rather than assumed from the brief.
+
+Guarded by
+`vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py`
+(ported from CM041 PR #197), 3 tests. RED confirmed against the unmodified
+vendored `ical-server.py` via `git checkout origin/main --
+vendor/cm041/assistant_api/ical-server.py` (no stash): 2 of 3 fail (default
+resolves to `.pwg/processing`, env-override chain unhonoured). GREEN
+after. Full vendor `assistant_api` suite: 130 passed, 5 failed, both before
+and after this graft, same 5 test names each time (the pre-existing,
+unrelated `test_ical_server_wire_shape.py` gap already named in the Tenth
+graft's own sibling PR #2658 -- iOS-ingest subscription-gate shape plus an
+organisation-key test with a real, unmocked network dependency) -- confirmed
+unchanged by running the full suite against the pre-fix file via the same
+`git checkout origin/main --` swap, not `git stash`.
+
+Retire by landing CM041 PR #197 and re-pinning.
