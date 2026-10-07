@@ -1382,6 +1382,8 @@ def _commitment_lines() -> list[str]:
     if not isinstance(rows, list):
         return []
     today = _today().date().isoformat()
+    # An open commitment more than 90 days overdue is stale, not a priority.
+    stale_before = (_today().date() - timedelta(days=90)).isoformat()
     items: list[tuple[tuple, str]] = []
     seen: set[str] = set()
     for r in rows:
@@ -1392,6 +1394,8 @@ def _commitment_lines() -> list[str]:
             continue
         seen.add(action.lower())
         due = str(r.get("due") or "").strip()[:10]
+        if due and due < stale_before:
+            continue
         if len(action) > 90:
             action = action[:87].rstrip() + "..."
         # Soonest upcoming first, then overdue, then undated.
