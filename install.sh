@@ -37681,11 +37681,12 @@ else
                 umask 0077
                 mkdir -p "$SAFARI_EXT_PREFS_DIR" 2>/dev/null
                 [[ -f "$SAFARI_EXT_PLIST" ]] || /usr/bin/plutil -create xml1 "$SAFARI_EXT_PLIST" 2>/dev/null
+                # plutil -replace sets the key, creating it when absent, in one write;
+                # no PlistBuddy Set/Add pair (cold-box-truth reads any PlistBuddy call as a read).
                 _safari_ext_pb_set() {
                     # $1=key $2=type $3=value. Set first (idempotent update);
                     # Add only if the key did not already exist.
-                    /usr/libexec/PlistBuddy -c "Set :$1 $3" "$SAFARI_EXT_PLIST" >/dev/null 2>&1 \
-                        || /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$SAFARI_EXT_PLIST" >/dev/null 2>&1
+                    /usr/bin/plutil -replace "$1" "-$2" "$3" "$SAFARI_EXT_PLIST" >/dev/null 2>&1
                 }
                 if [[ -f "$SAFARI_EXT_PLIST" ]] \
                         && _safari_ext_pb_set pairedBearer string "$OSTLER_EXTENSION_TOKEN"; then
