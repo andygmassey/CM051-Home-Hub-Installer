@@ -505,6 +505,29 @@ entries:
     proof:
       kind: box_walk_probe
       probe: owner_digest_knows_the_owner
+  - id: probe-conversation-capture-end-to-end
+    title: "box-walk probe must PASS: conversation_capture_end_to_end"
+    why: |
+      v1.0.107 #10, CORE to the product per Andy. A paired iPhone or Watch
+      POSTs to /api/v1/conversation/process through the TLS companion
+      gateway (:8443, device bearer); nothing on any walk had ever exercised
+      that path end to end. Must: accept the POST, reach "completed" on
+      GET /api/v1/conversation/status/{id} within budget (a timeout reports
+      FAIL with the last status seen, never a hang), produce all three
+      CLAUDE.md four-artefact-spec files (summary.md, transcript.md,
+      todos.md) frontmatter-tagged with the conversation_id, stay findable
+      afterward, and not let a second same-day conversation clobber the
+      first. Self-test: a real fixture folder with todos.md deliberately
+      removed FAILs the artefacts assertion; six further mutants each
+      caught by their own assertion. BLOCKING in walk_promote_scope.tsv.
+      DEPENDS ON two sibling PRs not yet merged at the time this row was
+      added (gateway GET-proxy wiring for status/{id}; the ical-server
+      processing-path fix) -- until both land, this probe is expected to
+      FAIL on main, and that FAIL is the defect it documents, not a bug in
+      the probe.
+    proof:
+      kind: box_walk_probe
+      probe: conversation_capture_end_to_end
   - id: probe-db-key-reaches-every-service
     title: "box-walk probe must PASS: db_key_reaches_every_service"
     why: |
