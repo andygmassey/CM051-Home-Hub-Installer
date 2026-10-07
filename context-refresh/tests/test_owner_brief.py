@@ -137,15 +137,19 @@ _BRIEF_INTERESTS = [
 ]
 
 _COMMITMENTS = {"commitments": [
-    {"action": "Send Mary the revised floor plan", "owner": "user",
+    {"action": "Post the revised floor plan", "owner": "user",
      "due": "2099-01-15", "status": "open", "source": "2026-09-30"},
     {"action": "Renew the boat insurance", "owner": "user",
-     "due": "2020-01-01", "status": "open", "source": ""},
+     "due": (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat(),
+     "status": "open", "source": ""},
+    {"action": "Renew the ancient passport", "owner": "user",
+     "due": (datetime.now(timezone.utc) - timedelta(days=365)).date().isoformat(),
+     "status": "open", "source": ""},
     {"action": "Sort the loft", "owner": "user", "due": "",
      "status": "open", "source": ""},
     {"action": CANARY_L3_COMMITMENT, "owner": "user", "due": "",
      "status": "open", "source": "", "privacy_level": "L3"},
-], "count": 4, "privacy_level": "L2"}
+], "count": 5, "privacy_level": "L2"}
 
 _MEMORY = {"facts": [
     {"id": "fact_a", "object": "Lives in Fictionville", "source": "manual",
@@ -200,9 +204,11 @@ def test_routines_and_priorities_render(brief):
     assert "Timing only" in routine
     opens = [ln for ln in sec.splitlines() if ln.startswith("- Open:")]
     # Soonest upcoming first, then overdue, then undated.
-    assert opens[0].startswith("- Open: Send Mary the revised floor plan (due 2099-01-15)")
-    assert opens[1].startswith("- Open: Renew the boat insurance (due 2020-01-01)")
+    assert opens[0].startswith("- Open: Post the revised floor plan (due 2099-01-15)")
+    assert opens[1].startswith("- Open: Renew the boat insurance (due " + (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat() + ")")
     assert opens[2] == "- Open: Sort the loft"
+    # More than 90 days overdue (365 here) is hidden.
+    assert "ancient passport" not in sec
     # Routines name no meeting title or attendee.
     assert "Routine block" not in sec and "Mary Smith" not in routine
 
@@ -319,7 +325,7 @@ def _large_store() -> ox.Store:
     for i in range(300):
         p = ox.NamedNode(f"https://example.invalid/person/bulk{i}")
         store.add(ox.Quad(p, _RDF_TYPE, _n("Person"), dg))
-        store.add(ox.Quad(p, _n("displayName"), _lit(f"Bulk Person {i}"), dg))
+        store.add(ox.Quad(p, _n("displayName"), _lit(f"Jane Doe {i}"), dg))
         store.add(ox.Quad(p, _n("organization"), _lit(f"Org {i % 40}"), dg))
         store.add(ox.Quad(p, _n("privacyLevel"), _lit("L2"), dg))
         s = ox.NamedNode(f"https://example.invalid/signal/bulk{i}")
