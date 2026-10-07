@@ -57,7 +57,13 @@ fences. No commentary. The object MUST have these three keys:
   id, include it. Otherwise omit.
 - If there are no todos, return ``"todos": []`` -- empty list,
   not omitted.
-- Use the user's locale for spelling (en-GB, en-US, etc.).
+- Write summary, topic names, points and todo text in the language
+  named under OUTPUT LANGUAGE below (by default the language the
+  conversation was held in). JSON keys stay English. Proper nouns and
+  quoted source text stay as written. Topic names in a cased script use
+  that script's normal capitalisation.
+- Use the user's locale for spelling (en-GB, en-US, etc.) when the
+  output language is English.
 
 # Channel-specific guidance
 

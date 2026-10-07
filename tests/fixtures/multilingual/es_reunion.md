@@ -1,0 +1,3 @@
+Lucía Navarro: Hola Marcos, gracias por venir. Tenemos que hablar del presupuesto para la reforma de la tienda.
+Marcos Ibáñez: Con gusto. Te envío el informe mañana y llamo al proveedor el jueves.
+Lucía Navarro: Perfecto. Yo reviso el contrato y te escribo el viernes.

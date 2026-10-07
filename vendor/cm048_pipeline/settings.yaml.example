@@ -32,6 +32,19 @@ user_display_name: Your Name
 # Examples: en-GB, en-US, en-AU, fr-FR, de-DE, zh-HK
 locale: en-GB
 
+# Language of summaries and todos. The UI stays English; this only
+# controls the language of the text the assistant writes about a
+# conversation.
+#   conversation  (default) write the summary and todos in the language
+#                 the conversation was held in (a French chat gets a
+#                 French summary, a Japanese call a Japanese one).
+#   <code>        write them in that language whatever the conversation
+#                 was in, e.g. en, de, fr, es, it, ja, zh.
+# Section headings, table column names and JSON keys always stay English
+# because software reads them. Proper nouns and quoted source text stay
+# as written.
+summary_language: conversation
+
 # -----------------------------------------------------------------------------
 # Coaching
 # -----------------------------------------------------------------------------
