@@ -546,6 +546,24 @@ entries:
     proof:
       kind: box_walk_probe
       probe: db_key_reaches_every_service
+  - id: probe-email-channel-round-trip
+    title: "box-walk probe must PASS: email_channel_round_trip"
+    why: |
+      v1.0.107 #10 (founder decision: the email channel ships in this build).
+      The channel was never compiled into the shipped binary, wrote an empty
+      allowlist, drained every unread message on connect and replied with no
+      threading. The probe drives the INSTALLED daemon against a loopback mail
+      server (stdlib Python, no Java, no VM) in a throwaway HOME: 5 unread
+      messages present at first connect get no reply; the owner's mail gets
+      exactly one "Re: <subject>" reply carrying In-Reply-To and References;
+      an unlisted sender, an Auto-Submitted message and a dmarc=fail spoof of
+      the owner each get none; after a restart with every old message flipped
+      to unread nothing old is re-answered and the one new message is. A
+      channel that never logs in is a FAIL. Self-test: 12 mutants each caught
+      by their own assertion. BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: email_channel_round_trip
   - id: probe-todos-reach-reminders
     title: "box-walk probe must PASS: todos_reach_reminders"
     why: |
