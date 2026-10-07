@@ -19,7 +19,7 @@ SRC = os.path.join(REPO, "vendor/cm041/assistant_api/hub_contract.yaml")
 
 
 def main(argv):
-    if len(argv) < 2:
+    if len(argv) < 2 or argv[1].startswith("-") or not os.path.isdir(argv[1]):
         print(__doc__)
         return 2
     dest = os.path.join(argv[1], "contract")
