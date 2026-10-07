@@ -782,6 +782,8 @@ MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="iMessage Automation pe
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE="iMessage Automation permission: probe inconclusive."
 MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="iMessage history (chat.db) is not readable: Full Disk Access is not yet granted to the Ostler daemon. Reading iMessage history stays off until you grant it in System Settings > Privacy & Security > Full Disk Access."
 MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED="Opening System Settings > Privacy & Security > Automation. Tick the Messages row for OstlerInstaller (or Terminal) to wire iMessage delivery up."
+MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED="Not a full email address, so ignored: %s"
+MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS="Please enter at least one full email address (for example you@example.com)."
 MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT="iMessage needs at least one allowed contact. Try again or"
 MSG_WARN_IMPORT_PIPELINE_NOT_AVAILABLE_PRIVATE_REPO="Import pipeline not available (private repo - beta testers only)."
 MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="Import pipeline not bundled with installer. Hard-fail bypassed."
@@ -1196,6 +1198,9 @@ MSG_PROMPT_SMTP_HOST_TITLE="SMTP host"
 MSG_PROMPT_SMTP_PORT_TITLE="SMTP port"
 
 MSG_PROMPT_EMAIL_USERNAME_TITLE="Email address (also used as IMAP/SMTP username)"
+
+MSG_PROMPT_EMAIL_ALLOWED_TITLE="Who may email your assistant?"
+MSG_PROMPT_EMAIL_ALLOWED_HELP="Your own email addresses, comma-separated. %s only answers email from addresses on this list; mail from anyone else is ignored. At least one address is required. Your own address is filled in for you: change it, or add another."
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="Password (hidden)"
 MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/, never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."

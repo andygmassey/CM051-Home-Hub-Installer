@@ -5713,6 +5713,12 @@ CHANNEL_EMAIL_SMTP_HOST=""
 CHANNEL_EMAIL_SMTP_PORT=587
 CHANNEL_EMAIL_IMAP_FOLDER=""
 CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false
+# Addresses the assistant may ANSWER by email (comma-separated, validated). Empty
+# means it answers no one: the daemon treats an empty allowlist as deny-all.
+CHANNEL_EMAIL_ALLOWED_SENDERS=""
+# Verbatim [channels.email] block lifted from a previous config on a
+# reuse-settings re-run (see _ostler_existing_email_block).
+_EMAIL_BLOCK_PRESERVED=""
 CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
 WA_CONSENT=""
 
@@ -7425,6 +7431,86 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     done
 fi
 
+# BEGIN email-allowlist-helpers (tests/test_email_allowlist_installer.sh extracts this block)
+#
+# WHO MAY EMAIL THE ASSISTANT (v1.0.107 #10). The daemon's email channel treats
+# an EMPTY allowed_senders as "answer no one", and this file used to write the
+# literal `allowed_senders = []` for every custom-IMAP install, so the channel
+# was silently inert. The customer is now ASKED, with their own address
+# pre-filled, and at least one full address is required.
+#
+# Only full mailbox addresses are accepted here. "*", "@domain" and bare-domain
+# entries are refused on purpose: the daemon honours them, but a customer who
+# types one by accident would be handing the assistant to everyone at a domain,
+# and the installer is the wrong place to offer that.
+#
+# _email_allowlist_normalise sets two globals rather than printing, because it
+# is called without a subshell and its caller needs both lists:
+#   _EMAIL_ALLOWED_OK   comma-separated, lower-cased, de-duplicated, valid
+#   _EMAIL_ALLOWED_BAD  comma-separated entries that were refused
+_email_allowlist_normalise() {
+    local raw="${1:-}" tok
+    local _re='^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$'
+    _EMAIL_ALLOWED_OK=""
+    _EMAIL_ALLOWED_BAD=""
+    raw="${raw//;/,}"
+    raw="${raw//$'\n'/,}"
+    raw="${raw//$'\t'/,}"
+    raw="${raw// /,}"
+    local _old_ifs="$IFS" _noglob=0
+    [[ $- == *f* ]] && _noglob=1
+    set -f  # a typed "*" must stay a literal, never expand to filenames
+    IFS=','
+    for tok in $raw; do
+        [[ -n "$tok" ]] || continue
+        tok="$(printf '%s' "$tok" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$tok" =~ $_re ]]; then
+            case ",${_EMAIL_ALLOWED_OK}," in
+                *",${tok},"*) ;;
+                *) _EMAIL_ALLOWED_OK="${_EMAIL_ALLOWED_OK:+${_EMAIL_ALLOWED_OK},}${tok}" ;;
+            esac
+        else
+            _EMAIL_ALLOWED_BAD="${_EMAIL_ALLOWED_BAD:+${_EMAIL_ALLOWED_BAD},}${tok}"
+        fi
+    done
+    IFS="$_old_ifs"
+    [[ "$_noglob" -eq 1 ]] || set +f
+    [[ -n "$_EMAIL_ALLOWED_OK" ]]
+}
+
+# TOML array body for a normalised comma list: "a@b.c", "d@e.f"  (empty list
+# renders as nothing, so the caller writes `[]`, which the daemon reads as
+# deny-all rather than as everyone).
+_email_allowlist_toml_items() {
+    local list="${1:-}" tok out=""
+    local _old_ifs="$IFS" _noglob=0
+    [[ $- == *f* ]] && _noglob=1
+    set -f
+    IFS=','
+    for tok in $list; do
+        [[ -n "$tok" ]] || continue
+        out="${out:+${out}, }\"${tok}\""
+    done
+    IFS="$_old_ifs"
+    [[ "$_noglob" -eq 1 ]] || set +f
+    printf '%s' "$out"
+}
+
+# On a reuse-settings re-run the channel questions are skipped, so
+# CHANNEL_EMAIL_ENABLED stays false and the [channels.email] block, password
+# included, would be regenerated away. Lift the existing block out verbatim.
+# Must run BEFORE the truncating redirect. Prints nothing when absent.
+_ostler_existing_email_block() {
+    local cfg="${1:-}"
+    [[ -n "$cfg" && -f "$cfg" ]] || return 0
+    awk '
+        $0 == "[channels.email]" { in_s = 1; print; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s { print }
+    ' "$cfg"
+}
+# END email-allowlist-helpers
+
 # ── Email sources ──────────────────────────────────────────────────
 #
 # Source order, agreed in HR015 task #209 / TNM 2026-05-16 update:
@@ -7535,6 +7621,29 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         echo ""
         CHANNEL_EMAIL_USERNAME="$(gui_read "$MSG_PROMPT_EMAIL_USERNAME_TITLE" text "" "" "" "email_username")"
         CHANNEL_EMAIL_FROM="$CHANNEL_EMAIL_USERNAME"
+
+        # WHO MAY EMAIL THE ASSISTANT. Pre-filled with the customer's own
+        # address from the Contacts me-card (USER_EMAIL, which already falls
+        # back to the first mail account detected in Internet Accounts), and
+        # editable. At least one full address is required: the daemon answers
+        # NO ONE on an empty list, so an empty answer would ship an inert
+        # channel. The mailbox the assistant logs in to is deliberately NOT
+        # pre-filled (answering its own address is a reply loop).
+        while true; do
+            _email_allowed_raw="$(gui_read "$MSG_PROMPT_EMAIL_ALLOWED_TITLE" text "${USER_EMAIL:-}" "$(printf "$MSG_PROMPT_EMAIL_ALLOWED_HELP" "$ASSISTANT_NAME")" "" "email_allowed_senders")"
+            if _email_allowlist_normalise "$_email_allowed_raw"; then
+                if [[ -n "$_EMAIL_ALLOWED_BAD" ]]; then
+                    warn "$(printf "$MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED" "$_EMAIL_ALLOWED_BAD")"
+                fi
+                CHANNEL_EMAIL_ALLOWED_SENDERS="$_EMAIL_ALLOWED_OK"
+                break
+            fi
+            if [[ -n "$_EMAIL_ALLOWED_BAD" ]]; then
+                warn "$(printf "$MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED" "$_EMAIL_ALLOWED_BAD")"
+            fi
+            warn "$MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS"
+        done
+        unset _email_allowed_raw
 
         # Hidden password input (kind=secret); confirm with re-entry
         # so a typo doesn't silently lock the assistant out of email.
@@ -15658,6 +15767,9 @@ _ostler_restore_channels_from_existing_config() {
 # opened the file it is already empty and there is nothing left to read.
 if [[ "${SKIP_PHASE2:-false}" == true ]]; then
     _ostler_restore_channels_from_existing_config "$ASSISTANT_CONFIG"
+    if [[ "${CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED:-false}" != true ]]; then
+        _EMAIL_BLOCK_PRESERVED="$(_ostler_existing_email_block "$ASSISTANT_CONFIG")"
+    fi
 fi
 
 umask_orig=$(umask)
@@ -15981,7 +16093,13 @@ TOMLPREAMBLE
         echo "username = \"$(_esc "$CHANNEL_EMAIL_USERNAME")\""
         echo "password = \"$(_esc "$CHANNEL_EMAIL_PASSWORD")\""
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
-        echo "allowed_senders = []"
+        # The customer's own answer (validated full addresses). Empty renders
+        # `[]`, which the daemon reads as "answer no one", never as everyone.
+        echo "allowed_senders = [$(_email_allowlist_toml_items "$CHANNEL_EMAIL_ALLOWED_SENDERS")]"
+    elif [[ -n "${_EMAIL_BLOCK_PRESERVED:-}" ]]; then
+        # Reuse-settings re-run: keep the customer's existing block verbatim.
+        echo
+        printf '%s\n' "$_EMAIL_BLOCK_PRESERVED"
     fi
     unset _email_section_active
 
@@ -16471,7 +16589,7 @@ umask "$umask_orig"
 # Scrub the plaintext password from the bash environment as soon as
 # the file is written. The TOML still has it on disk; this just
 # narrows the in-memory exposure for the rest of the install.
-unset CHANNEL_EMAIL_PASSWORD
+unset CHANNEL_EMAIL_PASSWORD _EMAIL_BLOCK_PRESERVED
 
 # Same treatment for the chat admin token. Both copies (TOML +
 # secrets file) are written and locked down by now.

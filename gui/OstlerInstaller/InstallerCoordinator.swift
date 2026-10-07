@@ -1360,11 +1360,12 @@ final class InstallerCoordinator: ObservableObject {
         case "email_custom_imap":
             // A "Y" on the custom IMAP question commits the customer
             // to host / port / smtp-host / smtp-port / username /
-            // password / password-confirm -- about 7 extra prompts.
+            // password / password-confirm -- about 7 extra prompts, plus
+            // the "who may email your assistant" allowlist (email_allowed_senders).
             // "N" / blank means we already counted the lightweight
             // path; leave the total alone.
             if answer.lowercased().hasPrefix("y"), let existing = totalQuestionCount {
-                totalQuestionCount = existing + 7
+                totalQuestionCount = existing + 8
             }
         default:
             break
