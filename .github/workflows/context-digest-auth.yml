@@ -116,6 +116,12 @@ jobs:
         if: always()
         run: python -m pytest context-refresh/tests/test_digest_knows_its_owner.py -v
 
+      # v1.0.107 privacy: a SELECT that filters on ?level must RETURN ?level,
+      # or the L3 filter reads None and passes L3 facts into CONTEXT.md.
+      - name: Every level-filtered digest query returns the level it filters on
+        if: always()
+        run: python -m pytest context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py -v
+
       # The end-to-end chain guard. Also previously dark (TEST_WIRING.tsv:53
       # UNWIRED), and it had encoded the defect as a REQUIREMENT: its final
       # assertion was that a run producing no digest exits 0, described as

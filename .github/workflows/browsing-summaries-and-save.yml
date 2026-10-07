@@ -1,0 +1,77 @@
+# Lane 6: browsing page summaries, Save to Knowledge, the browsing search
+# route, and the Doctor credential that lets the extension reach the save
+# route. Mirrors CM041 branch claude/lane6-page-summaries.
+#
+# vendor/cm041/assistant_api/tests/ is not collected by any other workflow
+# (see walk6-people-list-correctness-guard.yml), so a new test there is not
+# wired until a workflow invokes it. This is that workflow, with a collected
+# count floor so a quietly shrinking suite cannot pass.
+name: browsing-summaries-and-save
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/browsing_enrich.py'
+      - 'vendor/cm041/assistant_api/tests/test_browsing_enrich.py'
+      - 'vendor/cm041/assistant_api/tests/fixtures/hub_contract.json'
+      - 'vendor/doctor/agent/proxy.py'
+      - 'tests/test_extension_credential_covers_the_save_route.py'
+      - 'scripts/check_doctor_proxy_paths.sh'
+      - '.github/workflows/browsing-summaries-and-save.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/browsing_enrich.py'
+      - 'vendor/cm041/assistant_api/tests/test_browsing_enrich.py'
+      - 'vendor/cm041/assistant_api/tests/fixtures/hub_contract.json'
+      - 'vendor/doctor/agent/proxy.py'
+      - 'tests/test_extension_credential_covers_the_save_route.py'
+      - 'scripts/check_doctor_proxy_paths.sh'
+      - '.github/workflows/browsing-summaries-and-save.yml'
+
+concurrency:
+  group: browsing-summaries-and-save-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install --quiet pytest rapidfuzz httpx fastapi
+      - name: Summaries, skip list, 401, raw text dropped, yields to chat, Save to Knowledge, contract
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_browsing_enrich.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 20 ]; then
+            echo "REFUSING: expected at least 20 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_browsing_enrich.py -v
+      - name: The extension credential opens exactly the two extension writes
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_extension_credential_covers_the_save_route.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 15 ]; then
+            echo "REFUSING: expected at least 15 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_extension_credential_covers_the_save_route.py -v
+      - name: The Doctor proxy path list carries the new routes
+        if: always()
+        run: bash scripts/check_doctor_proxy_paths.sh

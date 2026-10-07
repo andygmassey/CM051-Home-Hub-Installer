@@ -978,6 +978,15 @@ entries:
       kind: box_walk_probe
       probe: "owner_digest_knows_the_owner"
 
+  - id: box-walk-email-channel-round-trip
+    title: an allowed sender's email gets a threaded reply from the assistant; backlog, unlisted and automated mail get none
+    incident: >-
+      v1.0.107 #10 (Andy ruling): the email channel ships. Nothing on any walk
+      had sent the assistant an email. BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: "email_channel_round_trip"
+
   - id: box-walk-conversation-capture-end-to-end
     title: iPhone/Watch conversation capture works end to end on a real Hub install
     incident: >-
