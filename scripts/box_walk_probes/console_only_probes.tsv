@@ -27,8 +27,9 @@
 # A TYPO IS NOT AN EXEMPTION EITHER. Only the exact strings tcc and gui are
 # read as a surface. Any other value in column 2 leaves the probe non-exempt.
 #
-# ⚠️ THIS FILE SHIPS WITH ZERO EXEMPT PROBES, AND THAT IS A MEASUREMENT,
-# NOT AN OVERSIGHT. Taken 2026-09-23 over the 29 probes in probes/:
+# ⚠️ THIS FILE SHIPPED WITH ZERO EXEMPT PROBES FROM 2026-09-23 TO v1.0.107,
+# AND THAT WAS A MEASUREMENT, NOT AN OVERSIGHT. Taken 2026-09-23 over the 29
+# probes in probes/ at that time:
 #
 #   /usr/bin/grep -h probe_cannot_run probes/*.sh \
 #     | /usr/bin/grep -Eic 'tcc|full disk|screen recording|at the console|gui'   -> 5
@@ -37,14 +38,31 @@
 #
 # The control proves the search resolves. All 5 subject hits were then read and
 # all 5 are the substring "gui" inside ordinary English (guidance, distinguish,
-# arguing); NONE is about TCC or a GUI. Every real CANNOT-RUN reason in the
-# suite is ssh reachability, an absent prerequisite, or a stated ambiguity, and
+# arguing); NONE is about TCC or a GUI. Every real CANNOT-RUN reason in that
+# suite was ssh reachability, an absent prerequisite, or a stated ambiguity, and
 # an operator sitting at the box fixes none of those by being there.
 #
-# So on the evidence available today, NO probe qualifies, and the honest list is
-# empty. Adding the first row is a deliberate act with a reason next to it,
-# which is the point: an exemption someone had to write down can be argued with,
-# and one that is merely the default cannot.
+# So on the evidence available on 2026-09-23, NO probe qualified, and the
+# honest list was empty. Adding the first row is a deliberate act with a
+# reason next to it, which is the point: an exemption someone had to write
+# down can be argued with, and one that is merely the default cannot.
+#
+# FIRST ROW ADDED v1.0.107 #10 (todos_reach_reminders). Re-run the same query
+# over the 35 probes now in probes/:
+#
+#   /usr/bin/grep -h probe_cannot_run probes/*.sh \
+#     | /usr/bin/grep -Eic 'tcc|full disk|screen recording|at the console|gui'   -> 6
+#   POSITIVE CONTROL, same corpus, same pipeline:
+#   /usr/bin/grep -h probe_cannot_run probes/*.sh | /usr/bin/grep -ic ssh        -> 24
+#
+# The one new subject hit is todos_reach_reminders.sh's own TCC branch, added
+# deliberately to be findable by this exact query. A read of Reminders.app's
+# content with osascript needs the same Automation TCC grant the iMessage
+# Automation probe already needs (ttywalk.sh:1524-1561) -- osascript sending
+# Apple events to Reminders.app from a non-GUI ssh session is refused with
+# -1743 ("not authorized to send Apple events"), and no ssh flag, sudo or
+# retry grants it; only a human logged in at the console, who has at some
+# point answered the Automation permission prompt, can.
 #
 # COLUMNS (tab-separated, exactly three):
 #   probe     the probe file name without .sh, exactly as the record names it
@@ -52,3 +70,4 @@
 #   why       what a human at the machine can do that ssh cannot
 #
 # probe	surface	why
+todos_reach_reminders	tcc	osascript needs the Automation TCC grant to send Apple events to Reminders.app; a non-GUI ssh session has never answered that permission prompt and gets -1743 ("not authorized to send Apple events"). Only a human at the console, who can see and click the prompt, can grant it. The WRITE side (reminders_push's SQLite gate) and the daemon's CLAIM of the pending row are both still measured over ssh; only the final Reminders.app read-back is console-only.
