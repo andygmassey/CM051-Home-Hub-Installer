@@ -154,5 +154,6 @@ wiki_image_grep|wiki-compiler:/app/compiler/pages/place_pages.py|chip = pw_sourc
 wiki_image_grep|wiki-compiler:/app/compiler/pages/place_pages.py|def plain_location_text\(|CM044 #307 a calendar location that is a raw call URL renders as plain text (Video call), not a URL. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/preference_filter.py|def is_negative_preference\(|CM044 #308 a Dislike never qualifies as an all-time favourite. 0 -> 1.
 # --- v1.0.107 wiki v0.1.45 (CM044 cc59f35f, #310). The line below FAILED against the v0.1.44 compiler
-# (cba38d1a, 0 of 115 files under /app/compiler) and PASSED against v0.1.45 (0f5ca25c), read with crane export.
-wiki_image_grep|wiki-compiler:/app/compiler/browsing_link.py|def browsing_link\(|CM044 #310 a browsing item renders as [Title](url), never a raw URL. 0 -> 1.
+# (cba38d1a) and PASSED against v0.1.45 (0f5ca25c) through this verifier. It reads the CONSUMER (person pages) so
+# the control is a clean FAIL, not a could-not-extract on a file that did not exist yet.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|from compiler.browsing_link import browsing_link|CM044 #310 person pages render browsing items as [Title](url) through the shared helper, never a raw URL. 0 -> 1.
