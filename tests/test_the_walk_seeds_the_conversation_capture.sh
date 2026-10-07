@@ -97,7 +97,7 @@ arm "both conversations accepted reads seeded" "$(b [ "$state" = "seeded" ])" "g
 arm "job ids were read back from the two POST responses" "$(b [ "$job1" != "none" ] && [ "$job2" != "none" ] && [ "$job1" != "$job2" ])" "job1=$job1 job2=$job2"
 arm "a device token file was minted on the box" "$(b [ -s "$H/.ostler/walk-seed/.convcap-devtoken" ])"
 seed_log="$(run_seed "$H" ok 2>&1)"
-if printf '%s' "$seed_log" | grep -q faketoken1234; then tokleak=1; else tokleak=0; fi
+if grep -q faketoken1234 <<< "$seed_log"; then tokleak=1; else tokleak=0; fi
 arm "the minted token never appears in the printed log" "$tokleak"
 
 echo "3. MUST-FAIL arms"
