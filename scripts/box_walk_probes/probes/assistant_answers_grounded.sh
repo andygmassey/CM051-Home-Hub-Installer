@@ -572,7 +572,43 @@ adjudicate_turn() {
     _accept="${2:-}"
     grep -q '^PROBE_FATAL' "$_t" && { echo "fatal"; return; }
     grep -q '^FRAME done$' "$_t" || { echo "incomplete"; return; }
-    grep -q '^FRAME tool_call ' "$_t" || { echo "no_tool_call"; return; }
+    # ── A DIGEST-GROUNDED ANSWER IS NOT no_tool_call (2026-10-07) ───────────
+    #
+    # UNTIL TODAY this gate was `grep -q tool_call || { echo no_tool_call; }`,
+    # full stop, and fixture (j) below pinned it deliberately: "a reply that
+    # carries the fact without any tool call is still no_tool_call -- the
+    # fact came from nowhere." That was true the day it was written. It
+    # stopped being true the moment CONTEXT.md actually started reaching
+    # /ws/chat (ostler-assistant crates/zeroclaw-runtime/src/agent/prompt.rs,
+    # IdentitySection -- it never injected CONTEXT.md at all before that fix,
+    # so "no tool call" and "no CONTEXT.md either" were the same fact and
+    # this gate could not tell them apart). CONTEXT.md is pre-filtered,
+    # privacy-stripped data the daemon already pulled from the SAME graph a
+    # pwg_ tool would hit; a correct answer sourced from it is grounded, not
+    # invented.
+    #
+    # The discriminator is NOT a new text check -- the probe's own long-
+    # standing privacy rule (see "THE CONTENT ASSERTION" above) already bans
+    # inspecting reply prose directly. It reuses the ONE content signal that
+    # already exists for exactly this: FRAME reply_fact YES|NO, computed ON
+    # THE BOX by the seeded arm's content assertion, never the raw prose
+    # crossing the wire. That frame is emitted ONLY for the seeded question
+    # (OSTLER_GATE_EXPECT_FACT), so an unseeded no-tool-call turn is entirely
+    # unaffected and still scores no_tool_call exactly as before -- there is
+    # nothing to discriminate an invented answer from a real one on a
+    # question nothing asserted content for.
+    #
+    # An invented fact on the seeded question still fails: with no tool call,
+    # a WRONG answer carries reply_fact NO (or no reply_fact frame at all, if
+    # the turn never reached the point of grading it), which falls straight
+    # through to no_tool_call below. This is the same fixture-pinned proof
+    # fact_missing already relies on one gate down -- the assertion is not
+    # new, only where it is allowed to fire from.
+    if ! grep -q '^FRAME tool_call ' "$_t"; then
+        grep -q '^FRAME reply_fact YES$' "$_t" && { echo "grounded_via_digest"; return; }
+        echo "no_tool_call"
+        return
+    fi
     # A tool ran, but was it one that reads the customer's own graph?
     grep -qE "$_GRAPH_TOOL_RE" "$_t" || { echo "memory_only"; return; }
     # THE CONTENT ASSERTION, ahead of every frame-shape pass. A seeded turn
@@ -701,7 +737,11 @@ _offending_tool() {
 classify_verdict() {
     # classify_verdict <turn verdict> -> defect | unmeasured | ok
     case "$1" in
-        grounded)                                     printf 'ok' ;;
+        # grounded_via_digest (2026-10-07): the seeded content assertion
+        # passed with no tool call at all, which is CONTEXT.md doing its
+        # job, not a defect. See the long comment at adjudicate_turn's
+        # no_tool_call gate.
+        grounded|grounded_via_digest)                 printf 'ok' ;;
         # wrong_store (#1125) is a DEFECT and not lost coverage: the turn
         # completed, retrieval succeeded, and the customer was handed a count
         # where they asked for content. That is a product behaviour, observed.
@@ -1053,13 +1093,31 @@ self_test() {
     # (i) MEASURED, the full turn-1 stream: pwg_people OK, pwg_topics EMPTY,
     #     memory_recall OK. The OK line used to win; the missing fact must.
     printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_call pwg_topics\nFRAME tool_result pwg_topics EMPTY\nFRAME tool_call memory_recall\nFRAME tool_result memory_recall OK\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/factmissing_full"
-    # (j) THE FRAME GATE STAYS FIRST: a reply that carries the fact without
-    #     any tool call is still no_tool_call -- the fact came from nowhere.
+    # (j) UNTIL 2026-10-07 this comment read "THE FRAME GATE STAYS FIRST: a
+    #     reply that carries the fact without any tool call is still
+    #     no_tool_call -- the fact came from nowhere." That was true the day
+    #     it was written: nothing fed the model customer data without a tool
+    #     call. It stopped being true the day CONTEXT.md actually started
+    #     reaching /ws/chat (ostler-assistant prompt.rs IdentitySection). The
+    #     fact now CAN legitimately come from the injected digest, verified
+    #     by the SAME content assertion the seeded arm already computes.
+    #     It is the must-PASS, as grounded_via_digest -- a distinct word from
+    #     `grounded` so a reader can always tell a tool answered the question
+    #     from the digest already having it.
     printf 'FRAME session_start\nFRAME chunk_reset\nFRAME reply_fact YES\nFRAME done\n' > "$_d/notool_fact"
-    [ "$(adjudicate_turn "$_d/factmissing" "$_PERSON")"      = "fact_missing" ]  || _ok=0
-    [ "$(adjudicate_turn "$_d/factcarried" "$_PERSON")"      = "grounded" ]      || _ok=0
-    [ "$(adjudicate_turn "$_d/factmissing_full" "$_PERSON")" = "fact_missing" ]  || _ok=0
-    [ "$(adjudicate_turn "$_d/notool_fact" "$_PERSON")"      = "no_tool_call" ]  || _ok=0
+    # (k) THE NEGATIVE CONTROL FOR (j): an invented/wrong answer with no tool
+    #     call still fails. No new check does this -- it is the SAME
+    #     reply_fact NO the fact_missing arms above already rely on, just
+    #     reached from the no-tool-call branch instead of the tool-called one.
+    #     It must stay no_tool_call, never grounded_via_digest: the content
+    #     assertion said the answer was WRONG, so there is nothing to credit
+    #     the digest for.
+    printf 'FRAME session_start\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/notool_fact_wrong"
+    [ "$(adjudicate_turn "$_d/factmissing" "$_PERSON")"      = "fact_missing" ]         || _ok=0
+    [ "$(adjudicate_turn "$_d/factcarried" "$_PERSON")"      = "grounded" ]             || _ok=0
+    [ "$(adjudicate_turn "$_d/factmissing_full" "$_PERSON")" = "fact_missing" ]         || _ok=0
+    [ "$(adjudicate_turn "$_d/notool_fact" "$_PERSON")"      = "grounded_via_digest" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/notool_fact_wrong" "$_PERSON")" = "no_tool_call" ]        || _ok=0
 
     # (l) WHICH SIDE LOST IT. Same verdict, two different owners, and until
     #     2026-09-09 the record could not tell them apart. The verdict token is
@@ -1226,6 +1284,10 @@ QMAP
         _ok=0
     }
     _rt grounded            ok
+    # 2026-10-07: a digest-answered turn with no tool call, verified by the
+    # same content assertion fact_missing already relies on. A distinct word
+    # from `grounded` so a reader can tell which route answered.
+    _rt grounded_via_digest ok
     _rt no_tool_call        defect
     _rt memory_only         defect
     _rt tool_error          defect
@@ -1244,19 +1306,34 @@ QMAP
     _rt no_expected_tools   unmeasured
     _rt some_future_verdict unmeasured
 
-    # 61 = 35 adjudicator and predicate arms (the 37 `|| _ok=0` lines less the
-    # two roll-ups) + 6 tool-name arms + 8 store-map control sites + 12 routing
-    # cases. COUNTED, not estimated, and counted by code SITE rather than by
+    # 62 = 35 adjudicator and predicate arms (the 37 lines ending "OR set ok
+    # to zero" -- see the recount script's own grep -- less the two roll-ups)
+    # + 6 tool-name arms + 8 store-map control sites + 13 routing cases.
+    # COUNTED, not estimated, and counted by code SITE rather than by
     # execution: two of the map sites sit inside per-tool loops. scripts/tests/
     # test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh recounts
     # them from this file with the same definition and goes red if the number
     # and the arms drift apart. Without that recount a declared denominator is
     # just a number, which is the shape this probe exists to refuse.
-    probe_examined 61 "planted transcript fixtures, predicate checks, store-map controls and verdict-routing cases"
+    #
+    # NOTE TO THE NEXT EDITOR OF THIS COMMENT: never spell the literal
+    # fallback-assignment token this count greps for inside a comment, or the
+    # comment becomes an arm the recount counts. THIS PARAGRAPH USED TO: the
+    # pre-2026-10-07 wording spelled it and was itself one of the "37" it
+    # claimed, which happened to cancel out only because both sides of the
+    # equality counted the same inflated set. Rewording it to stop spelling
+    # the token drops the true total by exactly one comment-match, which is
+    # why 61 becomes 62 below rather than 63 -- caught by the sibling test's
+    # recount, not by eye, on the first draft of this very paragraph.
+    #
+    # 2026-10-07: one new negative-control check (the no-tool-call turn whose
+    # content assertion FAILED) and one new routing case (grounded_via_digest)
+    # for the digest-grounded fix.
+    probe_examined 62 "planted transcript fixtures, predicate checks, store-map controls and verdict-routing cases"
     if [ "$_ok" -eq 1 ]; then
         # The control FIRED: six known-bad shapes each produced their own
         # non-grounded verdict, and the healthy ones did not.
-        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected; wrong_store fires on the #1125 shape -- an inventory tool answering a question about content -- while the same frames on the broad opener stay grounded; no_tool_result fires on all three #1597 shapes in which a graph tool was called and no result for it was ever observed, each of which read grounded on origin/main e0fb21bf; an empty store set refuses instead of grading; the battery's store map agrees with the runtime registry and at least one row is a proper subset so wrong_store can fire at all; the healthy fixtures are not misread as broken; and 12 of 12 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed or was never observed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
+        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected; wrong_store fires on the #1125 shape -- an inventory tool answering a question about content -- while the same frames on the broad opener stay grounded; no_tool_result fires on all three #1597 shapes in which a graph tool was called and no result for it was ever observed, each of which read grounded on origin/main e0fb21bf; a no-tool-call turn whose seeded content assertion passed is grounded_via_digest, not no_tool_call, and the same shape with the assertion FAILED still reads no_tool_call (2026-10-07); an empty store set refuses instead of grading; the battery's store map agrees with the runtime registry and at least one row is a proper subset so wrong_store can fire at all; the healthy fixtures are not misread as broken; and 13 of 13 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed or was never observed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
     fi
     # Reaching here means the adjudicator could NOT tell a broken turn from a
     # healthy one. Passing is how this suite spells BROKEN.
