@@ -1,0 +1,77 @@
+# CM051 v1.0.107 candidate #10 (SILENT DATA LOSS): api_conversation_process
+# built conversation_id as date_firstTwoSpeakerLabels_type and ignored
+# metadata.meeting_id, the per-session UUID the iOS/Watch app sends. Every
+# Watch conversation on the same day collided as <date>_s1_wearable: the
+# second POST overwrote the first conversation's raw transcript, CM048 then
+# skipped the overwritten one as already-complete, and the Hub still
+# returned 202 so the app deleted its (now only) copy. Mirrors CM041 PR
+# #196 (vendor graft, see vendor/divergences/cm041_assistant_api.UNRECORDED.md,
+# Eleventh graft).
+#
+# New test file added by this change -- wired here per
+# "a new test that is not invoked is not wired."
+name: walk-meeting-id-collision-guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py'
+      - '.github/workflows/walk-meeting-id-collision-guard.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py'
+      - '.github/workflows/walk-meeting-id-collision-guard.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  conversation-id-prefers-meeting-id:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Same dependency profile as the walk6 people-list guard: this file's
+      # own stubs (ostler_security, _invoke_pwg_convo, _subscription_paused)
+      # mean no third-party package is needed to import and exercise
+      # api_conversation_process.
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: conversation_id prefers metadata.meeting_id and the fallback never overwrites
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py -v
+      - name: conversation status reads where CM048 writes (~/.ostler/processing)
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py -v
