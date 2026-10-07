@@ -8895,9 +8895,46 @@ def _wiki_eta_seconds(eta_utc):
         return None
 
 
+# A conversation whose state.json has not moved for this long, and which has
+# neither failed nor finished, is surfaced as "stalled" (a subset of running).
+CONVERSATION_STALL_SECONDS = 30 * 60
+
+
+def _conversation_state_is_complete(st):
+    """True when CM048 finished the whole pipeline for this conversation.
+
+    CM048 (processor.py, seed.py ``already_enriched``) never writes
+    ``current_step == "completed"`` for a real run: it leaves current_step on
+    the last step it entered (or back on ``00_raw`` after a re-entry) and
+    records the finished work in ``completed_steps``. ``09_bundle`` in
+    ``completed_steps`` is the only record that the full pipeline ran, so that
+    is the completion signal; ``current_step == "completed"`` is kept for
+    states written by older/other producers."""
+    if st.get("current_step") == "completed":
+        return True
+    return "09_bundle" in (st.get("completed_steps") or [])
+
+
+def _conversation_state_is_stalled(st, now):
+    try:
+        stamp = str(st.get("last_updated_at") or "").replace("Z", "+00:00")
+        last = datetime.fromisoformat(stamp)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return (now - last).total_seconds() > CONVERSATION_STALL_SECONDS
+    except Exception:
+        return False
+
+
 def _wiki_conversations_progress():
-    """Aggregate CM048 conversation processing state.json files."""
-    dispatched = completed = failed = running = 0
+    """Aggregate CM048 conversation processing state.json files.
+
+    failed beats completed beats running. ``stalled`` is a subset of
+    ``running`` (no update for CONVERSATION_STALL_SECONDS); it is reported,
+    never promoted to a failure, so in-progress work cannot raise
+    needs_attention on its own."""
+    dispatched = completed = failed = running = stalled = 0
+    now = datetime.now(timezone.utc)
     try:
         if PROCESSING_DIR.exists():
             for d in PROCESSING_DIR.iterdir():
@@ -8913,14 +8950,16 @@ def _wiki_conversations_progress():
                     continue
                 if st.get("failed_step"):
                     failed += 1
-                elif st.get("current_step") == "completed":
+                elif _conversation_state_is_complete(st):
                     completed += 1
                 else:
                     running += 1
+                    if _conversation_state_is_stalled(st, now):
+                        stalled += 1
     except Exception:
         pass
     return {"dispatched": dispatched, "completed": completed,
-            "failed": failed, "running": running}
+            "failed": failed, "running": running, "stalled": stalled}
 
 
 def api_hydration_status():

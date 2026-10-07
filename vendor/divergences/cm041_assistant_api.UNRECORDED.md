@@ -647,7 +647,29 @@ yet: OWED, and it is a security-boundary change that wants a human read.
 Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
 (20 tests). Retire by landing the CM041 branch and re-pinning.
 
-## Twelfth graft: the coach reader read a path the writer never wrote (CM051 v1.0.107 #11)
+## Twelfth graft: the hydration conversations counter follows CM048 completions (v1.0.107 #11)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+functions `_wiki_conversations_progress`, `_conversation_state_is_complete`,
+`_conversation_state_is_stalled`. Matches CM041 PR #201.
+
+`GET /api/v1/hydration/status` counted a conversation completed only when
+`state.json` had `current_step == "completed"`. CM048 never writes that for a
+real run: it leaves `current_step` on the last step entered (or back on
+`00_raw` after a re-entry) and records finished work in `completed_steps`, with
+`09_bundle` as the terminal step (CM048 `src/seed.py` `already_enriched`).
+Measured read-only on a walk box: 84 of 90 "running" had `09_bundle` done, so
+the counter sat flat while pwg-convo logged completions. Completed is now
+`09_bundle` in `completed_steps`; `stalled` (subset of running, no update for
+30 minutes) is added and never promoted to a failure.
+
+Test `vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py`
+(5 tests), wired in `.github/workflows/walk-meeting-id-collision-guard.yml`.
+
+Upstream landed as CM041 #201, squash sha `1e18c6b0`, acked in `hold_ack_shas`
+in `vendor/VENDOR_MANIFEST.toml`. Retire by re-pinning.
+
+## Thirteenth graft: the coach reader read a path the writer never wrote (CM051 v1.0.107 #11)
 
 Mirrors CM041 PR #202. `vendor/cm041/assistant_api/ical-server.py`:
 `COACH_DB`, `coach_recent`, and the `/api/v1/coach/recent` handler.
