@@ -164,3 +164,8 @@ wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|def tidy_generated_text\(|
 # --- v1.0.107 wiki v0.1.47 (CM044 e3d5abe9, #314). The line below FAILED against the v0.1.46 compiler
 # (f2db6f8c) and PASSED against v0.1.47 (73f2b2e9) through this verifier.
 wiki_image_grep|wiki-compiler:/app/compiler/provenance.py|def _strip_unterminated_frontmatter\(|CM044 #314 an unterminated frontmatter block in a conversation summary no longer reaches People/timeline (conversation_id:, sensitivity_level:). 0 -> 1.
+# --- v1.0.107 wiki v0.1.48 (CM044 88b8425b, #315 #316). Each line below FAILED against the v0.1.47 compiler
+# (73f2b2e9) and PASSED against v0.1.48 (52c7bc0f) through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/obsidian.py|^_VAULT_LOCK_NAME = |CM044 #315 the Obsidian vault clear + copy runs under one exclusive flock, so two compiles can no longer race the clear (wiki_compile rc=1, OSError 39). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/digest.py|^ *week_label = "the week ending "|CM044 #315 the digest weekly summary is labelled with a human date, never "the week ending YYYY-MM-DD". 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/trends_pages.py|^from compiler\.customer_text import customer_text|CM044 #316 the Trends page (the walk #12 failure) wraps customer-written titles in a data-ostler-customer span, so the walk em dash check can exempt them. 0 -> 1.
