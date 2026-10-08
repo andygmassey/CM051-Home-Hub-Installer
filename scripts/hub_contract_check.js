@@ -78,10 +78,7 @@ class HubContract {
     const scheme = TOKEN_TO_SCHEME[src];
     if (!scheme) throw new Error(`unknown token_source ${src}`);
     const allowed = route.auth;
-    const loopbackHost = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parseUrl(call.url).hostname);
-    if (allowed.includes('loopback_none') && src === 'none' && loopbackHost) {
-      notes.push(`${method} ${p}: no credential, allowed because the client dials loopback`);
-    } else if (!allowed.includes('none') && !allowed.includes('handler_defined')) {
+    if (!allowed.includes('none') && !allowed.includes('handler_defined')) {
       const b = h.authorization || '';
       const hasBearer = /^bearer /i.test(b) && b.slice(7).trim() !== '';
       const hasService = (h['x-ostler-service'] || '').trim() !== '';

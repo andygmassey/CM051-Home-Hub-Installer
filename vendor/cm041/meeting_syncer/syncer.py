@@ -390,6 +390,11 @@ class MeetingSyncer:
         # fuzzy-merging into the wrong existing one.
         match = self.resolver.resolve(identity, use_fuzzy=False)
 
+        # A forgotten (tombstoned) attendee is neither linked nor re-created;
+        # the caller skips a None. The meeting itself is shared, so it stays.
+        if match.match_type == "forgotten":
+            return None
+
         if match.person_uri:
             return match.person_uri
 

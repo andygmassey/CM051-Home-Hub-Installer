@@ -862,3 +862,5 @@ scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrap
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
 test_lane11_client_calls_pass_the_contract.py	WIRED	.github/workflows/hub-contract.yml
+test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
+test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml

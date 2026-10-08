@@ -32,6 +32,7 @@ from typing import Optional
 import httpx
 import phonenumbers
 
+from . import forget_tombstone
 from .role_addresses import is_role_identifier  # noqa: F401
 from .identifier_quality import observe as _observe_identifier
 from .usage_journal import record_usage as _record_usage
@@ -553,6 +554,26 @@ def _person_uri(person_id: str) -> str:
     return f"https://schema.ostler.ai/ontology#person_{person_id}"
 
 
+def _is_forgotten(identifier: str = "", uri: Optional[str] = None,
+                  name: Optional[str] = None) -> bool:
+    """Has the person this record describes been erased by
+    POST /api/v1/people/<slug>/forget? (Lane 18.)
+
+    Forget deletes every triple, so without this every ingest below reads
+    "nobody holds this identifier" and mints the person again on its next
+    tick: its URI is ``uuid5(identifier)``, the same every run. Checked
+    BEFORE any write for the participant, so nothing at all is created or
+    linked, not even a lastContact signal. Fails CLOSED on an unreadable
+    tombstone file (see forget_tombstone.py)."""
+    values = [identifier] if identifier else []
+    # A WhatsApp JID (`<digits>@s.whatsapp.net`) is the same human as the
+    # `+<digits>` phone their other identifiers were tombstoned under.
+    local = identifier.split("@", 1)[0] if "@" in identifier else ""
+    if local.isdigit():
+        values.append("+" + local)
+    return forget_tombstone.is_forgotten(values=values, uri=uri, name=name)
+
+
 # Sentinel for "the store could not answer". Distinct from None, which
 # means "asked, and nobody holds this". Collapsing the two is the
 # manufactured-clean-input failure: a store that refused to answer would
@@ -733,6 +754,8 @@ def ingest_imessage(fda_dir: Path) -> dict:
                 continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
+            if _is_forgotten(participant, uri):
+                continue
 
             # Check if person already exists in Oxigraph
             exists = _person_exists(uri)
@@ -1095,6 +1118,8 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
+            if _is_forgotten(participant, uri):
+                continue
             exists = _person_exists(uri)
 
             # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is an
@@ -1263,6 +1288,9 @@ def ingest_calendar(fda_dir: Path) -> dict:
             if _observe_identifier(attendee, ""):
                 logger.debug("skipping role address %s", attendee)
                 continue
+            # A forgotten attendee is neither created nor linked to the meeting.
+            if _is_forgotten(attendee):
+                continue
 
             # RESOLVE BEFORE CREATING. Ask who already holds this address
             # before minting a URI for it. The old order -- mint, then ask
@@ -1425,6 +1453,8 @@ def ingest_photos_people(fda_dir: Path) -> dict:
 
         person_id = _person_id_from_identifier(f"photos_face_{name}")
         uri = _person_uri(person_id)
+        if _is_forgotten("", uri, name):
+            continue
 
         if not _person_exists(uri):
             photo_count = person.get("photo_count", 0)
@@ -1639,6 +1669,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # rather than adding to it.
         if _observe_identifier(email, ""):
             logger.debug("skipping role address %s", email)
+            continue
+        if _is_forgotten(email):
             continue
         # RESOLVE BEFORE CREATING -- same rule as ingest_calendar above.
         # A frequent sender is very often somebody already in Contacts,

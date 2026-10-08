@@ -48,11 +48,11 @@ CALLS = [
         "id": "cm031.safari_save", "method": "POST", "url": HUB + "/api/safari/save",
         "headers": BEARER, "token_source": "device_token", "body_bytes": 40_000, "body_keys": ["url", "title"],
     },
-    {   # CM042 SpeakersIdentifyService.swift:30 (URL on gatewayURL, default http://localhost:8000
-        # per AppConfiguration.swift:86), :34-46 (no Authorization header, body keys),
-        # SpeakerResolution.swift:35 (reads `speakers`)
+    {   # CM042 SpeakersIdentifyService.swift buildIdentifyRequest (URL on gatewayURL, default
+        # http://localhost:8000 per AppConfiguration.swift:86; Authorization: Bearer <service token>
+        # from AppConfiguration.serviceToken, Lane 18), body keys; SpeakerResolution.swift:35 (reads `speakers`)
         "id": "cm042.speakers_identify", "method": "POST", "url": "http://localhost:8000/api/v1/speakers/identify",
-        "headers": {}, "token_source": "none", "body_bytes": 30_000,
+        "headers": {"Authorization": "Bearer synthetic-service-token"}, "token_source": "service_token", "body_bytes": 30_000,
         "body_keys": ["transcript", "attendees", "timestamp", "duration", "source"], "reads": ["speakers"],
     },
 ]
@@ -76,8 +76,10 @@ class ClientCallsPassTheContract(unittest.TestCase):
         self.assertTrue(self.hub.check_call(wrong_port)[0])
         no_bearer = dict(CALLS[1], headers={}, token_source="none")
         self.assertEqual([v[0] for v in self.hub.check_call(no_bearer)[0]], ["AUTH_MISSING"])
-        lan_identify = dict(CALLS[3], url="http://192.168.1.5:8443/api/v1/speakers/identify")
-        self.assertEqual([v[0] for v in self.hub.check_call(lan_identify)[0]], ["AUTH_MISSING"])
+        # No loopback exemption any more: no credential is AUTH_MISSING on any host.
+        for host in ("http://localhost:8000", "http://192.168.1.5:8443"):
+            bare = dict(CALLS[3], url=host + "/api/v1/speakers/identify", headers={}, token_source="none")
+            self.assertEqual([v[0] for v in self.hub.check_call(bare)[0]], ["AUTH_MISSING"], host)
         oversized = dict(CALLS[1], body_bytes=2_000_000)
         self.assertEqual([v[0] for v in self.hub.check_call(oversized)[0]], ["BODY_TOO_LARGE"])
 

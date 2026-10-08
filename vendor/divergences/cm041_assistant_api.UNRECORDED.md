@@ -679,3 +679,43 @@ must not overwrite it.
 Guarded by the three vendored tests (25) and
 `tests/test_lane11_client_calls_pass_the_contract.py`. Retire by landing the
 CM041 branch and re-pinning.
+
+## Thirteenth graft: forget writes a tombstone every people syncer respects (Lane 18)
+
+Source: CM041 PR #200 branch `claude/lane11-hub-route-gaps` (commit `cb98e00`),
+same shape as the Twelfth graft above and #2658. Not on CM041 main, so there is
+no merge sha: the `hold_ack_shas` ack is OWED the moment CM041 #200 merges and
+is deliberately NOT added with a made-up sha. Ack text to paste then:
+"<sha> is the squash merge of CM041 #200 (forget writes a tombstone every people
+syncer respects, honest not-found backport). ALREADY GRAFTED by CM051 #2678,
+pinned by tests/test_forget_tombstone_every_syncer.py and
+tests/test_forget_tombstone_ostler_fda.py. SCOPE: this sha only."
+
+`api_people_forget` here and in CM041 are now the SAME handler: CM041 took this
+tree's graph-aware forget (fact nodes by type, honest not-found, audit) in its
+backport commit, so the Twelfth graft's "NOT grafted, CM041 has the older one"
+warning no longer applies. Only the new hunk is grafted here: the tombstone is
+written BEFORE the erase (`identity_resolver/forget_tombstone.py`, salted
+digests, no clear identifier), and the response gains `tombstone_written`.
+
+Files, all applied with the CM041 diff: `assistant_api/ical-server.py` (one
+hunk); `identity_resolver/forget_tombstone.py` (new, byte-identical to CM041);
+`identity_resolver/resolver.py` (`_resolve_tiers` returns match_type
+`forgotten`, `create_person` raises; applied by hand because this tree wraps
+resolve in a degrade-to-new boundary the CM041 hunk context does not have);
+`contact_syncer/{syncer,facebook_friends,instagram_social,linkedin_career,
+linkedin_connections,linkedin_messages}.py`; `meeting_syncer/syncer.py`.
+`contact_syncer/syncer.py` and `facebook_friends.py` each needed one hunk by
+hand (context differs). NOT grafted: `whatsapp_bridge/bridge.py`, which is not
+vendored in this repo (CM041 has the tombstone check there).
+
+`vendor/ostler_fda/` is CM051-only here (upstream HR015, private, not available
+to this session): `forget_tombstone.py` is copied byte-identical and
+`pwg_ingest.py` skips a tombstoned person in `ingest_imessage`,
+`ingest_whatsapp`, `ingest_calendar`, `ingest_photos_people` and
+`ingest_mail_contacts` (new `_is_forgotten`). The HR015 twin is OWED and
+`vendor/divergences/ostler_fda.patch` is NOT regenerated (no HR015 checkout).
+
+Guarded by `tests/test_forget_tombstone_every_syncer.py` (18) and
+`tests/test_forget_tombstone_ostler_fda.py` (10). Retire by landing the CM041
+and HR015 changes and re-pinning.

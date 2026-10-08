@@ -22,8 +22,6 @@ check_call returns (violations, notes). No violations is a pass. Each violation 
     METHOD_MISMATCH        path+port exist, but not for this method
     AUTH_MISSING           route needs a credential the request does not carry
     AUTH_WRONG_CREDENTIAL  the client sends a credential the route does not accept
-                           (a route that lists loopback_none also accepts NO credential
-                           when the client dials 127.0.0.1, localhost or ::1)
     BODY_TOO_LARGE         captured body exceeds the route's body limit
     BODY_UNBOUNDED         client can send an unbounded body to a limited route
     REQUEST_FIELD_MISSING  body lacks a field the server requires
@@ -50,7 +48,6 @@ TOKEN_TO_SCHEME = {
     "none": "none",
 }
 
-LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 
 def _tpl_regex(path):
@@ -126,11 +123,7 @@ class HubContract:
         allowed = route["auth"]
         if scheme is None:
             raise ValueError("unknown token_source %r" % src)
-        if "loopback_none" in allowed and src == "none" and (u.hostname or "").lower() in LOOPBACK_HOSTS:
-            # The gateway lets a loopback peer skip the bearer on this exact
-            # path (api_auth.rs LOOPBACK_UNAUTH_PATHS). A LAN host does not get this.
-            notes.append("%s %s: no credential, allowed because the client dials loopback" % (method, path))
-        elif "none" not in allowed and "handler_defined" not in allowed:
+        if "none" not in allowed and "handler_defined" not in allowed:
             bearer = h.get("authorization", "")
             has_bearer = bearer.lower().startswith("bearer ") and bearer[7:].strip() != ""
             has_service = h.get("x-ostler-service", "").strip() != ""

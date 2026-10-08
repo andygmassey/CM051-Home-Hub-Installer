@@ -41,12 +41,12 @@
    "companion_port": 8443,
    "default_body_limit": 65536,
    "default_host": "127.0.0.1",
-   "loopback_unauth_paths": [
-    "/api/v1/speakers/identify"
-   ],
    "pre_auth_allowlist": [
     "/api/pair",
     "/api/v1/frontpage/cards"
+   ],
+   "service_token_paths": [
+    "/api/v1/speakers/identify"
    ]
   },
   "ical": {
@@ -1353,6 +1353,7 @@
     "not_found",
     "reason",
     "stores_purged",
+    "tombstone_written",
     "wiki_recompile_queued"
    ],
    "source": "install.sh"
@@ -3620,6 +3621,7 @@
     "not_found",
     "reason",
     "stores_purged",
+    "tombstone_written",
     "wiki_recompile_queued"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
@@ -3758,7 +3760,7 @@
   {
    "auth": [
     "device_bearer",
-    "loopback_none"
+    "service_token"
    ],
    "body_limit_bytes": 1048576,
    "content_type": "application/json",
@@ -5455,6 +5457,7 @@
     "not_found",
     "reason",
     "stores_purged",
+    "tombstone_written",
     "wiki_recompile_queued"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"

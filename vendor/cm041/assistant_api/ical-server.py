@@ -2656,6 +2656,38 @@ def api_people_forget(slug):
     stores_purged = []
     degraded_reasons = []
 
+    # TOMBSTONE FIRST, THEN ERASE. Forget deletes every triple, so a people
+    # syncer whose source still lists this person would read "nobody holds
+    # this identifier" on its next run and mint them again. The tombstone
+    # (identity_resolver/forget_tombstone.py: salted digests only, no clear
+    # identifier) is what every syncer's create path consults. It is written
+    # BEFORE the delete so the identifiers can still be read from the graph,
+    # and so a crash in between leaves the person tombstoned, never erased
+    # and resurrectable. A failed write does not stop the erasure; it is
+    # reported (tombstone_written false + degraded) so the caller can say so.
+    tombstone_written = False
+    try:
+        from identity_resolver import forget_tombstone
+        id_rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
+            '?id pwg:identifierValue ?v }}'.format(
+                ns=PWG_NS, uri=person_uri.replace("\\", "\\\\").replace(">", "%3E"))
+        )
+        tombstone_written = forget_tombstone.record(
+            person_uri,
+            [r.get("v", "") for r in id_rows],
+            display_name=next(
+                (c.get("name", "") for c in candidates if c.get("person") == person_uri), ""
+            ),
+        )
+    except Exception as exc:  # never block the erasure on the tombstone
+        degraded_reasons.append(f"tombstone_failed: {exc}")
+    if not tombstone_written and not any(
+        r.startswith("tombstone_failed") for r in degraded_reasons
+    ):
+        degraded_reasons.append("tombstone_failed: could not write the tombstone file")
+
     # Oxigraph: delete every triple where this URI is subject, then
     # every triple where it's object (incoming relationships, mentions).
     # All in one UPDATE so partial-failure is less likely.
@@ -2708,6 +2740,7 @@ def api_people_forget(slug):
         "forgotten": forgotten,
         "wiki_recompile_queued": queued,
         "stores_purged": stores_purged,
+        "tombstone_written": tombstone_written,
     }
     if degraded_reasons:
         response["degraded"] = True

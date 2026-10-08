@@ -41,9 +41,9 @@ cannot rot.
 
 ## Auth kinds (Lane 11 addition)
 
-A route's `auth` list names every credential it accepts. Besides the token kinds it can carry
-`loopback_none`: the gateway lets a loopback peer with no relay or browser headers skip the
-bearer on that exact path (`LOOPBACK_UNAUTH_PATHS` in `api_auth.rs`; today only
-`/api/v1/speakers/identify`, which the Mac RemoteCapture app calls with no credential). The
-checker accepts `token_source: "none"` for such a route only when the client dials 127.0.0.1,
-localhost or ::1; a LAN host is still `AUTH_MISSING`.
+A route's `auth` list names every credential it accepts. Besides the device bearer it can carry
+`service_token`: the gateway accepts the Hub service token in place of a device bearer on
+that exact path (`SERVICE_TOKEN_PATHS` in `api_auth.rs`; today only `/api/v1/speakers/identify`,
+which the Mac RemoteCapture app calls with `Authorization: Bearer <service token>`). There is no
+unauthenticated gateway `/api` path and no loopback exemption (ostler-assistant #475 review):
+a call with no credential is `AUTH_MISSING` whatever host it dials.
