@@ -57,7 +57,7 @@ mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest, $3 = 1 if t
     printf '#!/bin/sh\necho import "$@" >> "%s/import.calls"\necho "IMPORTER-LOG-MARKER rc=%s"\n[ "%s" = 1 ] && echo 1 > "%s/facts"\nexit %s\n' \
         "$h" "$1" "${3:-1}" "$h" "$1" > "$h/.ostler/bin/ostler-import"
     chmod +x "$h/.ostler/bin/ostler-import"
-    # Stub Oxigraph: answers the COUNT query with the fact count, as JSON.
+    # A stand-in for the graph store: answers the COUNT query with the fact count, as JSON.
     printf '#!/bin/sh\nprintf '"'"'{"results":{"bindings":[{"n":{"value":"%%s"}}]}}'"'"' "$(cat "%s/facts")"\n' "$h" > "$h/stub/oes-curl"
     chmod +x "$h/stub/oes-curl"
     echo "## old" > "$h/.ostler/assistant-config/workspace/CONTEXT.md"
