@@ -456,6 +456,7 @@ test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_home_is_owner_only_on_every_path.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_ostler_import_owner_name_and_exit_code.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
