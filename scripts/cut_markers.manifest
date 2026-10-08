@@ -161,3 +161,6 @@ wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|from compiler.
 # (0f5ca25c) and PASSED against v0.1.46 (f2db6f8c) through this verifier.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/bundle_conversation_pages.py|def conversation_display_title\(|CM044 #312 an unnamed conversation is titled "<Channel> conversation, <date>", never its internal id. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|def tidy_generated_text\(|CM044 #312 generated text has no em dash or ISO date, and stored category keys render as plain labels. 0 -> 1.
+# --- v1.0.107 wiki v0.1.47 (CM044 e3d5abe9, #314). The line below FAILED against the v0.1.46 compiler
+# (f2db6f8c) and PASSED against v0.1.47 (73f2b2e9) through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/provenance.py|def _strip_unterminated_frontmatter\(|CM044 #314 an unterminated frontmatter block in a conversation summary no longer reaches People/timeline (conversation_id:, sensitivity_level:). 0 -> 1.

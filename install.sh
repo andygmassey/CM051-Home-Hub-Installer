@@ -17394,7 +17394,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.5}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.6}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -17507,7 +17507,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="6ceecc8e37ae3e736ac1a5997edb722aa2e152b3b11b1e6133cca8e382056b33"
+DEFAULT_ASSISTANT_TARBALL_SHA256="245e19a594affbc21eff7703a60ed3a1a6572cc420a1818a1155b2c1883cff6a"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -19656,7 +19656,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4ef1672ffca3b9d50c73047fd2bb71070d0b363ff7e817b981bf6a7e19d1010a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:14accb14ed55de56b9cc4debac1a50c91bbbaf75b1b76d3dd1d0b3ea439ea735
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19700,7 +19700,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:f2db6f8c2eec24e1979203a453c01d9efefcd1051046e49e3dc015f1c97caa2a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:73f2b2e93806756581d70a1c33b5b3e6f19639063f321783248ff8f6c047607d
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -21328,7 +21328,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.5"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.6"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
