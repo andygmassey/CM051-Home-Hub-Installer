@@ -38,10 +38,10 @@ fix(install): the Ollama watchdog treats any change in the serve log as progress
 fix(install): the promote merges logs/ so a running service's log keeps its path	CM051	854f7a5c	no	promote_merges_logs_dir	capability_matrix.sh gate	CM051 #2434 (#2445)
 pin(daemon): 0.4.88 a question that names a person reaches the graph every time (daemon prefetch, marked origin daemon_prefetch)	CM051	83fa4a57	no	graph_prefetch	capability_matrix.sh gate	CM051 #2438 (oa #428)
 fix(install): a watchdog heals a wedged Ollama, and writes the evidence before it restarts	CM051	2a7aceac	no	ollama_wedge_watchdog	capability_matrix.sh gate	CM051 #2432 (#2433)
-fix(daemon): a chat reminder is never silent and can be cancelled by a word from it	CM051	84629b62	no	chat_reminder_never_silent	capability_matrix.sh gate	CM051 #2423 (oa #420)
-fix(daemon): Seatbelt denies the service secrets and LaunchAgents writes	CM051	84629b62	no	seatbelt_denies_secrets_and_launchagents	capability_matrix.sh gate	CM051 #2411 (oa #419)
-fix(daemon): Seatbelt workspace is the configured workspace, never $HOME or an ancestor of ~/.ostler	CM051	84629b62	no	seatbelt_workspace_never_home	capability_matrix.sh gate	CM051 #2411 (oa #419)
-fix(daemon): a forget that removed nothing is a failure the assistant must tell the user	CM051	84629b62	no	forget_nothing_is_a_failure	capability_matrix.sh gate	CM051 #2422 (oa #424)
+fix(daemon): a chat reminder is never silent and can be cancelled by a word from it	CM051	db8a9bab	no	chat_reminder_never_silent	capability_matrix.sh gate	CM051 #2423 (oa #420)
+fix(daemon): Seatbelt denies the service secrets and LaunchAgents writes	CM051	db8a9bab	no	seatbelt_denies_secrets_and_launchagents	capability_matrix.sh gate	CM051 #2411 (oa #419)
+fix(daemon): Seatbelt workspace is the configured workspace, never $HOME or an ancestor of ~/.ostler	CM051	db8a9bab	no	seatbelt_workspace_never_home	capability_matrix.sh gate	CM051 #2411 (oa #419)
+fix(daemon): a forget that removed nothing is a failure the assistant must tell the user	CM051	db8a9bab	no	forget_nothing_is_a_failure	capability_matrix.sh gate	CM051 #2422 (oa #424)
 feat(install): link WhatsApp from the installer, no Terminal	CM051	d17bae9f	no	whatsapp_link_in_the_installer	capability_matrix.sh gate	CM051 #2406
 fix(install): qdrant, valkey and nginx pulled from our GHCR mirror at the same digests	CM051	583e0b35	no	images_from_our_ghcr_mirror	capability_matrix.sh gate	CM051 #2404
 fix(install): ~/.ostler locked to 0700 on every path	CM051	ce79dd6b	no	ostler_home_locked_to_0700	capability_matrix.sh gate	CM051 #2407
@@ -54,9 +54,9 @@ fix(email-ingest): the Apple Mail checkpoint lives under ~/.ostler so a reinstal
 fix(warm-up): one rule for Notes, Mail, Messages and the other Apple apps we read	CM051	80a531b0ab	no	apple_apps_warmed_by_one_rule	capability_matrix.sh gate	CM051 #2351
 fix(summary): the wiki password is never written into install.log	CM051	cd7ef36285	no	wiki_password_withheld_from_install_log	capability_matrix.sh gate	CM051 #2357
 vendor(cm052): re-pin to 46d2e11e so AI conversations reach the Hub	CM051	cd7ef36285	no	aiconv_posts_to_the_hub_api_port	capability_matrix.sh gate	CM051 #2353
-pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries five feeds on the backfill ladder (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	bundle_ticks_climb_the_backfill_ladder	capability_matrix.sh gate	CM051 #2355
-pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries the WhatsApp not-linked message (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	whatsapp_tick_names_not_linked	capability_matrix.sh gate	CM051 #2353
-pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries the email-ingest checkpoint fix in the tick launchd runs (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	email_ingest_tick_checkpoint_under_dot_ostler	capability_matrix.sh gate	CM051 #2347
+pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries five feeds on the backfill ladder (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	bundle_ticks_climb_the_backfill_ladder	capability_matrix.sh gate	CM051 #2355
+pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries the WhatsApp not-linked message (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	whatsapp_tick_names_not_linked	capability_matrix.sh gate	CM051 #2353
+pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries the email-ingest checkpoint fix in the tick launchd runs (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	email_ingest_tick_checkpoint_under_dot_ostler	capability_matrix.sh gate	CM051 #2347
 vendor: classify the remaining ten deltas on contact_syncer and doctor	CM051	a7d677c6e0bb	no	none	capability_matrix.sh gate	CM051 #2234
 fix(977): a dropped Notion or Obsidian export is findable, and the tree stops redding the cut	CM051	eec085a90e8a	no	knowledge_import_dispatch_has_a_collection	capability_matrix.sh gate	CM051 #2233
 vendor: classify the two single-commit deltas on cm041 assistant_api and identity_resolver	CM051	1edf9b759039	no	none	capability_matrix.sh gate	CM051 #2231
@@ -87,34 +87,34 @@ fix(privacy): a forget that found nobody told the customer it had erased them	CM
 fix(people): the two stores disagreed about how many people you know, and nothing repaired it	CM051	3ecba4150470	no	people_stores_are_repaired_not_just_counted	capability_matrix.sh gate	CM051 #2129
 fix(applications): one Ostler folder, and the consent text stops naming an app that does not exist	CM051	075511abfc35	no	one_applications_ostler_folder	capability_matrix.sh gate	CM051 #2128
 fix(egress): the address carried unexplained for three weeks, explained and declared	CM051	84a50c174cfb	no	none	capability_matrix.sh gate	CM051 #2127
-repin(wiki): both wiki images at v0.1.34, which supersedes #2125's pin and carries its lint fix plus the Pro vault fix	CM051	84629b62	no	none	capability_matrix.sh gate	CM051 #2262
+repin(wiki): both wiki images at v0.1.34, which supersedes #2125's pin and carries its lint fix plus the Pro vault fix	CM051	db8a9bab	no	none	capability_matrix.sh gate	CM051 #2262
 fix(signals): the payloads never said what they were, so the whole band was dropped	CM051	f50c5c186462	no	reply_debt_detector_is_pointed_at_its_own_tree	capability_matrix.sh gate	CM051 #2124
 fix(preferences): the projector shipped and nothing called it	CM051	b694b1b79901	no	editor_preference_projection_is_called	capability_matrix.sh gate	CM051 #2122
 fix(recovery): ostler-unlock pointed into /tmp, so the recovery key could not be redeemed	CM051	29113ac4bc27	no	ostler_unlock_link_survives_the_promote	capability_matrix.sh gate	CM051 #2116
-pin(daemon): 0.4.83 lets pwg_people list recent contacts and keeps the routing words inside the prompt cap (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	pwg_people_lists_recent_contacts	capability_matrix.sh gate	CM051 #2370
-pin(daemon): 0.4.83 names the pwg_ store in the user turn for interests and recent contacts (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	routing_hint_names_the_store	capability_matrix.sh gate	CM051 #2370
+pin(daemon): 0.4.83 lets pwg_people list recent contacts and keeps the routing words inside the prompt cap (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	pwg_people_lists_recent_contacts	capability_matrix.sh gate	CM051 #2370
+pin(daemon): 0.4.83 names the pwg_ store in the user turn for interests and recent contacts (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	routing_hint_names_the_store	capability_matrix.sh gate	CM051 #2370
 fix(a8): a planned kickstart -k restart is not an unclean exit	CM051	46ae01ac	no	a8_excuses_only_a_planned_restart	capability_matrix.sh gate	CM051 #2369
 fix(install): a retried AI model pull must not emit a fatal DONE to the GUI	CM051	3dec0435	no	a_retried_model_pull_emits_no_fatal_done	capability_matrix.sh gate	CM051 #2373
-pin(daemon): 0.4.85 pwg_preferences names an empty filter instead of claiming no preferences (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	pwg_preferences_names_an_empty_filter	capability_matrix.sh gate	CM051 #2400 (oa #414)
-pin(daemon): 0.4.85 the clock is the last system-prompt section so a new chat session reuses the prompt (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	prompt_clock_is_last	capability_matrix.sh gate	CM051 #2400 (oa #416)
-pin(daemon): 0.4.85 tools listed one line each when their schemas are sent natively (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	prompt_tools_one_line_when_native	capability_matrix.sh gate	CM051 #2400 (oa #416)
-pin(daemon): 0.4.85 a reminder made in chat is an agent job that reaches the customer (carried by the 0.4.86 pin, #2423)	CM051	84629b62	no	chat_reminder_is_an_agent_job	capability_matrix.sh gate	CM051 #2400 (oa #417)
+pin(daemon): 0.4.85 pwg_preferences names an empty filter instead of claiming no preferences (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	pwg_preferences_names_an_empty_filter	capability_matrix.sh gate	CM051 #2400 (oa #414)
+pin(daemon): 0.4.85 the clock is the last system-prompt section so a new chat session reuses the prompt (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	prompt_clock_is_last	capability_matrix.sh gate	CM051 #2400 (oa #416)
+pin(daemon): 0.4.85 tools listed one line each when their schemas are sent natively (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	prompt_tools_one_line_when_native	capability_matrix.sh gate	CM051 #2400 (oa #416)
+pin(daemon): 0.4.85 a reminder made in chat is an agent job that reaches the customer (carried by the 0.4.86 pin, #2423)	CM051	db8a9bab	no	chat_reminder_is_an_agent_job	capability_matrix.sh gate	CM051 #2400 (oa #417)
 fix(install): Hub chat carries the chat tool set, not all 52 tools	CM051	f921db609d	no	hub_chat_carries_the_chat_tool_set	capability_matrix.sh gate	CM051 #2393
-pin(daemon): 0.4.89 the wiki loads under a signed /wiki/s/<session>/ path so its styles and scripts load (#2458)	CM051	84629b62	no	wiki_session_path	capability_matrix.sh gate	CM051 #2483 (oa #429)
-pin(daemon): 0.4.89 relationship words (wife, mum...) never match a person's name (#2463)	CM051	84629b62	no	relationship_words_never_name_match	capability_matrix.sh gate	CM051 #2483 (oa #430)
-pin(daemon): 0.4.89 Timeline opens on Today and pages both ways (#2469)	CM051	84629b62	no	timeline_opens_on_today	capability_matrix.sh gate	CM051 #2483 (oa #431)
-pin(daemon): 0.4.89 Bursar shows a mainstream-model comparison beside the budget one	CM051	84629b62	no	bursar_mainstream_comparison	capability_matrix.sh gate	CM051 #2483 (oa #431)
+pin(daemon): 0.4.89 the wiki loads under a signed /wiki/s/<session>/ path so its styles and scripts load (#2458)	CM051	db8a9bab	no	wiki_session_path	capability_matrix.sh gate	CM051 #2483 (oa #429)
+pin(daemon): 0.4.89 relationship words (wife, mum...) never match a person's name (#2463)	CM051	db8a9bab	no	relationship_words_never_name_match	capability_matrix.sh gate	CM051 #2483 (oa #430)
+pin(daemon): 0.4.89 Timeline opens on Today and pages both ways (#2469)	CM051	db8a9bab	no	timeline_opens_on_today	capability_matrix.sh gate	CM051 #2483 (oa #431)
+pin(daemon): 0.4.89 Bursar shows a mainstream-model comparison beside the budget one	CM051	db8a9bab	no	bursar_mainstream_comparison	capability_matrix.sh gate	CM051 #2483 (oa #431)
 fix(people): demoted people are backed up before they are removed	CM051	3f2242d677	no	people_backup_before_demote	capability_matrix.sh gate	CM051 #2479
 fix(install): mail senders that are organisations or automated are reclassified, not people	CM051	3f2242d677	no	install_reclassifies_mail_senders	capability_matrix.sh gate	CM051 #2479
 fix(installer): Open Your Wiki opens the app on the wiki (ostler://wiki)	CM051	ea4762dad7	no	open_your_wiki_deep_link	capability_matrix.sh gate	CM051 #2462
 fix(nudges): service senders never get a gone-quiet or birthday card	CM051	ea4762dad7	no	service_senders_get_no_nudge	capability_matrix.sh gate	CM051 #2462
 fix(people): organisation display names are not people (anchored rule)	CM051	b6ea341a3f	no	org_display_names_not_people	capability_matrix.sh gate	CM051 #2492
 fix(people): role-mailbox-only names are not listed as people; retired merge duplicates demoted with their node	CM051	b6ea341a3f	no	people_list_hides_role_address_names	capability_matrix.sh gate	CM051 #2494
-pin(daemon): 0.4.90 a /wiki/ path in an assistant reply renders as an in-app link (the person link opens inside the app)	CM051	84629b62	no	chat_wiki_path_links_in_app	capability_matrix.sh gate	CM051 #2499 (oa #434, #2461)
-pin(daemon): 0.4.91 a wiki path written as an inline code span in an assistant reply links in-app	CM051	84629b62	no	chat_wiki_path_links_in_app	capability_matrix.sh gate	CM051 #2503 (oa #436, #2461)
-pin(daemon): 0.4.92 a person wiki page that is not built yet shows a styled still-being-written page, never a raw 404	CM051	84629b62	no	wiki_missing_person_page_styled	capability_matrix.sh gate	CM051 #2508 (oa #437, #2461)
-pin(daemon): 0.4.92 a chat reminder without job_type is an agent job, and a failed one is admitted in the reply	CM051	84629b62	no	reminder_failure_admitted	capability_matrix.sh gate	CM051 #2508 (oa #438, #2466)
-repin(wiki): both wiki images at CM044 v0.1.40 (81205f53)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2560
+pin(daemon): 0.4.90 a /wiki/ path in an assistant reply renders as an in-app link (the person link opens inside the app)	CM051	db8a9bab	no	chat_wiki_path_links_in_app	capability_matrix.sh gate	CM051 #2499 (oa #434, #2461)
+pin(daemon): 0.4.91 a wiki path written as an inline code span in an assistant reply links in-app	CM051	db8a9bab	no	chat_wiki_path_links_in_app	capability_matrix.sh gate	CM051 #2503 (oa #436, #2461)
+pin(daemon): 0.4.92 a person wiki page that is not built yet shows a styled still-being-written page, never a raw 404	CM051	db8a9bab	no	wiki_missing_person_page_styled	capability_matrix.sh gate	CM051 #2508 (oa #437, #2461)
+pin(daemon): 0.4.92 a chat reminder without job_type is an agent job, and a failed one is admitted in the reply	CM051	db8a9bab	no	reminder_failure_admitted	capability_matrix.sh gate	CM051 #2508 (oa #438, #2466)
+repin(wiki): both wiki images at CM044 v0.1.40 (81205f53)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2560
 wiki: light header in light scheme (CM044 #289)	CM051	40689e7a	no	wiki_v0135_header_is_light	TBD	CM044 #289
 wiki: Maps links only via maps_href, video-call passcode never an address (CM044 #289)	CM051	40689e7a	no	wiki_v0135_maps_href_guard	TBD	CM044 #289
 wiki: the about and data-sources copy in plain English (CM044 #291)	CM051	40689e7a	no	wiki_v0135_about_plain_english	TBD	CM044 #291
@@ -126,88 +126,88 @@ wiki: Data freshness reads the real per-source list (CM044 #297)	CM051	40689e7a	
 wiki: organisations case-folded, one count everywhere (CM044 #293)	CM051	40689e7a	no	wiki_v0136_orgs_case_folded	TBD	CM051 #2546 #2547
 wiki: topic categories filtered (CM044 #294)	CM051	40689e7a	no	wiki_v0136_topic_categories_filtered	TBD	CM051 #2549
 wiki: front page dates human (CM044 #294)	CM051	40689e7a	no	wiki_v0136_front_page_human_dates	TBD	CM051 #2550
-wiki: Needs you now comes from the Hub feed (CM044 #295)	CM051	84629b62	no	wiki_v0137_needs_you_now_from_hub_feed	TBD	CM051 #2537
-wiki: no L2 chip on front page cards (CM044 #295)	CM051	84629b62	no	wiki_v0137_no_l2_chip	TBD	CM051 #2534
-fix(install): wiki-compiler mounts the Hub editor feed read-only (#2576)	CM051	84629b62	no	wiki_compiler_mounts_editor_feed	TBD	CM051 #2576
+wiki: Needs you now comes from the Hub feed (CM044 #295)	CM051	db8a9bab	no	wiki_v0137_needs_you_now_from_hub_feed	TBD	CM051 #2537
+wiki: no L2 chip on front page cards (CM044 #295)	CM051	db8a9bab	no	wiki_v0137_no_l2_chip	TBD	CM051 #2534
+fix(install): wiki-compiler mounts the Hub editor feed read-only (#2576)	CM051	db8a9bab	no	wiki_compiler_mounts_editor_feed	TBD	CM051 #2576
 vendor: re-sync cm041/identity_resolver to fce36b9e (CM041 #182, #181, #183, #184)	CM051	7d447a60	no	vendor_identity_resolver_no_operator_country_default	TBD	CM051 #2594 (#2545)
 vendor: re-sync cm041/identity_resolver: no hardcoded operator country default	CM051	7d447a60	no	vendor_identity_resolver_no_hardcoded_852	TBD	CM051 #2594 (#2545)
 vendor: re-sync cm059_editor to 554fb888 (CM059 #28 Home card copy)	CM051	7d447a60	no	vendor_cm059_home_cards_filter_episodes	TBD	CM051 #2594 (#2534)
-pin(daemon): 0.4.93 daemon tarball d79576be (oa ab42aa5e)	CM051	84629b62	no	daemon_pinned_at_hub_v0493	TBD	CM051 hub-v0.4.93 re-pin
-pin(daemon): 0.4.93 hub app 38bd2760	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 hub-v0.4.93 re-pin
-pin(daemon): 0.4.93 chat cache scoped to the install	CM051	84629b62	no	oa_chat_cache_scoped_to_install	TBD	oa #439 (#2520)
-pin(daemon): 0.4.93 Spot on / Not me persist	CM051	84629b62	no	oa_frontpage_feedback_persists	TBD	oa #440 (#2467 #2470)
-pin(daemon): 0.4.93 the doctor's data-sources tab	CM051	84629b62	no	oa_doctor_data_sources_proxy	TBD	oa #441 (#2526)
-pin(daemon): 0.4.93 cost reader proof	CM051	84629b62	no	oa_cost_reader_consumes_python_rows	TBD	oa #442 (#2472)
-pin(daemon): 0.4.93 no em dash in customer copy	CM051	84629b62	no	oa_no_em_dash_customer_copy_guard	TBD	oa #443 (#2562)
-pin(daemon): 0.4.93 pairing token never in a URL	CM051	84629b62	no	oa_pairing_token_not_in_url	TBD	oa #444 (#2558)
-pin(daemon): 0.4.93 privacy chip says Private	CM051	84629b62	no	oa_frontpage_private_chip	TBD	oa #445 (#2534)
-pin(daemon): 0.4.93 Governor counts landed sources	CM051	84629b62	no	oa_governor_counts_landed_sources	TBD	oa #446 (#2538)
-pin(daemon): 0.4.93 Timeline rows titled and typed	CM051	84629b62	no	oa_timeline_travel_needs_context	TBD	oa #448 (#2469)
+pin(daemon): 0.4.93 daemon tarball d79576be (oa ab42aa5e)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0493	TBD	CM051 hub-v0.4.93 re-pin
+pin(daemon): 0.4.93 hub app 38bd2760	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 hub-v0.4.93 re-pin
+pin(daemon): 0.4.93 chat cache scoped to the install	CM051	db8a9bab	no	oa_chat_cache_scoped_to_install	TBD	oa #439 (#2520)
+pin(daemon): 0.4.93 Spot on / Not me persist	CM051	db8a9bab	no	oa_frontpage_feedback_persists	TBD	oa #440 (#2467 #2470)
+pin(daemon): 0.4.93 the doctor's data-sources tab	CM051	db8a9bab	no	oa_doctor_data_sources_proxy	TBD	oa #441 (#2526)
+pin(daemon): 0.4.93 cost reader proof	CM051	db8a9bab	no	oa_cost_reader_consumes_python_rows	TBD	oa #442 (#2472)
+pin(daemon): 0.4.93 no em dash in customer copy	CM051	db8a9bab	no	oa_no_em_dash_customer_copy_guard	TBD	oa #443 (#2562)
+pin(daemon): 0.4.93 pairing token never in a URL	CM051	db8a9bab	no	oa_pairing_token_not_in_url	TBD	oa #444 (#2558)
+pin(daemon): 0.4.93 privacy chip says Private	CM051	db8a9bab	no	oa_frontpage_private_chip	TBD	oa #445 (#2534)
+pin(daemon): 0.4.93 Governor counts landed sources	CM051	db8a9bab	no	oa_governor_counts_landed_sources	TBD	oa #446 (#2538)
+pin(daemon): 0.4.93 Timeline rows titled and typed	CM051	db8a9bab	no	oa_timeline_travel_needs_context	TBD	oa #448 (#2469)
 vendor: contact_syncer one number, one person (CM041 #182 graft)	CM051	9a85fc2e	no	vendor_contact_syncer_one_number_one_identifier	TBD	CM051 #2545
 vendor: cm021 subject-line names are not people (email-intelligence #7 graft)	CM051	9a85fc2e	no	vendor_cm021_subject_names_not_people	TBD	CM051 #2544
-pin(daemon): 0.4.94 daemon tarball 8e72e7a3 (oa 70526837)	CM051	84629b62	no	daemon_pinned_at_hub_v0494	TBD	CM051 hub-v0.4.94 re-pin
-pin(daemon): 0.4.94 hub app 6c063cc9	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 hub-v0.4.94 re-pin
-pin(daemon): 0.4.94 cost page compares always-on cloud assistants, counts cached tokens	CM051	84629b62	no	oa_cost_compares_always_on_cloud_assistants	TBD	oa #435 (#2472)
-pin(daemon): 0.4.94 an estimator overshoot is not a cache hit	CM051	84629b62	no	oa_cached_tokens_not_inferred_from_overshoot	TBD	oa 70526837 (#2472)
+pin(daemon): 0.4.94 daemon tarball 8e72e7a3 (oa 70526837)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0494	TBD	CM051 hub-v0.4.94 re-pin
+pin(daemon): 0.4.94 hub app 6c063cc9	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 hub-v0.4.94 re-pin
+pin(daemon): 0.4.94 cost page compares always-on cloud assistants, counts cached tokens	CM051	db8a9bab	no	oa_cost_compares_always_on_cloud_assistants	TBD	oa #435 (#2472)
+pin(daemon): 0.4.94 an estimator overshoot is not a cache hit	CM051	db8a9bab	no	oa_cached_tokens_not_inferred_from_overshoot	TBD	oa 70526837 (#2472)
 vendor: a kinship word never becomes a person's permanent displayName. LIMIT: existing kinship-named rows on UPGRADED boxes are not repaired (walk box: 1 of 8448); a cold walk cannot see it	CM051	b90f192305d939e9c417d8be11c2fccb2dbe3d47	no	vendor_kinship_word_never_a_display_name	TBD	CM051 #2556 (#2599, CM041 #185)
-pin(daemon): 0.4.96 daemon tarball 055f11db (oa 2a619995)	CM051	84629b62	no	daemon_pinned_at_hub_v0496	TBD	CM051 #2606
-pin(daemon): 0.4.96 hub app 80b4f85a	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2606
-pin(daemon): 0.4.96 cost page source dates in customer format	CM051	84629b62	no	oa_cost_source_dates_customer_format	TBD	oa #450
-pin(daemon): 0.4.96 TokenUsage carries its real call count	CM051	84629b62	no	oa_token_usage_carries_call_count	TBD	oa #451 (#2603)
-pin(daemon): 0.4.97 daemon tarball 26b61479 (oa c6195523)	CM051	84629b62	no	daemon_pinned_at_hub_v0497	TBD	oa #452 (CM051 #2615)
-pin(daemon): 0.4.97 hub app b6ac5f74	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #452 (CM051 #2615)
-pin(daemon): 0.4.97 forget erases content from the database file (secure_delete)	CM051	84629b62	no	oa_forget_secure_delete	TBD	oa #452 (CM051 #2615)
-pin(daemon): 0.4.97 forget writes an exact tombstone	CM051	84629b62	no	oa_forget_exact_tombstone	TBD	oa #452 (CM051 #2615)
-pin(daemon): 0.4.98 daemon tarball 024b0fe8 (oa 3c752a00)	CM051	84629b62	no	daemon_pinned_at_hub_v0498	TBD	oa #454 (CM051 #2623)
-pin(daemon): 0.4.98 hub app 77e7fc2c	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #454 (CM051 #2623)
-pin(daemon): 0.4.98 the wiki is shown once built, whatever the conversations phase did	CM051	84629b62	no	oa_wiki_shown_once_built	TBD	oa #454 (CM051 #2623)
-pin(daemon): 0.4.98 hydration panel reads the real endpoint shape	CM051	84629b62	no	oa_hydration_parses_real_endpoint_shape	TBD	oa #454 (CM051 #2623)
-wiki: the People tile says what it counts (CM044 #298)	CM051	84629b62	no	wiki_v0138_people_tile_says_what_it_counts	TBD	CM044 #298
-wiki: self-exclusion via hasIdentifier email (CM044 #298)	CM051	84629b62	no	wiki_v0138_self_found_via_identifiers	TBD	CM044 #298
-wiki: no bare pwg:email self query (CM044 #298)	CM051	84629b62	no	wiki_v0138_no_bare_email_self_query	TBD	CM044 #298
+pin(daemon): 0.4.96 daemon tarball 055f11db (oa 2a619995)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0496	TBD	CM051 #2606
+pin(daemon): 0.4.96 hub app 80b4f85a	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2606
+pin(daemon): 0.4.96 cost page source dates in customer format	CM051	db8a9bab	no	oa_cost_source_dates_customer_format	TBD	oa #450
+pin(daemon): 0.4.96 TokenUsage carries its real call count	CM051	db8a9bab	no	oa_token_usage_carries_call_count	TBD	oa #451 (#2603)
+pin(daemon): 0.4.97 daemon tarball 26b61479 (oa c6195523)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0497	TBD	oa #452 (CM051 #2615)
+pin(daemon): 0.4.97 hub app b6ac5f74	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #452 (CM051 #2615)
+pin(daemon): 0.4.97 forget erases content from the database file (secure_delete)	CM051	db8a9bab	no	oa_forget_secure_delete	TBD	oa #452 (CM051 #2615)
+pin(daemon): 0.4.97 forget writes an exact tombstone	CM051	db8a9bab	no	oa_forget_exact_tombstone	TBD	oa #452 (CM051 #2615)
+pin(daemon): 0.4.98 daemon tarball 024b0fe8 (oa 3c752a00)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0498	TBD	oa #454 (CM051 #2623)
+pin(daemon): 0.4.98 hub app 77e7fc2c	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #454 (CM051 #2623)
+pin(daemon): 0.4.98 the wiki is shown once built, whatever the conversations phase did	CM051	db8a9bab	no	oa_wiki_shown_once_built	TBD	oa #454 (CM051 #2623)
+pin(daemon): 0.4.98 hydration panel reads the real endpoint shape	CM051	db8a9bab	no	oa_hydration_parses_real_endpoint_shape	TBD	oa #454 (CM051 #2623)
+wiki: the People tile says what it counts (CM044 #298)	CM051	db8a9bab	no	wiki_v0138_people_tile_says_what_it_counts	TBD	CM044 #298
+wiki: self-exclusion via hasIdentifier email (CM044 #298)	CM051	db8a9bab	no	wiki_v0138_self_found_via_identifiers	TBD	CM044 #298
+wiki: no bare pwg:email self query (CM044 #298)	CM051	db8a9bab	no	wiki_v0138_no_bare_email_self_query	TBD	CM044 #298
 vendor: cm059 gone-quiet card capped at 18 months (CM059 #30)	CM051	3d143f0b	no	vendor_cm059_gone_quiet_capped_at_18_months	TBD	CM051 #2626
 vendor: cm059 gone-quiet span humanised (CM059 #30)	CM051	3d143f0b	no	vendor_cm059_gone_quiet_span_humanised	TBD	CM051 #2626
-wiki: no store product name in the search-index fallback heading (CM044 #299)	CM051	84629b62	no	wiki_v0140_fallback_heading_no_vector_store_name	TBD	CM044 #299
-wiki: no store product name in the connections-graph fallback heading (CM044 #299)	CM051	84629b62	no	wiki_v0140_fallback_heading_no_graph_store_name	TBD	CM044 #299
-wiki: an unreadable editor feed is a WARN, not swallowed (CM044 #299)	CM051	84629b62	no	wiki_v0140_unreadable_feed_warns	TBD	CM044 #299
-wiki: photos is a declared hydrate source (CM044 #300)	CM051	84629b62	no	wiki_v0140_photos_is_a_declared_source	TBD	CM044 #300
-pin(daemon): 0.4.99 daemon tarball 79fc71ed (oa 635ed0ab)	CM051	84629b62	no	daemon_pinned_at_hub_v0499	TBD	oa #455 (CM051 #2632)
-pin(daemon): 0.4.99 hub app a4e66495	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #455 (CM051 #2632)
-pin(daemon): 0.4.99 the status pill reaches the Doctor in a browser session	CM051	84629b62	no	oa_gateway_serves_box_status	TBD	oa #455 (CM051 #2632)
-pin(daemon): 0.4.99 the cost page price sources are links	CM051	84629b62	no	oa_bursar_sources_are_links	TBD	oa #455 (CM051 #2632)
-pin(daemon): 0.5.0 daemon tarball 2a76bdf0 (oa abb881a0)	CM051	84629b62	no	daemon_pinned_at_hub_v0500	TBD	oa #456 (CM051 #2644)
-pin(daemon): 0.5.0 hub app fb5fb525	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #456 (CM051 #2644)
-pin(daemon): 0.5.0 a URL in a calendar title is a domain link on the Timeline	CM051	84629b62	no	oa_timeline_title_urls_are_links	TBD	oa #456 (CM051 #2644)
-repin(wiki): both wiki images at CM044 v0.1.41 (7e643a57)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2644
-wiki: the dashboard says Data points, not RDF triples (CM044 #301)	CM051	84629b62	no	wiki_v0141_dashboard_says_data_points	TBD	CM044 #301 (CM051 #2644)
-wiki: the dashboard hero card reads the store term from the locale (CM044 #301)	CM051	84629b62	no	wiki_v0141_dashboard_reads_the_term	TBD	CM044 #301 (CM051 #2644)
-repin(wiki): both wiki images at CM044 v0.1.42 (ae83efa8)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2645
-wiki: a baseline recompile preserves a completed status (CM044 #302)	CM051	84629b62	no	wiki_v0142_compile_preserves_complete	TBD	CM044 #302 (CM051 #2645)
-wiki: hydration keeps complete=True when asked to preserve it (CM044 #302)	CM051	84629b62	no	wiki_v0142_hydration_keeps_complete	TBD	CM044 #302 (CM051 #2645)
-pin(daemon): 0.5.1 daemon tarball 9775e29d (oa 8708c3af)	CM051	84629b62	no	daemon_pinned_at_hub_v0501	TBD	oa #457 (CM051 #2646)
-pin(daemon): 0.5.1 hub app 675cbc4a	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #457 (CM051 #2646)
-pin(daemon): 0.5.1 an event's detail and location URLs are domain links on the Timeline	CM051	84629b62	no	oa_timeline_detail_and_location_are_links	TBD	oa #457 (CM051 #2646)
-repin(wiki): both wiki images at CM044 v0.1.43 (ba0ce754)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2657
-wiki: calendar entries are classified meeting, travel, appointment or event (CM044 #305)	CM051	84629b62	no	wiki_v0143_meetings_classify_event_kind	TBD	CM044 #305 (CM051 #2657)
-wiki: a place page shows a source chip, not a raw strength (CM044 #306)	CM051	84629b62	no	wiki_v0143_place_source_chip	TBD	CM044 #306 (CM051 #2657)
+wiki: no store product name in the search-index fallback heading (CM044 #299)	CM051	db8a9bab	no	wiki_v0140_fallback_heading_no_vector_store_name	TBD	CM044 #299
+wiki: no store product name in the connections-graph fallback heading (CM044 #299)	CM051	db8a9bab	no	wiki_v0140_fallback_heading_no_graph_store_name	TBD	CM044 #299
+wiki: an unreadable editor feed is a WARN, not swallowed (CM044 #299)	CM051	db8a9bab	no	wiki_v0140_unreadable_feed_warns	TBD	CM044 #299
+wiki: photos is a declared hydrate source (CM044 #300)	CM051	db8a9bab	no	wiki_v0140_photos_is_a_declared_source	TBD	CM044 #300
+pin(daemon): 0.4.99 daemon tarball 79fc71ed (oa 635ed0ab)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0499	TBD	oa #455 (CM051 #2632)
+pin(daemon): 0.4.99 hub app a4e66495	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #455 (CM051 #2632)
+pin(daemon): 0.4.99 the status pill reaches the Doctor in a browser session	CM051	db8a9bab	no	oa_gateway_serves_box_status	TBD	oa #455 (CM051 #2632)
+pin(daemon): 0.4.99 the cost page price sources are links	CM051	db8a9bab	no	oa_bursar_sources_are_links	TBD	oa #455 (CM051 #2632)
+pin(daemon): 0.5.0 daemon tarball 2a76bdf0 (oa abb881a0)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0500	TBD	oa #456 (CM051 #2644)
+pin(daemon): 0.5.0 hub app fb5fb525	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #456 (CM051 #2644)
+pin(daemon): 0.5.0 a URL in a calendar title is a domain link on the Timeline	CM051	db8a9bab	no	oa_timeline_title_urls_are_links	TBD	oa #456 (CM051 #2644)
+repin(wiki): both wiki images at CM044 v0.1.41 (7e643a57)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2644
+wiki: the dashboard says Data points, not RDF triples (CM044 #301)	CM051	db8a9bab	no	wiki_v0141_dashboard_says_data_points	TBD	CM044 #301 (CM051 #2644)
+wiki: the dashboard hero card reads the store term from the locale (CM044 #301)	CM051	db8a9bab	no	wiki_v0141_dashboard_reads_the_term	TBD	CM044 #301 (CM051 #2644)
+repin(wiki): both wiki images at CM044 v0.1.42 (ae83efa8)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2645
+wiki: a baseline recompile preserves a completed status (CM044 #302)	CM051	db8a9bab	no	wiki_v0142_compile_preserves_complete	TBD	CM044 #302 (CM051 #2645)
+wiki: hydration keeps complete=True when asked to preserve it (CM044 #302)	CM051	db8a9bab	no	wiki_v0142_hydration_keeps_complete	TBD	CM044 #302 (CM051 #2645)
+pin(daemon): 0.5.1 daemon tarball 9775e29d (oa 8708c3af)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0501	TBD	oa #457 (CM051 #2646)
+pin(daemon): 0.5.1 hub app 675cbc4a	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	oa #457 (CM051 #2646)
+pin(daemon): 0.5.1 an event's detail and location URLs are domain links on the Timeline	CM051	db8a9bab	no	oa_timeline_detail_and_location_are_links	TBD	oa #457 (CM051 #2646)
+repin(wiki): both wiki images at CM044 v0.1.43 (ba0ce754)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2657
+wiki: calendar entries are classified meeting, travel, appointment or event (CM044 #305)	CM051	db8a9bab	no	wiki_v0143_meetings_classify_event_kind	TBD	CM044 #305 (CM051 #2657)
+wiki: a place page shows a source chip, not a raw strength (CM044 #306)	CM051	db8a9bab	no	wiki_v0143_place_source_chip	TBD	CM044 #306 (CM051 #2657)
 # 2026-10-07 (ORM, candidate #10): CM051 #2661 hub-v0.5.4 (2fd7dac7), #2666 wiki v0.1.45 (07e0fce7), #2668 RemoteCapture 0.1.4 (00a8ce2f).
-pin(daemon): 0.5.4 daemon tarball 7aad63a6 (oa cb02e94a)	CM051	84629b62	no	daemon_pinned_at_hub_v0504	TBD	oa #458-#463, #468, #469, #472 (CM051 #2661)
-pin(daemon): 0.5.4 hub app a9eb6c79	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2661
-pin(daemon): 0.5.4 Back/Forward for the in-app wiki frame's own history	CM051	84629b62	no	oa_wiki_frame_back_forward	TBD	oa #458 (CM051 #2661)
-pin(daemon): 0.5.4 Bursar header shows one comparison line; the itemised list moves to a Sources disclosure	CM051	84629b62	no	oa_bursar_one_comparison_line	TBD	oa #459 (CM051 #2661)
-pin(daemon): 0.5.4 The pwg_people tool description tells the model it also answers the user's own career and employer questions	CM051	84629b62	no	oa_pwg_people_answers_about_the_user	TBD	oa #460 (CM051 #2661)
-pin(daemon): 0.5.4 ingest/ios and conversation/process get their own 1 MiB body cap via a separate router; every other route keeps 64 KiB	CM051	84629b62	no	oa_gateway_big_body_router_1mib	TBD	oa #461 (CM051 #2661)
-pin(daemon): 0.5.4 Passkey register mints a device bearer token	CM051	84629b62	no	oa_passkey_register_mints_device_bearer	TBD	oa #461 (CM051 #2661)
-pin(daemon): 0.5.4 CONTEXT.md reaches /ws/chat and the system prompt refreshes when its mtime moves mid-session	CM051	84629b62	no	oa_context_md_reaches_ws_chat	TBD	oa #462 (CM051 #2661)
-pin(daemon): 0.5.4 Both manual TLS accept loops serve with HTTP upgrades, so the WebSocket upgrade works over TLS	CM051	84629b62	no	oa_tls_listeners_serve_upgrades	TBD	oa #463 (CM051 #2661)
-pin(daemon): 0.5.4 The on-demand daily-brief route no longer appends the unavailable footer	CM051	84629b62	no	oa_brief_on_demand_no_unavailable_footer	TBD	oa #468 (CM051 #2661)
-pin(daemon): 0.5.4 The gateway proxies the conversation status and speakers GETs by validated conversation id, for phone and Watch capture	CM051	84629b62	no	oa_conversation_status_speakers_proxied	TBD	oa #469 (CM051 #2661)
-pin(daemon): 0.5.4 The email channel answers only mail above a UID watermark, so a first start never replies to the back catalogue	CM051	84629b62	no	oa_email_channel_watermark	TBD	oa #472 (CM051 #2661)
-pin(daemon): 0.5.4 channel-email is in the shipped agent-runtime feature set	CM051	84629b62	no	oa_email_channel_in_shipped_features	TBD	oa #472 (CM051 #2661)
-repin(wiki): both wiki images at CM044 v0.1.45 (cc59f35f)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2666
-wiki: a raw call-URL location renders as plain text (CM044 #307)	CM051	84629b62	no	wiki_v0144_call_location_is_plain_text	TBD	CM044 #307 (CM051 #2666)
-wiki: a Dislike is never an all-time favourite (CM044 #308)	CM051	84629b62	no	wiki_v0144_dislike_is_never_a_favourite	TBD	CM044 #308 (CM051 #2666)
-wiki: browsing items render as [Title](url), never a raw URL (CM044 #310)	CM051	84629b62	no	wiki_v0145_browsing_items_are_links	TBD	CM044 #310 (CM051 #2666)
+pin(daemon): 0.5.4 daemon tarball 7aad63a6 (oa cb02e94a)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0504	TBD	oa #458-#463, #468, #469, #472 (CM051 #2661)
+pin(daemon): 0.5.4 hub app a9eb6c79	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2661
+pin(daemon): 0.5.4 Back/Forward for the in-app wiki frame's own history	CM051	db8a9bab	no	oa_wiki_frame_back_forward	TBD	oa #458 (CM051 #2661)
+pin(daemon): 0.5.4 Bursar header shows one comparison line; the itemised list moves to a Sources disclosure	CM051	db8a9bab	no	oa_bursar_one_comparison_line	TBD	oa #459 (CM051 #2661)
+pin(daemon): 0.5.4 The pwg_people tool description tells the model it also answers the user's own career and employer questions	CM051	db8a9bab	no	oa_pwg_people_answers_about_the_user	TBD	oa #460 (CM051 #2661)
+pin(daemon): 0.5.4 ingest/ios and conversation/process get their own 1 MiB body cap via a separate router; every other route keeps 64 KiB	CM051	db8a9bab	no	oa_gateway_big_body_router_1mib	TBD	oa #461 (CM051 #2661)
+pin(daemon): 0.5.4 Passkey register mints a device bearer token	CM051	db8a9bab	no	oa_passkey_register_mints_device_bearer	TBD	oa #461 (CM051 #2661)
+pin(daemon): 0.5.4 CONTEXT.md reaches /ws/chat and the system prompt refreshes when its mtime moves mid-session	CM051	db8a9bab	no	oa_context_md_reaches_ws_chat	TBD	oa #462 (CM051 #2661)
+pin(daemon): 0.5.4 Both manual TLS accept loops serve with HTTP upgrades, so the WebSocket upgrade works over TLS	CM051	db8a9bab	no	oa_tls_listeners_serve_upgrades	TBD	oa #463 (CM051 #2661)
+pin(daemon): 0.5.4 The on-demand daily-brief route no longer appends the unavailable footer	CM051	db8a9bab	no	oa_brief_on_demand_no_unavailable_footer	TBD	oa #468 (CM051 #2661)
+pin(daemon): 0.5.4 The gateway proxies the conversation status and speakers GETs by validated conversation id, for phone and Watch capture	CM051	db8a9bab	no	oa_conversation_status_speakers_proxied	TBD	oa #469 (CM051 #2661)
+pin(daemon): 0.5.4 The email channel answers only mail above a UID watermark, so a first start never replies to the back catalogue	CM051	db8a9bab	no	oa_email_channel_watermark	TBD	oa #472 (CM051 #2661)
+pin(daemon): 0.5.4 channel-email is in the shipped agent-runtime feature set	CM051	db8a9bab	no	oa_email_channel_in_shipped_features	TBD	oa #472 (CM051 #2661)
+repin(wiki): both wiki images at CM044 v0.1.45 (cc59f35f)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2666
+wiki: a raw call-URL location renders as plain text (CM044 #307)	CM051	db8a9bab	no	wiki_v0144_call_location_is_plain_text	TBD	CM044 #307 (CM051 #2666)
+wiki: a Dislike is never an all-time favourite (CM044 #308)	CM051	db8a9bab	no	wiki_v0144_dislike_is_never_a_favourite	TBD	CM044 #308 (CM051 #2666)
+wiki: browsing items render as [Title](url), never a raw URL (CM044 #310)	CM051	db8a9bab	no	wiki_v0145_browsing_items_are_links	TBD	CM044 #310 (CM051 #2666)
 # 2026-10-07 (ORM, candidate #10 freeze): rows for the eight other #10 merges, which had none (#2662 #2664 #2665 #2667 #2669 #2670 #2672 #2673).
 The installer pairs the Safari extension's bearer at install time, so the extension's saves reach the Hub authenticated	CM051	4dc4b687	no	safari_ext_bearer_paired_at_install	TBD	CM051 #2662
 The box walk runs conversation_capture_end_to_end as a BLOCKING probe	CM051	e0808782	no	probe_conversation_capture_end_to_end	TBD	CM051 #2664
@@ -221,26 +221,26 @@ The installer asks who may email the assistant and writes the allowlist	CM051	f4
 pin(remote-capture): RemoteCapture 0.1.5 (CM042 #24 store auth, #25 Hub-outage queue, #29 restores rc#9 identity header and rc#10 capture copy)	CM051	afc376a3	no	remote_capture_pinned_at_v015	TBD	CM042 #24 #25 #29 (CM051 #2681)
 # 2026-10-08 (ORM, candidate #11 freeze): CM051 #2698 (b755f55c, hub-v0.5.5 + wiki v0.1.46) replaced the daemon and wiki pin lines. All 96 rows measured ABSENT at b755f55c by scripts/verify_bom_rows_are_in_the_pin.sh (71 citing 2fd7dac7, 25 citing 07e0fce7) and nothing else was ABSENT. All 96 -> b755f55c. Each fix is still in the daemon (oa 06e879fb = hub-v0.5.4 + #476) or the images (CM044 08f35937 = v0.1.45 + #312) that b755f55c pins.
 # 2026-10-08 (ORM, candidate #11): CM051 #2698 (b755f55c) re-pins hub-v0.5.5 (oa 06e879fb, #476) and wiki v0.1.46 (CM044 08f35937, #312). Rows for the #11 merges #2691 #2692 #2693 #2694 #2696.
-pin(daemon): 0.5.5 daemon tarball 6ceecc8e (oa 06e879fb)	CM051	84629b62	no	daemon_pinned_at_hub_v0505	TBD	oa #476 (CM051 #2698)
-pin(daemon): 0.5.5 hub app 76223fb9	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2698
-pin(daemon): 0.5.5 the daemon declares NSRemindersFullAccessUsageDescription	CM051	84629b62	no	oa_reminders_full_access_usage_key	TBD	oa #476 (CM051 #2698)
-pin(daemon): 0.5.5 Reminders re-checks the permission after a deny	CM051	84629b62	no	oa_reminders_recheck_after_deny	TBD	oa #476 (CM051 #2698)
-repin(wiki): both wiki images at CM044 v0.1.46 (08f35937)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2698
-wiki: an unnamed conversation is titled by channel and date, never its internal id (CM044 #312)	CM051	84629b62	no	wiki_v0146_unnamed_conversation_title	TBD	CM044 #312 (CM051 #2698)
-wiki: generated text has no em dash or ISO date, and category keys render as plain labels (CM044 #312)	CM051	84629b62	no	wiki_v0146_tidy_generated_text	TBD	CM044 #312 (CM051 #2698)
+pin(daemon): 0.5.5 daemon tarball 6ceecc8e (oa 06e879fb)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0505	TBD	oa #476 (CM051 #2698)
+pin(daemon): 0.5.5 hub app 76223fb9	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2698
+pin(daemon): 0.5.5 the daemon declares NSRemindersFullAccessUsageDescription	CM051	db8a9bab	no	oa_reminders_full_access_usage_key	TBD	oa #476 (CM051 #2698)
+pin(daemon): 0.5.5 Reminders re-checks the permission after a deny	CM051	db8a9bab	no	oa_reminders_recheck_after_deny	TBD	oa #476 (CM051 #2698)
+repin(wiki): both wiki images at CM044 v0.1.46 (08f35937)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2698
+wiki: an unnamed conversation is titled by channel and date, never its internal id (CM044 #312)	CM051	db8a9bab	no	wiki_v0146_unnamed_conversation_title	TBD	CM044 #312 (CM051 #2698)
+wiki: generated text has no em dash or ISO date, and category keys render as plain labels (CM044 #312)	CM051	db8a9bab	no	wiki_v0146_tidy_generated_text	TBD	CM044 #312 (CM051 #2698)
 The hydration conversations counter follows CM048 completions	CM051	0a096050	no	hydration_conversations_counter_follows_cm048	TBD	CM051 #2692
 The coach reader reads the writer's path and refuses loudly	CM051	6e89e175	no	coach_reader_reads_the_writers_path	TBD	CM051 #2693
 Failed conversations retry automatically and are never lost	CM051	1c02ec3b	no	failed_conversations_auto_retry	TBD	CM051 #2696
 The conversation-capture walk probe polls HTTPS through an HTTPSHandler	CM051	b11c64f5	no	probe_conversation_capture_https_handler	TBD	CM051 #2691
 The customer_read judge treats an @handle as customer data	CM051	361b767e	no	probe_customer_read_handle_is_not_a_key	TBD	CM051 #2694
 # 2026-10-08 (ORM, candidate #12): CM051 #2713 (6514ff15) re-pins hub-v0.5.6 (oa fd904f45, #481 #483) and wiki v0.1.47 (CM044 e3d5abe9, #314). Rows for the #12 merges #2708 #2709 #2710 #2711.
-pin(daemon): 0.5.6 daemon tarball 245e19a5 (oa fd904f45)	CM051	84629b62	no	daemon_pinned_at_hub_v0506	TBD	oa #481 #483 (CM051 #2713)
-pin(daemon): 0.5.6 hub app 12c1749d	CM051	84629b62	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2713
-pin(daemon): 0.5.6 iMessage poll queries drop tapback rows	CM051	84629b62	no	oa_imessage_tapback_filter	TBD	oa #483 (CM051 #2713)
-pin(daemon): 0.5.6 Ollama gate pending count is cancel-safe (PendingTicket)	CM051	84629b62	no	oa_pending_ticket_raii_ollama_gate	TBD	oa #481 (CM051 #2713)
-pin(daemon): 0.5.6 session queue pending count is cancel-safe (PendingTicket)	CM051	84629b62	no	oa_pending_ticket_raii_session_queue	TBD	oa #481 (CM051 #2713)
-repin(wiki): both wiki images at CM044 v0.1.47 (e3d5abe9)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2713
-wiki: unterminated conversation frontmatter no longer reaches People/timeline (CM044 #314)	CM051	84629b62	no	wiki_v0147_unterminated_frontmatter_stripped	TBD	CM044 #314 (CM051 #2713)
+pin(daemon): 0.5.6 daemon tarball 245e19a5 (oa fd904f45)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0506	TBD	oa #481 #483 (CM051 #2713)
+pin(daemon): 0.5.6 hub app 12c1749d	CM051	db8a9bab	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2713
+pin(daemon): 0.5.6 iMessage poll queries drop tapback rows	CM051	db8a9bab	no	oa_imessage_tapback_filter	TBD	oa #483 (CM051 #2713)
+pin(daemon): 0.5.6 Ollama gate pending count is cancel-safe (PendingTicket)	CM051	db8a9bab	no	oa_pending_ticket_raii_ollama_gate	TBD	oa #481 (CM051 #2713)
+pin(daemon): 0.5.6 session queue pending count is cancel-safe (PendingTicket)	CM051	db8a9bab	no	oa_pending_ticket_raii_session_queue	TBD	oa #481 (CM051 #2713)
+repin(wiki): both wiki images at CM044 v0.1.47 (e3d5abe9)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2713
+wiki: unterminated conversation frontmatter no longer reaches People/timeline (CM044 #314)	CM051	db8a9bab	no	wiki_v0147_unterminated_frontmatter_stripped	TBD	CM044 #314 (CM051 #2713)
 CM048 participants sent as strings no longer crash 01_classify	CM051	8e3ee4f3	no	cm048_participants_as_strings_normalised	TBD	CM051 #2709
 The wiki em dash walk check exempts customer browsing titles	CM051	079016ab	no	probe_wiki_em_dash_exempts_customer_titles	TBD	CM051 #2710
 The People list never shows a 14+ digit internal id as a phone	CM051	b1fd836c	no	people_list_never_shows_internal_id_as_phone	TBD	CM051 #2711
@@ -248,10 +248,16 @@ The db_key walk probe reads back through the assistant API port	CM051	9a2470ab	n
 The Reminders walk probe reads the TCC Reminders state	CM051	9a2470ab	no	probe_reminders_reads_tcc_state	TBD	CM051 #2708
 The owner-digest walk probe waits for the hydration phases	CM051	9a2470ab	no	probe_owner_digest_waits_for_hydration	TBD	CM051 #2708
 # 2026-10-09 (ORM, candidate #13): CM051 #2718 (84629b62) re-pins wiki v0.1.48 (CM044 88b8425b, #315 #316). Rows for the #13 merges #2716 #2717. Hub stays hub-v0.5.6.
-repin(wiki): both wiki images at CM044 v0.1.48 (88b8425b)	CM051	84629b62	no	wiki_images_pinned_at_cm044_v0148	TBD	CM051 #2718
-wiki: the Obsidian vault clear is serialised by a flock, no compile race (CM044 #315)	CM051	84629b62	no	wiki_v0148_vault_clear_locked	TBD	CM044 #315 (CM051 #2718)
-wiki: the digest weekly summary label is a human date (CM044 #315)	CM051	84629b62	no	wiki_v0148_digest_label_human_date	TBD	CM044 #315 (CM051 #2718)
-wiki: customer-written text carries data-ostler-customer (CM044 #316)	CM051	84629b62	no	wiki_v0148_customer_text_marker	TBD	CM044 #316 (CM051 #2718)
+repin(wiki): both wiki images at CM044 v0.1.48 (88b8425b)	CM051	db8a9bab	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2718
+wiki: the Obsidian vault clear is serialised by a flock, no compile race (CM044 #315)	CM051	db8a9bab	no	wiki_v0148_vault_clear_locked	TBD	CM044 #315 (CM051 #2718)
+wiki: the digest weekly summary label is a human date (CM044 #315)	CM051	db8a9bab	no	wiki_v0148_digest_label_human_date	TBD	CM044 #315 (CM051 #2718)
+wiki: customer-written text carries data-ostler-customer (CM044 #316)	CM051	db8a9bab	no	wiki_v0148_customer_text_marker	TBD	CM044 #316 (CM051 #2718)
 The assistant API reads a SQLCipher store with the SQLCipher Row (CM041 #205)	CM051	72e9dd2a	no	assistant_api_sqlcipher_row_factory	TBD	CM051 #2716
 The audit log reads a SQLCipher store with the SQLCipher Row	CM051	72e9dd2a	no	audit_log_sqlcipher_row_factory	TBD	CM051 #2716
 The wiki em dash walk check exempts data-ostler-customer text	CM051	9db49f7d	no	probe_customer_read_exempts_marked_text	TBD	CM051 #2717
+# 2026-10-09 (ORM, candidate #14): CM051 #2724 (7f1879fb) re-pins wiki v0.1.49 (CM044 74c993f4, #317). Rows for the #14 merges #2721 #2722. Hub stays hub-v0.5.6.
+repin(wiki): both wiki images at CM044 v0.1.49 (74c993f4)	CM051	7f1879fb	no	wiki_images_pinned_at_cm044_v0149	TBD	CM051 #2724
+wiki: the .pw-src-line provenance note uses the body face (CM044 #317)	CM051	7f1879fb	no	wiki_v0149_src_line_body_face	TBD	CM044 #317 (CM051 #2724)
+The reminders_candidates sidecar never reaches the conversation body (CM048 #85)	CM051	dcc9759b	no	cm048_reminders_sidecar_stripped_from_body	TBD	CM051 #2721
+ostler-import passes the owner name to the people graph by default	CM051	db8a9bab	no	ostler_import_user_name_defaults_from_env	TBD	CM051 #2722
+ostler-import: unknown format is not a failure and keeps the real rc	CM051	db8a9bab	no	ostler_import_unknown_format_keeps_rc	TBD	CM051 #2722
