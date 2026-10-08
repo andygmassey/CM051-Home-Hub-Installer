@@ -169,3 +169,6 @@ wiki_image_grep|wiki-compiler:/app/compiler/provenance.py|def _strip_unterminate
 wiki_image_grep|wiki-compiler:/app/compiler/obsidian.py|^_VAULT_LOCK_NAME = |CM044 #315 the Obsidian vault clear + copy runs under one exclusive flock, so two compiles can no longer race the clear (wiki_compile rc=1, OSError 39). 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/digest.py|^ *week_label = "the week ending "|CM044 #315 the digest weekly summary is labelled with a human date, never "the week ending YYYY-MM-DD". 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/trends_pages.py|^from compiler\.customer_text import customer_text|CM044 #316 the Trends page (the walk #12 failure) wraps customer-written titles in a data-ostler-customer span, so the walk em dash check can exempt them. 0 -> 1.
+# --- v1.0.107 wiki v0.1.49 (CM044 74c993f4, #317). The line below FAILED against the v0.1.48 site image
+# (c9c51914) and PASSED against v0.1.49 (a68356ca) through this verifier.
+wiki_image_grep|wiki-site:/docs/overrides/stylesheets/extra.css|font-family:var\(--f-body\); letter-spacing:\.01em;|CM044 #317 the .pw-src-line provenance note is set in the body face, not monospace (walk #13). 0 -> 1.
