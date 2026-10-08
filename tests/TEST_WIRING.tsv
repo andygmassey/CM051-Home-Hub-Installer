@@ -160,7 +160,9 @@ test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-pr
 test_cm024k_email_summarizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm048_participants_as_strings.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-not-phone.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -250,6 +252,7 @@ test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-inte
 test_editor_feedback_accepts_the_real_client_action_strings.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_egress_pool_member_is_not_a_policy_violation.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
+test_email_allowlist_installer.sh	WIRED	.github/workflows/email-channel.yml
 test_email_checkpoint_lives_under_dot_ostler.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_folder_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -718,7 +721,7 @@ test_vendor_pair_drift.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
 test_vendored_cm059_renders_a_birthday_card_with_no_body.py	WIRED	.github/workflows/hub-screens-and-106c.yml
-test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/walk5-conversation-failure-reason-guard.yml
+test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -772,6 +775,7 @@ gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ErrorCodeBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/FDAPresetSubtitleFaceRecognitionClaimTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FailureStateMachineTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FingerprintStateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/HardwareFingerprintTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -809,6 +813,7 @@ gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
+context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml

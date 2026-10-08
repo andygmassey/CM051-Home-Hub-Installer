@@ -647,7 +647,95 @@ yet: OWED, and it is a security-boundary change that wants a human read.
 Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
 (20 tests). Retire by landing the CM041 branch and re-pinning.
 
-## Twelfth graft: speaker naming, chunked conversation upload, 405 on POST-only paths (Lane 11)
+## Twelfth graft: the hydration conversations counter follows CM048 completions (v1.0.107 #11)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+functions `_wiki_conversations_progress`, `_conversation_state_is_complete`,
+`_conversation_state_is_stalled`. Matches CM041 PR #201.
+
+`GET /api/v1/hydration/status` counted a conversation completed only when
+`state.json` had `current_step == "completed"`. CM048 never writes that for a
+real run: it leaves `current_step` on the last step entered (or back on
+`00_raw` after a re-entry) and records finished work in `completed_steps`, with
+`09_bundle` as the terminal step (CM048 `src/seed.py` `already_enriched`).
+Measured read-only on a walk box: 84 of 90 "running" had `09_bundle` done, so
+the counter sat flat while pwg-convo logged completions. Completed is now
+`09_bundle` in `completed_steps`; `stalled` (subset of running, no update for
+30 minutes) is added and never promoted to a failure.
+
+Test `vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py`
+(5 tests), wired in `.github/workflows/walk-meeting-id-collision-guard.yml`.
+
+Upstream landed as CM041 #201, squash sha `1e18c6b0`, acked in `hold_ack_shas`
+in `vendor/VENDOR_MANIFEST.toml`. Retire by re-pinning.
+
+## Thirteenth graft: the coach reader read a path the writer never wrote (CM051 v1.0.107 #11)
+
+Mirrors CM041 PR #202. `vendor/cm041/assistant_api/ical-server.py`:
+`COACH_DB`, `coach_recent`, and the `/api/v1/coach/recent` handler.
+
+CM048 writes coach observations to `~/.ostler/coach/observations.db`
+(`vendor/cm048_pipeline/src/ostler_paths.py:52`, `ingest.py` `_write_coach`),
+SQLCipher-encrypted. The reader defaulted to `PWG_HOME/coach/...`
+(`~/.pwg`), opened an empty file and returned an empty list, silently.
+
+Now: `COACH_DB` is `~/.ostler/coach/observations.db` (`OSTLER_COACH_DB`
+overrides, `PWG_HOME` no longer does). An ABSENT db is a fresh box (the writer creates it on the first
+observation; the context-refresh generator polls and counts non-200 as failure):
+200 with `observations: []` and `db_state: "absent"`. An existing db with no
+key, a wrong key or a missing table raises `CoachDbError`, logs to stderr and
+answers HTTP 500 with an `error` and no `observations` key. The key is the one
+already resolved at import by `resolve_db_key()` (CM051 #1956 precedent, which
+CM041 source does not carry; that is why this file differs from upstream there).
+
+The walk probe `db_key_reaches_every_service` had the same hard-coded
+`~/.pwg` path (and created the 0-byte decoy by connecting to it); it now
+resolves the writer's path and never creates the file.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`
+(7 tests; one loads the vendored CM048 `coach_db_path()` itself). Retire by
+landing CM041 #202 and re-pinning. ACKED: CM041 #202 merged as 9f2b883c859d53d65e65fcac1e461c1afe8edea1 and that sha is in the VENDOR_MANIFEST hold_ack for this tree. The pin is still held.
+
+## Fourteenth graft: failed conversations retry automatically on a backoff and are never lost (CM051 v1.0.107 #11)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #203, squash sha
+`e1de0cfdb696d21475ff0e89f161ddcf7d08d442`, acked in `hold_ack_shas`.
+
+2 of 129 conversations failed at the processor step on the walk box
+(macmini16-walk). The one in-process retry above was spent
+(`retry_count=1`) and the only thing that resumes a failed conversation is
+the manual `pwg-convo retry-all`, which nothing schedules and a customer
+cannot run. They sat failed forever and the hydration panel showed
+`needs_attention` with no way out.
+
+Added to this tree's `ical-server.py`: `CONVERSATION_RETRY_*` constants,
+`_conversation_process_tracked`, `_preserve_cm048_progress`,
+`_retry_one_conversation`, `_conversation_retry_sweep`,
+`_conversation_retry_rearm`, `_start_conversation_retry_thread`,
+`api_conversation_retry_failed` (`POST /api/v1/conversation/retry-failed`),
+the sidecar helpers, and edits to `_conversation_process_background` (one
+call before its final state write), `api_conversation_process` (thread
+target), `_wiki_conversations_progress` (`retrying`, `gave_up`),
+`api_hydration_status` (retrying is `running`, spent cap is
+`needs_attention` with a `message`), the POST router, and `__main__` (thread
+start). Bookkeeping is a sidecar `auto_retry.json`, NOT a new state.json key,
+because `PipelineState.from_dict` was `cls(**data)` and rejects an unknown
+key. The retry re-runs `_invoke_pwg_convo(["process", ...])`, this tree's own
+CM048 invocation (CM041 source uses `OSTLER_VENV_PYTHON -m src.cli`), the
+one adaptation against the source graft.
+
+The `09_bundle` completion predicate and `stalled` (CM041 #201, the Twelfth graft above) are now in this tree, so `retrying` / `gave_up` sit beside `stalled`.
+
+### What a future sync must preserve
+
+All of the above. Guarded by
+`vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py`
+(12 tests, 12 fail against main's ical-server) and by
+`tests/test_vendored_conversation_process_failure_reason.py`, whose fixture
+now loads the real `_preserve_cm048_progress` helpers. Wired into
+`.github/workflows/failed-conversations-auto-retry-guard.yml`.
+
+## Twelfth graft (Lane 11 numbering; main's Twelfth is the hydration counter): speaker naming, chunked conversation upload, 405 on POST-only paths (Lane 11)
 
 Source: CM041 branch `claude/lane11-hub-route-gaps` (same shape as the Lane 6
 graft above and #2658). Not yet on CM041 main, so there is no sha to put in
@@ -680,10 +768,10 @@ Guarded by the three vendored tests (25) and
 `tests/test_lane11_client_calls_pass_the_contract.py`. Retire by landing the
 CM041 branch and re-pinning.
 
-## Thirteenth graft: forget writes a tombstone every people syncer respects (Lane 18)
+## Sixteenth graft: forget writes a tombstone every people syncer respects (Lane 18)
 
 Source: CM041 PR #200 branch `claude/lane11-hub-route-gaps` (commit `cb98e00`),
-same shape as the Twelfth graft above and #2658. Not on CM041 main, so there is
+same shape as the Lane 11 graft above and #2658. Not on CM041 main, so there is
 no merge sha: the `hold_ack_shas` ack is OWED the moment CM041 #200 merges and
 is deliberately NOT added with a made-up sha. Ack text to paste then:
 "<sha> is the squash merge of CM041 #200 (forget writes a tombstone every people

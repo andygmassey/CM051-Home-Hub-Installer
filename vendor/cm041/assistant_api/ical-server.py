@@ -987,7 +987,16 @@ INTEREST_PROFILE_PATH = (
 
 # ── CM048 conversation processing integration ────────────────────────
 PWG_HOME = Path(os.environ.get("PWG_HOME", os.path.expanduser("~/.pwg")))
-COACH_DB = PWG_HOME / "coach" / "observations.db"
+# The coach DB lives where its WRITER puts it: CM048 ostler_paths.coach_db_path()
+# = ~/.ostler/coach/observations.db (ingest.py `_write_coach`). It used to be
+# derived from PWG_HOME (default ~/.pwg), so on a Hub where PWG_HOME is unset
+# the reader opened an empty ~/.pwg file while the writer filled an encrypted
+# file elsewhere, and /api/v1/coach/recent returned nothing, silently.
+# OSTLER_COACH_DB is the only override; PWG_HOME no longer moves it.
+COACH_DB = Path(
+    os.environ.get("OSTLER_COACH_DB")
+    or os.path.expanduser("~/.ostler/coach/observations.db")
+)
 # H2b fix (vendor graft of CM041 PR #197): CM048's actual
 # processor (andygmassey/CM048-PWG-Conversation-Processing, installed on
 # this Hub at ${OSTLER_DIR}/services/cm048, invoked here via pwg-convo)
@@ -2114,6 +2123,20 @@ def people_search(query, limit=10):
 
 # ── Coach observations (CM048 tier 3) ────────────────────────────────
 
+class CoachDbError(RuntimeError):
+    """The coach DB exists but is unreadable (no key, wrong key, no table).
+    Surfaced as a 500, never as an empty observation list."""
+
+
+def _coach_db_is_plaintext(path) -> bool:
+    """True when the file starts with the plaintext SQLite header."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
 def coach_recent(user_id=None, hours=168, limit=10):
     """Return recent coaching observations from the SQLite DB.
 
@@ -2130,28 +2153,50 @@ def coach_recent(user_id=None, hours=168, limit=10):
     """
     if not user_id:
         raise ValueError("user_id is required")
+    # An absent file at the WRITER'S path is a fresh box: CM048 creates the
+    # db on the first observation, and the context-refresh generator polls
+    # this endpoint every tick and counts non-200 as a failure. Say so
+    # explicitly (db_state) rather than looking like "nothing observed".
+    # A file that exists but cannot be read stays a loud error below.
     if not COACH_DB.exists():
-        return {"observations": [], "note": "Coach database not found"}
+        return {
+            "observations": [],
+            "db_state": "absent",
+            "note": f"coach database not yet created at {COACH_DB}",
+        }
 
     cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
-    # ostler_security is guaranteed importable (hard-fails at module
-    # load if not). The remaining branch is whether a key is set.
-    if _ENCRYPTION_KEY:
-        conn = _secure_connect(str(COACH_DB), _ENCRYPTION_KEY)
-    else:
-        _warn_plaintext_once(str(COACH_DB))
-        conn = sqlite3.connect(str(COACH_DB))
-    conn.row_factory = sqlite3.Row
+    # A missing key against an encrypted file must be LOUD too.
+    if not _ENCRYPTION_KEY and not _coach_db_is_plaintext(COACH_DB):
+        msg = (
+            f"coach database {COACH_DB} is encrypted but no database key "
+            "reached ical-server (OSTLER_DB_KEY / resolved key is empty)"
+        )
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        raise CoachDbError(msg)
+
+    conn = None
     try:
+        if _ENCRYPTION_KEY:
+            conn = _secure_connect(str(COACH_DB), _ENCRYPTION_KEY)
+        else:
+            _warn_plaintext_once(str(COACH_DB))
+            conn = sqlite3.connect(str(COACH_DB))
+        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM observations "
             "WHERE user_id = ? AND observed_at > ? "
             "ORDER BY observed_at DESC LIMIT ?",
             (user_id, cutoff, limit),
         ).fetchall()
+    except Exception as exc:
+        msg = f"coach database {COACH_DB} could not be read: {exc}"
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        raise CoachDbError(msg) from exc
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
     observations = []
     for row in rows:
@@ -2392,9 +2437,352 @@ def _conversation_process_background(conversation_id, transcript, metadata):
             state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
             break
 
+    if state.get("failed_step"):
+        _preserve_cm048_progress(state_dir, state)
     (state_dir / "state.json").write_text(
         json.dumps(state, indent=2), encoding="utf-8"
     )
+
+
+# ── Failed-conversation auto retry (v1.0.107 #11, Andy: "nothing lost") ──────
+#
+# Measured on the walk box: 2 of 129 conversations failed at the processor
+# step. The one in-process retry above was spent (retry_count=1), the raw
+# transcript and metadata survived on disk, and the only thing that resumes
+# them is the manual ``pwg-convo retry-all`` -- which nothing schedules and a
+# customer cannot run. They sat failed forever and the hydration panel showed
+# needs_attention with no way out.
+#
+# This is the scheduled retry. A daemon thread in THIS process (it already
+# owns dispatch, PROCESSING_DIR and the CM048 invocation) sweeps every
+# CONVERSATION_RETRY_SWEEP_SECONDS for conversations whose state.json carries a
+# failed_step and re-runs the same ``src.cli process`` call the original
+# dispatch used, on a backoff of 15 min, 1 h, 6 h, then daily, capped at
+# CONVERSATION_RETRY_MAX_ATTEMPTS.
+#
+# Bookkeeping lives in a SIDECAR (auto_retry.json) beside state.json, never in
+# state.json: CM048's PipelineState.from_dict is ``cls(**data)`` and rejects an
+# unknown key, so a new field there would crash every resume.
+#
+# Nothing here deletes anything. The raw transcript, the metadata and every
+# CM048 artefact are only ever READ on a retry; the only file removed is the
+# sidecar, and only after the conversation has actually completed.
+
+CONVERSATION_RETRY_SIDECAR = "auto_retry.json"
+CONVERSATION_RETRY_BACKOFF_SECONDS = (15 * 60, 60 * 60, 6 * 3600, 24 * 3600)
+CONVERSATION_RETRY_MAX_ATTEMPTS = 8
+CONVERSATION_RETRY_SWEEP_SECONDS = 300
+CONVERSATION_RETRY_MAX_PER_SWEEP = 3
+CONVERSATION_RETRY_TIMEOUT_SECONDS = 900
+CONVERSATION_RETRY_GAVE_UP_MESSAGE = (
+    "couldn't process, will retry on the next update"
+)
+_CONVERSATION_RETRY_LOCK = threading.Lock()
+# Conversation ids whose first dispatch is still running in this process. The
+# CM048 subprocess writes a failed_step to state.json after EACH failed
+# attempt, so mid-dispatch (between its own two attempts) a conversation looks
+# failed while it is not finished; the sweeper must not start a second run.
+_CONVERSATIONS_IN_FLIGHT = set()
+_CONVERSATIONS_IN_FLIGHT_LOCK = threading.Lock()
+
+
+def _conversation_process_tracked(conversation_id, transcript, metadata):
+    with _CONVERSATIONS_IN_FLIGHT_LOCK:
+        _CONVERSATIONS_IN_FLIGHT.add(conversation_id)
+    try:
+        _conversation_process_background(conversation_id, transcript, metadata)
+    finally:
+        with _CONVERSATIONS_IN_FLIGHT_LOCK:
+            _CONVERSATIONS_IN_FLIGHT.discard(conversation_id)
+
+
+def _conversation_retry_backoff(attempts_made):
+    """Seconds to wait before the next automatic attempt, given how many the
+    scheduler has already made. Past the table it stays at the last (daily)."""
+    table = CONVERSATION_RETRY_BACKOFF_SECONDS
+    return table[min(max(int(attempts_made), 0), len(table) - 1)]
+
+
+def _retry_parse_iso(stamp):
+    try:
+        text = str(stamp or "").replace("Z", "+00:00")
+        out = datetime.fromisoformat(text)
+        if out.tzinfo is None:
+            out = out.replace(tzinfo=timezone.utc)
+        return out
+    except Exception:
+        return None
+
+
+def _retry_code_stamp():
+    """Changes when the installed ical-server.py changes (an app update), so a
+    conversation that gave up is re-armed once per update, not once per boot."""
+    try:
+        return str(int(os.path.getmtime(__file__)))
+    except Exception:
+        return "unknown"
+
+
+def _read_retry_sidecar(state_dir):
+    try:
+        data = json.loads((Path(state_dir) / CONVERSATION_RETRY_SIDECAR)
+                          .read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_retry_sidecar(state_dir, data):
+    """Atomic: a crash mid-write must not leave a half file that reads as
+    'no sidecar' and silently resets the attempt count."""
+    state_dir = Path(state_dir)
+    data = dict(data)
+    data["code_stamp"] = _retry_code_stamp()
+    tmp = state_dir / (CONVERSATION_RETRY_SIDECAR + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, state_dir / CONVERSATION_RETRY_SIDECAR)
+
+
+def _read_state_json(state_dir):
+    try:
+        data = json.loads((Path(state_dir) / "state.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _conversation_retry_error_class(reason):
+    """The exception CLASS only, from a CM048 failure_reason
+    ('EXHAUSTED: ReadTimeout: ...'). Never the message, which can carry text."""
+    m = re.search(r"(?m)^(?:EXHAUSTED|PERMANENT): ([A-Za-z_][\w.]*):", str(reason or ""))
+    return m.group(1) if m else None
+
+
+def _preserve_cm048_progress(state_dir, state):
+    """Called just before the dispatcher overwrites state.json on failure.
+
+    The overwrite used to wipe CM048's own record: its completed_steps (so a
+    retry re-ran finished steps) and its real failed step / exception class
+    (so the cause of every failure was unrecoverable -- the walk-box failures
+    could be traced only to 'Step 01_classify failed (after 3 retries)').
+    Keep the completed steps in state.json (a known key) and put the cause in
+    the sidecar (an unknown key there would break PipelineState.from_dict)."""
+    disk = _read_state_json(state_dir)
+    if not disk:
+        return
+    steps = disk.get("completed_steps")
+    if isinstance(steps, list) and steps:
+        merged = list(state.get("completed_steps") or [])
+        merged += [s for s in steps if s not in merged]
+        state["completed_steps"] = merged
+    side = _read_retry_sidecar(state_dir)
+    if disk.get("failed_step"):
+        side["cm048_failed_step"] = str(disk.get("failed_step"))
+        side["cm048_error_class"] = _conversation_retry_error_class(
+            disk.get("failure_reason"))
+        side.setdefault("attempts", 0)
+        side.setdefault("gave_up", False)
+        try:
+            _write_retry_sidecar(state_dir, side)
+        except OSError:
+            pass
+
+
+def _conversation_retry_status(state_dir, st):
+    """'retrying' (failed, within the cap), 'gave_up' (cap spent), or None."""
+    if not (st or {}).get("failed_step"):
+        return None
+    side = _read_retry_sidecar(state_dir)
+    if side.get("gave_up"):
+        return "gave_up"
+    return "retrying"
+
+
+def _conversation_retry_due_at(state_dir, st):
+    """When the next automatic attempt is due (aware datetime), or None."""
+    side = _read_retry_sidecar(state_dir)
+    nxt = _retry_parse_iso(side.get("next_retry_at"))
+    if nxt is not None:
+        return nxt
+    base = _retry_parse_iso(side.get("last_attempt_at")) or \
+        _retry_parse_iso((st or {}).get("last_updated_at"))
+    if base is None:
+        return datetime.now(timezone.utc)
+    return base + timedelta(seconds=_conversation_retry_backoff(side.get("attempts", 0)))
+
+
+def _run_cm048_retry(transcript_path, metadata_path):
+    """Same invocation as the original dispatch. Returns the CompletedProcess."""
+    return _invoke_pwg_convo(
+        ["process", transcript_path, metadata_path],
+        timeout=CONVERSATION_RETRY_TIMEOUT_SECONDS,
+    )
+
+
+def _retry_one_conversation(state_dir, runner=None, now=None):
+    """Re-run one failed conversation from its saved raw inputs.
+
+    Returns 'recovered', 'failed', 'gave_up' or 'skipped'. Never deletes
+    anything but the sidecar of a conversation that has just completed."""
+    runner = runner or _run_cm048_retry
+    state_dir = Path(state_dir)
+    now = now or datetime.now(timezone.utc)
+    transcript = state_dir / "00_raw_transcript.md"
+    metadata = state_dir / "00_metadata.json"
+    side = _read_retry_sidecar(state_dir)
+    attempts = int(side.get("attempts", 0) or 0)
+
+    error_class = None
+    ok = False
+    if not transcript.is_file() or not metadata.is_file():
+        error_class = "MissingRawInput"
+    else:
+        try:
+            result = runner(str(transcript), str(metadata))
+            ok = result.returncode == 0
+            if not ok:
+                disk = _read_state_json(state_dir) or {}
+                error_class = (_conversation_retry_error_class(disk.get("failure_reason"))
+                               or "NonZeroExit")
+                if disk.get("failed_step"):
+                    side["cm048_failed_step"] = str(disk["failed_step"])
+        except subprocess.TimeoutExpired:
+            error_class = "TimeoutExpired"
+        except Exception as exc:
+            error_class = type(exc).__name__
+
+    if ok:
+        disk = _read_state_json(state_dir)
+        if disk is not None and disk.get("failed_step"):
+            # CM048 exited 0 but left a failed marker: do not trust it either way.
+            ok = False
+            error_class = "FailedMarkerAfterSuccess"
+    if ok:
+        try:
+            (state_dir / CONVERSATION_RETRY_SIDECAR).unlink()
+        except FileNotFoundError:
+            pass
+        return "recovered"
+
+    attempts += 1
+    side.update({
+        "attempts": attempts,
+        "last_attempt_at": now.isoformat(),
+        "last_error_class": error_class,
+        "next_retry_at": (now + timedelta(
+            seconds=_conversation_retry_backoff(attempts))).isoformat(),
+        "gave_up": attempts >= CONVERSATION_RETRY_MAX_ATTEMPTS
+                   or error_class == "MissingRawInput",
+    })
+    _write_retry_sidecar(state_dir, side)
+    return "gave_up" if side["gave_up"] else "failed"
+
+
+def _conversation_retry_sweep(now=None, runner=None, limit=None):
+    """One pass: retry every failed conversation whose backoff has elapsed.
+
+    Counts only (no ids, no text). Single-flight: a second concurrent sweep
+    returns immediately rather than running Ollama twice."""
+    now = now or datetime.now(timezone.utc)
+    limit = CONVERSATION_RETRY_MAX_PER_SWEEP if limit is None else limit
+    counts = {"checked": 0, "due": 0, "recovered": 0, "failed": 0,
+              "gave_up": 0, "skipped": 0}
+    if not _CONVERSATION_RETRY_LOCK.acquire(blocking=False):
+        counts["skipped"] = -1
+        return counts
+    try:
+        if not PROCESSING_DIR.exists():
+            return counts
+        due = []
+        for d in sorted(PROCESSING_DIR.iterdir()):
+            st = _read_state_json(d) if d.is_dir() else None
+            if not st or not st.get("failed_step"):
+                continue
+            counts["checked"] += 1
+            with _CONVERSATIONS_IN_FLIGHT_LOCK:
+                if d.name in _CONVERSATIONS_IN_FLIGHT:
+                    continue
+            if _read_retry_sidecar(d).get("gave_up"):
+                continue
+            when = _conversation_retry_due_at(d, st)
+            if when is not None and now >= when:
+                due.append(d)
+        counts["due"] = len(due)
+        for d in due[:max(limit, 0)]:
+            outcome = _retry_one_conversation(d, runner=runner, now=now)
+            counts[outcome] = counts.get(outcome, 0) + 1
+        return counts
+    finally:
+        _CONVERSATION_RETRY_LOCK.release()
+
+
+def _conversation_retry_rearm(force=False):
+    """Give conversations that spent the cap a fresh set of attempts.
+
+    Called at startup with force=False (re-arms only if the installed server
+    changed since the sidecar was written, i.e. 'on the next update') and by
+    the manual control with force=True. Returns how many were re-armed."""
+    n = 0
+    stamp = _retry_code_stamp()
+    now = datetime.now(timezone.utc)
+    if not PROCESSING_DIR.exists():
+        return 0
+    for d in sorted(PROCESSING_DIR.iterdir()):
+        st = _read_state_json(d) if d.is_dir() else None
+        if not st or not st.get("failed_step"):
+            continue
+        side = _read_retry_sidecar(d)
+        if not side.get("gave_up"):
+            if force:
+                side["next_retry_at"] = now.isoformat()
+                _write_retry_sidecar(d, side)
+                n += 1
+            continue
+        if force or side.get("code_stamp") != stamp:
+            side.update({"attempts": 0, "gave_up": False,
+                         "next_retry_at": now.isoformat()})
+            _write_retry_sidecar(d, side)
+            n += 1
+    return n
+
+
+def _conversation_retry_loop():
+    time_mod = __import__("time")
+    time_mod.sleep(60)  # let the server and Ollama settle after boot
+    while True:
+        try:
+            _conversation_retry_sweep()
+        except Exception as exc:  # never let the sweeper die
+            print(f"[conversation-retry] sweep error: {type(exc).__name__}",
+                  file=sys.stderr, flush=True)
+        time_mod.sleep(CONVERSATION_RETRY_SWEEP_SECONDS)
+
+
+def _start_conversation_retry_thread():
+    """Re-arm anything that gave up under an older build, then start the
+    sweeper. Idempotent per process."""
+    if getattr(_start_conversation_retry_thread, "_started", False):
+        return None
+    _start_conversation_retry_thread._started = True
+    try:
+        _conversation_retry_rearm(force=False)
+    except Exception as exc:
+        print(f"[conversation-retry] rearm skipped: {type(exc).__name__}",
+              file=sys.stderr, flush=True)
+    t = threading.Thread(target=_conversation_retry_loop,
+                         name="conversation-retry", daemon=True)
+    t.start()
+    return t
+
+
+def api_conversation_retry_failed(payload=None):
+    """POST /api/v1/conversation/retry-failed -- the manual control.
+
+    Re-arms every failed conversation (including ones that spent the cap) and
+    kicks a sweep now. Counts only."""
+    queued = _conversation_retry_rearm(force=True)
+    threading.Thread(target=_conversation_retry_sweep, daemon=True).start()
+    return {"queued": queued, "status": "accepted"}, 202
 
 
 def api_conversation_process(payload):
@@ -2461,7 +2849,7 @@ def api_conversation_process(payload):
 
     # Spawn background processing
     thread = threading.Thread(
-        target=_conversation_process_background,
+        target=_conversation_process_tracked,
         args=(conversation_id, transcript, metadata),
         daemon=True,
     )
@@ -9009,9 +9397,47 @@ def _wiki_eta_seconds(eta_utc):
         return None
 
 
+# A conversation whose state.json has not moved for this long, and which has
+# neither failed nor finished, is surfaced as "stalled" (a subset of running).
+CONVERSATION_STALL_SECONDS = 30 * 60
+
+
+def _conversation_state_is_complete(st):
+    """True when CM048 finished the whole pipeline for this conversation.
+
+    CM048 (processor.py, seed.py ``already_enriched``) never writes
+    ``current_step == "completed"`` for a real run: it leaves current_step on
+    the last step it entered (or back on ``00_raw`` after a re-entry) and
+    records the finished work in ``completed_steps``. ``09_bundle`` in
+    ``completed_steps`` is the only record that the full pipeline ran, so that
+    is the completion signal; ``current_step == "completed"`` is kept for
+    states written by older/other producers."""
+    if st.get("current_step") == "completed":
+        return True
+    return "09_bundle" in (st.get("completed_steps") or [])
+
+
+def _conversation_state_is_stalled(st, now):
+    try:
+        stamp = str(st.get("last_updated_at") or "").replace("Z", "+00:00")
+        last = datetime.fromisoformat(stamp)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return (now - last).total_seconds() > CONVERSATION_STALL_SECONDS
+    except Exception:
+        return False
+
+
 def _wiki_conversations_progress():
-    """Aggregate CM048 conversation processing state.json files."""
-    dispatched = completed = failed = running = 0
+    """Aggregate CM048 conversation processing state.json files.
+
+    failed beats completed beats running. ``stalled`` is a subset of
+    ``running`` (no update for CONVERSATION_STALL_SECONDS); it is reported,
+    never promoted to a failure, so in-progress work cannot raise
+    needs_attention on its own."""
+    dispatched = completed = failed = running = stalled = 0
+    now = datetime.now(timezone.utc)
+    retrying = gave_up = 0
     try:
         if PROCESSING_DIR.exists():
             for d in PROCESSING_DIR.iterdir():
@@ -9027,14 +9453,21 @@ def _wiki_conversations_progress():
                     continue
                 if st.get("failed_step"):
                     failed += 1
-                elif st.get("current_step") == "completed":
+                    if _conversation_retry_status(d, st) == "gave_up":
+                        gave_up += 1
+                    else:
+                        retrying += 1
+                elif _conversation_state_is_complete(st):
                     completed += 1
                 else:
                     running += 1
+                    if _conversation_state_is_stalled(st, now):
+                        stalled += 1
     except Exception:
         pass
     return {"dispatched": dispatched, "completed": completed,
-            "failed": failed, "running": running}
+            "failed": failed, "running": running, "stalled": stalled,
+            "retrying": retrying, "gave_up": gave_up}
 
 
 def api_hydration_status():
@@ -9140,15 +9573,25 @@ def api_hydration_status():
 
     # 4. Conversations -- CM048 processing. Failures surface loudly.
     conv = _wiki_conversations_progress()
-    if conv["failed"] > 0:
+    # ``failed`` still counts every failed conversation. One that the retry
+    # scheduler still has attempts left for (``retrying``) is work in flight,
+    # not a customer problem; only a conversation that spent the cap (or a
+    # producer that reports no retry split) raises needs_attention.
+    unrecovered = conv["failed"] - conv.get("retrying", 0)
+    if unrecovered > 0:
         conv_state = "needs_attention"
+    elif conv.get("retrying", 0) > 0:
+        conv_state = "running"
     elif conv["dispatched"] == 0:
         conv_state = "pending"
     elif conv["completed"] >= conv["dispatched"]:
         conv_state = "done"
     else:
         conv_state = "running"
-    phases.append({"key": "conversations", "state": conv_state, **conv})
+    conv_phase = {"key": "conversations", "state": conv_state, **conv}
+    if unrecovered > 0:
+        conv_phase["message"] = CONVERSATION_RETRY_GAVE_UP_MESSAGE
+    phases.append(conv_phase)
 
     # Overall. Contacts / graph / ai_summaries gate completion; the
     # conversations phase is surfaced but a pending (zero-dispatched)
@@ -9869,7 +10312,13 @@ class Handler(BaseHTTPRequestHandler):
                     user_id=user_id, hours=hours, limit=limit
                 )
             except Exception as exc:
-                result = {"observations": [], "error": str(exc)}
+                print(f"ERROR: /api/v1/coach/recent failed: {exc}",
+                      file=sys.stderr, flush=True)
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(exc)}).encode())
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -10304,6 +10753,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/v1/memory": "Facts Ostler has learnt about the user (CM031 Memory tab)",
             "/api/v1/preferences?domain=Music&min_confidence=0.3&limit=20": "Compiled interest profile from the CM059 artefact (score-sorted; preserves sources/confidence/polarity provenance)",
             "POST /api/v1/conversation/process": "Submit conversation for processing (CM048)",
+            "POST /api/v1/conversation/retry-failed": "Re-arm and retry failed conversations now",
             "POST /api/v1/ingest/ios": "Batch upload from the iOS companion (application/json)",
             "POST /api/safari/ingest": "Live capture from the Safari/Chrome extension (HR015 #180). One page per POST; behind the Doctor paired-bearer wall.",
             "/api/v1/health/day?date=YYYY-MM-DD": "A day's Apple Health physiology joined to that day's life-context (defaults to today)",
@@ -10433,6 +10883,17 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/speakers/correct":
             try:
                 result, status = api_speakers_correct(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        if parsed.path == "/api/v1/conversation/retry-failed":
+            try:
+                result, status = api_conversation_retry_failed(payload)
             except Exception as exc:
                 result, status = {"error": str(exc)}, 500
             self.send_response(status)
@@ -10675,6 +11136,8 @@ if __name__ == "__main__":
     # daemon_threads: a hung handler must not keep the process alive at
     # shutdown, or launchd's stop turns into a kill.
     ThreadingHTTPServer.daemon_threads = True
+    # v1.0.107 #11: failed conversations are retried on a backoff, never lost.
+    _start_conversation_retry_thread()
     # Lane 6: resume any spooled page-summary jobs left by a restart.
     try:
         _enrich_queue()

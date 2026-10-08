@@ -149,3 +149,15 @@ wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|if preserve_complete an
 # (compiler 6aa459d7) and PASSED against v0.1.43 through this verifier.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/meeting_pages.py|def _event_kind\(|CM044 #305 calendar entries are classified meeting, travel, appointment or event, so a flight or a dentist is no longer listed as a meeting. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/place_pages.py|chip = pw_source_chip\(source\)|CM044 #306 a place page shows a source chip, not a raw strength float. 0 -> 1.
+# --- v1.0.107 wiki v0.1.44 (CM044 08a49db4, #307 + #308). Each line below FAILED against the v0.1.43 digests
+# (compiler 710c4c14) and PASSED against v0.1.44 through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/place_pages.py|def plain_location_text\(|CM044 #307 a calendar location that is a raw call URL renders as plain text (Video call), not a URL. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/preference_filter.py|def is_negative_preference\(|CM044 #308 a Dislike never qualifies as an all-time favourite. 0 -> 1.
+# --- v1.0.107 wiki v0.1.45 (CM044 cc59f35f, #310). The line below FAILED against the v0.1.44 compiler
+# (cba38d1a) and PASSED against v0.1.45 (0f5ca25c) through this verifier. It reads the CONSUMER (person pages) so
+# the control is a clean FAIL, not a could-not-extract on a file that did not exist yet.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|from compiler.browsing_link import browsing_link|CM044 #310 person pages render browsing items as [Title](url) through the shared helper, never a raw URL. 0 -> 1.
+# --- v1.0.107 wiki v0.1.46 (CM044 08f35937, #312). Each line below FAILED against the v0.1.45 compiler
+# (0f5ca25c) and PASSED against v0.1.46 (f2db6f8c) through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/bundle_conversation_pages.py|def conversation_display_title\(|CM044 #312 an unnamed conversation is titled "<Channel> conversation, <date>", never its internal id. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|def tidy_generated_text\(|CM044 #312 generated text has no em dash or ISO date, and stored category keys render as plain labels. 0 -> 1.

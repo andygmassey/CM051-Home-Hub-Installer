@@ -70,6 +70,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .participants import normalise_participants
+
 logger = logging.getLogger(__name__)
 
 
@@ -348,7 +350,7 @@ def _collect_sender_addresses(metadata: dict) -> list[str]:
         if isinstance(raw, str) and raw.strip():
             out.append(raw.strip())
 
-    for entry in metadata.get("participants") or []:
+    for entry in normalise_participants(metadata.get("participants")):
         if not isinstance(entry, dict):
             continue
         if entry.get("role") == "user":
