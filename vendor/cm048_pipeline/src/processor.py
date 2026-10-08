@@ -799,6 +799,13 @@ def _step_enrich_inner(
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
             )
+        rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+        if _sidecars:
+            logger.warning(
+                "Dropped %d reminders_candidates sidecar(s) from %s enrichment body",
+                _sidecars,
+                metadata.get("conversation_id"),
+            )
         out_path.write_text(rendered)
         # Pre-meeting brief input: walk the enrichment's Action items
         # table and emit a per-participant outstanding_todos.json
@@ -904,6 +911,13 @@ def _step_enrich_inner(
                 len(_dropped),
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
+            )
+        rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+        if _sidecars:
+            logger.warning(
+                "Dropped %d reminders_candidates sidecar(s) from %s enrichment body",
+                _sidecars,
+                metadata.get("conversation_id"),
             )
         out_path.write_text(rendered)
         # See note above (single-chunk branch) for the rationale on
