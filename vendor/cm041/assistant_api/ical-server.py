@@ -5117,7 +5117,8 @@ def person_enrichment(slug):
             # PersonDetail card (it decodes flat `phone` / `email`).
             for ident in ids:
                 itype = (ident.get("type") or "").lower()
-                if itype == "phone" and "phone" not in entry:
+                if (itype == "phone" and "phone" not in entry
+                        and _displayable_phone(ident.get("value"))):
                     entry["phone"] = ident["value"]
                 elif itype == "email" and "email" not in entry:
                     entry["email"] = ident["value"]
@@ -5258,7 +5259,10 @@ def person_enrichment(slug):
             payload = points[0].get("payload", {})
             if payload.get("phones") and "phone" not in entry:
                 phones = payload["phones"]
-                entry["phone"] = phones[0] if isinstance(phones, list) else phones
+                phones = phones if isinstance(phones, list) else [phones]
+                shown = [x for x in phones if _displayable_phone(x)]
+                if shown:
+                    entry["phone"] = shown[0]
             if payload.get("emails") and "email" not in entry:
                 emails = payload["emails"]
                 entry["email"] = emails[0] if isinstance(emails, list) else emails
@@ -6202,6 +6206,45 @@ def _recency_label(last_contact_ts):
     return f"{months // 12}Y AGO"
 
 
+def _displayable_phone(value):
+    """True when a stored "phone" value may be SHOWN to the customer as a
+    phone number.
+
+    CM051 #2543, walk #11: a WhatsApp linked-device id (LID) or another
+    app's internal id can still sit in a person's ``phones`` payload or a
+    ``phone`` identifier on a graph written before the writer fixes
+    (CM041 #181/#186, CM051 #2577/#2591) and not reached by the one-time
+    repair. Walk #11 measured 1 of 2,571 People rows showing a 17-digit id
+    as a phone number. This is the READ-side guard: the value stays in the
+    graph untouched, it is just never displayed as a phone.
+
+    Rule, matching ``identity_resolver.normalise.is_possible_phone``'s
+    14-digit danger zone: under 14 digits a value is shown as stored (a
+    national-format number cannot be validated without a region, and
+    hiding real numbers is the worse failure). Over 15 digits it is never
+    a phone (E.164's own ceiling). At 14 or 15 digits it is shown only when
+    libphonenumber says it is a valid number; if that check cannot run, it
+    is hidden.
+    """
+    raw = (value or "").strip() if isinstance(value, str) else ""
+    if not raw:
+        return False
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) < 14:
+        return True
+    if len(digits) > 15:
+        return False
+    try:
+        from identity_resolver.normalise import is_valid_phone
+    except Exception:
+        return False
+    candidate = raw if raw.startswith("+") else "+" + digits
+    try:
+        return bool(is_valid_phone(candidate))
+    except Exception:
+        return False
+
+
 def people_list(sort=None, ceiling=10000):
     """List every person in the Qdrant `people` collection for the Hub.
 
@@ -6461,10 +6504,10 @@ def people_list(sort=None, ceiling=10000):
         row["_last"] = (family or given).casefold()
 
         ids = ident_by_uri.get(uri, {})
-        phones = [x for x in (p.get("phones") or []) if x]
+        phones = [x for x in (p.get("phones") or []) if _displayable_phone(x)]
         emails = [x for x in (p.get("emails") or []) if x]
         for x in ids.get("phone", []):
-            if x not in phones:
+            if x not in phones and _displayable_phone(x):
                 phones.append(x)
         for x in ids.get("email", []):
             if x not in emails:

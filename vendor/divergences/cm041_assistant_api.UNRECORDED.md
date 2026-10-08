@@ -734,3 +734,28 @@ All of the above. Guarded by
 `tests/test_vendored_conversation_process_failure_reason.py`, whose fixture
 now loads the real `_preserve_cm048_progress` helpers. Wired into
 `.github/workflows/failed-conversations-auto-retry-guard.yml`.
+
+## Fifteenth graft: a 14+ digit internal id is never shown as a phone (CM051 v1.0.107 #12)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #204, squash sha
+`c05b35edd6441976fe2b068c90bd4d13e88fa004`, acked in `hold_ack_shas`. The
+four ical-server.py hunks applied unchanged (offsets only), so the changed
+lines are identical to upstream.
+
+Walk #11 measured 1 of 2,571 Hub People rows showing a 17-digit internal id
+(a WhatsApp linked-device id or another app's id written before the writer
+fixes) as its phone. `people_list` and `person_enrichment` took `phones[0]`
+with no check. Added `_displayable_phone`: under 14 digits shown as stored,
+over 15 never, 14 or 15 only when `identity_resolver.normalise.is_valid_phone`
+says valid (hidden if that check cannot run). Read-side only; the graph is
+untouched. Edits: `person_enrichment` (identifier loop and Qdrant payload
+phones) and `people_list` (payload phones and identifier phones).
+
+### What a future sync must preserve
+
+`_displayable_phone` and its four call sites. Guarded by
+`vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
+`TestPeopleListNeverShowsAnInternalIdAsAPhone` (6 tests: 5 fail against main's
+ical-server, the ordinary-number control passes on both), wired in
+`.github/workflows/walk6-people-list-correctness-guard.yml`. Retire by
+re-pinning.
