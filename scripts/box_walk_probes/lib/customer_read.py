@@ -812,23 +812,35 @@ NEEDS_NOW_JS = r"""(arg) => {
     .filter(Boolean);
 }"""
 
-# Leaf elements set in a monospace face whose text is a date (the old mono
-# styling the reskin removed). Counted per page; the text is not kept.
-# The wiki renders a visited page's TITLE (customer data, never Ostler copy) as a
-# link to that page: CM044 compiler/browsing_link.py, browsing_link() and
-# browsing_link_html(), on Activity, Browsing and a person's Browsing history and
-# Timeline. CM044 puts no class or data attribute on it, so the exemption is
-# scoped by the element: an <a> inside the article, whose href is http(s) to a
-# host other than the wiki's own and other than Ostler's, and whose only child
-# is text. Ostler copy is never rendered as such a link, so it is never exempt.
+# Text the wiki shows that is the customer's data, never Ostler copy, so the
+# judge removes each string once before counting em dashes. Two sources:
+#
+# 1. THE MARKER (cut #13). CM044 compiler/customer_text.py wraps every customer
+#    value it prints (a bookmarked or visited page title, a calendar event, a
+#    note title, a preference subject, a media title) in an element carrying
+#    data-ostler-customer, and wraps only the value. Walk #12 failed because
+#    the Trends "New discoveries" row printed a bookmark title as plain text
+#    and the link rule below could not see it. Only the OUTERMOST marked
+#    element counts (a nested one would exempt the same text twice), and a
+#    marked element that is a heading or holds one is IGNORED: headings are
+#    Ostler's page structure, so a marker there must not hide a dash.
+# 2. THE LINK RULE (#2710, kept for a wiki older than the marker). An <a>
+#    inside the article whose href is http(s) to a host other than the wiki's
+#    own and other than Ostler's, whose only child is text, and which is not
+#    already inside a marked element.
 CUSTOMER_TITLES_JS = r"""() => {
   const root = document.querySelector('article') || document.body;
   const ours = /(^|\.)(ostler\.ai|creativemachines\.ai)$/i;
-  return [...root.querySelectorAll('a[href]')].filter(a =>
-      /^https?:$/.test(a.protocol) && a.hostname && a.hostname !== location.hostname
-      && !ours.test(a.hostname) && a.children.length === 0)
-    .map(a => a.innerText).filter(t => t && t.trim()); }"""
+  const MARK = '[data-ostler-customer]', HEAD = 'h1,h2,h3,h4,h5,h6';
+  const marked = [...root.querySelectorAll(MARK)].filter(e =>
+      !(e.parentElement && e.parentElement.closest(MARK)) && !e.matches(HEAD) && !e.querySelector(HEAD));
+  const links = [...root.querySelectorAll('a[href]')].filter(a => !a.closest(MARK)
+      && /^https?:$/.test(a.protocol) && a.hostname && a.hostname !== location.hostname
+      && !ours.test(a.hostname) && a.children.length === 0);
+  return [...marked, ...links].map(e => e.innerText).filter(t => t && t.trim()); }"""
 
+# Leaf elements set in a monospace face whose text is a date (the old mono
+# styling the reskin removed). Counted per page; the text is not kept.
 MONO_DATES_JS = r"""() => {
   const art = document.querySelector('article') || document.body;
   const date = /\b(\d{4}-\d{2}-\d{2}|\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*( \d{4})?|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{4})\b/i;
