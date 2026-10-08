@@ -11,6 +11,7 @@ on:
       - 'scripts/box_walk_probes/lib/hub_screens.py'
       - 'scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh'
       - 'scripts/box_walk_probes/lib/customer_read.py'
+      - 'tests/test_customer_read_exempts_marked_customer_text.py'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_walk_probes_bypass_a_local_proxy.sh'
       - 'scripts/box_walk_probes/probes/hub_screens_customer_read.sh'
@@ -59,7 +60,7 @@ concurrency:
 jobs:
   hub-screens:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: The screen judge catches every mutant
@@ -80,6 +81,17 @@ jobs:
       - name: The customer-read judge catches every defect class by its own assertion
         if: always()
         run: python3 scripts/box_walk_probes/lib/customer_read.py --self-test
+      - name: The em dash check exempts marked customer text and nothing else, in a real browser (cut 13)
+        # The self-test above is pure Python over facts and cannot see
+        # CUSTOMER_TITLES_JS. This runs that JavaScript in Chromium against
+        # synthetic pages and feeds the result to the real judge. Exit 2 is
+        # CANNOT-RUN and fails the step: a check that could not run has not passed.
+        if: always()
+        run: |
+          python3 -m venv /tmp/pw
+          /tmp/pw/bin/pip install --quiet playwright==1.63.0
+          /tmp/pw/bin/python -m playwright install --with-deps chromium
+          /tmp/pw/bin/python tests/test_customer_read_exempts_marked_customer_text.py
       - name: Walk probes reach loopback through a dead HTTP_PROXY
         if: always()
         run: bash tests/test_walk_probes_bypass_a_local_proxy.sh
