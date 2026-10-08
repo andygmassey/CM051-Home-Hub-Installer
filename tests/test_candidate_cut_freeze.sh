@@ -49,6 +49,7 @@ case "$p" in
 	repos/rc/mirror/git/tags/*) serve "$FX/rc_tag" ;;
 	repos/rc/mirror/compare/*) serve "$FX/rc_compare" ;;
 	repos/own/repo/pulls\?state=open*) serve "$FX/prs_open" ;;
+	repos/other/two/pulls\?state=open*) serve "$FX/prs_other" ;;
 	repos/own/repo/pulls\?state=all*) serve "$FX/prs_all" ;;
 	repos/own/repo/pulls) if [ "$post" -eq 1 ]; then printf '%s\n' "$*" >> "$FX/created.log"; echo 77; else exit 1; fi ;;
 	repos/own/repo/issues*) serve "$FX/issues" ;;
@@ -85,6 +86,10 @@ mkfx() {
 	plist "$cv" "$cb" > gui/OstlerInstaller/Info.plist
 	printf 'settings:\n  base:\n    CURRENT_PROJECT_VERSION: "%s"\n    MARKETING_VERSION: "%s"\ntargets:\n  App:\n    info:\n      properties:\n        CFBundleShortVersionString: "%s"\n        CFBundleVersion: "%s"\n' "$cb" "$cv" "$cv" "$cb" > gui/project.yml
 	printf '\t\t\t\tCURRENT_PROJECT_VERSION = %s;\n\t\t\t\tMARKETING_VERSION = %s;\n\t\t\t\tCURRENT_PROJECT_VERSION = %s;\n\t\t\t\tMARKETING_VERSION = %s;\n' "$cb" "$cv" "$cb" "$cv" > gui/OstlerInstaller.xcodeproj/project.pbxproj
+	# the PR-age gate's own repo list, in the gate's own format (see scripts/verify_pr_age.sh DEFAULT_REPOS)
+	printf 'DEFAULT_REPOS="own/repo\nother/two"\n' > scripts/verify_pr_age.sh
+	printf '#!/usr/bin/env bash\n[ "${FX_BOM_SYNC_RC:-0}" -eq 0 ] || { echo STALE >&2; exit "$FX_BOM_SYNC_RC"; }\n[ -n "${OS003_DIR:-}" ] && exit 0\nexit 2\n' > scripts/sync_cut_bom.sh
+	printf '#!/usr/bin/env bash\necho "  rows        : 3"\n[ "${FX_BOM_NOABSENT:-0}" = 1 ] || echo "  ABSENT      : ${FX_BOM_ABSENT:-0}"\nexit "${FX_BOM_RC:-0}"\n' > scripts/verify_bom_rows_are_in_the_pin.sh
 	cat > scripts/sync_rollforward_registry.sh <<'SYNC'
 #!/usr/bin/env bash
 # fixture stand-in for the real sync: same contract (--check, exit 2 on refusal)
@@ -110,22 +115,23 @@ SYNC
 	printf 'OK\nbehind\n' > "$W/fx/rc_compare"
 	printf '404\n' > "$W/fx/rc_tag"
 	printf 'OK\n11\t2026-10-01T00:00:00Z\tfalse\tfix/old\tAn old PR\n12\t2026-10-08T06:00:00Z\tfalse\tfix/young\tA young PR\n5\t2026-09-01T00:00:00Z\tfalse\tfix/exempt\tAn exempt PR\n' > "$W/fx/prs_open"
-	printf 'OK\n' > "$W/fx/prs_all"
+	printf 'OK\n' > "$W/fx/prs_all"; printf 'OK\n' > "$W/fx/prs_other"
 	printf 'OK\n300\told\n301\tA new issue\n' > "$W/fx/issues"
 	export CANDIDATE_ROOT="$W/work" CANDIDATE_GH="$W/gh" CANDIDATE_CM051_REPO=own/repo CANDIDATE_RC_REPO=rc/mirror \
 		FX="$W/fx" FX_OS003="$W/os003" CANDIDATE_NOW="$(date -u -d 2026-10-08T12:00:00Z +%s 2>/dev/null || date -j -u -f %Y-%m-%dT%H:%M:%SZ 2026-10-08T12:00:00Z +%s)" \
 		CANDIDATE_TODAY=2026-10-08 PATH="$W/bin:$PATH"
-	unset FX_SYNC_FAIL FX_SYNC_EXTRA
+	unset FX_SYNC_FAIL FX_SYNC_EXTRA FX_BOM_RC FX_BOM_ABSENT FX_BOM_SYNC_RC FX_BOM_NOABSENT
 	cd "$HERE" || exit 2
 }
-F() { bash "$SUT" freeze v1.0.108 "$@"; }
+FS() { bash "$SUT" freeze v1.0.108 "$@"; }
+F() { FS --os003-dir "$W/os003" "$@"; }
 orig() { "$REALGIT" -C "$W/origin.git" "$@"; }
 branch_file() { orig show "cut/v1.0.108:$1"; }
 
 # ======================= happy path =======================
 mkfx
 expect "dry-run: prints the plan, names the person steps, and finishes" 0 "DRY RUN complete" -- F --dry-run
-for s in "step  2  PERSON" "step  3  PERSON" "steps 10-14" "would open a NEW draft PR"; do
+for s in "step  2  PERSON" "step  3  VERIFY" "steps 10-14" "would open a NEW draft PR"; do
 	printf '%s' "$OUT" | grep -qF -- "$s" && ok || bad "dry-run plan lacks '$s'" "$OUT"; done
 check "dry-run pushed nothing" test -z "$(orig for-each-ref refs/heads/cut)"
 check "dry-run opened no PR" test ! -f "$W/fx/created.log"
@@ -174,6 +180,44 @@ mkfx
 expect "S1: a peel that is not the build commit refuses" 1 "must peel to the build commit itself" -- F --rc-build-commit "$D2"
 mkfx; printf 'OK\ntag %s\n' "$D2" > "$W/fx/rc_ref"; printf 'OK\ncommit %s\n' "$D1" > "$W/fx/rc_tag"
 expect "S1: an annotated tag is peeled to its commit and passes" 0 "-> 11111111" -- F --dry-run --rc-build-commit "$D1"
+
+# ======================= step 3 =======================
+mkfx
+expect "S3: with --os003-dir the BOM check runs and passes" 0 "0 ABSENT" -- FS --dry-run --os003-dir "$W/os003"
+mkfx
+expect "S3: no flag at all refuses, naming both ways out" 1 "runbook step 3" -- FS --dry-run
+printf '%s' "$OUT" | grep -qF -- "--no-bom-check" && ok || bad "S3: names --no-bom-check" "$OUT"
+check "S3: a refused step 3 changed nothing" test -z "$(orig for-each-ref refs/heads/cut)"
+mkfx; export FX_BOM_RC=1 FX_BOM_ABSENT=2
+expect "S3: verify rc=1 refuses" 1 "exited 1, not 0" -- FS --dry-run --os003-dir "$W/os003"
+mkfx; export FX_BOM_RC=0 FX_BOM_ABSENT=2
+expect "S3: rc=0 but ABSENT>0 still refuses" 1 "2 ABSENT" -- FS --dry-run --os003-dir "$W/os003"
+mkfx; export FX_BOM_NOABSENT=1
+expect "S3: rc=0 with no ABSENT count printed is not a measured zero" 1 "no ABSENT count" -- FS --dry-run --os003-dir "$W/os003"
+mkfx; export FX_BOM_SYNC_RC=1
+expect "S3: a vendored BOM that differs from OS003 refuses" 1 "not the one in" -- FS --dry-run --os003-dir "$W/os003"
+mkfx
+expect "S3: --os003-dir that is not a directory is CANNOT-RUN" 2 "not a directory" -- FS --dry-run --os003-dir "$W/nope"
+expect "S3: the two flags together are CANNOT-RUN" 2 "contradict" -- FS --dry-run --os003-dir "$W/os003" --no-bom-check
+mkfx; export FX_BOM_RC=1
+expect "S3: --no-bom-check skips, and says SKIPPED on the step" 0 "!! SKIPPED: step 3" -- FS --dry-run --no-bom-check
+printf '%s' "$OUT" | grep -qF "!! SKIPPED STEPS: step 3 (OS003 BOM rows)" && ok || bad "S3: the summary carries the SKIPPED line" "$OUT"
+mkfx; FS --no-bom-check >/dev/null 2>&1
+check "S3: a real run with --no-bom-check still completes" test -n "$(orig rev-parse refs/heads/cut/v1.0.108 2>/dev/null)"
+
+# ======================= step 7: every repo the PR-age gate scans =======================
+mkfx; printf 'OK\n41\t2026-10-01T00:00:00Z\tfalse\tfix/x\tAn old PR in a sibling repo\n' > "$W/fx/prs_other"
+expect "S7: an over-48h PR in a NON-CM051 repo the gate scans gets a row" 0 "deferral row: two#41" -- F --dry-run
+mkfx; printf 'OK\n41\t2026-10-01T00:00:00Z\tfalse\tfix/x\tAn old PR in a sibling repo\n' > "$W/fx/prs_other"; F >/dev/null 2>&1
+check "S7: the sibling-repo row is in the pushed cut-deferrals.yaml" bash -c "$REALGIT -C $W/origin.git show cut/v1.0.108:cut-deferrals.yaml | grep -qF 'ref: \"two#41\"'"
+mkfx; printf 'OK\n41\t2026-10-01T00:00:00Z\tfalse\tfix/x\tx\n' > "$W/fx/prs_other"
+( cd "$W/work" && printf '  - ref: "two#41"\n    reason: "old"\n    review_by: 2026-10-02\n' >> cut-deferrals.yaml && "$REALGIT" add -A && "$REALGIT" commit -qm r && "$REALGIT" push -q origin main )
+expect "S7: an expired exemption in a sibling repo refuses too" 1 "two#41 is over 48h and its exemption EXPIRED" -- F --dry-run
+mkfx; printf '404\n' > "$W/fx/prs_other"
+expect "S7: a sibling repo the gate scans but cannot be read is CANNOT-RUN, not skipped" 2 "other/two" -- F --dry-run
+mkfx; printf 'DEFAULT_REPOS="own/repo\nother/three"\n' > "$W/work/scripts/verify_pr_age.sh"
+( cd "$W/work" && "$REALGIT" add -A && "$REALGIT" commit -qm g && "$REALGIT" push -q origin main && sed -i.bak "s/^CM051=.*/CM051=$("$REALGIT" rev-parse --short=8 HEAD)/" cuts/v1.0.108/cut.env && rm -f cuts/v1.0.108/cut.env.bak && "$REALGIT" add -A && "$REALGIT" commit -qm p && "$REALGIT" push -q origin main )
+expect "S7: the repo list follows the gate file, not a copy (other/three is asked for)" 2 "other/three" -- F --dry-run
 
 # ======================= step 4 =======================
 mkfx; cd "$W/work" && echo more >> scripts/extra.sh && "$REALGIT" add -A && "$REALGIT" commit -qm "a later product commit" && "$REALGIT" push -q origin main && cd "$HERE" || exit 2

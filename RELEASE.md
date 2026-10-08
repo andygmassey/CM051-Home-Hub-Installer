@@ -297,7 +297,7 @@ plan (including the steps that stay a person's: 2, 3, 10 to 14) and the whole
 diff, and changes nothing.
 
     scripts/candidate.sh freeze v1.0.108 --dry-run
-    scripts/candidate.sh freeze v1.0.108 [--refreeze] [--rc-build-commit <sha>]
+    scripts/candidate.sh freeze v1.0.108 (--os003-dir <OS003 checkout> | --no-bom-check) [--refreeze] [--rc-build-commit <sha>]
 
 It verifies the RemoteCapture mirror tag (a 404 is ABSENT, never a value) and
 the `CM051=` pin, bumps Info.plist, project.yml and the pbxproj, syncs the
@@ -309,5 +309,10 @@ PR (a closed one is never reused). It refuses with exit 1, naming the runbook
 step; a denied push stops the run and is reported, never routed around. A
 re-freeze of an existing `cut/<version>` needs `--refreeze`.
 
-Not wired: step 2 (artefact diff), step 3 (OS003 BOM rows), steps 10 to 14, the
-`[ledger-entry]` marker, and PR-age rows for repos other than CM051.
+Step 3 runs `verify_bom_rows_are_in_the_pin.sh` (rc=0 and 0 ABSENT) when given
+`--os003-dir`; with neither flag it refuses, and `--no-bom-check` skips it with a
+loud SKIPPED line in the summary. Step 7 reads the repo list from
+`DEFAULT_REPOS` in `scripts/verify_pr_age.sh` rather than copying it.
+
+Not wired: step 2 (artefact diff), the previous-pin control run for step 3,
+steps 10 to 14, and the `[ledger-entry]` marker.

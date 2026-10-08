@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # scripts/candidate_cut_freeze.sh <version> [--dry-run] [--refreeze] [--rc-build-commit SHA] [--defer-days N]
+#                                [--os003-dir PATH | --no-bom-check]
 # (normally reached as: scripts/candidate.sh freeze <version>)
 # ============================================================================
 # THE CUT FREEZE AS ONE COMMAND. Every numbered step of launch/CUT_FREEZE_RUNBOOK.md
@@ -54,12 +55,14 @@ RC_SLUG="${CANDIDATE_RC_REPO:-ostler-ai/ostler-remote-capture}"
 BASE="${CANDIDATE_BASE:-origin/main}"
 PR_RULE_DATE="${PR_RULE_EFFECTIVE_DATE:-2026-08-06}"
 
-VER=""; REFREEZE=0; RC_BUILD=""; DEFER_DAYS=7
+VER=""; REFREEZE=0; RC_BUILD=""; DEFER_DAYS=7; OS003_ARG=""; NO_BOM=0; SKIPPED=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--dry-run) CAND_DRY=1; shift ;;
 		--refreeze) REFREEZE=1; shift ;;
 		--rc-build-commit) RC_BUILD="${2:-}"; shift 2 ;;
+		--os003-dir) OS003_ARG="${2:-}"; shift 2 ;;
+		--no-bom-check) NO_BOM=1; shift ;;
 		--defer-days) DEFER_DAYS="${2:-}"; shift 2 ;;
 		-h|--help) sed -n '2,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		-*) cand_cannot "unknown argument: $1" ;;
@@ -68,6 +71,7 @@ while [ $# -gt 0 ]; do
 done
 [[ "$VER" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || cand_cannot "usage: candidate.sh freeze <version like v1.0.108> [--dry-run] [--refreeze]"
 [[ "$DEFER_DAYS" =~ ^[0-9]+$ ]] || cand_cannot "--defer-days wants a number"
+[ -z "$OS003_ARG" ] || [ "$NO_BOM" -eq 0 ] || cand_cannot "--os003-dir and --no-bom-check contradict each other; pick one."
 [ -z "$RC_BUILD" ] || [[ "$RC_BUILD" =~ ^[0-9a-f]{40}$ ]] || cand_cannot "--rc-build-commit wants a full 40-hex sha"
 
 STEP="0"; STEPNAME="setup"
@@ -107,14 +111,23 @@ cand_say "== candidate freeze $VER (runbook launch/CUT_FREEZE_RUNBOOK.md) =="
 [ "$CAND_DRY" -eq 0 ] || cand_say "DRY RUN: nothing in your tree, git or GitHub is changed."
 cand_say "  step  1  VERIFY  RemoteCapture mirror tag present, peels to a commit on the mirror's main"
 cand_say "  step  2  PERSON  artefact diff against the previous shipped artefact"
-cand_say "  step  3  PERSON  OS003 BOM rows (verify_bom_rows_are_in_the_pin.sh) and the re-cite"
+cand_say "  step  3  VERIFY  OS003 BOM rows: verify_bom_rows_are_in_the_pin.sh rc=0 and 0 ABSENT (needs --os003-dir, or --no-bom-check to skip loudly)"
 cand_say "  step  4  VERIFY  cut.env CM051= is the last product-file commit on $BASE"
 cand_say "  step  5  DO      version bump: Info.plist, project.yml, pbxproj"
 cand_say "  step  6  DO      rollforward registry sync from OS003 main"
-cand_say "  step  7  DO      cut-deferrals.yaml rows (PRs over 48h) + checklist rows (open issues)"
+cand_say "  step  7  DO      cut-deferrals.yaml rows (PRs over 48h in EVERY repo the PR-age gate scans) + checklist rows (open issues)"
 cand_say "  step  8  VERIFY  diff touches only version/registry/deferral/checklist files; install.sh identical"
 cand_say "  step  9  DO      push cut/$VER (force-with-lease) and open a NEW draft DO NOT MERGE PR"
 cand_say "  steps 10-14      PERSON/BOX  checks green, close PR + dispatch, watcher, artefact, walk"
+
+"${G[@]}" rev-parse --verify -q "$BASE^{commit}" >/dev/null || fz_cannot "base $BASE does not resolve here (git fetch origin main)."
+# ---- scratch worktree: every edit from here is on a copy ----------------------
+"${G[@]}" worktree add --detach "$WT" "$BASE" >/dev/null 2>&1 || fz_cannot "could not create a scratch worktree at $BASE."
+W=(git -C "$WT")
+# Commit dates are pinned to the base commit's, so the same inputs give the same
+# cut head: a re-run is a no-op instead of a different sha that would need a re-freeze.
+BASE_DATE="$("${G[@]}" log -1 --format=%cI "$BASE")"
+fz_commit() { "${W[@]}" add -A && GIT_AUTHOR_DATE="$BASE_DATE" GIT_COMMITTER_DATE="$BASE_DATE" "${W[@]}" commit -q -m "$1" || fz_cannot "git commit failed (is user.name/user.email set?)"; }
 
 # ============================================================================
 step 1 "RemoteCapture mirror tag"
@@ -145,8 +158,27 @@ if [ -n "$RC_BUILD" ] && [ "$RC_BUILD" != "$peel" ]; then
 cand_say "  ok: $RCTAG -> ${peel:0:8}, on the mirror's main ($rel); $bnote"
 
 # ============================================================================
+step 3 "OS003 BOM rows are in the pin"
+if [ -n "$OS003_ARG" ]; then
+	[ -d "$OS003_ARG" ] || fz_cannot "--os003-dir $OS003_ARG is not a directory."
+	for f in sync_cut_bom.sh verify_bom_rows_are_in_the_pin.sh; do [ -f "$WT/scripts/$f" ] || fz_refuse "scripts/$f is missing at $BASE."; done
+	bout="$(OS003_DIR="$OS003_ARG" bash "$WT/scripts/sync_cut_bom.sh" "$VER" --check 2>&1)"; brc=$?
+	[ "$brc" -eq 0 ] || fz_refuse "the vendored BOM is not the one in $OS003_ARG (sync_cut_bom.sh --check exit $brc): $(printf '%s' "$bout" | tail -2 | tr '\n' ' ' | scrub)"
+	bout="$(bash "$WT/scripts/verify_bom_rows_are_in_the_pin.sh" "$VER" 2>&1)"; brc=$?
+	nabs="$(printf '%s\n' "$bout" | sed -n 's/^ *ABSENT *: *\([0-9][0-9]*\).*/\1/p' | head -1)"
+	[ "$brc" -eq 0 ] || fz_refuse "verify_bom_rows_are_in_the_pin.sh $VER exited $brc, not 0: $(printf '%s' "$bout" | grep -E 'FAIL|CANNOT-RUN|ABSENT' | head -3 | tr '\n' ' ' | scrub)"
+	[ -n "$nabs" ] || fz_refuse "verify_bom_rows_are_in_the_pin.sh exited 0 but printed no ABSENT count, so '0 absent' was not measured."
+	[ "$nabs" -eq 0 ] || fz_refuse "verify_bom_rows_are_in_the_pin.sh reports $nabs ABSENT row(s)."
+	cand_say "  ok: BOM matches OS003, rc=0 and 0 ABSENT (control on the previous pin, rc=1, is NOT run here)"
+elif [ "$NO_BOM" -eq 1 ]; then
+	SKIPPED="$SKIPPED step 3 (OS003 BOM rows),"
+	cand_say "  !! SKIPPED: step 3, --no-bom-check given. The BOM was NOT checked against the pin."
+else
+	fz_refuse "no BOM check was requested. Pass --os003-dir <path to the OS003 checkout> to run it, or --no-bom-check to skip it (loudly) on purpose."
+fi
+
+# ============================================================================
 step 4 "CM051= pin is the last product commit"
-"${G[@]}" rev-parse --verify -q "$BASE^{commit}" >/dev/null || fz_cannot "base $BASE does not resolve here (git fetch origin main)."
 ENVREL="cuts/$VER/cut.env"
 "${G[@]}" cat-file -e "$BASE:$ENVREL" 2>/dev/null || fz_refuse "no $ENVREL on $BASE (scripts/new_cut.sh opens the cut)."
 "${G[@]}" cat-file -e "$BASE:cut-manifests/$VER.yaml" 2>/dev/null || fz_refuse "no cut-manifests/$VER.yaml on $BASE."
@@ -157,14 +189,6 @@ lastprod="$("${G[@]}" log -1 --format=%H "$BASE" -- install.sh gui vendor script
 [[ "$lastprod" =~ ^[0-9a-f]{40}$ ]] || fz_cannot "git could not name the last product-file commit on $BASE."
 [ "$pinfull" = "$lastprod" ] || fz_refuse "CM051=$pin is ${pinfull:0:8}, but the last commit on $BASE to change install.sh, gui/, vendor/ or scripts/ is ${lastprod:0:8}. Run scripts/candidate_pin.sh $VER, merge it, and freeze again."
 cand_say "  ok: CM051=$pin is the last product commit on $BASE"
-
-# ---- scratch worktree: every edit from here is on a copy ----------------------
-"${G[@]}" worktree add --detach "$WT" "$BASE" >/dev/null 2>&1 || fz_cannot "could not create a scratch worktree at $BASE."
-W=(git -C "$WT")
-# Commit dates are pinned to the base commit's, so the same inputs give the same
-# cut head: a re-run is a no-op instead of a different sha that would need a re-freeze.
-BASE_DATE="$("${G[@]}" log -1 --format=%cI "$BASE")"
-fz_commit() { "${W[@]}" add -A && GIT_AUTHOR_DATE="$BASE_DATE" GIT_COMMITTER_DATE="$BASE_DATE" "${W[@]}" commit -q -m "$1" || fz_cannot "git commit failed (is user.name/user.email set?)"; }
 
 # ============================================================================
 step 5 "version bump"
@@ -214,8 +238,13 @@ DEFS="$WT/cut-deferrals.yaml"; MAN="$WT/cut-manifests/$VER.yaml"
 [ -f "$DEFS" ] || fz_refuse "cut-deferrals.yaml is missing."
 grep -q '^pr_exemptions:' "$DEFS" || fz_refuse "cut-deferrals.yaml has no pr_exemptions: block."
 HEADSHA="$("${W[@]}" rev-parse HEAD)"
-fz_api prs '.[] | [.number, .created_at, .draft, .head.ref, (.title | gsub("[\t\n\r]"; " "))] | @tsv' "repos/$SLUG/pulls?state=open&per_page=100" --paginate
-[ "$FZ_ABSENT" -eq 0 ] || fz_cannot "the pull request list answered 404; the repo slug $SLUG is wrong or not readable."
+GATE="$WT/scripts/verify_pr_age.sh"
+[ -f "$GATE" ] || fz_refuse "scripts/verify_pr_age.sh is missing at $BASE, so the repos the PR-age gate scans cannot be read."
+# The repo list is READ from the gate (DEFAULT_REPOS), never copied, so the two cannot drift.
+GATE_REPOS="$(awk '/^DEFAULT_REPOS="/ {f=1; sub(/^DEFAULT_REPOS="/,"")} f { e = ($0 ~ /"[[:space:]]*$/); sub(/"[[:space:]]*$/,""); if ($0 != "") print $0; if (e) exit }' "$GATE")"
+[ -n "$GATE_REPOS" ] || fz_cannot "could not parse DEFAULT_REPOS from scripts/verify_pr_age.sh."
+printf '%s\n' "$GATE_REPOS" | grep -qx "$SLUG" || GATE_REPOS="$SLUG"$'\n'"$GATE_REPOS"
+cand_say "  PR-age scope (from scripts/verify_pr_age.sh): $(printf '%s\n' "$GATE_REPOS" | wc -l | tr -d ' ') repo(s)"
 rows_added=0; newrows="$CAND_TMP/newrows"; : > "$newrows"
 existing() { sed -n '/^pr_exemptions:/,$p' "$DEFS" | awk '
 	/^[[:space:]]*-[[:space:]]*ref:/ { if (ref != "") print ref "\t" rv; ref=$0; sub(/^[[:space:]]*-[[:space:]]*ref:[[:space:]]*"?/,"",ref); sub(/"?[[:space:]]*$/,"",ref); rv=""; next }
@@ -223,13 +252,16 @@ existing() { sed -n '/^pr_exemptions:/,$p' "$DEFS" | awk '
 	END { if (ref != "") print ref "\t" rv }'; }
 review_by="$(plus_days "$DEFER_DAYS")"; [[ "$review_by" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || fz_cannot "could not compute a review_by date."
 rule_epoch="$(epoch_of "${PR_RULE_DATE}T00:00:00Z")"
+for repo in $GATE_REPOS; do
+	fz_api prs '.[] | [.number, .created_at, .draft, .head.ref, (.title | gsub("[\t\n\r]"; " "))] | @tsv' "repos/$repo/pulls?state=open&per_page=100" --paginate
+	[ "$FZ_ABSENT" -eq 0 ] || fz_cannot "the pull request list for $repo answered 404; it is wrong or not readable, and the PR-age gate would not have cleared it either."
 while IFS=$'\t' read -r num created draft headref title; do
 	[ -n "$num" ] || continue
-	[ "$headref" != "cut/$VER" ] || continue   # the freeze PR itself is step 9's, never a deferral
+	[ "$repo" != "$SLUG" ] || [ "$headref" != "cut/$VER" ] || continue   # the freeze PR itself is step 9's, never a deferral
 	ce="$(epoch_of "$created")"; [ -n "$ce" ] || fz_cannot "could not read the creation time of PR #$num ('$created')."
 	[ "$ce" -ge "${rule_epoch:-0}" ] || continue
 	[ $((now_epoch - ce)) -gt 172800 ] || continue
-	ref="${SLUG#*/}#$num"
+	ref="${repo#*/}#$num"
 	cur="$(existing | awk -F'\t' -v r="$ref" '$1==r {print $2; found=1} END{if(!found) print "NONE"}' | head -1)"
 	case "$cur" in
 		NONE) ;;
@@ -241,6 +273,7 @@ while IFS=$'\t' read -r num created draft headref title; do
 done <<EOF
 $prs
 EOF
+done
 if [ "$rows_added" -gt 0 ]; then
 	awk -v f="$newrows" '{print} /^pr_exemptions:/ && !d { while ((getline l < f) > 0) print l; d=1 }' "$DEFS" > "$CAND_TMP/defs" && cat "$CAND_TMP/defs" > "$DEFS"
 fi
@@ -294,6 +327,7 @@ if [ "$CAND_DRY" -eq 1 ]; then
 	cand_say "  would open a NEW draft PR 'DO NOT MERGE: $BR freeze (CI surface only)' against main"
 	cand_say ""; cand_say "== the whole change set, exactly as a real run would commit it =="
 	"${W[@]}" diff "$BASE" HEAD | scrub
+	[ -z "$SKIPPED" ] || cand_say "!! SKIPPED STEPS:${SKIPPED%,}. This freeze is NOT fully checked."
 	cand_say ""; cand_say "== DRY RUN complete: every runbook step this script owns passed its check =="
 	exit 0
 fi
@@ -336,6 +370,7 @@ else
 	cand_say "  ok: opened NEW draft PR #$newpr at ${HEADSHA:0:8}"
 fi
 cand_say ""
+[ -z "$SKIPPED" ] || cand_say "!! SKIPPED STEPS:${SKIPPED%,}. This freeze is NOT fully checked."
 cand_say "== FREEZE $VER DONE through step 9 at ${HEADSHA:0:8} =="
 cand_say "Next (a person): step 10 every check green, step 11 close the PR then dispatch cut.yml on $BR (no tag), step 12 deadline watcher."
 exit 0
