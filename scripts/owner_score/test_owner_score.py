@@ -187,6 +187,18 @@ class ChecksumIsEnforced(unittest.TestCase):
             open(p, "a").write("\n# softer\n")
         self.assertEqual(self._copy_and_run(m).returncode, 3)
 
+    def test_editing_the_runner_is_refused(self):
+        def m(d):
+            p = os.path.join(d, "owner_score.py")
+            open(p, "a").write("\n# skip the hard questions\n")
+        r = self._copy_and_run(m)
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("owner_score.py", r.stdout)
+
+    def test_runner_hash_is_printed_beside_the_check_hash(self):
+        r = self._copy_and_run(lambda d: None)
+        self.assertRegex(r.stdout, r"CHECK  runner owner_score.py sha256 [0-9a-f]{64}")
+
     def test_editing_the_heldout_file_is_refused(self):
         def m(d):
             p = os.path.join(d, "questions_heldout.jsonl")
@@ -250,6 +262,7 @@ class FakeGateway(threading.Thread):
     def __init__(self, token, table):
         super().__init__(daemon=True)
         self.token, self.table, self.asked = token, table, []
+        self.on_ask = None   # optional callback(question) fired when a question arrives
         self.srv = socket.socket()
         self.srv.bind(("127.0.0.1", 0))
         self.srv.listen(5)
@@ -291,6 +304,8 @@ class FakeGateway(threading.Thread):
                     data += c.recv(n - len(data))
                 q = json.loads(bytes(x ^ mask[i % 4] for i, x in enumerate(data)))["content"]
                 self.asked.append(q)
+                if self.on_ask:
+                    self.on_ask(q)
                 ans = self.table.get(q, "")
                 self._send(c, {"type": "chunk", "content": "draft "})
                 self._send(c, {"type": "chunk_reset"})

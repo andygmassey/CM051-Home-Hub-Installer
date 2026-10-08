@@ -571,6 +571,10 @@ FAIL=0
 CANNOT=0
 FAIL_LIST=""
 CANNOT_LIST=""
+# ADVISORY: a probe whose scope row is `advisory` reported a red it is allowed to
+# report without making the walk unclean. Counted and named, never as a FAIL.
+ADVISORY=0
+ADVISORY_LIST=""
 
 # WHY A PROBE DID NOT RUN, NOT ONLY WHICH ONE DID NOT.
 #
@@ -714,7 +718,11 @@ for p in $PROBES; do
     rc=$?
     printf '%s\n' "$out" | sed 's/^/  /'
 
-    if [ "$rc" -eq 0 ]; then
+    if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^VERDICT: ADVISORY -- ')" -gt 0 ]; then
+        ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
+        _why="$(printf '%s\n' "$out" | awk '/^VERDICT: ADVISORY -- /{sub(/^VERDICT: ADVISORY -- /, ""); print; exit}')"
+        _record_verdict "$b" ADVISORY "$_why"
+    elif [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))
         _record_verdict "$b" PASS ""
     elif [ "$rc" -eq "$EX_CANNOT_RUN" ]; then
@@ -776,9 +784,15 @@ printf '  PASS        %s\n' "$PASS"
 printf '  FAIL        %s\n' "$FAIL"
 printf '  CANNOT-RUN  %s\n' "$CANNOT"
 printf '  BROKEN      %s\n' "$BROKEN"
+printf '  ADVISORY    %s\n' "$ADVISORY"
 printf '  ----------------\n'
 printf '  of          %s probes\n' "$PROBE_COUNT"
 printf '============================================================\n'
+
+if [ -n "$ADVISORY_LIST" ]; then
+    printf '\nADVISORY (reported, NOT counted as FAIL; the scope row says advisory):\n'
+    for b in $ADVISORY_LIST; do printf '  ADVISORY  %s\n' "$b"; done
+fi
 
 if [ -n "$FAIL_LIST" ]; then
     printf '\nFAILED:\n'

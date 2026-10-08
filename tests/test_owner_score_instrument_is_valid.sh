@@ -14,6 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail=0
 
 python3 -I "$HERE/scripts/owner_score/test_owner_score.py" || fail=1
+python3 -I -W ignore "$HERE/scripts/owner_score/test_context_swap.py" || fail=1
 
 # the committed question files regenerate byte-for-byte from their builder, so
 # a hand edit that skipped the builder (and the re-lock) is caught

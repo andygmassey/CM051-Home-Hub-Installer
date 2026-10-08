@@ -56,13 +56,12 @@ against shotgun answers.
 ## The check is immutable to the tuning loop
 
 `CHECKSUM.lock` holds the sha256 of `questions_visible.jsonl`,
-`questions_heldout.jsonl` and `grading.py`. Every run prints
-`CHECK  built-in sha256 <hex>` and refuses (exit 3, no score) if it differs
+`questions_heldout.jsonl`, `grading.py` and the runner `owner_score.py`. Every run
+prints `CHECK  built-in sha256 <hex>` and the runner's own sha256 and refuses (exit 3, no score) if it differs
 from the lock. A custom questions file is locked on first use in
 `<file>.lock` and verified on every later run. A deliberate change is
 `build_questions.py` then `scripts/owner_score.sh --relock`, with the reason in
-the commit message. The runner (`owner_score.py`) is not in the checksum: it
-selects and asks, it does not judge.
+the commit message.
 
 ## The 20 held-back questions
 
@@ -91,10 +90,15 @@ bearer token.
 `scripts/box_walk_probes/probes/owner_knowledge_score.sh` runs a stratified
 sample of 8 visible questions on the box (each is a full LLM turn, 2 to 5
 minutes), puts the persona digest at `~/.zeroclaw/workspace/CONTEXT.md` for the
-run and restores the file after, and prints scores and ids only (never reply
+run and restores the file after (`context_swap.sh`: atomic backup, restore on
+EXIT/INT/TERM/HUP, a leftover backup from a SIGKILLed run is restored first, and
+it REFUSES, as CANNOT-RUN, unless the existing file is the synthetic seed: it
+names the walk's known person, holds the persona marker, or the box is declared
+with `~/.ostler/state/synthetic-box`), and prints scores and ids only (never reply
 text). `scripts/walk_promote_scope.tsv` carries it as `advisory`: a score under
-70% is a FAIL in the record and printed at every promote, but does not refuse
-one. It CANNOT-RUNs (never a 0) if the token or gateway is missing, and FAILs if
+70% prints `VERDICT: ADVISORY`, is tallied on the walk's own ADVISORY line, is
+not a FAIL and does not make the walk exit non-zero. Set the row to `blocking`
+and the same score is a FAIL. It CANNOT-RUNs (never a 0) if the token or gateway is missing, and FAILs if
 the check was changed.
 
 ### Turning it into the weekly-release gate

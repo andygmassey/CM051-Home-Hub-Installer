@@ -6,7 +6,7 @@ Driven by scripts/owner_score.sh. Stdlib only (the installed Hub may carry a
 this opens is to the loopback gateway, and a non-loopback --gateway is refused.
 
 THE CHECK IS IMMUTABLE TO THE TUNING LOOP. Every run recomputes the sha256 of
-the question files and grading.py, prints it, and refuses to score if it does
+the question files, grading.py and this runner, prints it, and refuses to score if it does
 not equal CHECKSUM.lock. A custom questions file (the owner's real data) is
 locked on first use in <file>.lock and verified on every later run.
 
@@ -30,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import grading  # noqa: E402
 
-CHECKED = ["questions_visible.jsonl", "questions_heldout.jsonl", "grading.py"]
+CHECKED = ["questions_visible.jsonl", "questions_heldout.jsonl", "grading.py", "owner_score.py"]
 LOCK = os.path.join(HERE, "CHECKSUM.lock")
 TARGET = 70.0   # the agreed v1.0.108 "so what" target; see README for enforcement
 EX_USAGE, EX_TAMPERED, EX_CANNOT_RUN, EX_BELOW = 2, 3, 78, 1
@@ -249,6 +249,7 @@ def main(argv=None):
         return 0
     ok, combined, msg = verify_checksum(built_in, LOCK)
     print("CHECK  built-in sha256 %s" % combined)
+    print("CHECK  runner owner_score.py sha256 %s" % sha256_file(os.path.join(HERE, "owner_score.py")))
     print("CHECK  %s" % msg)
     if not ok:
         return EX_TAMPERED

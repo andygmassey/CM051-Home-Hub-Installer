@@ -85,12 +85,8 @@ adjudicate() {
 }
 
 _restore_context() {
-    [ "$_PERSONA_LOADED" -eq 1 ] || return 0
-    box_run "
-        W=\"${WORKSPACE}\"
-        if [ -f \"\$W/CONTEXT.md.owner-score-backup\" ]; then mv -f \"\$W/CONTEXT.md.owner-score-backup\" \"\$W/CONTEXT.md\"
-        else rm -f \"\$W/CONTEXT.md\"; fi
-        rm -rf \"${REMOTE_DIR}\"" >/dev/null 2>&1
+    [ "$_PERSONA_LOADED" -eq 1 ] || { [ -n "${_STAGED:-}" ] && box_run "rm -rf ${REMOTE_DIR}" >/dev/null 2>&1; return 0; }
+    box_run "bash ${REMOTE_DIR}/context_swap.sh restore \"${WORKSPACE}\"; rm -rf ${REMOTE_DIR}" >/dev/null 2>&1
     _PERSONA_LOADED=0
 }
 
@@ -102,21 +98,38 @@ run_probe() {
 
     # Ship the instrument over stdin (box_run's ssh has no -n, so stdin is the transport).
     tar czf - -C "$SRC_DIR" grading.py owner_score.py questions_visible.jsonl questions_heldout.jsonl \
-        CHECKSUM.lock CONTEXT.persona.md 2>/dev/null \
+        CHECKSUM.lock CONTEXT.persona.md context_swap.sh 2>/dev/null \
         | box_run "mkdir -p ${REMOTE_DIR} && tar xzf - -C ${REMOTE_DIR}" >/dev/null 2>&1 \
         || probe_cannot_run "could not stage the owner-score instrument on the box"
+
+    _STAGED=1
+    # Signals are trapped as well as EXIT: SIGKILL cannot be, which is why every
+    # run starts with `recover`.
+    trap '_restore_context' EXIT
+    trap '_restore_context; exit 143' TERM
+    trap '_restore_context; exit 130' INT
+    trap '_restore_context; exit 129' HUP
+
+    # A previous run that was SIGKILLed left the persona in place and the real file
+    # in the backup. Put it back before anything else happens.
+    _rec="$(box_run "bash ${REMOTE_DIR}/context_swap.sh recover \"${WORKSPACE}\"" 2>&1)"
+    [ -n "$_rec" ] && probe_note "$_rec"
 
     _qarg=""
     if [ -n "$CUSTOM_Q" ]; then
         _qarg="--questions '${CUSTOM_Q}'"
     else
-        trap _restore_context EXIT
-        box_run "
-            W=\"${WORKSPACE}\"; mkdir -p \"\$W\"
-            [ -f \"\$W/CONTEXT.md\" ] && cp -p \"\$W/CONTEXT.md\" \"\$W/CONTEXT.md.owner-score-backup\"
-            cp ${REMOTE_DIR}/CONTEXT.persona.md \"\$W/CONTEXT.md\"" >/dev/null 2>&1 \
-            || probe_cannot_run "could not place the persona digest at ${WORKSPACE}/CONTEXT.md"
+        _kp="$(printf '%q' "${OSTLER_GATE_KNOWN_PERSON:-}")"
+        # Marked BEFORE the swap runs: restore is idempotent, and a signal landing
+        # between the swap and this assignment must still restore.
         _PERSONA_LOADED=1
+        _sw="$(box_run "bash ${REMOTE_DIR}/context_swap.sh swap \"${WORKSPACE}\" ${REMOTE_DIR}/CONTEXT.persona.md ${_kp}; echo SWAP_RC=\$?" 2>&1)"
+        case "$(printf '%s\n' "$_sw" | sed -n 's/^SWAP_RC=//p' | tail -1)" in
+            0)  : ;;
+            10) _PERSONA_LOADED=0; probe_cannot_run "refusing to swap CONTEXT.md: the existing ${WORKSPACE}/CONTEXT.md is not the synthetic seed, so this may be a real owner's box and it was not touched. To score a synthetic persona run the walk on a seeded box (the file names the walk's known person) or declare it with ~/.ostler/state/synthetic-box; to score the owner's real data set OSTLER_OWNER_SCORE_QUESTIONS." ;;
+            11) probe_cannot_run "refusing to swap CONTEXT.md: a backup of an earlier run is still in the way (${WORKSPACE}/CONTEXT.md.owner-score-backup) and may be the only copy of the original; restore it by hand" ;;
+            *)  probe_cannot_run "could not place the persona digest at ${WORKSPACE}/CONTEXT.md: $(printf '%s' "$_sw" | tr '\n' ' ' | cut -c1-160)" ;;
+        esac
     fi
     _limit_arg=""
     [ "$LIMIT" != "0" ] && _limit_arg="--limit ${LIMIT}"
@@ -139,7 +152,7 @@ run_probe() {
     probe_examined "${_asked:-0}" "owner-knowledge questions asked over /ws/chat (stratified sample of the visible set; the full 80 is scripts/owner_score.sh --set all)"
     case "${_v%% *}" in
         MEETS)    probe_pass "${_v#* }. ADVISORY today: see scripts/walk_promote_scope.tsv." ;;
-        BELOW)    probe_fail "${_v#* }. ADVISORY today (walk_promote_scope.tsv): reported at every promote, does not refuse one." ;;
+        BELOW)    probe_fail_or_advisory "${_v#* }. Scope row says advisory: reported at every promote, not counted as a walk FAIL, does not refuse one." ;;
         TAMPERED) probe_fail "${_v#* }. Nothing was scored." ;;
         *)        probe_cannot_run "${_v#* }" ;;
     esac
