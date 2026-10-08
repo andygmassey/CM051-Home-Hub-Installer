@@ -577,6 +577,19 @@ ADVISORY=0
 ADVISORY_LIST=""
 # The scope of a probe from scripts/walk_promote_scope.tsv. FAIL-CLOSED: a missing
 # file, a missing row, or anything but exactly `advisory` is blocking.
+# WHICH PROBES MAY CANNOT-RUN WITHOUT LOSING COVERAGE. An explicit, named list
+# (Archie's policy call): `advisory` in the scope row says a RED does not refuse a
+# promote; it does NOT say an unmeasured probe is fine. converge_kill_is_recorded
+# and assistant_sends_over_whatsapp_and_email are advisory and their CANNOT-RUN
+# stays CANNOT-RUN (rc 3, not clean). owner_knowledge_score is exempt because it
+# refuses, by design, to swap CONTEXT.md on a box carrying real-person data. An
+# exempt probe is honoured only while its row is still `advisory`: flip it to
+# blocking and its CANNOT-RUN is coverage lost again.
+ADVISORY_CANNOT_RUN_EXEMPT="owner_knowledge_score"
+_advisory_cannot_run_exempt() {
+    case " $ADVISORY_CANNOT_RUN_EXEMPT " in *" $1 "*) ;; *) return 1 ;; esac
+    [ "$(_probe_scope "$1")" = "advisory" ]
+}
 _probe_scope() {
     local f="${OSTLER_PROMOTE_SCOPE_FILE:-$HERE/../walk_promote_scope.tsv}"
     [ -r "$f" ] || { echo blocking; return 0; }
@@ -732,10 +745,10 @@ for p in $PROBES; do
     elif [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))
         _record_verdict "$b" PASS ""
-    elif [ "$rc" -eq "$EX_CANNOT_RUN" ] && [ "$(_probe_scope "$b")" = "advisory" ]; then
-        # An ADVISORY probe that could not run is not coverage lost: its row says
-        # it may not refuse a promote, and the walk must not be unclean for it.
-        # Still announced, with the reason, and still in the record.
+    elif [ "$rc" -eq "$EX_CANNOT_RUN" ] && _advisory_cannot_run_exempt "$b"; then
+        # A NAMED exemption (see ADVISORY_CANNOT_RUN_EXEMPT), not a consequence of
+        # the scope row: this probe could not run, and the walk must not be
+        # unclean for it. Still announced, with the reason, and still in the record.
         _why="$(printf '%s\n' "$out" \
                 | awk '/^VERDICT: CANNOT-RUN -- /{sub(/^VERDICT: CANNOT-RUN -- /, ""); f=1} f' \
                 | tr '\n' ' ' | sed 's/  */ /g; s/ *$//')"

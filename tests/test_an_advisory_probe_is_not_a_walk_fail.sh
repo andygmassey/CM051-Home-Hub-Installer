@@ -19,6 +19,7 @@
 #   7 advisory + CANNOT-RUN: rc 0, an `ADVISORY (cannot-run: <reason>)` line, CANNOT-RUN 0
 #   8 the same probe with a blocking row: CANNOT-RUN 1 and rc 3 (coverage lost, unchanged)
 #   9 a missing scope file: CANNOT-RUN stays coverage lost (fail-closed)
+#  10 converge_kill_is_recorded (advisory row) CANNOT-RUN is still rc 3: the exemption is NAMED
 # /bin/bash on purpose (cut host is bash 3.2). Exit 0 pass, 1 an arm failed, 2 cannot run.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -66,8 +67,8 @@ _run() { # dir, log, scope-file ; echoes rc
 num() { awk -v k="$2" '$1==k && NF==2 && $2 ~ /^[0-9]+$/ {print $2; exit}' "$1"; }
 
 ADV="$WORK/adv.tsv"; BLK="$WORK/blk.tsv"
-printf '# scope\nzz_score%sadvisory%sfixture%swhy\n' "$TAB" "$TAB" "$TAB" > "$ADV"
-printf '# scope\nzz_score%sblocking%sfixture%swhy\n' "$TAB" "$TAB" "$TAB" > "$BLK"
+printf '# scope\nzz_score%sadvisory%sfixture%swhy\nowner_knowledge_score%sadvisory%sfixture%swhy\nconverge_kill_is_recorded%sadvisory%sfixture%swhy\n' "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" > "$ADV"
+printf '# scope\nzz_score%sblocking%sfixture%swhy\nowner_knowledge_score%sblocking%sfixture%swhy\n' "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" > "$BLK"
 
 _suite "$WORK/a1" "aa_hard:hard_fail"
 RC="$(_run "$WORK/a1" "$WORK/a1.log" "$ADV")"
@@ -101,7 +102,7 @@ if [ -r "$QA" ] && awk '/^FAILED:/{f=1;next} f&&/^  [A-Za-z0-9._-]+$/{print $1} 
     pass "(6) the FAILED block still lists aa_hard as a bare name for post_walk_qa's parser"
 else fail "6-parser" "the FAILED section no longer parses to a bare probe name"; fi
 
-_suite "$WORK/a7" "aa_ok:ok" "zz_score:cannot"
+_suite "$WORK/a7" "aa_ok:ok" "owner_knowledge_score:cannot"
 RC="$(_run "$WORK/a7" "$WORK/a7.log" "$ADV")"
 if [ "$RC" -eq 0 ] && [ "$(num "$WORK/a7.log" CANNOT-RUN)" = "0" ] && [ "$(num "$WORK/a7.log" ADVISORY)" = "1" ] \
    && [ "$(grep -c 'ADVISORY (cannot-run: the prerequisite is absent)' "$WORK/a7.log")" -ge 1 ]; then
@@ -116,6 +117,15 @@ else fail "8-blocking-cannot" "rc=$RC cannot=$(num "$WORK/a8.log" CANNOT-RUN)"; 
 RC="$(_run "$WORK/a7" "$WORK/a9.log" "$WORK/does-not-exist.tsv")"
 if [ "$RC" -eq 3 ]; then pass "(9) a missing scope file leaves CANNOT-RUN as coverage lost (rc 3)"
 else fail "9-closed" "rc=$RC"; fi
+
+# 10. THE EXEMPTION IS NAMED, NOT THE ROW. Another advisory probe's CANNOT-RUN is
+# still coverage lost: converge_kill_is_recorded with an advisory row exits 3.
+_suite "$WORK/a10" "aa_ok:ok" "converge_kill_is_recorded:cannot"
+RC="$(_run "$WORK/a10" "$WORK/a10.log" "$ADV")"
+if [ "$RC" -eq 3 ] && [ "$(num "$WORK/a10.log" CANNOT-RUN)" = "1" ] && [ "$(num "$WORK/a10.log" ADVISORY)" = "0" ] \
+   && [ "$(grep -c 'COVERAGE LOST      converge_kill_is_recorded' "$WORK/a10.log")" -ge 1 ]; then
+    pass "(10) converge_kill_is_recorded (advisory row) CANNOT-RUN is still CANNOT-RUN: rc 3, COVERAGE LOST, not clean"
+else fail "10-named-only" "rc=$RC cannot=$(num "$WORK/a10.log" CANNOT-RUN) advisory=$(num "$WORK/a10.log" ADVISORY); an advisory ROW must not exempt a CANNOT-RUN"; fi
 
 [ "$FAILED" -eq 0 ] && echo "ALL ARMS PASSED" || echo "AT LEAST ONE ARM FAILED"
 exit "$FAILED"
