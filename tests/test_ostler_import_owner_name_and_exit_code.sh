@@ -72,7 +72,7 @@ STUB
 chmod +x "$O/import-pipeline/.venv/bin/python3" "$O/services/cm019/.venv/bin/python" "$O/services/email-ingest/.venv/bin/python"
 
 # The .env exactly as install.sh writes the owner's name into it.
-printf 'USER_ID="owner"\nUSER_NAME="Alex Example"\n' > "$O/config/.env"
+printf 'USER_ID="owner"\nUSER_NAME="Jane Doe"\n' > "$O/config/.env"
 DROP="$WORK/drop/Basic_LinkedInDataExport"; mkdir -p "$DROP"
 printf 'Company Name,Title,Description,Location,Started On,Finished On\nExampleCo,Staff engineer,,Riverside,Jan 2020,\n' > "$DROP/Positions.csv"
 
@@ -80,11 +80,11 @@ run() { : > "$CALLS"; ( env -u USER_NAME -u USER_DISPLAY_NAME -u PWG_USER_NAME H
 
 echo "1. the owner's name reaches the people graph on the watcher path"
 rc=$(run "$IMP" "$WORK/drop")
-grep -q '^P1 .*--user-name Alex Example' "$CALLS"
+grep -q '^P1 .*--user-name Jane Doe' "$CALLS"
 arm "no --user-name flag: P1 is handed the USER_NAME from ~/.ostler/config/.env" $? "P1 argv: $(grep '^P1' "$CALLS")"
 arm "and the run exits 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)" "rc=$rc; $(tail -3 "$WORK/out.log")"
-rc=$(run "$IMP" "$WORK/drop" --user-name "Sam Sample")
-grep -q '^P1 .*--user-name Sam Sample' "$CALLS"
+rc=$(run "$IMP" "$WORK/drop" --user-name "Sam Smith")
+grep -q '^P1 .*--user-name Sam Smith' "$CALLS"
 arm "an explicit --user-name still wins over .env" $? "P1 argv: $(grep '^P1' "$CALLS")"
 mv "$O/config/.env" "$O/config/.env.off"
 rc=$(run "$IMP" "$WORK/drop")
