@@ -62,7 +62,8 @@ jobs:
             echo "REFUSING: expected at least 21 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest \
-            vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py \
-            tests/test_cm048_resume_after_dispatcher_failure.py \
-            tests/test_vendored_conversation_process_failure_reason.py -v
+          rc=0
+          python -m pytest vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py -v || rc=1
+          python -m pytest tests/test_cm048_resume_after_dispatcher_failure.py -v || rc=1
+          python -m pytest tests/test_vendored_conversation_process_failure_reason.py -v || rc=1
+          exit "$rc"
