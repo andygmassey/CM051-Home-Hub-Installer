@@ -807,3 +807,5 @@ to this session): `forget_tombstone.py` is copied byte-identical and
 Guarded by `tests/test_forget_tombstone_every_syncer.py` (18) and
 `tests/test_forget_tombstone_ostler_fda.py` (10). Retire by landing the CM041
 and HR015 changes and re-pinning.
+
+Tree `cm041/assistant_api`: the Sixteenth graft above covers `ical-server.py` (forget tombstone hunk), `hub_contract.yaml` (regenerated; speakers/identify on :8090 with the service token, nothing on the gateway) and the Lane 11 files listed in the Lane 11 graft.

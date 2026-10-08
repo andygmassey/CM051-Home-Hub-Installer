@@ -279,6 +279,7 @@ note             = "2026-10-02 (ORM, v1.0.107): PIN MOVED fce36b9e -> 5cb0c24a (
 [[tree]]
 name             = "cm041/meeting_syncer"
 vendor_path      = "vendor/cm041/meeting_syncer"
+unrecorded_divergence = "vendor/divergences/cm041_meeting_syncer.UNRECORDED.md"  # DECLARED 2026-10-08 (Lane 18): the forgotten-attendee skip, grafted from CM041 #200 before it has a merge sha
 source_repo      = "$CM041"
 source_path      = "meeting_syncer"
 pinned_sha       = "b6ae1f91771f951a4a2cf3b96ce71e4bdd14cc1a"

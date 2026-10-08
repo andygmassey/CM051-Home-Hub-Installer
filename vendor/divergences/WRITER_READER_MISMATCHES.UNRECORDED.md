@@ -1051,3 +1051,5 @@ also pins that reads, remote callers, wrong tokens and every other path
 (including look-alikes such as `/api/safari/save/` and `/api/safari/saved`)
 stay refused. There is no HR015 upstream twin yet: OWED, and a
 security-boundary change that wants a human read before it ships.
+
+Tree `ostler_fda` (Lane 18): new `forget_tombstone.py` (byte-identical to CM041) and `pwg_ingest.py` `_is_forgotten`, which makes ingest_imessage, ingest_whatsapp, ingest_calendar, ingest_photos_people and ingest_mail_contacts skip a forgotten person. HR015 twin owed; `ostler_fda.patch` not regenerated.
