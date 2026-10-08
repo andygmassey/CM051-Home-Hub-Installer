@@ -616,7 +616,12 @@ trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
 # (each lib's header names its consumer). Every other probe reads live state,
 # and its phase 2 re-run stays an independent second measurement: on v1.0.89
 # that second reading is what caught the stores diverging by 44 mid-tick.
-SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers"
+# conversation_capture_end_to_end reads OSTLER_CONVCAP_SEED_STATE and the two
+# conversations lib/conversation_capture_seed.sh posts; owner_digest_knows_the_owner
+# reads OSTLER_OWNER_SEED_STATE (lib/owner_employer_seed.sh). Both seeds are
+# forgotten before the replay, so a phase 2 re-run reads "unrun" and reports
+# CANNOT-RUN over a measured phase 1 verdict (walk #10, v1.0.107).
+SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner"
 _record_verdict() {
     [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
     local fixture=live
