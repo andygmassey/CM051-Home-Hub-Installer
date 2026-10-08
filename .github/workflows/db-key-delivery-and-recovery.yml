@@ -208,10 +208,11 @@ jobs:
           echo "$out"
           out2="$(PYTHONPATH=vendor python -m pytest -v -rs tests/test_audit_log_row_factory.py 2>&1)"; rc2=$?
           echo "$out2"
-          if printf '%s\n%s\n' "$out" "$out2" | grep -q "SKIPPED"; then
-            echo "::error title=CANNOT-RUN (harness, not product)::a real-sqlcipher arm was skipped; encrypted row reads were NOT measured"
-            exit 1
-          fi
+          case "$out$out2" in
+            *SKIPPED*)
+              echo "::error title=CANNOT-RUN (harness, not product)::a real-sqlcipher arm was skipped; encrypted row reads were NOT measured"
+              exit 1;;
+          esac
           [ "$rc1" -eq 0 ] && [ "$rc2" -eq 0 ]
 
       # The probe that HID the recovery defect is part of the defect. It used
