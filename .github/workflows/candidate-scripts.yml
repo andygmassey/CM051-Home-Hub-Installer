@@ -19,6 +19,7 @@ on:
       - 'scripts/repin_wiki_images.sh'
       - 'scripts/sync_vendor.sh'
       - 'tests/test_candidate_scripts.sh'
+      - 'tests/test_candidate_cut_freeze.sh'
       - '.github/workflows/candidate-scripts.yml'
   push:
     branches: [main]
@@ -26,6 +27,7 @@ on:
       - 'scripts/candidate*.sh'
       - 'scripts/candidate_sources.tsv'
       - 'tests/test_candidate_scripts.sh'
+      - 'tests/test_candidate_cut_freeze.sh'
 
 jobs:
   candidate-scripts:
@@ -37,10 +39,14 @@ jobs:
       - name: Every candidate script parses
         if: always()
         run: |
-          for f in scripts/candidate*.sh tests/test_candidate_scripts.sh; do
+          for f in scripts/candidate*.sh tests/test_candidate_scripts.sh tests/test_candidate_cut_freeze.sh; do
             bash -n "$f" || { echo "syntax error in $f"; exit 1; }
           done
 
       - name: The steps do what they say, and refuse what they must
         if: always()
         run: bash tests/test_candidate_scripts.sh
+
+      - name: The cut freeze performs each runbook step and refuses when one is unmet
+        if: always()
+        run: bash tests/test_candidate_cut_freeze.sh

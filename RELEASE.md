@@ -289,3 +289,25 @@ a second invocation. The OS003 half (BOM rows, digest re-keys, re-cites) is
 `bin/candidate.sh` in OS003 and runs after this PR merges. Still a person's:
 the `cut_markers.manifest` rows and manifest patterns that say what a fix looks
 like, the OS003 capability rows, reading the source diff, and the walk.
+
+### The cut freeze: `scripts/candidate.sh freeze <version>`
+
+Runbook steps 1 and 4 to 9 as one command. Run `--dry-run` first: it prints the
+plan (including the steps that stay a person's: 2, 3, 10 to 14) and the whole
+diff, and changes nothing.
+
+    scripts/candidate.sh freeze v1.0.108 --dry-run
+    scripts/candidate.sh freeze v1.0.108 [--refreeze] [--rc-build-commit <sha>]
+
+It verifies the RemoteCapture mirror tag (a 404 is ABSENT, never a value) and
+the `CM051=` pin, bumps Info.plist, project.yml and the pbxproj, syncs the
+rollforward registry, writes a `cut-deferrals.yaml` row for every open PR over
+48h and a deferred checklist row for every unregistered open issue, checks the
+diff against an allow-list and `install.sh` against the pin, then pushes
+`cut/<version>` with `--force-with-lease` and opens a NEW draft "DO NOT MERGE"
+PR (a closed one is never reused). It refuses with exit 1, naming the runbook
+step; a denied push stops the run and is reported, never routed around. A
+re-freeze of an existing `cut/<version>` needs `--refreeze`.
+
+Not wired: step 2 (artefact diff), step 3 (OS003 BOM rows), steps 10 to 14, the
+`[ledger-entry]` marker, and PR-age rows for repos other than CM051.

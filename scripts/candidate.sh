@@ -35,6 +35,11 @@
 # AFTER this PR merges, because its rows cite the merged CM051 commit:
 #   bin/candidate.sh <version> --cm051-dir <this checkout> --cm051-ref <merged sha> ...
 #
+# THE CUT FREEZE (runbook steps 1, 4-9) IS ONE COMMAND, scripts/candidate.sh freeze <version>:
+#   scripts/candidate.sh freeze v1.0.108 --dry-run     print the plan, run every read and edit on a copy
+#   scripts/candidate.sh freeze v1.0.108               bump, sync, defer, register, push, open the draft PR
+# It refuses (exit 1, naming the runbook step) if any step is unmet. See scripts/candidate_cut_freeze.sh.
+#
 # What stays a person's: the cut_markers.manifest rows and manifest patterns that
 # say what a fix looks like; capability rows in OS003; reading the source diff;
 # deciding what the candidate is for; Andy's walk.
@@ -45,6 +50,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 S="$HERE/scripts"
 red() { printf '%s\n' "$*" >&2; }
+
+if [ "${1:-}" = "freeze" ]; then shift; exec bash "$S/candidate_cut_freeze.sh" "$@"; fi
 
 VER=""; DRY=0; HUB=""; WIKI=""; ROWS=""; PIN=0; FREEZE=0; PUSH=0; DISPATCH=0; VENDORS=()
 while [ $# -gt 0 ]; do
@@ -58,7 +65,7 @@ while [ $# -gt 0 ]; do
 		--push) PUSH=1; shift ;;
 		--dispatch) DISPATCH=1; shift ;;
 		--dry-run) DRY=1; shift ;;
-		-h|--help) sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h|--help) sed -n '2,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		-*) red "CANNOT-RUN: unknown argument: $1"; exit 2 ;;
 		*) VER="$1"; shift ;;
 	esac
