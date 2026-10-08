@@ -43,3 +43,54 @@ same top-level placement `tests/test_every_conversation_produces_all_four_
 artefacts.py` already uses for this same vendored tree), wired into
 `.github/workflows/cm048-whatsapp-lid-not-phone.yml`. Retire by landing CM048
 PR #80 and re-pinning.
+
+
+## CM048 #82 graft: resuming from the dispatcher's failed_step no longer raises (CM051 v1.0.107 #11)
+
+Tree `cm048_pipeline`: `src/processor.py` (`process()` normalises an unknown
+`resume_from_step` to None) and `src/schemas.py` (`PipelineState.from_dict`
+ignores unknown keys). Mirrors CM048 #82, squash sha `6e0c670ee2f9b0c39a30ee23b0b38431ea9f7d3e`, acked in `hold_ack_shas`.
+
+WHY: the Hub dispatcher records `failed_step="processor"`, a dispatcher label,
+not a pipeline step. `retry` / `retry-all` passed it straight to `process()`,
+where `_should_run` did `PIPELINE_STEP_ORDER.index("processor")` and raised
+ValueError, so the manual retry crashed on exactly the conversations it
+exists for (measured by reproducing it against main: `ValueError: tuple.index(x)
+not in tuple`). Not attempted against the regeneration tool: this tree is
+`verify = "skip"` already, see the preceding section.
+
+### What a future sync must preserve
+
+The guard at the top of `process()` and the `from_dict` filter. Guarded by
+`tests/test_cm048_resume_after_dispatcher_failure.py` (CM051 repo root, 4
+tests, 3 fail against main), wired into
+`.github/workflows/failed-conversations-auto-retry-guard.yml`.
+
+## CM048 #83 graft: participants sent as strings no longer crash 01_classify (CM051 v1.0.107 #12)
+
+Tree `cm048_pipeline`: new `src/participants.py` (`normalise_participants`:
+a dict passes through, a non-empty str becomes `{"display": s}`, anything
+else is dropped); every `metadata["participants"]` reader in
+`src/processor.py` (10 sites), `src/ingest.py`, `src/bulk_classifier.py`,
+`src/seed.py` and `src/outstanding_todos.py` goes through it; `process()`
+normalises in place on entry so `00_metadata.json` persists the dict shape.
+`src/channel_adapter.py` already accepted strings and is unchanged. The
+changed lines are identical to CM048 PR #83 (`andygmassey/CM048-PWG-
+Conversation-Processing#83`), squash sha
+`1737cab02b1e97ea41487dffb3162cacaa192006`, acked in `hold_ack_shas`.
+
+WHY: CM031's `APIClient.processEnvelope` sends `metadata.participants` as
+`[String]` (the sorted speaker labels); ical-server passes it through, and
+`_build_classifier_input` did `p.get(...)` on a str: `AttributeError: 'str'
+object has no attribute 'get'` at 01_classify, so every iPhone / Watch
+conversation failed (walk #11, live box). Not attempted against the
+regeneration tool: this tree is `verify = "skip"` already, see the first
+section.
+
+### What a future sync must preserve
+
+`src/participants.py`, the `normalise_participants(...)` call at every
+participants reader, and the in-place normalisation at the top of
+`process()`. Guarded by `tests/test_cm048_participants_as_strings.py` (CM051
+repo root, 4 tests, 4 fail against main), wired into
+`.github/workflows/cm048-participants-as-strings.yml`.

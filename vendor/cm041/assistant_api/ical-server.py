@@ -27,7 +27,9 @@ Endpoints:
   GET /api/v1/memory               – list facts Ostler has learnt about the user (CM031 iOS Memory tab v1.0)
   POST /api/v1/conversation/process – submit conversation for processing (CM048)
   POST /api/v1/ingest/ios          – batch upload from iOS companion
-  POST /api/safari/ingest          – live capture from Safari/Chrome extension (HR015 #180)
+  POST /api/safari/ingest          – live capture from Safari/Chrome extension (HR015 #180); optional readable text is summarised locally
+  POST /api/safari/save            – "Save to Knowledge": the page becomes a Knowledge item (Lane 6)
+  GET  /api/v1/browsing/search?q=&days=&limit= – browsing entries with summary, tags, entities (Lane 6)
   GET  /api/v1/health/day?date=    – day's physiology joined to its context (#680)
   POST /api/v1/people/{slug}/forget – GDPR Art. 17 right-of-erasure (one-click forget)
   POST /api/v1/memory/correct/{id} – correct ({"newValue":...}) or forget ({"forget":true}) a fact
@@ -982,8 +984,39 @@ INTEREST_PROFILE_PATH = (
 
 # ── CM048 conversation processing integration ────────────────────────
 PWG_HOME = Path(os.environ.get("PWG_HOME", os.path.expanduser("~/.pwg")))
-COACH_DB = PWG_HOME / "coach" / "observations.db"
-PROCESSING_DIR = PWG_HOME / "processing"
+# The coach DB lives where its WRITER puts it: CM048 ostler_paths.coach_db_path()
+# = ~/.ostler/coach/observations.db (ingest.py `_write_coach`). It used to be
+# derived from PWG_HOME (default ~/.pwg), so on a Hub where PWG_HOME is unset
+# the reader opened an empty ~/.pwg file while the writer filled an encrypted
+# file elsewhere, and /api/v1/coach/recent returned nothing, silently.
+# OSTLER_COACH_DB is the only override; PWG_HOME no longer moves it.
+COACH_DB = Path(
+    os.environ.get("OSTLER_COACH_DB")
+    or os.path.expanduser("~/.ostler/coach/observations.db")
+)
+# H2b fix (vendor graft of CM041 PR #197): CM048's actual
+# processor (andygmassey/CM048-PWG-Conversation-Processing, installed on
+# this Hub at ${OSTLER_DIR}/services/cm048, invoked here via pwg-convo)
+# writes conversation state under the two-zone engine room,
+# ~/.ostler/processing, NOT under PWG_HOME (~/.pwg). Confirmed by
+# src/ostler_paths.py:42-44 (`processing_dir()` default), src/settings.py:
+# 93-94 (`Settings.processing_state_dir` default) and shipped production
+# config settings.yaml.production:143 (`processing_state_dir: ~/.ostler/
+# processing`); the real per-conversation state.json write is
+# src/processor.py:88. CM048's own two-zone migration
+# (ostler_paths.py:124-128 `_ENGINE_ROOM_MAPPING`) moves `.pwg/processing`
+# to `.ostler/processing` and rmdirs the legacy root on first launch, so
+# PWG_HOME-derived PROCESSING_DIR was reading a directory CM048 no longer
+# writes to at all post-migration -- the status endpoint could never see
+# "completed". Resolved independently of PWG_HOME: COACH_DB and
+# CONVERSATIONS_DIR share the same stale-default shape and are a known,
+# separate follow-up (not fixed here -- see PR description).
+PROCESSING_DIR = Path(
+    os.environ.get("OSTLER_PROCESSING_DIR")
+    or os.environ.get("OSTLER_STATE_DIR")
+    or os.environ.get("PWG_PROCESSING_DIR")
+    or os.path.expanduser("~/.ostler/processing")
+)
 CONVERSATIONS_DIR = PWG_HOME / "conversations"
 OSTLER_VENV_PYTHON = os.environ.get("OSTLER_PYTHON", "")
 OSTLER_PROJECT_DIR = os.environ.get("OSTLER_PROJECT_DIR", "")
@@ -2087,6 +2120,20 @@ def people_search(query, limit=10):
 
 # ── Coach observations (CM048 tier 3) ────────────────────────────────
 
+class CoachDbError(RuntimeError):
+    """The coach DB exists but is unreadable (no key, wrong key, no table).
+    Surfaced as a 500, never as an empty observation list."""
+
+
+def _coach_db_is_plaintext(path) -> bool:
+    """True when the file starts with the plaintext SQLite header."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
 def coach_recent(user_id=None, hours=168, limit=10):
     """Return recent coaching observations from the SQLite DB.
 
@@ -2103,28 +2150,50 @@ def coach_recent(user_id=None, hours=168, limit=10):
     """
     if not user_id:
         raise ValueError("user_id is required")
+    # An absent file at the WRITER'S path is a fresh box: CM048 creates the
+    # db on the first observation, and the context-refresh generator polls
+    # this endpoint every tick and counts non-200 as a failure. Say so
+    # explicitly (db_state) rather than looking like "nothing observed".
+    # A file that exists but cannot be read stays a loud error below.
     if not COACH_DB.exists():
-        return {"observations": [], "note": "Coach database not found"}
+        return {
+            "observations": [],
+            "db_state": "absent",
+            "note": f"coach database not yet created at {COACH_DB}",
+        }
 
     cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
-    # ostler_security is guaranteed importable (hard-fails at module
-    # load if not). The remaining branch is whether a key is set.
-    if _ENCRYPTION_KEY:
-        conn = _secure_connect(str(COACH_DB), _ENCRYPTION_KEY)
-    else:
-        _warn_plaintext_once(str(COACH_DB))
-        conn = sqlite3.connect(str(COACH_DB))
-    conn.row_factory = sqlite3.Row
+    # A missing key against an encrypted file must be LOUD too.
+    if not _ENCRYPTION_KEY and not _coach_db_is_plaintext(COACH_DB):
+        msg = (
+            f"coach database {COACH_DB} is encrypted but no database key "
+            "reached ical-server (OSTLER_DB_KEY / resolved key is empty)"
+        )
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        raise CoachDbError(msg)
+
+    conn = None
     try:
+        if _ENCRYPTION_KEY:
+            conn = _secure_connect(str(COACH_DB), _ENCRYPTION_KEY)
+        else:
+            _warn_plaintext_once(str(COACH_DB))
+            conn = sqlite3.connect(str(COACH_DB))
+        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM observations "
             "WHERE user_id = ? AND observed_at > ? "
             "ORDER BY observed_at DESC LIMIT ?",
             (user_id, cutoff, limit),
         ).fetchall()
+    except Exception as exc:
+        msg = f"coach database {COACH_DB} could not be read: {exc}"
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        raise CoachDbError(msg) from exc
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
     observations = []
     for row in rows:
@@ -2147,6 +2216,65 @@ def coach_recent(user_id=None, hours=168, limit=10):
 
 
 # ── Conversation processing (CM048 tier 1) ───────────────────────────
+
+# Placed here, BEFORE _conversation_process_background, rather than
+# between it and api_conversation_process: several tests (e.g.
+# tests/test_vendored_conversation_process_failure_reason.py,
+# tests/test_conversation_process_metadata_conversation_id.sh) extract
+# _conversation_process_background's body by slicing from its own def
+# line to the NEXT top-level 'def '/'class ' line, on the assumption
+# that nothing else sits in that gap. A module-level statement placed
+# there gets silently captured into the extracted snippet; the failure
+# mode is a NameError in a wholly unrelated test once SOMETHING in that
+# gap uses a name the extractor's minimal exec namespace never binds.
+_MEETING_ID_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+_MEETING_ID_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _is_safe_meeting_id(meeting_id):
+    """True when meeting_id is a UUID or a plain slug with no path
+    characters (no '/', '.', or whitespace). Guards metadata.meeting_id
+    -- the per-session id the iOS/Watch capture app attaches -- before
+    it is used as a processing-directory name.
+    """
+    if not isinstance(meeting_id, str) or not meeting_id:
+        return False
+    return bool(
+        _MEETING_ID_UUID_RE.match(meeting_id)
+        or _MEETING_ID_SLUG_RE.match(meeting_id)
+    )
+
+
+def _resolve_fallback_conversation_id(base_id, transcript):
+    """Collision guard for the legacy date+speaker-label id scheme.
+
+    That scheme is not unique across same-day, same-speaker-label
+    captures (e.g. two Watch recordings both labelled s1 on the same
+    date) -- CM051 v1.0.107 candidate #10: the second overwrote the
+    first's raw transcript, CM048 then skipped it as already complete,
+    and the Hub still returned 202 so the app deleted its copy. Silent
+    data loss.
+
+    If base_id already holds a DIFFERENT raw transcript, this is a
+    distinct conversation and must not overwrite it: return a suffixed
+    id instead. A resend of the identical transcript is the same
+    conversation re-posted and reuses base_id (idempotent, no
+    duplicate).
+    """
+    existing = PROCESSING_DIR / base_id / "00_raw_transcript.md"
+    if not existing.exists():
+        return base_id
+    try:
+        existing_text = existing.read_text(encoding="utf-8")
+    except OSError:
+        existing_text = None
+    if existing_text == transcript:
+        return base_id
+    return f"{base_id}_{uuid.uuid4().hex[:6]}"
+
 
 def _invoke_pwg_convo(args, timeout=900):
     """Invoke the pwg-convo CLI (CM048) as a subprocess.
@@ -2306,9 +2434,352 @@ def _conversation_process_background(conversation_id, transcript, metadata):
             state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
             break
 
+    if state.get("failed_step"):
+        _preserve_cm048_progress(state_dir, state)
     (state_dir / "state.json").write_text(
         json.dumps(state, indent=2), encoding="utf-8"
     )
+
+
+# ── Failed-conversation auto retry (v1.0.107 #11, Andy: "nothing lost") ──────
+#
+# Measured on the walk box: 2 of 129 conversations failed at the processor
+# step. The one in-process retry above was spent (retry_count=1), the raw
+# transcript and metadata survived on disk, and the only thing that resumes
+# them is the manual ``pwg-convo retry-all`` -- which nothing schedules and a
+# customer cannot run. They sat failed forever and the hydration panel showed
+# needs_attention with no way out.
+#
+# This is the scheduled retry. A daemon thread in THIS process (it already
+# owns dispatch, PROCESSING_DIR and the CM048 invocation) sweeps every
+# CONVERSATION_RETRY_SWEEP_SECONDS for conversations whose state.json carries a
+# failed_step and re-runs the same ``src.cli process`` call the original
+# dispatch used, on a backoff of 15 min, 1 h, 6 h, then daily, capped at
+# CONVERSATION_RETRY_MAX_ATTEMPTS.
+#
+# Bookkeeping lives in a SIDECAR (auto_retry.json) beside state.json, never in
+# state.json: CM048's PipelineState.from_dict is ``cls(**data)`` and rejects an
+# unknown key, so a new field there would crash every resume.
+#
+# Nothing here deletes anything. The raw transcript, the metadata and every
+# CM048 artefact are only ever READ on a retry; the only file removed is the
+# sidecar, and only after the conversation has actually completed.
+
+CONVERSATION_RETRY_SIDECAR = "auto_retry.json"
+CONVERSATION_RETRY_BACKOFF_SECONDS = (15 * 60, 60 * 60, 6 * 3600, 24 * 3600)
+CONVERSATION_RETRY_MAX_ATTEMPTS = 8
+CONVERSATION_RETRY_SWEEP_SECONDS = 300
+CONVERSATION_RETRY_MAX_PER_SWEEP = 3
+CONVERSATION_RETRY_TIMEOUT_SECONDS = 900
+CONVERSATION_RETRY_GAVE_UP_MESSAGE = (
+    "couldn't process, will retry on the next update"
+)
+_CONVERSATION_RETRY_LOCK = threading.Lock()
+# Conversation ids whose first dispatch is still running in this process. The
+# CM048 subprocess writes a failed_step to state.json after EACH failed
+# attempt, so mid-dispatch (between its own two attempts) a conversation looks
+# failed while it is not finished; the sweeper must not start a second run.
+_CONVERSATIONS_IN_FLIGHT = set()
+_CONVERSATIONS_IN_FLIGHT_LOCK = threading.Lock()
+
+
+def _conversation_process_tracked(conversation_id, transcript, metadata):
+    with _CONVERSATIONS_IN_FLIGHT_LOCK:
+        _CONVERSATIONS_IN_FLIGHT.add(conversation_id)
+    try:
+        _conversation_process_background(conversation_id, transcript, metadata)
+    finally:
+        with _CONVERSATIONS_IN_FLIGHT_LOCK:
+            _CONVERSATIONS_IN_FLIGHT.discard(conversation_id)
+
+
+def _conversation_retry_backoff(attempts_made):
+    """Seconds to wait before the next automatic attempt, given how many the
+    scheduler has already made. Past the table it stays at the last (daily)."""
+    table = CONVERSATION_RETRY_BACKOFF_SECONDS
+    return table[min(max(int(attempts_made), 0), len(table) - 1)]
+
+
+def _retry_parse_iso(stamp):
+    try:
+        text = str(stamp or "").replace("Z", "+00:00")
+        out = datetime.fromisoformat(text)
+        if out.tzinfo is None:
+            out = out.replace(tzinfo=timezone.utc)
+        return out
+    except Exception:
+        return None
+
+
+def _retry_code_stamp():
+    """Changes when the installed ical-server.py changes (an app update), so a
+    conversation that gave up is re-armed once per update, not once per boot."""
+    try:
+        return str(int(os.path.getmtime(__file__)))
+    except Exception:
+        return "unknown"
+
+
+def _read_retry_sidecar(state_dir):
+    try:
+        data = json.loads((Path(state_dir) / CONVERSATION_RETRY_SIDECAR)
+                          .read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_retry_sidecar(state_dir, data):
+    """Atomic: a crash mid-write must not leave a half file that reads as
+    'no sidecar' and silently resets the attempt count."""
+    state_dir = Path(state_dir)
+    data = dict(data)
+    data["code_stamp"] = _retry_code_stamp()
+    tmp = state_dir / (CONVERSATION_RETRY_SIDECAR + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, state_dir / CONVERSATION_RETRY_SIDECAR)
+
+
+def _read_state_json(state_dir):
+    try:
+        data = json.loads((Path(state_dir) / "state.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _conversation_retry_error_class(reason):
+    """The exception CLASS only, from a CM048 failure_reason
+    ('EXHAUSTED: ReadTimeout: ...'). Never the message, which can carry text."""
+    m = re.search(r"(?m)^(?:EXHAUSTED|PERMANENT): ([A-Za-z_][\w.]*):", str(reason or ""))
+    return m.group(1) if m else None
+
+
+def _preserve_cm048_progress(state_dir, state):
+    """Called just before the dispatcher overwrites state.json on failure.
+
+    The overwrite used to wipe CM048's own record: its completed_steps (so a
+    retry re-ran finished steps) and its real failed step / exception class
+    (so the cause of every failure was unrecoverable -- the walk-box failures
+    could be traced only to 'Step 01_classify failed (after 3 retries)').
+    Keep the completed steps in state.json (a known key) and put the cause in
+    the sidecar (an unknown key there would break PipelineState.from_dict)."""
+    disk = _read_state_json(state_dir)
+    if not disk:
+        return
+    steps = disk.get("completed_steps")
+    if isinstance(steps, list) and steps:
+        merged = list(state.get("completed_steps") or [])
+        merged += [s for s in steps if s not in merged]
+        state["completed_steps"] = merged
+    side = _read_retry_sidecar(state_dir)
+    if disk.get("failed_step"):
+        side["cm048_failed_step"] = str(disk.get("failed_step"))
+        side["cm048_error_class"] = _conversation_retry_error_class(
+            disk.get("failure_reason"))
+        side.setdefault("attempts", 0)
+        side.setdefault("gave_up", False)
+        try:
+            _write_retry_sidecar(state_dir, side)
+        except OSError:
+            pass
+
+
+def _conversation_retry_status(state_dir, st):
+    """'retrying' (failed, within the cap), 'gave_up' (cap spent), or None."""
+    if not (st or {}).get("failed_step"):
+        return None
+    side = _read_retry_sidecar(state_dir)
+    if side.get("gave_up"):
+        return "gave_up"
+    return "retrying"
+
+
+def _conversation_retry_due_at(state_dir, st):
+    """When the next automatic attempt is due (aware datetime), or None."""
+    side = _read_retry_sidecar(state_dir)
+    nxt = _retry_parse_iso(side.get("next_retry_at"))
+    if nxt is not None:
+        return nxt
+    base = _retry_parse_iso(side.get("last_attempt_at")) or \
+        _retry_parse_iso((st or {}).get("last_updated_at"))
+    if base is None:
+        return datetime.now(timezone.utc)
+    return base + timedelta(seconds=_conversation_retry_backoff(side.get("attempts", 0)))
+
+
+def _run_cm048_retry(transcript_path, metadata_path):
+    """Same invocation as the original dispatch. Returns the CompletedProcess."""
+    return _invoke_pwg_convo(
+        ["process", transcript_path, metadata_path],
+        timeout=CONVERSATION_RETRY_TIMEOUT_SECONDS,
+    )
+
+
+def _retry_one_conversation(state_dir, runner=None, now=None):
+    """Re-run one failed conversation from its saved raw inputs.
+
+    Returns 'recovered', 'failed', 'gave_up' or 'skipped'. Never deletes
+    anything but the sidecar of a conversation that has just completed."""
+    runner = runner or _run_cm048_retry
+    state_dir = Path(state_dir)
+    now = now or datetime.now(timezone.utc)
+    transcript = state_dir / "00_raw_transcript.md"
+    metadata = state_dir / "00_metadata.json"
+    side = _read_retry_sidecar(state_dir)
+    attempts = int(side.get("attempts", 0) or 0)
+
+    error_class = None
+    ok = False
+    if not transcript.is_file() or not metadata.is_file():
+        error_class = "MissingRawInput"
+    else:
+        try:
+            result = runner(str(transcript), str(metadata))
+            ok = result.returncode == 0
+            if not ok:
+                disk = _read_state_json(state_dir) or {}
+                error_class = (_conversation_retry_error_class(disk.get("failure_reason"))
+                               or "NonZeroExit")
+                if disk.get("failed_step"):
+                    side["cm048_failed_step"] = str(disk["failed_step"])
+        except subprocess.TimeoutExpired:
+            error_class = "TimeoutExpired"
+        except Exception as exc:
+            error_class = type(exc).__name__
+
+    if ok:
+        disk = _read_state_json(state_dir)
+        if disk is not None and disk.get("failed_step"):
+            # CM048 exited 0 but left a failed marker: do not trust it either way.
+            ok = False
+            error_class = "FailedMarkerAfterSuccess"
+    if ok:
+        try:
+            (state_dir / CONVERSATION_RETRY_SIDECAR).unlink()
+        except FileNotFoundError:
+            pass
+        return "recovered"
+
+    attempts += 1
+    side.update({
+        "attempts": attempts,
+        "last_attempt_at": now.isoformat(),
+        "last_error_class": error_class,
+        "next_retry_at": (now + timedelta(
+            seconds=_conversation_retry_backoff(attempts))).isoformat(),
+        "gave_up": attempts >= CONVERSATION_RETRY_MAX_ATTEMPTS
+                   or error_class == "MissingRawInput",
+    })
+    _write_retry_sidecar(state_dir, side)
+    return "gave_up" if side["gave_up"] else "failed"
+
+
+def _conversation_retry_sweep(now=None, runner=None, limit=None):
+    """One pass: retry every failed conversation whose backoff has elapsed.
+
+    Counts only (no ids, no text). Single-flight: a second concurrent sweep
+    returns immediately rather than running Ollama twice."""
+    now = now or datetime.now(timezone.utc)
+    limit = CONVERSATION_RETRY_MAX_PER_SWEEP if limit is None else limit
+    counts = {"checked": 0, "due": 0, "recovered": 0, "failed": 0,
+              "gave_up": 0, "skipped": 0}
+    if not _CONVERSATION_RETRY_LOCK.acquire(blocking=False):
+        counts["skipped"] = -1
+        return counts
+    try:
+        if not PROCESSING_DIR.exists():
+            return counts
+        due = []
+        for d in sorted(PROCESSING_DIR.iterdir()):
+            st = _read_state_json(d) if d.is_dir() else None
+            if not st or not st.get("failed_step"):
+                continue
+            counts["checked"] += 1
+            with _CONVERSATIONS_IN_FLIGHT_LOCK:
+                if d.name in _CONVERSATIONS_IN_FLIGHT:
+                    continue
+            if _read_retry_sidecar(d).get("gave_up"):
+                continue
+            when = _conversation_retry_due_at(d, st)
+            if when is not None and now >= when:
+                due.append(d)
+        counts["due"] = len(due)
+        for d in due[:max(limit, 0)]:
+            outcome = _retry_one_conversation(d, runner=runner, now=now)
+            counts[outcome] = counts.get(outcome, 0) + 1
+        return counts
+    finally:
+        _CONVERSATION_RETRY_LOCK.release()
+
+
+def _conversation_retry_rearm(force=False):
+    """Give conversations that spent the cap a fresh set of attempts.
+
+    Called at startup with force=False (re-arms only if the installed server
+    changed since the sidecar was written, i.e. 'on the next update') and by
+    the manual control with force=True. Returns how many were re-armed."""
+    n = 0
+    stamp = _retry_code_stamp()
+    now = datetime.now(timezone.utc)
+    if not PROCESSING_DIR.exists():
+        return 0
+    for d in sorted(PROCESSING_DIR.iterdir()):
+        st = _read_state_json(d) if d.is_dir() else None
+        if not st or not st.get("failed_step"):
+            continue
+        side = _read_retry_sidecar(d)
+        if not side.get("gave_up"):
+            if force:
+                side["next_retry_at"] = now.isoformat()
+                _write_retry_sidecar(d, side)
+                n += 1
+            continue
+        if force or side.get("code_stamp") != stamp:
+            side.update({"attempts": 0, "gave_up": False,
+                         "next_retry_at": now.isoformat()})
+            _write_retry_sidecar(d, side)
+            n += 1
+    return n
+
+
+def _conversation_retry_loop():
+    time_mod = __import__("time")
+    time_mod.sleep(60)  # let the server and Ollama settle after boot
+    while True:
+        try:
+            _conversation_retry_sweep()
+        except Exception as exc:  # never let the sweeper die
+            print(f"[conversation-retry] sweep error: {type(exc).__name__}",
+                  file=sys.stderr, flush=True)
+        time_mod.sleep(CONVERSATION_RETRY_SWEEP_SECONDS)
+
+
+def _start_conversation_retry_thread():
+    """Re-arm anything that gave up under an older build, then start the
+    sweeper. Idempotent per process."""
+    if getattr(_start_conversation_retry_thread, "_started", False):
+        return None
+    _start_conversation_retry_thread._started = True
+    try:
+        _conversation_retry_rearm(force=False)
+    except Exception as exc:
+        print(f"[conversation-retry] rearm skipped: {type(exc).__name__}",
+              file=sys.stderr, flush=True)
+    t = threading.Thread(target=_conversation_retry_loop,
+                         name="conversation-retry", daemon=True)
+    t.start()
+    return t
+
+
+def api_conversation_retry_failed(payload=None):
+    """POST /api/v1/conversation/retry-failed -- the manual control.
+
+    Re-arms every failed conversation (including ones that spent the cap) and
+    kicks a sweep now. Counts only."""
+    queued = _conversation_retry_rearm(force=True)
+    threading.Thread(target=_conversation_retry_sweep, daemon=True).start()
+    return {"queued": queued, "status": "accepted"}, 202
 
 
 def api_conversation_process(payload):
@@ -2351,19 +2822,31 @@ def api_conversation_process(payload):
                      "installed but not responding. Check ~/.ostler/logs."
         }, 503
 
-    # Generate conversation_id from metadata or UUID
+    # Generate conversation_id. metadata.meeting_id is the per-session
+    # UUID the iOS/Watch capture app sends with every recording; when
+    # present and well-formed it IS the conversation_id, because unlike
+    # the date+speaker-label scheme below it is unique per session and
+    # never collides across same-day captures sharing a speaker label.
+    # Fall back to the old scheme only when meeting_id is absent or
+    # fails validation, and guard that fallback against the same
+    # collision (see _resolve_fallback_conversation_id).
+    meeting_id = metadata.get("meeting_id")
     date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
     participants = metadata.get("participants", [])
     conv_type = metadata.get("type", "conversation")
-    if participants:
+    if meeting_id and _is_safe_meeting_id(meeting_id):
+        conversation_id = meeting_id
+    elif participants:
         slug = "_".join(p.replace(" ", "_").lower() for p in participants[:2])
-        conversation_id = f"{date}_{slug}_{conv_type}"
+        conversation_id = _resolve_fallback_conversation_id(
+            f"{date}_{slug}_{conv_type}", transcript
+        )
     else:
         conversation_id = f"{date}_{uuid.uuid4().hex[:8]}"
 
     # Spawn background processing
     thread = threading.Thread(
-        target=_conversation_process_background,
+        target=_conversation_process_tracked,
         args=(conversation_id, transcript, metadata),
         daemon=True,
     )
@@ -7487,6 +7970,14 @@ def api_safari_ingest(payload):
     html = payload.get("html") or ""  # accepted but not stored raw
     timestamp = (payload.get("timestamp") or "").strip()
     device = (payload.get("device") or "").strip() or "browser"
+    # Lane 6: optional readable page text (capped) and visible dwell. The
+    # raw text is never stored; it only feeds the summary worker, then is
+    # dropped (see browsing_enrich.py).
+    bn = _bn()
+    text = bn.clamp_text(payload.get("text"), bn.TEXT_CAP_CHARS)
+    dwell_ms = payload.get("dwell_ms")
+    if not isinstance(dwell_ms, int) or isinstance(dwell_ms, bool) or not 0 <= dwell_ms <= 86_400_000:
+        dwell_ms = None
 
     host = _safari_extract_host(url)
 
@@ -7560,9 +8051,46 @@ def api_safari_ingest(payload):
         "html_len": len(html),
     }
 
-    ok = _safari_qdrant_upsert(point_id, vector, qdrant_payload)
-    if not ok:
-        return {"error": "qdrant upsert failed"}, 502
+    # Lane 6: page-text eligibility. The skip list is explicit and editable
+    # (browsing_enrich.DEFAULT_TEXT_SKIPLIST plus the customer's own file).
+    # A skip-listed page keeps its visit but no text is queued.
+    skip_reason = bn.text_skip_reason(url) if text else ""
+    want_text = bool(text) and not skip_reason
+    qdrant_payload["summary_status"] = "pending" if want_text else "unsummarised"
+    if dwell_ms is not None:
+        qdrant_payload["dwell_ms"] = dwell_ms
+
+    # A re-post of a visit that already exists (the extension's second send
+    # with the text, or a retry) must never erase a stored summary, so an
+    # existing point is left alone and only moved to "pending" if needed.
+    existing = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id)
+    if existing is None:
+        ok = _safari_qdrant_upsert(point_id, vector, qdrant_payload)
+        if not ok:
+            return {"error": "qdrant upsert failed"}, 502
+    elif want_text:
+        if (existing.get("summary_status") or "unsummarised") in ("unsummarised", "failed"):
+            bn.qdrant_set_payload(
+                QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
+                {"summary_status": "pending"} if dwell_ms is None
+                else {"summary_status": "pending", "dwell_ms": dwell_ms},
+            )
+        else:
+            want_text = False  # already pending or done
+
+    summary_status = "skipped_text" if skip_reason else "unsummarised"
+    if want_text:
+        queued = _enrich_queue().enqueue({
+            "id": point_id, "kind": bn.KIND_VISIT, "point_id": point_id,
+            "url": url, "title": title, "text": text,
+        })
+        summary_status = "queued"
+        if not queued:
+            summary_status = "unsummarised"
+            bn.qdrant_set_payload(
+                QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
+                {"summary_status": "unsummarised"},
+            )
 
     # Update the state file so the Doctor row can render "active,
     # last write N minutes ago". Best-effort; never fails the request.
@@ -7572,7 +8100,283 @@ def api_safari_ingest(payload):
         "last_write_device": device,
     })
 
-    return {"ok": True, "stored": 1, "id": point_id}, 200
+    return {"ok": True, "stored": 1, "id": point_id, "summary_status": summary_status}, 200
+
+
+# ── Lane 6: page summaries, Save to Knowledge, browsing search ───────
+#
+# browsing_enrich.py holds the pure logic (skip list, prompts, queue). The
+# functions below are the thin wiring to this server's own Qdrant, Ollama
+# embedder and routes. The extension credential and Doctor proxy path for
+# these routes live in CM051 vendor/doctor (see the CM051 PR).
+
+_ENRICH_QUEUE = None
+_ENRICH_QUEUE_LOCK = threading.Lock()
+
+
+def _bn():
+    """browsing_enrich lives beside this file; put the directory on
+    sys.path so the import also works when this module is loaded by file
+    path (the test harness and the vendored layout)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import browsing_enrich
+    return browsing_enrich
+
+
+def _enrich_summarise(job):
+    bn = _bn()
+    text = job.get("text") or ""
+    if job.get("kind") == bn.KIND_KNOWLEDGE:
+        if not text.strip():
+            return None
+        raw = bn.ollama_generate(bn.knowledge_prompt(
+            job.get("title", ""), job.get("url", ""), text,
+            job.get("user_tags") or [], job.get("note") or "",
+        ), timeout=300.0)
+        return bn.normalise_knowledge_result(bn.extract_json(raw))
+    raw = bn.ollama_generate(bn.visit_prompt(
+        job.get("title", ""), job.get("url", ""), text,
+    ))
+    return bn.normalise_visit_result(bn.extract_json(raw))
+
+
+def _enrich_store(job, result):
+    """Write the outcome. ``job`` arrives WITHOUT its raw text."""
+    bn = _bn()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    visit_id = job.get("point_id")
+    if job.get("kind") == bn.KIND_KNOWLEDGE:
+        point = bn.build_knowledge_point(
+            url=job["url"], title=job.get("title", ""),
+            timestamp=job.get("timestamp") or now, device=job.get("device", ""),
+            visit_id=visit_id, result=result,
+            user_tags=job.get("user_tags") or [], note=job.get("note") or "",
+            failure_reason=job.get("failure_reason") or "",
+        )
+        vector = _embed_text(point["content"][:6000])
+        bn.qdrant_ensure_collection(QDRANT_URL, bn.KNOWLEDGE_COLLECTION, len(vector))
+        if not bn.qdrant_upsert(QDRANT_URL, bn.KNOWLEDGE_COLLECTION,
+                                point["note_id"], vector, point):
+            return False
+        if visit_id:
+            bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id, {
+                "saved_to_knowledge": True, "knowledge_id": point["note_id"],
+            })
+        return True
+    if not visit_id:
+        return False
+    if result is None:
+        return bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id,
+                                     {"summary_status": "failed",
+                                      "summary_error": job.get("failure_reason") or "no_summary"})
+    ok = bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id, {
+        "summary": result["summary"], "tags": result["tags"],
+        "entities": result["entities"], "summary_status": "done",
+        "summarised_at": now, "summary_model": bn.summary_model(),
+    })
+    # Make the entry findable by meaning: re-embed with the summary. Best
+    # effort; the payload above is already stored.
+    try:
+        got = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id) or {}
+        doc = " ".join(p for p in (
+            got.get("title", ""), got.get("domain", ""), got.get("url", ""),
+            result["summary"], " ".join(result["tags"]),
+        ) if p)
+        vec = _embed_text(doc)
+        if vec:
+            bn.qdrant_update_vector(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, visit_id, vec)
+    except Exception:
+        pass
+    return ok
+
+
+def _enrich_queue():
+    global _ENRICH_QUEUE
+    with _ENRICH_QUEUE_LOCK:
+        if _ENRICH_QUEUE is None:
+            bn = _bn()
+            _ENRICH_QUEUE = bn.EnrichQueue(bn.SPOOL_DIR, _enrich_summarise, _enrich_store)
+            _ENRICH_QUEUE.start()
+        return _ENRICH_QUEUE
+
+
+def api_safari_save(payload):
+    """POST /api/safari/save -- the user marked the open page as important.
+
+    Body: {"url", "title", "text" (fuller readable text, capped at 200 KB),
+           "timestamp", "device", "tags": [...], "note": "..."}
+
+    An explicit user action: the text skip list does not apply, the
+    sensitive-domain filter still does. The visit is stored (or reused),
+    then a Knowledge item is written asynchronously by the summary worker
+    into the SAME collection and shape the Evernote / Notes / Obsidian /
+    Notion importers use, so the CM044 Knowledge wing renders it unchanged.
+    The raw text is dropped once summarised.
+    """
+    # Rule 0.8: Save to Knowledge is browser capture too, so it pauses
+    # without Ostler Pro exactly like api_safari_ingest. (CM051-only line:
+    # CM041 source has no subscription gate.)
+    paused = _subscription_paused("safari_capture")
+    if paused is not None:
+        return paused
+
+    import uuid as _uuid
+    import time as _time
+
+    if not isinstance(payload, dict):
+        return {"error": "body must be a JSON object"}, 400
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return {"error": "missing 'url'"}, 400
+    bn = _bn()
+    title = (payload.get("title") or "").strip()
+    timestamp = (payload.get("timestamp") or "").strip() or datetime.now(
+        timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    device = (payload.get("device") or "").strip() or "browser"
+    text = bn.clamp_text(payload.get("text"), bn.KNOWLEDGE_TEXT_CAP_CHARS)
+    user_tags = bn.clean_user_tags(payload.get("tags"))
+    note = bn.clean_note(payload.get("note"))
+    host = _safari_extract_host(url)
+
+    if _safari_is_sensitive_domain(host):
+        return {"ok": True, "stored": 0, "skipped_sensitive": 1,
+                "reason": "sensitive_domain"}, 200
+    if not (text.strip() or note):
+        return {"error": "nothing to save: send 'text' or 'note'"}, 400
+
+    point_id = str(_uuid.uuid5(
+        _uuid.NAMESPACE_URL, f"browsing|safari_history|{url}|{timestamp}"))
+    existing = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id)
+    if existing is None:
+        try:
+            vector = _embed_text(" ".join(p for p in (title, host, url) if p))
+        except Exception as exc:
+            return {"error": f"embed failed: {type(exc).__name__}"}, 502
+        if not vector:
+            return {"error": "empty embedding vector"}, 502
+        try:
+            _safari_qdrant_ensure_collection(len(vector))
+        except Exception as exc:
+            return {"error": f"qdrant collection ensure failed: {type(exc).__name__}"}, 502
+        if not _safari_qdrant_upsert(point_id, vector, {
+            "url": url, "domain": host, "title": title, "timestamp": timestamp,
+            "visit_date": timestamp, "created_at": timestamp, "date": timestamp,
+            "visit_count": 1, "source": "safari_extension_live", "type": "web_visit",
+            "device": device, "summary_status": "unsummarised",
+            "saved_to_knowledge": True,
+        }):
+            return {"error": "qdrant upsert failed"}, 502
+    else:
+        bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
+                              {"saved_to_knowledge": True})
+
+    kid = bn.knowledge_id(url, timestamp)
+    _enrich_queue().enqueue({
+        "id": "k-" + kid, "kind": bn.KIND_KNOWLEDGE, "point_id": point_id,
+        "url": url, "title": title, "text": text, "timestamp": timestamp,
+        "device": device, "user_tags": user_tags, "note": note,
+    })
+    _safari_write_state({
+        "last_write_ts": int(_time.time()),
+        "last_write_host": host,
+        "last_write_device": device,
+    })
+    return {"ok": True, "status": "queued", "id": kid, "visit_id": point_id}, 202
+
+
+def _browsing_item(payload):
+    return {
+        "url": payload.get("url", ""),
+        "title": payload.get("title", ""),
+        "domain": payload.get("domain", ""),
+        "timestamp": payload.get("timestamp") or payload.get("visit_date") or "",
+        "summary": payload.get("summary", ""),
+        "tags": payload.get("tags") or [],
+        "entities": payload.get("entities") or [],
+        # Entries written by the History.db / Chrome history importers carry
+        # no page text and no field: they read as unsummarised.
+        "summary_status": payload.get("summary_status") or "unsummarised",
+        "source": payload.get("source", ""),
+        "device": payload.get("device", ""),
+        "knowledge_id": payload.get("knowledge_id", ""),
+    }
+
+
+def api_browsing_search(q="", days=0, limit=10):
+    """GET /api/v1/browsing/search?q=&days=&limit= -- what the assistant
+    reads to answer "what did I read about X". Returns the visit with its
+    summary, tags and entities so the entry means something; the assistant
+    can fetch the full URL itself when it needs more.
+    """
+    bn = _bn()
+    collection = _SAFARI_QDRANT_COLLECTION
+    limit = max(1, min(int(limit or 10), 50))
+    tokens = [t for t in re.findall(r"[a-z0-9]{3,}", (q or "").lower())]
+    cutoff = None
+    if days and int(days) > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
+
+    points = []
+    offset = None
+    for _ in range(5):  # at most 5000 entries scanned
+        body = {"limit": 1000, "with_payload": True, "with_vector": False}
+        if offset is not None:
+            body["offset"] = offset
+        try:
+            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/scroll", "POST", body)
+        except Exception as exc:
+            return {"results": [], "count": 0, "degraded": True,
+                    "reason": type(exc).__name__}, 200
+        r = res.get("result") or {}
+        points.extend(r.get("points") or [])
+        offset = r.get("next_page_offset")
+        if offset is None:
+            break
+
+    scored = {}
+    for pt in points:
+        pl = pt.get("payload") or {}
+        ts = (pl.get("timestamp") or pl.get("visit_date") or "")
+        if cutoff and ts and ts[:10] < cutoff:
+            continue
+        hay = " ".join([
+            str(pl.get("title", "")), str(pl.get("domain", "")), str(pl.get("summary", "")),
+            " ".join(pl.get("tags") or []), " ".join(pl.get("entities") or []),
+        ]).lower()
+        kw = sum(1 for t in tokens if t in hay)
+        if tokens and kw == 0:
+            continue
+        scored[pt.get("id")] = (kw, 0.0, ts, pl)
+
+    if tokens:
+        try:
+            vec = _embed_text(q)
+            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/search", "POST",
+                        {"vector": vec, "limit": limit * 3, "with_payload": True})
+            for hit in res.get("result") or []:
+                pl = hit.get("payload") or {}
+                ts = (pl.get("timestamp") or pl.get("visit_date") or "")
+                if cutoff and ts and ts[:10] < cutoff:
+                    continue
+                prev = scored.get(hit.get("id"))
+                kw = prev[0] if prev else 0
+                scored[hit.get("id")] = (kw, float(hit.get("score") or 0.0), ts, pl)
+        except Exception:
+            pass  # keyword results still stand
+
+    ranked = sorted(scored.values(), key=lambda v: (v[0], v[1], v[2]), reverse=True)
+    seen, results = set(), []
+    for _kw, _score, _ts, pl in ranked:
+        key = pl.get("url", "")
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(_browsing_item(pl))
+        if len(results) >= limit:
+            break
+    return {"results": results, "count": len(results)}, 200
 
 
 # ── Hub health helpers ───────────────────────────────────────────────
@@ -8434,9 +9238,47 @@ def _wiki_eta_seconds(eta_utc):
         return None
 
 
+# A conversation whose state.json has not moved for this long, and which has
+# neither failed nor finished, is surfaced as "stalled" (a subset of running).
+CONVERSATION_STALL_SECONDS = 30 * 60
+
+
+def _conversation_state_is_complete(st):
+    """True when CM048 finished the whole pipeline for this conversation.
+
+    CM048 (processor.py, seed.py ``already_enriched``) never writes
+    ``current_step == "completed"`` for a real run: it leaves current_step on
+    the last step it entered (or back on ``00_raw`` after a re-entry) and
+    records the finished work in ``completed_steps``. ``09_bundle`` in
+    ``completed_steps`` is the only record that the full pipeline ran, so that
+    is the completion signal; ``current_step == "completed"`` is kept for
+    states written by older/other producers."""
+    if st.get("current_step") == "completed":
+        return True
+    return "09_bundle" in (st.get("completed_steps") or [])
+
+
+def _conversation_state_is_stalled(st, now):
+    try:
+        stamp = str(st.get("last_updated_at") or "").replace("Z", "+00:00")
+        last = datetime.fromisoformat(stamp)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return (now - last).total_seconds() > CONVERSATION_STALL_SECONDS
+    except Exception:
+        return False
+
+
 def _wiki_conversations_progress():
-    """Aggregate CM048 conversation processing state.json files."""
-    dispatched = completed = failed = running = 0
+    """Aggregate CM048 conversation processing state.json files.
+
+    failed beats completed beats running. ``stalled`` is a subset of
+    ``running`` (no update for CONVERSATION_STALL_SECONDS); it is reported,
+    never promoted to a failure, so in-progress work cannot raise
+    needs_attention on its own."""
+    dispatched = completed = failed = running = stalled = 0
+    now = datetime.now(timezone.utc)
+    retrying = gave_up = 0
     try:
         if PROCESSING_DIR.exists():
             for d in PROCESSING_DIR.iterdir():
@@ -8452,14 +9294,21 @@ def _wiki_conversations_progress():
                     continue
                 if st.get("failed_step"):
                     failed += 1
-                elif st.get("current_step") == "completed":
+                    if _conversation_retry_status(d, st) == "gave_up":
+                        gave_up += 1
+                    else:
+                        retrying += 1
+                elif _conversation_state_is_complete(st):
                     completed += 1
                 else:
                     running += 1
+                    if _conversation_state_is_stalled(st, now):
+                        stalled += 1
     except Exception:
         pass
     return {"dispatched": dispatched, "completed": completed,
-            "failed": failed, "running": running}
+            "failed": failed, "running": running, "stalled": stalled,
+            "retrying": retrying, "gave_up": gave_up}
 
 
 def api_hydration_status():
@@ -8565,15 +9414,25 @@ def api_hydration_status():
 
     # 4. Conversations -- CM048 processing. Failures surface loudly.
     conv = _wiki_conversations_progress()
-    if conv["failed"] > 0:
+    # ``failed`` still counts every failed conversation. One that the retry
+    # scheduler still has attempts left for (``retrying``) is work in flight,
+    # not a customer problem; only a conversation that spent the cap (or a
+    # producer that reports no retry split) raises needs_attention.
+    unrecovered = conv["failed"] - conv.get("retrying", 0)
+    if unrecovered > 0:
         conv_state = "needs_attention"
+    elif conv.get("retrying", 0) > 0:
+        conv_state = "running"
     elif conv["dispatched"] == 0:
         conv_state = "pending"
     elif conv["completed"] >= conv["dispatched"]:
         conv_state = "done"
     else:
         conv_state = "running"
-    phases.append({"key": "conversations", "state": conv_state, **conv})
+    conv_phase = {"key": "conversations", "state": conv_state, **conv}
+    if unrecovered > 0:
+        conv_phase["message"] = CONVERSATION_RETRY_GAVE_UP_MESSAGE
+    phases.append(conv_phase)
 
     # Overall. Contacts / graph / ai_summaries gate completion; the
     # conversations phase is surfaced but a pending (zero-dispatched)
@@ -8969,6 +9828,27 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        if parsed.path == "/api/v1/browsing/search":
+            params = parse_qs(parsed.query)
+            limit, err = _safe_int(params, "limit", 10)
+            days, err2 = _safe_int(params, "days", 0)
+            if err or err2:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err or err2).encode())
+                return
+            try:
+                result, status = api_browsing_search(
+                    params.get("q", [""])[0], days, limit)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/people/search":
             params = parse_qs(parsed.query)
             q = params.get("q", [""])[0]
@@ -9260,7 +10140,13 @@ class Handler(BaseHTTPRequestHandler):
                     user_id=user_id, hours=hours, limit=limit
                 )
             except Exception as exc:
-                result = {"observations": [], "error": str(exc)}
+                print(f"ERROR: /api/v1/coach/recent failed: {exc}",
+                      file=sys.stderr, flush=True)
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(exc)}).encode())
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -9685,6 +10571,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/v1/memory": "Facts Ostler has learnt about the user (CM031 Memory tab)",
             "/api/v1/preferences?domain=Music&min_confidence=0.3&limit=20": "Compiled interest profile from the CM059 artefact (score-sorted; preserves sources/confidence/polarity provenance)",
             "POST /api/v1/conversation/process": "Submit conversation for processing (CM048)",
+            "POST /api/v1/conversation/retry-failed": "Re-arm and retry failed conversations now",
             "POST /api/v1/ingest/ios": "Batch upload from the iOS companion (application/json)",
             "POST /api/safari/ingest": "Live capture from the Safari/Chrome extension (HR015 #180). One page per POST; behind the Doctor paired-bearer wall.",
             "/api/v1/health/day?date=YYYY-MM-DD": "A day's Apple Health physiology joined to that day's life-context (defaults to today)",
@@ -9774,6 +10661,17 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        if parsed.path == "/api/v1/conversation/retry-failed":
+            try:
+                result, status = api_conversation_retry_failed(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/api/v1/ingest/ios":
             try:
                 result, status = api_ingest_ios(payload)
@@ -9807,6 +10705,20 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/safari/ingest":
             try:
                 result, status = api_safari_ingest(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        # Lane 6: "Save to Knowledge" from the extension. Same auth wall as
+        # ingest (_guard above, Doctor paired-bearer or extension token
+        # upstream); never reachable without credentials.
+        if parsed.path == "/api/safari/save":
+            try:
+                result, status = api_safari_save(payload)
             except Exception as exc:
                 result, status = {"error": str(exc)}, 500
             self.send_response(status)
@@ -9994,4 +10906,11 @@ if __name__ == "__main__":
     # daemon_threads: a hung handler must not keep the process alive at
     # shutdown, or launchd's stop turns into a kill.
     ThreadingHTTPServer.daemon_threads = True
+    # v1.0.107 #11: failed conversations are retried on a backoff, never lost.
+    _start_conversation_retry_thread()
+    # Lane 6: resume any spooled page-summary jobs left by a restart.
+    try:
+        _enrich_queue()
+    except Exception as exc:
+        print(f"[browsing] summary worker not started: {exc}", file=sys.stderr, flush=True)
     ThreadingHTTPServer((BIND_HOST, PORT), Handler).serve_forever()

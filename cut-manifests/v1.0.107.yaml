@@ -505,6 +505,83 @@ entries:
     proof:
       kind: box_walk_probe
       probe: owner_digest_knows_the_owner
+  - id: probe-conversation-capture-end-to-end
+    title: "box-walk probe must PASS: conversation_capture_end_to_end"
+    why: |
+      v1.0.107 #10, CORE to the product per Andy. A paired iPhone or Watch
+      POSTs to /api/v1/conversation/process through the TLS companion
+      gateway (:8443, device bearer); nothing on any walk had ever exercised
+      that path end to end. Must: accept the POST, reach "completed" on
+      GET /api/v1/conversation/status/{id} within budget (a timeout reports
+      FAIL with the last status seen, never a hang), produce all three
+      CLAUDE.md four-artefact-spec files (summary.md, transcript.md,
+      todos.md) frontmatter-tagged with the conversation_id, stay findable
+      afterward, and not let a second same-day conversation clobber the
+      first. Self-test: a real fixture folder with todos.md deliberately
+      removed FAILs the artefacts assertion; six further mutants each
+      caught by their own assertion. BLOCKING in walk_promote_scope.tsv.
+      DEPENDS ON two sibling PRs not yet merged at the time this row was
+      added (gateway GET-proxy wiring for status/{id}; the ical-server
+      processing-path fix) -- until both land, this probe is expected to
+      FAIL on main, and that FAIL is the defect it documents, not a bug in
+      the probe.
+    proof:
+      kind: box_walk_probe
+      probe: conversation_capture_end_to_end
+  - id: probe-db-key-reaches-every-service
+    title: "box-walk probe must PASS: db_key_reaches_every_service"
+    why: |
+      v1.0.107, FLOW_CENSUS gap #1. PR #1956 fixed install.sh never setting
+      OSTLER_DB_KEY: ical-server and CM048 ingest both took their plaintext
+      fallback on every install ever shipped, one line after the installer
+      printed "Databases encrypted". Seven walks have ridden through with no
+      probe naming a failure -- absence of a look, not a guarantee. The probe
+      seeds a synthetic row with the installed key, reads it back through a
+      DIFFERENT process's independently-resolved key, and confirms the file
+      is not openable as plain SQLite without one. Self-test: 5 mutants
+      (disabled posture, a seed that did not increase the count, a
+      cross-process read-back that found nothing, a database that opened
+      unkeyed, a missing posture marker) each caught by their own assertion.
+      BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: db_key_reaches_every_service
+  - id: probe-email-channel-round-trip
+    title: "box-walk probe must PASS: email_channel_round_trip"
+    why: |
+      v1.0.107 #10 (founder decision: the email channel ships in this build).
+      The channel was never compiled into the shipped binary, wrote an empty
+      allowlist, drained every unread message on connect and replied with no
+      threading. The probe drives the INSTALLED daemon against a loopback mail
+      server (stdlib Python, no Java, no VM) in a throwaway HOME: 5 unread
+      messages present at first connect get no reply; the owner's mail gets
+      exactly one "Re: <subject>" reply carrying In-Reply-To and References;
+      an unlisted sender, an Auto-Submitted message and a dmarc=fail spoof of
+      the owner each get none; after a restart with every old message flipped
+      to unread nothing old is re-answered and the one new message is. A
+      channel that never logs in is a FAIL. Self-test: 12 mutants each caught
+      by their own assertion. BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: email_channel_round_trip
+  - id: probe-todos-reach-reminders
+    title: "box-walk probe must PASS: todos_reach_reminders"
+    why: |
+      v1.0.107, FLOW_CENSUS gap #6. The write direction (assistant ->
+      Reminders.app) had no coverage at all. The probe writes a synthetic
+      commitment through the real reminders_push gate, waits for the
+      installed daemon to claim the pending row, and tries to read the
+      result back from Reminders.app itself via AppleScript, never trusting
+      the mapping table's own "pushed" status. The AppleScript read needs
+      the same Automation TCC grant as the iMessage probe (see
+      console_only_probes.tsv); when refused for that reason this is
+      CANNOT-RUN, never a pass. Self-test: 4 mutants (a failed write, a row
+      never claimed, a permission_denied daemon, a pushed-but-invisible
+      reminder) each caught by their own assertion. BLOCKING in
+      walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: todos_reach_reminders
 
 
 open_issues:
@@ -6777,3 +6854,8 @@ open_issues:
     repo: CM051
     title: 'cm048 _normalise_chat_identifier treats a WhatsApp LID as a phone number (same unguarded digit check as #2543)'
     gate: 'BLOCKING for v1.0.107 (Archie, 2026-10-01: a second writer of the #2543 defect, which puts false facts on People pages). Registered in the same action as the filing. CODE: vendor/cm048_pipeline/src/ingest.py _normalise_chat_identifier (line 192 on main) returns +<local> for any all-digit WhatsApp JID local part, with no length, validity or LID check; it splits on @ first, so an @lid JID passes too. CLOSES ON: the same LID guard as the #2543 fix applied to the vendored module, a unit test on it that is RED on today''s copy (a synthetic 15-digit LID via @s.whatsapp.net and via @lid must not become +<digits>, a real-format synthetic phone still normalises), and a walk where the customer-read assertion "no phone number is an internal id" reads PASS. FIX OPEN, NOT MERGED, NOT PROVEN (2026-10-01): CM051 PR #2591 (vendor/cm048_pipeline, a WhatsApp LID stops being written as a phone number).'
+
+  - issue: 2697
+    repo: CM051
+    title: 'v1.0.108: customer_read must catch a bare decimal score in parentheses, e.g. "(0.90)"'
+    gate: 'NOT BLOCKING for v1.0.107; DEFERRED to v1.0.108 (Aesop filed it 2026-10-08 for v1.0.108; Archie, 2026-10-08). It is a WALK-JUDGE gap, not a product change: CM051 scripts/box_walk_probes/lib/customer_read.py does not flag a score in parentheses such as "The Last Horizon · tv show (0.90)" on the wiki Years/2026 Top items list. ORM measured it present on BOTH wiki v0.1.45 and v0.1.46 images through the CM044 crawl rig on 2026-10-08, so it predates and is not introduced by v1.0.107 #11, and the rig check "no internal score shown to the customer" is blind to the parenthesised form. Fixing the judge changes what the v1.0.107 walk grades, so it lands with v1.0.108. Registered here because an open issue missing from the checklist reds the cut preflight (run 37717318360) and main (alarm #2700).'

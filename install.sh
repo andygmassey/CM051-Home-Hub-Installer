@@ -3375,11 +3375,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8301) captures the path BY
+    # _ostler_write_store_curl_config (defined :8410) captures the path BY
     # VALUE and never re-reads it:
-    #     :8302   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8347   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8356 and :15305, both of which run
+    #     :8411   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8456   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8465 and :15414, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
     # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
@@ -3397,13 +3397,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16076, where the note reads
+    # WhatsApp Web session path did it again at :16194, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16093 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16211 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3412,13 +3412,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5921 against a definition at :8301. Top-level
+    # writer's own definition: :5927 against a definition at :8410. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8356, :15305) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8465, :15414) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18224 / :18402 / :18559 / :18901 path. There the
+    # :18342 / :18520 / :18677 / :19019 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5713,6 +5713,12 @@ CHANNEL_EMAIL_SMTP_HOST=""
 CHANNEL_EMAIL_SMTP_PORT=587
 CHANNEL_EMAIL_IMAP_FOLDER=""
 CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false
+# Addresses the assistant may ANSWER by email (comma-separated, validated). Empty
+# means it answers no one: the daemon treats an empty allowlist as deny-all.
+CHANNEL_EMAIL_ALLOWED_SENDERS=""
+# Verbatim [channels.email] block lifted from a previous config on a
+# reuse-settings re-run (see _ostler_existing_email_block).
+_EMAIL_BLOCK_PRESERVED=""
 CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
 WA_CONSENT=""
 
@@ -7425,6 +7431,86 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     done
 fi
 
+# BEGIN email-allowlist-helpers (tests/test_email_allowlist_installer.sh extracts this block)
+#
+# WHO MAY EMAIL THE ASSISTANT (v1.0.107 #10). The daemon's email channel treats
+# an EMPTY allowed_senders as "answer no one", and this file used to write the
+# literal `allowed_senders = []` for every custom-IMAP install, so the channel
+# was silently inert. The customer is now ASKED, with their own address
+# pre-filled, and at least one full address is required.
+#
+# Only full mailbox addresses are accepted here. "*", "@domain" and bare-domain
+# entries are refused on purpose: the daemon honours them, but a customer who
+# types one by accident would be handing the assistant to everyone at a domain,
+# and the installer is the wrong place to offer that.
+#
+# _email_allowlist_normalise sets two globals rather than printing, because it
+# is called without a subshell and its caller needs both lists:
+#   _EMAIL_ALLOWED_OK   comma-separated, lower-cased, de-duplicated, valid
+#   _EMAIL_ALLOWED_BAD  comma-separated entries that were refused
+_email_allowlist_normalise() {
+    local raw="${1:-}" tok
+    local _re='^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$'
+    _EMAIL_ALLOWED_OK=""
+    _EMAIL_ALLOWED_BAD=""
+    raw="${raw//;/,}"
+    raw="${raw//$'\n'/,}"
+    raw="${raw//$'\t'/,}"
+    raw="${raw// /,}"
+    local _old_ifs="$IFS" _noglob=0
+    [[ $- == *f* ]] && _noglob=1
+    set -f  # a typed "*" must stay a literal, never expand to filenames
+    IFS=','
+    for tok in $raw; do
+        [[ -n "$tok" ]] || continue
+        tok="$(printf '%s' "$tok" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$tok" =~ $_re ]]; then
+            case ",${_EMAIL_ALLOWED_OK}," in
+                *",${tok},"*) ;;
+                *) _EMAIL_ALLOWED_OK="${_EMAIL_ALLOWED_OK:+${_EMAIL_ALLOWED_OK},}${tok}" ;;
+            esac
+        else
+            _EMAIL_ALLOWED_BAD="${_EMAIL_ALLOWED_BAD:+${_EMAIL_ALLOWED_BAD},}${tok}"
+        fi
+    done
+    IFS="$_old_ifs"
+    [[ "$_noglob" -eq 1 ]] || set +f
+    [[ -n "$_EMAIL_ALLOWED_OK" ]]
+}
+
+# TOML array body for a normalised comma list: "a@b.c", "d@e.f"  (empty list
+# renders as nothing, so the caller writes `[]`, which the daemon reads as
+# deny-all rather than as everyone).
+_email_allowlist_toml_items() {
+    local list="${1:-}" tok out=""
+    local _old_ifs="$IFS" _noglob=0
+    [[ $- == *f* ]] && _noglob=1
+    set -f
+    IFS=','
+    for tok in $list; do
+        [[ -n "$tok" ]] || continue
+        out="${out:+${out}, }\"${tok}\""
+    done
+    IFS="$_old_ifs"
+    [[ "$_noglob" -eq 1 ]] || set +f
+    printf '%s' "$out"
+}
+
+# On a reuse-settings re-run the channel questions are skipped, so
+# CHANNEL_EMAIL_ENABLED stays false and the [channels.email] block, password
+# included, would be regenerated away. Lift the existing block out verbatim.
+# Must run BEFORE the truncating redirect. Prints nothing when absent.
+_ostler_existing_email_block() {
+    local cfg="${1:-}"
+    [[ -n "$cfg" && -f "$cfg" ]] || return 0
+    awk '
+        $0 == "[channels.email]" { in_s = 1; print; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s { print }
+    ' "$cfg"
+}
+# END email-allowlist-helpers
+
 # ── Email sources ──────────────────────────────────────────────────
 #
 # Source order, agreed in HR015 task #209 / TNM 2026-05-16 update:
@@ -7535,6 +7621,29 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         echo ""
         CHANNEL_EMAIL_USERNAME="$(gui_read "$MSG_PROMPT_EMAIL_USERNAME_TITLE" text "" "" "" "email_username")"
         CHANNEL_EMAIL_FROM="$CHANNEL_EMAIL_USERNAME"
+
+        # WHO MAY EMAIL THE ASSISTANT. Pre-filled with the customer's own
+        # address from the Contacts me-card (USER_EMAIL, which already falls
+        # back to the first mail account detected in Internet Accounts), and
+        # editable. At least one full address is required: the daemon answers
+        # NO ONE on an empty list, so an empty answer would ship an inert
+        # channel. The mailbox the assistant logs in to is deliberately NOT
+        # pre-filled (answering its own address is a reply loop).
+        while true; do
+            _email_allowed_raw="$(gui_read "$MSG_PROMPT_EMAIL_ALLOWED_TITLE" text "${USER_EMAIL:-}" "$(printf "$MSG_PROMPT_EMAIL_ALLOWED_HELP" "$ASSISTANT_NAME")" "" "email_allowed_senders")"
+            if _email_allowlist_normalise "$_email_allowed_raw"; then
+                if [[ -n "$_EMAIL_ALLOWED_BAD" ]]; then
+                    warn "$(printf "$MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED" "$_EMAIL_ALLOWED_BAD")"
+                fi
+                CHANNEL_EMAIL_ALLOWED_SENDERS="$_EMAIL_ALLOWED_OK"
+                break
+            fi
+            if [[ -n "$_EMAIL_ALLOWED_BAD" ]]; then
+                warn "$(printf "$MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED" "$_EMAIL_ALLOWED_BAD")"
+            fi
+            warn "$MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS"
+        done
+        unset _email_allowed_raw
 
         # Hidden password input (kind=secret); confirm with re-entry
         # so a typo doesn't silently lock the assistant out of email.
@@ -15658,6 +15767,9 @@ _ostler_restore_channels_from_existing_config() {
 # opened the file it is already empty and there is nothing left to read.
 if [[ "${SKIP_PHASE2:-false}" == true ]]; then
     _ostler_restore_channels_from_existing_config "$ASSISTANT_CONFIG"
+    if [[ "${CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED:-false}" != true ]]; then
+        _EMAIL_BLOCK_PRESERVED="$(_ostler_existing_email_block "$ASSISTANT_CONFIG")"
+    fi
 fi
 
 umask_orig=$(umask)
@@ -15981,7 +16093,13 @@ TOMLPREAMBLE
         echo "username = \"$(_esc "$CHANNEL_EMAIL_USERNAME")\""
         echo "password = \"$(_esc "$CHANNEL_EMAIL_PASSWORD")\""
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
-        echo "allowed_senders = []"
+        # The customer's own answer (validated full addresses). Empty renders
+        # `[]`, which the daemon reads as "answer no one", never as everyone.
+        echo "allowed_senders = [$(_email_allowlist_toml_items "$CHANNEL_EMAIL_ALLOWED_SENDERS")]"
+    elif [[ -n "${_EMAIL_BLOCK_PRESERVED:-}" ]]; then
+        # Reuse-settings re-run: keep the customer's existing block verbatim.
+        echo
+        printf '%s\n' "$_EMAIL_BLOCK_PRESERVED"
     fi
     unset _email_section_active
 
@@ -16471,7 +16589,7 @@ umask "$umask_orig"
 # Scrub the plaintext password from the bash environment as soon as
 # the file is written. The TOML still has it on disk; this just
 # narrows the in-memory exposure for the rest of the install.
-unset CHANNEL_EMAIL_PASSWORD
+unset CHANNEL_EMAIL_PASSWORD _EMAIL_BLOCK_PRESERVED
 
 # Same treatment for the chat admin token. Both copies (TOML +
 # secrets file) are written and locked down by now.
@@ -17276,7 +17394,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.1}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.5}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -17389,7 +17507,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="9775e29d2a0adb9e46bd5672d71e17b963c763e350a3d9eb0910fc1504ec0da9"
+DEFAULT_ASSISTANT_TARBALL_SHA256="6ceecc8e37ae3e736ac1a5997edb722aa2e152b3b11b1e6133cca8e382056b33"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -19538,7 +19656,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:6975a56e0f7e10f0ab8f96c951b068738621909615e83ca15cda8733f8479c47
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4ef1672ffca3b9d50c73047fd2bb71070d0b363ff7e817b981bf6a7e19d1010a
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19582,7 +19700,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:710c4c143db536f5fda63ebaa174827d649fcfa445f4de925bb6f095587ad979
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:f2db6f8c2eec24e1979203a453c01d9efefcd1051046e49e3dc015f1c97caa2a
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -21210,7 +21328,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.1"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.5"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -25323,7 +25441,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              CM041 health branch ships, so the write lands but nothing
              can query it across the auth boundary. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert,/api/v1/contacts/diff</string>
+        <string>/api/safari/ingest,/api/safari/save,/api/v1/browsing/search,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert,/api/v1/contacts/diff</string>
         <!-- v1.0.107 walk #2 (BLOCKING item E): /api/v1/contacts/diff
              (identity_resolver.tidy.TidyEngine, ical-server :8090) is the
              Doctor "tidy your contacts" duplicate-review report, it is
@@ -28995,7 +29113,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.3}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.5}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 # ── ONE OSTLER FOLDER IN /Applications, NOT FOUR LOOSE BUNDLES ────
 #
@@ -37635,6 +37753,74 @@ else
             # The enable step is a macOS-mandated MANUAL action and cannot be
             # automated; point the user straight at the toggle.
             echo "     $MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE"
+
+            # ── SAFARI_EXTENSION_PAIR_BEGIN (CM020 fix, v1.0.107) ──────────
+            #
+            # THE DEFECT THIS CLOSES. Shared/SharedCode/SharedConsts.swift's
+            # own comment says pairedBearer is "written by the Hub GUI" into
+            # the App Group UserDefaults (group.com.creativemachines.SafariHistoryExt).
+            # Nothing anywhere ever wrote it. APIService.swift:70-74 hard-gates
+            # every send on that key being non-empty, so every install shipped
+            # browsing capture permanently off, failing closed to .unpaired
+            # with no customer-visible signal. The Doctor's half of this exact
+            # contract was already built and already wired: OSTLER_EXTENSION_TOKEN
+            # is generated above, already seeded to ${EXTENSION_TOKEN_FILE}, and
+            # already injected into the Doctor LaunchAgent's own environment --
+            # proxy.py's _is_extension_credential compares the client's bearer
+            # against that SAME value with hmac.compare_digest. The extension
+            # just never received a copy of it.
+            #
+            # THE FIX. The App Group suite backs onto a real plist under
+            # ~/Library/Group Containers/<group-id>/Library/Preferences/. The
+            # sandboxed app does not need to have run first for that file to
+            # exist -- we create and edit it directly with PlistBuddy (already
+            # this installer's tool of choice for LaunchAgent plists, e.g. the
+            # _upg_preserve_plist_env block above), NOT `defaults write`.
+            # MEASURED: `defaults write <path>` against a plist outside the
+            # real logged-in user's actual $HOME exits 0 and writes nothing --
+            # cfprefsd resolves the domain against the session's real identity,
+            # not the literal path argument, so it is not a safe tool for an
+            # installer step a test harness needs to verify. PlistBuddy edits
+            # the file argument directly, byte for byte, with no daemon
+            # indirection, which is also why it tolerates being run before the
+            # extension's own process has ever started.
+            #
+            # Set-then-Add so re-running the installer (upgrade / re-pair)
+            # UPDATES the existing key rather than erroring on a duplicate.
+            #
+            # NEVER LOGGED. This block does not echo or printf the token value.
+            # The plist itself is chmod 600, same as every other secret this
+            # installer writes.
+            if [[ -n "${OSTLER_EXTENSION_TOKEN:-}" ]]; then
+                SAFARI_EXT_GROUP_ID="group.com.creativemachines.SafariHistoryExt"
+                SAFARI_EXT_PREFS_DIR="${HOME}/Library/Group Containers/${SAFARI_EXT_GROUP_ID}/Library/Preferences"
+                SAFARI_EXT_PLIST="${SAFARI_EXT_PREFS_DIR}/${SAFARI_EXT_GROUP_ID}.plist"
+                umask_ext_pair_orig=$(umask)
+                umask 0077
+                mkdir -p "$SAFARI_EXT_PREFS_DIR" 2>/dev/null
+                [[ -f "$SAFARI_EXT_PLIST" ]] || /usr/bin/plutil -create xml1 "$SAFARI_EXT_PLIST" 2>/dev/null
+                # plutil -replace sets the key, creating it when absent, in one write;
+                # no PlistBuddy Set/Add pair (cold-box-truth reads any PlistBuddy call as a read).
+                _safari_ext_pb_set() {
+                    # $1=key $2=type $3=value. Set first (idempotent update);
+                    # Add only if the key did not already exist.
+                    /usr/bin/plutil -replace "$1" "-$2" "$3" "$SAFARI_EXT_PLIST" >/dev/null 2>&1
+                }
+                if [[ -f "$SAFARI_EXT_PLIST" ]] \
+                        && _safari_ext_pb_set pairedBearer string "$OSTLER_EXTENSION_TOKEN"; then
+                    _safari_ext_pb_set pairedBearerSetAt integer "$(date +%s)"
+                    chmod 600 "$SAFARI_EXT_PLIST" 2>/dev/null || true
+                    ok "$MSG_OK_SAFARI_EXTENSION_PAIRED"
+                else
+                    warn "$MSG_WARN_SAFARI_EXTENSION_PAIR_FAILED"
+                fi
+                unset -f _safari_ext_pb_set
+                umask "$umask_ext_pair_orig"
+                unset umask_ext_pair_orig
+            else
+                warn "$MSG_WARN_SAFARI_EXTENSION_NO_TOKEN_TO_PAIR"
+            fi
+            # ── SAFARI_EXTENSION_PAIR_END ───────────────────────────────────
         else
             warn "$MSG_WARN_SAFARI_EXTENSION_COPY_FAILED_YOU_CAN"
             warn "$(printf "$MSG_WARN_BUNDLE" "${EXTENSIONS_BUNDLE}")"

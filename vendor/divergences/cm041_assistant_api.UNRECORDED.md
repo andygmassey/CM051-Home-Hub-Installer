@@ -495,3 +495,242 @@ subsumed-shape controls above pass on both sides, by design, alongside
 the 3 carded-human-stays controls), GREEN after.
 
 Retire by landing CM041 PR #195 and re-pinning.
+
+## Eleventh graft: conversation_id ignored metadata.meeting_id, causing silent data loss (CM051 v1.0.107 candidate #10)
+
+Tree `cm041/assistant_api`, same file: `api_conversation_process`, plus two
+new helpers, `_is_safe_meeting_id` and `_resolve_fallback_conversation_id`.
+Matches CM041 PR #196 (upstream, open at time of writing).
+
+`conversation_id` was built as `date_firstTwoSpeakerLabels_type` and
+ignored `metadata.meeting_id`, the per-session UUID the iOS/Watch app
+sends with every recording. Every Watch conversation on the same day
+collided as `<date>_s1_wearable`: the second POST overwrote the first
+conversation's raw transcript, CM048 then skipped the overwritten one as
+already-complete, and the Hub still returned 202 so the app deleted its
+(now only) copy. The conversation was gone. Affects any capture path
+whose speaker labels repeat on the same day, including the Mac's.
+
+This vendor tree's `api_conversation_process` has its own divergence from
+CM041 source (the Rule 0.8 subscription-pause gate, and a pre-flight probe
+of the `pwg-convo` CLI via `_invoke_pwg_convo` in place of CM041's direct
+`OSTLER_VENV_PYTHON` subprocess call) -- both untouched by this graft. The
+id-generation block the graft touches is byte-identical between the two
+trees before this change, so the port is a straight copy of the new
+block, not an adaptation.
+
+`conversation_id` now prefers `metadata.meeting_id` when it validates as a
+UUID or a path-safe slug (`_is_safe_meeting_id`: no `/`, `.`, or
+whitespace). Falls back to the old date+label scheme otherwise, guarded
+by `_resolve_fallback_conversation_id`: if the target already holds a
+DIFFERENT raw transcript, suffix instead of overwriting; a resend of
+identical content reuses the same id.
+
+Guarded by
+`vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py`,
+7 tests (ported from CM041 PR #196, adapted for this tree's own
+divergence: `_invoke_pwg_convo` is stubbed so the pre-flight probe and the
+background processor's own call both succeed without a real `pwg-convo`
+binary on PATH, and `_subscription_paused` is stubbed directly because
+`assistant_api/subscription_gate.py` sits on `sys.path` in this test
+environment -- same mechanism the gate's own docstring describes for
+production -- and reports the default unlicensed state as paused rather
+than failing open). RED confirmed against the unmodified vendored
+`ical-server.py` via `git checkout origin/main --
+vendor/cm041/assistant_api/ical-server.py` (4 of 7 fail, including the
+exact overwrite scenario), GREEN after.
+
+Wired into CI by `.github/workflows/walk-meeting-id-collision-guard.yml`
+in the same diff (new-tests-must-be-wired gate).
+
+Retire by landing CM041 PR #196 and re-pinning.
+
+## Eleventh graft: the conversation-status endpoint reads the path CM048 actually writes (H2b, v1.0.107)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+module-level `PROCESSING_DIR`. Matches CM041 PR #197.
+
+`GET /api/v1/conversation/status/{id}` (`api_conversation_status`) read
+`PROCESSING_DIR` derived from `PWG_HOME`, which defaults to `~/.pwg`.
+CM048's real processor (`andygmassey/CM048-PWG-Conversation-Processing`,
+installed on this Hub at `${OSTLER_DIR}/services/cm048`, invoked here via
+`pwg-convo`) writes each conversation's `state.json` under the two-zone
+engine room, `~/.ostler/processing`, by default -- confirmed at
+`src/ostler_paths.py:42-44` (`processing_dir()`), `src/settings.py:93-94`
+(`Settings.processing_state_dir` default) and the shipped production
+config `settings.yaml.production:143`
+(`processing_state_dir: ~/.ostler/processing`); the real write is
+`src/processor.py:88` (and 480, 590). CM048's own two-zone migration
+(`ostler_paths.py:124-128`, `_ENGINE_ROOM_MAPPING`) moves `.pwg/processing`
+to `.ostler/processing` and removes the legacy root on first launch, so
+past first launch `~/.pwg/processing` does not exist at all, and this
+endpoint was reading a directory CM048 could never write to -- a phone
+polling status never saw "completed".
+
+`PROCESSING_DIR` now resolves independently of `PWG_HOME`, honouring the
+same override chain CM048's own `settings.py:270-276` uses
+(`OSTLER_PROCESSING_DIR` > `OSTLER_STATE_DIR` > `PWG_PROCESSING_DIR`),
+defaulting to `~/.ostler/processing`. `COACH_DB` and `CONVERSATIONS_DIR`
+still derive from `PWG_HOME` and share the same stale-default shape; that
+is a separate, pre-existing divergence, flagged not fixed here, to keep
+this graft to the one reported defect.
+
+The brief that opened this ticket named `andygmassey/CM052` ("PWG AI
+Conversation Ingest") as the writer. That repo contains no code that
+writes a processing marker anywhere; the real writer is the separate,
+still-independently-existing `andygmassey/CM048-PWG-Conversation-Processing`
+repo, confirmed by reading it rather than assumed from the brief.
+
+Guarded by
+`vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py`
+(ported from CM041 PR #197), 3 tests. RED confirmed against the unmodified
+vendored `ical-server.py` via `git checkout origin/main --
+vendor/cm041/assistant_api/ical-server.py` (no stash): 2 of 3 fail (default
+resolves to `.pwg/processing`, env-override chain unhonoured). GREEN
+after. Full vendor `assistant_api` suite: 130 passed, 5 failed, both before
+and after this graft, same 5 test names each time (the pre-existing,
+unrelated `test_ical_server_wire_shape.py` gap already named in the Tenth
+graft's own sibling PR #2658 -- iOS-ingest subscription-gate shape plus an
+organisation-key test with a real, unmocked network dependency) -- confirmed
+unchanged by running the full suite against the pre-fix file via the same
+`git checkout origin/main --` swap, not `git stash`.
+
+Retire by landing CM041 PR #197 and re-pinning.
+
+## Eleventh graft: browsing page summaries, Save to Knowledge, browsing search (CM051 Lane 6)
+
+Tree `cm041/assistant_api`. Files: `ical-server.py` (`api_safari_ingest`
+extended; new `api_safari_save`, `api_browsing_search`, `_enrich_*` wiring,
+routes `POST /api/safari/save` and `GET /api/v1/browsing/search`, worker
+resume on startup), new sibling module `browsing_enrich.py` (copied
+byte-identical from CM041), `TOOLS.md` is NOT changed here (it differs from
+upstream already and the BROWSING routing line is owed in the same re-pin).
+Matches CM041 branch `claude/lane6-page-summaries` (open at time of writing,
+not yet on CM041 main, so no sha exists to ack; the manifest ack is OWED
+after that merge, same shape as #2642 and #2658).
+
+What the measurement found first. The shipped `api_safari_ingest` stored
+only url, title, domain, timestamp (plus `html_len`); it never summarised
+anything, although the extension README claimed it did. There was no browsing
+read endpoint at all: nothing in this tree reads `safari_history` except the
+wiki, so "the assistant's existing history search" does not exist and
+`/api/v1/browsing/search` is new.
+
+Behaviour added. Optional `text` (clamped to 20480 chars) and `dwell_ms` on
+ingest. Text goes to a spool-backed, bounded, rate limited worker that yields
+to the chat lease (`~/.ostler/run/ollama-user-active`, same contract as
+CM024 and CM048), calls the loopback Ollama, writes summary, tags and
+entities onto the stored visit, and DELETES the raw text. Skip-listed pages
+(explicit default list plus the customer's own
+`~/.ostler/config/browsing_text_skiplist.txt`) keep the visit and capture no
+text. History.db and Chrome history rows have no field and read as
+`unsummarised`. Save to Knowledge writes a `web_clip` item to the
+`evernote_knowledge` collection at `compartment_level` 2 in the importers'
+shape, linked to the visit.
+
+THE ONE CM051-ONLY LINE. `api_safari_save` calls
+`_subscription_paused("safari_capture")` first (Rule 0.8, browser capture
+pauses without Ostler Pro). CM041 source has no subscription gate, so this
+is a divergence by construction, pinned by
+`TestD_VendoredSubscriptionGate` in the vendored test. The startup hunk
+also differs in context only (`ThreadingHTTPServer` here).
+
+Doctor: `vendor/doctor/agent/proxy.py` widens the extension credential from
+one path to exactly two POST paths (`/api/safari/ingest`,
+`/api/safari/save`), pinned by
+`tests/test_extension_credential_covers_the_save_route.py`, which also pins
+that every other path, GET, a remote caller and a wrong token stay refused.
+`install.sh` DOCTOR_PROXY_PATHS gains `/api/safari/save` and
+`/api/v1/browsing/search`. The proxy.py change has no upstream (HR015) twin
+yet: OWED, and it is a security-boundary change that wants a human read.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
+(20 tests). Retire by landing the CM041 branch and re-pinning.
+
+## Twelfth graft: the hydration conversations counter follows CM048 completions (v1.0.107 #11)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+functions `_wiki_conversations_progress`, `_conversation_state_is_complete`,
+`_conversation_state_is_stalled`. Matches CM041 PR #201.
+
+`GET /api/v1/hydration/status` counted a conversation completed only when
+`state.json` had `current_step == "completed"`. CM048 never writes that for a
+real run: it leaves `current_step` on the last step entered (or back on
+`00_raw` after a re-entry) and records finished work in `completed_steps`, with
+`09_bundle` as the terminal step (CM048 `src/seed.py` `already_enriched`).
+Measured read-only on a walk box: 84 of 90 "running" had `09_bundle` done, so
+the counter sat flat while pwg-convo logged completions. Completed is now
+`09_bundle` in `completed_steps`; `stalled` (subset of running, no update for
+30 minutes) is added and never promoted to a failure.
+
+Test `vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py`
+(5 tests), wired in `.github/workflows/walk-meeting-id-collision-guard.yml`.
+
+Upstream landed as CM041 #201, squash sha `1e18c6b0`, acked in `hold_ack_shas`
+in `vendor/VENDOR_MANIFEST.toml`. Retire by re-pinning.
+
+## Thirteenth graft: the coach reader read a path the writer never wrote (CM051 v1.0.107 #11)
+
+Mirrors CM041 PR #202. `vendor/cm041/assistant_api/ical-server.py`:
+`COACH_DB`, `coach_recent`, and the `/api/v1/coach/recent` handler.
+
+CM048 writes coach observations to `~/.ostler/coach/observations.db`
+(`vendor/cm048_pipeline/src/ostler_paths.py:52`, `ingest.py` `_write_coach`),
+SQLCipher-encrypted. The reader defaulted to `PWG_HOME/coach/...`
+(`~/.pwg`), opened an empty file and returned an empty list, silently.
+
+Now: `COACH_DB` is `~/.ostler/coach/observations.db` (`OSTLER_COACH_DB`
+overrides, `PWG_HOME` no longer does). An ABSENT db is a fresh box (the writer creates it on the first
+observation; the context-refresh generator polls and counts non-200 as failure):
+200 with `observations: []` and `db_state: "absent"`. An existing db with no
+key, a wrong key or a missing table raises `CoachDbError`, logs to stderr and
+answers HTTP 500 with an `error` and no `observations` key. The key is the one
+already resolved at import by `resolve_db_key()` (CM051 #1956 precedent, which
+CM041 source does not carry; that is why this file differs from upstream there).
+
+The walk probe `db_key_reaches_every_service` had the same hard-coded
+`~/.pwg` path (and created the 0-byte decoy by connecting to it); it now
+resolves the writer's path and never creates the file.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`
+(7 tests; one loads the vendored CM048 `coach_db_path()` itself). Retire by
+landing CM041 #202 and re-pinning. ACKED: CM041 #202 merged as 9f2b883c859d53d65e65fcac1e461c1afe8edea1 and that sha is in the VENDOR_MANIFEST hold_ack for this tree. The pin is still held.
+
+## Fourteenth graft: failed conversations retry automatically on a backoff and are never lost (CM051 v1.0.107 #11)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #203, squash sha
+`e1de0cfdb696d21475ff0e89f161ddcf7d08d442`, acked in `hold_ack_shas`.
+
+2 of 129 conversations failed at the processor step on the walk box
+(macmini16-walk). The one in-process retry above was spent
+(`retry_count=1`) and the only thing that resumes a failed conversation is
+the manual `pwg-convo retry-all`, which nothing schedules and a customer
+cannot run. They sat failed forever and the hydration panel showed
+`needs_attention` with no way out.
+
+Added to this tree's `ical-server.py`: `CONVERSATION_RETRY_*` constants,
+`_conversation_process_tracked`, `_preserve_cm048_progress`,
+`_retry_one_conversation`, `_conversation_retry_sweep`,
+`_conversation_retry_rearm`, `_start_conversation_retry_thread`,
+`api_conversation_retry_failed` (`POST /api/v1/conversation/retry-failed`),
+the sidecar helpers, and edits to `_conversation_process_background` (one
+call before its final state write), `api_conversation_process` (thread
+target), `_wiki_conversations_progress` (`retrying`, `gave_up`),
+`api_hydration_status` (retrying is `running`, spent cap is
+`needs_attention` with a `message`), the POST router, and `__main__` (thread
+start). Bookkeeping is a sidecar `auto_retry.json`, NOT a new state.json key,
+because `PipelineState.from_dict` was `cls(**data)` and rejects an unknown
+key. The retry re-runs `_invoke_pwg_convo(["process", ...])`, this tree's own
+CM048 invocation (CM041 source uses `OSTLER_VENV_PYTHON -m src.cli`), the
+one adaptation against the source graft.
+
+The `09_bundle` completion predicate and `stalled` (CM041 #201, the Twelfth graft above) are now in this tree, so `retrying` / `gave_up` sit beside `stalled`.
+
+### What a future sync must preserve
+
+All of the above. Guarded by
+`vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py`
+(12 tests, 12 fail against main's ical-server) and by
+`tests/test_vendored_conversation_process_failure_reason.py`, whose fixture
+now loads the real `_preserve_cm048_progress` helpers. Wired into
+`.github/workflows/failed-conversations-auto-retry-guard.yml`.
