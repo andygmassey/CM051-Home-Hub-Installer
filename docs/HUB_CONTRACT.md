@@ -42,8 +42,7 @@ cannot rot.
 ## Auth kinds (Lane 11 addition)
 
 A route's `auth` list names every credential it accepts. Besides the device bearer it can carry
-`service_token`: the gateway accepts the Hub service token in place of a device bearer on
-that exact path (`SERVICE_TOKEN_PATHS` in `api_auth.rs`; today only `/api/v1/speakers/identify`,
-which the Mac RemoteCapture app calls with `Authorization: Bearer <service token>`). There is no
-unauthenticated gateway `/api` path and no loopback exemption (ostler-assistant #475 review):
-a call with no credential is `AUTH_MISSING` whatever host it dials.
+The gateway has no unauthenticated `/api` path, no loopback exemption and no service-token path
+(ostler-assistant #475 review): the Hub service token is a loopback credential for the Hub on
+:8090 and the network-facing gateway rejects it. CM042 RemoteCapture calls
+`POST http://127.0.0.1:8090/api/v1/speakers/identify` with `Authorization: Bearer <service token>`.

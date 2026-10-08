@@ -44,9 +44,6 @@
    "pre_auth_allowlist": [
     "/api/pair",
     "/api/v1/frontpage/cards"
-   ],
-   "service_token_paths": [
-    "/api/v1/speakers/identify"
    ]
   },
   "ical": {
@@ -355,6 +352,7 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "db_state",
     "error",
     "note",
     "observations"
@@ -3759,8 +3757,7 @@
   },
   {
    "auth": [
-    "device_bearer",
-    "service_token"
+    "device_bearer"
    ],
    "body_limit_bytes": 1048576,
    "content_type": "application/json",
@@ -4785,6 +4782,7 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "db_state",
     "error",
     "note",
     "observations"
@@ -4869,6 +4867,28 @@
     "error",
     "job_id",
     "state_url",
+    "status"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/conversation/retry-failed",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/conversation/retry-failed",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "queued",
     "status"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"

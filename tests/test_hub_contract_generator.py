@@ -96,22 +96,18 @@ class Checker(unittest.TestCase):
         self.assertEqual(self.call(body_keys=["metadata"], **kw), ["REQUEST_FIELD_MISSING"])
         self.assertEqual(self.call(body_keys=["transcript"], reads=["nope"], **kw), ["RESPONSE_FIELD_ABSENT"])
 
-    def test_identify_takes_the_service_token_and_no_host_may_skip_the_credential(self):
+    def test_identify_takes_the_service_token_on_the_hub_and_never_on_the_gateway(self):
         kw = dict(method="POST", body_bytes=10, body_keys=["transcript"])
+        svc = {"Authorization": "Bearer synthetic-service-token"}
+        hub = "http://127.0.0.1:8090/api/v1/speakers/identify"
+        self.assertEqual(self.call(url=hub, headers=svc, token_source="service_token", **kw), [])
+        self.assertEqual(self.call(url=hub, headers={}, token_source="none", **kw), ["AUTH_MISSING"])
         for url in ("http://127.0.0.1:8000/api/v1/speakers/identify",
-                    "http://localhost:8000/api/v1/speakers/identify",
                     "http://192.168.1.5:8443/api/v1/speakers/identify"):
             self.assertEqual(self.call(url=url, headers={}, token_source="none", **kw),
                              ["AUTH_MISSING"], url)
-        ok = "http://localhost:8000/api/v1/speakers/identify"
-        self.assertEqual(self.call(url=ok, headers={"Authorization": "Bearer synthetic-service-token"},
-                                   token_source="service_token", **kw), [])
-        # The service token is accepted on that one path only.
-        self.assertEqual(
-            self.call(url="http://127.0.0.1:8000/api/safari/ingest",
-                      headers={"Authorization": "Bearer synthetic-service-token"},
-                      token_source="service_token", method="POST", body_bytes=10, body_keys=["url"]),
-            ["AUTH_WRONG_CREDENTIAL"])
+            self.assertEqual(self.call(url=url, headers=svc, token_source="service_token", **kw),
+                             ["AUTH_WRONG_CREDENTIAL"], url)
 
     def test_tampered_copy_is_refused(self):
         import tempfile

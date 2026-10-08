@@ -83,4 +83,4 @@ pin, folding this note back into the normal patch-tracked history).
 
 ## Lane 18 forget tombstone
 
-See the Thirteenth graft in cm041_assistant_api.UNRECORDED.md: the tombstone check in this tree (forget_tombstone.py, and the "forgotten" skip at each create path) is grafted from CM041 PR #200 with the rest of that graft.
+See the Sixteenth graft in cm041_assistant_api.UNRECORDED.md: the tombstone check in this tree (forget_tombstone.py, and the "forgotten" skip at each create path) is grafted from CM041 PR #200 with the rest of that graft.
