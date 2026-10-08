@@ -204,9 +204,7 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          out="$(PYTHONPATH=vendor python -m pytest -v -rs \
-            vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py \
-            2>&1)"; rc1=$?
+          out="$(PYTHONPATH=vendor python -m pytest -v -rs vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py 2>&1)"; rc1=$?
           echo "$out"
           out2="$(PYTHONPATH=vendor python -m pytest -v -rs tests/test_audit_log_row_factory.py 2>&1)"; rc2=$?
           echo "$out2"

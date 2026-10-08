@@ -131,6 +131,7 @@ test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep
 test_assistant_identity_belt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_sandbox_is_pinned_to_seatbelt.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
+test_audit_log_row_factory.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_automated_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
