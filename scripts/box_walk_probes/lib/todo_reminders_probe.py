@@ -61,7 +61,19 @@ def judge(f):
     if status in (None, "pending"):
         add(DECLARED[1], False, "the pending row was never claimed within {}s -- the daemon is not consuming reminders_map.db, or is stalled".format(push.get("waited_s", "?")))
     elif status == "permission_denied":
-        add(DECLARED[1], False, "the daemon claimed the row but Reminders (EventKit) access is denied or revoked for it (status=permission_denied)")
+        # permission_denied is what the daemon reports both when the customer
+        # said no and when nobody has been asked yet. Only TCC.db tells them
+        # apart (walk #11: no kTCCServiceReminders row at all, read as FAIL).
+        tcc = f.get("tcc_reminders") or {}
+        ts = tcc.get("state")
+        if ts == "absent":
+            add(DECLARED[1], None, "CANNOT-RUN: console grant needed. TCC.db has no kTCCServiceReminders row for the assistant, so the Reminders prompt is undecided, not denied; only a human at the console can answer it")
+        elif ts == "denied":
+            add(DECLARED[1], False, "the daemon claimed the row and Reminders access is DENIED in TCC.db (auth_value={}, status=permission_denied)".format(tcc.get("auth_value")))
+        elif ts == "allowed":
+            add(DECLARED[1], False, "TCC.db GRANTS Reminders to the assistant (auth_value={}) yet the daemon reports permission_denied".format(tcc.get("auth_value")))
+        else:
+            add(DECLARED[1], False, "the daemon claimed the row but Reminders (EventKit) access is denied or revoked for it (status=permission_denied; TCC state {}: {})".format(ts or "not read", tcc.get("error") or tcc.get("auth_value") or "no detail"))
     elif status == "failed":
         add(DECLARED[1], False, "the daemon claimed the row but its EventKit write failed (status=failed)")
     elif status == "skipped":
@@ -137,6 +149,19 @@ def self_test():
         fails.append("permission_denied should FAIL (b): {}".format(row(denied, 1)))
     else:
         print("  ok    mutant caught: the daemon reports permission_denied")
+
+    # Walk #11: the daemon says permission_denied, and TCC.db is read to tell
+    # an undecided prompt (no row) from a real refusal.
+    for state, want, label in (("absent", None, "CANNOT-RUN (console grant needed)"),
+                               ("denied", False, "FAIL"),
+                               ("allowed", False, "FAIL (granted, yet the daemon says denied)")):
+        t = copy.deepcopy(g)
+        t["push"] = {"status": "permission_denied", "waited_s": 10}
+        t["tcc_reminders"] = {"state": state, "auth_value": {"denied": [0], "allowed": [2]}.get(state)}
+        if row(t, 1) != [want]:
+            fails.append("permission_denied with TCC {} should be {} (b): {}".format(state, want, row(t, 1)))
+        else:
+            print("  ok    permission_denied with TCC row {}: {}".format(state, label))
 
     tcc = copy.deepcopy(g); tcc["readback"] = {"attempted": True, "blocked_tcc": True}
     if row(tcc, 2) != [None]:
