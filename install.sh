@@ -22592,6 +22592,14 @@ fi
 # CM019 tags points by user slug; prefer an explicit flag, then the
 # installed-user env, then a neutral default.
 CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+# The owner's name for the people graph. contact_syncer.import_all refuses to
+# run without --user-name (exit 2) and its own fallback reads only
+# USER_DISPLAY_NAME / PWG_USER_NAME, while install.sh writes the name into
+# .env as USER_NAME. The Downloads watcher and a hand run pass no flag, so
+# without this every export dropped after install exited 2 before
+# linkedin_career ran, and no career fact was ever written (Ostler cut #14,
+# walks #11-#13: 0 career facts). An explicit --user-name still wins.
+[[ -z "$USER_NAME_ARG" ]] && USER_NAME_ARG="${USER_DISPLAY_NAME:-${PWG_USER_NAME:-${USER_NAME:-}}}"
 
 rc=0
 for d in "${DIRS[@]}"; do
@@ -22706,9 +22714,21 @@ for d in "${DIRS[@]}"; do
     # email-ingest venv (so no ostler_fda) -> the leg is skipped, never
     # an error. universal_import is itself non-crashing (an unknown drop
     # is reported, not raised) so a stray folder cannot fail the import.
+    #
+    # Exit 3 is universal_import's "unknown format" (status unknown), which
+    # every export it has no parser for returns, LinkedIn included. That is
+    # the stray-folder case promised above, so it is not a failure, and it
+    # must not overwrite the code of a step that really failed. Any other
+    # non-zero from this step is a real failure and still fails the run.
     if [[ -x "$UIMPORT_PY" ]]; then
+        urc=0
         ( PYTHONPATH="${UIMPORT_FDA_DIR}:${PYTHONPATH:-}" \
-            "$UIMPORT_PY" -m ostler_fda.universal_import "$d" ) || rc=$?
+            "$UIMPORT_PY" -m ostler_fda.universal_import "$d" ) || urc=$?
+        if [[ "$urc" -eq 3 ]]; then
+            echo "Universal importer: no recognised format in $d (not an error)."
+        elif [[ "$urc" -ne 0 ]]; then
+            rc=$urc
+        fi
     fi
 done
 exit $rc
