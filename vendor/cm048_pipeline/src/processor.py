@@ -36,6 +36,7 @@ from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
 from .chunker import chunk_transcript, describe as describe_chunks
 from .ollama_client import OllamaClient
+from .participants import normalise_participants
 from .schemas import (
     Classification,
     CoachObservation,
@@ -104,6 +105,18 @@ def process(
             "first incomplete step", resume_from_step,
         )
         resume_from_step = None
+
+    # v1.0.107 #12: CM031's iPhone / Watch envelope sends participants as
+    # a list of speaker-label STRINGS; every reader here expects dicts.
+    # Normalise once on entry so 00_metadata.json (read back by the sink
+    # writers) carries the dict shape too. Each reader also normalises,
+    # so a direct caller that skips process() is covered as well.
+    # In place, like the non_relational stamp below, so a caller holding
+    # the dict sees the same metadata the pipeline ran on.
+    if "participants" in metadata:
+        metadata["participants"] = normalise_participants(
+            metadata.get("participants")
+        )
 
     # Step 00  –  write raw transcript (always, idempotent)
     _write_raw(state_dir, conversation_id, transcript, metadata)
@@ -653,7 +666,7 @@ def _build_classifier_input(
     conventions: str,
     settings: Settings,
 ) -> str:
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -1025,7 +1038,7 @@ def _build_merge_prompt_for_retry(
     chunks_body = ""
     for i, output in enumerate(chunk_outputs):
         chunks_body += f"\n--- CHUNK {i+1} OF {len(chunk_outputs)} ---\n{output}\n"
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -1079,7 +1092,7 @@ def _merge_chunk_outputs(
     for i, output in enumerate(chunk_outputs):
         chunks_body += f"\n--- CHUNK {i+1} OF {len(chunk_outputs)} ---\n{output}\n"
 
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -1138,7 +1151,7 @@ def _build_speaker_mapping(metadata: dict) -> str:
     produces a mapping hint so the model can attribute facts to named
     participants instead of generic "Speaker N" references.
     """
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     if not participants:
         return ""
     lines = ["speaker_mapping:"]
@@ -1163,7 +1176,7 @@ def _fix_speaker_subjects(facts: list[dict], metadata: dict) -> list[dict]:
     "other:speaker_2" etc. even when given an explicit speaker mapping.
     This maps those back to the actual participant slugs.
     """
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     others = [p for p in participants if p.get("role") != "user"]
     user_id = next(
         (p.get("id") for p in participants if p.get("role") == "user"),
@@ -1209,7 +1222,7 @@ def _build_enrichment_input(
     settings: Settings,
 ) -> str:
     classification_json = json.dumps(c.to_dict(), indent=2)
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -1282,7 +1295,7 @@ def _step_relationship(
     out_dir = state_dir / "03_relationship_signals"
     out_dir.mkdir(exist_ok=True)
 
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     others = [p for p in participants if p.get("role") != "user"]
     if not others:
         logger.info("No non-user participants; skipping relationship signal.")
@@ -1459,7 +1472,7 @@ def _step_facts(
 
 --- METADATA ---
 conversation_id: {metadata["conversation_id"]}
-participants: {json.dumps(metadata.get("participants") or [])}
+participants: {json.dumps(normalise_participants(metadata.get("participants")))}
 {speaker_mapping}
 --- TRANSCRIPT ---
 {raw_transcript}
@@ -1636,7 +1649,7 @@ def _speaker_fingerprint_refs(metadata: dict) -> dict[str, str | None]:
     if isinstance(explicit, dict):
         for label, ref in explicit.items():
             refs[str(label)] = ref if isinstance(ref, str) else None
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     for i, p in enumerate(participants, 1):
         if not isinstance(p, dict):
             continue
@@ -1693,7 +1706,7 @@ def _load_candidate_people(metadata: dict, settings: Settings) -> list[dict]:
     metadata-only list rather than failing the step.
     """
     candidates: dict[str, str] = {}
-    for p in metadata.get("participants") or []:
+    for p in normalise_participants(metadata.get("participants")):
         if not isinstance(p, dict) or p.get("role") == "user":
             continue
         slug = p.get("id")
