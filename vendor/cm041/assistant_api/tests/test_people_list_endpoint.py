@@ -1094,3 +1094,52 @@ class TestEmailNamePrecedenceRound4(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPeopleListNeverShowsAnInternalIdAsAPhone(unittest.TestCase):
+    """CM051 #2543, walk #11: 1 of 2,571 People rows showed a 17-digit
+    internal id as its phone number. Every value below is synthetic and
+    built from repeated digits, so none can be anyone's real number."""
+
+    LID_17 = "1" + "0" * 15 + "7"          # 17 digits: over E.164's ceiling
+    LID_15 = "+1" + "0" * 13 + "1"         # 15 digits, the #2543 shape
+    REAL = "+44 7700 900" + "123"          # Ofcom drama range, 12 digits
+
+    def _rows(self, points):
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+        self.assertEqual(status, 200)
+        return {r["name"]: r for r in body["people"]}
+
+    def test_a_17_digit_id_is_never_the_row_phone(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_17])])
+        self.assertNotIn("phone", rows["Jane Doe"])
+
+    def test_a_15_digit_lid_is_never_the_row_phone(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_15])])
+        self.assertNotIn("phone", rows["Jane Doe"])
+
+    def test_a_real_number_behind_a_lid_is_shown_instead(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_17, self.REAL])])
+        self.assertEqual(rows["Jane Doe"].get("phone"), self.REAL)
+
+    def test_control_an_ordinary_number_is_still_shown(self) -> None:
+        rows = self._rows([_point("p1", "John Doe", phones=[self.REAL])])
+        self.assertEqual(rows["John Doe"].get("phone"), self.REAL)
+
+    def test_control_a_national_format_number_is_not_hidden(self) -> None:
+        national = "07700 900" + "456"
+        self.assertTrue(server._displayable_phone(national))
+
+    def test_predicate_shapes(self) -> None:
+        self.assertFalse(server._displayable_phone(self.LID_17))
+        self.assertFalse(server._displayable_phone(self.LID_15))
+        self.assertFalse(server._displayable_phone(""))
+        self.assertFalse(server._displayable_phone(None))
+        self.assertTrue(server._displayable_phone(self.REAL))
