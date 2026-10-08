@@ -11,10 +11,14 @@
 #   2. THE FIXTURE IS ONE THE SHIPPED PARSER READS AS A POSITION AT THE SEED
 #      ORGANISATION. Parsed by the vendored linkedin_career.parse_positions_csv,
 #      not by a regex of ours.
-#   3. SEEDED IS EARNED. A stub box whose importer succeeds and whose
-#      context-refresh rewrites CONTEXT.md reports seeded. MUST-FAIL arms: an
-#      importer that exits non-zero, and a refresh that never rewrites the
-#      digest, each report failed.
+#   3. SEEDED IS EARNED, AND IT IS A COUNT. Seeded means the graph holds the
+#      seeded career fact (the same count the forget uses) AND the refresh
+#      rewrote CONTEXT.md. The importer's exit code does not decide it: on
+#      walk #13 it was 3, the universal importer's "unknown format", which
+#      said nothing about the fact. MUST-FAIL arms: an importer that exits 0
+#      but writes no fact, and a refresh that never rewrites the digest. The
+#      importer's own log tail is printed, so its real error is in the walk
+#      log (walk #13 never showed "--user-name is required").
 #
 # macOS only: the seed runs on the Hub, and uses BSD stat. Exit 2 elsewhere,
 # because a check that could not run has not passed.
@@ -45,10 +49,17 @@ case "$gate" in *'if [ "$READ_ONLY" -eq 0 ]'*) g=0 ;; *) g=1 ;; esac
 arm "the apply sits inside the READ_ONLY gate" "$g" "nearest gate: $gate"
 
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest
-    local h="$T/box-$1-$2"; mkdir -p "$h/.ostler/bin" "$h/.ostler/assistant-config/workspace" "$h/stub"
-    printf '#!/bin/sh\necho import "$@" >> "%s/import.calls"\nexit %s\n' "$h" "$1" > "$h/.ostler/bin/ostler-import"
+mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest, $3 = 1 if the importer writes the fact
+    local h="$T/box-$1-$2-${3:-1}"; mkdir -p "$h/.ostler/bin" "$h/.ostler/assistant-config/workspace" "$h/stub"
+    echo 0 > "$h/facts"
+    # The importer stub prints a marker line to its log, and writes the fact
+    # (the count the stub Oxigraph reports) only when told to.
+    printf '#!/bin/sh\necho import "$@" >> "%s/import.calls"\necho "IMPORTER-LOG-MARKER rc=%s"\n[ "%s" = 1 ] && echo 1 > "%s/facts"\nexit %s\n' \
+        "$h" "$1" "${3:-1}" "$h" "$1" > "$h/.ostler/bin/ostler-import"
     chmod +x "$h/.ostler/bin/ostler-import"
+    # A stand-in for the graph store: answers the COUNT query with the fact count, as JSON.
+    printf '#!/bin/sh\nprintf '"'"'{"results":{"bindings":[{"n":{"value":"%%s"}}]}}'"'"' "$(cat "%s/facts")"\n' "$h" > "$h/stub/oes-curl"
+    chmod +x "$h/stub/oes-curl"
     echo "## old" > "$h/.ostler/assistant-config/workspace/CONTEXT.md"
     touch -t 202001010000 "$h/.ostler/assistant-config/workspace/CONTEXT.md"
     if [ "$2" -eq 1 ]; then
@@ -61,7 +72,7 @@ mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest
     echo "$h"
 }
 run_seed() { # $1 = box home; prints the state
-    ( export HOME="$1" PATH="$1/stub:$PATH"; unset OSTLER_BOX_HOST
+    ( export HOME="$1" PATH="$1/stub:$PATH" OSTLER_OES_CURL="$1/stub/oes-curl" OSTLER_OES_PY="$(command -v python3)"; unset OSTLER_BOX_HOST
       _oes_box() { bash -c "$1"; }
       . "$LIB"; _oes_box() { bash -c "$1"; }
       owner_employer_seed_apply >/dev/null 2>&1; echo "$OSTLER_OWNER_SEED_STATE" )
@@ -84,12 +95,19 @@ PY
 arm "the vendored parser reads exactly one position, at ExampleCo" "$(b [ "$parsed" = "ExampleCo" ])" "got '$parsed'"
 arm "the importer was handed the export's parent directory" "$(b grep -q "walk-seed/owner-linkedin\$" "$H/import.calls")"
 
-echo "3. seeded is earned"
-arm "importer ok + digest rewritten reads seeded" "$(b [ "$st" = "seeded" ])" "got $st"
-st=$(run_seed "$(mkbox 1 1)")
-arm "MUST-FAIL: an importer that exits 1 reads failed" "$(b [ "$st" = "failed" ])" "got $st"
+echo "3. seeded is earned, and it is a count"
+arm "fact in the graph + digest rewritten reads seeded" "$(b [ "$st" = "seeded" ])" "got $st"
+st=$(run_seed "$(mkbox 3 1 1)")
+arm "walk #13's shape: importer exits 3 (unknown format) but the fact landed reads seeded" "$(b [ "$st" = "seeded" ])" "got $st"
+st=$(run_seed "$(mkbox 0 1 0)")
+arm "MUST-FAIL: importer exits 0 but no career fact in the graph reads failed" "$(b [ "$st" = "failed" ])" "got $st"
 st=$(run_seed "$(mkbox 0 0)")
 arm "MUST-FAIL: a digest that is never rewritten reads failed" "$(b [ "$st" = "failed" ])" "got $st"
+H4=$(mkbox 2 1 0)
+out4=$( ( export HOME="$H4" PATH="$H4/stub:$PATH" OSTLER_OES_CURL="$H4/stub/oes-curl" OSTLER_OES_PY="$(command -v python3)"; unset OSTLER_BOX_HOST
+          . "$LIB"; _oes_box() { bash -c "$1"; }; owner_employer_seed_apply 2>&1 ) )
+arm "the importer's own log tail reaches the walk log" "$(b grep -q 'OES log | IMPORTER-LOG-MARKER rc=2' <<< "$out4")" "$out4"
+arm "the count is printed before and after the import" "$(b grep -q 'OES count before=0' <<< "$out4")" "$out4"
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

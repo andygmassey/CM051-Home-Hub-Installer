@@ -387,7 +387,7 @@ if [ -f "$T" ]; then
     now="$(wc -l < "$T" | tr -d " ")"
     printf "TICKLINES %s\n" "$now"
     if [ "$now" -gt "$n" ]; then
-        tail -n +$((n + 1)) "$T" | grep -E "backfill launched|backfill already running|already running; skipping|ERROR|not ready after|paused by the operator|tick complete" | sed "s/^/TICK /"
+        tail -n +$((n + 1)) "$T" | grep -E "backfill launched|backfill already running|backfill last completed|already running; skipping|ERROR|not ready after|paused by the operator|tick complete" | sed "s/^/TICK /"
     fi
 else
     printf "TICKLINES absent\n"
@@ -773,6 +773,41 @@ wiki_summaries_wait() {
                 printf '  %ss, so the compiler never reached its summary pass. The line above is the\n' "$waited"
                 printf '  tick own reason. Nothing is measured about the producer; a box whose baseline\n'
                 printf '  compile fails has more wrong with it than the usage journal.\n'
+                _ww_print_diag "$(_ww_poll_backfill none full 2>&1)"
+                printf '\n'
+                return 1
+                ;;
+        esac
+
+        # THE FLOOR. The tick declines to launch because a backfill COMPLETED
+        # inside WIKI_PHASE2_MIN_INTERVAL_SECONDS (wiki-recompile-tick.sh:420,
+        # "backfill last completed Ns ago (floor Ms); not launching another
+        # yet"). No pid will ever be handed over, so waiting for one burned the
+        # whole budget on every walk (#13: 902s, then 2707s, while the probe
+        # downstream read 1275 cm044 rows and PASSED). A completed backfill is
+        # converged. It must still have written: the BEFORE count is the proof,
+        # and a completed backfill with zero rows is a finding, not a pass.
+        case "$tick_lines" in
+            *"backfill last completed "*"not launching another yet"*)
+                local floor_line
+                floor_line="$(printf '%s\n' "$tick_lines" | grep -F 'backfill last completed' | tail -1)"
+                WIKI_WAIT_ELAPSED="$waited"
+                WIKI_WAIT_AFTER="${WIKI_WAIT_BEFORE}"
+                WIKI_WAIT_DELTA=0
+                printf '  [%4ss] the tick declined to launch, inside its floor:\n' "$waited"
+                printf '           %s\n' "$floor_line"
+                if [ "${before_n:-0}" -gt 0 ]; then
+                    WIKI_WAIT_STATE="converged"
+                    WIKI_WAIT_DETAIL="the summary backfill had already completed inside the tick floor and cm044_wiki_compiler holds ${before_n} row(s); the tick's own line: ${floor_line}"
+                    printf '  CONVERGED: a summary backfill already COMPLETED inside the tick floor, so no\n'
+                    printf '  new one will launch, and the journal holds %s row(s) carrying %s.\n' "$before_n" "${_WW_SESSION_PREFIX}"
+                    printf '  That completed compile may predate the seeds; it is the compile there is.\n\n'
+                    return 0
+                fi
+                WIKI_WAIT_STATE="finding"
+                WIKI_WAIT_DETAIL="the tick says a summary backfill completed inside its floor, yet the journal holds 0 rows carrying ${_WW_SESSION_PREFIX}; the tick's own line: ${floor_line}"
+                printf '  FINDING: the tick says a summary backfill COMPLETED inside its floor, yet the\n'
+                printf '  journal holds 0 rows carrying %s. A completed compile that wrote nothing.\n' "${_WW_SESSION_PREFIX}"
                 _ww_print_diag "$(_ww_poll_backfill none full 2>&1)"
                 printf '\n'
                 return 1
