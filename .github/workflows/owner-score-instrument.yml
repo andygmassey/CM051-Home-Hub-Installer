@@ -1,0 +1,34 @@
+name: owner-score-instrument
+
+# Lane 17: the owner-knowledge score is only meaningful if the instrument is
+# valid. This runs its self-tests (known-good 100%, blank/shuffled/idk/echo/
+# shotgun ~0%, checksum refuses edits, held-back set stays held back) on any
+# change to the instrument, the probe, or its promote-scope row.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/owner_score/**'
+      - 'scripts/owner_score.sh'
+      - 'scripts/box_walk_probes/probes/owner_knowledge_score.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'tests/test_owner_score_instrument_is_valid.sh'
+      - '.github/workflows/owner-score-instrument.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  owner-score-instrument:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: The owner-knowledge instrument is valid
+        run: /bin/bash tests/test_owner_score_instrument_is_valid.sh

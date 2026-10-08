@@ -1,0 +1,6 @@
+# Owner-knowledge check lock. Regenerate only with `owner_score.sh --relock`
+# and say why in the commit. A tuning loop must never edit this file.
+6c1b63dffcdee784d36f6b9aeeb647dde568e09bb305a54af9a008e4affad1a2  questions_visible.jsonl
+b115c61f91ff220f7a04b9b26506b2cc5ee1ab9edd0acd433d1f478c5f4aa970  questions_heldout.jsonl
+06e4363692dd1aa6b2dbd31ce1d7cddd0f4a0d484fe11273b5050de355bbe5aa  grading.py
+COMBINED 45261bc10e0137bde3a7a52852fb10fa1887d2bb9587c6a61a8ccfe89e540515
