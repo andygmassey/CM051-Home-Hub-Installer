@@ -131,6 +131,7 @@ test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep
 test_assistant_identity_belt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_sandbox_is_pinned_to_seatbelt.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
+test_audit_log_row_factory.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_automated_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
@@ -198,6 +199,7 @@ test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-
 test_customer_copy_keeps_two_locked_rules.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_customer_copy_says_ios_app_not_companion.py	WIRED	.github/workflows/consent-registry.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
+test_customer_read_exempts_marked_customer_text.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_cut_bom_is_fresh.sh	WIRED	.github/workflows/cut.yml
 test_cut_deferrals_no_duplicate_keys.sh	WIRED	.github/workflows/cut-manifest.yml
 test_cut_dispatch_is_dry.sh	WIRED	.github/workflows/cut-gate-wrappers.yml

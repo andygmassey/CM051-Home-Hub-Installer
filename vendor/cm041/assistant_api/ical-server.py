@@ -83,6 +83,18 @@ except ImportError as exc:
         "pip install /path/to/HR015/ostler_security/"
     ) from exc
 
+def _row_factory_for(conn):
+    """The Row class of the module that made ``conn``.
+
+    sqlite3.Row only accepts a sqlite3.Cursor, so on a SQLCipher
+    connection it raises "Row() argument 1 must be sqlite3.Cursor, not
+    sqlcipher3.dbapi2.Cursor" on the first fetch. That was every coach
+    read on an encrypted Hub (v1.0.107 walk #12, HTTP 500). sqlcipher3's
+    dbapi2 ships its own Row with the same interface.
+    """
+    return getattr(sys.modules.get(type(conn).__module__), "Row", sqlite3.Row)
+
+
 # Read the database encryption key. Clean cut from LIFELINE_DB_KEY
 # 2026-05-01 (no beta testers were dispatched, so no deprecation
 # window is required).
@@ -2180,7 +2192,7 @@ def coach_recent(user_id=None, hours=168, limit=10):
         else:
             _warn_plaintext_once(str(COACH_DB))
             conn = sqlite3.connect(str(COACH_DB))
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = _row_factory_for(conn)
         rows = conn.execute(
             "SELECT * FROM observations "
             "WHERE user_id = ? AND observed_at > ? "
@@ -3703,7 +3715,7 @@ def _memory_corrections_connect():
     else:
         _warn_plaintext_once(db_path)
         conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = _row_factory_for(conn)
     return conn
 
 
