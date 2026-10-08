@@ -76,8 +76,8 @@ else is dropped); every `metadata["participants"]` reader in
 normalises in place on entry so `00_metadata.json` persists the dict shape.
 `src/channel_adapter.py` already accepted strings and is unchanged. The
 changed lines are identical to CM048 PR #83 (`andygmassey/CM048-PWG-
-Conversation-Processing#83`, open at the time of this graft). ACK OWED:
-`hold_ack_shas` takes #83's squash sha once it merges.
+Conversation-Processing#83`), squash sha
+`1737cab02b1e97ea41487dffb3162cacaa192006`, acked in `hold_ack_shas`.
 
 WHY: CM031's `APIClient.processEnvelope` sends `metadata.participants` as
 `[String]` (the sorted speaker labels); ical-server passes it through, and
