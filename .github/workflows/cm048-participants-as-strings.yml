@@ -16,6 +16,8 @@ on:
       - 'vendor/cm048_pipeline/src/seed.py'
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
     paths:
@@ -26,6 +28,8 @@ on:
       - 'vendor/cm048_pipeline/src/seed.py'
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
 concurrency:
@@ -67,3 +71,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_participants_as_strings.py -v
+      - name: The reminders_candidates sidecar never reaches the conversation body (walk #13)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminders_sidecar_never_reaches_the_body.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminders_sidecar_never_reaches_the_body.py -v
