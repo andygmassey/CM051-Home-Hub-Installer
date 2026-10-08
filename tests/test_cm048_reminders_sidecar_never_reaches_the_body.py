@@ -20,7 +20,7 @@ from src.enrichment_validation import strip_reminders_sidecar
 BARE = """## Action items
 | Owner | Action |
 |---|---|
-| Sam Example | Send the draft |
+| Sam Doe | Send the draft |
 
 reminders_candidates:
   - action: "Send the draft"
@@ -32,7 +32,7 @@ reminders_candidates:
 """
 
 BULLET = """## Commitments
-* Owner: Sam Example, book the room
+* Owner: Sam Doe, book the room
 * reminders_candidates:
     - action: "Book the room"
 
@@ -51,8 +51,8 @@ reminders_candidates:
 """
 
 INLINE = """## Commitments
-* Owner: Sam Example, what to do: skip a day [reminders_candidates: Sam Example, skip a day]
-* Owner: Alex Example, bring the cake
+* Owner: Sam Doe, what to do: skip a day [reminders_candidates: Sam Doe, skip a day]
+* Owner: Alex Smith, bring the cake
 """
 
 
@@ -66,12 +66,12 @@ def _check(text, kept):
 
 
 def test_bare_block_is_removed_and_the_table_and_next_section_survive():
-    out = _check(BARE, ["| Sam Example | Send the draft |", "## Key quotes", "> fine by me"])
+    out = _check(BARE, ["| Sam Doe | Send the draft |", "## Key quotes", "> fine by me"])
     assert "deadline: 2026-04-19" not in out
 
 
 def test_bullet_block_is_removed():
-    out = _check(BULLET, ["* Owner: Sam Example, book the room", "## Topics"])
+    out = _check(BULLET, ["* Owner: Sam Doe, book the room", "## Topics"])
     assert 'action: "Book the room"' not in out
 
 
@@ -82,7 +82,7 @@ def test_fenced_block_is_removed_with_its_fences():
 
 
 def test_inline_tail_is_removed_and_the_commitment_survives():
-    out = _check(INLINE, ["* Owner: Sam Example, what to do: skip a day", "bring the cake"])
+    out = _check(INLINE, ["* Owner: Sam Doe, what to do: skip a day", "bring the cake"])
     assert out.splitlines()[1].endswith("skip a day")
 
 
@@ -123,4 +123,4 @@ def test_the_enrichment_file_written_to_disk_carries_no_sidecar(tmp_path, monkey
     )
     written = (tmp_path / "conv-1" / "02_enrichment.md").read_text()
     assert "reminders_candidates" not in written
-    assert "| Sam Example | Send the draft |" in written
+    assert "| Sam Doe | Send the draft |" in written
