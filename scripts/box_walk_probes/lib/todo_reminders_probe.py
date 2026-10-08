@@ -58,7 +58,12 @@ def judge(f):
 
     push = f.get("push") or {}
     status = push.get("status")
-    if status in (None, "pending"):
+    if status in (None, "pending") and (f.get("tcc_reminders") or {}).get("state") == "absent":
+        # Walk #11's real shape: never claimed AND no kTCCServiceReminders row.
+        # The daemon cannot write to Reminders before anyone answers the
+        # prompt, so this is a missing console grant, not a stalled daemon.
+        add(DECLARED[1], None, "CANNOT-RUN: console grant needed. The row was never claimed within {}s and TCC.db has no kTCCServiceReminders row for the assistant, so the Reminders prompt is undecided; only a human at the console can answer it".format(push.get("waited_s", "?")))
+    elif status in (None, "pending"):
         add(DECLARED[1], False, "the pending row was never claimed within {}s -- the daemon is not consuming reminders_map.db, or is stalled".format(push.get("waited_s", "?")))
     elif status == "permission_denied":
         # permission_denied is what the daemon reports both when the customer
@@ -162,6 +167,19 @@ def self_test():
             fails.append("permission_denied with TCC {} should be {} (b): {}".format(state, want, row(t, 1)))
         else:
             print("  ok    permission_denied with TCC row {}: {}".format(state, label))
+
+    # Walk #11 as it actually happened: NEVER CLAIMED. With no TCC row it is a
+    # missing console grant; with the grant present a stall is a real FAIL.
+    for state, want, label in (("absent", None, "CANNOT-RUN (console grant needed)"),
+                               ("allowed", False, "FAIL (granted, and the daemon still never claimed it)"),
+                               ("denied", False, "FAIL")):
+        t = copy.deepcopy(g)
+        t["push"] = {"status": "pending", "waited_s": 90}
+        t["tcc_reminders"] = {"state": state, "auth_value": {"denied": [0], "allowed": [2]}.get(state)}
+        if row(t, 1) != [want]:
+            fails.append("never-claimed with TCC {} should be {} (b): {}".format(state, want, row(t, 1)))
+        else:
+            print("  ok    never claimed with TCC row {}: {}".format(state, label))
 
     tcc = copy.deepcopy(g); tcc["readback"] = {"attempted": True, "blocked_tcc": True}
     if row(tcc, 2) != [None]:
