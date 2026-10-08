@@ -157,3 +157,7 @@ wiki_image_grep|wiki-compiler:/app/compiler/preference_filter.py|def is_negative
 # (cba38d1a) and PASSED against v0.1.45 (0f5ca25c) through this verifier. It reads the CONSUMER (person pages) so
 # the control is a clean FAIL, not a could-not-extract on a file that did not exist yet.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|from compiler.browsing_link import browsing_link|CM044 #310 person pages render browsing items as [Title](url) through the shared helper, never a raw URL. 0 -> 1.
+# --- v1.0.107 wiki v0.1.46 (CM044 08f35937, #312). Each line below FAILED against the v0.1.45 compiler
+# (0f5ca25c) and PASSED against v0.1.46 (f2db6f8c) through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/bundle_conversation_pages.py|def conversation_display_title\(|CM044 #312 an unnamed conversation is titled "<Channel> conversation, <date>", never its internal id. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|def tidy_generated_text\(|CM044 #312 generated text has no em dash or ISO date, and stored category keys render as plain labels. 0 -> 1.
