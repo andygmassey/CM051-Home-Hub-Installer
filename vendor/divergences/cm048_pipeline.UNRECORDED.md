@@ -94,3 +94,24 @@ participants reader, and the in-place normalisation at the top of
 `process()`. Guarded by `tests/test_cm048_participants_as_strings.py` (CM051
 repo root, 4 tests, 4 fail against main), wired into
 `.github/workflows/cm048-participants-as-strings.yml`.
+
+## CM048 #85 graft: the reminders_candidates sidecar never reaches the conversation body (CM051 v1.0.107 walk #13)
+
+Tree `cm048_pipeline`: `src/enrichment_validation.py` gains
+`strip_reminders_sidecar` (block identical to upstream), and `src/processor.py`
+calls it immediately before both `out_path.write_text(rendered)` sites in
+`_step_enrich`. Matches CM048 PR #85, squash sha
+`6a1858a8df293085e73ae70d21e705fb5d61ee13`, acked in `hold_ack_shas`.
+
+WHY: the enrich prompts ask the model for a `reminders_candidates` sidecar,
+and nothing parsed it out of the reply. The key stayed in the Action items
+and Commitments body and reached the customer's wiki (People/timeline) as
+an internal value. Walk #13 failed `hub_screens_customer_read` on it; the
+box carried 21 occurrences in four shapes.
+
+### What a future sync must preserve
+
+`strip_reminders_sidecar` and its two call sites. Guarded by
+`tests/test_cm048_reminders_sidecar_never_reaches_the_body.py` (CM051 repo
+root, 7 tests; the write-path test fails with the vendored call removed),
+wired into `.github/workflows/cm048-participants-as-strings.yml`.
