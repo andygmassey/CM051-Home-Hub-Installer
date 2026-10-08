@@ -59,6 +59,7 @@ jobs:
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
 
       - name: install.sh structural + helper regression tests (m..z batch)
+        if: always()
         run: |
           set -uo pipefail
           fail=0
