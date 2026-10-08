@@ -16,6 +16,9 @@
 #   4 FAIL-CLOSED a missing scope file is blocking, not advisory
 #   5 ADVISORY cannot hide a real FAIL beside it: rc 1
 #   6 post_walk_qa.sh's parser still recovers the FAILED name from the output
+#   7 advisory + CANNOT-RUN: rc 0, an `ADVISORY (cannot-run: <reason>)` line, CANNOT-RUN 0
+#   8 the same probe with a blocking row: CANNOT-RUN 1 and rc 3 (coverage lost, unchanged)
+#   9 a missing scope file: CANNOT-RUN stays coverage lost (fail-closed)
 # /bin/bash on purpose (cut host is bash 3.2). Exit 0 pass, 1 an arm failed, 2 cannot run.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,6 +37,7 @@ _probe() { # dir name kind(advisory_red|hard_fail|ok)
         advisory_red) body='probe_fail_or_advisory "scored 12.5 percent against a target of 70"' ;;
         hard_fail)    body='probe_fail "a real defect"' ;;
         ok)           body='probe_pass "fine"' ;;
+        cannot)       body='probe_cannot_run "the prerequisite is absent"' ;;
     esac
     cat > "$1/probes/$2.sh" <<EOT
 #!/usr/bin/env bash
@@ -96,6 +100,22 @@ QA="$REPO_ROOT/scripts/post_walk_qa.sh"
 if [ -r "$QA" ] && awk '/^FAILED:/{f=1;next} f&&/^  [A-Za-z0-9._-]+$/{print $1} f&&!/^  [A-Za-z0-9._-]+$/{exit}' "$WORK/a5.log" | grep -q '^aa_hard$'; then
     pass "(6) the FAILED block still lists aa_hard as a bare name for post_walk_qa's parser"
 else fail "6-parser" "the FAILED section no longer parses to a bare probe name"; fi
+
+_suite "$WORK/a7" "aa_ok:ok" "zz_score:cannot"
+RC="$(_run "$WORK/a7" "$WORK/a7.log" "$ADV")"
+if [ "$RC" -eq 0 ] && [ "$(num "$WORK/a7.log" CANNOT-RUN)" = "0" ] && [ "$(num "$WORK/a7.log" ADVISORY)" = "1" ] \
+   && [ "$(grep -c 'ADVISORY (cannot-run: the prerequisite is absent)' "$WORK/a7.log")" -ge 1 ]; then
+    pass "(7) advisory + CANNOT-RUN: walk rc 0, CANNOT-RUN 0, ADVISORY 1, line carries the reason"
+else fail "7-advisory-cannot" "rc=$RC cannot=$(num "$WORK/a7.log" CANNOT-RUN) advisory=$(num "$WORK/a7.log" ADVISORY)"; fi
+
+RC="$(_run "$WORK/a7" "$WORK/a8.log" "$BLK")"
+if [ "$RC" -eq 3 ] && [ "$(num "$WORK/a8.log" CANNOT-RUN)" = "1" ] && [ "$(grep -c 'COVERAGE LOST' "$WORK/a8.log")" -ge 1 ]; then
+    pass "(8) blocking + CANNOT-RUN keeps today's behaviour: rc 3, COVERAGE LOST"
+else fail "8-blocking-cannot" "rc=$RC cannot=$(num "$WORK/a8.log" CANNOT-RUN)"; fi
+
+RC="$(_run "$WORK/a7" "$WORK/a9.log" "$WORK/does-not-exist.tsv")"
+if [ "$RC" -eq 3 ]; then pass "(9) a missing scope file leaves CANNOT-RUN as coverage lost (rc 3)"
+else fail "9-closed" "rc=$RC"; fi
 
 [ "$FAILED" -eq 0 ] && echo "ALL ARMS PASSED" || echo "AT LEAST ONE ARM FAILED"
 exit "$FAILED"

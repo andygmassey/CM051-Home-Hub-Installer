@@ -575,6 +575,13 @@ CANNOT_LIST=""
 # report without making the walk unclean. Counted and named, never as a FAIL.
 ADVISORY=0
 ADVISORY_LIST=""
+# The scope of a probe from scripts/walk_promote_scope.tsv. FAIL-CLOSED: a missing
+# file, a missing row, or anything but exactly `advisory` is blocking.
+_probe_scope() {
+    local f="${OSTLER_PROMOTE_SCOPE_FILE:-$HERE/../walk_promote_scope.tsv}"
+    [ -r "$f" ] || { echo blocking; return 0; }
+    awk -F'\t' -v want="$1" 'substr($0,1,1)=="#"{next} $1==want{print $2; found=1; exit} END{if(!found)print "blocking"}' "$f"
+}
 
 # WHY A PROBE DID NOT RUN, NOT ONLY WHICH ONE DID NOT.
 #
@@ -725,6 +732,17 @@ for p in $PROBES; do
     elif [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))
         _record_verdict "$b" PASS ""
+    elif [ "$rc" -eq "$EX_CANNOT_RUN" ] && [ "$(_probe_scope "$b")" = "advisory" ]; then
+        # An ADVISORY probe that could not run is not coverage lost: its row says
+        # it may not refuse a promote, and the walk must not be unclean for it.
+        # Still announced, with the reason, and still in the record.
+        _why="$(printf '%s\n' "$out" \
+                | awk '/^VERDICT: CANNOT-RUN -- /{sub(/^VERDICT: CANNOT-RUN -- /, ""); f=1} f' \
+                | tr '\n' ' ' | sed 's/  */ /g; s/ *$//')"
+        [ -n "$_why" ] || _why="UNRECORDED -- exited ${EX_CANNOT_RUN} with no 'VERDICT: CANNOT-RUN --' line"
+        printf '  VERDICT: ADVISORY (cannot-run: %s)\n' "$_why"
+        ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
+        _record_verdict "$b" ADVISORY "cannot-run: $_why"
     elif [ "$rc" -eq "$EX_CANNOT_RUN" ]; then
         CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
         # Everything from the marker to the END of the probe's output is the
