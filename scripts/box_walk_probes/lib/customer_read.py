@@ -54,7 +54,9 @@ JARGON = [
     (re.compile(r"\b(Qdrant|Oxigraph|RDF|Kafka|SPARQL)\b"), "store name"),
     (re.compile(r"\blocalhost\b|\(:\d{3,5}\)"), "host or port"),
     (re.compile(r"Personal World Graph"), "internal product name"),
-    (re.compile(r"\b[a-z]+_[a-z]+(?:_[a-z]+)*\b"), "snake_case key"),
+    # Not after "@": an account handle (@ann_lee) is the customer's own data, a
+    # real identifier, and Ostler must not rewrite it (walk #10 review, CM044 #312).
+    (re.compile(r"(?<![@\w.])[a-z]+_[a-z]+(?:_[a-z]+)*\b"), "snake_case key"),
 ]
 
 # A customer source and every label any screen uses for it. A label that maps
@@ -1475,6 +1477,24 @@ def self_test():
                        "does not fail ({!r}, want [False])".format(got13))
     else:
         print("  ok    a silent duplicate, absent from the duplicate-review surface, FAILS")
+
+    # An @handle is customer data, so it must PASS the internal-values check;
+    # the same token without the "@" is a stored key and must still FAIL.
+    want_jargon = DECLARED[MUTANT_TARGETS["snake_case key on the front page (#2549)"]]
+    handle = copy.deepcopy(_good())
+    handle["wiki"]["pages"]["front"]["text"] += "Followed @ann_lee\n"
+    got = [ok for n, ok, _ in judge(handle) if n == want_jargon]
+    if got != [True]:
+        missed.append("an @handle is flagged as an internal key ({!r}, want [True])".format(got))
+    else:
+        print("  ok    an @handle on a wiki page PASSES the internal-values check")
+    bare = copy.deepcopy(_good())
+    bare["wiki"]["pages"]["front"]["text"] += "Followed ann_lee\n"
+    got = [ok for n, ok, _ in judge(bare) if n == want_jargon]
+    if got != [False]:
+        missed.append("a bare snake_case token is no longer flagged ({!r}, want [False])".format(got))
+    else:
+        print("  ok    the same token without the @ still FAILS")
 
     # The collector could not read /api/v1/contacts/diff at all: a real
     # duplicate must read CANNOT-RUN, never a silent pass -- a transport
