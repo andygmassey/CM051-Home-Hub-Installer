@@ -759,3 +759,23 @@ phones) and `people_list` (payload phones and identifier phones).
 ical-server, the ordinary-number control passes on both), wired in
 `.github/workflows/walk6-people-list-correctness-guard.yml`. Retire by
 re-pinning.
+
+## Sixteenth graft: an encrypted connection gets its own Row class (CM051 v1.0.107 walk #12)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #205 (open at graft
+time; ack its squash sha in `hold_ack_shas` when it merges). The helper and
+both call-site lines are identical to upstream.
+
+Walk #12 FAIL `db_key_reaches_every_service`: the box's ical-server.err read
+`Row() argument 1 must be sqlite3.Cursor, not sqlcipher3.dbapi2.Cursor` and
+every coach read returned 500. Added `_row_factory_for(conn)`, which returns
+the Row class of the module that made the connection. Edits:
+`conn.row_factory` in `coach_recent` and in `_memory_corrections_connect`.
+
+### What a future sync must preserve
+
+`_row_factory_for` and its two call sites. Guarded by
+`vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py`
+(unfixed: 3 failed, control passed; fixed: 4 passed), run on a real sqlcipher3
+connection by `.github/workflows/db-key-delivery-and-recovery.yml`. Retire by
+re-pinning.
