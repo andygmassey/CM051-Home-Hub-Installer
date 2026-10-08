@@ -1172,3 +1172,18 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "no_store_port_is_tcp_reachable"
+
+  - id: box-walk-meeting-brief-text-is-grounded
+    title: the pre-meeting brief the sender posts names the last topic and the open promise, says "no meetings logged" never "first meeting", and is short and honest when the contact is thin
+    incident: >-
+      ostler-ai/ostler-assistant#471. The live brief turned "no previous
+      meetings logged" into "this is your first face-to-face meeting" and was
+      padded with generic advice; the sender that produced it also crashed
+      reading its own stdin on every tick, so nothing was ever sent. The better
+      composer (#470) read Hub fields that were guesses. This probe seeds three
+      fictional contacts, runs the INSTALLED sender against the box's real Hub
+      and assistant binary, and grades the TEXT it posts to /announce. Spec:
+      docs/specs/meeting_brief_text_is_grounded.md. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "meeting_brief_text_is_grounded"

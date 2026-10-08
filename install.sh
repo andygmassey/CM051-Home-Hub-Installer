@@ -23951,7 +23951,21 @@ SQLINIT
 # Fetch upcoming meetings from the Hub. Curl returns 200 even on
 # degraded payloads so we check `degraded` server-side and skip
 # delivery rather than emitting stale messages.
-RESPONSE=$(curl -sS -m 8 \
+# The Hub fails CLOSED with 401 on every non-public route unless the loopback
+# service token is presented (ical-server.py:_authorized). This fetch used to
+# send none, so on a token-gated Hub it read an error body, found no "meetings"
+# key and logged "no meetings in window" forever: a brief that never arrives and
+# a log line that says everything is fine. Same token file the daemon uses.
+SERVICE_TOKEN="${PWG_SERVICE_TOKEN:-}"
+if [[ -z "${SERVICE_TOKEN}" && -r "${OSTLER_DIR}/secrets/service_token" ]]; then
+    SERVICE_TOKEN="$(tr -d '[:space:]' < "${OSTLER_DIR}/secrets/service_token")"
+fi
+if [[ -z "${SERVICE_TOKEN}" ]]; then
+    echo "$(date -u +%FT%TZ) skip: CANNOT-RUN no service token (PWG_SERVICE_TOKEN or ${OSTLER_DIR}/secrets/service_token); the Hub would answer 401" >> "${LOG_FILE}"
+    exit 0
+fi
+RESPONSE=$(curl -sS -m 8 -f \
+    -H "Authorization: Bearer ${SERVICE_TOKEN}" \
     "${HUB_HOST}/api/v1/meeting/upcoming?within_minutes=${WITHIN_MINUTES}" \
     2>>"${LOG_FILE}") || {
     echo "$(date -u +%FT%TZ) skip: hub fetch failed" >> "${LOG_FILE}"
@@ -24008,21 +24022,92 @@ esac
 
 # Iterate meetings. Each meeting's idempotency key is UID + start;
 # the assistant's announcement endpoint is the WhatsApp arm.
-printf '%s' "${RESPONSE}" | python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" <<'PYEOF'
-import json, sqlite3, subprocess, sys, time
+# The brief text is composed by the assistant binary (`meeting-brief`), which
+# reads the Hub's people/context and person timeline for each attendee and runs
+# the result through a grounding check: absence of data is never stated as a
+# fact, so "no meetings logged" can never become "first meeting", and there is
+# no generic advice. This script does not compose text. If the composer is
+# missing or fails, the meeting is SKIPPED and retried on the next tick; the old
+# client-side text is deliberately gone so there is no unchecked fallback.
+# The hub reply travels in the environment, NOT on stdin: `printf | python3 -
+# <<'PYEOF'` gives python3 two stdin sources and the heredoc wins, so the old
+# `json.load(sys.stdin)` read the end of the script text and died with
+# JSONDecodeError on every tick. The script exited 0 afterwards, so launchd saw
+# success and the log showed a traceback nobody reads: the sender had never
+# been able to send. Found by running this block against a real Hub.
+OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" <<'PYEOF'
+import json, os, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
 
-db_path, assistant_url, log_path = sys.argv[1:]
-payload = json.load(sys.stdin)
-meetings = payload.get("meetings") or []
+db_path, assistant_url, log_path, hub_host, ostler_dir = sys.argv[1:]
+try:
+    payload = json.loads(os.environ.get("OSTLER_BRIEF_HUB_JSON", ""))
+except ValueError as exc:
+    with open(log_path, "a") as fh:
+        fh.write(f"{datetime.now(timezone.utc).isoformat()} skip: CANNOT-RUN hub reply is not JSON ({exc})\n")
+    sys.exit(0)
 
 def _log(msg):
     with open(log_path, "a") as fh:
         fh.write(f"{datetime.now(timezone.utc).isoformat()} {msg}\n")
 
-if not meetings:
-    _log(f"no meetings in window")
+if not isinstance(payload, dict) or "meetings" not in payload:
+    _log("skip: CANNOT-RUN hub reply has no 'meetings' key; not treating it as an empty calendar")
     sys.exit(0)
+
+meetings = payload.get("meetings") or []
+if not meetings:
+    _log("no meetings in window")
+    sys.exit(0)
+
+COMPOSER = os.environ.get("OSTLER_BRIEF_COMPOSER") or os.path.join(
+    ostler_dir, "OstlerAssistant.app", "Contents", "MacOS", "ostler-assistant")
+OWNER = os.environ.get("OSTLER_BRIEF_OWNER_NAME", "")
+
+# Last line of defence on whatever is SENT, independent of the composer: these
+# phrases state an inference or give generic advice, and none may be sent.
+# Mirrors BANNED_PHRASES in crates/zeroclaw-runtime/src/brief/meeting.rs.
+BANNED = (
+    "first meeting", "first face", "first in-person", "first time you", "never met",
+    "haven't met", "have not met", "not met before", "new contact", "warm welcome",
+    "good impression", "be sure to", "make sure to", "would be appropriate",
+    "complete stranger",
+)
+
+def _compose(attendee, location):
+    name = (attendee.get("name") or "").strip()
+    if not name:
+        return None
+    slug = (attendee.get("wiki_url") or "").rstrip("/").rsplit("/", 1)[-1]
+    todos = attendee.get("outstanding_todos") or []
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(todos, fh)
+        todos_path = fh.name
+    try:
+        cmd = [COMPOSER, "meeting-brief", "--person", name, "--owner", OWNER,
+               "--hub-url", hub_host, "--todos-file", todos_path]
+        if slug:
+            cmd += ["--slug", slug]
+        if location:
+            cmd += ["--venue", location]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except Exception as exc:
+        _log(f"composer exception name={name!r} err={exc}")
+        return None
+    finally:
+        try:
+            os.unlink(todos_path)
+        except OSError:
+            pass
+    text = (res.stdout or "").strip()
+    if res.returncode != 0 or not text:
+        _log(f"composer failed name={name!r} rc={res.returncode} stderr={(res.stderr or '')[-200:]!r}")
+        return None
+    low = text.lower()
+    if any(b in low for b in BANNED):
+        _log(f"composer output tripped the send guard name={name!r}; not sending")
+        return None
+    return text
 
 conn = sqlite3.connect(db_path)
 try:
@@ -24039,48 +24124,24 @@ try:
             _log(f"skip: already sent {key}")
             continue
 
-        # Render plain-text message client-side. The renderer lives
-        # on the brief module side (CM041) for v1.0.1; here we build
-        # a minimal echo so the LaunchAgent does not depend on a
-        # Python import path matching the source tree layout.
         title = m.get("meeting") or "Upcoming meeting"
+        if any(b in title.lower() for b in BANNED):
+            title = "Upcoming meeting"
         when = m.get("start") or ""
-        attendees = m.get("attendees") or []
-        names = ", ".join(
-            (a.get("name") or a.get("email") or "Unknown")
-            for a in attendees[:3]
-        )
-        lines = [f"Meeting: {title}"]
-        if when:
-            lines[0] += f" at {when}"
-        lines[0] += "."
-        if m.get("maps_url"):
-            lines.append(f"Location: {m.get('location', '')} {m['maps_url']}")
-        if names:
-            lines.append(f"With: {names}.")
-        first = attendees[0] if attendees else {}
-        if first.get("wiki_url"):
-            lines.append(f"Wiki: {first['wiki_url']}")
-        if first.get("last_discussion_url"):
-            lines.append(f"Last chat: {first['last_discussion_url']}")
-        open_todos = []
-        for a in attendees:
-            for t in (a.get("outstanding_todos") or [])[:3]:
-                open_todos.append(t)
-        if open_todos:
-            short = []
-            for t in open_todos[:3]:
-                owner = t.get("owner_display") or t.get("owner") or ""
-                owner_label = f"{owner}: " if owner else ""
-                deadline = f" (by {t['deadline']})" if t.get("deadline") else ""
-                short.append(f"{owner_label}{t.get('text', '')}{deadline}")
-            lines.append("Open: " + " | ".join(short))
-        message = "\n".join(lines)
+        header = f"Meeting: {title}" + (f" at {when}" if when else "") + "."
+        parts = [header]
+        failed = False
+        for a in (m.get("attendees") or [])[:3]:
+            text = _compose(a, m.get("location") or "")
+            if text is None:
+                failed = True
+                break
+            parts.append(text)
+        if failed or len(parts) == 1:
+            _log(f"skip: no composed brief for {key}; will retry next tick")
+            continue
+        message = "\n\n".join(parts)
 
-        # Ship to the assistant. The assistant's announce endpoint
-        # is the WhatsApp arm reused from the daily-brief delivery
-        # path. Failure here is non-fatal (we just retry next tick
-        # because the row was not written to sent_briefs).
         body = json.dumps({
             "channel": "whatsapp",
             "kind": "meeting_brief",
@@ -24089,7 +24150,7 @@ try:
         }).encode()
         try:
             res = subprocess.run([
-                "curl", "-sS", "-m", "6", "-X", "POST",
+                "curl", "-sS", "-f", "-m", "6", "-X", "POST",
                 "-H", "Content-Type: application/json",
                 "--data-binary", body.decode(),
                 f"{assistant_url}/announce",

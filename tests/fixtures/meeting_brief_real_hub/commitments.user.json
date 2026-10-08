@@ -1,0 +1,13 @@
+{
+  "commitments": [
+    {
+      "action": "Send Mira the workshop deck",
+      "due": "2030-01-31",
+      "owner": "user",
+      "source": "",
+      "status": "open"
+    }
+  ],
+  "count": 1,
+  "privacy_level": "L2"
+}

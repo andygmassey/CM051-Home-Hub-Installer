@@ -1,0 +1,32 @@
+{
+  "found": true,
+  "identifiers": [
+    {
+      "type": "email",
+      "value": "corin@fixture.example"
+    }
+  ],
+  "last_contact": "2026-05-31",
+  "name": "Corin Vasquez",
+  "organisation": "Northwind Studio",
+  "person": {
+    "identifiers": [
+      {
+        "type": "email",
+        "value": "corin@fixture.example"
+      }
+    ],
+    "last_contact": "2026-05-31",
+    "name": "Corin Vasquez",
+    "organisation": "Northwind Studio",
+    "person_uri": "urn:ostler-walk-fixture:corin",
+    "relationship": "client",
+    "slug": "corin-vasquez",
+    "wiki_url": "http://wiki.example/People/corin-vasquez/"
+  },
+  "person_uri": "urn:ostler-walk-fixture:corin",
+  "query": "Corin Vasquez",
+  "relationship": "client",
+  "slug": "corin-vasquez",
+  "wiki_url": "http://wiki.example/People/corin-vasquez/"
+}

@@ -1,0 +1,22 @@
+{
+  "count": 1,
+  "events": [
+    {
+      "channel": "whatsapp",
+      "marker": true,
+      "summary": "",
+      "title": "Last whatsapp contact",
+      "type": "conversation",
+      "when_human": "31 May 2026",
+      "when_iso": "2026-05-31"
+    }
+  ],
+  "found": true,
+  "person": {
+    "name": "Corin Vasquez",
+    "person_uri": "urn:ostler-walk-fixture:corin",
+    "slug": "corin-vasquez",
+    "wiki_url": "http://wiki.example/People/corin-vasquez/"
+  },
+  "slug": "corin-vasquez"
+}

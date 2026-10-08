@@ -1,0 +1,26 @@
+{
+  "found": true,
+  "identifiers": [
+    {
+      "type": "email",
+      "value": "jules@fixture.example"
+    }
+  ],
+  "name": "Jules Marlowe",
+  "person": {
+    "identifiers": [
+      {
+        "type": "email",
+        "value": "jules@fixture.example"
+      }
+    ],
+    "name": "Jules Marlowe",
+    "person_uri": "urn:ostler-walk-fixture:jules",
+    "slug": "jules-marlowe",
+    "wiki_url": "http://wiki.example/People/jules-marlowe/"
+  },
+  "person_uri": "urn:ostler-walk-fixture:jules",
+  "query": "Jules Marlowe",
+  "slug": "jules-marlowe",
+  "wiki_url": "http://wiki.example/People/jules-marlowe/"
+}

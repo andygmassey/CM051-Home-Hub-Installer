@@ -1,0 +1,66 @@
+{
+  "facts": [
+    "Moved to Fernwood Labs in January"
+  ],
+  "found": true,
+  "how_we_met": "a design conference",
+  "identifiers": [
+    {
+      "type": "email",
+      "value": "mira@fixture.example"
+    }
+  ],
+  "last_contact": "2026-06-25",
+  "meetings": [
+    {
+      "date": "2026-05-21",
+      "location": "Studio Nine",
+      "summary": "Lisbon workshop budget review"
+    },
+    {
+      "date": "2025-12-12",
+      "location": "Harbour Cafe",
+      "summary": "Autumn roadmap check-in"
+    }
+  ],
+  "name": "Mira Okonkwo",
+  "organisation": "Fernwood Labs",
+  "person": {
+    "facts": [
+      "Moved to Fernwood Labs in January"
+    ],
+    "how_we_met": "a design conference",
+    "identifiers": [
+      {
+        "type": "email",
+        "value": "mira@fixture.example"
+      }
+    ],
+    "last_contact": "2026-06-25",
+    "meetings": [
+      {
+        "date": "2026-05-21",
+        "location": "Studio Nine",
+        "summary": "Lisbon workshop budget review"
+      },
+      {
+        "date": "2025-12-12",
+        "location": "Harbour Cafe",
+        "summary": "Autumn roadmap check-in"
+      }
+    ],
+    "name": "Mira Okonkwo",
+    "organisation": "Fernwood Labs",
+    "person_uri": "urn:ostler-walk-fixture:mira",
+    "relationship": "former client",
+    "slug": "mira-okonkwo",
+    "title": "Head of Design",
+    "wiki_url": "http://wiki.example/People/mira-okonkwo/"
+  },
+  "person_uri": "urn:ostler-walk-fixture:mira",
+  "query": "Mira Okonkwo",
+  "relationship": "former client",
+  "slug": "mira-okonkwo",
+  "title": "Head of Design",
+  "wiki_url": "http://wiki.example/People/mira-okonkwo/"
+}

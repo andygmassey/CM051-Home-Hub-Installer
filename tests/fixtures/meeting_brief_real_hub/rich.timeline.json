@@ -1,0 +1,41 @@
+{
+  "count": 3,
+  "events": [
+    {
+      "channel": "conversation",
+      "conversation_id": "conv-1",
+      "summary": "",
+      "title": "Conversation",
+      "type": "conversation",
+      "when_human": "18 Jun 2026",
+      "when_iso": "2026-06-18",
+      "wiki_url": "http://wiki.example/Conversations/conv-1/"
+    },
+    {
+      "channel": "calendar",
+      "location": "Studio Nine",
+      "summary": "Lisbon workshop budget review",
+      "title": "Lisbon workshop budget review",
+      "type": "meeting",
+      "when_human": "21 May 2026",
+      "when_iso": "2026-05-21"
+    },
+    {
+      "channel": "calendar",
+      "location": "Harbour Cafe",
+      "summary": "Autumn roadmap check-in",
+      "title": "Autumn roadmap check-in",
+      "type": "meeting",
+      "when_human": "12 Dec 2025",
+      "when_iso": "2025-12-12"
+    }
+  ],
+  "found": true,
+  "person": {
+    "name": "Mira Okonkwo",
+    "person_uri": "urn:ostler-walk-fixture:mira",
+    "slug": "mira-okonkwo",
+    "wiki_url": "http://wiki.example/People/mira-okonkwo/"
+  },
+  "slug": "mira-okonkwo"
+}
