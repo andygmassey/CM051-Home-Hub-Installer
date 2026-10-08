@@ -198,6 +198,7 @@ test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-
 test_customer_copy_keeps_two_locked_rules.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_customer_copy_says_ios_app_not_companion.py	WIRED	.github/workflows/consent-registry.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
+test_customer_read_exempts_marked_customer_text.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_cut_bom_is_fresh.sh	WIRED	.github/workflows/cut.yml
 test_cut_deferrals_no_duplicate_keys.sh	WIRED	.github/workflows/cut-manifest.yml
 test_cut_dispatch_is_dry.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
