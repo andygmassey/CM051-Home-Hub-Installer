@@ -161,6 +161,7 @@ test_cm024k_email_summarizer_usage_journal.sh	WIRED	.github/workflows/usage-jour
 test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-not-phone.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -718,7 +719,7 @@ test_vendor_pair_drift.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
 test_vendored_cm059_renders_a_birthday_card_with_no_body.py	WIRED	.github/workflows/hub-screens-and-106c.yml
-test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/walk5-conversation-failure-reason-guard.yml
+test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
