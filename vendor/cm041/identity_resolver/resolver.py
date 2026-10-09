@@ -25,6 +25,7 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 logger = logging.getLogger(__name__)
 
 from . import retirement
+from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
 
@@ -609,6 +610,7 @@ class IdentityResolver:
         # had just merged away. See identity_resolver/retirement.py for the
         # measurement: this exact removal set the phantom count to 0 and one
         # ingest put it back to 32.
+        record_person_removal(discard_uri, "identity_resolver.merge_persons", "merge_retire_type")
         self._sparql_update(retirement.retire_update(discard_uri))
 
         # 6. Collapse any accumulated displayName values on the kept node to a
