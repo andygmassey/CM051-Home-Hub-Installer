@@ -1051,3 +1051,20 @@ also pins that reads, remote callers, wrong tokens and every other path
 (including look-alikes such as `/api/safari/save/` and `/api/safari/saved`)
 stay refused. There is no HR015 upstream twin yet: OWED, and a
 security-boundary change that wants a human read before it ships.
+
+## doctor: the pre-meeting brief sender joins the scheduled-agent card (CM051 #2707)
+
+Tree `doctor`, file `agent/diagnostic_rules.py`. Not a writer/reader
+vocabulary fix: recorded here because this file is the doctor tree's declared
+`unrecorded_divergence` pointer and the edit has no patch.
+
+Location and shape. One row appended to the `_SCHEDULED_AGENTS` tuple:
+`("com.ostler.meeting-brief-sender", "your pre-meeting briefs",
+"meeting-brief-sender", 600)`, plus a three-line comment. No rule logic,
+copy or severity changed. Reason: from cut #16 the sender ships ON and exits
+75 (a due brief not delivered) or 78 (no brief channel configured); without
+the row launchd records that exit code and nothing reads it.
+
+Pinned by `tests/test_scheduled_agent_failure_is_loud.sh` limb 13, which goes
+red with the row removed (measured: 2 FAIL) and green with it. There is no
+HR015 upstream twin yet: OWED.

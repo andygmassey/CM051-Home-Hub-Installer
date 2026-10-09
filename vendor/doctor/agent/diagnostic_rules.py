@@ -2000,6 +2000,10 @@ _SCHEDULED_AGENTS = (
     ("com.ostler.enrich", "people and organisation detail", "enrich", 1800),
     ("com.ostler.export-scan", "exports you have dropped in", "export-scan", 14400),
     ("com.ostler.aiconv-resume", "AI chat transcripts", "aiconv-resume", 3600),
+    # CM051 #2707, cut #16: the pre-meeting brief sender exits 75 when a due
+    # brief was not delivered and 78 when no brief channel is configured, so a
+    # brief that never arrives reaches this card instead of only its own log.
+    ("com.ostler.meeting-brief-sender", "your pre-meeting briefs", "meeting-brief-sender", 600),
 )
 
 # How many consecutive failed ticks before the card goes critical. One bad

@@ -357,12 +357,40 @@ def box():
                     "OSTLER_BRIEF_QUIET_START": "24", "OSTLER_BRIEF_QUIET_END": "0",
                     "OSTLER_BRIEF_COMPOSER": composer, "OSTLER_BRIEF_OWNER_NAME": "Sam",
                     "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"})
-        r = subprocess.run(["bash", sender], env=env, capture_output=True, text=True, timeout=240)
-        out["sender_rc"] = r.returncode
         log = os.path.join(ostler, "logs", "meeting-brief-sender.log")
-        if os.path.isfile(log):
-            out["log_tail"] = open(log).read()[-1500:]
+        log_start = os.path.getsize(log) if os.path.isfile(log) else 0
+
+        def run_sender():
+            r = subprocess.run(["bash", sender], env=env, capture_output=True, text=True, timeout=240)
+            tail = ""
+            if os.path.isfile(log):
+                with open(log) as fh:
+                    fh.seek(log_start)
+                    tail = fh.read()[-1500:]
+            return r.returncode, tail
+
+        rc, tail = run_sender()
+        out["channel_source"] = "the box's own brief channel"
+        if rc == 78 and not out["announces"]:
+            # The sender read the box's config.toml and found no brief channel
+            # (a walk box often has none enabled). That is the sender reporting
+            # correctly, and it is not what this probe grades. Re-run with a
+            # FICTIONAL announce job: /announce is the shim above, so nobody is
+            # messaged, and the TEXT is graded exactly as before.
+            import tempfile
+            cfg = tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False)
+            cfg.write('[[cron.jobs]]\nid = "morning-brief"\n'
+                      'delivery = { mode = "announce", channel = "whatsapp", to = "+447700900123" }\n')
+            cfg.close()
+            env["OSTLER_BRIEF_CONFIG"] = cfg.name
+            out["channel_source"] = "fixture (the box has no brief channel; the sender exited 78 CANNOT-DELIVER, as designed)"
+            rc, tail = run_sender()
+            os.unlink(cfg.name)
+        out["sender_rc"] = rc
+        out["log_tail"] = tail
         srv.shutdown()
+        if not out["announces"] and "Ostler Pro is not active" in tail:
+            return cannot("Ostler Pro is not active on this box, so the sender paused by design and sent nothing to grade")
     finally:
         try:
             sparql_update(seed.forget_sparql())

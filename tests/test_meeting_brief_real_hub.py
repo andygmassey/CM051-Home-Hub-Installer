@@ -102,13 +102,61 @@ def serve(handler):
     return srv, port
 
 
-def run_sender(script_text, hub, announce_port, composer, workdir, token=True):
-    """Run a sender script against the real Hub; return (rc, announced, log)."""
+# The owner's brief channel, in the two spellings config.toml really has: the
+# section-header form install.sh writes, and the inline table array the daemon
+# rewrites it to. Recipients are reserved fictional values (Ofcom drama range,
+# example domain).
+WHATSAPP_CFG = (
+    '[[cron.jobs]]\nid = "morning-brief"\n'
+    'delivery = { mode = "announce", channel = "whatsapp", to = "+447700900123", best_effort = false }\n'
+)
+IMESSAGE_CFG = (
+    '[cron]\njobs = [{ id = "morning-brief", delivery = { mode = "announce", '
+    'channel = "imessage", to = "sam@fixture.example", best_effort = false } }]\n'
+)
+NO_CHANNEL_CFG = '[gateway]\nport = 8000\n'
+GATE_SRC = ROOT / "vendor/cm041/assistant_api/subscription_gate.py"
+
+
+def stage_gate(home, state):
+    """Stage the canonical gate where the sender looks for it, and write the
+    subscription state with the gate's OWN functions (never a hand-written
+    status). state: ('trial', days_since_install) or ('paid', days_left)."""
+    svc = home / ".ostler/services/ical-server"
+    svc.mkdir(parents=True, exist_ok=True)
+    shutil.copy(GATE_SRC, svc / "subscription_gate.py")
+    kind, days = state
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1])\n"
+        "from datetime import datetime, timezone, timedelta\n"
+        "import subscription_gate as g\n"
+        "now = datetime.now(timezone.utc)\n"
+        "iso = lambda d: d.isoformat().replace('+00:00', 'Z')\n"
+        f"if {kind!r} == 'trial':\n"
+        f"    g.activate_first_month_free(iso(now - timedelta(days={days})))\n"
+        "else:\n"
+        "    g.activate_first_month_free(iso(now - timedelta(days=90)))\n"
+        f"    g.refresh_from_companion('cmVjZWlwdA==', iso(now + timedelta(days={days})))\n"
+    )
+    subprocess.run([sys.executable, "-c", code, str(svc)], check=True,
+                   env={"PATH": os.environ["PATH"], "HOME": str(home)})
+
+
+def run_sender(script_text, hub, announce_port, composer, workdir, token=True,
+               config=WHATSAPP_CFG, gate=None):
+    """Run a sender script against the real Hub; return (rc, announced, log).
+    config: the owner's config.toml text, or None for no file at all.
+    gate:   None (gate not installed: fails open) or a stage_gate() state."""
     home = pathlib.Path(workdir) / "home"
     shutil.rmtree(home, ignore_errors=True)
     (home / ".ostler/secrets").mkdir(parents=True)
     if token:
         (home / ".ostler/secrets/service_token").write_text(hub.TOKEN + "\n")
+    if config is not None:
+        (home / ".ostler/assistant-config").mkdir(parents=True)
+        (home / ".ostler/assistant-config/config.toml").write_text(config)
+    if gate is not None:
+        stage_gate(home, gate)
     script = pathlib.Path(workdir) / "sender.sh"
     script.write_text(script_text)
     script.chmod(0o755)
@@ -122,10 +170,13 @@ def run_sender(script_text, hub, announce_port, composer, workdir, token=True):
         "OSTLER_BRIEF_OWNER_NAME": "Sam",
         "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
     }
-    rc = subprocess.run(["bash", str(script)], env=env, capture_output=True, timeout=120).returncode
+    res = subprocess.run(["bash", str(script)], env=env, capture_output=True, timeout=120)
     log_file = home / ".ostler/logs/meeting-brief-sender.log"
     log = log_file.read_text() if log_file.exists() else ""
-    return rc, list(Announce.sent), log
+    # stderr is where launchd's StandardErrorPath (the .err the Doctor card
+    # tails) gets the CANNOT-DELIVER line.
+    run_sender.stderr = res.stderr.decode(errors="replace")
+    return res.returncode, list(Announce.sent), log
 
 
 def stub_composer(path, mode, calls_file):
@@ -244,11 +295,40 @@ def main():
                                   ("claims", "a composer that prints a banned claim")):
                     stub_composer(composer, mode, calls)
                     rc, sent, log = run_sender(script, hub, ann_port, composer, work)
-                    check(f"NOTHING is sent for {why}", rc == 0 and not sent, f"sent={sent}")
+                    check(f"NOTHING is sent for {why}", not sent, f"sent={sent}")
                     check(f"...and the log says why ({mode})", "skip" in log or "composer" in log, log[-200:])
+                    check(f"...and it SURFACES: exit 75 with CANNOT-DELIVER on stderr ({mode})",
+                          rc == 75 and "CANNOT-DELIVER" in run_sender.stderr, f"rc={rc} err={run_sender.stderr[-200:]}")
 
                 rc, sent, log = run_sender(script, hub, ann_port, work / "missing-binary", work)
-                check("NOTHING is sent when the composer binary is missing", rc == 0 and not sent)
+                check("NOTHING is sent when the composer binary is missing, and it surfaces (exit 75)",
+                      rc == 75 and not sent, f"rc={rc}")
+
+                print("-- 4b channel: the owner's configured brief channel, never a hardcoded one --")
+                stub_composer(composer, "ok", calls)
+                rc, sent, log = run_sender(script, hub, ann_port, composer, work, config=IMESSAGE_CFG)
+                check("an iMessage-only owner gets every brief over iMessage (inline-table spelling)",
+                      rc == 0 and len(sent) == 3 and all(s["channel"] == "imessage" for s in sent),
+                      f"rc={rc} channels={[s.get('channel') for s in sent]} {log[-200:]}")
+                rc, sent, log = run_sender(script, hub, ann_port, composer, work, config=WHATSAPP_CFG)
+                check("a WhatsApp owner gets every brief over WhatsApp (section-header spelling)",
+                      rc == 0 and len(sent) == 3 and all(s["channel"] == "whatsapp" for s in sent),
+                      f"rc={rc} channels={[s.get('channel') for s in sent]}")
+                for cfg, why in ((NO_CHANNEL_CFG, "a config with no brief channel"),
+                                 (None, "no assistant config at all")):
+                    rc, sent, log = run_sender(script, hub, ann_port, composer, work, config=cfg)
+                    check(f"{why}: nothing sent, CANNOT-DELIVER logged and on stderr, exit 78 (not a silent drop)",
+                          rc == 78 and not sent and "CANNOT-DELIVER" in log and "CANNOT-DELIVER" in run_sender.stderr,
+                          f"rc={rc} sent={len(sent)} log={log[-200:]}")
+
+                print("-- 4c Ostler Pro: the canonical subscription gate (Rule 0.8) --")
+                rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("trial", 5))
+                check("day 5 of the included month: briefs are sent", rc == 0 and len(sent) == 3, f"rc={rc} sent={len(sent)} {log[-200:]}")
+                rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("paid", 20))
+                check("a paying subscriber: briefs are sent", rc == 0 and len(sent) == 3, f"rc={rc} sent={len(sent)} {log[-200:]}")
+                rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("trial", 31))
+                check("day 31, never paid: nothing sent, exit 0, and the log says Pro is not active",
+                      rc == 0 and not sent and "Ostler Pro is not active" in log, f"rc={rc} sent={len(sent)} {log[-200:]}")
 
                 stub_composer(composer, "ok", calls)
                 rc, sent, log = run_sender(script, hub, ann_port, composer, work, token=False)

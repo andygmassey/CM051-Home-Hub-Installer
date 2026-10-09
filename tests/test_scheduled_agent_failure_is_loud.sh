@@ -115,7 +115,7 @@ DRIVEREOF
 export AGENT_DIR
 run() { OSTLER_STATE_DIR="$(mktemp -d "${TMP}/st.XXXXXX")" python3 "$DRIVER" "$@"; }
 
-jqf() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1],{"d":d}))' "$1"; }
+jqf() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1],{"d":d,"json":json}))' "$1"; }
 
 echo "== 1. PREMISE / ANTI-VACUITY: the fixture must actually reproduce the defect =="
 # If this limb does not go 'failing', every other failing-limb below is vacuous
@@ -379,6 +379,29 @@ MUTBEOF
         bad "MUTANT B did not take effect -- self-test proves nothing"
     fi
 fi
+
+echo "== 13. THE PRE-MEETING BRIEF SENDER REACHES THIS CARD (CM051 #2707) =="
+# The sender exits 78 when no brief channel is configured and 75 when a due
+# brief was not delivered. Without a row here that exit code is recorded by
+# launchd and read by nobody. Asserted on the label, the feed copy and the
+# .err log the fix command tails, which must be the plist's StandardErrorPath.
+mb="$(run rule '{"com.ostler.meeting-brief-sender":{"state":"failing","runs":3,"last_exit":78}}')"
+mb_hit="$(printf '%s' "$mb" | jqf 'sum(1 for f in d if "com.ostler.meeting-brief-sender" in json.dumps(f) and "pre-meeting briefs" in json.dumps(f))' 2>/dev/null || true)"
+if [[ "${mb_hit:-0}" -ge 1 ]]; then
+    ok "a failing meeting-brief sender (exit 78) produces a card naming it and its feed"
+else
+    bad "a failing meeting-brief sender produced no card: ${mb}"
+fi
+printf '%s' "$mb" | grep -q 'meeting-brief-sender.err' \
+    && ok "the card's fix tails meeting-brief-sender.err" \
+    || bad "the card does not point at meeting-brief-sender.err: ${mb}"
+grep -q '<string>${LOGS_DIR}/meeting-brief-sender.err</string>' "$(dirname "$0")/../install.sh" \
+    && ok "that .err is the sender plist's StandardErrorPath in install.sh" \
+    || bad "install.sh's sender plist does not write meeting-brief-sender.err"
+mb_ok="$(run rule '{"com.ostler.meeting-brief-sender":{"state":"healthy","runs":3,"last_exit":0}}')"
+[[ "$(printf '%s' "$mb_ok" | jqf 'len(d)')" == "0" ]] \
+    && ok "a healthy meeting-brief sender stays silent" \
+    || bad "a healthy meeting-brief sender emitted a card: ${mb_ok}"
 
 echo
 echo "PASS=${PASS} FAIL=${FAIL}"
