@@ -66,6 +66,11 @@ import urllib.request
 from typing import Dict, List
 
 try:
+    from .person_audit import record_person_removal
+except ImportError:  # plain script
+    from person_audit import record_person_removal  # type: ignore
+
+try:
     from .role_addresses import is_role_identifier
 except ImportError:  # running as a plain script (repair on the box)
     from role_addresses import is_role_identifier  # type: ignore
@@ -260,6 +265,7 @@ def main(argv=None) -> int:
     print(f"         --data-binary @{backup} '{OXIGRAPH}/store?default'")
 
     for c in cands:
+        record_person_removal(c["uri"], "ostler_fda.repair_role_address_people", "role_address_node_deleted_all_triples")
         _update(f"""PREFIX pwg: <{NS}>
 DELETE WHERE {{ <{c['uri']}> ?p ?o }}""")
         logger.info("deleted %s (%s)", c["uri"], c["email"])

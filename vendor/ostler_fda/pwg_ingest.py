@@ -33,6 +33,7 @@ import httpx
 import phonenumbers
 
 from . import forget_tombstone
+from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
 from .identifier_quality import observe as _observe_identifier
 from .usage_journal import record_usage as _record_usage
@@ -2976,6 +2977,27 @@ def _person_embed_doc(person: dict) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
+def _current_person_uris() -> Optional[set]:
+    """The Person URIs the graph holds RIGHT NOW (one light SELECT), or None.
+
+    None means "could not tell" (query failed, or the graph answered empty),
+    and the caller must then prune against its earlier snapshot rather than
+    treat an empty answer as licence to delete. An empty answer from a
+    broken read and a genuinely empty graph are indistinguishable by value.
+    """
+    try:
+        rows = _sparql_query(
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+            "SELECT DISTINCT ?uri WHERE { ?uri a pwg:Person ; "
+            "pwg:displayName ?n . }"
+        )
+    except Exception:
+        return None
+    uris = {(r.get("uri") or {}).get("value") for r in rows}
+    uris.discard(None)
+    return uris or None
+
+
 def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph (#600).
 
@@ -3219,6 +3241,16 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         (pt.get("payload") or {}).get("person_uri") for pt in points
     }
     projected_uris.discard(None)
+    # RACE CLOSED (walk #15, people_stores_reconcile: graph 8074, vectors
+    # 8075). `projected_uris` is the snapshot taken BEFORE the embed and
+    # upsert, which take minutes. A node removed from the graph inside that
+    # window is still in the snapshot, so its freshly written point was
+    # protected from the prune and stayed an orphan until the next sweep.
+    # Prune against the graph as it is NOW. If that cannot be read, fall back
+    # to the snapshot (never to "delete everything").
+    fresh_uris = _current_person_uris()
+    if fresh_uris is not None:
+        projected_uris = projected_uris & fresh_uris
     existing = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
     if existing is None:
         logger.warning(
@@ -3233,6 +3265,18 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             and (pt.get("payload") or {}).get("person_uri") not in projected_uris
         ]
         if stale:
+            # Leave a trace BEFORE the vector goes (walk #15): a prune must
+            # never turn a person lost by an unknown writer into silence.
+            # The URI digest lets people_stores_reconcile and a human join
+            # this to the writer's own removal record.
+            _stale_ids = set(stale)
+            for _pt in existing:
+                if _pt.get("id") in _stale_ids:
+                    record_person_removal(
+                        (_pt.get("payload") or {}).get("person_uri") or "",
+                        "ostler_fda.pwg_ingest.people_sweep",
+                        "vector_pruned_node_absent",
+                    )
             pruned = _qdrant_delete_points(PEOPLE_QDRANT_COLLECTION, stale)
             logger.info(
                 "People: pruned %d of %d point(s) whose Person node is no "

@@ -1869,6 +1869,28 @@ def _graph_scoped(sparql):
     return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
 
 
+def _audit_person_removal(uri, component, reason):
+    """Record a Person removal in the append-only deletion audit (walk #15).
+
+    Loaded by path from this file's own directory (person_audit.py ships
+    beside ical-server.py; the directory is copied whole). Never raises: an
+    audit failure must not stop a forget, but it is logged, not silent.
+    """
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "person_audit",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "person_audit.py"))
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        return _mod.record_person_removal(uri, component, reason)
+    except Exception as exc:  # noqa: BLE001
+        print("person removal audit NOT written: %s" % type(exc).__name__,
+              file=sys.stderr)
+        return False
+
+
 def _forget_person_update(person_uri, graph_uris):
     """SPARQL UPDATE erasing one person from the default AND named graphs.
 
@@ -3195,6 +3217,7 @@ def api_people_forget(slug):
     # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
     # span -- so a forget removes everything any Ostler surface could
     # still show, without deleting out of another user's compartment.
+    _audit_person_removal(person_uri, "assistant_api.forget_person", "user_forget")
     sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
     try:
         _sparql_update(sparql_update)

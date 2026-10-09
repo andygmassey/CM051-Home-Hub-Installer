@@ -101,6 +101,11 @@ import urllib.request
 from typing import Dict, List, Sequence, Tuple
 
 try:
+    from .person_audit import record_person_removal
+except ImportError:  # plain script
+    from person_audit import record_person_removal  # type: ignore
+
+try:
     from .pwg_ingest import (
         _display_name_tier,
         _NAME_TIER_NAME,
@@ -342,6 +347,7 @@ def main(argv=None) -> int:
         # alternateName included -- demoting it would leave the assistant
         # able to answer "your mum is <wife>", which is the whole defect.
         for d in drop:
+            record_person_removal(uri, "ostler_fda.repair_placeholder_names", "kinship_name_deleted")
             gone.append(f'<{uri}> <{NS}displayName> "{_escape(d)}" .')
             gone.append(f'<{uri}> <{SKOS}prefLabel> "{_escape(d)}" .')
             gone.append(f'<{uri}> <{NS}alternateName> "{_escape(d)}" .')
