@@ -190,6 +190,25 @@ def fpset(us):
     # field after it.
     return ",".join(sorted(fp(u) for u in us)) or "-"
 
+# URI SHAPE, never the URI: every run of 6+ hex digits and every digit run is
+# replaced by a placeholder, so the namespace and the minting pattern stay
+# visible ("...#person_<h>") and nothing identifying does. Added after walk #15,
+# whose single orphan could only be characterised by hand-querying the box.
+import re
+def shape(u):
+    t = re.sub(r"[0-9a-fA-F]{6,}", "<h>", u)
+    t = re.sub(r"[0-9]+", "<n>", t)
+    return t.replace(",", "_").replace(" ", "_")[:90]
+
+def orphan_shapes(us):
+    # "source=<payload source> shape=<uri shape> x<count>", comma-joined, no
+    # whitespace (it rides on a positional line). "-" when there is none.
+    c = {}
+    for u in us:
+        k = "source=%s;shape=%s" % (src_of.get(u, "none").replace(" ", "_"), shape(u))
+        c[k] = c.get(k, 0) + 1
+    return ",".join("%s;x%d" % (k, n) for k, n in sorted(c.items())) or "-"
+
 # Bypass any operator proxy (HTTP_PROXY / http_proxy) -- the python analogue of
 # curl --noproxy '*'. Without it a local proxy answers for 127.0.0.1 with its own
 # 5xx, masking the store's real 401 and reading as the store being down.
@@ -255,6 +274,7 @@ try:
         graph.add(b["p"]["value"])
 
     vec, fixture, nxt, npoints = set(), set(), None, 0
+    src_of = {}
     while True:
         # ASK FOR THE FIXTURE FLAG TOO. people_seed_and_retrieval seeds a point
         # carrying "box_walk_probe": True and removes it in its phase 5. It is
@@ -262,7 +282,7 @@ try:
         # so if its cleanup ever fails, the leaked point lands in residual B
         # below and THIS probe blames the product for the suite's own fixture.
         # Reading the flag is what lets the two be told apart.
-        body = {"limit": 1000, "with_payload": ["person_uri", "box_walk_probe"], "with_vector": False}
+        body = {"limit": 1000, "with_payload": ["person_uri", "box_walk_probe", "source"], "with_vector": False}
         if nxt is not None:
             body["offset"] = nxt
         r = qpost("/collections/" + COLL + "/points/scroll", body)["result"]
@@ -272,6 +292,7 @@ try:
             u = pl.get("person_uri")
             if u:
                 vec.add(u)
+                src_of[u] = str(pl.get("source") or "none")
                 if pl.get("box_walk_probe"):
                     fixture.add(u)
         nxt = r.get("next_page_offset")
@@ -333,7 +354,7 @@ try:
     # measured" and falls back to the stricter single-reading verdict.
     print("OK %d %d %d %d %d %d %d %d %s %s" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph),
-        b_fixture, fpset(b_orphan_u), fpset(c_named_u)))
+        b_fixture, fpset(b_orphan_u), fpset(c_named_u), orphan_shapes(b_orphan_u)))
 except urllib.error.HTTPError as exc:
     store = getattr(exc, "_store", "an unidentified store")
     if exc.code in (401, 403):
@@ -496,6 +517,7 @@ _parse_reconcile() {
     b_fixture=$(printf '%s' "$out" | awk '{print $9}')
     b_set=$(printf '%s' "$out" | awk '{print $10}')
     c_set=$(printf '%s' "$out" | awk '{print $11}')
+    b_shapes=$(printf '%s' "$out" | awk '{print $12}')
 }
 
 # ─── DRIVE THE PRODUCT'S OWN WRITER, THEN ASK AGAIN (v1.0.102 walk 4) ──────
@@ -649,7 +671,7 @@ run_probe() {
     out="$(read_result 1)"
     _guard_reconcile_output "$out"
 
-    local graph vec a b c_named c_unnamed both b_fixture b_set c_set
+    local graph vec a b c_named c_unnamed both b_fixture b_set c_set b_shapes
     _parse_reconcile "$out"
 
     # ─── READ IT AGAIN BEFORE CALLING A DIFFERENCE A DISAGREEMENT ───────────
@@ -717,6 +739,13 @@ run_probe() {
 
     probe_note "residual A  untyped terminal merge survivors : ${a}"
     probe_note "residual B  orphan vectors, no graph presence: ${b}"
+    # Characterise the orphans (12th field): payload source and URI SHAPE only,
+    # never a name or a real URI. NOT MEASURED when the reading predates it.
+    if [ -n "$b_shapes" ] && [ "$b_shapes" != "-" ]; then
+        probe_note "            orphan source and URI shape      : ${b_shapes}"
+    elif [ "${b:-0}" -gt 0 ] 2>/dev/null; then
+        probe_note "            orphan source and URI shape      : NOT MEASURED -- this reading carried no shape field"
+    fi
     # PRINT IT EVEN WHEN IT IS ZERO. A zero that is never printed and a
     # measurement that never ran look identical from the log, and this suite
     # exists because they used to.
@@ -1001,6 +1030,21 @@ self_test() {
     _case "all residuals zero -> PASS"        "OK 7187 7187 0 0 0 0 7187"   "$PROBE_EX_PASS"
     _case "A untyped survivors -> FAIL"       "OK 7111 7284 106 0 0 30 7081" "$PROBE_EX_FAIL"
     _case "B orphan vectors -> FAIL"          "OK 7187 7284 0 97 0 0 7187"  "$PROBE_EX_FAIL"
+    # The orphan's payload source and URI SHAPE must be printed (walk #15 had to
+    # characterise its one orphan by hand). Positive: a 12th field is echoed.
+    # Control: a reading with no 12th field says NOT MEASURED, never a shape.
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=fda_people_index;shape=https://x/person_<h>;x1" run_probe 2>&1)"
+    if printf '%s' "$out" | grep -qF "orphan source and URI shape      : source=fda_people_index;shape=https://x/person_<h>;x1"; then
+        _st_tick; printf '  ok [orphan source and URI shape is printed]\n'
+    else
+        _st_tick; printf '  SELF-TEST FAIL [orphan source and URI shape is printed]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape"
+    fi
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 -" run_probe 2>&1)"
+    if printf '%s' "$out" | grep -qF "orphan source and URI shape      : NOT MEASURED"; then
+        _st_tick; printf '  ok [orphan shape absent reading says NOT MEASURED]\n'
+    else
+        _st_tick; printf '  SELF-TEST FAIL [orphan shape absent reading says NOT MEASURED]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape absent"
+    fi
     _case "C named unsearchable -> FAIL"      "OK 7200 7187 0 0 13 0 7187"  "$PROBE_EX_FAIL"
     # THE ONE THAT MATTERS MOST: unnamed stubs alone must NOT fail, or the probe
     # goes permanently red on a box where nothing is actually broken.
