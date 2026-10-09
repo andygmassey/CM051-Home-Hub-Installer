@@ -144,5 +144,49 @@ class Shape(unittest.TestCase):
             self.assertNotRegex(r["source"], r":\d+$")
 
 
+class CompanionPortsPerRoute(unittest.TestCase):
+    """8443 serves ONLY companion_route_table (ostler-assistant v1.0.108).
+    A route the table does not mount must not carry the companion port, so a
+    contract that still lists [8000, 8443] for it is STALE and reds
+    contract-is-current."""
+
+    TABLE = (
+        "pub(crate) fn companion_route_table() -> Vec<CompanionRoute> {\n"
+        "    vec![\n"
+        '        r("/health", &["GET"], false, get(handle_health)),\n'
+        "        // r(\"/admin/paircode\", &[\"GET\"], false, get(x)),\n"
+        '        r("/api/v1/people/{*rest}", &["GET", "POST"], false, get(a).post(b)),\n'
+        "    ]\n}\n"
+        "pub(crate) fn build_companion_router(state: AppState) -> Router {}\n"
+    )
+
+    def test_table_is_parsed_per_method_and_comments_are_ignored(self):
+        got = gen.companion_allowlist(self.TABLE)
+        self.assertEqual(got, {("GET", "/health"), ("GET", "/api/v1/people/{rest}"),
+                               ("POST", "/api/v1/people/{rest}")})
+
+    def test_a_route_absent_from_the_table_is_8000_only(self):
+        c = gen.companion_allowlist(self.TABLE)
+        self.assertEqual(gen.gateway_ports("GET", "/admin/paircode", c, 8443), [8000])
+        self.assertEqual(gen.gateway_ports("POST", "/health", c, 8443), [8000])
+        self.assertEqual(gen.gateway_ports("GET", "/health", c, 8443), [8000, 8443])
+
+    def test_a_stale_both_ports_entry_differs_from_the_regenerated_one(self):
+        c = gen.companion_allowlist(self.TABLE)
+        stale = {"method": "GET", "path": "/admin/paircode", "ports": [8000, 8443]}
+        regen = dict(stale, ports=gen.gateway_ports("GET", "/admin/paircode", c, 8443))
+        self.assertNotEqual(json.dumps(stale, sort_keys=True), json.dumps(regen, sort_keys=True))
+
+    def test_no_table_means_the_legacy_shared_router(self):
+        self.assertIsNone(gen.companion_allowlist("fn build_gateway_router() {}"))
+        self.assertEqual(gen.gateway_ports("GET", "/admin/paircode", None, 8443), [8000, 8443])
+
+    def test_a_table_with_no_entries_is_cannot_run_not_legacy(self):
+        empty = ("fn companion_route_table() -> Vec<CompanionRoute> { vec![] }\n"
+                 "fn build_companion_router() {}\n")
+        with self.assertRaises(gen.CannotRun):
+            gen.companion_allowlist(empty)
+
+
 if __name__ == "__main__":
     unittest.main()
