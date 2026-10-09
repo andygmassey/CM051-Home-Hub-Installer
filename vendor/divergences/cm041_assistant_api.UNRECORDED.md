@@ -852,3 +852,9 @@ All of the above until the pin passes the CM041 spool merge. Guarded by
 `tests/test_memory_assert_answers_inside_the_probe_timeout.py`: 3 of 6 fail on
 the budget-only server, 6 of 6 pass with it; mutants (resolver drops the
 spooled fact_id; level hardcoded) each go red.
+
+Extended for the Doctor surface (same PR): `ASSERT_SPOOL_STATUS` and
+`_write_assert_spool_status` (counts and timestamps only, 0600, written after
+every spool and every sweep), and the sweep closes a row as done only for a
+`stored` / `created_person` answer, so a `needs_disambiguation` 200 parks the
+row instead of closing it.

@@ -69,6 +69,7 @@ class Edges(BaseHTTPRequestHandler):
     """Oxigraph (/query, /update over STORE), Ollama /api/embed (delay set per
     test) and an empty Qdrant."""
     embed_delay = 0.0
+    twins = False  # Qdrant answers two near-identical strong matches
 
     def log_message(self, *a):
         pass
@@ -92,7 +93,11 @@ class Edges(BaseHTTPRequestHandler):
             time.sleep(Edges.embed_delay)
             return self._send(200, json.dumps({"embeddings": [[0.0] * 768]}).encode())
         if self.path.startswith("/collections/"):
-            return self._send(200, b'{"result": []}')
+            pts = []
+            if Edges.twins:
+                pts = [{"score": 0.95, "payload": {"display_name": "Jane Doe", "contact_type": "person"}},
+                       {"score": 0.94, "payload": {"display_name": "Jane Doe-Smith", "contact_type": "person"}}]
+            return self._send(200, json.dumps({"result": pts}).encode())
         try:
             if self.path.startswith("/query"):
                 res = STORE.query(body, use_default_graph_as_union=False)
@@ -298,6 +303,62 @@ def test_busy_model_still_stores_against_an_exact_name_already_in_the_graph(hub)
     assert dt < 2.5, dt
     assert code == 200 and body["status"] == "stored", (code, body)
     assert body["person_uri"] == f"{NS}person_fixturealex"
+
+
+DOCTOR = ROOT / "vendor/doctor/agent"
+
+
+def doctor_findings():
+    """Run the shipped Doctor rule as the Doctor would, with this Hub's HOME."""
+    code = ("import json, diagnostic_rules as d; "
+            "print(json.dumps([f for f in d.run_all_rules(None) "
+            "if f.get('category') == 'memory']))")
+    r = subprocess.run([sys.executable, "-c", code], cwd=str(DOCTOR), capture_output=True,
+                       text=True, env=dict(os.environ, HOME=str(WORK)), timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def test_a_parked_fact_shows_in_the_doctor_and_resolved_ones_do_not(hub):
+    # Two plausible people when the model frees: parked, not guessed.
+    Edges.embed_delay = 4.0
+    code, body, _ = hub.assert_fact("Jane", "is a keen sailor")
+    assert code == 202, (code, body)
+    sid = body["spool_id"]
+    Edges.embed_delay, Edges.twins = 0.0, True
+    try:
+        code, st = hub.resolve(sid)
+    finally:
+        Edges.twins = False
+    assert st["state"] == "needs_disambiguation", st
+    assert facts_with_text("is a keen sailor") == 0, "a parked fact is not guessed into the graph"
+
+    status = json.loads((WORK / ".ostler/state/assert_spool_status.json").read_text())
+    # Earlier tests resolved four spooled facts: they must not be counted.
+    assert status["needs_disambiguation"] == 1 and status["pending"] == 0, status
+    assert "Jane" not in json.dumps(status) and "sailor" not in json.dumps(status), "counts only"
+
+    rows = doctor_findings()
+    parked = [f for f in rows if f.get("parked_facts")]
+    assert len(parked) == 1 and parked[0]["parked_facts"] == 1, rows
+    assert "1 saved fact need" in parked[0]["title"], parked[0]["title"]
+    assert not [f for f in rows if f.get("pending_facts")], rows
+
+    # Settled (the owner names the person): the row closes and the Doctor
+    # row goes away on the next status write.
+    c = sqlite3.connect(str(SPOOL))
+    c.execute("UPDATE assert_spool SET state='done' WHERE spool_id=?", (sid,))
+    c.commit(); c.close()
+    hub.call("GET", "/api/v1/memory/assert/pending/" + sid)  # done: no sweep kicked
+    # Force one status write through a sweep the way the loop does.
+    Edges.embed_delay = 4.0
+    code, b2, _ = hub.assert_fact("Ben Jones", "collects stamps")  # spooling rewrites the status
+    assert code == 202, (code, b2)
+    Edges.embed_delay = 0.0
+    hub.resolve(b2["spool_id"])
+    status = json.loads((WORK / ".ostler/state/assert_spool_status.json").read_text())
+    assert status["needs_disambiguation"] == 0 and status["pending"] == 0, status
+    assert not [f for f in doctor_findings() if f.get("parked_facts")]
 
 
 def test_the_default_budget_leaves_the_walk_probe_room_to_hear_the_answer():

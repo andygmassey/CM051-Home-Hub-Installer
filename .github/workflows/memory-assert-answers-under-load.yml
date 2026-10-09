@@ -18,6 +18,8 @@ on:
   pull_request:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
       - 'scripts/box_walk_probes/probes/people_seed_and_retrieval.sh'
       - 'tests/test_memory_assert_answers_inside_the_probe_timeout.py'
       - '.github/workflows/memory-assert-answers-under-load.yml'

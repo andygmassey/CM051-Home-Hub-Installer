@@ -1051,3 +1051,21 @@ also pins that reads, remote callers, wrong tokens and every other path
 (including look-alikes such as `/api/safari/save/` and `/api/safari/saved`)
 stay refused. There is no HR015 upstream twin yet: OWED, and a
 security-boundary change that wants a human read before it ships.
+
+## doctor: parked memory facts get a Doctor row (CM051 #2747, CM041 #209)
+
+Tree `doctor`, files `agent/diagnostic_rules.py` and `agent/diagnostic_copy.py`.
+Recorded here because this file is the doctor tree's `unrecorded_divergence`
+pointer and the edit has no patch.
+
+Location and shape. `diagnostic_rules.py`: six copy names added to the
+`from diagnostic_copy import (...)` list; after `LICENCE_WARN_BEFORE_EXPIRY_DAYS`,
+`ASSERT_SPOOL_STALE_PENDING_SECONDS`, `_ostler_assert_spool_status_path` and
+`check_parked_facts` (reads the ical-server's counts-only
+`~/.ostler/state/assert_spool_status.json`; a warning row for parked facts
+and one for pending older than an hour; silent on an absent file); the rule
+appended to `ALL_RULES`. `diagnostic_copy.py`: six strings appended.
+
+Pinned by `tests/test_memory_assert_answers_inside_the_probe_timeout.py`
+`test_a_parked_fact_shows_in_the_doctor_and_resolved_ones_do_not`, red with the
+rule removed. There is no HR015 upstream twin yet: OWED.

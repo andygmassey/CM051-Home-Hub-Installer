@@ -3308,6 +3308,42 @@ def _assert_spool_connect():
     return conn
 
 
+# Counts-only status for the Doctor, which cannot open the encrypted spool.
+# Home-derived like subscription_state.json, the file the Doctor already reads.
+ASSERT_SPOOL_STATUS = Path(os.environ.get(
+    "ASSERT_SPOOL_STATUS",
+    os.path.join(os.path.expanduser("~"), ".ostler", "state",
+                 "assert_spool_status.json"),
+))
+
+
+def _write_assert_spool_status(conn):
+    """Write {pending, needs_disambiguation, oldest_*} for the Doctor.
+
+    Numbers and timestamps only: never a name, a fact or a spool id. Written
+    after every spool and every sweep, so a parked fact can never be silent.
+    """
+    rows = conn.execute(
+        "SELECT state, COUNT(*), MIN(created_at) FROM assert_spool "
+        "WHERE state IN ('pending', 'needs_disambiguation') GROUP BY state"
+    ).fetchall()
+    got = {r[0]: (r[1], r[2]) for r in rows}
+    status = {
+        "pending": got.get("pending", (0, None))[0],
+        "oldest_pending_at": got.get("pending", (0, None))[1],
+        "needs_disambiguation": got.get("needs_disambiguation", (0, None))[0],
+        "oldest_parked_at": got.get("needs_disambiguation", (0, None))[1],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    ASSERT_SPOOL_STATUS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ASSERT_SPOOL_STATUS.with_suffix(".json.tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(status, fh)
+    os.replace(str(tmp), str(ASSERT_SPOOL_STATUS))
+    return status
+
+
 def _spool_assertion(subject, fact_text, relationship, asserted_via,
                      privacy_level, asserted_at):
     """Durably record an assertion the resolver must attach later.
@@ -3331,6 +3367,10 @@ def _spool_assertion(subject, fact_text, relationship, asserted_via,
              datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
+        try:
+            _write_assert_spool_status(conn)
+        except Exception:
+            pass  # the row is durable; the next sweep rewrites the status
     finally:
         conn.close()
     return spool_id, fact_id
@@ -3404,7 +3444,7 @@ def _assert_spool_sweep(budget=None, limit=50):
                     spool_on_timeout=False, fact_id=fact_id,
                     person_id=person_id, privacy_level=level,
                 )
-                if status == 200:
+                if status == 200 and body.get("status") in ("stored", "created_person"):
                     close(spool_id, body.get("person_uri"),
                           body.get("person_slug"),
                           1 if body.get("status") == "created_person" else 0)
@@ -3427,6 +3467,11 @@ def _assert_spool_sweep(budget=None, limit=50):
                          spool_id))
                     conn.commit()
                     counts["still_pending" if status == 0 else "failed"] += 1
+            try:
+                _write_assert_spool_status(conn)
+            except Exception as exc:
+                print("[memory/assert] spool status not written: %s"
+                      % type(exc).__name__, file=sys.stderr, flush=True)
         finally:
             conn.close()
         return counts
