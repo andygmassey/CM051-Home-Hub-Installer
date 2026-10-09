@@ -261,3 +261,10 @@ wiki: the .pw-src-line provenance note uses the body face (CM044 #317)	CM051	7f1
 The reminders_candidates sidecar never reaches the conversation body (CM048 #85)	CM051	dcc9759b	no	cm048_reminders_sidecar_stripped_from_body	TBD	CM051 #2721
 ostler-import passes the owner name to the people graph by default	CM051	db8a9bab	no	ostler_import_user_name_defaults_from_env	TBD	CM051 #2722
 ostler-import: unknown format is not a failure and keeps the real rc	CM051	db8a9bab	no	ostler_import_unknown_format_keeps_rc	TBD	CM051 #2722
+# 2026-10-09 (ORM, candidate #15): CM051 #2731 (7ac7c2cb) re-pins hub-v0.5.7 (oa 3140e252, #487 #488). Rows for the #15 merges #2727 #2728. Wiki stays v0.1.49. cut.env CM051=0fd77d29 (#2738 daemon hold row, after #2731).
+pin(daemon): 0.5.7 daemon tarball 5dee36de (oa 3140e252)	CM051	7ac7c2cb	no	daemon_pinned_at_hub_v0507	TBD	oa #487 #488 (CM051 #2731)
+pin(daemon): 0.5.7 hub app 515ebcf7	CM051	7ac7c2cb	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2731
+pin(daemon): 0.5.7 People subtitle carries the customer marker	CM051	7ac7c2cb	no	oa_people_subtitle_customer_marker	TBD	oa #487 (CM051 #2731)
+pin(daemon): 0.5.7 owner work question carries About-you on the user turn	CM051	7ac7c2cb	no	oa_owner_work_question_carries_about_you	TBD	oa #488 (CM051 #2731)
+The People list hides business-shaped names (CM041 #206 graft)	CM051	83e511c9	no	people_list_hides_business_shaped_names	TBD	CM051 #2727
+The owner-digest walk probe reports whether the digest's Work line names the seed	CM051	8ac93ad1	no	probe_owner_digest_reports_work_line	TBD	CM051 #2728
