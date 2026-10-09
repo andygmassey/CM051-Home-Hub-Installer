@@ -1,0 +1,81 @@
+name: meeting-brief-real-hub
+
+# ostler-ai/ostler-assistant#471. The pre-meeting brief is only worth sending if
+# it is grounded, and it can only be proven grounded against the REAL Hub: the
+# first composer draft read Hub fields that were guesses (mutual_contacts,
+# first_contact, awaiting_reply), and the live sender stated "no meetings
+# logged" as "first face-to-face meeting".
+#
+# This runs the vendored ical-server UNMODIFIED over a real SPARQL engine
+# (pyoxigraph) seeded with a fictional graph, then:
+#   - the contract test: every field the composer reads exists, every field it
+#     used to guess does not, the sender in install.sh authenticates, sends
+#     exactly what the composer printed and nothing when the composer fails
+#   - the drift gate: the fixtures the oa composer tests consume (they are
+#     copied into ostler-assistant) equal a fresh capture of the real Hub
+#   - the walk probe's judge catches every mutant (the probe itself is
+#     BLOCKING in walk_promote_scope.tsv)
+# ubuntu-latest is correct: the Hub and the store run in-process, no box.
+# A missing dependency is exit 2 (CANNOT-RUN), which fails this job: a check
+# that could not run has not passed.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/meeting_syncer/brief.py'
+      - 'vendor/cm041/pwg_privacy.py'
+      - 'vendor/cm041/identity_resolver/compartment.py'
+      - 'vendor/ostler_security/**'
+      - 'tests/test_meeting_brief_real_hub.py'
+      - 'tests/helpers/real_hub.py'
+      - 'tests/helpers/real_hub_seed.py'
+      - 'tests/fixtures/meeting_brief_real_hub/**'
+      - 'tests/fixtures/meeting_brief_sender_pre_471.sh'
+      - 'scripts/capture_meeting_brief_hub_fixtures.py'
+      - 'scripts/box_walk_probes/lib/meeting_brief_seed.py'
+      - 'scripts/box_walk_probes/lib/meeting_brief_sent_text.py'
+      - 'scripts/box_walk_probes/probes/meeting_brief_text_is_grounded.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - '.github/workflows/meeting-brief-real-hub.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  meeting-brief-real-hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the Hub's test dependencies
+        run: |
+          python -m pip install --quiet pyoxigraph cryptography httpx
+          sqlite3 --version
+      - name: The sender, the contract and the three behaviours against the real Hub
+        run: python tests/test_meeting_brief_real_hub.py
+      - name: The oa composer fixtures still equal the real Hub's output
+        if: always()
+        run: python scripts/capture_meeting_brief_hub_fixtures.py --check tests/fixtures/meeting_brief_real_hub
+      - name: The sent-brief judge catches every mutant
+        if: always()
+        run: python3 scripts/box_walk_probes/lib/meeting_brief_sent_text.py --self-test
+      - name: The sent-brief probe's own self-test goes red on known-bad input
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/meeting_brief_text_is_grounded.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
+          if ! printf '%s\n' "$out" | grep -q 'negative control behaved'; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi

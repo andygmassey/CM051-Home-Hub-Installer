@@ -1070,3 +1070,19 @@ Pinned by `tests/test_memory_assert_answers_inside_the_probe_timeout.py`
 `test_a_parked_fact_shows_in_the_doctor_and_resolved_ones_do_not`, red with the
 rule removed. There is no HR015 upstream twin yet: OWED.
 Tree `ostler_fda` (Lane 18): new `forget_tombstone.py` (byte-identical to CM041) and `pwg_ingest.py` `_is_forgotten`, which makes ingest_imessage, ingest_whatsapp, ingest_calendar, ingest_photos_people and ingest_mail_contacts skip a forgotten person. HR015 twin owed; `ostler_fda.patch` not regenerated.
+## doctor: the pre-meeting brief sender joins the scheduled-agent card (CM051 #2707)
+
+Tree `doctor`, file `agent/diagnostic_rules.py`. Not a writer/reader
+vocabulary fix: recorded here because this file is the doctor tree's declared
+`unrecorded_divergence` pointer and the edit has no patch.
+
+Location and shape. One row appended to the `_SCHEDULED_AGENTS` tuple:
+`("com.ostler.meeting-brief-sender", "your pre-meeting briefs",
+"meeting-brief-sender", 600)`, plus a three-line comment. No rule logic,
+copy or severity changed. Reason: from cut #16 the sender ships ON and exits
+75 (a due brief not delivered) or 78 (no brief channel configured); without
+the row launchd records that exit code and nothing reads it.
+
+Pinned by `tests/test_scheduled_agent_failure_is_loud.sh` limb 13, which goes
+red with the row removed (measured: 2 FAIL) and green with it. There is no
+HR015 upstream twin yet: OWED.

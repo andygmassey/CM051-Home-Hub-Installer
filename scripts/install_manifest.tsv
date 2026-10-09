@@ -38,7 +38,7 @@
 # 3 skipped (excluded). Line numbers are the write/load site measured that day.
 
 # ---- launch_agent (enumerable; both directions enforced) ----------------------
-# 13 UNCONDITIONAL -> required. On any successful install these are present, so
+# 14 UNCONDITIONAL -> required (13 seeded + meeting-brief-sender, cut #16). On any successful install these are present, so
 # they are also the positive controls for the type: a broken enumerator that
 # scored everything absent fails here loudly.
 launch_agent	com.ostler.stay-awake	required	com.ostler.stay-awake	baseline	write 10309/load 10333; installed on both paths deliberately
@@ -56,6 +56,7 @@ launch_agent	com.creativemachines.ostler.assistant	required	com.creativemachines
 launch_agent	com.creativemachines.ostler.email-ingest	required	com.creativemachines.ostler.email-ingest	baseline	invoke 19868; hard-fails ERR-20 if vendor missing, so present on any SUCCESSFUL install
 launch_agent	com.creativemachines.ostler.wiki-recompile	required	com.creativemachines.ostler.wiki-recompile	baseline	invoke 20799; bundled in the .app
 launch_agent	com.creativemachines.ostler.editor-frontpage	required	com.creativemachines.ostler.editor-frontpage	baseline	vendor/cm059_editor invoke 21017; bundled
+launch_agent	com.ostler.meeting-brief-sender	required	com.ostler.meeting-brief-sender	cut16	INSTALL_MEETING_BRIEF_LAUNCHAGENT defaults true from cut #16 (Andy: ship briefs, flag ON); false is the operator opt-out. Was excluded as a v1.0.1 feature whose endpoints had not shipped.
 # 13 GATED -> conditional. Present only under the stated condition; absent is not
 # a failure, but if present they are declared (not an UNDECLARED surprise).
 launch_agent	com.ostler.deferred-register-device	conditional	com.ostler.deferred-register-device	baseline	write 18614; retries POST only while pending_registration.json queued (transient)
@@ -71,9 +72,8 @@ launch_agent	com.creativemachines.ostler.dedupe-catchup	conditional	com.creative
 launch_agent	com.ostler.aiconv-resume	conditional	com.ostler.aiconv-resume	baseline	only if the initial AI-conversations drain timed out (rc 124/137, 27670)
 launch_agent	com.creativemachines.ostler.tailscaled	conditional	com.creativemachines.ostler.tailscaled	baseline	only if Tailscale CLI+daemon resolved (22723); remote-access path
 launch_agent	com.creativemachines.ostler-remotecapture	conditional	com.creativemachines.ostler-remotecapture	v1.0.1	arm64 + REMOTECAPTURE_INSTALLED (default false; placeholder release, warn-skips today, 22145)
-# 3 SKIPPED -> excluded. Deliberately not installed in v1; declared so presence or
+# 2 SKIPPED -> excluded (meeting-brief-sender moved to required, cut #16). Deliberately not installed in v1; declared so presence or
 # absence is not mistaken for a surprise.
-launch_agent	com.ostler.meeting-brief-sender	excluded	com.ostler.meeting-brief-sender	v1.0.1	skip at 18384; "v1.0.1 feature; endpoints not yet shipped" (strings:215)
 launch_agent	com.ostler.imessage-bridge	excluded	com.ostler.imessage-bridge	baseline	actively removed 20762-20771; "disabled in v1.0 single-machine mode"
 launch_agent	com.ostler.colima	excluded	com.ostler.colima	baseline	legacy; teardown-only (10940-10962), no heredoc ever writes it fresh
 launch_agent	com.ostler.memory-hygiene	required	com.ostler.memory-hygiene	#1958	written by 2da78644 "wire reminders to knowledge search, schedule memory hygiene"; PRESENT on the v1.0.100 walk and declared NOWHERE, which is what reddened install_manifest_complete
