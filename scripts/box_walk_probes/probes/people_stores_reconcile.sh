@@ -390,7 +390,7 @@ try:
     # rather than as zero. The two digest sets are APPENDED the same way, tenth
     # and eleventh, and the reader treats their absence as "identity was not
     # measured" and falls back to the stricter single-reading verdict.
-    print("OK %d %d %d %d %d %d %d %d %s %s" % (
+    print("OK %d %d %d %d %d %d %d %d %s %s %s %s" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph),
         b_fixture, fpset(b_orphan_u), fpset(c_named_u), orphan_shapes(b_orphan_u), removal_records(b_orphan_u)))
 except urllib.error.HTTPError as exc:
@@ -1078,19 +1078,19 @@ self_test() {
     # characterise its one orphan by hand). Positive: a 12th field is echoed.
     # Control: a reading with no 12th field says NOT MEASURED, never a shape.
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=fda_people_index;shape=https://x/person_<h>;x1" run_probe 2>&1)"
-    if printf '%s' "$out" | grep -qF "orphan source and URI shape      : source=fda_people_index;shape=https://x/person_<h>;x1"; then
+    if grep -qF "orphan source and URI shape      : source=fda_people_index;shape=https://x/person_<h>;x1" <<< "$out"; then
         _st_tick; printf '  ok [orphan source and URI shape is printed]\n'
     else
         _st_tick; printf '  SELF-TEST FAIL [orphan source and URI shape is printed]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape"
     fi
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=x;shape=y;x1 eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z" run_probe 2>&1)"
-    if printf '%s' "$out" | grep -qF "eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z"; then
+    if grep -qF "eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z" <<< "$out"; then
         _st_tick; printf '  ok [orphan deletion record is printed]\n'
     else
         _st_tick; printf '  SELF-TEST FAIL [orphan deletion record is printed]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan deletion record"
     fi
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 -" run_probe 2>&1)"
-    if printf '%s' "$out" | grep -qF "orphan source and URI shape      : NOT MEASURED"; then
+    if grep -qF "orphan source and URI shape      : NOT MEASURED" <<< "$out"; then
         _st_tick; printf '  ok [orphan shape absent reading says NOT MEASURED]\n'
     else
         _st_tick; printf '  SELF-TEST FAIL [orphan shape absent reading says NOT MEASURED]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape absent"
