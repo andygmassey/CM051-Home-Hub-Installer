@@ -1,0 +1,83 @@
+# CM051 v1.0.107 #12: CM031's iPhone / Watch envelope sends
+# metadata.participants as a list of speaker-label STRINGS. Every reader in
+# cm048_pipeline assumed dicts, so 01_classify raised AttributeError and
+# every iPhone / Watch conversation failed. Mirrors CM048 PR #83. A new test
+# that no workflow runs is not wired, so this runs it.
+name: cm048-participants-as-strings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm048_pipeline/src/participants.py'
+      - 'vendor/cm048_pipeline/src/processor.py'
+      - 'vendor/cm048_pipeline/src/ingest.py'
+      - 'vendor/cm048_pipeline/src/bulk_classifier.py'
+      - 'vendor/cm048_pipeline/src/seed.py'
+      - 'vendor/cm048_pipeline/src/outstanding_todos.py'
+      - 'tests/test_cm048_participants_as_strings.py'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
+      - '.github/workflows/cm048-participants-as-strings.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm048_pipeline/src/participants.py'
+      - 'vendor/cm048_pipeline/src/processor.py'
+      - 'vendor/cm048_pipeline/src/ingest.py'
+      - 'vendor/cm048_pipeline/src/bulk_classifier.py'
+      - 'vendor/cm048_pipeline/src/seed.py'
+      - 'vendor/cm048_pipeline/src/outstanding_todos.py'
+      - 'tests/test_cm048_participants_as_strings.py'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
+      - '.github/workflows/cm048-participants-as-strings.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  cm048-participants-as-strings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # httpx, PyYAML, phonenumbers: cm048_pipeline's runtime deps.
+      # ostler_security: ingest.py hard-refuses to import without it, and the
+      # test reads ingest's participant edges directly.
+      - name: Install pytest and the module's runtime dependencies
+        run: |
+          python -m pip install --quiet pytest httpx pyyaml phonenumbers
+          python -m pip install --quiet ./vendor/ostler_security
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in
+      # a separate step would SKIP the run below and hide the real result.
+      - name: String participants from the iPhone / Watch envelope (cm048_pipeline)
+        run: |
+          n="$(python -m pytest tests/test_cm048_participants_as_strings.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 4 ]; then
+            echo "REFUSING: expected at least 4 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_participants_as_strings.py -v
+      - name: The reminders_candidates sidecar never reaches the conversation body (walk #13)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminders_sidecar_never_reaches_the_body.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminders_sidecar_never_reaches_the_body.py -v

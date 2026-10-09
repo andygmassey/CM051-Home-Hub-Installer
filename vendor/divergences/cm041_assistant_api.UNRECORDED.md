@@ -734,3 +734,70 @@ All of the above. Guarded by
 `tests/test_vendored_conversation_process_failure_reason.py`, whose fixture
 now loads the real `_preserve_cm048_progress` helpers. Wired into
 `.github/workflows/failed-conversations-auto-retry-guard.yml`.
+
+## Fifteenth graft: a 14+ digit internal id is never shown as a phone (CM051 v1.0.107 #12)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #204, squash sha
+`c05b35edd6441976fe2b068c90bd4d13e88fa004`, acked in `hold_ack_shas`. The
+four ical-server.py hunks applied unchanged (offsets only), so the changed
+lines are identical to upstream.
+
+Walk #11 measured 1 of 2,571 Hub People rows showing a 17-digit internal id
+(a WhatsApp linked-device id or another app's id written before the writer
+fixes) as its phone. `people_list` and `person_enrichment` took `phones[0]`
+with no check. Added `_displayable_phone`: under 14 digits shown as stored,
+over 15 never, 14 or 15 only when `identity_resolver.normalise.is_valid_phone`
+says valid (hidden if that check cannot run). Read-side only; the graph is
+untouched. Edits: `person_enrichment` (identifier loop and Qdrant payload
+phones) and `people_list` (payload phones and identifier phones).
+
+### What a future sync must preserve
+
+`_displayable_phone` and its four call sites. Guarded by
+`vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
+`TestPeopleListNeverShowsAnInternalIdAsAPhone` (6 tests: 5 fail against main's
+ical-server, the ordinary-number control passes on both), wired in
+`.github/workflows/walk6-people-list-correctness-guard.yml`. Retire by
+re-pinning.
+
+## Sixteenth graft: an encrypted connection gets its own Row class (CM051 v1.0.107 walk #12)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #205 (open at graft
+time; ack its squash sha in `hold_ack_shas` when it merges). The helper and
+both call-site lines are identical to upstream.
+
+Walk #12 FAIL `db_key_reaches_every_service`: the box's ical-server.err read
+`Row() argument 1 must be sqlite3.Cursor, not sqlcipher3.dbapi2.Cursor` and
+every coach read returned 500. Added `_row_factory_for(conn)`, which returns
+the Row class of the module that made the connection. Edits:
+`conn.row_factory` in `coach_recent` and in `_memory_corrections_connect`.
+
+### What a future sync must preserve
+
+`_row_factory_for` and its two call sites. Guarded by
+`vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py`
+(unfixed: 3 failed, control passed; fixed: 4 passed), run on a real sqlcipher3
+connection by `.github/workflows/db-key-delivery-and-recovery.yml`. Retire by
+re-pinning.
+
+## Seventeenth graft: People list hides business-shaped names (CM051 cut #15, walk #14)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #206, pre-merge head
+`f9458b91e18f38040ccb10305ee75732dd68fb4a` (acked in `hold_ack_shas`; swap for
+the squash sha on merge). The ical-server.py hunks applied unchanged.
+
+Walk #14 measured 33 of 7,815 Hub People rows that were businesses or
+automated senders ("<brand> official", "<x> swimming gear store",
+"<x> hk official"). Added `_is_business_shaped_name` and one call from
+`_is_automated_or_service_name`: corporate last word (official, ltd, limited,
+inc, ...) after at least one word; retail last word (store, shop, ...) only
+with three or more words; support/customer-service team endings; noreply.
+Uncarded records only (existing Contacts-card gate). "HK" alone is never a
+signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG tier of institutional words (official, ltd, solutions, group, university...) hides a row even when it HAS a Contacts card; a WEAK tier (club, news, bank, team, store...) stays uncarded-only and needs 3+ words. Read-side only.
+
+### What a future sync must preserve
+
+`_BUSINESS_*` constants, `_is_business_shaped_name`, and its call in
+`_is_automated_or_service_name`. Guarded by
+`vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
+`BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.

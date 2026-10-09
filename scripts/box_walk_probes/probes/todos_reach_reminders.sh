@@ -70,7 +70,9 @@ run_probe() {
     [ "${n}" -gt 0 ] || probe_fail "the todo-reminders judge printed no assertion; a silent probe is not a pass"
     case "${rc}" in
         0)  probe_pass "the synthetic commitment reached a pending row, the daemon claimed it, and the reminder is visible in Reminders.app" ;;
-        78) if printf '%s\n' "${out}" | grep -q 'Automation permission (TCC)'; then
+        78) if printf '%s\n' "${out}" | grep -q 'console grant needed'; then
+                probe_cannot_run "TCC: console grant needed. No kTCCServiceReminders row for the assistant in TCC.db, so the Reminders prompt is undecided (not denied); only a human at the console can answer it"
+            elif printf '%s\n' "${out}" | grep -q 'Automation permission (TCC)'; then
                 probe_cannot_run "TCC: Automation permission refused osascript's read of Reminders.app over this ssh session; only a console session can grant it (console_only_probes.tsv)"
             else
                 probe_cannot_run "a todo-reminders assertion could not be measured (see the CANNOT lines above)"
