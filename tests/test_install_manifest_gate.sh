@@ -235,8 +235,13 @@ fi
 
 # The gap, declared. One locator per line. DELETE A LINE WHEN IT IS FIXED --
 # this arm will tell you which, by name, and will not go red while you do it.
-F_DECLARED_UNWIRED='vendor/cm041/contact_syncer/*.py|is_relationship_label
-vendor/cm041/identity_resolver/*.py|is_relationship_label'
+# CLOSED 2026-10-09 (Archie): this arm reported "every declared write path is
+# WIRED. #2556 is closed here" on main 8ac93ad1, with the identifier_quality
+# positive control PRESENT, so the declaration has no subject left. Emptied
+# rather than re-dated. With nothing declared, any write path that loses its
+# guard classifies as NEW and fails; the expiry below applies only while a
+# declaration exists.
+F_DECLARED_UNWIRED=''
 F_DECLARED_TICKET='#2556'
 # Re-dated 2026-10-01 (Archie): #617 was an unrelated, already-closed CM051
 # PR and was never the real tracking issue for this gap. #2556 measures it
@@ -303,7 +308,9 @@ fi
 # The declaration is a dated debt. Past its date it is rot, and rot is a failure
 # even though the gap it describes has not changed.
 _f_today="$(date -u '+%Y-%m-%d')"
-if [ "$_f_today" \> "$F_DECLARED_EXPIRES" ]; then
+if [ -z "$F_DECLARED_UNWIRED" ]; then
+    pass "the import_wire gap declaration is empty (closed), so there is no debt to date"
+elif [ "$_f_today" \> "$F_DECLARED_EXPIRES" ]; then
     bad "the import_wire gap declaration expired on $F_DECLARED_EXPIRES (today $_f_today, owner $F_DECLARED_OWNER). Wire it, or re-date it with a reason."
 else
     pass "the import_wire gap declaration is in date (expires $F_DECLARED_EXPIRES, owner $F_DECLARED_OWNER)"
