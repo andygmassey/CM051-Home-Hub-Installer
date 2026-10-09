@@ -783,7 +783,7 @@ re-pinning.
 ## Seventeenth graft: People list hides business-shaped names (CM051 cut #15, walk #14)
 
 Tree `cm041/assistant_api`, same file. Matches CM041 #206, pre-merge head
-`732e95783081efbd381acbe1030f5a4386e47ebc` (acked in `hold_ack_shas`; swap for
+`f9458b91e18f38040ccb10305ee75732dd68fb4a` (acked in `hold_ack_shas`; swap for
 the squash sha on merge). The ical-server.py hunks applied unchanged.
 
 Walk #14 measured 33 of 7,815 Hub People rows that were businesses or
@@ -793,7 +793,7 @@ automated senders ("<brand> Official", "<x> Swimming Gear Store",
 inc, ...) after at least one word; retail last word (store, shop, ...) only
 with three or more words; support/customer-service team endings; noreply.
 Uncarded records only (existing Contacts-card gate). "HK" alone is never a
-signal. Read-side only.
+signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG tier of institutional words (official, ltd, solutions, group, university...) hides a row even when it HAS a Contacts card; a WEAK tier (club, news, bank, team, store...) stays uncarded-only and needs 3+ words. Read-side only.
 
 ### What a future sync must preserve
 

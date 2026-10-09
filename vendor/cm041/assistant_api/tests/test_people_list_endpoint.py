@@ -1155,11 +1155,16 @@ class BusinessShapedNameFilterTests(unittest.TestCase):
         "Acme Trading Ltd", "Acme Trading Limited", "Acme Holdings Inc",
         "Acme Support Team", "Acme Customer Service", "Acme noreply",
         "acme no-reply",
+        # round 2: probe ORG_MARKERS shapes
+        "Acme Cloud Solutions", "Acme Holdings Group", "Acme Daily News",
+        "Acme Fan Club Hk", "Acme Savings Bank Hk", "Acme Alumni Team",
+        "Acme Technology University", "Acme Gear Store Hk",
     ]
     PERSONS = [
         "Jane Store", "Peter Shop", "Tom Hk", "Hk Lee", "Mary Storey",
         "Sam Shopland", "Li Wei Hk", "Ann Team", "Jane Limitedton",
-        "Store Johnson", "Official Smith", "Jane Doe", "John Smith",
+        "Store Johnson", "Jane Bank", "Tom Club", "Sue Card",
+        "Alan Support", "Pat Research", "Jane Doe", "John Smith",
     ]
 
     def test_business_shapes_are_filtered(self) -> None:
@@ -1170,12 +1175,14 @@ class BusinessShapedNameFilterTests(unittest.TestCase):
         for n in self.PERSONS:
             self.assertFalse(server._is_automated_or_service_name(n), n)
 
-    def test_end_to_end_uncarded_hidden_carded_kept_persons_kept(self) -> None:
+    def test_end_to_end_strong_org_word_hidden_even_when_carded(self) -> None:
         card = "00000000-0000-0000-0000-0000000000f1:ABPerson"
         points = [
             _point("b1", "Acme Hk Official"),
             _point("b2", "Acme Swimming Gear Store"),
             _point("c1", "Carded Brand Official", icloud_uid=card),
+            _point("c2", "Carded Person Jr", icloud_uid=card + "2"),
+            _point("c3", "Carded Tom Club", icloud_uid=card + "3"),
             _point("p1", "Jane Store"),
             _point("p2", "Tom Hk"),
         ]
@@ -1190,4 +1197,5 @@ class BusinessShapedNameFilterTests(unittest.TestCase):
                 status, body = h.get("/api/v1/people?sort=recency")
         names = {r["name"] for r in body["people"]}
         self.assertEqual(
-            names, {"Carded Brand Official", "Jane Store", "Tom Hk"}, body)
+            names, {"Carded Person Jr", "Carded Tom Club", "Jane Store", "Tom Hk"},
+            body)
