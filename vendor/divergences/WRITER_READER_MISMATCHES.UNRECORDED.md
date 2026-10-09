@@ -1052,7 +1052,7 @@ also pins that reads, remote callers, wrong tokens and every other path
 stay refused. There is no HR015 upstream twin yet: OWED, and a
 security-boundary change that wants a human read before it ships.
 
-## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
 
 Tree `ostler_fda`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `dedupe_merge.py` `_merge_pair` (reason `exact_identifier_merge_all_triples_moved`), `repair_role_address_people.py` before each full-node delete, `repair_placeholder_names.py` where a kinship name is deleted, and `pwg_ingest.py`: the people sweep now prunes against a fresh graph read (`_current_person_uris`; unreadable or empty falls back to the snapshot) and records each pruned vector's URI digest before deleting it (reason `vector_pruned_node_absent`).
 Added `person_audit.py` (byte-identical copy in every tree that carries one;

@@ -81,7 +81,7 @@ grafts above. Retire by landing CM041 PR #191 and re-pinning (which should
 also regenerate `cm041_identity_resolver.patch` from a checkout at the new
 pin, folding this note back into the normal patch-tracked history).
 
-## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
 
 Tree `cm041/identity_resolver`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: calls in `resolver.py` `merge_persons`, `batch_resolver.py` `_merge_oxigraph` and `repair_merge_consistency.py` `repair` before each `retirement.retire_update` (type removal of the discard). `repair_lid_as_phone.py` and both `canonicalise_display_name` paths replace a name in one update and remove no one, so they are deliberately not audited.
 Added `person_audit.py` (byte-identical copy in every tree that carries one;

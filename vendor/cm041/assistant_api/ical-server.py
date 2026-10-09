@@ -1813,15 +1813,20 @@ def _record_embed_usage(payload, model):
               file=sys.stderr, flush=True)
 
 
-def _embed_text(text):
-    """Embed text via Ollama and return the vector."""
+def _embed_text(text, timeout=30):
+    """Embed text via Ollama and return the vector.
+
+    ``timeout`` bounds the wait. Ollama answers an embed only when a slot is
+    free, so while the chat model is generating this read can sit silent for
+    as long as the generation takes; the caller decides how long it can wait.
+    """
     data = json.dumps({"model": EMBED_MODEL, "input": [text]}).encode()
     req = urllib.request.Request(
         EMBED_OLLAMA_URL.rstrip("/") + "/api/embed",
         data=data,
         headers={"Content-Type": "application/json"},
     )
-    resp = urllib.request.urlopen(req, timeout=30)
+    resp = urllib.request.urlopen(req, timeout=timeout)
     payload = json.loads(resp.read())
     _record_embed_usage(payload, EMBED_MODEL)
     return payload["embeddings"][0]
@@ -2142,9 +2147,19 @@ def _filter_qdrant_facts(facts, owner_level=None):
     return pwg_privacy.filter_l3_facts(facts, owner_level)
 
 
-def people_search(query, limit=10):
-    """Semantic search across the Qdrant people collection."""
-    vector = _embed_text(query)
+def people_search(query, limit=10, timeout=30):
+    """Semantic search across the Qdrant people collection.
+
+    ``timeout`` is ONE budget for the embed and the Qdrant search together,
+    not a per-call allowance, so a caller with a deadline can rely on it.
+    Raises TimeoutError when the budget runs out.
+    """
+    import time as _time
+    _deadline = _time.monotonic() + timeout
+    vector = _embed_text(query, timeout=timeout)
+    _left = _deadline - _time.monotonic()
+    if _left <= 0:
+        raise TimeoutError("people_search budget of %ss spent on the embed" % timeout)
     body = json.dumps({
         "vector": vector,
         "limit": limit,
@@ -2173,7 +2188,7 @@ def people_search(query, limit=10):
         data=body,
         headers={"Content-Type": "application/json"},
     )
-    resp = urllib.request.urlopen(req, timeout=30)
+    resp = urllib.request.urlopen(req, timeout=_left)
     data = json.loads(resp.read())
 
     # Qdrant payload keys are stored in American English ("organization",
@@ -3240,6 +3255,26 @@ _ASSERT_STRONG_MATCH_SCORE = float(
 _ASSERT_DISAMBIGUATION_MARGIN = float(
     os.environ.get("ASSERT_DISAMBIGUATION_MARGIN", "0.05")
 )
+# Total seconds the identity search (Ollama embed + Qdrant) may take before
+# memory/assert stops waiting. Without it the handler inherited a 30s socket
+# timeout per upstream call and NO overall deadline, so while Ollama was busy
+# generating, the caller gave up first and the answer died in wfile.write
+# (BrokenPipeError). Walk #15: the walk's curl waited 15s and got nothing.
+# 8s leaves the assistant's tool call and that 15s client room to receive an
+# answer. On expiry the handler still attaches to an EXACT displayName match
+# in Oxigraph (no embedding needed), and otherwise answers 503, retryable,
+# rather than minting a person it could not check for duplicates.
+_ASSERT_SEARCH_BUDGET_S = float(
+    os.environ.get("OSTLER_ASSERT_SEARCH_BUDGET_S", "8")
+)
+
+
+def _is_timeout(exc):
+    """True when *exc* is a timeout, raised directly or wrapped by urllib."""
+    if isinstance(exc, TimeoutError):
+        return True
+    reason = getattr(exc, "reason", None)
+    return isinstance(reason, TimeoutError)
 
 
 def _mint_person_uri():
@@ -3463,15 +3498,29 @@ def api_memory_assert(payload, now=None):
         _log_assert_request(raw_payload, payload, missing="asserted_via")
         return err, 400
 
-    # 2. Identity-resolve `subject` via people_search.
+    # 2. Identity-resolve `subject` via people_search, inside a budget.
+    import time as _time
+    _t0 = _time.monotonic()
+    search_timed_out = False
     try:
-        search = people_search(subject, limit=5)
+        search = people_search(
+            subject, limit=5, timeout=_ASSERT_SEARCH_BUDGET_S
+        )
     except Exception as exc:
-        return {
-            "status": "error",
-            "degraded": True,
-            "reason": f"identity_resolution_failed: {exc}",
-        }, 503
+        if not _is_timeout(exc):
+            return {
+                "status": "error",
+                "degraded": True,
+                "reason": f"identity_resolution_failed: {exc}",
+            }, 503
+        search_timed_out = True
+        search = {"results": []}
+    # L1-safe: a duration and a flag, never the subject.
+    print(
+        "[memory/assert] identity search %.2fs (budget %ss, timed_out=%s)"
+        % (_time.monotonic() - _t0, _ASSERT_SEARCH_BUDGET_S, search_timed_out),
+        file=sys.stderr, flush=True,
+    )
 
     results = search.get("results", []) if isinstance(search, dict) else []
     strong = [r for r in results
@@ -3532,6 +3581,21 @@ def api_memory_assert(payload, now=None):
         person_uri = _resolve_person_uri_by_name(subject)
         if person_uri is not None:
             person_slug = _wiki_slug(subject)
+
+    # The search ran out of time and no node carries this exact name. Minting
+    # now would skip the duplicate check the search exists for, so answer
+    # promptly and retryably instead. Nothing has been written.
+    if person_uri is None and search_timed_out:
+        return {
+            "status": "error",
+            "degraded": True,
+            "reason": (
+                "identity_resolution_timeout: the people search did not "
+                "answer within %ss (the local model is busy); nothing was "
+                "written, retry shortly" % _ASSERT_SEARCH_BUDGET_S
+            ),
+            "retry_after_seconds": 30,
+        }, 503
 
     # Genuinely unknown: mint. A strong search hit whose name no longer
     # resolves in Oxigraph (stale Qdrant point) lands here too -- better a

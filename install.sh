@@ -25462,6 +25462,16 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              can query it across the auth boundary. -->
         <key>DOCTOR_PROXY_PATHS</key>
         <string>/api/safari/ingest,/api/safari/save,/api/v1/browsing/search,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert,/api/v1/contacts/diff</string>
+        <!-- The Doctor's tokenless loopback-read fallback (vendor/doctor/agent/
+             proxy.py _local_fallback_allowed) is OFF on every install. Port
+             8089 is tailscale-served as raw TCP (install.sh, tailscale serve on
+             tcp 8089), so every device on the owner's tailnet arrives as
+             127.0.0.1. With the fallback on, a gateway regression that made
+             /internal/validate-bearer answer 404 or 405 would silently give
+             those devices token-less reads of owner data. Every supported Hub
+             serves the bearer oracle, so the fallback has no legitimate use. -->
+        <key>OSTLER_DOCTOR_ORACLE_FALLBACK</key>
+        <string>0</string>
         <!-- v1.0.107 walk #2 (BLOCKING item E): /api/v1/contacts/diff
              (identity_resolver.tidy.TidyEngine, ical-server :8090) is the
              Doctor "tidy your contacts" duplicate-review report, it is
@@ -29133,8 +29143,42 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.5}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.6}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
+# ── RemoteCapture integrity pin (cross-origin) ──────────────────
+# The .sha256 sidecar is fetched from the SAME release URL as the tarball, so
+# whoever can replace the tarball can replace the sidecar: it proves nothing
+# about authenticity. This table is baked into install.sh (a different origin)
+# and is the authority; the sidecar is a cross-check only. Same design as
+# DEFAULT_ASSISTANT_TARBALL_SHA256 for the daemon.
+#
+# Bump OSTLER_REMOTECAPTURE_VERSION above and add its row here in the SAME
+# commit. A version with no row is REFUSED (fail closed), and
+# tests/test_remotecapture_pin_is_enforced.sh fails if the default version has
+# no row or the row does not match the published asset. Read the digest from
+# the published asset, never type it by hand.
+_ostler_remotecapture_pinned_sha() {
+    case "$1" in
+        0.1.6) echo "8f7f4a2333f814181413b21397dc3a7f77395af7845346518d1339746ad24656" ;;
+        *)     echo "" ;;
+    esac
+}
+# Verify a downloaded RemoteCapture tarball. $1 tarball, $2 sidecar, $3 version.
+# Bespoke release stream: OSTLER_REMOTECAPTURE_SHA256 overrides the table.
+# 0 ok; 1 pin mismatch; 2 sidecar disagrees; 3 no pin for this version.
+_ostler_remotecapture_verify() {
+    local _tb="$1" _sc="$2" _ver="$3" _pin _actual _side
+    _pin="${OSTLER_REMOTECAPTURE_SHA256:-$(_ostler_remotecapture_pinned_sha "$_ver")}"
+    _actual="$(shasum -a 256 "$_tb" | awk '{print $1}')"
+    _side="$(awk '{print $1}' "$_sc" 2>/dev/null)"
+    REMOTECAPTURE_ACTUAL_SHA="$_actual"
+    REMOTECAPTURE_PINNED_SHA="$_pin"
+    REMOTECAPTURE_EXPECTED_SHA="$_side"
+    [[ -n "$_pin" ]] || return 3
+    [[ "$_actual" == "$_pin" ]] || return 1
+    [[ -n "$_side" && "$_side" == "$_actual" ]] || return 2
+    return 0
+}
 # ── ONE OSTLER FOLDER IN /Applications, NOT FOUR LOOSE BUNDLES ────
 #
 # Andy, 2026-09-18: the Uninstaller, RemoteCapture, the Safari
@@ -29336,11 +29380,20 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
     # local download and compare hex prefixes. A mismatch is a
     # hard fail for the phase: we will not stage a tampered or
     # partial .app onto /Applications.
-    REMOTECAPTURE_EXPECTED_SHA="$(awk '{print $1}' "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256")"
-    REMOTECAPTURE_ACTUAL_SHA="$(shasum -a 256 "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" | awk '{print $1}')"
-    if [[ -z "$REMOTECAPTURE_EXPECTED_SHA" || "$REMOTECAPTURE_EXPECTED_SHA" != "$REMOTECAPTURE_ACTUAL_SHA" ]]; then
+    # Pin first (cross-origin, baked above), sidecar second (same-origin
+    # cross-check only). A tarball that fails the pin is refused even when
+    # its sidecar matches it.
+    _rc_verify=0
+    _ostler_remotecapture_verify "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256" "${OSTLER_REMOTECAPTURE_VERSION}" || _rc_verify=$?
+    if [[ $_rc_verify -ne 0 ]]; then
         err "$MSG_ERR_CM042_SHA_256_MISMATCH"
-        err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_EXPECTED_SHA:-<empty sidecar>}")"
+        case $_rc_verify in
+            3) err "$MSG_ERR_CM042_VERSION_UNKNOWN" ;;
+            1) err "$MSG_ERR_CM042_PIN_FAILED"
+               err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_PINNED_SHA}")" ;;
+            *) err "$MSG_ERR_CM042_SIDECAR_DISAGREES"
+               err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_EXPECTED_SHA:-<empty sidecar>}")" ;;
+        esac
         err "$(printf "$MSG_ERR_ACTUAL" "${REMOTECAPTURE_ACTUAL_SHA}")"
         err "$(printf "$MSG_ERR_URL" "${REMOTECAPTURE_ARCHIVE_URL}")"
         err "$MSG_ERR_CM042_REFUSING_STAGE_BUNDLE"

@@ -802,7 +802,7 @@ signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG ti
 `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
 `BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.
 
-## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
 
 Tree `cm041/assistant_api`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `_audit_person_removal` (loads `person_audit.py` by path from the server's own directory) and one call in `api_people_forget` before `_forget_person_update` runs (reason `user_forget`).
 Added `person_audit.py` (byte-identical copy in every tree that carries one;
@@ -819,3 +819,27 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## cm041/assistant_api: memory/assert answers inside a budget (CM051 walk #15, CM041 #208)
+
+Tree `cm041/assistant_api`, file `ical-server.py`. Graft of CM041 #208 ahead of
+a re-pin; the identical edit (one script applied to both copies) is on the
+CM041 branch `fix/memory-assert-search-budget`.
+
+Location and shape. `_embed_text` gains a `timeout` parameter (default 30, as
+before). `people_search` gains `timeout` as ONE budget for embed + Qdrant
+together and raises TimeoutError when it is spent. Beside
+`_ASSERT_DISAMBIGUATION_MARGIN`: `_ASSERT_SEARCH_BUDGET_S` (env
+`OSTLER_ASSERT_SEARCH_BUDGET_S`, default 8) and `_is_timeout`. In
+`api_memory_assert`, step 2 calls people_search with that budget, logs the
+duration (no PII), and on timeout continues with no search hits. After the
+exact-displayName Oxigraph lookup, if no person resolved and the search had
+timed out, the handler returns 503 `identity_resolution_timeout` with
+`retry_after_seconds` and writes nothing.
+
+### What a future sync must preserve
+
+All of the above until the pin passes the CM041 #208 merge. Guarded by
+`tests/test_memory_assert_answers_inside_the_probe_timeout.py` (workflow
+`memory-assert-answers-under-load.yml`): 3 of 4 fail on the pre-graft server,
+4 of 4 pass with it. Retire by re-pinning past the CM041 merge.

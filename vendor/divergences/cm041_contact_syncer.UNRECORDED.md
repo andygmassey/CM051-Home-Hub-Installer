@@ -205,7 +205,7 @@ Guarded by `tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_iden
 (CM051 repo root, mirroring CM041 PR #186's own test suite). Retire by
 landing CM041 #186 and re-pinning.
 
-## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
 
 Tree `cm041/contact_syncer`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: one call in `syncer.py` `_update_person_oxigraph` when an incoming blank name will delete displayName with nothing replacing it (reason `blank_incoming_name_deleted_displayName`).
 Added `person_audit.py` (byte-identical copy in every tree that carries one;
