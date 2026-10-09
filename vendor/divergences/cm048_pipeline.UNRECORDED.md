@@ -65,3 +65,53 @@ The guard at the top of `process()` and the `from_dict` filter. Guarded by
 `tests/test_cm048_resume_after_dispatcher_failure.py` (CM051 repo root, 4
 tests, 3 fail against main), wired into
 `.github/workflows/failed-conversations-auto-retry-guard.yml`.
+
+## CM048 #83 graft: participants sent as strings no longer crash 01_classify (CM051 v1.0.107 #12)
+
+Tree `cm048_pipeline`: new `src/participants.py` (`normalise_participants`:
+a dict passes through, a non-empty str becomes `{"display": s}`, anything
+else is dropped); every `metadata["participants"]` reader in
+`src/processor.py` (10 sites), `src/ingest.py`, `src/bulk_classifier.py`,
+`src/seed.py` and `src/outstanding_todos.py` goes through it; `process()`
+normalises in place on entry so `00_metadata.json` persists the dict shape.
+`src/channel_adapter.py` already accepted strings and is unchanged. The
+changed lines are identical to CM048 PR #83 (`andygmassey/CM048-PWG-
+Conversation-Processing#83`), squash sha
+`1737cab02b1e97ea41487dffb3162cacaa192006`, acked in `hold_ack_shas`.
+
+WHY: CM031's `APIClient.processEnvelope` sends `metadata.participants` as
+`[String]` (the sorted speaker labels); ical-server passes it through, and
+`_build_classifier_input` did `p.get(...)` on a str: `AttributeError: 'str'
+object has no attribute 'get'` at 01_classify, so every iPhone / Watch
+conversation failed (walk #11, live box). Not attempted against the
+regeneration tool: this tree is `verify = "skip"` already, see the first
+section.
+
+### What a future sync must preserve
+
+`src/participants.py`, the `normalise_participants(...)` call at every
+participants reader, and the in-place normalisation at the top of
+`process()`. Guarded by `tests/test_cm048_participants_as_strings.py` (CM051
+repo root, 4 tests, 4 fail against main), wired into
+`.github/workflows/cm048-participants-as-strings.yml`.
+
+## CM048 #85 graft: the reminders_candidates sidecar never reaches the conversation body (CM051 v1.0.107 walk #13)
+
+Tree `cm048_pipeline`: `src/enrichment_validation.py` gains
+`strip_reminders_sidecar` (block identical to upstream), and `src/processor.py`
+calls it immediately before both `out_path.write_text(rendered)` sites in
+`_step_enrich`. Matches CM048 PR #85, squash sha
+`6a1858a8df293085e73ae70d21e705fb5d61ee13`, acked in `hold_ack_shas`.
+
+WHY: the enrich prompts ask the model for a `reminders_candidates` sidecar,
+and nothing parsed it out of the reply. The key stayed in the Action items
+and Commitments body and reached the customer's wiki (People/timeline) as
+an internal value. Walk #13 failed `hub_screens_customer_read` on it; the
+box carried 21 occurrences in four shapes.
+
+### What a future sync must preserve
+
+`strip_reminders_sidecar` and its two call sites. Guarded by
+`tests/test_cm048_reminders_sidecar_never_reaches_the_body.py` (CM051 repo
+root, 7 tests; the write-path test fails with the vendored call removed),
+wired into `.github/workflows/cm048-participants-as-strings.yml`.

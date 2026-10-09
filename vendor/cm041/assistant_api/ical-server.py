@@ -83,6 +83,18 @@ except ImportError as exc:
         "pip install /path/to/HR015/ostler_security/"
     ) from exc
 
+def _row_factory_for(conn):
+    """The Row class of the module that made ``conn``.
+
+    sqlite3.Row only accepts a sqlite3.Cursor, so on a SQLCipher
+    connection it raises "Row() argument 1 must be sqlite3.Cursor, not
+    sqlcipher3.dbapi2.Cursor" on the first fetch. That was every coach
+    read on an encrypted Hub (v1.0.107 walk #12, HTTP 500). sqlcipher3's
+    dbapi2 ships its own Row with the same interface.
+    """
+    return getattr(sys.modules.get(type(conn).__module__), "Row", sqlite3.Row)
+
+
 # Read the database encryption key. Clean cut from LIFELINE_DB_KEY
 # 2026-05-01 (no beta testers were dispatched, so no deprecation
 # window is required).
@@ -622,6 +634,80 @@ def _is_service_mailbox_name(display_name):
     return False
 
 
+# Cut #15 (walk #14): 33 of 7,815 people-list rows were businesses or
+# automated senders ("<brand> official", "<x> swimming gear store",
+# "<x> hk official"). None trip the vocabulary above. CONSERVATIVE by
+# design: false positives hide real people, so no single common word is
+# ever enough on its own. Shapes, anchored on the LAST word:
+#   1. an unmistakably corporate last word ("official", legal suffixes)
+#      after at least one other word;
+#   2. a retail last word ("store", "shop", ...) after at least TWO other
+#      words -- a two-word "Jane store" stays a person (surname-like);
+#   3. a role-team ending ("support team", "customer service") or a
+#      no-reply token anywhere.
+# Like its siblings this applies ONLY to uncarded records; a Contacts card
+# outranks every shape heuristic. "HK" alone is NEVER a signal.
+_BUSINESS_LAST_WORDS = frozenset({
+    "official", "ltd", "limited", "inc", "llc", "plc", "gmbh", "corp",
+    "corporation", "pte",
+})
+_BUSINESS_RETAIL_LAST_WORDS = frozenset({
+    "store", "stores", "shop", "shops", "outlet", "outlets", "boutique",
+    "mall",
+})
+_BUSINESS_ROLE_TEAM_RE = re.compile(
+    r"\b(support|sales|billing|help\s*desk|helpdesk|marketing|service|"
+    r"customer\s+(?:service|care|support))\s+team$|"
+    r"\bcustomer\s+(?:service|care|support)$|"
+    r"\bno[-_ ]?reply\b|\bdo[-_ ]?not[-_ ]?reply\b", re.I)
+
+
+# Cut #15 round 2: the walk's own probe (CM051 scripts/box_walk_probes/lib/
+# hub_screens.py _org_like + ORG_MARKERS) requires ZERO organisations in the
+# People list and flags a marker ANYWHERE in the name. Two tiers:
+#   STRONG -- institutional / legal words a person's name does not carry.
+#     Applied to ANY record, carded or not (a card named "<X> Ltd" is still
+#     an organisation shown as a person): see _is_organisation_name.
+#   WEAK -- words real surnames can be (club, news, bank, team, store,
+#     shop...). Uncarded only, and only with >= 3 words (>= 2 for news /
+#     newsletter / magazine), so a two-word "Jane bank" stays.
+_ORG_STRONG_RE = re.compile(
+    r"\b(official|ltd|limited|inc|llc|plc|gmbh|corp|corporation|solutions|"
+    r"group|university|institute|foundation|association|council|academy|"
+    r"magazine|newsletter)\b", re.I)
+_ORG_WEAK_RE = re.compile(
+    r"\b(club|news|bank|team|store|stores|shop|shops|card|research|support|"
+    r"services?|company|outlet|boutique|mall|promotions?)\b", re.I)
+_ORG_NEWS_RE = re.compile(r"\bnews\b", re.I)
+
+
+def _is_organisation_name(display_name):
+    """STRONG tier: true for ANY record regardless of Contacts card."""
+    words = (display_name or "").split()
+    return len(words) >= 2 and bool(_ORG_STRONG_RE.search(display_name))
+
+
+def _is_business_shaped_name(display_name):
+    """True when the name ends in a business-shaped token. See the block
+    comment above for the shapes and why each is anchored."""
+    words = (display_name or "").split()
+    if len(words) < 2:
+        return False
+    last = words[-1].strip(".,;:()[]").lower()
+    if last in _BUSINESS_LAST_WORDS:
+        return True
+    if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
+        return True
+    text = " ".join(words)
+    if _is_organisation_name(text):
+        return True
+    if _ORG_NEWS_RE.search(text):
+        return True
+    if len(words) >= 3 and _ORG_WEAK_RE.search(text):
+        return True
+    return bool(_BUSINESS_ROLE_TEAM_RE.search(" ".join(words)))
+
+
 def _is_automated_or_service_name(display_name):
     """True when ``display_name`` SHAPE reads as a company/service/
     notification sender -- shapes ``_is_nameless_name`` does not cover.
@@ -701,6 +787,8 @@ def _is_automated_or_service_name(display_name):
     if _SERVICE_NAME_PHRASE_RE.search(name):
         return True
     if _MARKETPLACE_BRAND_RE.search(name):
+        return True
+    if _is_business_shaped_name(name):
         return True
     return False
 
@@ -2180,7 +2268,7 @@ def coach_recent(user_id=None, hours=168, limit=10):
         else:
             _warn_plaintext_once(str(COACH_DB))
             conn = sqlite3.connect(str(COACH_DB))
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = _row_factory_for(conn)
         rows = conn.execute(
             "SELECT * FROM observations "
             "WHERE user_id = ? AND observed_at > ? "
@@ -3703,7 +3791,7 @@ def _memory_corrections_connect():
     else:
         _warn_plaintext_once(db_path)
         conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = _row_factory_for(conn)
     return conn
 
 
@@ -5117,7 +5205,8 @@ def person_enrichment(slug):
             # PersonDetail card (it decodes flat `phone` / `email`).
             for ident in ids:
                 itype = (ident.get("type") or "").lower()
-                if itype == "phone" and "phone" not in entry:
+                if (itype == "phone" and "phone" not in entry
+                        and _displayable_phone(ident.get("value"))):
                     entry["phone"] = ident["value"]
                 elif itype == "email" and "email" not in entry:
                     entry["email"] = ident["value"]
@@ -5258,7 +5347,10 @@ def person_enrichment(slug):
             payload = points[0].get("payload", {})
             if payload.get("phones") and "phone" not in entry:
                 phones = payload["phones"]
-                entry["phone"] = phones[0] if isinstance(phones, list) else phones
+                phones = phones if isinstance(phones, list) else [phones]
+                shown = [x for x in phones if _displayable_phone(x)]
+                if shown:
+                    entry["phone"] = shown[0]
             if payload.get("emails") and "email" not in entry:
                 emails = payload["emails"]
                 entry["email"] = emails[0] if isinstance(emails, list) else emails
@@ -6202,6 +6294,45 @@ def _recency_label(last_contact_ts):
     return f"{months // 12}Y AGO"
 
 
+def _displayable_phone(value):
+    """True when a stored "phone" value may be SHOWN to the customer as a
+    phone number.
+
+    CM051 #2543, walk #11: a WhatsApp linked-device id (LID) or another
+    app's internal id can still sit in a person's ``phones`` payload or a
+    ``phone`` identifier on a graph written before the writer fixes
+    (CM041 #181/#186, CM051 #2577/#2591) and not reached by the one-time
+    repair. Walk #11 measured 1 of 2,571 People rows showing a 17-digit id
+    as a phone number. This is the READ-side guard: the value stays in the
+    graph untouched, it is just never displayed as a phone.
+
+    Rule, matching ``identity_resolver.normalise.is_possible_phone``'s
+    14-digit danger zone: under 14 digits a value is shown as stored (a
+    national-format number cannot be validated without a region, and
+    hiding real numbers is the worse failure). Over 15 digits it is never
+    a phone (E.164's own ceiling). At 14 or 15 digits it is shown only when
+    libphonenumber says it is a valid number; if that check cannot run, it
+    is hidden.
+    """
+    raw = (value or "").strip() if isinstance(value, str) else ""
+    if not raw:
+        return False
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) < 14:
+        return True
+    if len(digits) > 15:
+        return False
+    try:
+        from identity_resolver.normalise import is_valid_phone
+    except Exception:
+        return False
+    candidate = raw if raw.startswith("+") else "+" + digits
+    try:
+        return bool(is_valid_phone(candidate))
+    except Exception:
+        return False
+
+
 def people_list(sort=None, ceiling=10000):
     """List every person in the Qdrant `people` collection for the Hub.
 
@@ -6397,6 +6528,9 @@ def people_list(sort=None, ceiling=10000):
         # specifically, not "has a given/family name" generically -- only a
         # card is proof of a real address-book entry.
         has_contacts_card = bool((p.get("icloud_uid") or "").strip())
+        # Cut #15: a STRONG organisation word outranks even a card.
+        if _is_organisation_name(name):
+            continue
         if not has_contacts_card and (
             _is_automated_or_service_name(name)
             or _is_service_mailbox_name(name)
@@ -6461,10 +6595,10 @@ def people_list(sort=None, ceiling=10000):
         row["_last"] = (family or given).casefold()
 
         ids = ident_by_uri.get(uri, {})
-        phones = [x for x in (p.get("phones") or []) if x]
+        phones = [x for x in (p.get("phones") or []) if _displayable_phone(x)]
         emails = [x for x in (p.get("emails") or []) if x]
         for x in ids.get("phone", []):
-            if x not in phones:
+            if x not in phones and _displayable_phone(x):
                 phones.append(x)
         for x in ids.get("email", []):
             if x not in emails:

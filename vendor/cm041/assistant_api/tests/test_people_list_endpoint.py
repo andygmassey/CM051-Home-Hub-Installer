@@ -1094,3 +1094,108 @@ class TestEmailNamePrecedenceRound4(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPeopleListNeverShowsAnInternalIdAsAPhone(unittest.TestCase):
+    """CM051 #2543, walk #11: 1 of 2,571 People rows showed a 17-digit
+    internal id as its phone number. Every value below is synthetic and
+    built from repeated digits, so none can be anyone's real number."""
+
+    LID_17 = "1" + "0" * 15 + "7"          # 17 digits: over E.164's ceiling
+    LID_15 = "+1" + "0" * 13 + "1"         # 15 digits, the #2543 shape
+    REAL = "+44 7700 900" + "123"          # Ofcom drama range, 12 digits
+
+    def _rows(self, points):
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+        self.assertEqual(status, 200)
+        return {r["name"]: r for r in body["people"]}
+
+    def test_a_17_digit_id_is_never_the_row_phone(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_17])])
+        self.assertNotIn("phone", rows["Jane Doe"])
+
+    def test_a_15_digit_lid_is_never_the_row_phone(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_15])])
+        self.assertNotIn("phone", rows["Jane Doe"])
+
+    def test_a_real_number_behind_a_lid_is_shown_instead(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_17, self.REAL])])
+        self.assertEqual(rows["Jane Doe"].get("phone"), self.REAL)
+
+    def test_control_an_ordinary_number_is_still_shown(self) -> None:
+        rows = self._rows([_point("p1", "John Doe", phones=[self.REAL])])
+        self.assertEqual(rows["John Doe"].get("phone"), self.REAL)
+
+    def test_control_a_national_format_number_is_not_hidden(self) -> None:
+        national = "07700 900" + "456"
+        self.assertTrue(server._displayable_phone(national))
+
+    def test_predicate_shapes(self) -> None:
+        self.assertFalse(server._displayable_phone(self.LID_17))
+        self.assertFalse(server._displayable_phone(self.LID_15))
+        self.assertFalse(server._displayable_phone(""))
+        self.assertFalse(server._displayable_phone(None))
+        self.assertTrue(server._displayable_phone(self.REAL))
+
+
+class BusinessShapedNameFilterTests(unittest.TestCase):
+    """Cut #15 (walk #14): business / automated-sender shapes in the People
+    list. SYNTHETIC names only. Conservative: a real person must survive."""
+
+    BUSINESS = [
+        "Acme official", "Acme hk official", "Zed official store",
+        "Acme swimming gear store", "Acme home goods shop",
+        "Acme trading ltd", "Acme trading limited", "Acme holdings inc",
+        "Acme support team", "Acme customer service", "Acme noreply",
+        "acme no-reply",
+        # round 2: probe ORG_MARKERS shapes
+        "Acme cloud solutions", "Acme holdings group", "Acme daily news",
+        "Acme fan club hk", "Acme savings bank hk", "Acme alumni team",
+        "Acme technology university", "Acme gear store hk",
+    ]
+    PERSONS = [
+        "Jane store", "Sam shop", "Tom hk", "Hk lee", "Mary storey",
+        "Sam shopland", "Li wei hk", "Ana team", "Jane limitedton",
+        "Store smith", "Jane bank", "Tom club", "Liz card",
+        "Alex support", "Sam research", "Jane doe", "John smith",
+    ]
+
+    def test_business_shapes_are_filtered(self) -> None:
+        for n in self.BUSINESS:
+            self.assertTrue(server._is_automated_or_service_name(n), n)
+
+    def test_control_person_shapes_are_kept(self) -> None:
+        for n in self.PERSONS:
+            self.assertFalse(server._is_automated_or_service_name(n), n)
+
+    def test_end_to_end_strong_org_word_hidden_even_when_carded(self) -> None:
+        card = "00000000-0000-0000-0000-0000000000f1:ABPerson"
+        points = [
+            _point("b1", "Acme hk official"),
+            _point("b2", "Acme swimming gear store"),
+            _point("c1", "Carded brand official", icloud_uid=card),
+            _point("c2", "Carded person jr", icloud_uid=card + "2"),
+            _point("c3", "Carded tom club", icloud_uid=card + "3"),
+            _point("p1", "Jane store"),
+            _point("p2", "Tom hk"),
+        ]
+
+        def fake_urlopen(*_a, **_k):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+        names = {r["name"] for r in body["people"]}
+        self.assertEqual(
+            names, {"Carded person jr", "Carded tom club", "Jane store", "Tom hk"},
+            body)
