@@ -7,8 +7,10 @@ name: hub-contract
 #   2. regenerates the contract and fails if the committed copy is stale;
 #   3. lists which client repos still pin an older contract (drift guard).
 #
-# Needs the secret OSTLER_CROSS_REPO_READ_TOKEN (read access to
-# ostler-ai/ostler-assistant and the client repos). Without it, jobs 2 and 3
+# Reads ostler-ai/ostler-assistant (private) and the client repos with the
+# EXISTING secret OSTLER_GH_TOKEN_ANDYGMASSEY, the same one cut.yml already
+# uses for cross-org reads of ostler-assistant (see .github/SECRETS.md). No new
+# credential is introduced. If that token cannot read a repo, jobs 2 and 3
 # exit CANNOT-RUN loudly. They never pass silently.
 
 on:
@@ -35,6 +37,7 @@ on:
 jobs:
   generator-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,28 +50,30 @@ jobs:
 
   contract-is-current:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
           repository: ostler-ai/ostler-assistant
           path: ostler-assistant
-          token: ${{ secrets.OSTLER_CROSS_REPO_READ_TOKEN }}
+          token: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
       - name: regenerate and compare
         run: |
           if [ ! -f ostler-assistant/crates/zeroclaw-gateway/src/lib.rs ]; then
-            echo "CANNOT-RUN: gateway source not checked out (is OSTLER_CROSS_REPO_READ_TOKEN set?)"; exit 2
+            echo "CANNOT-RUN: gateway source not checked out (can OSTLER_GH_TOKEN_ANDYGMASSEY read ostler-ai/ostler-assistant?)"; exit 2
           fi
           python3 scripts/gen_hub_contract.py --gateway-src ostler-assistant --check
 
   client-pin-drift:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: contract-is-current
     steps:
       - uses: actions/checkout@v4
       - name: which client pins are stale
         env:
-          GH_TOKEN: ${{ secrets.OSTLER_CROSS_REPO_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
         run: |
           if [ -z "$GH_TOKEN" ]; then echo "CANNOT-RUN: no token to read the client repos"; exit 2; fi
           python3 scripts/hub_contract_drift.py

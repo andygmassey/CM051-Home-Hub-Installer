@@ -802,6 +802,23 @@ signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG ti
 `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
 `BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.
 
+## Generated, not grafted: hub_contract.yaml (CM051 #2676, Lane 10)
+
+Tree `cm041/assistant_api`, new file `vendor/cm041/assistant_api/hub_contract.yaml`.
+No CM041 source file is edited and CM041 upstream has no such file.
+
+It is GENERATED in CM051 by `scripts/gen_hub_contract.py` from the vendored
+`ical-server.py`, the vendored Doctor, the store-proxy heredoc in `install.sh`
+and the ostler-assistant gateway source. It lives in this tree because the
+routes it describes are this tree's routes.
+
+### What a future sync must preserve
+
+A wholesale `sync_vendor.sh` of this tree deletes the file. After any sync or
+graft that touches `ical-server.py`, regenerate it with
+`python3 scripts/gen_hub_contract.py --gateway-src <ostler-assistant checkout>`.
+`hub-contract.yml` job `contract-is-current` reds on a stale or missing copy.
+
 ## Eighteenth graft: speaker naming, chunked conversation upload, 405 on POST-only paths (Lane 11)
 
 Source: CM041 branch `claude/lane11-hub-route-gaps` (same shape as the Lane 6
