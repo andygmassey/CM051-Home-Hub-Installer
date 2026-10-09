@@ -1,0 +1,46 @@
+name: memory-assert-answers-under-load
+
+# Walk #15: people_seed_and_retrieval got NO HTTP response from
+# POST /api/v1/memory/assert (curl --max-time 15). ical-server stayed up (same
+# pid) and logged BrokenPipeError in wfile.write: it answered after the client
+# had gone. Measured on 8,074 synthetic people the handler is 0.01-0.03s; its
+# latency is the Ollama embed behind the identity search, which had two 30s
+# socket timeouts and no overall deadline.
+#
+# The guard drives the REAL vendored server as a subprocess with an embed
+# endpoint it holds for 4s against a 1s budget: a new name must get a prompt
+# retryable 503 with nothing written, an exact name already in the graph must
+# still be stored, a responsive model must still mint (control), and the
+# shipped default budget must leave the walk probe's timeout room to hear it.
+# Red on the pre-fix server: 3 of 4 fail; the control passes.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'scripts/box_walk_probes/probes/people_seed_and_retrieval.sh'
+      - 'tests/test_memory_assert_answers_inside_the_probe_timeout.py'
+      - '.github/workflows/memory-assert-answers-under-load.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  memory-assert-answers-under-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: install the server's import-time dependencies and pytest
+        run: python3 -m pip install --quiet cryptography httpx pytest
+      - name: memory/assert answers inside the probe's timeout while the model is busy
+        run: python3 -m pytest -v tests/test_memory_assert_answers_inside_the_probe_timeout.py
