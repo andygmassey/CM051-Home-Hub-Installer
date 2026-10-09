@@ -635,14 +635,14 @@ def _is_service_mailbox_name(display_name):
 
 
 # Cut #15 (walk #14): 33 of 7,815 people-list rows were businesses or
-# automated senders ("<brand> Official", "<x> Swimming Gear Store",
-# "<x> Hk Official"). None trip the vocabulary above. CONSERVATIVE by
+# automated senders ("<brand> official", "<x> swimming gear store",
+# "<x> hk official"). None trip the vocabulary above. CONSERVATIVE by
 # design: false positives hide real people, so no single common word is
 # ever enough on its own. Shapes, anchored on the LAST word:
 #   1. an unmistakably corporate last word ("official", legal suffixes)
 #      after at least one other word;
 #   2. a retail last word ("store", "shop", ...) after at least TWO other
-#      words -- a two-word "Jane Store" stays a person (surname-like);
+#      words -- a two-word "Jane store" stays a person (surname-like);
 #   3. a role-team ending ("support team", "customer service") or a
 #      no-reply token anywhere.
 # Like its siblings this applies ONLY to uncarded records; a Contacts card
@@ -670,7 +670,7 @@ _BUSINESS_ROLE_TEAM_RE = re.compile(
 #     an organisation shown as a person): see _is_organisation_name.
 #   WEAK -- words real surnames can be (club, news, bank, team, store,
 #     shop...). Uncarded only, and only with >= 3 words (>= 2 for news /
-#     newsletter / magazine), so a two-word "Jane Bank" stays.
+#     newsletter / magazine), so a two-word "Jane bank" stays.
 _ORG_STRONG_RE = re.compile(
     r"\b(official|ltd|limited|inc|llc|plc|gmbh|corp|corporation|solutions|"
     r"group|university|institute|foundation|association|council|academy|"

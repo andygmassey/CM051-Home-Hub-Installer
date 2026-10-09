@@ -1150,21 +1150,21 @@ class BusinessShapedNameFilterTests(unittest.TestCase):
     list. SYNTHETIC names only. Conservative: a real person must survive."""
 
     BUSINESS = [
-        "Acme Official", "Acme Hk Official", "Zed Official Store",
-        "Acme Swimming Gear Store", "Acme Home Goods Shop",
-        "Acme Trading Ltd", "Acme Trading Limited", "Acme Holdings Inc",
-        "Acme Support Team", "Acme Customer Service", "Acme noreply",
+        "Acme official", "Acme hk official", "Zed official store",
+        "Acme swimming gear store", "Acme home goods shop",
+        "Acme trading ltd", "Acme trading limited", "Acme holdings inc",
+        "Acme support team", "Acme customer service", "Acme noreply",
         "acme no-reply",
         # round 2: probe ORG_MARKERS shapes
-        "Acme Cloud Solutions", "Acme Holdings Group", "Acme Daily News",
-        "Acme Fan Club Hk", "Acme Savings Bank Hk", "Acme Alumni Team",
-        "Acme Technology University", "Acme Gear Store Hk",
+        "Acme cloud solutions", "Acme holdings group", "Acme daily news",
+        "Acme fan club hk", "Acme savings bank hk", "Acme alumni team",
+        "Acme technology university", "Acme gear store hk",
     ]
     PERSONS = [
-        "Jane Store", "Peter Shop", "Tom Hk", "Hk Lee", "Mary Storey",
-        "Sam Shopland", "Li Wei Hk", "Ann Team", "Jane Limitedton",
-        "Store Johnson", "Jane Bank", "Tom Club", "Sue Card",
-        "Alan Support", "Pat Research", "Jane Doe", "John Smith",
+        "Jane store", "Sam shop", "Tom hk", "Hk lee", "Mary storey",
+        "Sam shopland", "Li wei hk", "Ana team", "Jane limitedton",
+        "Store smith", "Jane bank", "Tom club", "Liz card",
+        "Alex support", "Sam research", "Jane doe", "John smith",
     ]
 
     def test_business_shapes_are_filtered(self) -> None:
@@ -1178,13 +1178,13 @@ class BusinessShapedNameFilterTests(unittest.TestCase):
     def test_end_to_end_strong_org_word_hidden_even_when_carded(self) -> None:
         card = "00000000-0000-0000-0000-0000000000f1:ABPerson"
         points = [
-            _point("b1", "Acme Hk Official"),
-            _point("b2", "Acme Swimming Gear Store"),
-            _point("c1", "Carded Brand Official", icloud_uid=card),
-            _point("c2", "Carded Person Jr", icloud_uid=card + "2"),
-            _point("c3", "Carded Tom Club", icloud_uid=card + "3"),
-            _point("p1", "Jane Store"),
-            _point("p2", "Tom Hk"),
+            _point("b1", "Acme hk official"),
+            _point("b2", "Acme swimming gear store"),
+            _point("c1", "Carded brand official", icloud_uid=card),
+            _point("c2", "Carded person jr", icloud_uid=card + "2"),
+            _point("c3", "Carded tom club", icloud_uid=card + "3"),
+            _point("p1", "Jane store"),
+            _point("p2", "Tom hk"),
         ]
 
         def fake_urlopen(*_a, **_k):
@@ -1197,5 +1197,5 @@ class BusinessShapedNameFilterTests(unittest.TestCase):
                 status, body = h.get("/api/v1/people?sort=recency")
         names = {r["name"] for r in body["people"]}
         self.assertEqual(
-            names, {"Carded Person Jr", "Carded Tom Club", "Jane Store", "Tom Hk"},
+            names, {"Carded person jr", "Carded tom club", "Jane store", "Tom hk"},
             body)

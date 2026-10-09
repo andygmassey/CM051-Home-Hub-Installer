@@ -787,8 +787,8 @@ Tree `cm041/assistant_api`, same file. Matches CM041 #206, pre-merge head
 the squash sha on merge). The ical-server.py hunks applied unchanged.
 
 Walk #14 measured 33 of 7,815 Hub People rows that were businesses or
-automated senders ("<brand> Official", "<x> Swimming Gear Store",
-"<x> Hk Official"). Added `_is_business_shaped_name` and one call from
+automated senders ("<brand> official", "<x> swimming gear store",
+"<x> hk official"). Added `_is_business_shaped_name` and one call from
 `_is_automated_or_service_name`: corporate last word (official, ltd, limited,
 inc, ...) after at least one word; retail last word (store, shop, ...) only
 with three or more words; support/customer-service team endings; noreply.
