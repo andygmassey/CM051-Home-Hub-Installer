@@ -22,7 +22,7 @@
 #   all   -> no banned claim, no generic advice, no dash, within the budget
 #
 # CANNOT-RUN, never PASS: sender not installed (INSTALL_MEETING_BRIEF_LAUNCHAGENT
-# is false by default), the installed binary has no `meeting-brief` command, the
+# defaults true from cut #16; false is the opt-out), the installed binary has no `meeting-brief` command, the
 # seed did not land and read back, or the Hub is unreachable.
 set -u
 . "$(dirname "$0")/../lib/probe.sh"

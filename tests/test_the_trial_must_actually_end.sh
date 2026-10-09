@@ -450,7 +450,7 @@ vendor/cm048_pipeline/src/processor.py|def process(|the pwg-convo enrichment eng
 vendor/cm048_pipeline/src/reminders_push.py|def apply_push_status_to_todos(|Apple Reminders push. Has a demo_mode short-circuit to mirror.
 vendor/ostler_fda/extract_all.py|def run_all(|calendar pulls AND photo intelligence, hourly under com.ostler.fda-rerun.
 vendor/imessage_bridge/bin/bridge.py|def poll_once(|the live iMessage/SMS chat bridge (KeepAlive), separate from the 15-minute bundle tick.
-vendor/cm041/meeting_syncer/brief.py|def pre_meeting_brief(|pre-meeting brief. Shipped disabled (INSTALL_MEETING_BRIEF_LAUNCHAGENT defaults false), so gate it before it is switched on.
+vendor/cm041/meeting_syncer/brief.py|def pre_meeting_brief(|pre-meeting brief helper. INSTALL_MEETING_BRIEF_LAUNCHAGENT defaults true from cut #16; the shipped sender composes via the assistant binary, not this function, so it is still ungated and must be gated before any tick calls it.
 "
 
 remaining=0

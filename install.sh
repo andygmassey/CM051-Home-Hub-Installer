@@ -23921,13 +23921,16 @@ fi
 # code path on the ostler-assistant side via the assistant's
 # announcement REST API (no Rust changes required in v1.0).
 #
-# Feature-flagged OFF for v1.0: the Hub endpoint
-# /api/v1/meeting/upcoming and the assistant's /announce target
-# do not exist yet. The agent would silently exit 0 on every poll
-# and never deliver a brief. v1.0.1 will ship both endpoints and
-# flip INSTALL_MEETING_BRIEF_LAUNCHAGENT=true.
+# ON by default from cut #16 (Andy's decision: ship briefs, flag ON).
+# Both endpoints now exist: the Hub serves /api/v1/meeting/upcoming
+# and the daemon gateway serves /announce, which resolves the
+# recipient from the owner's own brief delivery address (the
+# morning-brief cron job's delivery.to). The text is composed by the
+# assistant binary's grounded `meeting-brief` command; the walk probe
+# meeting_brief_text_is_grounded is BLOCKING on what is sent.
+# INSTALL_MEETING_BRIEF_LAUNCHAGENT=false remains the operator opt-out.
 
-INSTALL_MEETING_BRIEF_LAUNCHAGENT="${INSTALL_MEETING_BRIEF_LAUNCHAGENT:-false}"
+INSTALL_MEETING_BRIEF_LAUNCHAGENT="${INSTALL_MEETING_BRIEF_LAUNCHAGENT:-true}"
 if [ "$INSTALL_MEETING_BRIEF_LAUNCHAGENT" = "true" ]; then
 cat > "${OSTLER_DIR}/bin/ostler-meeting-brief-sender" <<'BRIEFEOF'
 #!/usr/bin/env bash
@@ -23943,7 +23946,10 @@ STATE_DIR="${OSTLER_DIR}/state"
 SENT_DB="${STATE_DIR}/sent_briefs.db"
 LOG_FILE="${OSTLER_DIR}/logs/meeting-brief-sender.log"
 HUB_HOST="${OSTLER_HUB_HOST:-http://localhost:8089}"
-ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://localhost:8090}"
+# /announce is served by the daemon gateway, pinned to :8000 by CX-59
+# ([gateway] port = 8000 in the config this installer writes). :8090 was
+# never the gateway, so the old default posted every brief into nothing.
+ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://localhost:8000}"
 WITHIN_MINUTES="${OSTLER_BRIEF_WITHIN_MINUTES:-20}"
 
 mkdir -p "${STATE_DIR}" "$(dirname "${LOG_FILE}")"
