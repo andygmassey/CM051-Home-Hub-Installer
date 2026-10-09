@@ -159,8 +159,11 @@ def judge(f):
     elif chat.get("answered") is not True:
         add(DECLARED[2], None, "NOT MEASURED: the chat gave no complete answer ({})".format(chat.get("error", "no reply")))
     else:
+        wl = d.get("work_names_seed_org")
+        where = "" if wl is None else "; the digest's Work line {} it".format("DOES name" if wl else "does NOT name")
         add(DECLARED[2], chat.get("names_seed_org") is True,
-            "reply {} the seed organisation (reply text withheld)".format("names" if chat.get("names_seed_org") else "does NOT name"))
+            "reply {} the seed organisation (reply text withheld){}".format(
+                "names" if chat.get("names_seed_org") else "does NOT name", where))
 
     names = [n for n, _, _ in out]
     missing = [x for x in DECLARED if x not in names]
@@ -358,6 +361,12 @@ def box_main(argv):
     except IOError:
         text = ""
     facts["digest"] = digest_facts(text)
+    # Which half failed, when the chat does not name the seed: the digest's own
+    # Work line either carries it (the assistant had it and did not use it) or
+    # does not (it never reached the digest). A yes/no, never the line itself.
+    orgs = work_orgs(sections(text).get(ABOUT_YOU)) or []
+    facts["digest"]["work_names_seed_org"] = (
+        bool(seed_org) and any(seed_org.lower() == o.strip().lower() for o in orgs))
     facts["stores"] = measure_stores()
     if facts["seed_state"] == "seeded" and facts["hydrated"] and seed_org:
         facts["chat"] = ask_chat("Where have I worked?", seed_org)
