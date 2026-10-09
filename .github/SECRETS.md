@@ -45,6 +45,9 @@ General `andygmassey` automation. Also the cross-org read of the private
 `ostler-ai/ostler-assistant` gateway source and the client repos for
 `hub-contract.yml` (`contract-is-current`, `client-pin-drift`).
 **Without it:** those two jobs exit CANNOT-RUN (red), never a silent pass.
+**Measured 2026-10-09 (run 37884444666):** it can NOT read the contents of
+`ostler-ai/ostler-assistant` (checkout answers "Not Found"), so both jobs are
+red until it, or a replacement, is granted Contents: read there.
 **NOT usable for publishing to `ostler-ai`:** measured refused 2026-08-20.
 
 ### OSTLER_SIGNING_CERT_P12 / OSTLER_SIGNING_CERT_PASSWORD
