@@ -25464,8 +25464,8 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>/api/safari/ingest,/api/safari/save,/api/v1/browsing/search,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert,/api/v1/contacts/diff</string>
         <!-- The Doctor's tokenless loopback-read fallback (vendor/doctor/agent/
              proxy.py _local_fallback_allowed) is OFF on every install. Port
-             8089 is tailscale-served as raw TCP (install.sh, "tailscale serve
-             --tcp=8089"), so every device on the owner's tailnet arrives as
+             8089 is tailscale-served as raw TCP (install.sh, tailscale serve on
+             tcp 8089), so every device on the owner's tailnet arrives as
              127.0.0.1. With the fallback on, a gateway regression that made
              /internal/validate-bearer answer 404 or 405 would silently give
              those devices token-less reads of owner data. Every supported Hub
