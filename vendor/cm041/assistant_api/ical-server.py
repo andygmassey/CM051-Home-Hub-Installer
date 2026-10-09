@@ -3246,6 +3246,294 @@ _ASSERT_SEARCH_BUDGET_S = float(
 )
 
 
+# The level every user-asserted fact is written at (see the PersonFact block
+# in _assert_resolve_and_write). The spool records it per row and the
+# resolver writes the recorded value, so a spooled fact can never be
+# written at a lower level than the request would have written it.
+_ASSERT_PRIVACY_LEVEL = "L1"
+_ASSERT_PRIVACY_LEVELS = ("L0", "L1", "L2", "L3")
+
+# Spooled assertions: SQLCipher with the installed DB key, exactly like
+# MEMORY_CORRECTIONS_DB (_memory_corrections_connect). A spooled row holds a
+# personal fact, so it does not sit in plaintext JSON.
+ASSERT_SPOOL_DB = Path(os.environ.get(
+    "ASSERT_SPOOL_DB",
+    str(PWG_HOME / "memory" / "assert_spool.db"),
+))
+ASSERT_SPOOL_SWEEP_SECONDS = float(
+    os.environ.get("OSTLER_ASSERT_SPOOL_SWEEP_S", "20")
+)
+ASSERT_SPOOL_RESOLVE_BUDGET_S = float(
+    os.environ.get("OSTLER_ASSERT_SPOOL_RESOLVE_BUDGET_S", "30")
+)
+_ASSERT_SPOOL_LOCK = threading.Lock()
+_ASSERT_SPOOL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS assert_spool (
+    spool_id      TEXT PRIMARY KEY,
+    subject       TEXT,
+    fact_text     TEXT,
+    relationship  TEXT,
+    asserted_via  TEXT,
+    privacy_level TEXT NOT NULL,
+    asserted_at   TEXT NOT NULL,
+    fact_id       TEXT NOT NULL,
+    person_id     TEXT NOT NULL,
+    state         TEXT NOT NULL DEFAULT 'pending',
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    last_reason   TEXT,
+    person_uri    TEXT,
+    person_slug   TEXT,
+    created_person INTEGER,
+    created_at    TEXT NOT NULL,
+    resolved_at   TEXT
+)
+"""
+
+
+def _assert_spool_connect():
+    """Open the spool DB the way _memory_corrections_connect opens its own."""
+    ASSERT_SPOOL_DB.parent.mkdir(parents=True, exist_ok=True)
+    db_path = str(ASSERT_SPOOL_DB)
+    if _ENCRYPTION_KEY:
+        conn = _secure_connect(db_path, _ENCRYPTION_KEY)
+    else:
+        _warn_plaintext_once(db_path)
+        conn = sqlite3.connect(db_path)
+    try:
+        os.chmod(db_path, 0o600)
+    except OSError:
+        pass
+    conn.execute(_ASSERT_SPOOL_SCHEMA)
+    conn.commit()
+    return conn
+
+
+# Counts-only status for the Doctor, which cannot open the encrypted spool.
+# Home-derived like subscription_state.json, the file the Doctor already reads.
+ASSERT_SPOOL_STATUS = Path(os.environ.get(
+    "ASSERT_SPOOL_STATUS",
+    os.path.join(os.path.expanduser("~"), ".ostler", "state",
+                 "assert_spool_status.json"),
+))
+
+
+def _write_assert_spool_status(conn):
+    """Write {pending, needs_disambiguation, oldest_*} for the Doctor.
+
+    Numbers and timestamps only: never a name, a fact or a spool id. Written
+    after every spool and every sweep, so a parked fact can never be silent.
+    """
+    rows = conn.execute(
+        "SELECT state, COUNT(*), MIN(created_at) FROM assert_spool "
+        "WHERE state IN ('pending', 'needs_disambiguation') GROUP BY state"
+    ).fetchall()
+    got = {r[0]: (r[1], r[2]) for r in rows}
+    status = {
+        "pending": got.get("pending", (0, None))[0],
+        "oldest_pending_at": got.get("pending", (0, None))[1],
+        "needs_disambiguation": got.get("needs_disambiguation", (0, None))[0],
+        "oldest_parked_at": got.get("needs_disambiguation", (0, None))[1],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    ASSERT_SPOOL_STATUS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ASSERT_SPOOL_STATUS.with_suffix(".json.tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(status, fh)
+    os.replace(str(tmp), str(ASSERT_SPOOL_STATUS))
+    return status
+
+
+def _spool_assertion(subject, fact_text, relationship, asserted_via,
+                     privacy_level, asserted_at):
+    """Durably record an assertion the resolver must attach later.
+
+    The fact id and a person id are minted HERE, once, so every later
+    resolver pass writes the same triples. Returns (spool_id, fact_id).
+    """
+    if privacy_level not in _ASSERT_PRIVACY_LEVELS:
+        raise ValueError("unknown privacy level")
+    spool_id = "spool_" + uuid.uuid4().hex
+    fact_id = "fact_" + uuid.uuid4().hex[:12]
+    person_id = uuid.uuid4().hex[:12]
+    conn = _assert_spool_connect()
+    try:
+        conn.execute(
+            "INSERT INTO assert_spool (spool_id, subject, fact_text, "
+            "relationship, asserted_via, privacy_level, asserted_at, fact_id, "
+            "person_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (spool_id, subject, fact_text, relationship, asserted_via,
+             privacy_level, asserted_at.isoformat(), fact_id, person_id,
+             datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        try:
+            _write_assert_spool_status(conn)
+        except Exception:
+            pass  # the row is durable; the next sweep rewrites the status
+    finally:
+        conn.close()
+    return spool_id, fact_id
+
+
+def _assert_fact_person(fact_id):
+    """The person a written fact is about, or None if it is not written."""
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?p WHERE {{ <{ns}{fid}> a pwg:PersonFact ; '
+        'pwg:aboutPerson ?p . }} LIMIT 1'.format(ns=PWG_NS, fid=fact_id)
+    )
+    return rows[0].get("p") if rows else None
+
+
+def _assert_spool_sweep(budget=None, limit=50):
+    """One resolver pass over pending spooled assertions.
+
+    EXACTLY ONCE: before writing, ask the graph whether this row's fact URI
+    is already there (a pass that wrote it and died before marking the row
+    done). If it is, only the row is closed. Otherwise the row goes through
+    _assert_resolve_and_write with its spooled ids, timestamp and level.
+    Single-flight. Counts only, never names or facts.
+    """
+    from datetime import timezone
+    if budget is None:
+        budget = ASSERT_SPOOL_RESOLVE_BUDGET_S
+    counts = {"pending": 0, "written": 0, "already": 0, "still_pending": 0,
+              "needs_disambiguation": 0, "failed": 0}
+    if not _ASSERT_SPOOL_LOCK.acquire(blocking=False):
+        counts["skipped"] = 1
+        return counts
+    try:
+        if not ASSERT_SPOOL_DB.exists():
+            return counts
+        conn = _assert_spool_connect()
+        try:
+            rows = conn.execute(
+                "SELECT spool_id, subject, fact_text, relationship, "
+                "asserted_via, privacy_level, asserted_at, fact_id, person_id "
+                "FROM assert_spool WHERE state = 'pending' "
+                "ORDER BY created_at LIMIT ?", (limit,)
+            ).fetchall()
+            counts["pending"] = len(rows)
+            now_iso = lambda: datetime.now(timezone.utc).isoformat()
+
+            def close(spool_id, person_uri, person_slug, created=None):
+                conn.execute(
+                    "UPDATE assert_spool SET state = 'done', person_uri = ?, "
+                    "person_slug = ?, created_person = ?, resolved_at = ?, "
+                    "subject = NULL, fact_text = NULL "
+                    "WHERE spool_id = ? AND state = 'pending'",
+                    (person_uri, person_slug, created, now_iso(), spool_id))
+                conn.commit()
+
+            for r in rows:
+                (spool_id, subject, fact_text, relationship, asserted_via,
+                 level, asserted_at, fact_id, person_id) = tuple(r)
+                try:
+                    existing = _assert_fact_person(fact_id)
+                except Exception:
+                    counts["failed"] += 1
+                    continue
+                if existing:
+                    close(spool_id, existing, _wiki_slug(subject or ""))
+                    counts["already"] += 1
+                    continue
+                body, status = _assert_resolve_and_write(
+                    subject, fact_text, relationship, asserted_via,
+                    now=datetime.fromisoformat(asserted_at), budget=budget,
+                    spool_on_timeout=False, fact_id=fact_id,
+                    person_id=person_id, privacy_level=level,
+                )
+                if status == 200 and body.get("status") in ("stored", "created_person"):
+                    close(spool_id, body.get("person_uri"),
+                          body.get("person_slug"),
+                          1 if body.get("status") == "created_person" else 0)
+                    counts["written"] += 1
+                elif body.get("status") == "needs_disambiguation":
+                    # Two plausible people. Not guessed: kept, with the
+                    # candidates, for the assistant or the owner to settle.
+                    conn.execute(
+                        "UPDATE assert_spool SET state = "
+                        "'needs_disambiguation', last_reason = ? "
+                        "WHERE spool_id = ?",
+                        (json.dumps(body.get("candidates") or []), spool_id))
+                    conn.commit()
+                    counts["needs_disambiguation"] += 1
+                else:
+                    conn.execute(
+                        "UPDATE assert_spool SET attempts = attempts + 1, "
+                        "last_reason = ? WHERE spool_id = ?",
+                        (str(body.get("reason") or body.get("status"))[:200],
+                         spool_id))
+                    conn.commit()
+                    counts["still_pending" if status == 0 else "failed"] += 1
+            try:
+                _write_assert_spool_status(conn)
+            except Exception as exc:
+                print("[memory/assert] spool status not written: %s"
+                      % type(exc).__name__, file=sys.stderr, flush=True)
+        finally:
+            conn.close()
+        return counts
+    finally:
+        _ASSERT_SPOOL_LOCK.release()
+
+
+def _assert_spool_loop():
+    time_mod = __import__("time")
+    # Let the server settle first; a restart resumes from the DB.
+    time_mod.sleep(float(os.environ.get("OSTLER_ASSERT_SPOOL_FIRST_SWEEP_S", "10")))
+    while True:
+        try:
+            c = _assert_spool_sweep()
+            if c.get("pending"):
+                print("[memory/assert] spool sweep %s" % json.dumps(c),
+                      file=sys.stderr, flush=True)
+        except Exception as exc:  # never let the resolver die
+            print(f"[memory/assert] spool sweep error: {type(exc).__name__}",
+                  file=sys.stderr, flush=True)
+        time_mod.sleep(ASSERT_SPOOL_SWEEP_SECONDS)
+
+
+def _start_assert_spool_thread():
+    """Start the spooled-assertion resolver. Idempotent per process."""
+    if getattr(_start_assert_spool_thread, "_started", False):
+        return None
+    _start_assert_spool_thread._started = True
+    t = threading.Thread(target=_assert_spool_loop,
+                         name="assert-spool", daemon=True)
+    t.start()
+    return t
+
+
+def api_memory_assert_pending(spool_id):
+    """GET /api/v1/memory/assert/pending/<spool_id>: where a spooled fact is.
+
+    No names or fact text: state, attempts, and once written the person.
+    A pending row kicks one background sweep (single-flight)."""
+    if not re.fullmatch(r"spool_[0-9a-f]{32}", spool_id or ""):
+        return {"error": "unknown spool id"}, 404
+    if not ASSERT_SPOOL_DB.exists():
+        return {"error": "unknown spool id"}, 404
+    conn = _assert_spool_connect()
+    try:
+        row = conn.execute(
+            "SELECT state, attempts, fact_id, person_uri, person_slug, "
+            "created_person FROM assert_spool WHERE spool_id = ?", (spool_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return {"error": "unknown spool id"}, 404
+    state, attempts, fact_id, person_uri, person_slug, created = tuple(row)
+    if state == "pending":
+        threading.Thread(target=_assert_spool_sweep, daemon=True).start()
+    return {"spool_id": spool_id, "state": state, "attempts": attempts,
+            "fact_id": fact_id, "person_uri": person_uri,
+            "person_slug": person_slug,
+            "created_person": None if created is None else bool(created)}, 200
+
+
 def _is_timeout(exc):
     """True when *exc* is a timeout, raised directly or wrapped by urllib."""
     if isinstance(exc, TimeoutError):
@@ -3475,14 +3763,35 @@ def api_memory_assert(payload, now=None):
         _log_assert_request(raw_payload, payload, missing="asserted_via")
         return err, 400
 
+    return _assert_resolve_and_write(
+        subject, fact_text, relationship, asserted_via, now=now,
+        budget=_ASSERT_SEARCH_BUDGET_S, spool_on_timeout=True,
+    )
+
+
+def _assert_resolve_and_write(subject, fact_text, relationship, asserted_via,
+                              now=None, budget=None, spool_on_timeout=True,
+                              fact_id=None, person_id=None,
+                              privacy_level=_ASSERT_PRIVACY_LEVEL):
+    """Steps 2-5 of api_memory_assert: resolve the person, then write.
+
+    Shared by the request handler and the spool resolver so a spooled
+    assertion lands through exactly the code a live one does. The resolver
+    passes the spooled ``fact_id``, ``person_id``, ``now`` and
+    ``privacy_level`` so a re-run writes the SAME triples (RDF set semantics
+    make that a no-op) and the level recorded at request time is the level
+    written, never a default.
+    """
+    from datetime import timezone
+    if budget is None:
+        budget = _ASSERT_SEARCH_BUDGET_S
+
     # 2. Identity-resolve `subject` via people_search, inside a budget.
     import time as _time
     _t0 = _time.monotonic()
     search_timed_out = False
     try:
-        search = people_search(
-            subject, limit=5, timeout=_ASSERT_SEARCH_BUDGET_S
-        )
+        search = people_search(subject, limit=5, timeout=budget)
     except Exception as exc:
         if not _is_timeout(exc):
             return {
@@ -3495,7 +3804,7 @@ def api_memory_assert(payload, now=None):
     # L1-safe: a duration and a flag, never the subject.
     print(
         "[memory/assert] identity search %.2fs (budget %ss, timed_out=%s)"
-        % (_time.monotonic() - _t0, _ASSERT_SEARCH_BUDGET_S, search_timed_out),
+        % (_time.monotonic() - _t0, budget, search_timed_out),
         file=sys.stderr, flush=True,
     )
 
@@ -3560,26 +3869,49 @@ def api_memory_assert(payload, now=None):
             person_slug = _wiki_slug(subject)
 
     # The search ran out of time and no node carries this exact name. Minting
-    # now would skip the duplicate check the search exists for, so answer
-    # promptly and retryably instead. Nothing has been written.
+    # now would skip the duplicate check the search exists for. The request
+    # path SPOOLS the assertion (encrypted at rest, like every other personal
+    # store here) and answers 202; the resolver attaches it when the model is
+    # free. The resolver path just reports that it is still pending.
     if person_uri is None and search_timed_out:
+        if not spool_on_timeout:
+            return {"status": "still_pending",
+                    "reason": "identity_search_timeout"}, 0
+        try:
+            spool_id, spooled_fact_id = _spool_assertion(
+                subject, fact_text, relationship, asserted_via,
+                privacy_level, now or datetime.now(timezone.utc),
+            )
+        except Exception as exc:
+            return {
+                "status": "error",
+                "degraded": True,
+                "reason": (
+                    "identity_resolution_timeout: the people search did not "
+                    "answer within %ss and the assertion could not be "
+                    "spooled (%s); nothing was saved, retry shortly"
+                    % (budget, type(exc).__name__)
+                ),
+                "retry_after_seconds": 30,
+            }, 503
+        print("[memory/assert] spooled for the resolver (accepted_pending)",
+              file=sys.stderr, flush=True)
         return {
-            "status": "error",
-            "degraded": True,
-            "reason": (
-                "identity_resolution_timeout: the people search did not "
-                "answer within %ss (the local model is busy); nothing was "
-                "written, retry shortly" % _ASSERT_SEARCH_BUDGET_S
-            ),
-            "retry_after_seconds": 30,
-        }, 503
+            "status": "accepted_pending",
+            "spool_id": spool_id,
+            "fact_id": spooled_fact_id,
+            "status_url": "/api/v1/memory/assert/pending/" + spool_id,
+        }, 202
 
     # Genuinely unknown: mint. A strong search hit whose name no longer
     # resolves in Oxigraph (stale Qdrant point) lands here too -- better a
     # fresh node than a dropped fact.
     if person_uri is None:
         created_person = True
-        person_uri, _person_id = _mint_person_uri()
+        if person_id:
+            person_uri = f"{PWG_NS}person_{person_id}"
+        else:
+            person_uri, _person_id = _mint_person_uri()
         person_slug = _wiki_slug(subject)
 
     now = now or datetime.now(timezone.utc)
@@ -3588,7 +3920,7 @@ def api_memory_assert(payload, now=None):
     # 3. Build the SPARQL UPDATE. Mint a uuid fact id (shape matches the
     # existing fact_<hex> ids the readers expect). All user strings are
     # escaped via _sparql_escape_literal -- the single injection defence.
-    fact_id = "fact_" + uuid.uuid4().hex[:12]
+    fact_id = fact_id or ("fact_" + uuid.uuid4().hex[:12])
     fact_uri = f"{PWG_NS}{fact_id}"
 
     esc_subject = _sparql_escape_literal(subject)
@@ -3624,7 +3956,7 @@ def api_memory_assert(payload, now=None):
         f'    pwg:aboutPerson <{person_uri}> ;\n'
         f'    pwg:factText "{esc_fact}" ;\n'
         f'    pwg:factSource "user_asserted" ;\n'
-        f'    pwg:privacyLevel "L1" ;\n'
+        f'    pwg:privacyLevel "{privacy_level}" ;\n'
         f'    pwg:factConfidence "1.0"^^xsd:decimal ;\n'
         f'    pwg:confidence "1.0"^^xsd:decimal ;\n'
         f'    pwg:authoritative true ;\n'
@@ -10355,6 +10687,18 @@ class Handler(BaseHTTPRequestHandler):
         # v1.0 LB). Never 5xx -- api_memory_list returns the degraded
         # shape on any upstream failure so the iOS Memory tab can pick
         # between empty-state and degraded-banner UX.
+        if parsed.path.startswith("/api/v1/memory/assert/pending/"):
+            try:
+                result, status = api_memory_assert_pending(
+                    parsed.path.rsplit("/", 1)[-1])
+            except Exception as exc:
+                result, status = {"error": type(exc).__name__}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/api/v1/memory":
             try:
                 result = api_memory_list()
@@ -11106,6 +11450,9 @@ if __name__ == "__main__":
     ThreadingHTTPServer.daemon_threads = True
     # v1.0.107 #11: failed conversations are retried on a backoff, never lost.
     _start_conversation_retry_thread()
+    # Spooled memory/assert facts: attached when the model is free, and a
+    # restart resumes them from the encrypted spool.
+    _start_assert_spool_thread()
     # Lane 6: resume any spooled page-summary jobs left by a restart.
     try:
         _enrich_queue()

@@ -134,6 +134,9 @@ EMBED_MODEL="${OSTLER_PROBE_EMBED_MODEL:-nomic-embed-text}"
 TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-\$HOME/.ostler/secrets/service_token}"
 COLLECTION="${OSTLER_PROBE_COLLECTION:-people}"
 HTTP_TIMEOUT="${OSTLER_PROBE_HTTP_TIMEOUT:-15}"
+# How long a spooled seed (202 accepted_pending) may take to be attached by
+# the Hub's resolver, which sweeps every 20s and on each status poll.
+SPOOL_WAIT="${OSTLER_PROBE_SPOOL_WAIT:-180}"
 EMBED_TIMEOUT="${OSTLER_PROBE_EMBED_TIMEOUT:-30}"
 
 # THE STORE CREDENTIAL (#574). Since #550/#1222 the stores REQUIRE auth: Qdrant
@@ -549,6 +552,24 @@ try:
     d = json.load(open(body))
 except Exception:
     print("ERR||unparseable seed response (HTTP %s)" % code); raise SystemExit
+# 202 accepted_pending: the Hub spooled the assertion because the local model
+# was busy. It is not yet in the graph; the caller polls the status route
+# (never re-posts) and judges what the resolver reports.
+if code == "202" and d.get("status") == "accepted_pending" and d.get("spool_id"):
+    print("PENDING|%s|%s" % (d["spool_id"], d.get("status_url") or ""))
+    raise SystemExit
+# The resolver's verdict on a spooled seed, from GET .../assert/pending/<id>.
+if code == "spooled":
+    if d.get("state") != "done":
+        print("ERR||spooled seed is %r after the wait (attempts=%s), never attached"
+              % (d.get("state"), d.get("attempts")))
+        raise SystemExit
+    if d.get("created_person") is not True:
+        print("ERR||spooled seed attached to an existing person (created_person=%r), expected a mint"
+              % d.get("created_person"))
+        raise SystemExit
+    print("OK|%s|%s" % (d.get("person_slug") or "", d.get("person_uri") or ""))
+    raise SystemExit
 if code != "200":
     reason = d.get("reason") or d.get("error") or d.get("status") or "unknown"
     print("ERR||seed refused HTTP %s (%s)" % (code, reason)); raise SystemExit
@@ -949,6 +970,22 @@ PY
     ASSERTIONS=$((ASSERTIONS + 1))
     guard_transport "$code" "${API_BASE}/api/v1/memory/assert" "LEG A seeding"
     seed_info="$(judge_seed "${out}.body" "$code")"
+    if [ "$(printf '%s' "$seed_info" | cut -d'|' -f1)" = "PENDING" ]; then
+        # Spooled while the model was busy. Poll the status route; the POST is
+        # NOT repeated, so the fact can only land once.
+        local sid waited=0 pout="${TMP}/pending.out"
+        sid="$(printf '%s' "$seed_info" | cut -d'|' -f2)"
+        note "memory/assert answered 202 accepted_pending (spool ${sid}); polling for up to ${SPOOL_WAIT}s"
+        while :; do
+            box_http GET "${API_BASE}/api/v1/memory/assert/pending/${sid}" auth "$pout"
+            guard_transport "$(http_code_of "$pout")" "${API_BASE}/api/v1/memory/assert/pending/${sid}" "LEG A spooled seed"
+            if ! grep -q '"state": "pending"' "${pout}.body" 2>/dev/null || [ "$waited" -ge "$SPOOL_WAIT" ]; then
+                break
+            fi
+            sleep 5; waited=$((waited + 5))
+        done
+        seed_info="$(judge_seed "${pout}.body" spooled)"
+    fi
     SEED_STATUS="$(printf '%s' "$seed_info" | cut -d'|' -f1)"
     A_REAL_SLUG="$(printf '%s' "$seed_info" | cut -d'|' -f2)"
     A_URI="$(printf '%s' "$seed_info" | cut -d'|' -f3)"
@@ -1224,7 +1261,7 @@ run_probe() {
 self_test() {
     local body r
 
-    probe_examined "fixtures=15" "synthetic API responses adjudicated by the live judges (no box touched)"
+    probe_examined "fixtures=19" "synthetic API responses adjudicated by the live judges (no box touched)"
 
     # 0. IDENTITY. The daemon's SPA catch-all returns 200 text/html for a path
     #    it does not implement; the assistant API returns JSON with
@@ -1362,6 +1399,34 @@ PY
         verdict_pass "NEGATIVE CONTROL DID NOT FIRE: a seed that did not mint a person adjudicated as '${r%%|*}'."
     fi
 
+    # 11b. A spooled seed the resolver never attached, and one it attached to
+    #      an EXISTING person, must not read as a seed. The honest done+minted
+    #      shape must (positive control for the same judge).
+    body="${TMP}/st_spool_pending.json"
+    printf '%s' '{"state": "pending", "attempts": 9}' > "$body"
+    r="$(judge_seed "$body" spooled)"
+    if [ "${r%%|*}" != "ERR" ]; then
+        verdict_pass "NEGATIVE CONTROL DID NOT FIRE: a spooled seed still pending after the wait adjudicated as '${r%%|*}'."
+    fi
+    body="${TMP}/st_spool_attached.json"
+    printf '%s' '{"state": "done", "created_person": false, "person_uri": "urn:x", "person_slug": "x"}' > "$body"
+    r="$(judge_seed "$body" spooled)"
+    if [ "${r%%|*}" != "ERR" ]; then
+        verdict_pass "NEGATIVE CONTROL DID NOT FIRE: a spooled seed attached to an existing person adjudicated as '${r%%|*}'."
+    fi
+    body="${TMP}/st_spool_done.json"
+    printf '%s' '{"state": "done", "created_person": true, "person_uri": "urn:x", "person_slug": "x"}' > "$body"
+    r="$(judge_seed "$body" spooled)"
+    if [ "${r%%|*}" != "OK" ]; then
+        verdict_pass "SELF-TEST BROKEN: an honest spooled-and-minted seed adjudicated as '${r%%|*}'."
+    fi
+    body="${TMP}/st_spool_202.json"
+    printf '%s' '{"status": "accepted_pending", "spool_id": "spool_x", "status_url": "/u"}' > "$body"
+    r="$(judge_seed "$body" 202)"
+    if [ "${r%%|*}" != "PENDING" ]; then
+        verdict_pass "SELF-TEST BROKEN: a 202 accepted_pending seed adjudicated as '${r%%|*}', not PENDING."
+    fi
+
     # 12. A people collection whose vector config cannot be read at all.
     body="${TMP}/st_vec.json"
     printf '%s' '{"result": {}}' > "$body"
@@ -1370,7 +1435,7 @@ PY
         verdict_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable vector config adjudicated as '${r}'."
     fi
 
-    verdict_fail "negative control fired on all 15 fixtures (wrong-process identity, degraded-200 on both legs, found:false, wrong uri, wrong+masked name, 401-is-not-absence, empty search, false hit, store down, non-minting seed, unreadable vector config) and left the honest response green"
+    verdict_fail "negative control fired on all 19 fixtures (wrong-process identity, degraded-200 on both legs, found:false, wrong uri, wrong+masked name, 401-is-not-absence, empty search, false hit, store down, non-minting seed, spooled seed never attached or attached to an existing person, unreadable vector config; the honest spooled and 202 shapes stay green) and left the honest response green"
 }
 
 probe_main "$@"

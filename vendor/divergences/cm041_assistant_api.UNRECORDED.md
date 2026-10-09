@@ -825,3 +825,36 @@ All of the above until the pin passes the CM041 #208 merge. Guarded by
 `tests/test_memory_assert_answers_inside_the_probe_timeout.py` (workflow
 `memory-assert-answers-under-load.yml`): 3 of 4 fail on the pre-graft server,
 4 of 4 pass with it. Retire by re-pinning past the CM041 merge.
+
+## cm041/assistant_api: memory/assert spools on budget exhaustion (CM051 walk #15 follow-up, CM041 spool PR)
+
+Tree `cm041/assistant_api`, file `ical-server.py`. Graft of the CM041 branch
+`fix/memory-assert-spool` (one script applied to both copies), stacked on the
+#208 budget graft above.
+
+Location and shape. `api_memory_assert` keeps validation and hands steps 2-5
+to a new `_assert_resolve_and_write(..., budget, spool_on_timeout, fact_id,
+person_id, privacy_level)`. On budget exhaustion with no exact-name match the
+request path calls `_spool_assertion` and answers 202 `accepted_pending`
+(spool_id, fact_id, status_url) instead of 503. New beside the budget
+constants: `_ASSERT_PRIVACY_LEVEL`, `ASSERT_SPOOL_DB` (SQLCipher via
+`_secure_connect` and the installed key, as `_memory_corrections_connect`),
+`_assert_spool_connect`, `_spool_assertion`, `_assert_fact_person`,
+`_assert_spool_sweep` (single-flight; ASK the fact URI first so a re-run is a
+no-op; writes the spooled ids, timestamp and level), `_assert_spool_loop`,
+`_start_assert_spool_thread` (started in main beside the Lane 6 worker), and
+`api_memory_assert_pending` behind GET `/api/v1/memory/assert/pending/<id>`.
+The PersonFact level is written from the parameter (default "L1", unchanged).
+
+### What a future sync must preserve
+
+All of the above until the pin passes the CM041 spool merge. Guarded by
+`tests/test_memory_assert_answers_inside_the_probe_timeout.py`: 3 of 6 fail on
+the budget-only server, 6 of 6 pass with it; mutants (resolver drops the
+spooled fact_id; level hardcoded) each go red.
+
+Extended for the Doctor surface (same PR): `ASSERT_SPOOL_STATUS` and
+`_write_assert_spool_status` (counts and timestamps only, 0600, written after
+every spool and every sweep), and the sweep closes a row as done only for a
+`stored` / `created_person` answer, so a `needs_disambiguation` 200 parks the
+row instead of closing it.

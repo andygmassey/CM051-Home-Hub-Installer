@@ -892,3 +892,26 @@ LICENCE_ENDED_FIX = (
     "again within a minute. Nothing needs restoring."
 )
 LICENCE_ENDED_FIX_COMMAND = None
+
+
+# ── saved facts not yet linked to a person (CM041 #209) ──────────────
+PARKED_FACTS_TITLE_FMT = "{n} saved fact{s} need you to say who they are about"
+PARKED_FACTS_DETAIL = (
+    "Your assistant saved these facts, but more than one person in your "
+    "contacts matched, so it has not guessed. They are kept safely and are "
+    "not lost."
+)
+PARKED_FACTS_FIX = (
+    "Tell your assistant the fact again using the person's full name, and it "
+    "will link it to the right person."
+)
+PENDING_FACTS_TITLE_FMT = "{n} saved fact{s} still waiting to be linked"
+PENDING_FACTS_DETAIL = (
+    "Your assistant saved these facts while it was busy and has not yet "
+    "linked them to a person. They are kept safely; this usually clears on "
+    "its own once the assistant is idle."
+)
+PENDING_FACTS_FIX = (
+    "Leave the assistant idle for a few minutes. If this stays, restart the "
+    "Assistant API from Doctor."
+)
