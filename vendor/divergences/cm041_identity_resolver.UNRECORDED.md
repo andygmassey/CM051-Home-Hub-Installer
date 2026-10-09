@@ -80,3 +80,21 @@ Recorded here, not as a patch, for the same reason as the assistant_api
 grafts above. Retire by landing CM041 PR #191 and re-pinning (which should
 also regenerate `cm041_identity_resolver.patch` from a checkout at the new
 pin, folding this note back into the normal patch-tracked history).
+
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+
+Tree `cm041/identity_resolver`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: calls in `resolver.py` `merge_persons`, `batch_resolver.py` `_merge_oxigraph` and `repair_merge_consistency.py` `repair` before each `retirement.retire_update` (type removal of the discard). `repair_lid_as_phone.py` and both `canonicalise_display_name` paths replace a name in one update and remove no one, so they are deliberately not audited.
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+

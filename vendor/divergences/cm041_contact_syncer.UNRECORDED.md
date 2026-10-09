@@ -204,3 +204,21 @@ The `is_possible_phone` import and the three gate checks listed above.
 Guarded by `tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py`
 (CM051 repo root, mirroring CM041 PR #186's own test suite). Retire by
 landing CM041 #186 and re-pinning.
+
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+
+Tree `cm041/contact_syncer`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: one call in `syncer.py` `_update_person_oxigraph` when an incoming blank name will delete displayName with nothing replacing it (reason `blank_incoming_name_deleted_displayName`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
