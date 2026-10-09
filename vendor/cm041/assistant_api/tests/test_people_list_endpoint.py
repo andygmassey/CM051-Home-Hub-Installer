@@ -1143,3 +1143,51 @@ class TestPeopleListNeverShowsAnInternalIdAsAPhone(unittest.TestCase):
         self.assertFalse(server._displayable_phone(""))
         self.assertFalse(server._displayable_phone(None))
         self.assertTrue(server._displayable_phone(self.REAL))
+
+
+class BusinessShapedNameFilterTests(unittest.TestCase):
+    """Cut #15 (walk #14): business / automated-sender shapes in the People
+    list. SYNTHETIC names only. Conservative: a real person must survive."""
+
+    BUSINESS = [
+        "Acme Official", "Acme Hk Official", "Zed Official Store",
+        "Acme Swimming Gear Store", "Acme Home Goods Shop",
+        "Acme Trading Ltd", "Acme Trading Limited", "Acme Holdings Inc",
+        "Acme Support Team", "Acme Customer Service", "Acme noreply",
+        "acme no-reply",
+    ]
+    PERSONS = [
+        "Jane Store", "Peter Shop", "Tom Hk", "Hk Lee", "Mary Storey",
+        "Sam Shopland", "Li Wei Hk", "Ann Team", "Jane Limitedton",
+        "Store Johnson", "Official Smith", "Jane Doe", "John Smith",
+    ]
+
+    def test_business_shapes_are_filtered(self) -> None:
+        for n in self.BUSINESS:
+            self.assertTrue(server._is_automated_or_service_name(n), n)
+
+    def test_control_person_shapes_are_kept(self) -> None:
+        for n in self.PERSONS:
+            self.assertFalse(server._is_automated_or_service_name(n), n)
+
+    def test_end_to_end_uncarded_hidden_carded_kept_persons_kept(self) -> None:
+        card = "00000000-0000-0000-0000-0000000000f1:ABPerson"
+        points = [
+            _point("b1", "Acme Hk Official"),
+            _point("b2", "Acme Swimming Gear Store"),
+            _point("c1", "Carded Brand Official", icloud_uid=card),
+            _point("p1", "Jane Store"),
+            _point("p2", "Tom Hk"),
+        ]
+
+        def fake_urlopen(*_a, **_k):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+        names = {r["name"] for r in body["people"]}
+        self.assertEqual(
+            names, {"Carded Brand Official", "Jane Store", "Tom Hk"}, body)

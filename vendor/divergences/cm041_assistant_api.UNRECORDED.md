@@ -779,3 +779,25 @@ the Row class of the module that made the connection. Edits:
 (unfixed: 3 failed, control passed; fixed: 4 passed), run on a real sqlcipher3
 connection by `.github/workflows/db-key-delivery-and-recovery.yml`. Retire by
 re-pinning.
+
+## Seventeenth graft: People list hides business-shaped names (CM051 cut #15, walk #14)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #206, pre-merge head
+`732e95783081efbd381acbe1030f5a4386e47ebc` (acked in `hold_ack_shas`; swap for
+the squash sha on merge). The ical-server.py hunks applied unchanged.
+
+Walk #14 measured 33 of 7,815 Hub People rows that were businesses or
+automated senders ("<brand> Official", "<x> Swimming Gear Store",
+"<x> Hk Official"). Added `_is_business_shaped_name` and one call from
+`_is_automated_or_service_name`: corporate last word (official, ltd, limited,
+inc, ...) after at least one word; retail last word (store, shop, ...) only
+with three or more words; support/customer-service team endings; noreply.
+Uncarded records only (existing Contacts-card gate). "HK" alone is never a
+signal. Read-side only.
+
+### What a future sync must preserve
+
+`_BUSINESS_*` constants, `_is_business_shaped_name`, and its call in
+`_is_automated_or_service_name`. Guarded by
+`vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
+`BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.

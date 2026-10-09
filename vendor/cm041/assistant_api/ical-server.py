@@ -634,6 +634,48 @@ def _is_service_mailbox_name(display_name):
     return False
 
 
+# Cut #15 (walk #14): 33 of 7,815 people-list rows were businesses or
+# automated senders ("<brand> Official", "<x> Swimming Gear Store",
+# "<x> Hk Official"). None trip the vocabulary above. CONSERVATIVE by
+# design: false positives hide real people, so no single common word is
+# ever enough on its own. Shapes, anchored on the LAST word:
+#   1. an unmistakably corporate last word ("official", legal suffixes)
+#      after at least one other word;
+#   2. a retail last word ("store", "shop", ...) after at least TWO other
+#      words -- a two-word "Jane Store" stays a person (surname-like);
+#   3. a role-team ending ("support team", "customer service") or a
+#      no-reply token anywhere.
+# Like its siblings this applies ONLY to uncarded records; a Contacts card
+# outranks every shape heuristic. "HK" alone is NEVER a signal.
+_BUSINESS_LAST_WORDS = frozenset({
+    "official", "ltd", "limited", "inc", "llc", "plc", "gmbh", "corp",
+    "corporation", "pte",
+})
+_BUSINESS_RETAIL_LAST_WORDS = frozenset({
+    "store", "stores", "shop", "shops", "outlet", "outlets", "boutique",
+    "mall",
+})
+_BUSINESS_ROLE_TEAM_RE = re.compile(
+    r"\b(support|sales|billing|help\s*desk|helpdesk|marketing|service|"
+    r"customer\s+(?:service|care|support))\s+team$|"
+    r"\bcustomer\s+(?:service|care|support)$|"
+    r"\bno[-_ ]?reply\b|\bdo[-_ ]?not[-_ ]?reply\b", re.I)
+
+
+def _is_business_shaped_name(display_name):
+    """True when the name ends in a business-shaped token. See the block
+    comment above for the shapes and why each is anchored."""
+    words = (display_name or "").split()
+    if len(words) < 2:
+        return False
+    last = words[-1].strip(".,;:()[]").lower()
+    if last in _BUSINESS_LAST_WORDS:
+        return True
+    if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
+        return True
+    return bool(_BUSINESS_ROLE_TEAM_RE.search(" ".join(words)))
+
+
 def _is_automated_or_service_name(display_name):
     """True when ``display_name`` SHAPE reads as a company/service/
     notification sender -- shapes ``_is_nameless_name`` does not cover.
@@ -713,6 +755,8 @@ def _is_automated_or_service_name(display_name):
     if _SERVICE_NAME_PHRASE_RE.search(name):
         return True
     if _MARKETPLACE_BRAND_RE.search(name):
+        return True
+    if _is_business_shaped_name(name):
         return True
     return False
 
