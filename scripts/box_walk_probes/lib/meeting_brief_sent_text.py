@@ -25,14 +25,14 @@ edges are replaced so nothing real is messaged:
     WhatsApp-ing anyone.
 
 THREE CONTACTS, ONE BEHAVIOUR EACH (graded on the sent text)
-  Mira Okonkwo   rich     names the LAST TOPIC (a logged meeting summary) and an
+  Alexandra Patel   rich     names the LAST TOPIC (a logged meeting summary) and an
                           OPEN PROMISE (a todo the owner owes). The Hub supplies
                           no mutual-contact field, so no "people in common" line
                           may appear: a claim the Hub cannot back is a defect.
-  Corin Vasquez  none     a contact with NO logged meetings. The text must say
+  Philip Coe  none     a contact with NO logged meetings. The text must say
                           "no meetings logged" and must never say "first
                           meeting" or any inference from absence.
-  Jules Marlowe  thin     a name and an address only. The text must be short and
+  Catherine Stewart  thin     a name and an address only. The text must be short and
                           say there is little on file, with no padding.
   ALL                     no banned phrase, no em or en dash, no generic advice,
                           none of the old shape's "With:/Wiki:/Open:" lines,
@@ -111,12 +111,12 @@ def judge(facts):
     thin = (by_uid.get("walk-fixture-brief-2") or {}).get("message", "")
     check("[rich] names the last topic: 'Lisbon workshop budget review'",
           "lisbon workshop budget review" in rich.lower())
-    check("[rich] names the open promise the owner owes: 'Send Mira the workshop deck'",
-          "send mira the workshop deck" in rich.lower() and "you owe" in rich.lower())
-    check("[rich] says who she is: Fernwood Labs", "fernwood labs" in rich.lower())
+    check("[rich] names the open promise the owner owes: 'Share the workshop deck with Alexandra'",
+          "share the workshop deck with alexandra" in rich.lower() and "you owe" in rich.lower())
+    check("[rich] says who she is: Acme Corp", "acme corp" in rich.lower())
     check("[none] says 'no meetings logged', the truth, and not an inference",
           "no meetings logged" in none.lower())
-    check("[none] says who they are: Northwind Studio", "northwind studio" in none.lower())
+    check("[none] says who they are: Globex Corp", "globex corp" in none.lower())
     check("[thin] says there is little on file", "little else on file" in thin.lower()
           or "little on file" in thin.lower())
     # The thin contact's own part of the message is the text after the header.
@@ -144,18 +144,18 @@ def report(facts):
 GOOD = {
     "announces": [
         {"meeting_uid": "walk-fixture-brief-0", "kind": "meeting_brief", "message":
-         "Meeting: Catch up with Mira at 10:00.\n\n"
-         "Mira Okonkwo, Head of Design at Fernwood Labs: former client, met via a design conference, 2 meetings logged.\n"
+         "Meeting: Catch up with Alexandra at 10:00.\n\n"
+         "Alexandra Patel, Head of Design at Acme Corp: former client, met via a design conference, 2 meetings logged.\n"
          "Last contact 18 Jun 2026 (conversation).\nLast meeting 21 May 2026: Lisbon workshop budget review.\n"
-         "You owe: Send Mira the workshop deck (due 2030-01-31).\n"
-         "On file: Moved to Fernwood Labs in January.\n"
-         "Worth raising: the open item (Send Mira the workshop deck); follow up on Lisbon workshop budget review."},
+         "You owe: Share the workshop deck with Alexandra (due 2030-01-31).\n"
+         "On file: Moved to Acme Corp in January.\n"
+         "Worth raising: the open item (Share the workshop deck with Alexandra); follow up on Lisbon workshop budget review."},
         {"meeting_uid": "walk-fixture-brief-1", "kind": "meeting_brief", "message":
-         "Meeting: Catch up with Corin at 10:00.\n\n"
-         "Corin Vasquez, at Northwind Studio: client, no meetings logged.\nLast contact 31 May 2026 (whatsapp)."},
+         "Meeting: Catch up with Philip at 10:00.\n\n"
+         "Philip Coe, at Globex Corp: client, no meetings logged.\nLast contact 31 May 2026 (whatsapp)."},
         {"meeting_uid": "walk-fixture-brief-2", "kind": "meeting_brief", "message":
-         "Meeting: Catch up with Jules at 10:00.\n\n"
-         "Jules Marlowe.\nLittle else on file, so nothing more to add."},
+         "Meeting: Catch up with Catherine at 10:00.\n\n"
+         "Catherine Stewart.\nLittle else on file, so nothing more to add."},
     ]
 }
 
@@ -175,25 +175,25 @@ def _set(i, text):
 
 MUTANTS = {
     "the OLD brief: first face-to-face meeting inferred from absence (rich)":
-        _set(0, "Meeting: Catch up with Mira at 10:00.\nWith: Mira Okonkwo.\nPlease remember this is your first face-to-face meeting. A warm welcome would be appropriate."),
+        _set(0, "Meeting: Catch up with Alexandra at 10:00.\nWith: Alexandra Patel.\nPlease remember this is your first face-to-face meeting. A warm welcome would be appropriate."),
     "none says 'first meeting' instead of 'no meetings logged'":
-        _set(1, "Meeting: Catch up with Corin at 10:00.\n\nCorin Vasquez, at Northwind Studio: this is your first meeting with Corin."),
+        _set(1, "Meeting: Catch up with Philip at 10:00.\n\nPhilip Coe, at Globex Corp: this is your first meeting with Philip."),
     "none drops the 'no meetings logged' truth":
-        _set(1, "Meeting: Catch up with Corin at 10:00.\n\nCorin Vasquez, at Northwind Studio: client."),
+        _set(1, "Meeting: Catch up with Philip at 10:00.\n\nPhilip Coe, at Globex Corp: client."),
     "rich loses the last topic":
         _set(0, GOOD["announces"][0]["message"].replace("Lisbon workshop budget review", "a recent catch-up")),
     "rich loses the open promise":
-        _set(0, GOOD["announces"][0]["message"].replace("You owe: Send Mira the workshop deck (due 2030-01-31).\n", "")),
+        _set(0, GOOD["announces"][0]["message"].replace("You owe: Share the workshop deck with Alexandra (due 2030-01-31).\n", "")),
     "rich invents a mutual contact the Hub cannot supply":
-        _set(0, GOOD["announces"][0]["message"] + "\nPeople in common: Tomas Reyes."),
+        _set(0, GOOD["announces"][0]["message"] + "\nPeople in common: Raj Brown."),
     "thin is padded with generic advice":
-        _set(2, "Meeting: Catch up with Jules at 10:00.\n\nJules Marlowe.\nLittle else on file. Be sure to make a good impression and ask about their weekend."),
+        _set(2, "Meeting: Catch up with Catherine at 10:00.\n\nCatherine Stewart.\nLittle else on file. Be sure to make a good impression and ask about their weekend."),
     "thin does not say it is thin":
-        _set(2, "Meeting: Catch up with Jules at 10:00.\n\nJules Marlowe."),
+        _set(2, "Meeting: Catch up with Catherine at 10:00.\n\nCatherine Stewart."),
     "an em dash in the sent text":
         _set(1, GOOD["announces"][1]["message"].replace("no meetings logged", "no meetings logged \u2014 noted")),
     "the old With:/Wiki: shape":
-        _set(2, "Meeting: Catch up with Jules at 10:00.\nWith: Jules Marlowe.\nWiki: http://x/People/jules/\nLittle else on file."),
+        _set(2, "Meeting: Catch up with Catherine at 10:00.\nWith: Catherine Stewart.\nWiki: http://x/People/catherine/\nLittle else on file."),
     "a message over the word budget":
         _set(2, GOOD["announces"][2]["message"] + " filler" * 200),
 }
@@ -307,13 +307,13 @@ def box():
         if not ctx.get("found"):
             return cannot("the seed was written but the Hub does not find %s; this is a harness failure, not a product verdict" % seed.RICH["name"])
 
-        todos = [{"text": "Send Mira the workshop deck", "owner": "user", "owner_display": "Sam",
+        todos = [{"text": "Share the workshop deck with Alexandra", "owner": "user", "owner_display": "Sam",
                   "deadline": "2030-01-31", "priority": "", "source_conversation_date": ""}]
 
         def meeting(i, person, att_todos):
             return {"meeting": "Catch up with " + person["name"].split()[0], "start": "10:00",
                     "start_iso": "2099-01-01T10:00:0%d+00:00" % i, "uid": "walk-fixture-brief-%d" % i,
-                    "location": "Harbour Cafe",
+                    "location": "Riverside Town",
                     "attendees": [{"name": person["name"], "email": person["email"],
                                    "wiki_url": "http://wiki.invalid/People/%s/" % person["slug"],
                                    "outstanding_todos": att_todos}]}

@@ -166,7 +166,7 @@ def main():
 
                 print("-- 1 control: the harness can see people and their absence --")
                 check("a seeded person is found", ctx(seed.RICH["name"]).get("found") is True)
-                check("an unseeded name is reported not found", ctx("Nobody Atall").get("found") is False)
+                check("an unseeded name is reported not found", ctx("Some Person").get("found") is False)
                 try:
                     urllib.request.urlopen(hub.url + "/api/v1/people/context?name=x", timeout=5)
                     check("CONTROL: the Hub refuses a request with no service token", False)
@@ -233,7 +233,7 @@ def main():
                 by_uid = {s["meeting_uid"]: s["message"] for s in sent}
                 rich_msg = by_uid.get("fixture-uid-0", "")
                 check("the SENT text is the composer's text, not the old client-side render",
-                      "BRIEF-FOR Mira Okonkwo slug=mira-okonkwo todos=2" in rich_msg, rich_msg)
+                      "BRIEF-FOR Alexandra Patel slug=alexandra-patel todos=2" in rich_msg, rich_msg)
                 check("the old text is gone (no 'With:' / 'Wiki:' / 'Open:' lines)",
                       not any(re.search(r"^(With|Wiki|Last chat|Open|Location):", s["message"], re.M) for s in sent))
                 check("the Hub answered the sender's authenticated call (not 'no meetings in window')",

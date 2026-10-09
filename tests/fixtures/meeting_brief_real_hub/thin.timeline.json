@@ -3,10 +3,10 @@
   "events": [],
   "found": true,
   "person": {
-    "name": "Jules Marlowe",
-    "person_uri": "urn:ostler-walk-fixture:jules",
-    "slug": "jules-marlowe",
-    "wiki_url": "http://wiki.example/People/jules-marlowe/"
+    "name": "Catherine Stewart",
+    "person_uri": "urn:ostler-walk-fixture:catherine",
+    "slug": "catherine-stewart",
+    "wiki_url": "http://wiki.example/People/catherine-stewart/"
   },
-  "slug": "jules-marlowe"
+  "slug": "catherine-stewart"
 }

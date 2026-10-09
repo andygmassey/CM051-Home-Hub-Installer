@@ -111,7 +111,7 @@ class RealHub:
             "OXIGRAPH_URL": f"http://127.0.0.1:{self.shim_port}",
             "WIKI_BASE_URL": "http://wiki.example",
             "USER_ID": "fixtureowner",
-            "USER_NAME": "Sam Fixture",
+            "USER_NAME": "Sam Smith",
             "OSTLER_SERVICE_TOKEN": self.TOKEN,
             "OWNER_EMAILS": "sam@fixture.example",
             "HOME": os.environ.get("RH_HOME", "/tmp"),

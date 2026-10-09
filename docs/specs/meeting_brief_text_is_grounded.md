@@ -32,7 +32,7 @@ The assertions below are on the sent text, and "zero announces" is a FAIL.
      `~/.ostler/secrets/service_token`) and a Hub answers `/health`.
 2. Seed three fictional contacts into the box graph through Oxigraph's update
    endpoint (default graph only), then PROVE the seed readable through the Hub
-   (`/api/v1/people/context?name=Mira%20Okonkwo` returns `found: true`). A seed
+   (`/api/v1/people/context?name=Alexandra%20Patel` returns `found: true`). A seed
    that did not land is a harness failure and is CANNOT-RUN, not a product FAIL.
 3. Start a loopback shim. It answers `GET /api/v1/meeting/upcoming` with three
    meetings whose single attendees are the three contacts (a walk box has no
@@ -57,12 +57,12 @@ The assertions below are on the sent text, and "zero announces" is a FAIL.
 | each | no em dash or en dash |
 | each | none of the old shape's `With:`, `Wiki:`, `Last chat:`, `Open:`, `Location:` lines |
 | each | within 150 words |
-| rich (Mira Okonkwo) | names the last topic: `Lisbon workshop budget review` |
-| rich | names the open promise the owner owes: `You owe: Send Mira the workshop deck` |
-| rich | says who she is: `Fernwood Labs` |
-| none (Corin Vasquez) | says `no meetings logged` |
-| none | says who they are: `Northwind Studio` |
-| thin (Jules Marlowe) | says there is little on file, and the contact's own part is under 40 words |
+| rich (Alexandra Patel) | names the last topic: `Lisbon workshop budget review` |
+| rich | names the open promise the owner owes: `You owe: Share the workshop deck with Alexandra` |
+| rich | says who she is: `Acme Corp` |
+| none (Philip Coe) | says `no meetings logged` |
+| none | says who they are: `Globex Corp` |
+| thin (Catherine Stewart) | says there is little on file, and the contact's own part is under 40 words |
 
 The rich contact has no mutual-contact line on purpose: the Hub exposes no such
 field (see the field table in the PR), so any `people in common` or `mutual`

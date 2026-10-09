@@ -1,13 +1,13 @@
 {
-  "email": "mira@fixture.example",
+  "email": "alexandra@fixture.example",
   "facts": [
-    "Moved to Fernwood Labs in January"
+    "Moved to Acme Corp in January"
   ],
   "last_discussion_id": "conv-1",
   "last_discussion_url": "http://wiki.example/Conversations/conv-1/",
   "last_met": "2026-05-21",
-  "name": "Mira Okonkwo",
-  "organization": "Fernwood Labs",
+  "name": "Alexandra Patel",
+  "organization": "Acme Corp",
   "outstanding_todos": [
     {
       "deadline": "",
@@ -23,10 +23,10 @@
       "owner_display": "Sam",
       "priority": "",
       "source_conversation_date": "",
-      "text": "Send Mira the workshop deck"
+      "text": "Share the workshop deck with Alexandra"
     }
   ],
   "relationship": "former client",
   "times_met": 2,
-  "wiki_url": "http://wiki.example/People/mira-okonkwo/"
+  "wiki_url": "http://wiki.example/People/alexandra-patel/"
 }

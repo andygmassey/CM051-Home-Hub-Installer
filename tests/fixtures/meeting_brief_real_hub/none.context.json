@@ -3,30 +3,30 @@
   "identifiers": [
     {
       "type": "email",
-      "value": "corin@fixture.example"
+      "value": "philip@fixture.example"
     }
   ],
   "last_contact": "2026-05-31",
-  "name": "Corin Vasquez",
-  "organisation": "Northwind Studio",
+  "name": "Philip Coe",
+  "organisation": "Globex Corp",
   "person": {
     "identifiers": [
       {
         "type": "email",
-        "value": "corin@fixture.example"
+        "value": "philip@fixture.example"
       }
     ],
     "last_contact": "2026-05-31",
-    "name": "Corin Vasquez",
-    "organisation": "Northwind Studio",
-    "person_uri": "urn:ostler-walk-fixture:corin",
+    "name": "Philip Coe",
+    "organisation": "Globex Corp",
+    "person_uri": "urn:ostler-walk-fixture:philip",
     "relationship": "client",
-    "slug": "corin-vasquez",
-    "wiki_url": "http://wiki.example/People/corin-vasquez/"
+    "slug": "philip-coe",
+    "wiki_url": "http://wiki.example/People/philip-coe/"
   },
-  "person_uri": "urn:ostler-walk-fixture:corin",
-  "query": "Corin Vasquez",
+  "person_uri": "urn:ostler-walk-fixture:philip",
+  "query": "Philip Coe",
   "relationship": "client",
-  "slug": "corin-vasquez",
-  "wiki_url": "http://wiki.example/People/corin-vasquez/"
+  "slug": "philip-coe",
+  "wiki_url": "http://wiki.example/People/philip-coe/"
 }

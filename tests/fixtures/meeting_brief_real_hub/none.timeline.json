@@ -13,10 +13,10 @@
   ],
   "found": true,
   "person": {
-    "name": "Corin Vasquez",
-    "person_uri": "urn:ostler-walk-fixture:corin",
-    "slug": "corin-vasquez",
-    "wiki_url": "http://wiki.example/People/corin-vasquez/"
+    "name": "Philip Coe",
+    "person_uri": "urn:ostler-walk-fixture:philip",
+    "slug": "philip-coe",
+    "wiki_url": "http://wiki.example/People/philip-coe/"
   },
-  "slug": "corin-vasquez"
+  "slug": "philip-coe"
 }

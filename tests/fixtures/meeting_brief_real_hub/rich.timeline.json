@@ -22,7 +22,7 @@
     },
     {
       "channel": "calendar",
-      "location": "Harbour Cafe",
+      "location": "Riverside Town",
       "summary": "Autumn roadmap check-in",
       "title": "Autumn roadmap check-in",
       "type": "meeting",
@@ -32,10 +32,10 @@
   ],
   "found": true,
   "person": {
-    "name": "Mira Okonkwo",
-    "person_uri": "urn:ostler-walk-fixture:mira",
-    "slug": "mira-okonkwo",
-    "wiki_url": "http://wiki.example/People/mira-okonkwo/"
+    "name": "Alexandra Patel",
+    "person_uri": "urn:ostler-walk-fixture:alexandra",
+    "slug": "alexandra-patel",
+    "wiki_url": "http://wiki.example/People/alexandra-patel/"
   },
-  "slug": "mira-okonkwo"
+  "slug": "alexandra-patel"
 }

@@ -1,13 +1,13 @@
 {
   "facts": [
-    "Moved to Fernwood Labs in January"
+    "Moved to Acme Corp in January"
   ],
   "found": true,
   "how_we_met": "a design conference",
   "identifiers": [
     {
       "type": "email",
-      "value": "mira@fixture.example"
+      "value": "alexandra@fixture.example"
     }
   ],
   "last_contact": "2026-06-25",
@@ -19,21 +19,21 @@
     },
     {
       "date": "2025-12-12",
-      "location": "Harbour Cafe",
+      "location": "Riverside Town",
       "summary": "Autumn roadmap check-in"
     }
   ],
-  "name": "Mira Okonkwo",
-  "organisation": "Fernwood Labs",
+  "name": "Alexandra Patel",
+  "organisation": "Acme Corp",
   "person": {
     "facts": [
-      "Moved to Fernwood Labs in January"
+      "Moved to Acme Corp in January"
     ],
     "how_we_met": "a design conference",
     "identifiers": [
       {
         "type": "email",
-        "value": "mira@fixture.example"
+        "value": "alexandra@fixture.example"
       }
     ],
     "last_contact": "2026-06-25",
@@ -45,22 +45,22 @@
       },
       {
         "date": "2025-12-12",
-        "location": "Harbour Cafe",
+        "location": "Riverside Town",
         "summary": "Autumn roadmap check-in"
       }
     ],
-    "name": "Mira Okonkwo",
-    "organisation": "Fernwood Labs",
-    "person_uri": "urn:ostler-walk-fixture:mira",
+    "name": "Alexandra Patel",
+    "organisation": "Acme Corp",
+    "person_uri": "urn:ostler-walk-fixture:alexandra",
     "relationship": "former client",
-    "slug": "mira-okonkwo",
+    "slug": "alexandra-patel",
     "title": "Head of Design",
-    "wiki_url": "http://wiki.example/People/mira-okonkwo/"
+    "wiki_url": "http://wiki.example/People/alexandra-patel/"
   },
-  "person_uri": "urn:ostler-walk-fixture:mira",
-  "query": "Mira Okonkwo",
+  "person_uri": "urn:ostler-walk-fixture:alexandra",
+  "query": "Alexandra Patel",
   "relationship": "former client",
-  "slug": "mira-okonkwo",
+  "slug": "alexandra-patel",
   "title": "Head of Design",
-  "wiki_url": "http://wiki.example/People/mira-okonkwo/"
+  "wiki_url": "http://wiki.example/People/alexandra-patel/"
 }
