@@ -518,6 +518,7 @@ test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-pr
 test_region_persist_does_not_leak_a_traceback.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_rehearse_tag_is_the_tag_preflight.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_remote_access_reads_the_installers_tailscale.py	WIRED	.github/workflows/vendor-integrity.yml
+test_remotecapture_pin_is_enforced.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_repair_lid_as_phone_marker_skip.sh	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
 test_repair_lid_as_phone_vendored.py	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
 test_repair_netflix_rating_polarity.py	WIRED	.github/workflows/netflix-polarity-repair.yml
