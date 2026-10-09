@@ -17394,7 +17394,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.5}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.6}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -17507,7 +17507,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="6ceecc8e37ae3e736ac1a5997edb722aa2e152b3b11b1e6133cca8e382056b33"
+DEFAULT_ASSISTANT_TARBALL_SHA256="245e19a594affbc21eff7703a60ed3a1a6572cc420a1818a1155b2c1883cff6a"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -19656,7 +19656,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4ef1672ffca3b9d50c73047fd2bb71070d0b363ff7e817b981bf6a7e19d1010a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:a68356cadecddf153c56df8f75de5b2791f820e0c47341b3034c31ec95ae6e8e
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19700,7 +19700,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:f2db6f8c2eec24e1979203a453c01d9efefcd1051046e49e3dc015f1c97caa2a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:0942d7a7347d78506af11654e99d4db6962195c5b3d1a13ef1d4b9dbb58d1d05
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -21328,7 +21328,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.5"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.6"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -22592,6 +22592,14 @@ fi
 # CM019 tags points by user slug; prefer an explicit flag, then the
 # installed-user env, then a neutral default.
 CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+# The owner's name for the people graph. contact_syncer.import_all refuses to
+# run without --user-name (exit 2) and its own fallback reads only
+# USER_DISPLAY_NAME / PWG_USER_NAME, while install.sh writes the name into
+# .env as USER_NAME. The Downloads watcher and a hand run pass no flag, so
+# without this every export dropped after install exited 2 before
+# linkedin_career ran, and no career fact was ever written (Ostler cut #14,
+# walks #11-#13: 0 career facts). An explicit --user-name still wins.
+[[ -z "$USER_NAME_ARG" ]] && USER_NAME_ARG="${USER_DISPLAY_NAME:-${PWG_USER_NAME:-${USER_NAME:-}}}"
 
 rc=0
 for d in "${DIRS[@]}"; do
@@ -22706,9 +22714,21 @@ for d in "${DIRS[@]}"; do
     # email-ingest venv (so no ostler_fda) -> the leg is skipped, never
     # an error. universal_import is itself non-crashing (an unknown drop
     # is reported, not raised) so a stray folder cannot fail the import.
+    #
+    # Exit 3 is universal_import's "unknown format" (status unknown), which
+    # every export it has no parser for returns, LinkedIn included. That is
+    # the stray-folder case promised above, so it is not a failure, and it
+    # must not overwrite the code of a step that really failed. Any other
+    # non-zero from this step is a real failure and still fails the run.
     if [[ -x "$UIMPORT_PY" ]]; then
+        urc=0
         ( PYTHONPATH="${UIMPORT_FDA_DIR}:${PYTHONPATH:-}" \
-            "$UIMPORT_PY" -m ostler_fda.universal_import "$d" ) || rc=$?
+            "$UIMPORT_PY" -m ostler_fda.universal_import "$d" ) || urc=$?
+        if [[ "$urc" -eq 3 ]]; then
+            echo "Universal importer: no recognised format in $d (not an error)."
+        elif [[ "$urc" -ne 0 ]]; then
+            rc=$urc
+        fi
     fi
 done
 exit $rc

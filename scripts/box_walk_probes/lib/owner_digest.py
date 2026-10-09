@@ -244,11 +244,32 @@ def measure_stores():
     return out
 
 
+# The hydration phases CONTEXT.md is generated from: contacts (Qdrant people,
+# the top-people section) and graph (Oxigraph, owner facts, organisations and
+# preferences). ai_summaries is wiki prose and conversations is CM048
+# processing; neither feeds the digest. Gating on overall_state instead made
+# walk #11 CANNOT-RUN while both of these were done, because ai_summaries was
+# still running. Phase keys and states are CM041 ical-server.py
+# api_hydration_status().
+DIGEST_PHASES = ("contacts", "graph")
+
+
+def hydration_ready(d):
+    """(ready, detail) from a /api/v1/hydration/status payload. Ready only when
+    every phase in DIGEST_PHASES reports state "done"; a missing phase is not
+    ready. Pure, so the self-test grades it."""
+    if not isinstance(d, dict):
+        return False, "payload is not a JSON object"
+    by_key = {p.get("key"): p.get("state") for p in (d.get("phases") or []) if isinstance(p, dict)}
+    need = ", ".join("{}={}".format(k, by_key.get(k, "absent")) for k in DIGEST_PHASES)
+    detail = "overall={}; {}".format(d.get("overall_state"), need)
+    return all(by_key.get(k) == "done" for k in DIGEST_PHASES), detail
+
+
 def hydration():
     try:
         d = _http("http://127.0.0.1:8089/api/v1/hydration/status", timeout=10)
-        state = d.get("overall_state")
-        return (state in ("complete", "done", "settled") or d.get("complete") is True), state
+        return hydration_ready(d)
     except Exception as exc:
         return False, "unreadable ({})".format(str(exc)[:60])
 
@@ -447,6 +468,25 @@ def self_test():
               (row(silent, 2), [None], "a chat that never answers is CANNOT-RUN")]
     for got, want, label in checks:
         if got != want:
+            fails.append("{}: got {}".format(label, got))
+        else:
+            print("  ok    " + label)
+    # Walk #11: overall_state "running" (ai_summaries still going) while the
+    # phases the digest reads are done must count as hydrated; a digest phase
+    # still pending, or missing, must not.
+    def _ph(**st):
+        return {"overall_state": "running", "phases": [{"key": k, "state": v} for k, v in st.items()]}
+    for payload, want, label in (
+            (_ph(contacts="done", graph="done", ai_summaries="running", conversations="running"), True,
+             "overall running, contacts+graph done: hydrated for the digest"),
+            (_ph(contacts="done", graph="pending", ai_summaries="pending"), False,
+             "graph still pending: not hydrated"),
+            (_ph(contacts="done", ai_summaries="done"), False,
+             "graph phase missing from the payload: not hydrated"),
+            ({"overall_state": "complete"}, False,
+             "overall complete with no phases: not hydrated (the phases are the evidence)")):
+        got = hydration_ready(payload)[0]
+        if got is not want:
             fails.append("{}: got {}".format(label, got))
         else:
             print("  ok    " + label)

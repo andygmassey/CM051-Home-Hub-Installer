@@ -107,6 +107,40 @@ def _poll(uid, token, todo_id, wait_s):
     return {"status": row[0], "calendar_item_identifier": row[1], "skip_reason": row[2], "failure_reason": row[3], "waited_s": waited}
 
 
+# The Reminders (EventKit) grant the DAEMON needs, read from the per-user
+# TCC.db. Three states that mean three different things, and walk #11 showed
+# why they must not be collapsed:
+#   absent  -- no kTCCServiceReminders row for the assistant: the permission
+#              prompt has never been answered (undecided). Only a human at
+#              the console can answer it, so the claim arm is CANNOT-RUN.
+#   denied  -- a row with auth_value 0: someone said no. A real FAIL.
+#   allowed -- auth_value 2 (or 3, limited): granted.
+# Plus "unreadable" (TCC.db could not be opened from this session), which is
+# neither of the above and is reported as such, never as absent.
+TCC_CLIENTS = ("ai.ostler.assistant",)
+_TCC_USER_DB = os.path.expanduser("~/Library/Application Support/com.apple.TCC/TCC.db")
+
+
+def tcc_reminders_state(db_path=None, clients=TCC_CLIENTS):
+    db_path = db_path or os.environ.get("OSTLER_TCC_DB") or _TCC_USER_DB
+    q = "SELECT auth_value FROM access WHERE service='kTCCServiceReminders' AND client IN ({})".format(
+        ",".join("?" * len(clients)))
+    try:
+        conn = sqlite3.connect("file:{}?mode=ro".format(db_path), uri=True, timeout=5.0)
+        rows = conn.execute(q, tuple(clients)).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"state": "unreadable", "error": str(exc)[:160]}
+    if not rows:
+        return {"state": "absent"}
+    vals = [r[0] for r in rows]
+    if any(v in (2, 3) for v in vals):
+        return {"state": "allowed", "auth_value": vals}
+    if any(v == 0 for v in vals):
+        return {"state": "denied", "auth_value": vals}
+    return {"state": "other", "auth_value": vals}
+
+
 _TCC_MARKERS = ("-1743", "not authorized to send apple events", "not allowed to send apple events")
 
 
@@ -138,6 +172,7 @@ def cmd_run(argv):
     if ids:
         uid, todo_id = ids
         facts["push"] = _poll(uid, token, todo_id, wait_s)
+        facts["tcc_reminders"] = tcc_reminders_state()
         if facts["push"].get("status") == "pushed":
             facts["readback"] = _readback(text)
     print(json.dumps(facts))
