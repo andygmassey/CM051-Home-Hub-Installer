@@ -245,6 +245,17 @@ entries:
           # re-reds this gate, which is the property that makes it safe.
           - 3464215ba5  # fix(channels): parallel-dispatch deadline sat below the fixture's own floor [cfg(test) only]
           - d9ea32dd18  # fix(channels): put the parallel-dispatch test on a paused clock [cfg(test) + dev-dependencies only]
+          # (v1.0.107 cut #15, 2026-10-09 Archie) daemon pin hub-v0.5.7 @3140e252. The six commits below are oa #486
+          # (Lane 11/18 gateway routes behind the device bearer, no loopback or service-token
+          # exemption) and oa #490 (optional tailnet QR field, DEFAULT OFF, plus its keyset test).
+          # HELD to cut #16 so #486 ships as one unit with RemoteCapture 0.1.6 and CM051 #2678.
+          # Same decision as scripts/daemon_hold_ack.tsv row 3140e252 (CM051 #2738).
+          - 244b244b31  # gateway: close the Hub route gaps the contract tests found (Lane 11)
+          - b4ab804dc8  # gateway: reject the loopback no-auth exemption for speakers/identify (Lane 18)
+          - b97a5b9bd4  # gateway: remove SERVICE_TOKEN_PATHS; the service token is rejected on the gateway
+          - ec8200f59f  # gateway tests: serve_mock not webauthn-gated (test-only)
+          - 125094c5f5  # feat(pairing): optional hub_tailnet_addr in the pairing QR, default off
+          - 6f5c6d9aac  # test(pairing): default config QR keys equal the spec v1 set (test-only)
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch
@@ -271,6 +282,16 @@ entries:
         - "^docs:"
         - "^chore\\(docs\\)"
         - "^chore\\(release\\)"
+      # (v1.0.107 cut #15, 2026-10-09 Archie) RC pin 0.1.5. 1f47b619 is CM042 #30 (speakers/identify
+      # sends the Hub service token to ical-server :8090). It is HELD to cut #16, where RemoteCapture
+      # 0.1.6 (tag remote-capture-v0.1.6 -> 247fb8fd, CM051 #2735/#2736) ships with oa #486 and #2678
+      # as one unit; #30 alone would call a :8090 route that #15 does not serve.
+      hold_ack:
+        reason: "v1.0.107 cut #15: CM042 #30 (Lane 18 identify via the Hub service token) is HELD to cut #16, shipping as RemoteCapture 0.1.6 together with oa #486 and CM051 #2678. c2deba90 is the 0.1.6 version bump and 247fb8fd its merge. Re-pin to 0.1.6 at #16 retires this."
+        shas:
+          - 1f47b619b4  # speakers/identify: send the Hub service token (Lane 18) (#30)
+          - c2deba9083  # RemoteCapture 0.1.6: version bump
+          - 247fb8fdd9  # Merge pull request #31 (0.1.6 bump)
 
   # Note on wiki-recompile artefacts:
   # CM044's dedupe-decision chrome (dup_decision.js) is EMITTED at wiki
