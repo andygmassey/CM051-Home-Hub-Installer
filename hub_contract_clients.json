@@ -1,0 +1,9 @@
+{
+ "clients": [
+  {"repo": "andygmassey/CM031-PWG-Companion", "dir": "cm031-pwg-companion"},
+  {"repo": "andygmassey/CM042-PWG-Remote-Conversations", "dir": "cm042-pwg-remote-conversations"},
+  {"repo": "andygmassey/safari-history-extension", "dir": "safari-history-extension"},
+  {"repo": "andygmassey/CM052", "dir": "cm052"},
+  {"repo": "andygmassey/CM044-PWG-Personal-Wiki", "dir": "cm044-pwg-personal-wiki"}
+ ]
+}

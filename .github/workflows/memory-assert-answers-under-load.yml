@@ -18,6 +18,8 @@ on:
   pull_request:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
       - 'scripts/box_walk_probes/probes/people_seed_and_retrieval.sh'
       - 'tests/test_memory_assert_answers_inside_the_probe_timeout.py'
       - '.github/workflows/memory-assert-answers-under-load.yml'
@@ -41,6 +43,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: install the server's import-time dependencies and pytest
-        run: python3 -m pip install --quiet cryptography httpx pytest
+        run: python3 -m pip install --quiet cryptography httpx pytest pyoxigraph
       - name: memory/assert answers inside the probe's timeout while the model is busy
         run: python3 -m pytest -v tests/test_memory_assert_answers_inside_the_probe_timeout.py

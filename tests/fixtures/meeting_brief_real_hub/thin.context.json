@@ -1,0 +1,26 @@
+{
+  "found": true,
+  "identifiers": [
+    {
+      "type": "email",
+      "value": "catherine@fixture.example"
+    }
+  ],
+  "name": "Catherine Stewart",
+  "person": {
+    "identifiers": [
+      {
+        "type": "email",
+        "value": "catherine@fixture.example"
+      }
+    ],
+    "name": "Catherine Stewart",
+    "person_uri": "urn:ostler-walk-fixture:catherine",
+    "slug": "catherine-stewart",
+    "wiki_url": "http://wiki.example/People/catherine-stewart/"
+  },
+  "person_uri": "urn:ostler-walk-fixture:catherine",
+  "query": "Catherine Stewart",
+  "slug": "catherine-stewart",
+  "wiki_url": "http://wiki.example/People/catherine-stewart/"
+}

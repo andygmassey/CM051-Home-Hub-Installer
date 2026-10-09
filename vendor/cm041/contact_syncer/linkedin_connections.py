@@ -43,6 +43,7 @@ if _PARENT_DIR not in sys.path:
 
 from contact_syncer import config
 from contact_syncer.relationship_labels import is_relationship_label
+from identity_resolver import forget_tombstone
 from identity_resolver.models import PersonIdentity
 from identity_resolver.normalise import clean_display_name
 from identity_resolver.resolver import IdentityResolver
@@ -156,6 +157,9 @@ def create_person_oxigraph(
     privacy_level: str,
 ) -> None:
     """Create a new Person node in Oxigraph from a LinkedIn connection."""
+    forget_tombstone.guard(
+        forget_tombstone.identity_values(identity), name=identity.display_name
+    )
     now = datetime.now(timezone.utc).isoformat()
     # Use LinkedIn connection date as createdAt, not import time.
     # This gives accurate "First recorded" dates in the wiki.
@@ -753,6 +757,13 @@ def import_connections(
             # won't have iCloud UIDs or phone numbers to match on.
             # LinkedIn URL is the strong identifier when available.
             match = resolver.resolve(identity, use_fuzzy=True)
+
+            # Forgotten (tombstoned) people are never created or enriched.
+            if match and match.match_type == "forgotten":
+                counts["skipped"] += 1
+                if verbose:
+                    print(" -> FORGOTTEN (skipped)")
+                continue
 
             if match and match.person_uri and match.match_type != "new":
                 # Existing person — enrich with LinkedIn data

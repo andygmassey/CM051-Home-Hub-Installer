@@ -32,6 +32,11 @@ from typing import Dict, List, Set, Tuple
 
 import httpx
 
+try:
+    from .person_audit import record_person_removal
+except ImportError:  # run as a script, not as a package
+    from person_audit import record_person_removal
+
 logger = logging.getLogger(__name__)
 
 OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
@@ -195,6 +200,7 @@ def _merge_pair(canonical: str, dupe: str) -> None:
     Written LAST, after both rewrites, because the outbound rewrite deletes
     every ``<dupe> ?p ?o`` -- including a tombstone written before it.
     """
+    record_person_removal(dupe, "ostler_fda.dedupe_merge", "exact_identifier_merge_all_triples_moved")
     # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
     _sparql_update(
         f"DELETE {{ <{dupe}> ?p ?o }} "

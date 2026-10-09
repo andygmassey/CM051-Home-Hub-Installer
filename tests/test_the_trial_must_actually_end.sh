@@ -307,6 +307,64 @@ for w in $WRAPPERS; do
 done
 
 # ---------------------------------------------------------------------
+# Limb C2 -- the pre-meeting brief sender (install.sh heredoc)
+# ---------------------------------------------------------------------
+# Cut #16 ships the sender ON. A pre-meeting brief is a calendar-driven
+# action trigger, which the v1 subscription table puts under Pro, so the
+# sender carries the same Rule 0.8 block as the tick wrappers. It lives in
+# an install.sh heredoc, not a file under vendor/, so it is lifted by its
+# markers from INSIDE the sender heredoc and run against the staged Hub.
+echo "--- Limb C2: the gate block inside the pre-meeting brief sender ---"
+sender="$(awk '/^cat > "\$\{OSTLER_DIR\}\/bin\/ostler-meeting-brief-sender" <<.BRIEFEOF.$/,/^BRIEFEOF$/' install.sh)"
+mb_block="$(printf '%s\n' "$sender" | awk '/^# --- Rule 0\.8: the Ostler Pro subscription gate/,/^# --- end Rule 0\.8 gate/')"
+if [ -z "$sender" ]; then
+    fail "C2" "could not lift the meeting-brief sender heredoc from install.sh by its markers"
+elif [ -z "$mb_block" ]; then
+    fail "C2" "the meeting-brief sender has no Rule 0.8 gate block. It sends Pro briefs to a customer who is not paying."
+else
+    mb_h="$TMPROOT/harness_meeting_brief"
+    {
+        echo 'set -uo pipefail'
+        echo "OSTLER_DIR='$HUB'"
+        echo "PYTHON_BIN='$PY'"
+        echo "LOG_FILE='$TMPROOT/mb.log'"
+        echo "$mb_block"
+        echo 'echo REACHED_THE_PIPELINE'
+    } > "$mb_h"
+    if ! /bin/bash -n "$mb_h"; then
+        fail "C2" "the sender's gate block does not parse under /bin/bash"
+    else
+        install_days_ago 31
+        : > "$TMPROOT/mb.log"
+        out="$(/bin/bash "$mb_h" 2>&1)"
+        if printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE"; then
+            fail "C2" "a pre-meeting brief would be sent to a customer 31 days in who never paid"
+        elif /usr/bin/grep -q "Ostler Pro is not active" "$TMPROOT/mb.log"; then
+            pass "C2" "paused before sending, day 31, never subscribed, and the log says why"
+        else
+            fail "C2" "stopped on day 31 but the log does not say why: $(cat "$TMPROOT/mb.log")"
+        fi
+        install_days_ago 5
+        out="$(/bin/bash "$mb_h" 2>&1)"
+        printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE" \
+            && pass "C2(trial)" "day 5 of the included month: briefs are sent" \
+            || fail "C2(trial)" "a customer inside the included month was stopped: $out"
+        pay_for_pro_until_days_from_now 30
+        out="$(/bin/bash "$mb_h" 2>&1)"
+        printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE" \
+            && pass "C2(paid)" "a paying customer's briefs are sent" \
+            || fail "C2(paid)" "a PAYING customer's briefs were stopped: $out"
+        install_days_ago 31
+        mv "$GATE" "$GATE.hidden"
+        out="$(/bin/bash "$mb_h" 2>&1)"
+        mv "$GATE.hidden" "$GATE"
+        printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE" \
+            && pass "C2(failopen)" "gate module absent: briefs continue and the log says so" \
+            || fail "C2(failopen)" "gate module absent and briefs STOPPED. A packaging mistake must never read as a lapsed subscription."
+    fi
+fi
+
+# ---------------------------------------------------------------------
 # Limb D -- the ical-server ingestion handlers
 # ---------------------------------------------------------------------
 echo "--- Limb D: ical-server ingestion handlers ---"
@@ -432,8 +490,9 @@ fi
 # ---------------------------------------------------------------------
 # Limb F -- the Rule 0.8 remainder, as a ratchet rather than a comment
 # ---------------------------------------------------------------------
-# Rule 0.8 names eleven surfaces. This PR enforces it on six. The other
-# five are listed HERE, by file and symbol, and re-checked on every CI
+# Rule 0.8 names eleven surfaces. Seven are enforced (the pre-meeting brief
+# joined at cut #16, at its sender: Limb C2). The other
+# four are listed HERE, by file and symbol, and re-checked on every CI
 # run, because the alternative is a paragraph in a markdown file that
 # says "tracked" and is read by nobody -- which is what the rule already
 # was for four months.
@@ -450,7 +509,6 @@ vendor/cm048_pipeline/src/processor.py|def process(|the pwg-convo enrichment eng
 vendor/cm048_pipeline/src/reminders_push.py|def apply_push_status_to_todos(|Apple Reminders push. Has a demo_mode short-circuit to mirror.
 vendor/ostler_fda/extract_all.py|def run_all(|calendar pulls AND photo intelligence, hourly under com.ostler.fda-rerun.
 vendor/imessage_bridge/bin/bridge.py|def poll_once(|the live iMessage/SMS chat bridge (KeepAlive), separate from the 15-minute bundle tick.
-vendor/cm041/meeting_syncer/brief.py|def pre_meeting_brief(|pre-meeting brief. Shipped disabled (INSTALL_MEETING_BRIEF_LAUNCHAGENT defaults false), so gate it before it is switched on.
 "
 
 remaining=0
@@ -467,8 +525,7 @@ for entry in \
   "vendor/cm048_pipeline/src/processor.py|def process(" \
   "vendor/cm048_pipeline/src/reminders_push.py|def apply_push_status_to_todos(" \
   "vendor/ostler_fda/extract_all.py|def run_all(" \
-  "vendor/imessage_bridge/bin/bridge.py|def poll_once(" \
-  "vendor/cm041/meeting_syncer/brief.py|def pre_meeting_brief("
+  "vendor/imessage_bridge/bin/bridge.py|def poll_once("
 do
     rf="${entry%%|*}"; rsym="${entry##*|}"
     if [ ! -f "$rf" ]; then
@@ -495,19 +552,19 @@ else
     fail "F:control" "the predicate cannot find is_active_or_grace in wire.py, where it demonstrably is. Every 'UNGATED' verdict above is meaningless."
 fi
 
-echo "  Rule 0.8: 6 of 11 surfaces enforced, $remaining ungated surfaces remain in this repo."
+echo "  Rule 0.8: 7 of 11 surfaces enforced, $remaining ungated surfaces remain in this repo."
 echo "  Two further surfaces (daily briefs, local AI chat about new data) live in"
 echo "  the prebuilt ostler-assistant daemon and CANNOT be gated from this repo:"
 echo "  zero Cargo.toml and zero .rs files here, against 515 .py as a control."
-if [ "$remaining" -ne 5 ]; then
-    fail "F" "expected 5 ungated surfaces, counted $remaining. Update the list deliberately; do not let the number drift."
+if [ "$remaining" -ne 4 ]; then
+    fail "F" "expected 4 ungated surfaces, counted $remaining. Update the list deliberately; do not let the number drift."
 else
-    pass "F" "the remainder is 5, each still present and still ungated"
+    pass "F" "the remainder is 4, each still present and still ungated"
 fi
 
 echo
 if [ "$fails" -eq 0 ]; then
-    echo "ALL PASS: the trial ends, the paid-once rule holds, and six ingestion surfaces stop for an unpaid Hub."
+    echo "ALL PASS: the trial ends, the paid-once rule holds, and seven surfaces stop for an unpaid Hub."
     exit 0
 fi
 echo "$fails check(s) FAILED"

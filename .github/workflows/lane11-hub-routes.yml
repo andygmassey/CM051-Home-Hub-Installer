@@ -1,0 +1,66 @@
+# Lane 11: the Hub routes the phone and the Mac app call that had no server
+# side (speaker naming, chunked conversation upload) and the 401/405/413/
+# traversal matrix over them and over forget. Mirrors CM041 branch
+# claude/lane11-hub-route-gaps.
+#
+# vendor/cm041/assistant_api/tests/ is not collected by any other workflow, so
+# these tests are not wired until a workflow invokes them. This is that
+# workflow, with collected-count floors so a quietly shrinking suite cannot pass.
+name: lane11-hub-routes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/speaker_identify.py'
+      - 'vendor/cm041/assistant_api/conversation_upload.py'
+      - 'vendor/cm041/assistant_api/tests/test_lane11_routes.py'
+      - 'vendor/cm041/assistant_api/tests/test_speaker_identify.py'
+      - 'vendor/cm041/assistant_api/tests/test_conversation_upload.py'
+      - '.github/workflows/lane11-hub-routes.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/speaker_identify.py'
+      - 'vendor/cm041/assistant_api/conversation_upload.py'
+      - 'vendor/cm041/assistant_api/tests/test_lane11_routes.py'
+      - 'vendor/cm041/assistant_api/tests/test_speaker_identify.py'
+      - 'vendor/cm041/assistant_api/tests/test_conversation_upload.py'
+      - '.github/workflows/lane11-hub-routes.yml'
+
+concurrency:
+  group: lane11-hub-routes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install --quiet pytest rapidfuzz phonenumbers httpx fastapi rdflib
+      - name: Route matrix, speaker naming, chunked upload
+        run: |
+          set -eu
+          check() {
+            n="$(python -m pytest "$1" --collect-only -q | grep -cE '::test_')" || n=0
+            echo "$1: collected ${n} test(s)"
+            if [ "${n:-0}" -lt "$2" ]; then
+              echo "REFUSING: expected at least $2 collected tests in $1, got ${n:-0}." >&2
+              exit 1
+            fi
+          }
+          d=vendor/cm041/assistant_api/tests
+          check $d/test_lane11_routes.py 8
+          check $d/test_speaker_identify.py 9
+          check $d/test_conversation_upload.py 8
+          python -m pytest $d/test_lane11_routes.py $d/test_speaker_identify.py $d/test_conversation_upload.py -v

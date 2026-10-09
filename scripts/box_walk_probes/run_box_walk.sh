@@ -571,6 +571,30 @@ FAIL=0
 CANNOT=0
 FAIL_LIST=""
 CANNOT_LIST=""
+# ADVISORY: a probe whose scope row is `advisory` reported a red it is allowed to
+# report without making the walk unclean. Counted and named, never as a FAIL.
+ADVISORY=0
+ADVISORY_LIST=""
+# The scope of a probe from scripts/walk_promote_scope.tsv. FAIL-CLOSED: a missing
+# file, a missing row, or anything but exactly `advisory` is blocking.
+# WHICH PROBES MAY CANNOT-RUN WITHOUT LOSING COVERAGE. An explicit, named list
+# (Archie's policy call): `advisory` in the scope row says a RED does not refuse a
+# promote; it does NOT say an unmeasured probe is fine. converge_kill_is_recorded
+# and assistant_sends_over_whatsapp_and_email are advisory and their CANNOT-RUN
+# stays CANNOT-RUN (rc 3, not clean). owner_knowledge_score is exempt because it
+# refuses, by design, to swap CONTEXT.md on a box carrying real-person data. An
+# exempt probe is honoured only while its row is still `advisory`: flip it to
+# blocking and its CANNOT-RUN is coverage lost again.
+ADVISORY_CANNOT_RUN_EXEMPT="owner_knowledge_score"
+_advisory_cannot_run_exempt() {
+    case " $ADVISORY_CANNOT_RUN_EXEMPT " in *" $1 "*) ;; *) return 1 ;; esac
+    [ "$(_probe_scope "$1")" = "advisory" ]
+}
+_probe_scope() {
+    local f="${OSTLER_PROMOTE_SCOPE_FILE:-$HERE/../walk_promote_scope.tsv}"
+    [ -r "$f" ] || { echo blocking; return 0; }
+    awk -F'\t' -v want="$1" 'substr($0,1,1)=="#"{next} $1==want{print $2; found=1; exit} END{if(!found)print "blocking"}' "$f"
+}
 
 # WHY A PROBE DID NOT RUN, NOT ONLY WHICH ONE DID NOT.
 #
@@ -714,9 +738,24 @@ for p in $PROBES; do
     rc=$?
     printf '%s\n' "$out" | sed 's/^/  /'
 
-    if [ "$rc" -eq 0 ]; then
+    if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^VERDICT: ADVISORY -- ')" -gt 0 ]; then
+        ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
+        _why="$(printf '%s\n' "$out" | awk '/^VERDICT: ADVISORY -- /{sub(/^VERDICT: ADVISORY -- /, ""); print; exit}')"
+        _record_verdict "$b" ADVISORY "$_why"
+    elif [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))
         _record_verdict "$b" PASS ""
+    elif [ "$rc" -eq "$EX_CANNOT_RUN" ] && _advisory_cannot_run_exempt "$b"; then
+        # A NAMED exemption (see ADVISORY_CANNOT_RUN_EXEMPT), not a consequence of
+        # the scope row: this probe could not run, and the walk must not be
+        # unclean for it. Still announced, with the reason, and still in the record.
+        _why="$(printf '%s\n' "$out" \
+                | awk '/^VERDICT: CANNOT-RUN -- /{sub(/^VERDICT: CANNOT-RUN -- /, ""); f=1} f' \
+                | tr '\n' ' ' | sed 's/  */ /g; s/ *$//')"
+        [ -n "$_why" ] || _why="UNRECORDED -- exited ${EX_CANNOT_RUN} with no 'VERDICT: CANNOT-RUN --' line"
+        printf '  VERDICT: ADVISORY (cannot-run: %s)\n' "$_why"
+        ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
+        _record_verdict "$b" ADVISORY "cannot-run: $_why"
     elif [ "$rc" -eq "$EX_CANNOT_RUN" ]; then
         CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
         # Everything from the marker to the END of the probe's output is the
@@ -776,9 +815,15 @@ printf '  PASS        %s\n' "$PASS"
 printf '  FAIL        %s\n' "$FAIL"
 printf '  CANNOT-RUN  %s\n' "$CANNOT"
 printf '  BROKEN      %s\n' "$BROKEN"
+printf '  ADVISORY    %s\n' "$ADVISORY"
 printf '  ----------------\n'
 printf '  of          %s probes\n' "$PROBE_COUNT"
 printf '============================================================\n'
+
+if [ -n "$ADVISORY_LIST" ]; then
+    printf '\nADVISORY (reported, NOT counted as FAIL; the scope row says advisory):\n'
+    for b in $ADVISORY_LIST; do printf '  ADVISORY  %s\n' "$b"; done
+fi
 
 if [ -n "$FAIL_LIST" ]; then
     printf '\nFAILED:\n'

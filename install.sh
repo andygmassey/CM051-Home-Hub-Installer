@@ -23921,32 +23921,132 @@ fi
 # code path on the ostler-assistant side via the assistant's
 # announcement REST API (no Rust changes required in v1.0).
 #
-# Feature-flagged OFF for v1.0: the Hub endpoint
-# /api/v1/meeting/upcoming and the assistant's /announce target
-# do not exist yet. The agent would silently exit 0 on every poll
-# and never deliver a brief. v1.0.1 will ship both endpoints and
-# flip INSTALL_MEETING_BRIEF_LAUNCHAGENT=true.
+# ON by default from cut #16 (Andy's decision: ship briefs, flag ON).
+# Both endpoints now exist: the Hub serves /api/v1/meeting/upcoming
+# and the daemon gateway serves /announce, which resolves the
+# recipient from the owner's own brief delivery address (the
+# morning-brief cron job's delivery.to). The text is composed by the
+# assistant binary's grounded `meeting-brief` command; the walk probe
+# meeting_brief_text_is_grounded is BLOCKING on what is sent.
+# INSTALL_MEETING_BRIEF_LAUNCHAGENT=false remains the operator opt-out.
 
-INSTALL_MEETING_BRIEF_LAUNCHAGENT="${INSTALL_MEETING_BRIEF_LAUNCHAGENT:-false}"
+INSTALL_MEETING_BRIEF_LAUNCHAGENT="${INSTALL_MEETING_BRIEF_LAUNCHAGENT:-true}"
 if [ "$INSTALL_MEETING_BRIEF_LAUNCHAGENT" = "true" ]; then
 cat > "${OSTLER_DIR}/bin/ostler-meeting-brief-sender" <<'BRIEFEOF'
 #!/usr/bin/env bash
-# Poll the Hub's pre-meeting brief endpoint and ship unsent briefs
-# via WhatsApp. Idempotent via a SQLite-backed sent-briefs cache.
+# Poll the Hub's pre-meeting brief endpoint and ship unsent briefs on
+# the owner's configured brief channel (the one the daily brief uses).
+# Idempotent via a SQLite-backed sent-briefs cache.
 #
-# Designed to be safe under launchd: any hard failure exits 0 with
-# a stderr log line so the LaunchAgent does not get throttled.
+# Exit codes are the failure surface. launchd records the last exit code
+# and the Doctor's scheduled-agent rule (diagnostic_rules._SCHEDULED_AGENTS)
+# turns a repeated non-zero into a card naming this job and its .err log:
+#   0   sent, nothing due, quiet hours, or Ostler Pro paused (steady states)
+#   75  CANNOT-DELIVER: at least one due brief was not delivered this tick
+#   78  CANNOT-DELIVER: no brief channel is configured, so none ever can be
+# StartInterval jobs are not throttled for a non-zero exit.
 set -uo pipefail
 
 OSTLER_DIR="${HOME}/.ostler"
 STATE_DIR="${OSTLER_DIR}/state"
 SENT_DB="${STATE_DIR}/sent_briefs.db"
 LOG_FILE="${OSTLER_DIR}/logs/meeting-brief-sender.log"
-HUB_HOST="${OSTLER_HUB_HOST:-http://localhost:8089}"
-ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://localhost:8090}"
+# The ical-server binds 127.0.0.1:8090 (its plist sets OSTLER_API_PORT=8090).
+# :8089 is the Doctor, which does not forward every /api/v1 route; the
+# composer's own default is :8090 too. Guarded by test_meeting_brief_sender.sh.
+HUB_HOST="${OSTLER_HUB_HOST:-http://127.0.0.1:8090}"
+# /announce is served by the daemon gateway, pinned to :8000 by CX-59
+# ([gateway] port = 8000 in the config this installer writes). :8090 is
+# the ical-server, which has no /announce, so the old default posted every
+# brief into a 404.
+ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://127.0.0.1:8000}"
 WITHIN_MINUTES="${OSTLER_BRIEF_WITHIN_MINUTES:-20}"
+CONFIG_TOML="${OSTLER_BRIEF_CONFIG:-${OSTLER_DIR}/assistant-config/config.toml}"
+# The Hub venv is built from the bundled Python 3.11, which has tomllib.
+# /usr/bin/python3 is 3.9 on a stock Mac and may be the Command Line Tools stub.
+PYTHON_BIN="${OSTLER_DIR}/.venv/bin/python3"
+[ -x "${PYTHON_BIN}" ] || PYTHON_BIN="python3"
 
 mkdir -p "${STATE_DIR}" "$(dirname "${LOG_FILE}")"
+
+cannot_deliver() {
+    # $1 exit code, $2 reason. Written to the log AND to stderr (the .err
+    # log the Doctor card points at), then the non-zero exit launchd records.
+    echo "$(date -u +%FT%TZ) CANNOT-DELIVER: $2" >> "${LOG_FILE}"
+    echo "$(date -u +%FT%TZ) CANNOT-DELIVER: $2" >&2
+    exit "$1"
+}
+
+# --- Rule 0.8: the Ostler Pro subscription gate ----------------------
+# Pre-meeting briefs are a calendar-driven action trigger, which the v1
+# subscription table puts under Ostler Pro. Same canonical gate module and
+# the same contract as the ingestion tick wrappers: exit 3 is the ONLY code
+# that pauses; anything else (module missing, interpreter will not start)
+# fails OPEN, because a paying customer must never lose a brief because we
+# could not ask. The included first month and the grace window answer 0.
+# Paused exits 0: it is the steady state of an unsubscribed Hub, not a fault.
+_ostler_gate="${OSTLER_DIR}/services/ical-server/subscription_gate.py"
+if [ -f "$_ostler_gate" ]; then
+    _ostler_gate_rc=0
+    "${PYTHON_BIN}" "$_ostler_gate" --check >/dev/null 2>>"${LOG_FILE}" || _ostler_gate_rc=$?
+    if [ "$_ostler_gate_rc" -eq 3 ]; then
+        echo "$(date -u +%FT%TZ) skip: Ostler Pro is not active, so pre-meeting briefs are paused. Subscribe in the Ostler app and they resume on the next tick." >> "${LOG_FILE}"
+        exit 0
+    fi
+    if [ "$_ostler_gate_rc" -ne 0 ]; then
+        echo "$(date -u +%FT%TZ) subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); continuing. A customer is never paused because we could not ask." >> "${LOG_FILE}"
+    fi
+else
+    echo "$(date -u +%FT%TZ) subscription gate not found at ${_ostler_gate}; continuing. Rule 0.8 is NOT being enforced on this surface." >> "${LOG_FILE}"
+fi
+# --- end Rule 0.8 gate -----------------------------------------------
+
+# The owner's brief channel. NOT chosen here: install.sh already chose it
+# once, for the 09:00 brief and 18:00 wrap, and wrote it as the announce
+# job's `delivery = { mode = "announce", channel, to }` in config.toml
+# (iMessage first when enabled with an allowed contact, else WhatsApp). The
+# gateway's /announce resolves `to` from the announce job whose channel
+# matches, so sending that job's channel reaches that job's recipient: the
+# owner, on the channel they set up. A parser, not a line scan: the daemon
+# rewrites config.toml as an inline table array (see
+# tests/test_the_cron_reader_sees_both_toml_spellings.sh).
+_chan_rc=0
+BRIEF_CHANNEL="$("${PYTHON_BIN}" - "${CONFIG_TOML}" <<'CHANPY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    print("this interpreter has no TOML parser (needs Python 3.11+), so the brief channel cannot be read")
+    sys.exit(2)
+path = sys.argv[1]
+try:
+    with open(path, "rb") as fh:
+        data = tomllib.load(fh)
+except FileNotFoundError:
+    print("no assistant config at " + path + ", so no brief channel is configured")
+    sys.exit(1)
+except Exception as exc:
+    print("the assistant config at " + path + " could not be read (" + exc.__class__.__name__ + ")")
+    sys.exit(2)
+cron = data.get("cron") if isinstance(data.get("cron"), dict) else {}
+found = []
+for job in cron.get("jobs") or []:
+    if not isinstance(job, dict) or not isinstance(job.get("delivery"), dict):
+        continue
+    d = job["delivery"]
+    channel = str(d.get("channel") or "").strip().lower()
+    if str(d.get("mode") or "").strip() != "announce" or not channel or not str(d.get("to") or "").strip():
+        continue
+    found.append((0 if job.get("id") == "morning-brief" else 1, channel))
+if not found:
+    print("no brief channel is configured (no announce job with a channel and a recipient in " + path + "); set up iMessage or WhatsApp in the Ostler app")
+    sys.exit(1)
+print(sorted(found)[0][1])
+CHANPY
+)" || _chan_rc=$?
+if [ "${_chan_rc}" -ne 0 ] || [ -z "${BRIEF_CHANNEL}" ]; then
+    cannot_deliver 78 "${BRIEF_CHANNEL:-the brief channel could not be read (rc=${_chan_rc})}"
+fi
 
 # Quiet hours guard. Default 07:00 - 21:00 local; overridable via env
 # for operators on shifted schedules.
@@ -23971,7 +24071,21 @@ SQLINIT
 # Fetch upcoming meetings from the Hub. Curl returns 200 even on
 # degraded payloads so we check `degraded` server-side and skip
 # delivery rather than emitting stale messages.
-RESPONSE=$(curl -sS -m 8 \
+# The Hub fails CLOSED with 401 on every non-public route unless the loopback
+# service token is presented (ical-server.py:_authorized). This fetch used to
+# send none, so on a token-gated Hub it read an error body, found no "meetings"
+# key and logged "no meetings in window" forever: a brief that never arrives and
+# a log line that says everything is fine. Same token file the daemon uses.
+SERVICE_TOKEN="${PWG_SERVICE_TOKEN:-}"
+if [[ -z "${SERVICE_TOKEN}" && -r "${OSTLER_DIR}/secrets/service_token" ]]; then
+    SERVICE_TOKEN="$(tr -d '[:space:]' < "${OSTLER_DIR}/secrets/service_token")"
+fi
+if [[ -z "${SERVICE_TOKEN}" ]]; then
+    echo "$(date -u +%FT%TZ) skip: CANNOT-RUN no service token (PWG_SERVICE_TOKEN or ${OSTLER_DIR}/secrets/service_token); the Hub would answer 401" >> "${LOG_FILE}"
+    exit 0
+fi
+RESPONSE=$(curl -sS -m 8 -f \
+    -H "Authorization: Bearer ${SERVICE_TOKEN}" \
     "${HUB_HOST}/api/v1/meeting/upcoming?within_minutes=${WITHIN_MINUTES}" \
     2>>"${LOG_FILE}") || {
     echo "$(date -u +%FT%TZ) skip: hub fetch failed" >> "${LOG_FILE}"
@@ -24027,22 +24141,95 @@ case "${DEGRADED}" in
 esac
 
 # Iterate meetings. Each meeting's idempotency key is UID + start;
-# the assistant's announcement endpoint is the WhatsApp arm.
-printf '%s' "${RESPONSE}" | python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" <<'PYEOF'
-import json, sqlite3, subprocess, sys, time
+# the gateway /announce delivers on the owner brief channel resolved above.
+# The brief text is composed by the assistant binary (`meeting-brief`), which
+# reads the Hub's people/context and person timeline for each attendee and runs
+# the result through a grounding check: absence of data is never stated as a
+# fact, so "no meetings logged" can never become "first meeting", and there is
+# no generic advice. This script does not compose text. If the composer is
+# missing or fails, the meeting is SKIPPED and retried on the next tick; the old
+# client-side text is deliberately gone so there is no unchecked fallback.
+# The hub reply travels in the environment, NOT on stdin: `printf | python3 -
+# <<'PYEOF'` gives python3 two stdin sources and the heredoc wins, so the old
+# `json.load(sys.stdin)` read the end of the script text and died with
+# JSONDecodeError on every tick. The script exited 0 afterwards, so launchd saw
+# success and the log showed a traceback nobody reads: the sender had never
+# been able to send. Found by running this block against a real Hub.
+_send_rc=0
+OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" <<'PYEOF' || _send_rc=$?
+import json, os, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
 
-db_path, assistant_url, log_path = sys.argv[1:]
-payload = json.load(sys.stdin)
-meetings = payload.get("meetings") or []
+db_path, assistant_url, log_path, hub_host, ostler_dir, channel = sys.argv[1:]
+undelivered = []
+try:
+    payload = json.loads(os.environ.get("OSTLER_BRIEF_HUB_JSON", ""))
+except ValueError as exc:
+    with open(log_path, "a") as fh:
+        fh.write(f"{datetime.now(timezone.utc).isoformat()} skip: CANNOT-RUN hub reply is not JSON ({exc})\n")
+    sys.exit(0)
 
 def _log(msg):
     with open(log_path, "a") as fh:
         fh.write(f"{datetime.now(timezone.utc).isoformat()} {msg}\n")
 
-if not meetings:
-    _log(f"no meetings in window")
+if not isinstance(payload, dict) or "meetings" not in payload:
+    _log("skip: CANNOT-RUN hub reply has no 'meetings' key; not treating it as an empty calendar")
     sys.exit(0)
+
+meetings = payload.get("meetings") or []
+if not meetings:
+    _log("no meetings in window")
+    sys.exit(0)
+
+COMPOSER = os.environ.get("OSTLER_BRIEF_COMPOSER") or os.path.join(
+    ostler_dir, "OstlerAssistant.app", "Contents", "MacOS", "ostler-assistant")
+OWNER = os.environ.get("OSTLER_BRIEF_OWNER_NAME", "")
+
+# Last line of defence on whatever is SENT, independent of the composer: these
+# phrases state an inference or give generic advice, and none may be sent.
+# Mirrors BANNED_PHRASES in crates/zeroclaw-runtime/src/brief/meeting.rs.
+BANNED = (
+    "first meeting", "first face", "first in-person", "first time you", "never met",
+    "haven't met", "have not met", "not met before", "new contact", "warm welcome",
+    "good impression", "be sure to", "make sure to", "would be appropriate",
+    "complete stranger",
+)
+
+def _compose(attendee, location):
+    name = (attendee.get("name") or "").strip()
+    if not name:
+        return None
+    slug = (attendee.get("wiki_url") or "").rstrip("/").rsplit("/", 1)[-1]
+    todos = attendee.get("outstanding_todos") or []
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(todos, fh)
+        todos_path = fh.name
+    try:
+        cmd = [COMPOSER, "meeting-brief", "--person", name, "--owner", OWNER,
+               "--hub-url", hub_host, "--todos-file", todos_path]
+        if slug:
+            cmd += ["--slug", slug]
+        if location:
+            cmd += ["--venue", location]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except Exception as exc:
+        _log(f"composer exception name={name!r} err={exc}")
+        return None
+    finally:
+        try:
+            os.unlink(todos_path)
+        except OSError:
+            pass
+    text = (res.stdout or "").strip()
+    if res.returncode != 0 or not text:
+        _log(f"composer failed name={name!r} rc={res.returncode} stderr={(res.stderr or '')[-200:]!r}")
+        return None
+    low = text.lower()
+    if any(b in low for b in BANNED):
+        _log(f"composer output tripped the send guard name={name!r}; not sending")
+        return None
+    return text
 
 conn = sqlite3.connect(db_path)
 try:
@@ -24059,66 +24246,45 @@ try:
             _log(f"skip: already sent {key}")
             continue
 
-        # Render plain-text message client-side. The renderer lives
-        # on the brief module side (CM041) for v1.0.1; here we build
-        # a minimal echo so the LaunchAgent does not depend on a
-        # Python import path matching the source tree layout.
         title = m.get("meeting") or "Upcoming meeting"
+        if any(b in title.lower() for b in BANNED):
+            title = "Upcoming meeting"
         when = m.get("start") or ""
-        attendees = m.get("attendees") or []
-        names = ", ".join(
-            (a.get("name") or a.get("email") or "Unknown")
-            for a in attendees[:3]
-        )
-        lines = [f"Meeting: {title}"]
-        if when:
-            lines[0] += f" at {when}"
-        lines[0] += "."
-        if m.get("maps_url"):
-            lines.append(f"Location: {m.get('location', '')} {m['maps_url']}")
-        if names:
-            lines.append(f"With: {names}.")
-        first = attendees[0] if attendees else {}
-        if first.get("wiki_url"):
-            lines.append(f"Wiki: {first['wiki_url']}")
-        if first.get("last_discussion_url"):
-            lines.append(f"Last chat: {first['last_discussion_url']}")
-        open_todos = []
-        for a in attendees:
-            for t in (a.get("outstanding_todos") or [])[:3]:
-                open_todos.append(t)
-        if open_todos:
-            short = []
-            for t in open_todos[:3]:
-                owner = t.get("owner_display") or t.get("owner") or ""
-                owner_label = f"{owner}: " if owner else ""
-                deadline = f" (by {t['deadline']})" if t.get("deadline") else ""
-                short.append(f"{owner_label}{t.get('text', '')}{deadline}")
-            lines.append("Open: " + " | ".join(short))
-        message = "\n".join(lines)
+        header = f"Meeting: {title}" + (f" at {when}" if when else "") + "."
+        parts = [header]
+        failed = False
+        for a in (m.get("attendees") or [])[:3]:
+            text = _compose(a, m.get("location") or "")
+            if text is None:
+                failed = True
+                break
+            parts.append(text)
+        if failed or len(parts) == 1:
+            _log(f"skip: no composed brief for {key}; will retry next tick")
+            undelivered.append(key)
+            continue
+        message = "\n\n".join(parts)
 
-        # Ship to the assistant. The assistant's announce endpoint
-        # is the WhatsApp arm reused from the daily-brief delivery
-        # path. Failure here is non-fatal (we just retry next tick
-        # because the row was not written to sent_briefs).
         body = json.dumps({
-            "channel": "whatsapp",
+            "channel": channel,
             "kind": "meeting_brief",
             "message": message,
             "meeting_uid": uid,
         }).encode()
         try:
             res = subprocess.run([
-                "curl", "-sS", "-m", "6", "-X", "POST",
+                "curl", "-sS", "-f", "-m", "6", "-X", "POST",
                 "-H", "Content-Type: application/json",
                 "--data-binary", body.decode(),
                 f"{assistant_url}/announce",
             ], capture_output=True, timeout=10)
             if res.returncode != 0:
-                _log(f"deliver failed key={key} rc={res.returncode}")
+                _log(f"deliver failed key={key} channel={channel} rc={res.returncode}")
+                undelivered.append(key)
                 continue
         except Exception as exc:
-            _log(f"deliver exception key={key} err={exc}")
+            _log(f"deliver exception key={key} channel={channel} err={exc}")
+            undelivered.append(key)
             continue
 
         cur.execute(
@@ -24127,12 +24293,19 @@ try:
             (key, uid, start, datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
-        _log(f"sent key={key}")
+        _log(f"sent key={key} channel={channel}")
 finally:
     conn.close()
-PYEOF
 
-exit 0
+if undelivered:
+    msg = f"{len(undelivered)} due brief(s) not delivered on {channel} this tick: {', '.join(undelivered)}; retried next tick"
+    _log("CANNOT-DELIVER: " + msg)
+    sys.stderr.write(f"{datetime.now(timezone.utc).isoformat()} CANNOT-DELIVER: {msg}\n")
+    sys.exit(75)
+PYEOF
+# Propagate. This used to be an unconditional `exit 0`, which is how a sender
+# that crashed on every tick looked healthy to launchd for its whole life.
+exit "${_send_rc}"
 BRIEFEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-meeting-brief-sender"
 

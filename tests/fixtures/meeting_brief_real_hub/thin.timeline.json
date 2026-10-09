@@ -1,0 +1,12 @@
+{
+  "count": 0,
+  "events": [],
+  "found": true,
+  "person": {
+    "name": "Catherine Stewart",
+    "person_uri": "urn:ostler-walk-fixture:catherine",
+    "slug": "catherine-stewart",
+    "wiki_url": "http://wiki.example/People/catherine-stewart/"
+  },
+  "slug": "catherine-stewart"
+}
