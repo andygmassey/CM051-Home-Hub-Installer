@@ -473,6 +473,7 @@ test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_people_hydrate_partial_landing_sentinel.sh	WIRED	.github/workflows/people-sweep-partial-landing.yml
 test_people_projection_prunes_what_left_the_graph.py	WIRED	.github/workflows/people-projection-prune.yml
 test_people_sweep_partial_landing_is_not_success.py	WIRED	.github/workflows/people-sweep-partial-landing.yml
+test_person_removal_audit.py	WIRED	.github/workflows/person-removal-audit.yml
 test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/bash32-compat.yml
 test_phase_2_failures_reach_the_walk_record.sh	WIRED	.github/workflows/cut-manifest.yml
 test_photo_events_carry_place_names.py	WIRED	.github/workflows/privacy-spine.yml
