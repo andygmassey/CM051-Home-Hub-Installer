@@ -218,7 +218,7 @@ Vendored CM041 assistant API carries browsing page summaries, Save to Knowledge 
 The Confirmed-by-you context query returns ?level, so L3 facts stop reaching every chat prompt	CM051	d89eed5b	no	confirmed_by_you_projects_level	TBD	CM051 #2672
 The installer asks who may email the assistant and writes the allowlist	CM051	f4904ccd	no	email_allowlist_asked_at_install	TBD	CM051 #2673
 # 2026-10-08 (ORM, candidate #10): RemoteCapture 0.1.4 (CM051 #2668) regressed rc#9/rc#10 (CM042 #28) and never shipped; its row is replaced by 0.1.5 (CM051 #2681, afc376a3). remote_capture_pinned_at_v014 is downgraded to required=no in the manifest.
-pin(remote-capture): RemoteCapture 0.1.5 (CM042 #24 store auth, #25 Hub-outage queue, #29 restores rc#9 identity header and rc#10 capture copy)	CM051	afc376a3	no	remote_capture_pinned_at_v015	TBD	CM042 #24 #25 #29 (CM051 #2681)
+pin(remote-capture): RemoteCapture 0.1.5 (CM042 #24 store auth, #25 Hub-outage queue, #29 restores rc#9 identity header and rc#10 capture copy) [SUPERSEDED in #16 by RemoteCapture 0.1.6 (#2735); re-cited from afc376a3 to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows]	CM051	5696e8c5	no	remote_capture_pinned_at_v015	TBD	CM042 #24 #25 #29 (CM051 #2681)
 # 2026-10-08 (ORM, candidate #11 freeze): CM051 #2698 (b755f55c, hub-v0.5.5 + wiki v0.1.46) replaced the daemon and wiki pin lines. All 96 rows measured ABSENT at b755f55c by scripts/verify_bom_rows_are_in_the_pin.sh (71 citing 2fd7dac7, 25 citing 07e0fce7) and nothing else was ABSENT. All 96 -> b755f55c. Each fix is still in the daemon (oa 06e879fb = hub-v0.5.4 + #476) or the images (CM044 08f35937 = v0.1.45 + #312) that b755f55c pins.
 # 2026-10-08 (ORM, candidate #11): CM051 #2698 (b755f55c) re-pins hub-v0.5.5 (oa 06e879fb, #476) and wiki v0.1.46 (CM044 08f35937, #312). Rows for the #11 merges #2691 #2692 #2693 #2694 #2696.
 pin(daemon): 0.5.5 daemon tarball 6ceecc8e (oa 06e879fb)	CM051	db8a9bab	no	daemon_pinned_at_hub_v0505	TBD	oa #476 (CM051 #2698)
@@ -262,9 +262,28 @@ The reminders_candidates sidecar never reaches the conversation body (CM048 #85)
 ostler-import passes the owner name to the people graph by default	CM051	db8a9bab	no	ostler_import_user_name_defaults_from_env	TBD	CM051 #2722
 ostler-import: unknown format is not a failure and keeps the real rc	CM051	db8a9bab	no	ostler_import_unknown_format_keeps_rc	TBD	CM051 #2722
 # 2026-10-09 (ORM, candidate #15): CM051 #2731 (7ac7c2cb) re-pins hub-v0.5.7 (oa 3140e252, #487 #488). Rows for the #15 merges #2727 #2728. Wiki stays v0.1.49. cut.env CM051=0fd77d29 (#2738 daemon hold row, after #2731).
-pin(daemon): 0.5.7 daemon tarball 5dee36de (oa 3140e252)	CM051	7ac7c2cb	no	daemon_pinned_at_hub_v0507	TBD	oa #487 #488 (CM051 #2731)
-pin(daemon): 0.5.7 hub app 515ebcf7	CM051	7ac7c2cb	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2731
-pin(daemon): 0.5.7 People subtitle carries the customer marker	CM051	7ac7c2cb	no	oa_people_subtitle_customer_marker	TBD	oa #487 (CM051 #2731)
-pin(daemon): 0.5.7 owner work question carries About-you on the user turn	CM051	7ac7c2cb	no	oa_owner_work_question_carries_about_you	TBD	oa #488 (CM051 #2731)
+pin(daemon): 0.5.7 daemon tarball 5dee36de (oa 3140e252) [SUPERSEDED in #16 by hub-v0.5.8 (#2750); re-cited from 7ac7c2cb to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows]	CM051	5696e8c5	no	daemon_pinned_at_hub_v0507	TBD	oa #487 #488 (CM051 #2731)
+pin(daemon): 0.5.7 hub app 515ebcf7 [SUPERSEDED in #16 by hub-v0.5.8 (#2750); re-cited from 7ac7c2cb to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows]	CM051	5696e8c5	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2731
+pin(daemon): 0.5.7 People subtitle carries the customer marker [SUPERSEDED in #16 by hub-v0.5.8 (#2750); re-cited from 7ac7c2cb to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows]	CM051	5696e8c5	no	oa_people_subtitle_customer_marker	TBD	oa #487 (CM051 #2731)
+pin(daemon): 0.5.7 owner work question carries About-you on the user turn [SUPERSEDED in #16 by hub-v0.5.8 (#2750); re-cited from 7ac7c2cb to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows]	CM051	5696e8c5	no	oa_owner_work_question_carries_about_you	TBD	oa #488 (CM051 #2731)
 The People list hides business-shaped names (CM041 #206 graft)	CM051	83e511c9	no	people_list_hides_business_shaped_names	TBD	CM051 #2727
 The owner-digest walk probe reports whether the digest's Work line names the seed	CM051	8ac93ad1	no	probe_owner_digest_reports_work_line	TBD	CM051 #2728
+# 2026-10-10 (ORM, candidate #16): CM051 #2750 (5696e8c5) re-pins hub-v0.5.8 (oa 8c41eec5, c16 batch). Rows for #2735 #2736 #2737 #2744 #2746 and the #2749 batch (7e20c029). Wiki stays v0.1.49. cut.env CM051=5696e8c5.
+pin(daemon): 0.5.8 daemon tarball 32cc5ccc (oa 8c41eec5)	CM051	5696e8c5	no	daemon_pinned_at_hub_v0508	TBD	oa #494 (CM051 #2750)
+pin(daemon): 0.5.8 hub app 2e03d519	CM051	5696e8c5	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2750
+pin(daemon): 0.5.8 owner card rides on every turn	CM051	5696e8c5	no	oa_owner_card_rides_every_turn	TBD	oa #489 (CM051 #2750)
+pin(daemon): 0.5.8 meeting-brief sender CLI	CM051	5696e8c5	no	oa_meeting_brief_sender_cli	TBD	oa #470 #479 (CM051 #2750)
+pin(daemon): 0.5.8 Ollama token streaming with live-chat priority	CM051	5696e8c5	no	oa_ollama_token_streaming	TBD	oa #480 (CM051 #2750)
+RemoteCapture pinned at 0.1.6	CM051	09a6292f	no	remotecapture_pinned_at_v016	TBD	CM051 #2735
+RemoteCapture tarball checked against a pinned sha256	CM051	e668c359	no	remotecapture_tarball_checked_against_pinned_sha	TBD	CM051 #2736
+Doctor tokenless loopback-read fallback OFF	CM051	9dd0032d	no	doctor_oracle_fallback_off	TBD	CM051 #2737
+Walk em dash check honours the customer marker on Hub screens	CM051	f942b74d	no	probe_customer_marker_on_hub_screens	TBD	CM051 #2744
+memory/assert answers inside a budget while the model is busy	CM051	007df6d2	no	memory_assert_answers_inside_budget	TBD	CM051 #2746
+Owner-knowledge score probe in the walk (advisory)	CM051	7e20c029	no	owner_score_probe_in_walk	TBD	CM051 #2712 (#2749)
+people_stores_reconcile joins orphans to deletion records	CM051	7e20c029	no	probe_people_reconcile_joins_deletion_records	TBD	CM051 #2745 (#2749)
+A parked memory fact is visible in the Doctor	CM051	7e20c029	no	doctor_parked_memory_facts_visible	TBD	CM051 #2747 (#2749)
+hub_contract.yaml generated from server code	CM051	7e20c029	no	hub_contract_generator_present	TBD	CM051 #2676 (#2749)
+Forget tombstone in the vendored identity_resolver	CM051	7e20c029	no	forget_tombstone_vendored_identity_resolver	TBD	CM051 #2678 (#2749)
+Forget tombstone respected by ostler_fda	CM051	7e20c029	no	forget_tombstone_vendored_ostler_fda	TBD	CM051 #2678 (#2749)
+Meeting-brief sender LaunchAgent on by default (Pro-gated)	CM051	7e20c029	no	meeting_brief_launchagent_on	TBD	CM051 #2707 (#2749)
+Person removals are audited in ostler_fda	CM051	7e20c029	no	person_removal_audited_ostler_fda	TBD	CM051 #2748 (#2749)
