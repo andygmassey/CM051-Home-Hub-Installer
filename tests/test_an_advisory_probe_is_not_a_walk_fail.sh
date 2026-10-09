@@ -98,7 +98,7 @@ if [ "$RC" -eq 1 ] && [ "$(num "$WORK/a5.log" FAIL)" = "1" ] && [ "$(num "$WORK/
 else fail "5-mask" "rc=$RC fail=$(num "$WORK/a5.log" FAIL) advisory=$(num "$WORK/a5.log" ADVISORY)"; fi
 
 QA="$REPO_ROOT/scripts/post_walk_qa.sh"
-if [ -r "$QA" ] && awk '/^FAILED:/{f=1;next} f&&/^  [A-Za-z0-9._-]+$/{print $1} f&&!/^  [A-Za-z0-9._-]+$/{exit}' "$WORK/a5.log" | grep -q '^aa_hard$'; then
+if [ -r "$QA" ] && [ "$(awk '/^FAILED:/{f=1;next} f&&/^  [A-Za-z0-9._-]+$/{print $1} f&&!/^  [A-Za-z0-9._-]+$/{exit}' "$WORK/a5.log" | grep -c '^aa_hard$')" -gt 0 ]; then
     pass "(6) the FAILED block still lists aa_hard as a bare name for post_walk_qa's parser"
 else fail "6-parser" "the FAILED section no longer parses to a bare probe name"; fi
 
