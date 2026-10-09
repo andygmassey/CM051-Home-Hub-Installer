@@ -1143,3 +1143,59 @@ class TestPeopleListNeverShowsAnInternalIdAsAPhone(unittest.TestCase):
         self.assertFalse(server._displayable_phone(""))
         self.assertFalse(server._displayable_phone(None))
         self.assertTrue(server._displayable_phone(self.REAL))
+
+
+class BusinessShapedNameFilterTests(unittest.TestCase):
+    """Cut #15 (walk #14): business / automated-sender shapes in the People
+    list. SYNTHETIC names only. Conservative: a real person must survive."""
+
+    BUSINESS = [
+        "Acme official", "Acme hk official", "Zed official store",
+        "Acme swimming gear store", "Acme home goods shop",
+        "Acme trading ltd", "Acme trading limited", "Acme holdings inc",
+        "Acme support team", "Acme customer service", "Acme noreply",
+        "acme no-reply",
+        # round 2: probe ORG_MARKERS shapes
+        "Acme cloud solutions", "Acme holdings group", "Acme daily news",
+        "Acme fan club hk", "Acme savings bank hk", "Acme alumni team",
+        "Acme technology university", "Acme gear store hk",
+    ]
+    PERSONS = [
+        "Jane store", "Sam shop", "Tom hk", "Hk lee", "Mary storey",
+        "Sam shopland", "Li wei hk", "Ana team", "Jane limitedton",
+        "Store smith", "Jane bank", "Tom club", "Liz card",
+        "Alex support", "Sam research", "Jane doe", "John smith",
+    ]
+
+    def test_business_shapes_are_filtered(self) -> None:
+        for n in self.BUSINESS:
+            self.assertTrue(server._is_automated_or_service_name(n), n)
+
+    def test_control_person_shapes_are_kept(self) -> None:
+        for n in self.PERSONS:
+            self.assertFalse(server._is_automated_or_service_name(n), n)
+
+    def test_end_to_end_strong_org_word_hidden_even_when_carded(self) -> None:
+        card = "00000000-0000-0000-0000-0000000000f1:ABPerson"
+        points = [
+            _point("b1", "Acme hk official"),
+            _point("b2", "Acme swimming gear store"),
+            _point("c1", "Carded brand official", icloud_uid=card),
+            _point("c2", "Carded person jr", icloud_uid=card + "2"),
+            _point("c3", "Carded tom club", icloud_uid=card + "3"),
+            _point("p1", "Jane store"),
+            _point("p2", "Tom hk"),
+        ]
+
+        def fake_urlopen(*_a, **_k):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+        names = {r["name"] for r in body["people"]}
+        self.assertEqual(
+            names, {"Carded person jr", "Carded tom club", "Jane store", "Tom hk"},
+            body)
