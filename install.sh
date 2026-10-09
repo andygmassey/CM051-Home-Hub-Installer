@@ -29378,10 +29378,11 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
     if [[ $_rc_verify -ne 0 ]]; then
         err "$MSG_ERR_CM042_SHA_256_MISMATCH"
         case $_rc_verify in
-            3) err "RemoteCapture ${OSTLER_REMOTECAPTURE_VERSION} has no integrity pin baked into install.sh; refusing a download verified only by a same-origin sidecar." ;;
-            1) err "RemoteCapture tarball failed the integrity pin baked into install.sh."
+            3) err "$MSG_ERR_CM042_VERSION_UNKNOWN" ;;
+            1) err "$MSG_ERR_CM042_PIN_FAILED"
                err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_PINNED_SHA}")" ;;
-            *) err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_EXPECTED_SHA:-<empty sidecar>}")" ;;
+            *) err "$MSG_ERR_CM042_SIDECAR_DISAGREES"
+               err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_EXPECTED_SHA:-<empty sidecar>}")" ;;
         esac
         err "$(printf "$MSG_ERR_ACTUAL" "${REMOTECAPTURE_ACTUAL_SHA}")"
         err "$(printf "$MSG_ERR_URL" "${REMOTECAPTURE_ARCHIVE_URL}")"
