@@ -34,6 +34,7 @@ from contact_syncer.classifier import classify_contact
 from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
 from contact_syncer.relationship_labels import is_relationship_label
+from contact_syncer.person_audit import record_person_removal
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
 from identity_resolver.normalise import (  # type: ignore[import-untyped]
@@ -1270,6 +1271,10 @@ class ContactSyncer:
         ]
         if not _fn_is_relationship_label:
             delete_preds.insert(0, "pwg:displayName")
+        if not _fn_is_relationship_label and not fn:
+            # displayName is deleted below and nothing replaces it: the node
+            # leaves every reader that requires a name.
+            record_person_removal(person_uri, "contact_syncer.syncer", "blank_incoming_name_deleted_displayName")
         for pred in delete_preds:
             sparql = (
                 "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
