@@ -858,3 +858,19 @@ Extended for the Doctor surface (same PR): `ASSERT_SPOOL_STATUS` and
 every spool and every sweep), and the sweep closes a row as done only for a
 `stored` / `created_person` answer, so a `needs_disambiguation` 200 parks the
 row instead of closing it.
+## Generated, not grafted: hub_contract.yaml (CM051 #2676, Lane 10)
+
+Tree `cm041/assistant_api`, new file `vendor/cm041/assistant_api/hub_contract.yaml`.
+No CM041 source file is edited and CM041 upstream has no such file.
+
+It is GENERATED in CM051 by `scripts/gen_hub_contract.py` from the vendored
+`ical-server.py`, the vendored Doctor, the store-proxy heredoc in `install.sh`
+and the ostler-assistant gateway source. It lives in this tree because the
+routes it describes are this tree's routes.
+
+### What a future sync must preserve
+
+A wholesale `sync_vendor.sh` of this tree deletes the file. After any sync or
+graft that touches `ical-server.py`, regenerate it with
+`python3 scripts/gen_hub_contract.py --gateway-src <ostler-assistant checkout>`.
+`hub-contract.yml` job `contract-is-current` reds on a stale or missing copy.
