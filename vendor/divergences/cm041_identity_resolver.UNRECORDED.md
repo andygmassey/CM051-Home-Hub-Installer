@@ -87,6 +87,7 @@ See the Nineteenth graft in cm041_assistant_api.UNRECORDED.md: the tombstone che
 
 Tree `cm041/identity_resolver`: new `forget_tombstone.py` (byte-identical to CM041) and `resolver.py` (`_resolve_tiers` returns `forgotten`; `create_person` raises).
 ## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
 
 Tree `cm041/identity_resolver`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: calls in `resolver.py` `merge_persons`, `batch_resolver.py` `_merge_oxigraph` and `repair_merge_consistency.py` `repair` before each `retirement.retire_update` (type removal of the discard). `repair_lid_as_phone.py` and both `canonicalise_display_name` paths replace a name in one update and remove no one, so they are deliberately not audited.
 Added `person_audit.py` (byte-identical copy in every tree that carries one;

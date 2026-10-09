@@ -802,6 +802,24 @@ signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG ti
 `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
 `BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.
 
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
+
+Tree `cm041/assistant_api`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `_audit_person_removal` (loads `person_audit.py` by path from the server's own directory) and one call in `api_people_forget` before `_forget_person_update` runs (reason `user_forget`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
+
 ## cm041/assistant_api: memory/assert answers inside a budget (CM051 walk #15, CM041 #208)
 
 Tree `cm041/assistant_api`, file `ical-server.py`. Graft of CM041 #208 ahead of

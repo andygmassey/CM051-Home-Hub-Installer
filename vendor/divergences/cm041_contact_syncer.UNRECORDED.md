@@ -211,6 +211,7 @@ See the Nineteenth graft in cm041_assistant_api.UNRECORDED.md: the tombstone che
 
 Tree `cm041/contact_syncer`: `syncer.py`, `facebook_friends.py`, `instagram_social.py`, `linkedin_career.py`, `linkedin_connections.py` and `linkedin_messages.py` each skip a `forgotten` match (CM041 #200 `cb98e00`).
 ## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
 
 Tree `cm041/contact_syncer`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: one call in `syncer.py` `_update_person_oxigraph` when an incoming blank name will delete displayName with nothing replacing it (reason `blank_incoming_name_deleted_displayName`).
 Added `person_audit.py` (byte-identical copy in every tree that carries one;
