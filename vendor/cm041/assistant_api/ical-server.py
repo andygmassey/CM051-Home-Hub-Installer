@@ -634,6 +634,80 @@ def _is_service_mailbox_name(display_name):
     return False
 
 
+# Cut #15 (walk #14): 33 of 7,815 people-list rows were businesses or
+# automated senders ("<brand> official", "<x> swimming gear store",
+# "<x> hk official"). None trip the vocabulary above. CONSERVATIVE by
+# design: false positives hide real people, so no single common word is
+# ever enough on its own. Shapes, anchored on the LAST word:
+#   1. an unmistakably corporate last word ("official", legal suffixes)
+#      after at least one other word;
+#   2. a retail last word ("store", "shop", ...) after at least TWO other
+#      words -- a two-word "Jane store" stays a person (surname-like);
+#   3. a role-team ending ("support team", "customer service") or a
+#      no-reply token anywhere.
+# Like its siblings this applies ONLY to uncarded records; a Contacts card
+# outranks every shape heuristic. "HK" alone is NEVER a signal.
+_BUSINESS_LAST_WORDS = frozenset({
+    "official", "ltd", "limited", "inc", "llc", "plc", "gmbh", "corp",
+    "corporation", "pte",
+})
+_BUSINESS_RETAIL_LAST_WORDS = frozenset({
+    "store", "stores", "shop", "shops", "outlet", "outlets", "boutique",
+    "mall",
+})
+_BUSINESS_ROLE_TEAM_RE = re.compile(
+    r"\b(support|sales|billing|help\s*desk|helpdesk|marketing|service|"
+    r"customer\s+(?:service|care|support))\s+team$|"
+    r"\bcustomer\s+(?:service|care|support)$|"
+    r"\bno[-_ ]?reply\b|\bdo[-_ ]?not[-_ ]?reply\b", re.I)
+
+
+# Cut #15 round 2: the walk's own probe (CM051 scripts/box_walk_probes/lib/
+# hub_screens.py _org_like + ORG_MARKERS) requires ZERO organisations in the
+# People list and flags a marker ANYWHERE in the name. Two tiers:
+#   STRONG -- institutional / legal words a person's name does not carry.
+#     Applied to ANY record, carded or not (a card named "<X> Ltd" is still
+#     an organisation shown as a person): see _is_organisation_name.
+#   WEAK -- words real surnames can be (club, news, bank, team, store,
+#     shop...). Uncarded only, and only with >= 3 words (>= 2 for news /
+#     newsletter / magazine), so a two-word "Jane bank" stays.
+_ORG_STRONG_RE = re.compile(
+    r"\b(official|ltd|limited|inc|llc|plc|gmbh|corp|corporation|solutions|"
+    r"group|university|institute|foundation|association|council|academy|"
+    r"magazine|newsletter)\b", re.I)
+_ORG_WEAK_RE = re.compile(
+    r"\b(club|news|bank|team|store|stores|shop|shops|card|research|support|"
+    r"services?|company|outlet|boutique|mall|promotions?)\b", re.I)
+_ORG_NEWS_RE = re.compile(r"\bnews\b", re.I)
+
+
+def _is_organisation_name(display_name):
+    """STRONG tier: true for ANY record regardless of Contacts card."""
+    words = (display_name or "").split()
+    return len(words) >= 2 and bool(_ORG_STRONG_RE.search(display_name))
+
+
+def _is_business_shaped_name(display_name):
+    """True when the name ends in a business-shaped token. See the block
+    comment above for the shapes and why each is anchored."""
+    words = (display_name or "").split()
+    if len(words) < 2:
+        return False
+    last = words[-1].strip(".,;:()[]").lower()
+    if last in _BUSINESS_LAST_WORDS:
+        return True
+    if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
+        return True
+    text = " ".join(words)
+    if _is_organisation_name(text):
+        return True
+    if _ORG_NEWS_RE.search(text):
+        return True
+    if len(words) >= 3 and _ORG_WEAK_RE.search(text):
+        return True
+    return bool(_BUSINESS_ROLE_TEAM_RE.search(" ".join(words)))
+
+
 def _is_automated_or_service_name(display_name):
     """True when ``display_name`` SHAPE reads as a company/service/
     notification sender -- shapes ``_is_nameless_name`` does not cover.
@@ -713,6 +787,8 @@ def _is_automated_or_service_name(display_name):
     if _SERVICE_NAME_PHRASE_RE.search(name):
         return True
     if _MARKETPLACE_BRAND_RE.search(name):
+        return True
+    if _is_business_shaped_name(name):
         return True
     return False
 
@@ -6452,6 +6528,9 @@ def people_list(sort=None, ceiling=10000):
         # specifically, not "has a given/family name" generically -- only a
         # card is proof of a real address-book entry.
         has_contacts_card = bool((p.get("icloud_uid") or "").strip())
+        # Cut #15: a STRONG organisation word outranks even a card.
+        if _is_organisation_name(name):
+            continue
         if not has_contacts_card and (
             _is_automated_or_service_name(name)
             or _is_service_mailbox_name(name)
