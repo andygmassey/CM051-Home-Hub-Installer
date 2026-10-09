@@ -1,0 +1,52 @@
+name: candidate-scripts
+
+# The scripts/candidate*.sh steps that turn merged source PRs into a candidate
+# (vendor graft, hub and wiki re-pin, cut-manifest row, CM051 pin, cut-branch
+# freeze, and the scripts/candidate.sh chain) are tested against synthetic
+# fixtures with the GitHub API and the registry stubbed. Each step has a happy
+# path, an idempotent re-run and at least one refusal asserted by exit code and
+# by its words, so a step that refuses for the wrong reason does not pass.
+#
+# Path-filtered to the scripts it guards. It does not need to run on every PR:
+# nothing else can change what these steps do.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/candidate*.sh'
+      - 'scripts/candidate_sources.tsv'
+      - 'scripts/repin_hub_app.sh'
+      - 'scripts/repin_wiki_images.sh'
+      - 'scripts/sync_vendor.sh'
+      - 'tests/test_candidate_scripts.sh'
+      - 'tests/test_candidate_cut_freeze.sh'
+      - '.github/workflows/candidate-scripts.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/candidate*.sh'
+      - 'scripts/candidate_sources.tsv'
+      - 'tests/test_candidate_scripts.sh'
+      - 'tests/test_candidate_cut_freeze.sh'
+
+jobs:
+  candidate-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every candidate script parses
+        if: always()
+        run: |
+          for f in scripts/candidate*.sh tests/test_candidate_scripts.sh tests/test_candidate_cut_freeze.sh; do
+            bash -n "$f" || { echo "syntax error in $f"; exit 1; }
+          done
+
+      - name: The steps do what they say, and refuse what they must
+        if: always()
+        run: bash tests/test_candidate_scripts.sh
+
+      - name: The cut freeze performs each runbook step and refuses when one is unmet
+        if: always()
+        run: bash tests/test_candidate_cut_freeze.sh
