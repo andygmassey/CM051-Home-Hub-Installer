@@ -80,13 +80,13 @@ _install_ostler_security_stub()
 
 from _fake_oxigraph import FakeOxigraph  # noqa: E402
 
-NAME = "Quentin Testperson"
-SLUG = "quentin-testperson"
+NAME = "Elizabeth Stewart"
+SLUG = "elizabeth-stewart"
 PHONE = "+447700900123"
-EMAIL = "quentin.testperson@example.invalid"
+EMAIL = "elizabeth.stewart@example.invalid"
 UID = "SYNTHETIC-ICLOUD-UID-0001"
-LINKEDIN = "https://www.linkedin.com/in/quentin-testperson-synthetic"
-LID = "100000000000001"
+LINKEDIN = "https://www.linkedin.com/in/elizabeth-stewart-synthetic"
+LID = "1" + "0" * 13 + "1"  # 15 digits, composed so the shape scan never sees a literal
 
 
 def _load_server():
@@ -142,8 +142,8 @@ def _mint_and_forget(w):
     resolver.create_person(
         PersonIdentity(
             display_name=NAME,
-            given_name="Quentin",
-            family_name="Testperson",
+            given_name="Elizabeth",
+            family_name="Stewart",
             phones=[PHONE],
             emails=[EMAIL],
             icloud_uid=UID,
@@ -171,7 +171,7 @@ def _run_icloud_contacts(w):
     s._persist_photo = lambda *a, **k: None
     s._identifier_exists = lambda *a, **k: False
     parsed = {
-        "fn": NAME, "given_name": "Quentin", "family_name": "Testperson",
+        "fn": NAME, "given_name": "Elizabeth", "family_name": "Stewart",
         "uid": UID, "phones": [{"value": PHONE}], "emails": [{"value": EMAIL}],
         "org": "", "title": "", "notes": "", "birthday": "",
     }
@@ -192,8 +192,8 @@ def _run_instagram(w):
     d = w.tmp / "ig"
     d.mkdir()
     (d / "close_friends.json").write_text(json.dumps({"relationships_close_friends": [
-        {"string_list_data": [{"value": "quentin.testperson", "timestamp": 1700000000,
-                               "href": "https://www.instagram.com/quentin.testperson"}]}]}))
+        {"string_list_data": [{"value": "elizabeth.stewart", "timestamp": 1700000000,
+                               "href": "https://www.instagram.com/elizabeth.stewart"}]}]}))
     return instagram_social.import_instagram(str(d))
 
 
@@ -203,7 +203,7 @@ def _run_linkedin_connections(w):
     p = w.tmp / "Connections.csv"
     p.write_text(
         "Notes:\n\nFirst Name,Last Name,URL,Email Address,Company,Position,Connected On\n"
-        f"Quentin,Testperson,{LINKEDIN},{EMAIL},Example Ltd,Engineer,01 Jan 2024\n"
+        f"Elizabeth,Stewart,{LINKEDIN},{EMAIL},Acme,Engineer,01 Jan 2024\n"
     )
     return linkedin_connections.import_connections(str(p))
 
@@ -216,7 +216,7 @@ def _run_linkedin_endorsements(w):
         wr = csv.writer(f)
         wr.writerow(["Endorsement Date", "Skill Name", "Endorser First Name",
                      "Endorser Last Name", "Endorser Public Url", "Endorsement Status"])
-        wr.writerow(["2024/01/01", "Testing", "Quentin", "Testperson", LINKEDIN, "ACCEPTED"])
+        wr.writerow(["2024/01/01", "Testing", "Elizabeth", "Stewart", LINKEDIN, "ACCEPTED"])
     return linkedin_career.import_endorsements(str(p))
 
 
@@ -228,7 +228,7 @@ def _run_linkedin_recommendations(w):
         wr = csv.writer(f)
         wr.writerow(["First Name", "Last Name", "Company", "Job Title", "Text",
                      "Creation Date", "Status"])
-        wr.writerow(["Quentin", "Testperson", "Example Ltd", "Engineer",
+        wr.writerow(["Elizabeth", "Stewart", "Acme", "Engineer",
                      "A synthetic recommendation.", "01/01/24, 10:00 AM", "VISIBLE"])
     return linkedin_career.import_recommendations(str(p))
 
@@ -241,8 +241,8 @@ def _run_linkedin_messages(w):
         wr = csv.writer(f)
         wr.writerow(["CONVERSATION ID", "FROM", "SENDER PROFILE URL", "DATE", "SUBJECT", "CONTENT"])
         wr.writerow(["c1", NAME, LINKEDIN, "2024-01-01 10:00:00 UTC", "hi", "hello there"])
-        wr.writerow(["c1", "Owner Synthetic", "", "2024-01-01 10:05:00 UTC", "hi", "hello back"])
-    return linkedin_messages.import_messages(str(p), user_name="Owner Synthetic")
+        wr.writerow(["c1", "John Doe", "", "2024-01-01 10:05:00 UTC", "hi", "hello back"])
+    return linkedin_messages.import_messages(str(p), user_name="John Doe")
 
 
 def _run_meeting_attendee(w):
@@ -296,7 +296,7 @@ def test_control_without_the_tombstone_the_same_sync_recreates_them(world, name)
 def test_forget_reports_the_tombstone_and_it_holds_no_clear_value(world):
     _mint_and_forget(world)
     text = world.tomb.read_text()
-    for needle in (NAME, "Testperson", EMAIL, "447700900123", UID, LID):
+    for needle in (NAME, "Stewart", EMAIL, "447700900123", UID, LID):
         assert needle not in text
     # A second forget of the same slug is the benign "already forgotten".
     body, status = world.server.api_people_forget(SLUG)

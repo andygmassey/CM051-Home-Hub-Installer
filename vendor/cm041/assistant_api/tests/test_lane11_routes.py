@@ -138,7 +138,7 @@ class Lane11Routes(unittest.TestCase):
         self.addCleanup(p.stop)
         for target, value in (
             ("_speaker_directory_rows", lambda: [{"name": "Jane Doe"}]),
-            ("_speaker_operator_names", lambda: ["Sam Operator"]),
+            ("_speaker_operator_names", lambda: ["Sam Smith"]),
         ):
             q = patch.object(server, target, value)
             q.start()
@@ -160,7 +160,7 @@ class Lane11Routes(unittest.TestCase):
     VALID = {
         "/api/v1/people/jane-doe/forget": None,
         "/api/v1/speakers/identify": {"transcript": "Remote: hello\nUser: hi\n",
-                                      "attendees": ["Jane Doe", "Sam Operator"],
+                                      "attendees": ["Jane Doe", "Sam Smith"],
                                       "timestamp": "2026-01-01T00:00:00Z", "duration": 60,
                                       "source": "test"},
         "/api/v1/speakers/correct": {"corrections": [{"label": "Remote", "display_name": "Jane Doe"}]},
@@ -216,18 +216,18 @@ class Lane11Routes(unittest.TestCase):
             by = {x["label"]: x for x in data["speakers"]}
             self.assertEqual(by["Remote"]["display_name"], "Jane Doe")
             self.assertEqual(by["Remote"]["person_id"], "jane-doe")
-            self.assertEqual(by["User"]["display_name"], "Sam Operator")
+            self.assertEqual(by["User"]["display_name"], "Sam Smith")
 
     def test_correction_names_a_later_transcript(self):
-        three = {"transcript": "Remote: hello\n", "attendees": ["Jane Doe", "Alex Roe", "Sam Operator"]}
+        three = {"transcript": "Remote: hello\n", "attendees": ["Jane Doe", "Alex Ross", "Sam Smith"]}
         with _Server() as s:
             _, before = s.call("POST", "/api/v1/speakers/identify", body=three)
             self.assertIsNone(before["speakers"][0]["display_name"])
             s.call("POST", "/api/v1/speakers/correct",
                    body={"attendees": three["attendees"],
-                         "corrections": [{"label": "Remote", "display_name": "Alex Roe"}]})
+                         "corrections": [{"label": "Remote", "display_name": "Alex Ross"}]})
             _, after = s.call("POST", "/api/v1/speakers/identify", body=three)
-            self.assertEqual(after["speakers"][0]["display_name"], "Alex Roe")
+            self.assertEqual(after["speakers"][0]["display_name"], "Alex Ross")
 
     def test_chunked_upload_reassembles_and_processes_once(self):
         with _Server() as s:

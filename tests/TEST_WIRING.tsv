@@ -312,6 +312,8 @@ test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
+test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
+test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_triggers_wiki_recompile_on_change.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_gateway_conversations_reach_the_store.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -378,6 +380,7 @@ test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_kinship_label_write_guard_vendored.py	WIRED	.github/workflows/kinship-label-write-guard.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_lane11_client_calls_pass_the_contract.py	WIRED	.github/workflows/hub-contract.yml
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootout_settles_before_bootstrap.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchagent_bootstrap_after_staging.py	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -870,6 +873,3 @@ scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.y
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
-test_lane11_client_calls_pass_the_contract.py	WIRED	.github/workflows/hub-contract.yml
-test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
-test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml

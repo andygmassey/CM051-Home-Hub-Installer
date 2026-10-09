@@ -61,8 +61,8 @@ from _fake_oxigraph import FakeOxigraph  # noqa: E402
 
 PHONE = "+447700900123"
 JID = "447700900123@s.whatsapp.net"
-EMAIL = "quentin.testperson@example.invalid"
-FACE = "Quentin Testperson"
+EMAIL = "elizabeth.stewart@example.invalid"
+FACE = "Elizabeth Stewart"
 
 
 @pytest.fixture()

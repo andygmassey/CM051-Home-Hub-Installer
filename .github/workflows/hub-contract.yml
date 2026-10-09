@@ -46,6 +46,7 @@ jobs:
       - name: generator and checker unit tests
         run: python3 tests/test_hub_contract_generator.py -v
       - name: repaired client calls (Lane 11) pass the contract
+        if: always()
         run: python3 tests/test_lane11_client_calls_pass_the_contract.py -v
 
   contract-is-current:

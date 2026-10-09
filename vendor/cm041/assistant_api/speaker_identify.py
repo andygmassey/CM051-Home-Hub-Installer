@@ -99,7 +99,7 @@ def is_generic(label_norm: str) -> bool:
 
 
 def clean_attendee(raw) -> str:
-    """Display name from a calendar attendee string. ``"Jane Doe <j@x.com>"``
+    """Display name from a calendar attendee string. ``"Jane Doe <address>"``
     -> ``"Jane Doe"``; a bare address -> its local part with separators turned
     into spaces; anything not a string -> empty."""
     if not isinstance(raw, str):

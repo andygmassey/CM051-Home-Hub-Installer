@@ -380,6 +380,10 @@ class _Match(object):
         self.person_uri = uri
         self.confidence = 1.0
         self.method = "stub"
+        # The real MatchResult always carries match_type (models.py), and the
+        # syncer now reads it to skip a forgotten person. An existing node is
+        # what the real resolver returns as an exact identifier hit.
+        self.match_type = "exact_identifier"
 
 
 class _Resolver(object):
