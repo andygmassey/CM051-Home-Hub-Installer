@@ -252,7 +252,7 @@ def box():
         return 0
 
     if not os.path.isfile(sender):
-        return cannot("the sender is not installed at " + sender + " (INSTALL_MEETING_BRIEF_LAUNCHAGENT defaults to false, so a stock install has no meeting-brief sender to measure)")
+        return cannot("the sender is not installed at " + sender + " (INSTALL_MEETING_BRIEF_LAUNCHAGENT defaults to true from cut #16, so this install either opted out or predates the flip)")
     if not os.access(composer, os.X_OK):
         return cannot("the assistant binary is not executable at " + composer)
     probe = subprocess.run([composer, "meeting-brief", "--help"], capture_output=True, text=True, timeout=30)

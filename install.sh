@@ -23945,11 +23945,15 @@ OSTLER_DIR="${HOME}/.ostler"
 STATE_DIR="${OSTLER_DIR}/state"
 SENT_DB="${STATE_DIR}/sent_briefs.db"
 LOG_FILE="${OSTLER_DIR}/logs/meeting-brief-sender.log"
-HUB_HOST="${OSTLER_HUB_HOST:-http://localhost:8089}"
+# The ical-server binds 127.0.0.1:8090 (its plist sets OSTLER_API_PORT=8090).
+# :8089 is the Doctor, which does not forward every /api/v1 route; the
+# composer's own default is :8090 too. Guarded by test_meeting_brief_sender.sh.
+HUB_HOST="${OSTLER_HUB_HOST:-http://127.0.0.1:8090}"
 # /announce is served by the daemon gateway, pinned to :8000 by CX-59
-# ([gateway] port = 8000 in the config this installer writes). :8090 was
-# never the gateway, so the old default posted every brief into nothing.
-ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://localhost:8000}"
+# ([gateway] port = 8000 in the config this installer writes). :8090 is
+# the ical-server, which has no /announce, so the old default posted every
+# brief into a 404.
+ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://127.0.0.1:8000}"
 WITHIN_MINUTES="${OSTLER_BRIEF_WITHIN_MINUTES:-20}"
 
 mkdir -p "${STATE_DIR}" "$(dirname "${LOG_FILE}")"
