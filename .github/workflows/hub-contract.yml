@@ -58,11 +58,15 @@ jobs:
         with:
           repository: ostler-ai/ostler-assistant
           path: ostler-assistant
-          token: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          # CM051_RELEASES_READ: fine-grained, resource owner ostler-ai, repos
+          # ostler-assistant + ostler-remote-capture + ostler-releases, read code,
+          # metadata and pull requests (Andy's token page, 2026-10-09). The
+          # andygmassey-owned token can never read ostler-ai contents.
+          token: ${{ secrets.CM051_RELEASES_READ }}
       - name: regenerate and compare
         run: |
           if [ ! -f ostler-assistant/crates/zeroclaw-gateway/src/lib.rs ]; then
-            echo "CANNOT-RUN: gateway source not checked out (can OSTLER_GH_TOKEN_ANDYGMASSEY read ostler-ai/ostler-assistant?)"; exit 2
+            echo "CANNOT-RUN: gateway source not checked out (can CM051_RELEASES_READ read ostler-ai/ostler-assistant?)"; exit 2
           fi
           python3 scripts/gen_hub_contract.py --gateway-src ostler-assistant --check
 
