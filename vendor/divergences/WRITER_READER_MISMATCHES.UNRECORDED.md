@@ -1069,3 +1069,4 @@ appended to `ALL_RULES`. `diagnostic_copy.py`: six strings appended.
 Pinned by `tests/test_memory_assert_answers_inside_the_probe_timeout.py`
 `test_a_parked_fact_shows_in_the_doctor_and_resolved_ones_do_not`, red with the
 rule removed. There is no HR015 upstream twin yet: OWED.
+Tree `ostler_fda` (Lane 18): new `forget_tombstone.py` (byte-identical to CM041) and `pwg_ingest.py` `_is_forgotten`, which makes ingest_imessage, ingest_whatsapp, ingest_calendar, ingest_photos_people and ingest_mail_contacts skip a forgotten person. HR015 twin owed; `ostler_fda.patch` not regenerated.

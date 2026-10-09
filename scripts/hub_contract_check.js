@@ -26,7 +26,7 @@ function tplRegex(p) {
 function parseUrl(url) {
   const u = new URL(url);
   const port = u.port ? Number(u.port) : (u.protocol === 'https:' || u.protocol === 'wss:' ? 443 : 80);
-  return { port, path: u.pathname || '/' };
+  return { port, path: u.pathname || '/', hostname: u.hostname.toLowerCase() };
 }
 
 class HubContract {

@@ -513,7 +513,8 @@ def extract_gateway(src_dir, ical_routes, doctor_routes):
                 continue
             out.append(rec)
     info = {"default_body_limit": default_limit, "big_body_limit": big_limit,
-            "pre_auth_allowlist": pre_auth, "companion_port": companion_port,
+            "pre_auth_allowlist": pre_auth, 
+            "companion_port": companion_port,
             "default_host": gw_host}
     return out, info
 

@@ -1351,6 +1351,7 @@
     "not_found",
     "reason",
     "stores_purged",
+    "tombstone_written",
     "wiki_recompile_queued"
    ],
    "source": "install.sh"
@@ -3140,6 +3141,7 @@
     "device_bearer"
    ],
    "body_limit_bytes": 1048576,
+   "content_type": "application/json",
    "id": "gateway POST /api/v1/conversation/upload-part",
    "listener": "gateway",
    "method": "POST",
@@ -3148,12 +3150,29 @@
     8000,
     8443
    ],
+   "proxy_to": "ical:POST:/api/v1/conversation/upload-part",
    "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
-   "upstream_missing": true
+   "request_optional": [
+    "metadata"
+   ],
+   "request_required": [
+    "meeting_id",
+    "part_index",
+    "part_total",
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "job_id",
+    "meeting_id",
+    "missing",
+    "part_total",
+    "parts",
+    "received",
+    "state_url",
+    "status"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
   {
    "auth": [
@@ -3600,6 +3619,7 @@
     "not_found",
     "reason",
     "stores_purged",
+    "tombstone_written",
     "wiki_recompile_queued"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
@@ -3740,6 +3760,7 @@
     "device_bearer"
    ],
    "body_limit_bytes": 1048576,
+   "content_type": "application/json",
    "id": "gateway POST /api/v1/speakers/identify",
    "listener": "gateway",
    "method": "POST",
@@ -3748,12 +3769,22 @@
     8000,
     8443
    ],
+   "proxy_to": "ical:POST:/api/v1/speakers/identify",
    "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
-   "upstream_missing": true
+   "request_optional": [
+    "attendees",
+    "duration",
+    "source",
+    "timestamp"
+   ],
+   "request_required": [
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "speakers"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
   {
    "auth": [
@@ -4886,6 +4917,42 @@
    "auth": [
     "service_token"
    ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/conversation/upload-part",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/conversation/upload-part",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "metadata"
+   ],
+   "request_required": [
+    "meeting_id",
+    "part_index",
+    "part_total",
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "job_id",
+    "meeting_id",
+    "missing",
+    "part_total",
+    "parts",
+    "received",
+    "state_url",
+    "status"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
    "body_limit_bytes": null,
    "id": "ical GET /api/v1/conversation/{slug}/speakers",
    "listener": "ical",
@@ -5410,6 +5477,7 @@
     "not_found",
     "reason",
     "stores_purged",
+    "tombstone_written",
     "wiki_recompile_queued"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5521,6 +5589,64 @@
     "debts",
     "degraded",
     "reason"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/speakers/correct",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/speakers/correct",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "attendees",
+    "corrections",
+    "identifications",
+    "meeting_id"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "error",
+    "ok",
+    "skipped",
+    "stored"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/speakers/identify",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/speakers/identify",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "attendees",
+    "duration",
+    "source",
+    "timestamp"
+   ],
+   "request_required": [
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "speakers"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

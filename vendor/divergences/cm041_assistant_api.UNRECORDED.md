@@ -874,3 +874,74 @@ A wholesale `sync_vendor.sh` of this tree deletes the file. After any sync or
 graft that touches `ical-server.py`, regenerate it with
 `python3 scripts/gen_hub_contract.py --gateway-src <ostler-assistant checkout>`.
 `hub-contract.yml` job `contract-is-current` reds on a stale or missing copy.
+
+## Eighteenth graft: speaker naming, chunked conversation upload, 405 on POST-only paths (Lane 11)
+
+Source: CM041 branch `claude/lane11-hub-route-gaps` (same shape as the Lane 6
+graft above and #2658). Not yet on CM041 main, so there is no sha to put in
+`hold_ack_shas`: that ack is OWED the moment the CM041 PR merges.
+
+Files. `assistant_api/speaker_identify.py` and
+`assistant_api/conversation_upload.py` are byte-identical to CM041. The four
+new tests (`test_lane11_routes.py`, `test_speaker_identify.py`,
+`test_conversation_upload.py`) are byte-identical too. `ical-server.py` takes 8
+hunks, all applied with the CM041 diff and no hand edit: the route docs, the
+`_POST_ONLY_PATHS` 405 for GET on a POST-only path, the forget 64 KiB body cap,
+three adapters (`api_speakers_identify`, `api_speakers_correct`,
+`api_conversation_upload_part`), their three dispatch blocks and the endpoint
+index.
+
+Behaviour added. `POST /api/v1/speakers/identify` (CM042 RemoteCapture wire
+shape), `POST /api/v1/speakers/correct` (stores a correction so later
+transcripts get the name; also takes CM031's `SpeakerUpdateRequest` shape),
+`POST /api/v1/conversation/upload-part` (parts under one `meeting_id`,
+reassembled server-side, then the normal `conversation/process`).
+
+NOT grafted, deliberately: CM041 upstream's `api_people_forget` is the OLDER
+one. This tree's forget is already the complete one (graph-aware, fact nodes
+scoped by type, honest not-found, audit). The gateway's new
+`POST /api/v1/people/<slug>/forget` reaches THIS handler. Backporting this
+tree's forget to CM041 is separate, and until it lands a re-vendor from CM041
+must not overwrite it.
+
+Guarded by the three vendored tests (25) and
+`tests/test_lane11_client_calls_pass_the_contract.py`. Retire by landing the
+CM041 branch and re-pinning.
+
+## Nineteenth graft: forget writes a tombstone every people syncer respects (Lane 18)
+
+Source: CM041 PR #200, squash merge `e39af73bc6cb1dd0d7a65fcf7a7a01e548f5f6a9`
+(pre-merge head `cb98e00`), same shape as the Lane 11 graft above and #2658.
+Acked in `hold_ack_shas` of the four touched cm041 trees (assistant_api,
+contact_syncer, identity_resolver, meeting_syncer). Retire by re-pinning past it.
+
+`api_people_forget` here and in CM041 are now the SAME handler: CM041 took this
+tree's graph-aware forget (fact nodes by type, honest not-found, audit) in its
+backport commit, so the Eighteenth graft's "NOT grafted, CM041 has the older one"
+warning no longer applies. Only the new hunk is grafted here: the tombstone is
+written BEFORE the erase (`identity_resolver/forget_tombstone.py`, salted
+digests, no clear identifier), and the response gains `tombstone_written`.
+
+Files, all applied with the CM041 diff: `assistant_api/ical-server.py` (one
+hunk); `identity_resolver/forget_tombstone.py` (new, byte-identical to CM041);
+`identity_resolver/resolver.py` (`_resolve_tiers` returns match_type
+`forgotten`, `create_person` raises; applied by hand because this tree wraps
+resolve in a degrade-to-new boundary the CM041 hunk context does not have);
+`contact_syncer/{syncer,facebook_friends,instagram_social,linkedin_career,
+linkedin_connections,linkedin_messages}.py`; `meeting_syncer/syncer.py`.
+`contact_syncer/syncer.py` and `facebook_friends.py` each needed one hunk by
+hand (context differs). NOT grafted: `whatsapp_bridge/bridge.py`, which is not
+vendored in this repo (CM041 has the tombstone check there).
+
+`vendor/ostler_fda/` is CM051-only here (upstream HR015, private, not available
+to this session): `forget_tombstone.py` is copied byte-identical and
+`pwg_ingest.py` skips a tombstoned person in `ingest_imessage`,
+`ingest_whatsapp`, `ingest_calendar`, `ingest_photos_people` and
+`ingest_mail_contacts` (new `_is_forgotten`). The HR015 twin is OWED and
+`vendor/divergences/ostler_fda.patch` is NOT regenerated (no HR015 checkout).
+
+Guarded by `tests/test_forget_tombstone_every_syncer.py` (18) and
+`tests/test_forget_tombstone_ostler_fda.py` (10). Retire by landing the CM041
+and HR015 changes and re-pinning.
+
+Tree `cm041/assistant_api`: the Nineteenth graft above covers `ical-server.py` (forget tombstone hunk), `hub_contract.yaml` (regenerated; speakers/identify on :8090 with the service token, nothing on the gateway) and the Lane 11 files listed in the Lane 11 graft.

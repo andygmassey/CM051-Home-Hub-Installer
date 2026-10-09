@@ -204,3 +204,9 @@ The `is_possible_phone` import and the three gate checks listed above.
 Guarded by `tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py`
 (CM051 repo root, mirroring CM041 PR #186's own test suite). Retire by
 landing CM041 #186 and re-pinning.
+
+## Lane 18 forget tombstone
+
+See the Nineteenth graft in cm041_assistant_api.UNRECORDED.md: the tombstone check in this tree (forget_tombstone.py, and the "forgotten" skip at each create path) is grafted from CM041 PR #200 with the rest of that graft.
+
+Tree `cm041/contact_syncer`: `syncer.py`, `facebook_friends.py`, `instagram_social.py`, `linkedin_career.py`, `linkedin_connections.py` and `linkedin_messages.py` each skip a `forgotten` match (CM041 #200 `cb98e00`).

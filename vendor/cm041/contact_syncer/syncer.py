@@ -36,6 +36,7 @@ from contact_syncer.photo_storage import remove_photo, write_photo
 from contact_syncer.relationship_labels import is_relationship_label
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
+from identity_resolver.forget_tombstone import MATCH_TYPE as FORGOTTEN
 from identity_resolver.normalise import (  # type: ignore[import-untyped]
     clean_display_name,
     is_possible_phone,
@@ -211,6 +212,13 @@ class ContactSyncer:
                         parsed["fn"] = _cleaned
                     # Person or unclassified – create person node
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
+                    if person_uri is None:
+                        counts[contact_type] -= 1
+                        skipped.append({
+                            "uid": uid_for_log, "fn": None, "stage": "forgotten",
+                            "error": "person was forgotten (tombstone); not created",
+                        })
+                        continue
                     description = self._build_description(parsed)
                     qdrant_queue.append(
                         {
@@ -421,6 +429,13 @@ class ContactSyncer:
                     if _cleaned:
                         parsed["fn"] = _cleaned
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
+                    if person_uri is None:
+                        counts[contact_type] -= 1
+                        skipped.append({
+                            "uid": uid_for_log, "fn": None, "stage": "forgotten",
+                            "error": "person was forgotten (tombstone); not created",
+                        })
+                        continue
                     description = self._build_description(parsed)
                     qdrant_queue.append(
                         {
@@ -994,8 +1009,9 @@ class ContactSyncer:
 
     def _resolve_and_write_person(
         self, parsed: Dict[str, Any], contact_type: str
-    ) -> Tuple[str, str]:
-        """Resolve identity, write person node to Oxigraph. Returns (person_id, person_uri)."""
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve identity, write person node to Oxigraph. Returns (person_id, person_uri),
+        or (None, None) for a forgotten person (nothing written)."""
         from identity_resolver.models import PersonIdentity
 
         phones = [p["value"] for p in parsed.get("phones", []) if p.get("value")]
@@ -1049,6 +1065,11 @@ class ContactSyncer:
                     incoming_uid,
                 )
                 match = None
+
+        # A person erased by /people/<slug>/forget: write nothing, not even a
+        # photo. (None, None) tells both sync loops to skip the contact.
+        if match and match.match_type == FORGOTTEN:
+            return None, None
 
         if match and match.person_uri:
             person_uri = match.person_uri
