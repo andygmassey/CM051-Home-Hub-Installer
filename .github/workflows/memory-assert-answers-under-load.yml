@@ -41,6 +41,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: install the server's import-time dependencies and pytest
-        run: python3 -m pip install --quiet cryptography httpx pytest
+        run: python3 -m pip install --quiet cryptography httpx pytest pyoxigraph
       - name: memory/assert answers inside the probe's timeout while the model is busy
         run: python3 -m pytest -v tests/test_memory_assert_answers_inside_the_probe_timeout.py
