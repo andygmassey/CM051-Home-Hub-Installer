@@ -1,0 +1,59 @@
+# Lane 9 (founder decision 2026-09-22): the UI stays English, but a
+# non-English owner gets first-class summaries and todos. This runs the
+# multilingual suite against THE VENDORED cm048_pipeline, the copy a customer
+# actually runs, not the CM048 source repo. Mirrors CM048's
+# tests/test_multilingual_output.py (graft of CM048 branch
+# claude/great-heisenberg-qrc0f3, recorded in
+# vendor/divergences/cm048_pipeline.UNRECORDED.md).
+name: cm048-multilingual-output
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm048_pipeline/**'
+      - 'tests/test_cm048_multilingual_vendored.py'
+      - 'tests/fixtures/multilingual/**'
+      - '.github/workflows/cm048-multilingual-output.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm048_pipeline/**'
+      - 'tests/test_cm048_multilingual_vendored.py'
+      - 'tests/fixtures/multilingual/**'
+      - '.github/workflows/cm048-multilingual-output.yml'
+
+concurrency:
+  # Supersede in-flight runs on the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  cm048-multilingual-output:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest and the module's runtime dependencies
+        run: |
+          python -m pip install --quiet pytest httpx pyyaml phonenumbers pydantic python-dateutil
+          python -m pip install --quiet ./vendor/ostler_security
+      # Anti-vacuity and the run are ONE step on purpose: a failing floor in a
+      # separate step would skip the run and hide the real result.
+      - name: A non-English conversation gets a first-class summary and todos (vendored)
+        run: |
+          n="$(python -m pytest tests/test_cm048_multilingual_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 21 ]; then
+            echo "REFUSING: expected at least 21 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_multilingual_vendored.py -v

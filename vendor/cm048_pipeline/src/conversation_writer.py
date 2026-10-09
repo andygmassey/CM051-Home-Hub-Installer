@@ -47,6 +47,7 @@ import hashlib
 import logging
 import os
 import re
+import unicodedata
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -361,7 +362,11 @@ def _normalise_privacy_level(value: str) -> str:
     return "L3"
 
 
-_SLUG_KEEP_RE = re.compile(r"[^a-z0-9]+")
+# Unicode-aware: keep letters and digits of every script so a folder for
+# a conversation with a participant written in kanji or Cyrillic is not
+# named "conversation". Path separators, spaces and punctuation are not
+# word characters, so they still collapse to a hyphen.
+_SLUG_KEEP_RE = re.compile(r"[\W_]+")
 
 
 def _slug_segment(text: str, max_len: int = 32) -> str:
@@ -372,7 +377,9 @@ def _slug_segment(text: str, max_len: int = 32) -> str:
     ``"conversation"`` for empty / all-symbol inputs so the
     caller never has to handle ``""``.
     """
-    cleaned = _SLUG_KEEP_RE.sub("-", text.lower()).strip("-")
+    cleaned = _SLUG_KEEP_RE.sub(
+        "-", unicodedata.normalize("NFC", text).lower()
+    ).strip("-")
     if not cleaned:
         return "conversation"
     return cleaned[:max_len].rstrip("-") or "conversation"
