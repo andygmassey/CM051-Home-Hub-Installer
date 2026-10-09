@@ -1046,6 +1046,17 @@ entries:
       kind: box_walk_probe
       probe: "assistant_sends_over_whatsapp_and_email"
 
+  # ADVISORY (scripts/walk_promote_scope.tsv, owner_knowledge_score row): a
+  # usefulness score, not an install check. Declared here because every probe
+  # on disk must be invoked by the cut; the promote scope decides it never
+  # refuses a promote.
+  - id: box-walk-owner-knowledge-score
+    title: "advisory: the assistant answers a stratified sample of owner-knowledge questions over /ws/chat at or above the target"
+    incident: "Lane 17: no measure existed of whether the assistant knows the owner it was installed for"
+    proof:
+      kind: box_walk_probe
+      probe: "owner_knowledge_score"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical

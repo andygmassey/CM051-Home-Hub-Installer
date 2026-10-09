@@ -19,8 +19,8 @@ sys.path.insert(0, HERE)
 import test_owner_score as t  # noqa: E402
 
 PROBE = os.path.join(HERE, "..", "box_walk_probes", "probes", "owner_knowledge_score.sh")
-SEED_PERSON = "Quillon Fairweather"          # the walk's synthetic known person (invented)
-SYNTHETIC_CTX = "# Personal Context\n- %s works at Example Ltd\n" % SEED_PERSON
+SEED_PERSON = "Ben Doe"          # the walk's synthetic known person (invented)
+SYNTHETIC_CTX = "# Personal Context\n- %s works at Acme Corp\n" % SEED_PERSON
 REAL_CTX = "# Personal Context\n- Someone Real works at Somewhere Real\n"
 GOLD = {q["question"]: q["gold"] for q in t.ALL}
 
@@ -135,7 +135,7 @@ class CrashSafe(unittest.TestCase):
         self.addCleanup(b.close)
         self._kill_mid_run(b, signal.SIGKILL)
         # SIGKILL cannot be trapped: the persona is still in place and a backup exists.
-        self.assertIn("Synthetic owner: Tamsin Verrall", b.ctx())
+        self.assertIn("Synthetic owner: Jane Smith", b.ctx())
         self.assertIn("CONTEXT.md.owner-score-backup", b.leftovers())
         # The next run must restore the original BEFORE it does anything else.
         b.gw.on_ask = None
@@ -146,7 +146,7 @@ class CrashSafe(unittest.TestCase):
         self.assertIn("RECOVERED", out)
         self.assertEqual(b.ctx(), SYNTHETIC_CTX, "the original was lost")
         self.assertEqual(b.leftovers(), [])
-        self.assertTrue(all("Synthetic owner: Tamsin Verrall" in s for s in seen), "persona was live during the questions")
+        self.assertTrue(all("Synthetic owner: Jane Smith" in s for s in seen), "persona was live during the questions")
 
     def test_a_leftover_backup_is_never_clobbered_by_a_new_backup(self):
         # crash-state: persona installed, original only in the backup. A second

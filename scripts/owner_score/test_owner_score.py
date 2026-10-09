@@ -102,13 +102,13 @@ class WrongAnswersScoreNearZero(unittest.TestCase):
         q = next(q for q in ALL if q["id"] == "family-10")
         self.assertEqual(grading.grade(q, "I don't have it, but try 07700 900123.")[0], 0.0)
         self.assertEqual(grading.grade(q, "His number is 07700 900123.")[0], 0.0)
-        self.assertEqual(grading.grade(q, "I don't have a phone number for Dominic.")[0], 1.0)
+        self.assertEqual(grading.grade(q, "I don't have a phone number for Carl.")[0], 1.0)
 
     def test_trap_zeroes_a_right_answer(self):
         q = {"id": "t", "category": "work", "question": "?", "kind": "fact",
-             "require": [["fenwick"]], "none_of": ["contoso"]}
-        self.assertEqual(grading.grade(q, "Fenwick, not Contoso.")[0], 0.0)
-        self.assertEqual(grading.grade(q, "Fenwick.")[0], 1.0)
+             "require": [["acme"]], "none_of": ["contoso"]}
+        self.assertEqual(grading.grade(q, "Acme, not Contoso.")[0], 0.0)
+        self.assertEqual(grading.grade(q, "Acme.")[0], 1.0)
 
     def test_word_boundaries_and_case(self):
         q = {"id": "t", "category": "work", "question": "?", "kind": "fact", "require": [["14"]]}
@@ -133,7 +133,7 @@ class QuestionsAreAnswerableFromTheOwnerCheatSheet(unittest.TestCase):
 
     def test_absent_questions_really_are_absent(self):
         for needle in ("salary", "pension", "favourite film", "lunch", "canada", "phone", "address", "new job"):
-            # the persona may mention Calgary/Dominic, but never these asks
+            # the persona may mention Calgary/Carl, but never these asks
             self.assertNotIn(needle, self.DIGEST, needle)
 
     def test_committed_digest_matches_persona(self):
@@ -291,7 +291,7 @@ class FakeGateway(threading.Thread):
                     continue
                 key = re.search(r"Sec-WebSocket-Key: (\S+)", hdr).group(1)
                 acc = base64.b64encode(hashlib.sha1((key + self.GUID).encode()).digest()).decode()
-                c.sendall(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                c.sendall(("HTTP/1.1 101 Switching protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                            "Sec-WebSocket-Accept: %s\r\nSec-WebSocket-Protocol: zeroclaw.v1\r\n\r\n" % acc).encode())
                 self._send(c, {"type": "session_start", "session_id": "s"})
                 b = c.recv(2)

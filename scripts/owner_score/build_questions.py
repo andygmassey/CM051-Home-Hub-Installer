@@ -58,40 +58,40 @@ def add(cat, split, q, gold, req=None, none=None, **extra):
 
 # ---- work (10) ----
 add("work", "V", "Where do I work and what is my job title?",
-    "You are Head of Delivery at Fenwick Tidal Energy in Plymouth.",
-    [G("fenwick"), G("head of delivery")])
+    "You are Head of Delivery at Acme Corp in Plymouth.",
+    [G("acme corp", "acme"), G("head of delivery")])
 add("work", "V", "Which company did I work for before my current one?",
-    "Before Fenwick you were a senior project manager at Kestrel Rail Systems in Derby.",
-    [G("kestrel", "kestrel rail systems")])
+    "Before Acme you were a senior project manager at Globex Corp in Derby.",
+    [G("globex", "globex corp")])
 add("work", "V", "What was my very first job and in which city?",
-    "Your first job was junior surveyor at Halvergate Surveyors in Norwich.",
-    [G("halvergate"), G("norwich")])
-add("work", "V", "When did I start at Fenwick?",
-    "You started at Fenwick in March 2023.",
+    "Your first job was junior surveyor at Solo Corp in Norwich.",
+    [G("solo corp"), G("norwich")])
+add("work", "V", "When did I start at Acme?",
+    "You started at Acme in March 2023.",
     [G("march 2023", "03/2023", "2023-03")])
 add("work", "V", "What did I study at university, and where?",
-    "You have a BSc in Civil Engineering from the University of Sheffield.",
+    "You have a BSc in Civil engineering from the University of Sheffield.",
     [G("civil engineering"), G("sheffield")])
 add("work", "V", "What is my flagship project at the moment?",
-    "The Sound Array, a tidal array of 12 turbines off the Devon coast.",
+    "The Sound array, a tidal array of 12 turbines off the Devon coast.",
     [G("sound array")])
 add("work", "V", "Who is my line manager at work?",
-    "Your line manager is the COO, Imogen Ferreira.",
-    [G("imogen ferreira", "imogen")])
+    "Your line manager is the COO, Alison Li.",
+    [G("alison li", "alison")])
 add("work", "H", "How many people are on my delivery team?",
     "You lead a delivery team of 14 people.",
     [G("14", "fourteen")])
 add("work", "H", "Which Leeds company did I work for, and in what role?",
-    "You were a project coordinator at Brindle & Pike Civil Engineering in Leeds.",
-    [G("brindle & pike", "brindle and pike"), G("project coordinator")])
+    "You were a project coordinator at Initech Corp in Leeds.",
+    [G("initech corp"), G("project coordinator")])
 add("work", "V", "What is my current salary?",
     "I don't have your salary anywhere in what I know about you.",
     kind="absent", forbid_regex=r"[£$]\s?\d|\d{4,}")
 
 # ---- family (10) ----
 add("family", "V", "What is my husband's name and what does he do?",
-    "Your husband is Callum Verrall, a physics teacher at Hartwell Academy.",
-    [G("callum"), G("physics teacher", "teaches physics", "physics")])
+    "Your husband is Tom Smith, a physics teacher at Hartwell academy.",
+    [G("tom"), G("physics teacher", "teaches physics", "physics")])
 add("family", "V", "How old is my daughter and what is her name?",
     "Your daughter Isla is 9.",
     [G("isla"), G("9", "nine")])
@@ -99,25 +99,25 @@ add("family", "V", "What is my son called, and how old is he?",
     "Your son Rory is 6.",
     [G("rory"), G("6", "six")])
 add("family", "V", "Where does my mother live?",
-    "Your mother Marguerite lives in Whitby.",
+    "Your mother Margaret lives in Whitby.",
     [G("whitby")])
 add("family", "V", "What does my brother do and where does he live?",
-    "Your brother Dominic is a paramedic in Calgary.",
+    "Your brother Carl is a paramedic in Calgary.",
     [G("paramedic"), G("calgary")])
 add("family", "V", "What is our dog called, and what breed is she?",
     "Biscuit, a border terrier.",
     [G("biscuit"), G("border terrier")])
-add("family", "V", "When is Callum's birthday?",
-    "Callum's birthday is on 22 October.",
+add("family", "V", "When is Tom's birthday?",
+    "Tom's birthday is on 22 October.",
     [D(22, 10)])
 add("family", "H", "Which school do the children go to?",
-    "Isla and Rory go to Mount Pleasant Primary School.",
+    "Isla and Rory go to Mount pleasant Primary school.",
     [G("mount pleasant")])
-add("family", "H", "When did Callum and I get married?",
+add("family", "H", "When did Tom and I get married?",
     "You married on 14 June 2014.",
     [D(14, 6), G("2014")])
-add("family", "H", "What is my brother Dominic's phone number?",
-    "I don't have a phone number for Dominic.",
+add("family", "H", "What is my brother Carl's phone number?",
+    "I don't have a phone number for Carl.",
     kind="absent", forbid_regex=NUM)
 
 # ---- tastes (10) ----
@@ -125,7 +125,7 @@ add("tastes", "V", "What coffee do I usually order?",
     "A flat white with oat milk.",
     [G("flat white"), G("oat")])
 add("tastes", "V", "What is my favourite book?",
-    "The Lantern Keepers by Edda Marlowe.",
+    "The Lantern Keepers by Mary Coe.",
     [G("lantern keepers")])
 add("tastes", "V", "Which band do I like best?",
     "The Quiet Harbours.",
@@ -143,10 +143,10 @@ add("tastes", "H", "Where is my favourite place to go on holiday?",
     "Orkney.",
     [G("orkney")])
 add("tastes", "H", "Which football team do I support?",
-    "Plymouth Argyle.",
+    "Plymouth argyle.",
     [G("plymouth argyle", "argyle")])
 add("tastes", "V", "What car do I drive?",
-    "A green Skoda Octavia estate.",
+    "A green Skoda octavia estate.",
     [G("skoda"), G("octavia", "green")])
 add("tastes", "V", "What is my favourite film?",
     "I don't have a favourite film recorded for you.",
@@ -157,7 +157,7 @@ add("routines", "V", "What time do I get up on weekdays?",
     "You wake at 6:15.",
     [T(6, 15)])
 add("routines", "V", "When do I go sea swimming and where?",
-    "Tuesday and Thursday mornings at 6:30 at Tinside Lido.",
+    "Tuesday and Thursday mornings at 6:30 at Tinside lido.",
     [G("tuesday"), G("thursday"), G("tinside")])
 add("routines", "V", "When is my team stand-up?",
     "Every Monday at 9:15.",
@@ -175,7 +175,7 @@ add("routines", "H", "Which day of the week do I do the school run?",
     "Wednesdays.",
     [G("wednesday", "wednesdays")])
 add("routines", "V", "Where am I on Thursday evenings at half past seven?",
-    "At Plymouth Community Choir.",
+    "At Plymouth community choir.",
     [G("choir")])
 add("routines", "H", "How do I get to the office and how long does it take?",
     "You cycle, and it takes 25 minutes.",
@@ -185,46 +185,46 @@ add("routines", "V", "What did I have for lunch today?",
     kind="absent", forbid_regex=r"\b(sandwich|salad|soup|pasta|curry)\b")
 
 # ---- people (10) ----
-add("people", "V", "Who is Hollis Wrenn and where does she live?",
-    "Hollis is your best friend, a graphic designer in Glasgow.",
+add("people", "V", "Who is Sam Ross and where does she live?",
+    "Sam is your best friend, a graphic designer in Glasgow.",
     [G("best friend"), G("glasgow")])
-add("people", "V", "How did I meet Hollis?",
+add("people", "V", "How did I meet Sam?",
     "In halls at Sheffield.",
     [G("sheffield")])
 add("people", "V", "Who looks after Biscuit when we are away?",
-    "Your next-door neighbour Saoirse Tallent.",
-    [G("saoirse")])
-add("people", "V", "Who is Desmond Achterberg?",
-    "He is your mentor, a former director at Kestrel Rail Systems.",
-    [G("mentor"), G("kestrel")])
-add("people", "V", "What is Billie Crane's role in my life?",
-    "Billie Crane is your accountant.",
+    "Your next-door neighbour Ana Wang.",
+    [G("ana")])
+add("people", "V", "Who is Hans Andersen?",
+    "He is your mentor, a former director at Globex Corp.",
+    [G("mentor"), G("globex")])
+add("people", "V", "What is Becky Brown's role in my life?",
+    "Becky Brown is your accountant.",
     [G("accountant")])
 add("people", "V", "Who is my GP?",
-    "Dr Ottoline Marsh.",
-    [G("ottoline marsh", "ottoline")])
+    "doctor Liz Zhang.",
+    [G("liz zhang", "liz")])
 add("people", "H", "Who is my contact for survey boats?",
-    "Barnaby Okonkwo-Reyes, the harbour master at Sutton Harbour.",
-    [G("barnaby")])
+    "Bob Jones, the harbour master at Sutton harbour.",
+    [G("bob")])
 add("people", "V", "Who is my dentist?",
-    "Dr Anand Seddon.",
-    [G("anand seddon", "seddon")])
-add("people", "H", "What is Imogen Ferreira's job?",
-    "She is the chief operating officer at Fenwick.",
+    "doctor Raj Patel.",
+    [G("raj patel", "raj")])
+add("people", "H", "What is Alison Li's job?",
+    "She is the chief operating officer at Acme.",
     [G("chief operating officer", "coo")])
-add("people", "V", "What is Hollis Wrenn's home address?",
-    "I don't have a home address for Hollis.",
+add("people", "V", "What is Sam Ross's home address?",
+    "I don't have a home address for Sam.",
     kind="absent", forbid_regex=r"\d+\s+[a-z]+\s+(road|street|lane|avenue|close|drive)")
 
 # ---- events (10) ----
 add("events", "V", "When and where is Isla's violin concert?",
-    "Thursday 15 October at 18:00 in the Mount Pleasant school hall.",
+    "Thursday 15 October at 18:00 in the Mount pleasant school hall.",
     [D(15, 10), T(18, 0)])
 add("events", "V", "When is my next dentist appointment?",
     "Monday 19 October at 08:40.",
     [D(19, 10), T(8, 40)])
-add("events", "V", "Where is Callum's birthday dinner and when?",
-    "A table for four at Harbour Kitchen on 22 October at 19:00.",
+add("events", "V", "Where is Tom's birthday dinner and when?",
+    "A table for four at Harbour kitchen on 22 October at 19:00.",
     [G("harbour kitchen"), D(22, 10)])
 add("events", "V", "What are the dates of our Orkney holiday?",
     "From 24 October to 31 October.",
@@ -235,16 +235,16 @@ add("events", "V", "What time is the ferry to Orkney?",
 add("events", "V", "When is the MOT for the Skoda?",
     "Tuesday 3 November.",
     [D(3, 11)])
-add("events", "H", "Where is the Fenwick board offsite and when?",
+add("events", "H", "Where is the Acme board offsite and when?",
     "In Falmouth, from 4 November to 5 November.",
     [G("falmouth"), D(4, 11)])
 add("events", "H", "What is happening on Saturday 17 October?",
     "Rory's swimming gala.",
     [G("gala", "swimming")])
-add("events", "H", "When am I having coffee with Desmond, and where?",
-    "Wednesday 14 October at 10:00 at the Mount Batten cafe.",
+add("events", "H", "When am I having coffee with Hans, and where?",
+    "Wednesday 14 October at 10:00 at the Mount batten cafe.",
     [D(14, 10), G("mount batten")])
-add("events", "V", "When is my flight to Canada to see Dominic?",
+add("events", "V", "When is my flight to Canada to see Carl?",
     "I don't have a flight to Canada recorded.",
     kind="absent", forbid_regex=r"\b(ba|ac|aa)\s?\d{2,4}\b|\d{1,2}:\d{2}")
 
@@ -255,18 +255,18 @@ add("todos", "V", "What is the deadline to renew Rory's passport?",
 add("todos", "V", "Which maintenance job do I still need to book for the house?",
     "The boiler service.",
     [G("boiler")])
-add("todos", "V", "What do I owe Imogen and by when?",
-    "A reply about the Sound Array budget by Friday 9 October.",
+add("todos", "V", "What do I owe Alison and by when?",
+    "A reply about the Sound array budget by Friday 9 October.",
     [G("budget"), D(9, 10)])
-add("todos", "V", "What am I planning to buy Callum for his birthday?",
+add("todos", "V", "What am I planning to buy Tom for his birthday?",
     "Waterproof walking boots.",
     [G("walking boots", "boots")])
 add("todos", "V", "What expenses do I still need to submit?",
     "The September Leeds trip.",
     [G("leeds")])
 add("todos", "H", "Who do I need to ring about Christmas plans?",
-    "Marguerite, your mother.",
-    [G("marguerite", "mum", "mother")])
+    "Margaret, your mother.",
+    [G("margaret", "mum", "mother")])
 add("todos", "H", "What needs fixing in the garden?",
     "The gate latch.",
     [G("gate")])
@@ -282,15 +282,15 @@ add("todos", "V", "What is the status of my pension transfer?",
 
 # ---- conversations (10) ----
 add("conversations", "V", "What did I ask you to draft on Tuesday, and for whom?",
-    "A note to Desmond Achterberg proposing coffee on 14 October.",
-    [G("desmond"), G("coffee", "note", "email")])
-add("conversations", "V", "What big news did Hollis give me on Saturday?",
+    "A note to Hans Andersen proposing coffee on 14 October.",
+    [G("hans"), G("coffee", "note", "email")])
+add("conversations", "V", "What big news did Sam give me on Saturday?",
     "She is moving to Lisbon in January.",
     [G("lisbon")])
-add("conversations", "V", "Why did Callum and I pick the Skaill cottage?",
+add("conversations", "V", "Why did Tom and I pick the Skaill cottage?",
     "It had a wood burner, unlike the one in Birsay.",
     [G("wood burner", "wood-burner", "woodburner")])
-add("conversations", "V", "What contingency did Imogen ask for on the budget?",
+add("conversations", "V", "What contingency did Alison ask for on the budget?",
     "6 per cent.",
     [G("6 per cent", "6 percent", "6%", "six per cent", "six percent")])
 add("conversations", "V", "What hydration did I settle on for my sourdough?",
@@ -302,15 +302,15 @@ add("conversations", "V", "When did my mother say she could come for Christmas?"
 add("conversations", "H", "What did Isla say she wants to try after the concert?",
     "The cello.",
     [G("cello")])
-add("conversations", "H", "How much was the self-assessment payment Billie confirmed?",
+add("conversations", "H", "How much was the self-assessment payment Becky confirmed?",
     "3,850 pounds.",
     [G("3850", "3,850")])
 add("conversations", "H", "What date is the survey boat booked for?",
     "20 October.",
     [D(20, 10)])
-add("conversations", "V", "What did Callum say about the new job offer?",
-    "I don't have anything about Callum and a new job offer.",
-    kind="absent", forbid_regex=r"\b(he said|callum said|accept|decline|turned)\b")
+add("conversations", "V", "What did Tom say about the new job offer?",
+    "I don't have anything about Tom and a new job offer.",
+    kind="absent", forbid_regex=r"\b(he said|tom said|accept|decline|turned)\b")
 
 
 def main():

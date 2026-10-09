@@ -55,7 +55,7 @@ TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-~/.ostler/secrets/zeroclaw_admin_token}"
 CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-420}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../owner_score" && pwd)"
 REMOTE_DIR="/tmp/ostler-owner-score-$$"
-PERSONA_MARKER="Synthetic owner: Tamsin Verrall"
+PERSONA_MARKER="Synthetic owner: Jane Smith"
 _PERSONA_LOADED=0
 
 # ── THE ADJUDICATOR ─────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ set -u
 cmd="${1:-}"; W="${2:-}"
 [ -n "$cmd" ] && [ -n "$W" ] && [ -d "$W" ] || { echo "context_swap: usage / missing workspace" >&2; exit 12; }
 C="$W/CONTEXT.md"; B="$W/CONTEXT.md.owner-score-backup"; F="$W/.owner-score-swapped"
-MARKER="Synthetic owner: Tamsin Verrall"
+MARKER="Synthetic owner: Jane Smith"
 STATE="${OSTLER_STATE_DIR:-$HOME/.ostler/state}"
 
 recover() {

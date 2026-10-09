@@ -33,7 +33,7 @@ scripts/owner_score.sh --questions mine.jsonl   the owner's real questions, lock
 
 ## The persona and the questions
 
-`persona.json` is a SYNTHETIC owner (Tamsin Verrall: work history, family,
+`persona.json` is a SYNTHETIC owner (Jane Smith: work history, family,
 tastes, routines, people, upcoming events, open todos, recent conversations;
 as-of 2026-10-08). `CONTEXT.persona.md` is that persona rendered as a
 CONTEXT.md. `build_questions.py` holds the 80 questions (8 categories x 10) and
@@ -48,7 +48,7 @@ writes the two question files. Every question has:
 No LLM judge. If one is ever needed, pin its prompt and model in `grading.py`
 so the checksum covers it.
 
-Limits, stated: matching is textual, so a negation ("not Kestrel") of a trap
+Limits, stated: matching is textual, so a negation ("not Globex") of a trap
 still trips it, and a correct fact inside a wrong sentence still passes. The
 answer-length cap (1500 chars) and the 8 absent questions are the guards
 against shotgun answers.
