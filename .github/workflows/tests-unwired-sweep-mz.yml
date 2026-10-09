@@ -55,7 +55,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: ostler-import hands the owner name to the people graph; unknown format is not a failure
+        run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
+
       - name: install.sh structural + helper regression tests (m..z batch)
+        if: always()
         run: |
           set -uo pipefail
           fail=0

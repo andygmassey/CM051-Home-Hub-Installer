@@ -22,10 +22,13 @@ All data here is synthetic (Rule 0): no real personal data.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+import re
 import subprocess
 import tempfile
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -61,7 +64,24 @@ def background_fn():
         "json": json,
         "datetime": datetime,
         "subprocess": subprocess,
+        "os": os,
+        "threading": threading,
+        "timedelta": timedelta,
+        "timezone": timezone,
+        "re": re,
+        "Path": pathlib.Path,
+        "CONVERSATION_RETRY_SIDECAR": "auto_retry.json",
+        "__file__": str(SERVER),
     }
+    # v1.0.107 #11: the failure path now calls _preserve_cm048_progress (keep
+    # CM048's completed steps and error class instead of wiping them). Pull in
+    # the REAL helpers it needs from the shipped file, same technique.
+    for helper in ("_retry_code_stamp", "_read_retry_sidecar", "_write_retry_sidecar",
+                   "_read_state_json", "_conversation_retry_error_class",
+                   "_preserve_cm048_progress"):
+        helper_src = _extract_function(helper)
+        assert helper_src, f"could not locate {helper}() in vendored ical-server.py"
+        exec(compile(helper_src, str(SERVER), "exec"), ns)  # noqa: S102
     exec(compile(src, str(SERVER), "exec"), ns)  # noqa: S102 -- extracting real shipped code, not arbitrary input
     return ns["_conversation_process_background"]
 

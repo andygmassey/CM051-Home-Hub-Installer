@@ -37,6 +37,7 @@ from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
 from .chunker import chunk_transcript, describe as describe_chunks
 from .ollama_client import OllamaClient
+from .participants import normalise_participants
 from .schemas import (
     Classification,
     CoachObservation,
@@ -90,6 +91,33 @@ def process(
     ensure_directories(settings)
     state_dir = settings.processing_state_dir / conversation_id
     state_dir.mkdir(parents=True, exist_ok=True)
+
+    # v1.0.107 #11: the Hub's assistant API (CM041 ical-server) records a
+    # dispatch failure in state.json as failed_step="processor", which is a
+    # DISPATCHER label, not a pipeline step. ``retry`` / ``retry-all`` pass
+    # failed_step straight in here, and _should_run then did
+    # PIPELINE_STEP_ORDER.index("processor") -> ValueError, so the manual
+    # retry crashed on exactly the conversations it exists for. A resume
+    # point we do not recognise means "resume from whatever is not yet
+    # completed", which is what resume_from_step=None already does.
+    if resume_from_step is not None and resume_from_step not in PIPELINE_STEP_ORDER:
+        logger.warning(
+            "resume_from_step %r is not a pipeline step; resuming from the "
+            "first incomplete step", resume_from_step,
+        )
+        resume_from_step = None
+
+    # v1.0.107 #12: CM031's iPhone / Watch envelope sends participants as
+    # a list of speaker-label STRINGS; every reader here expects dicts.
+    # Normalise once on entry so 00_metadata.json (read back by the sink
+    # writers) carries the dict shape too. Each reader also normalises,
+    # so a direct caller that skips process() is covered as well.
+    # In place, like the non_relational stamp below, so a caller holding
+    # the dict sees the same metadata the pipeline ran on.
+    if "participants" in metadata:
+        metadata["participants"] = normalise_participants(
+            metadata.get("participants")
+        )
 
     # Step 00  –  write raw transcript (always, idempotent)
     _write_raw(state_dir, conversation_id, transcript, metadata)
@@ -639,7 +667,7 @@ def _build_classifier_input(
     conventions: str,
     settings: Settings,
 ) -> str:
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -772,6 +800,13 @@ def _step_enrich_inner(
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
             )
+        rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+        if _sidecars:
+            logger.warning(
+                "Dropped %d reminders_candidates sidecar(s) from %s enrichment body",
+                _sidecars,
+                metadata.get("conversation_id"),
+            )
         out_path.write_text(rendered)
         # Pre-meeting brief input: walk the enrichment's Action items
         # table and emit a per-participant outstanding_todos.json
@@ -877,6 +912,13 @@ def _step_enrich_inner(
                 len(_dropped),
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
+            )
+        rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+        if _sidecars:
+            logger.warning(
+                "Dropped %d reminders_candidates sidecar(s) from %s enrichment body",
+                _sidecars,
+                metadata.get("conversation_id"),
             )
         out_path.write_text(rendered)
         # See note above (single-chunk branch) for the rationale on
@@ -1011,7 +1053,7 @@ def _build_merge_prompt_for_retry(
     chunks_body = ""
     for i, output in enumerate(chunk_outputs):
         chunks_body += f"\n--- CHUNK {i+1} OF {len(chunk_outputs)} ---\n{output}\n"
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -1066,7 +1108,7 @@ def _merge_chunk_outputs(
     for i, output in enumerate(chunk_outputs):
         chunks_body += f"\n--- CHUNK {i+1} OF {len(chunk_outputs)} ---\n{output}\n"
 
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -1126,7 +1168,7 @@ def _build_speaker_mapping(metadata: dict) -> str:
     produces a mapping hint so the model can attribute facts to named
     participants instead of generic "Speaker N" references.
     """
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     if not participants:
         return ""
     lines = ["speaker_mapping:"]
@@ -1151,7 +1193,7 @@ def _fix_speaker_subjects(facts: list[dict], metadata: dict) -> list[dict]:
     "other:speaker_2" etc. even when given an explicit speaker mapping.
     This maps those back to the actual participant slugs.
     """
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     others = [p for p in participants if p.get("role") != "user"]
     user_id = next(
         (p.get("id") for p in participants if p.get("role") == "user"),
@@ -1204,7 +1246,7 @@ def _build_enrichment_input(
     settings: Settings,
 ) -> str:
     classification_json = json.dumps(c.to_dict(), indent=2)
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     participant_str = ", ".join(
         f"{p.get('display', p.get('id', '?'))}" for p in participants
     )
@@ -1278,7 +1320,7 @@ def _step_relationship(
     out_dir = state_dir / "03_relationship_signals"
     out_dir.mkdir(exist_ok=True)
 
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     others = [p for p in participants if p.get("role") != "user"]
     if not others:
         logger.info("No non-user participants; skipping relationship signal.")
@@ -1455,7 +1497,7 @@ def _step_facts(
 
 --- METADATA ---
 conversation_id: {metadata["conversation_id"]}
-participants: {json.dumps(metadata.get("participants") or [])}
+participants: {json.dumps(normalise_participants(metadata.get("participants")))}
 {speaker_mapping}
 --- TRANSCRIPT ---
 {raw_transcript}
@@ -1632,7 +1674,7 @@ def _speaker_fingerprint_refs(metadata: dict) -> dict[str, str | None]:
     if isinstance(explicit, dict):
         for label, ref in explicit.items():
             refs[str(label)] = ref if isinstance(ref, str) else None
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     for i, p in enumerate(participants, 1):
         if not isinstance(p, dict):
             continue
@@ -1689,7 +1731,7 @@ def _load_candidate_people(metadata: dict, settings: Settings) -> list[dict]:
     metadata-only list rather than failing the step.
     """
     candidates: dict[str, str] = {}
-    for p in metadata.get("participants") or []:
+    for p in normalise_participants(metadata.get("participants")):
         if not isinstance(p, dict) or p.get("role") == "user":
             continue
         slug = p.get("id")

@@ -70,6 +70,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .participants import normalise_participants
+
 logger = logging.getLogger(__name__)
 
 
@@ -676,7 +678,7 @@ def extract_outstanding_todos(
     """
     conversation_id = str(metadata.get("conversation_id") or "")
     conversation_date = str(metadata.get("date") or "")
-    participants = list(metadata.get("participants") or [])
+    participants = list(normalise_participants(metadata.get("participants")))
 
     if not conversation_id:
         return []
