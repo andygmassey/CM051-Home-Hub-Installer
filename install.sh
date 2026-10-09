@@ -29135,6 +29135,40 @@ progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_
 
 OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.6}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
+# ── RemoteCapture integrity pin (cross-origin) ──────────────────
+# The .sha256 sidecar is fetched from the SAME release URL as the tarball, so
+# whoever can replace the tarball can replace the sidecar: it proves nothing
+# about authenticity. This table is baked into install.sh (a different origin)
+# and is the authority; the sidecar is a cross-check only. Same design as
+# DEFAULT_ASSISTANT_TARBALL_SHA256 for the daemon.
+#
+# Bump OSTLER_REMOTECAPTURE_VERSION above and add its row here in the SAME
+# commit. A version with no row is REFUSED (fail closed), and
+# tests/test_remotecapture_pin_is_enforced.sh fails if the default version has
+# no row or the row does not match the published asset. Read the digest from
+# the published asset, never type it by hand.
+_ostler_remotecapture_pinned_sha() {
+    case "$1" in
+        0.1.6) echo "8f7f4a2333f814181413b21397dc3a7f77395af7845346518d1339746ad24656" ;;
+        *)     echo "" ;;
+    esac
+}
+# Verify a downloaded RemoteCapture tarball. $1 tarball, $2 sidecar, $3 version.
+# Bespoke release stream: OSTLER_REMOTECAPTURE_SHA256 overrides the table.
+# 0 ok; 1 pin mismatch; 2 sidecar disagrees; 3 no pin for this version.
+_ostler_remotecapture_verify() {
+    local _tb="$1" _sc="$2" _ver="$3" _pin _actual _side
+    _pin="${OSTLER_REMOTECAPTURE_SHA256:-$(_ostler_remotecapture_pinned_sha "$_ver")}"
+    _actual="$(shasum -a 256 "$_tb" | awk '{print $1}')"
+    _side="$(awk '{print $1}' "$_sc" 2>/dev/null)"
+    REMOTECAPTURE_ACTUAL_SHA="$_actual"
+    REMOTECAPTURE_PINNED_SHA="$_pin"
+    REMOTECAPTURE_EXPECTED_SHA="$_side"
+    [[ -n "$_pin" ]] || return 3
+    [[ "$_actual" == "$_pin" ]] || return 1
+    [[ -n "$_side" && "$_side" == "$_actual" ]] || return 2
+    return 0
+}
 # ── ONE OSTLER FOLDER IN /Applications, NOT FOUR LOOSE BUNDLES ────
 #
 # Andy, 2026-09-18: the Uninstaller, RemoteCapture, the Safari
@@ -29336,11 +29370,19 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
     # local download and compare hex prefixes. A mismatch is a
     # hard fail for the phase: we will not stage a tampered or
     # partial .app onto /Applications.
-    REMOTECAPTURE_EXPECTED_SHA="$(awk '{print $1}' "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256")"
-    REMOTECAPTURE_ACTUAL_SHA="$(shasum -a 256 "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" | awk '{print $1}')"
-    if [[ -z "$REMOTECAPTURE_EXPECTED_SHA" || "$REMOTECAPTURE_EXPECTED_SHA" != "$REMOTECAPTURE_ACTUAL_SHA" ]]; then
+    # Pin first (cross-origin, baked above), sidecar second (same-origin
+    # cross-check only). A tarball that fails the pin is refused even when
+    # its sidecar matches it.
+    _ostler_remotecapture_verify "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256" "${OSTLER_REMOTECAPTURE_VERSION}"
+    _rc_verify=$?
+    if [[ $_rc_verify -ne 0 ]]; then
         err "$MSG_ERR_CM042_SHA_256_MISMATCH"
-        err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_EXPECTED_SHA:-<empty sidecar>}")"
+        case $_rc_verify in
+            3) err "RemoteCapture ${OSTLER_REMOTECAPTURE_VERSION} has no integrity pin baked into install.sh; refusing a download verified only by a same-origin sidecar." ;;
+            1) err "RemoteCapture tarball failed the integrity pin baked into install.sh."
+               err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_PINNED_SHA}")" ;;
+            *) err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_EXPECTED_SHA:-<empty sidecar>}")" ;;
+        esac
         err "$(printf "$MSG_ERR_ACTUAL" "${REMOTECAPTURE_ACTUAL_SHA}")"
         err "$(printf "$MSG_ERR_URL" "${REMOTECAPTURE_ARCHIVE_URL}")"
         err "$MSG_ERR_CM042_REFUSING_STAGE_BUNDLE"

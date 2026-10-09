@@ -66,6 +66,7 @@ on:
       - 'tests/test_v1010_redteam3_teamid_pin.sh'
       - 'tests/test_daemon_pins_agree.sh'
       - 'tests/test_fallback_pin_moves_with_the_version.sh'
+      - 'tests/test_remotecapture_pin_is_enforced.sh'
       - 'tests/test_pinned_images_are_pullable.sh'
       - 'tests/test_every_image_is_on_ghcr.sh'
       - 'tests/test_wiki_image_namespace_matches_ci.sh'
@@ -81,6 +82,7 @@ on:
       - 'tests/test_v1010_redteam3_teamid_pin.sh'
       - 'tests/test_daemon_pins_agree.sh'
       - 'tests/test_fallback_pin_moves_with_the_version.sh'
+      - 'tests/test_remotecapture_pin_is_enforced.sh'
       - 'tests/test_pinned_images_are_pullable.sh'
       - 'tests/test_every_image_is_on_ghcr.sh'
       - 'tests/test_wiki_image_namespace_matches_ci.sh'
@@ -178,6 +180,10 @@ jobs:
       - name: the fallback pin moves with its version (HR015 #583)
         if: always()
         run: bash tests/test_fallback_pin_moves_with_the_version.sh
+
+      - name: the RemoteCapture tarball is verified against the baked pin, version and sha move together
+        if: always()
+        run: bash tests/test_remotecapture_pin_is_enforced.sh
 
       # THE NAMESPACE GUARD, WIRED FOR THE FIRST TIME.
       #
