@@ -374,6 +374,9 @@ def judge(f, declared=None):
     # recorded per page by CUSTOMER_TITLES_JS. Used only by the em dash check.
     cust_titles = {"wiki " + k: (v or {}).get("customer_titles") or [] for k, v in wiki.items()}
     cust_titles.update({"wiki page " + k: (v or {}).get("customer_titles") or [] for k, v in crawl.items()})
+    # Hub screens too (walk #15): the marker was honoured on the wiki only, so a
+    # contact's own LinkedIn title on Hub People counted as Ostler copy.
+    cust_titles.update({"hub " + k: (v or {}).get("customer_titles") or [] for k, v in screens.items()})
     measured = [t for t in texts if t[1].strip()]
 
     def over_text(name, pred, show):
@@ -967,6 +970,9 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             s["title"] = page.evaluate("() => { const h = document.querySelector('header h1'); return h ? h.innerText.trim() : null }")
             s["header"] = page.evaluate("() => { const h = document.querySelector('header'); return h ? h.innerText : null }")
             s["text"] = page.evaluate("() => { const m = document.querySelector('main'); return m ? m.innerText : '' }")
+            # Customer-written text the Hub marks (data-ostler-customer, oa #487:
+            # a contact's own job title on People). Same collector as the wiki.
+            s["customer_titles"] = page.evaluate(CUSTOMER_TITLES_JS) or []
             page.screenshot(path=os.path.join(out_dir, "cr-%s.png" % name))
             f["screens"][name] = s
             return s
