@@ -235,9 +235,12 @@ fi
 
 # The gap, declared. One locator per line. DELETE A LINE WHEN IT IS FIXED --
 # this arm will tell you which, by name, and will not go red while you do it.
-# EMPTY since 2026-10-09: both #2556 locators measured WIRED on main 8ac93ad1
-# (this arm printed "every declared write path is WIRED"). An empty declaration
-# means any uncovered write path now classifies as NEW and reds.
+# CLOSED 2026-10-09 (Archie): this arm reported "every declared write path is
+# WIRED. #2556 is closed here" on main 8ac93ad1, with the identifier_quality
+# positive control PRESENT, so the declaration has no subject left. Emptied
+# rather than re-dated. With nothing declared, any write path that loses its
+# guard classifies as NEW and fails; the expiry below applies only while a
+# declaration exists.
 F_DECLARED_UNWIRED=''
 F_DECLARED_TICKET='#2556'
 # Re-dated 2026-10-01 (Archie): #617 was an unrelated, already-closed CM051
@@ -304,10 +307,9 @@ fi
 
 # The declaration is a dated debt. Past its date it is rot, and rot is a failure
 # even though the gap it describes has not changed.
-# An empty declaration is no debt, so it cannot expire.
 _f_today="$(date -u '+%Y-%m-%d')"
 if [ -z "$F_DECLARED_UNWIRED" ]; then
-    pass "the import_wire gap declaration is empty ($F_DECLARED_TICKET closed), so there is no debt to expire"
+    pass "the import_wire gap declaration is empty (closed), so there is no debt to date"
 elif [ "$_f_today" \> "$F_DECLARED_EXPIRES" ]; then
     bad "the import_wire gap declaration expired on $F_DECLARED_EXPIRES (today $_f_today, owner $F_DECLARED_OWNER). Wire it, or re-date it with a reason."
 else

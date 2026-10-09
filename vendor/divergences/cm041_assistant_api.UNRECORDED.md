@@ -854,14 +854,10 @@ CM041 branch and re-pinning.
 
 ## Nineteenth graft: forget writes a tombstone every people syncer respects (Lane 18)
 
-Source: CM041 PR #200 branch `claude/lane11-hub-route-gaps` (commit `cb98e00`),
-same shape as the Lane 11 graft above and #2658. Not on CM041 main, so there is
-no merge sha: the `hold_ack_shas` ack is OWED the moment CM041 #200 merges and
-is deliberately NOT added with a made-up sha. Ack text to paste then:
-"<sha> is the squash merge of CM041 #200 (forget writes a tombstone every people
-syncer respects, honest not-found backport). ALREADY GRAFTED by CM051 #2678,
-pinned by tests/test_forget_tombstone_every_syncer.py and
-tests/test_forget_tombstone_ostler_fda.py. SCOPE: this sha only."
+Source: CM041 PR #200, squash merge `e39af73bc6cb1dd0d7a65fcf7a7a01e548f5f6a9`
+(pre-merge head `cb98e00`), same shape as the Lane 11 graft above and #2658.
+Acked in `hold_ack_shas` of the four touched cm041 trees (assistant_api,
+contact_syncer, identity_resolver, meeting_syncer). Retire by re-pinning past it.
 
 `api_people_forget` here and in CM041 are now the SAME handler: CM041 took this
 tree's graph-aware forget (fact nodes by type, honest not-found, audit) in its
