@@ -404,6 +404,41 @@ def _balanced(text, start):
     raise CannotRun("unbalanced parens in gateway lib.rs")
 
 
+def companion_allowlist(raw_lib):
+    """The (METHOD, path) set the 8443 companion listener serves, or None.
+
+    Since ostler-assistant split the companion router (v1.0.108), 8443 is
+    built ONLY from `companion_route_table()` in gateway lib.rs, each entry
+    `r("<path>", &["<METHOD>", ...], <big_body>, <handler>)`. Returns None when
+    the gateway has no such table (older gateways served the SAME router on
+    both ports). A table that exists but yields no entries is CANNOT-RUN, never
+    a silent fall back to "every route on both ports".
+    """
+    a = raw_lib.find("fn companion_route_table(")
+    if a < 0:
+        return None
+    b = raw_lib.find("fn build_companion_router(", a)
+    if b < 0:
+        raise CannotRun("gateway: companion_route_table found but build_companion_router is not")
+    body = _strip_rs_comments(raw_lib[a:b])
+    out = set()
+    for path, methods in re.findall(r'\br\(\s*"([^"]+)"\s*,\s*&\[([^\]]*)\]', body):
+        path = re.sub(r"\{\*(\w+)\}", r"{\1}", path)
+        for m in re.findall(r'"([A-Z]+)"', methods):
+            out.add((m, path))
+    if not out:
+        raise CannotRun("gateway: companion_route_table has no parsable entries")
+    return out
+
+
+def gateway_ports(method, path, companion, companion_port):
+    """Ports a gateway route is served on. 8000 always; the companion port
+    only when the companion allowlist mounts THIS method and path."""
+    if companion is None:
+        return [8000, companion_port]
+    return [8000, companion_port] if (method, path) in companion else [8000]
+
+
 def extract_gateway(src_dir, ical_routes, doctor_routes):
     base = os.path.join(src_dir, "crates/zeroclaw-gateway/src")
     raw_lib = read("lib.rs", base)
@@ -428,6 +463,7 @@ def extract_gateway(src_dir, ical_routes, doctor_routes):
     if pre_auth is None or default_limit is None or companion_port is None:
         raise CannotRun("gateway: allowlist / body limit / companion port not parsable")
     ws_bearer = "extract_ws_token" in ws_rs and "is_authenticated" in ws_rs
+    companion = companion_allowlist(raw_lib)
 
     m = re.search(r"let big_body_router\s*=(.*?);", lib, re.S)
     big_span = (m.start(), m.end()) if m else (0, 0)
@@ -463,7 +499,7 @@ def extract_gateway(src_dir, ical_routes, doctor_routes):
                     auth = ["none"]
                 else:
                     auth = ["handler_defined"]
-            rec = {"method": V, "path": path, "listener": "gateway", "ports": [8000, companion_port],
+            rec = {"method": V, "path": path, "listener": "gateway", "ports": gateway_ports(V, path, companion, companion_port),
                    "auth": auth, "body_limit_bytes": (big_limit if in_big else default_limit) if V != "GET" else None,
                    "line": raw_lib[:raw_lib.find('"%s"' % path)].count("\n") + 1 if '"%s"' % path in raw_lib else 0,
                    "query_params": [], "response_fields": [], "request_required": [], "request_optional": []}
@@ -514,6 +550,7 @@ def extract_gateway(src_dir, ical_routes, doctor_routes):
             out.append(rec)
     info = {"default_body_limit": default_limit, "big_body_limit": big_limit,
             "pre_auth_allowlist": pre_auth, "companion_port": companion_port,
+            "companion_split": companion is not None,
             "default_host": gw_host}
     return out, info
 
@@ -597,7 +634,10 @@ def build(gateway_dir):
     listeners = {
         "gateway": {"ports": {"8000": {"scheme": "http", "scope": "loopback"},
                               str(gw_info["companion_port"]): {"scheme": "https", "scope": "lan_tailnet", "tls": "self-signed"}},
-                    "note": "ostler-assistant gateway; port 8000 pinned by install.sh, 8443 is the Companion TLS listener serving the same router"},
+                    "note": ("ostler-assistant gateway; port 8000 pinned by install.sh, " + (
+                        "8443 is the Companion TLS listener and serves ONLY the routes whose ports list it "
+                        "(companion_route_table)" if gw_info.get("companion_split") else
+                        "8443 is the Companion TLS listener serving the same router"))},
         "doctor": {"ports": {"8089": {"scheme": "http", "scope": "loopback_tailnet"}},
                    "note": "FastAPI Doctor; proxies /api/v1/* to ical after validating the paired bearer"},
         "ical": {"ports": {"8090": {"scheme": "http", "scope": "loopback"}},

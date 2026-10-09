@@ -818,3 +818,5 @@ A wholesale `sync_vendor.sh` of this tree deletes the file. After any sync or
 graft that touches `ical-server.py`, regenerate it with
 `python3 scripts/gen_hub_contract.py --gateway-src <ostler-assistant checkout>`.
 `hub-contract.yml` job `contract-is-current` reds on a stale or missing copy.
+
+2026-10-09: `hub_contract.yaml` (cm041/assistant_api) now records gateway ports PER ROUTE. The companion port appears only on routes that ostler-assistant's `companion_route_table` mounts (ostler-assistant #492); against a gateway without that table every route keeps [8000, 8443] and the facts carry `companion_split: false`.
