@@ -240,6 +240,7 @@ test_display_name_tiers.sh	WIRED	.github/workflows/display-name-tiers.yml
 test_dmg_contains_bundled_python.sh	UNWIRED	-
 test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_doctor_oracle_fallback_is_off.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_doctor_probe_cap_exceeds_the_command.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -281,6 +282,7 @@ test_every_external_download_url_resolves.sh	WIRED	.github/workflows/download-ur
 test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_hydrate_skip_is_corroborated_at_its_destination.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_every_image_is_on_ghcr.sh	WIRED	.github/workflows/supply-chain-pins.yml
+test_every_installer_plist_parses.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_every_knowledge_collection_has_a_reader_verdict.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml

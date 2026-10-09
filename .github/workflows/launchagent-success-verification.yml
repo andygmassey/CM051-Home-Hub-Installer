@@ -63,6 +63,9 @@ on:
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_doctor_proxy_paths_predicate.sh'
+      - 'tests/test_doctor_oracle_fallback_is_off.sh'
+      - 'tests/test_every_installer_plist_parses.sh'
+      - 'vendor/doctor/agent/proxy.py'
       - 'tests/test_v1010_ical_doctor_service_auth.sh'
       - 'tests/test_upgrade_reloads_the_launchagent_it_rewrote.sh'
       # An upgrade must not carry a customer's OLD PATH over the template's.
@@ -252,6 +255,14 @@ jobs:
       - name: The promote merges logs/ so a running service's log keeps its path (#2434)
         if: always()
         run: bash tests/test_promote_keeps_open_logs_linked.sh
+
+      - name: Every plist install.sh renders parses with plistlib
+        if: always()
+        run: /bin/bash tests/test_every_installer_plist_parses.sh
+
+      - name: The Doctor's tokenless loopback fallback is off on every install
+        if: always()
+        run: /bin/bash tests/test_doctor_oracle_fallback_is_off.sh
 
       - name: The existing LaunchAgent guards must still hold
         if: always()
