@@ -23987,8 +23987,8 @@ cannot_deliver() {
 # Paused exits 0: it is the steady state of an unsubscribed Hub, not a fault.
 _ostler_gate="${OSTLER_DIR}/services/ical-server/subscription_gate.py"
 if [ -f "$_ostler_gate" ]; then
-    "${PYTHON_BIN}" "$_ostler_gate" --check >/dev/null 2>>"${LOG_FILE}"
-    _ostler_gate_rc=$?
+    _ostler_gate_rc=0
+    "${PYTHON_BIN}" "$_ostler_gate" --check >/dev/null 2>>"${LOG_FILE}" || _ostler_gate_rc=$?
     if [ "$_ostler_gate_rc" -eq 3 ]; then
         echo "$(date -u +%FT%TZ) skip: Ostler Pro is not active, so pre-meeting briefs are paused. Subscribe in the Ostler app and they resume on the next tick." >> "${LOG_FILE}"
         exit 0
@@ -24010,6 +24010,7 @@ fi
 # owner, on the channel they set up. A parser, not a line scan: the daemon
 # rewrites config.toml as an inline table array (see
 # tests/test_the_cron_reader_sees_both_toml_spellings.sh).
+_chan_rc=0
 BRIEF_CHANNEL="$("${PYTHON_BIN}" - "${CONFIG_TOML}" <<'CHANPY'
 import sys
 try:
@@ -24042,8 +24043,7 @@ if not found:
     sys.exit(1)
 print(sorted(found)[0][1])
 CHANPY
-)"
-_chan_rc=$?
+)" || _chan_rc=$?
 if [ "${_chan_rc}" -ne 0 ] || [ -z "${BRIEF_CHANNEL}" ]; then
     cannot_deliver 78 "${BRIEF_CHANNEL:-the brief channel could not be read (rc=${_chan_rc})}"
 fi
@@ -24155,7 +24155,8 @@ esac
 # JSONDecodeError on every tick. The script exited 0 afterwards, so launchd saw
 # success and the log showed a traceback nobody reads: the sender had never
 # been able to send. Found by running this block against a real Hub.
-OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" <<'PYEOF'
+_send_rc=0
+OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" <<'PYEOF' || _send_rc=$?
 import json, os, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
 
@@ -24302,7 +24303,6 @@ if undelivered:
     sys.stderr.write(f"{datetime.now(timezone.utc).isoformat()} CANNOT-DELIVER: {msg}\n")
     sys.exit(75)
 PYEOF
-_send_rc=$?
 # Propagate. This used to be an unconditional `exit 0`, which is how a sender
 # that crashed on every tick looked healthy to launchd for its whole life.
 exit "${_send_rc}"
