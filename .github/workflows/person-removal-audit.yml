@@ -1,0 +1,73 @@
+# Every writer that can remove a Person leaves a record (walk #15).
+#
+# WIRED HERE, because a test no workflow invokes is not wired (launch directive
+# item 9). The suite drives each audited writer with its I/O stubbed and asserts
+# the removal lands in ~/.ostler/logs/person-deletions.jsonl (redirected to a
+# temp file), pins the four person_audit.py copies byte-identical, and checks
+# that people_stores_reconcile joins an orphan to its record. It also runs the
+# people-sweep prune suite, since the prune now records what it deletes.
+name: person-removal-audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/**/person_audit.py'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/ostler_fda/**'
+      - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
+      - 'tests/test_person_removal_audit.py'
+      - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - 'tests/conftest.py'
+      - '.github/workflows/person-removal-audit.yml'
+  pull_request:
+    paths:
+      - 'vendor/**/person_audit.py'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/ostler_fda/**'
+      - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
+      - 'tests/test_person_removal_audit.py'
+      - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - 'tests/conftest.py'
+      - '.github/workflows/person-removal-audit.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  person-removal-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest and the writers' runtime dependencies
+        run: python -m pip install --quiet pytest httpx nameparser phonenumbers rapidfuzz vobject qdrant-client
+      - name: Each Person-removing writer leaves a record, and the prune leaves a trace
+        run: |
+          out="$(python -m pytest tests/test_person_removal_audit.py tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
+          echo "$out"
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then
+            echo "::error::a removal-audit arm failed"
+            exit 1
+          fi
+          if [ "${got:-0}" -lt 20 ]; then
+            echo "::error::expected at least 20 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
+            exit 1
+          fi
+          echo "arms passed: ${got}"
