@@ -1015,16 +1015,10 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "candidates",
     "degraded",
     "error",
-    "fact_id",
-    "person_slug",
-    "person_uri",
     "reason",
-    "relationship",
-    "status",
-    "wiki_recompile_queued"
+    "status"
    ],
    "source": "install.sh"
   },
@@ -3345,16 +3339,10 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "candidates",
     "degraded",
     "error",
-    "fact_id",
-    "person_slug",
-    "person_uri",
     "reason",
-    "relationship",
-    "status",
-    "wiki_recompile_queued"
+    "status"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -5221,16 +5209,37 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "candidates",
     "degraded",
+    "error",
+    "reason",
+    "status"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/memory/assert/pending/{rest}",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/memory/assert/pending/{rest}",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "attempts",
+    "created_person",
     "error",
     "fact_id",
     "person_slug",
     "person_uri",
-    "reason",
-    "relationship",
-    "status",
-    "wiki_recompile_queued"
+    "spool_id",
+    "state"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
