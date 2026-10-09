@@ -24,7 +24,8 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
 
-from . import retirement
+from . import forget_tombstone, retirement
+from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
 
@@ -182,6 +183,23 @@ class IdentityResolver:
         the public resolve() wraps this and degrades to "new" so a failure
         never drops a contact. TNM's in-memory candidate index lands inside the
         Tier-3 path here; this error boundary sits outside it by design."""
+        # A person erased by POST /api/v1/people/<slug>/forget must not be
+        # matched, merged into, or re-minted by any syncer. Checked FIRST:
+        # forget removed their identifiers, so every tier below would read
+        # "nobody holds this" and the caller would create them again. Callers
+        # treat match_type "forgotten" as "skip this record" (see
+        # forget_tombstone.py for what it matches and what it stores).
+        if forget_tombstone.is_forgotten(
+            values=[v for _, v in self._iter_identifiers(identity)],
+            name=identity.display_name,
+        ):
+            return MatchResult(
+                person_uri=None,
+                match_type=forget_tombstone.MATCH_TYPE,
+                confidence=1.0,
+                details="forgotten (tombstoned); skip, do not create",
+            )
+
         # Tier 1: Exact match on any single identifier.
         #
         # Collect EVERY node any incoming exact identifier points at, not just
@@ -376,6 +394,15 @@ class IdentityResolver:
         AND never raises. The string escaper is still the wrong tool for an
         IRI context; normalisation forbids every IRI metacharacter instead.
         """
+        # Hard backstop behind resolve()'s "forgotten" answer: a caller that
+        # forgot to branch on it still cannot mint the person.
+        if forget_tombstone.is_forgotten(
+            values=[v for _, v in self._iter_identifiers(identity)],
+            name=identity.display_name,
+        ):
+            raise forget_tombstone.ForgottenPersonError(
+                "refusing to create a person who was forgotten"
+            )
         user_id = normalise_user_id(user_id)
         short_id = uuid.uuid4().hex[:12]
         person_uri = f"{PWG}person_{short_id}"
@@ -609,6 +636,7 @@ class IdentityResolver:
         # had just merged away. See identity_resolver/retirement.py for the
         # measurement: this exact removal set the phantom count to 0 and one
         # ingest put it back to 32.
+        record_person_removal(discard_uri, "identity_resolver.merge_persons", "merge_retire_type")
         self._sparql_update(retirement.retire_update(discard_uri))
 
         # 6. Collapse any accumulated displayName values on the kept node to a

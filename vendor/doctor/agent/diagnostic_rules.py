@@ -42,6 +42,12 @@ from diagnostic_copy import (
     LICENCE_ENDING_SOON_FIX,
     LICENCE_ENDING_SOON_FIX_COMMAND,
     LICENCE_ENDING_SOON_TITLE_FMT,
+    PARKED_FACTS_TITLE_FMT,
+    PARKED_FACTS_DETAIL,
+    PARKED_FACTS_FIX,
+    PENDING_FACTS_TITLE_FMT,
+    PENDING_FACTS_DETAIL,
+    PENDING_FACTS_FIX,
     INGEST_EMPTY_FIX_COMMAND,
     INGEST_NO_INPUT_TITLE_FMT,
     INGEST_NO_INPUT_DETAIL_FMT,
@@ -2000,6 +2006,10 @@ _SCHEDULED_AGENTS = (
     ("com.ostler.enrich", "people and organisation detail", "enrich", 1800),
     ("com.ostler.export-scan", "exports you have dropped in", "export-scan", 14400),
     ("com.ostler.aiconv-resume", "AI chat transcripts", "aiconv-resume", 3600),
+    # CM051 #2707, cut #16: the pre-meeting brief sender exits 75 when a due
+    # brief was not delivered and 78 when no brief channel is configured, so a
+    # brief that never arrives reaches this card instead of only its own log.
+    ("com.ostler.meeting-brief-sender", "your pre-meeting briefs", "meeting-brief-sender", 600),
 )
 
 # How many consecutive failed ticks before the card goes critical. One bad
@@ -2312,6 +2322,81 @@ def check_scheduled_agents(snapshot: Any) -> list[dict]:
 LICENCE_WARN_BEFORE_EXPIRY_DAYS = 7
 
 
+# ── facts the assistant saved but has not linked to a person yet ────────
+#
+# CM041 #209 / CM051 #2747. When the local model is busy, memory/assert
+# spools the fact (encrypted) and a resolver links it later. Two ways a
+# spooled fact can sit unseen: the resolver found TWO plausible people and
+# parked it rather than guess, or it has stayed pending for hours. Both are
+# loss with extra steps unless they show up somewhere, and this is that
+# somewhere. The ical-server writes counts only to
+# ~/.ostler/state/assert_spool_status.json (no names, no facts); the
+# Doctor cannot open the encrypted spool and does not need to.
+ASSERT_SPOOL_STALE_PENDING_SECONDS = 3600
+
+
+def _ostler_assert_spool_status_path() -> str:
+    """~/.ostler/state/assert_spool_status.json, home-derived like the
+    writer (ical-server ASSERT_SPOOL_STATUS) and the subscription state."""
+    import os
+
+    return os.path.join(
+        os.path.expanduser("~"), ".ostler", "state", "assert_spool_status.json"
+    )
+
+
+def check_parked_facts(snapshot: Any) -> list[dict]:
+    """A row per kind of saved-but-unlinked fact; silent when there are none.
+
+    Quiet on an absent or unreadable file (a Hub that never spooled anything
+    has none), never on a count it can read.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    try:
+        with open(_ostler_assert_spool_status_path(), encoding="utf-8") as fh:
+            st = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(st, dict):
+        return []
+    findings: list[dict] = []
+    parked = st.get("needs_disambiguation")
+    if isinstance(parked, int) and parked > 0:
+        findings.append({
+            "severity": "warning",
+            "title": PARKED_FACTS_TITLE_FMT.format(
+                n=parked, s="" if parked == 1 else "s"),
+            "detail": PARKED_FACTS_DETAIL,
+            "fix": PARKED_FACTS_FIX,
+            "risk": "low",
+            "category": "memory",
+            "parked_facts": parked,
+        })
+    pending = st.get("pending")
+    oldest = st.get("oldest_pending_at")
+    if isinstance(pending, int) and pending > 0 and isinstance(oldest, str):
+        try:
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(oldest.replace("Z", "+00:00"))
+                   ).total_seconds()
+        except (ValueError, TypeError):
+            age = None
+        if age is not None and age > ASSERT_SPOOL_STALE_PENDING_SECONDS:
+            findings.append({
+                "severity": "warning",
+                "title": PENDING_FACTS_TITLE_FMT.format(
+                    n=pending, s="" if pending == 1 else "s"),
+                "detail": PENDING_FACTS_DETAIL,
+                "fix": PENDING_FACTS_FIX,
+                "risk": "low",
+                "category": "memory",
+                "pending_facts": pending,
+            })
+    return findings
+
+
 def _ostler_subscription_state_path() -> str:
     """Returns the canonical ~/.ostler/state/subscription_state.json path.
 
@@ -2492,6 +2577,7 @@ ALL_RULES = [
     check_imessage_capture_stalled,
     check_conversation_dispatch_failures,
     check_licence_expiry,
+    check_parked_facts,
 ]
 
 

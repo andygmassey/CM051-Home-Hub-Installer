@@ -1,0 +1,51 @@
+# Lane 18: a person erased by POST /api/v1/people/<slug>/forget stays erased
+# when any people syncer or ostler_fda ingest next runs. Mirrors CM041 PR #200.
+# Collected-count floors so a quietly shrinking suite cannot pass.
+name: forget-tombstone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/**'
+      - 'vendor/ostler_fda/**'
+      - 'tests/test_forget_tombstone_*.py'
+      - 'tests/_fake_oxigraph.py'
+      - '.github/workflows/forget-tombstone.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/**'
+      - 'vendor/ostler_fda/**'
+      - 'tests/test_forget_tombstone_*.py'
+      - 'tests/_fake_oxigraph.py'
+      - '.github/workflows/forget-tombstone.yml'
+
+concurrency:
+  group: forget-tombstone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tombstone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+      - name: Every syncer and ingest leaves a forgotten person absent
+        run: |
+          set -eu
+          check() {
+            n="$(python -m pytest "$1" --collect-only -q | grep -cE '::test_')" || n=0
+            echo "$1: collected ${n} test(s)"
+            if [ "${n:-0}" -lt "$2" ]; then
+              echo "REFUSING: expected at least $2 collected tests in $1, got ${n:-0}." >&2
+              exit 1
+            fi
+          }
+          check tests/test_forget_tombstone_every_syncer.py 18
+          check tests/test_forget_tombstone_ostler_fda.py 10
+          python -m pytest tests/test_forget_tombstone_every_syncer.py tests/test_forget_tombstone_ostler_fda.py -v

@@ -1051,3 +1051,56 @@ also pins that reads, remote callers, wrong tokens and every other path
 (including look-alikes such as `/api/safari/save/` and `/api/safari/saved`)
 stay refused. There is no HR015 upstream twin yet: OWED, and a
 security-boundary change that wants a human read before it ships.
+
+## doctor: parked memory facts get a Doctor row (CM051 #2747, CM041 #209)
+
+Tree `doctor`, files `agent/diagnostic_rules.py` and `agent/diagnostic_copy.py`.
+Recorded here because this file is the doctor tree's `unrecorded_divergence`
+pointer and the edit has no patch.
+
+Location and shape. `diagnostic_rules.py`: six copy names added to the
+`from diagnostic_copy import (...)` list; after `LICENCE_WARN_BEFORE_EXPIRY_DAYS`,
+`ASSERT_SPOOL_STALE_PENDING_SECONDS`, `_ostler_assert_spool_status_path` and
+`check_parked_facts` (reads the ical-server's counts-only
+`~/.ostler/state/assert_spool_status.json`; a warning row for parked facts
+and one for pending older than an hour; silent on an absent file); the rule
+appended to `ALL_RULES`. `diagnostic_copy.py`: six strings appended.
+
+Pinned by `tests/test_memory_assert_answers_inside_the_probe_timeout.py`
+`test_a_parked_fact_shows_in_the_doctor_and_resolved_ones_do_not`, red with the
+rule removed. There is no HR015 upstream twin yet: OWED.
+Tree `ostler_fda` (Lane 18): new `forget_tombstone.py` (byte-identical to CM041) and `pwg_ingest.py` `_is_forgotten`, which makes ingest_imessage, ingest_whatsapp, ingest_calendar, ingest_photos_people and ingest_mail_contacts skip a forgotten person. HR015 twin owed; `ostler_fda.patch` not regenerated.
+## doctor: the pre-meeting brief sender joins the scheduled-agent card (CM051 #2707)
+
+Tree `doctor`, file `agent/diagnostic_rules.py`. Not a writer/reader
+vocabulary fix: recorded here because this file is the doctor tree's declared
+`unrecorded_divergence` pointer and the edit has no patch.
+
+Location and shape. One row appended to the `_SCHEDULED_AGENTS` tuple:
+`("com.ostler.meeting-brief-sender", "your pre-meeting briefs",
+"meeting-brief-sender", 600)`, plus a three-line comment. No rule logic,
+copy or severity changed. Reason: from cut #16 the sender ships ON and exits
+75 (a due brief not delivered) or 78 (no brief channel configured); without
+the row launchd records that exit code and nothing reads it.
+
+Pinned by `tests/test_scheduled_agent_failure_is_loud.sh` limb 13, which goes
+red with the row removed (measured: 2 FAIL) and green with it. There is no
+HR015 upstream twin yet: OWED.
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
+
+Tree `ostler_fda`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `dedupe_merge.py` `_merge_pair` (reason `exact_identifier_merge_all_triples_moved`), `repair_role_address_people.py` before each full-node delete, `repair_placeholder_names.py` where a kinship name is deleted, and `pwg_ingest.py`: the people sweep now prunes against a fresh graph read (`_current_person_uris`; unreadable or empty falls back to the snapshot) and records each pruned vector's URI digest before deleting it (reason `vector_pruned_node_absent`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+

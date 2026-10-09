@@ -32,6 +32,8 @@ from typing import Optional
 import httpx
 import phonenumbers
 
+from . import forget_tombstone
+from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
 from .identifier_quality import observe as _observe_identifier
 from .usage_journal import record_usage as _record_usage
@@ -553,6 +555,26 @@ def _person_uri(person_id: str) -> str:
     return f"https://schema.ostler.ai/ontology#person_{person_id}"
 
 
+def _is_forgotten(identifier: str = "", uri: Optional[str] = None,
+                  name: Optional[str] = None) -> bool:
+    """Has the person this record describes been erased by
+    POST /api/v1/people/<slug>/forget? (Lane 18.)
+
+    Forget deletes every triple, so without this every ingest below reads
+    "nobody holds this identifier" and mints the person again on its next
+    tick: its URI is ``uuid5(identifier)``, the same every run. Checked
+    BEFORE any write for the participant, so nothing at all is created or
+    linked, not even a lastContact signal. Fails CLOSED on an unreadable
+    tombstone file (see forget_tombstone.py)."""
+    values = [identifier] if identifier else []
+    # A WhatsApp JID (`<digits>@s.whatsapp.net`) is the same human as the
+    # `+<digits>` phone their other identifiers were tombstoned under.
+    local = identifier.split("@", 1)[0] if "@" in identifier else ""
+    if local.isdigit():
+        values.append("+" + local)
+    return forget_tombstone.is_forgotten(values=values, uri=uri, name=name)
+
+
 # Sentinel for "the store could not answer". Distinct from None, which
 # means "asked, and nobody holds this". Collapsing the two is the
 # manufactured-clean-input failure: a store that refused to answer would
@@ -733,6 +755,8 @@ def ingest_imessage(fda_dir: Path) -> dict:
                 continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
+            if _is_forgotten(participant, uri):
+                continue
 
             # Check if person already exists in Oxigraph
             exists = _person_exists(uri)
@@ -1095,6 +1119,8 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
+            if _is_forgotten(participant, uri):
+                continue
             exists = _person_exists(uri)
 
             # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is an
@@ -1263,6 +1289,9 @@ def ingest_calendar(fda_dir: Path) -> dict:
             if _observe_identifier(attendee, ""):
                 logger.debug("skipping role address %s", attendee)
                 continue
+            # A forgotten attendee is neither created nor linked to the meeting.
+            if _is_forgotten(attendee):
+                continue
 
             # RESOLVE BEFORE CREATING. Ask who already holds this address
             # before minting a URI for it. The old order -- mint, then ask
@@ -1425,6 +1454,8 @@ def ingest_photos_people(fda_dir: Path) -> dict:
 
         person_id = _person_id_from_identifier(f"photos_face_{name}")
         uri = _person_uri(person_id)
+        if _is_forgotten("", uri, name):
+            continue
 
         if not _person_exists(uri):
             photo_count = person.get("photo_count", 0)
@@ -1639,6 +1670,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # rather than adding to it.
         if _observe_identifier(email, ""):
             logger.debug("skipping role address %s", email)
+            continue
+        if _is_forgotten(email):
             continue
         # RESOLVE BEFORE CREATING -- same rule as ingest_calendar above.
         # A frequent sender is very often somebody already in Contacts,
@@ -2944,6 +2977,27 @@ def _person_embed_doc(person: dict) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
+def _current_person_uris() -> Optional[set]:
+    """The Person URIs the graph holds RIGHT NOW (one light SELECT), or None.
+
+    None means "could not tell" (query failed, or the graph answered empty),
+    and the caller must then prune against its earlier snapshot rather than
+    treat an empty answer as licence to delete. An empty answer from a
+    broken read and a genuinely empty graph are indistinguishable by value.
+    """
+    try:
+        rows = _sparql_query(
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+            "SELECT DISTINCT ?uri WHERE { ?uri a pwg:Person ; "
+            "pwg:displayName ?n . }"
+        )
+    except Exception:
+        return None
+    uris = {(r.get("uri") or {}).get("value") for r in rows}
+    uris.discard(None)
+    return uris or None
+
+
 def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph (#600).
 
@@ -3187,6 +3241,16 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         (pt.get("payload") or {}).get("person_uri") for pt in points
     }
     projected_uris.discard(None)
+    # RACE CLOSED (walk #15, people_stores_reconcile: graph 8074, vectors
+    # 8075). `projected_uris` is the snapshot taken BEFORE the embed and
+    # upsert, which take minutes. A node removed from the graph inside that
+    # window is still in the snapshot, so its freshly written point was
+    # protected from the prune and stayed an orphan until the next sweep.
+    # Prune against the graph as it is NOW. If that cannot be read, fall back
+    # to the snapshot (never to "delete everything").
+    fresh_uris = _current_person_uris()
+    if fresh_uris is not None:
+        projected_uris = projected_uris & fresh_uris
     existing = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
     if existing is None:
         logger.warning(
@@ -3201,6 +3265,18 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             and (pt.get("payload") or {}).get("person_uri") not in projected_uris
         ]
         if stale:
+            # Leave a trace BEFORE the vector goes (walk #15): a prune must
+            # never turn a person lost by an unknown writer into silence.
+            # The URI digest lets people_stores_reconcile and a human join
+            # this to the writer's own removal record.
+            _stale_ids = set(stale)
+            for _pt in existing:
+                if _pt.get("id") in _stale_ids:
+                    record_person_removal(
+                        (_pt.get("payload") or {}).get("person_uri") or "",
+                        "ostler_fda.pwg_ingest.people_sweep",
+                        "vector_pruned_node_absent",
+                    )
             pruned = _qdrant_delete_points(PEOPLE_QDRANT_COLLECTION, stale)
             logger.info(
                 "People: pruned %d of %d point(s) whose Person node is no "

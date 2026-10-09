@@ -802,6 +802,24 @@ signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG ti
 `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
 `BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.
 
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
+
+Tree `cm041/assistant_api`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `_audit_person_removal` (loads `person_audit.py` by path from the server's own directory) and one call in `api_people_forget` before `_forget_person_update` runs (reason `user_forget`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
+
 ## cm041/assistant_api: memory/assert answers inside a budget (CM051 walk #15, CM041 #208)
 
 Tree `cm041/assistant_api`, file `ical-server.py`. Graft of CM041 #208 ahead of
@@ -825,3 +843,140 @@ All of the above until the pin passes the CM041 #208 merge. Guarded by
 `tests/test_memory_assert_answers_inside_the_probe_timeout.py` (workflow
 `memory-assert-answers-under-load.yml`): 3 of 4 fail on the pre-graft server,
 4 of 4 pass with it. Retire by re-pinning past the CM041 merge.
+
+## cm041/assistant_api: memory/assert spools on budget exhaustion (CM051 walk #15 follow-up, CM041 spool PR)
+
+Tree `cm041/assistant_api`, file `ical-server.py`. Graft of the CM041 branch
+`fix/memory-assert-spool` (one script applied to both copies), stacked on the
+#208 budget graft above.
+
+Location and shape. `api_memory_assert` keeps validation and hands steps 2-5
+to a new `_assert_resolve_and_write(..., budget, spool_on_timeout, fact_id,
+person_id, privacy_level)`. On budget exhaustion with no exact-name match the
+request path calls `_spool_assertion` and answers 202 `accepted_pending`
+(spool_id, fact_id, status_url) instead of 503. New beside the budget
+constants: `_ASSERT_PRIVACY_LEVEL`, `ASSERT_SPOOL_DB` (SQLCipher via
+`_secure_connect` and the installed key, as `_memory_corrections_connect`),
+`_assert_spool_connect`, `_spool_assertion`, `_assert_fact_person`,
+`_assert_spool_sweep` (single-flight; ASK the fact URI first so a re-run is a
+no-op; writes the spooled ids, timestamp and level), `_assert_spool_loop`,
+`_start_assert_spool_thread` (started in main beside the Lane 6 worker), and
+`api_memory_assert_pending` behind GET `/api/v1/memory/assert/pending/<id>`.
+The PersonFact level is written from the parameter (default "L1", unchanged).
+
+### What a future sync must preserve
+
+All of the above until the pin passes the CM041 spool merge. Guarded by
+`tests/test_memory_assert_answers_inside_the_probe_timeout.py`: 3 of 6 fail on
+the budget-only server, 6 of 6 pass with it; mutants (resolver drops the
+spooled fact_id; level hardcoded) each go red.
+
+Extended for the Doctor surface (same PR): `ASSERT_SPOOL_STATUS` and
+`_write_assert_spool_status` (counts and timestamps only, 0600, written after
+every spool and every sweep), and the sweep closes a row as done only for a
+`stored` / `created_person` answer, so a `needs_disambiguation` 200 parks the
+row instead of closing it.
+## Generated, not grafted: hub_contract.yaml (CM051 #2676, Lane 10)
+
+Tree `cm041/assistant_api`, new file `vendor/cm041/assistant_api/hub_contract.yaml`.
+No CM041 source file is edited and CM041 upstream has no such file.
+
+It is GENERATED in CM051 by `scripts/gen_hub_contract.py` from the vendored
+`ical-server.py`, the vendored Doctor, the store-proxy heredoc in `install.sh`
+and the ostler-assistant gateway source. It lives in this tree because the
+routes it describes are this tree's routes.
+
+### What a future sync must preserve
+
+A wholesale `sync_vendor.sh` of this tree deletes the file. After any sync or
+graft that touches `ical-server.py`, regenerate it with
+`python3 scripts/gen_hub_contract.py --gateway-src <ostler-assistant checkout>`.
+`hub-contract.yml` job `contract-is-current` reds on a stale or missing copy.
+
+## Eighteenth graft: speaker naming, chunked conversation upload, 405 on POST-only paths (Lane 11)
+
+Source: CM041 branch `claude/lane11-hub-route-gaps` (same shape as the Lane 6
+graft above and #2658). Not yet on CM041 main, so there is no sha to put in
+`hold_ack_shas`: that ack is OWED the moment the CM041 PR merges.
+
+Files. `assistant_api/speaker_identify.py` and
+`assistant_api/conversation_upload.py` are byte-identical to CM041. The four
+new tests (`test_lane11_routes.py`, `test_speaker_identify.py`,
+`test_conversation_upload.py`) are byte-identical too. `ical-server.py` takes 8
+hunks, all applied with the CM041 diff and no hand edit: the route docs, the
+`_POST_ONLY_PATHS` 405 for GET on a POST-only path, the forget 64 KiB body cap,
+three adapters (`api_speakers_identify`, `api_speakers_correct`,
+`api_conversation_upload_part`), their three dispatch blocks and the endpoint
+index.
+
+Behaviour added. `POST /api/v1/speakers/identify` (CM042 RemoteCapture wire
+shape), `POST /api/v1/speakers/correct` (stores a correction so later
+transcripts get the name; also takes CM031's `SpeakerUpdateRequest` shape),
+`POST /api/v1/conversation/upload-part` (parts under one `meeting_id`,
+reassembled server-side, then the normal `conversation/process`).
+
+NOT grafted, deliberately: CM041 upstream's `api_people_forget` is the OLDER
+one. This tree's forget is already the complete one (graph-aware, fact nodes
+scoped by type, honest not-found, audit). The gateway's new
+`POST /api/v1/people/<slug>/forget` reaches THIS handler. Backporting this
+tree's forget to CM041 is separate, and until it lands a re-vendor from CM041
+must not overwrite it.
+
+Guarded by the three vendored tests (25) and
+`tests/test_lane11_client_calls_pass_the_contract.py`. Retire by landing the
+CM041 branch and re-pinning.
+
+## Nineteenth graft: forget writes a tombstone every people syncer respects (Lane 18)
+
+Source: CM041 PR #200, squash merge `e39af73bc6cb1dd0d7a65fcf7a7a01e548f5f6a9`
+(pre-merge head `cb98e00`), same shape as the Lane 11 graft above and #2658.
+Acked in `hold_ack_shas` of the four touched cm041 trees (assistant_api,
+contact_syncer, identity_resolver, meeting_syncer). Retire by re-pinning past it.
+
+`api_people_forget` here and in CM041 are now the SAME handler: CM041 took this
+tree's graph-aware forget (fact nodes by type, honest not-found, audit) in its
+backport commit, so the Eighteenth graft's "NOT grafted, CM041 has the older one"
+warning no longer applies. Only the new hunk is grafted here: the tombstone is
+written BEFORE the erase (`identity_resolver/forget_tombstone.py`, salted
+digests, no clear identifier), and the response gains `tombstone_written`.
+
+Files, all applied with the CM041 diff: `assistant_api/ical-server.py` (one
+hunk); `identity_resolver/forget_tombstone.py` (new, byte-identical to CM041);
+`identity_resolver/resolver.py` (`_resolve_tiers` returns match_type
+`forgotten`, `create_person` raises; applied by hand because this tree wraps
+resolve in a degrade-to-new boundary the CM041 hunk context does not have);
+`contact_syncer/{syncer,facebook_friends,instagram_social,linkedin_career,
+linkedin_connections,linkedin_messages}.py`; `meeting_syncer/syncer.py`.
+`contact_syncer/syncer.py` and `facebook_friends.py` each needed one hunk by
+hand (context differs). NOT grafted: `whatsapp_bridge/bridge.py`, which is not
+vendored in this repo (CM041 has the tombstone check there).
+
+`vendor/ostler_fda/` is CM051-only here (upstream HR015, private, not available
+to this session): `forget_tombstone.py` is copied byte-identical and
+`pwg_ingest.py` skips a tombstoned person in `ingest_imessage`,
+`ingest_whatsapp`, `ingest_calendar`, `ingest_photos_people` and
+`ingest_mail_contacts` (new `_is_forgotten`). The HR015 twin is OWED and
+`vendor/divergences/ostler_fda.patch` is NOT regenerated (no HR015 checkout).
+
+Guarded by `tests/test_forget_tombstone_every_syncer.py` (18) and
+`tests/test_forget_tombstone_ostler_fda.py` (10). Retire by landing the CM041
+and HR015 changes and re-pinning.
+
+Tree `cm041/assistant_api`: the Nineteenth graft above covers `ical-server.py` (forget tombstone hunk), `hub_contract.yaml` (regenerated; speakers/identify on :8090 with the service token, nothing on the gateway) and the Lane 11 files listed in the Lane 11 graft.
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+
+Tree `cm041/assistant_api`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `_audit_person_removal` (loads `person_audit.py` by path from the server's own directory) and one call in `api_people_forget` before `_forget_person_update` runs (reason `user_forget`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
