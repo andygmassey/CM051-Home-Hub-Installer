@@ -41,7 +41,10 @@ Reads release assets from `ostler-ai`. Four call sites in `cut.yml`
 **Without it:** the cut cannot fetch the daemon or the Hub app it pins.
 
 ### OSTLER_GH_TOKEN_ANDYGMASSEY
-General `andygmassey` automation.
+General `andygmassey` automation. Also the cross-org read of the private
+`ostler-ai/ostler-assistant` gateway source and the client repos for
+`hub-contract.yml` (`contract-is-current`, `client-pin-drift`).
+**Without it:** those two jobs exit CANNOT-RUN (red), never a silent pass.
 **NOT usable for publishing to `ostler-ai`:** measured refused 2026-08-20.
 
 ### OSTLER_SIGNING_CERT_P12 / OSTLER_SIGNING_CERT_PASSWORD
