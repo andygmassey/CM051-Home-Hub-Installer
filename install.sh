@@ -29373,8 +29373,8 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
     # Pin first (cross-origin, baked above), sidecar second (same-origin
     # cross-check only). A tarball that fails the pin is refused even when
     # its sidecar matches it.
-    _ostler_remotecapture_verify "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256" "${OSTLER_REMOTECAPTURE_VERSION}"
-    _rc_verify=$?
+    _rc_verify=0
+    _ostler_remotecapture_verify "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256" "${OSTLER_REMOTECAPTURE_VERSION}" || _rc_verify=$?
     if [[ $_rc_verify -ne 0 ]]; then
         err "$MSG_ERR_CM042_SHA_256_MISMATCH"
         case $_rc_verify in
