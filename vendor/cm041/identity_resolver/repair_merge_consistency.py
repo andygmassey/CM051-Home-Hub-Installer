@@ -51,7 +51,6 @@ from identity_resolver.batch_resolver import (
     sweep_qdrant_orphans_of_merged_people,
 )
 from identity_resolver import retirement
-from identity_resolver.person_audit import record_person_removal
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +165,6 @@ def repair(
                 # is re-created on the next ingest, which is how a repair
                 # that reported 0 was back to 32 hours later.
                 for uri in still_typed:
-                    record_person_removal(uri, "identity_resolver.repair_merge_consistency", "retire_still_typed_merge_subject")
                     _sparql_update(
                         oxigraph_url, client, retirement.retire_update(uri),
                     )

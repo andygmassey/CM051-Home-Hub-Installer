@@ -46,7 +46,6 @@ from identity_resolver.canonical_name import choose_canonical_display_name, pref
 logger = logging.getLogger(__name__)
 
 from . import retirement
-from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
 
@@ -1259,7 +1258,6 @@ def _merge_oxigraph(
     #    An untyped node answers every writer's existence check with "no such
     #    node" and gets re-created on the next ingest. retirement.py carries
     #    the measurement that proved it.
-    record_person_removal(discard_uri, "identity_resolver.batch_merge", "merge_retire_type")
     _sparql_update(url, client, retirement.retire_update(discard_uri))
 
     # 8. Collapse accumulated displayName values on the kept node to ONE

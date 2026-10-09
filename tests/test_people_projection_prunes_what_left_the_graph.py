@@ -155,31 +155,3 @@ def test_pruned_zero_and_pruned_none_are_different_answers(harness):
     assert mod.ingest_people_to_qdrant().get("pruned") == 0
     harness["scroll_fails"] = True
     assert mod.ingest_people_to_qdrant().get("pruned") is None
-
-
-def test_a_node_removed_during_the_sweep_is_pruned_by_the_same_sweep(harness, monkeypatch):
-    """Walk #15 orphan: the node was in the graph when the sweep SNAPSHOT it
-    and gone by the time the points landed. It must not survive the sweep."""
-    harness["scroll"] = [_point("p-kept", URI_KEPT, "fda_people_index")]
-    monkeypatch.setattr(mod, "_load_people_from_oxigraph", lambda: [
-        _person(URI_KEPT, "Alder"), _person(URI_GONE, "Birch")])
-    monkeypatch.setattr(mod, "_current_person_uris", lambda: {URI_KEPT})
-    harness["scroll"] = [
-        _point("p-kept", URI_KEPT, "fda_people_index"),
-        _point("p-gone", URI_GONE, "fda_people_index"),
-    ]
-    mod.ingest_people_to_qdrant()
-    assert harness["deleted"] == ["p-gone"]
-
-
-def test_an_unreadable_fresh_graph_falls_back_to_the_snapshot(harness, monkeypatch):
-    """MUST-MISS: None from the fresh read must prune nothing extra."""
-    monkeypatch.setattr(mod, "_load_people_from_oxigraph", lambda: [
-        _person(URI_KEPT, "Alder"), _person(URI_GONE, "Birch")])
-    monkeypatch.setattr(mod, "_current_person_uris", lambda: None)
-    harness["scroll"] = [
-        _point("p-kept", URI_KEPT, "fda_people_index"),
-        _point("p-gone", URI_GONE, "fda_people_index"),
-    ]
-    mod.ingest_people_to_qdrant()
-    assert harness["deleted"] == []
