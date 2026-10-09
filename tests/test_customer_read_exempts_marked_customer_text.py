@@ -71,6 +71,29 @@ def verdict(pw_page, html):
     return got[0] if len(got) == 1 else ("rows", got)
 
 
+# Hub screens (walk #15): the Hub People row marks a contact-written subtitle.
+HUB_ROW = '<div><span>Sam Doe</span><div data-person-subtitle %s>%s</div></div>'
+HUB_TITLE = "Co" + D + "founder"
+HUB_CASES = [
+    ("walk #15: a marked contact title on Hub People PASSES",
+     '<main>%s</main>' % (HUB_ROW % ('data-ostler-customer="1"', HUB_TITLE)), True),
+    ("the same title UNMARKED on Hub People still FAILS",
+     '<main>%s</main>' % (HUB_ROW % ('', HUB_TITLE)), False),
+    ("Hub copy beside a marked title still FAILS",
+     '<main><h2>People ' + D + ' all</h2>%s</main>' % (HUB_ROW % ('data-ostler-customer="1"', HUB_TITLE)), False),
+]
+
+
+def hub_verdict(pw_page, html):
+    pw_page.set_content(html)
+    text = pw_page.evaluate("() => document.querySelector('main').innerText")
+    titles = pw_page.evaluate(cr.CUSTOMER_TITLES_JS) or []
+    facts = copy.deepcopy(cr._good())
+    facts["screens"]["people"] = dict(facts["screens"].get("people") or {}, text=text, customer_titles=titles)
+    got = [ok for name, ok, _ in cr.judge(facts) if name == cr.DECLARED[1]]
+    return got[0] if len(got) == 1 else ("rows", got)
+
+
 def main():
     try:
         from playwright.sync_api import sync_playwright
@@ -87,8 +110,8 @@ def main():
         with sync_playwright() as p:
             browser = p.chromium.launch()
             pw_page = browser.new_page()
-            for label, html, want in CASES:
-                got = verdict(pw_page, html)
+            for label, html, want, *hub in CASES + [(l, h, w, True) for l, h, w in HUB_CASES]:
+                got = hub_verdict(pw_page, html) if hub else verdict(pw_page, html)
                 if got is want:
                     print("  ok    " + label)
                 else:
@@ -98,7 +121,7 @@ def main():
     except Exception as exc:  # no browser binary is a harness fault, not a verdict
         print("CANNOT-RUN: the browser could not run ({})".format(str(exc)[:200]))
         return 2
-    print("{} of {} cases as expected".format(len(CASES) - len(fails), len(CASES)))
+    print("{} of {} cases as expected".format(len(CASES) + len(HUB_CASES) - len(fails), len(CASES) + len(HUB_CASES)))
     return 1 if fails else 0
 
 
