@@ -81,6 +81,16 @@ done
 fx="$(_row "$V" assistant_answers_grounded | cut -f5)"
 [ "$fx" = "seed-fixture" ] && ok "assistant_answers_grounded fixture column reads seed-fixture (in SEED_DEPENDENT_PROBES)" || bad "assistant_answers_grounded: fixture column reads '${fx}', expected seed-fixture"
 
+# The two probes whose seeds are forgotten before the replay must be listed,
+# or phase 2 overwrites their phase 1 verdict with CANNOT-RUN (walk #10).
+for sp in conversation_capture_end_to_end owner_digest_knows_the_owner; do
+    if grep -E '^SEED_DEPENDENT_PROBES=' "${SRC}/run_box_walk.sh" | grep -qw "$sp"; then
+        ok "${sp} is in SEED_DEPENDENT_PROBES"
+    else
+        bad "${sp} is missing from SEED_DEPENDENT_PROBES: its seed is forgotten before the replay"
+    fi
+done
+
 printf -- '--- arm 2: control, env unset writes nothing ---\n'
 T="$(_stage t2)"
 _run "$T" ""; rc=$?

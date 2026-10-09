@@ -54,7 +54,9 @@ JARGON = [
     (re.compile(r"\b(Qdrant|Oxigraph|RDF|Kafka|SPARQL)\b"), "store name"),
     (re.compile(r"\blocalhost\b|\(:\d{3,5}\)"), "host or port"),
     (re.compile(r"Personal World Graph"), "internal product name"),
-    (re.compile(r"\b[a-z]+_[a-z]+(?:_[a-z]+)*\b"), "snake_case key"),
+    # Not after "@": an account handle (@ann_lee) is the customer's own data, a
+    # real identifier, and Ostler must not rewrite it (walk #10 review, CM044 #312).
+    (re.compile(r"(?<![@\w.])[a-z]+_[a-z]+(?:_[a-z]+)*\b"), "snake_case key"),
 ]
 
 # A customer source and every label any screen uses for it. A label that maps
@@ -368,6 +370,10 @@ def judge(f, declared=None):
     # on System sub-pages the front-page read never opened).
     crawl = (f.get("wiki") or {}).get("crawl") or {}
     texts += [("wiki page " + k, (v or {}).get("text") or "") for k, v in crawl.items()]
+    # Text the wiki renders FROM the customer's data (a visited page's title),
+    # recorded per page by CUSTOMER_TITLES_JS. Used only by the em dash check.
+    cust_titles = {"wiki " + k: (v or {}).get("customer_titles") or [] for k, v in wiki.items()}
+    cust_titles.update({"wiki page " + k: (v or {}).get("customer_titles") or [] for k, v in crawl.items()})
     measured = [t for t in texts if t[1].strip()]
 
     def over_text(name, pred, show):
@@ -397,6 +403,11 @@ def judge(f, declared=None):
         if where == "hub timeline":
             for title in exempt:
                 t = t.replace(title, "")
+        # Wiki: each recorded customer title removes ONE occurrence of itself,
+        # longest first, so a title cannot exempt a second copy of its text
+        # and a dash in our own copy beside it still counts (walk #11).
+        for title in sorted((x for x in cust_titles.get(where, []) if EM_DASH in x), key=len, reverse=True):
+            t = t.replace(title, "", 1)
         return t.count(EM_DASH)
     if not measured:
         add(DECLARED[1], None, "NOT MEASURED: no screen text was collected")
@@ -801,6 +812,33 @@ NEEDS_NOW_JS = r"""(arg) => {
     .filter(Boolean);
 }"""
 
+# Text the wiki shows that is the customer's data, never Ostler copy, so the
+# judge removes each string once before counting em dashes. Two sources:
+#
+# 1. THE MARKER (cut #13). CM044 compiler/customer_text.py wraps every customer
+#    value it prints (a bookmarked or visited page title, a calendar event, a
+#    note title, a preference subject, a media title) in an element carrying
+#    data-ostler-customer, and wraps only the value. Walk #12 failed because
+#    the Trends "New discoveries" row printed a bookmark title as plain text
+#    and the link rule below could not see it. Only the OUTERMOST marked
+#    element counts (a nested one would exempt the same text twice), and a
+#    marked element that is a heading or holds one is IGNORED: headings are
+#    Ostler's page structure, so a marker there must not hide a dash.
+# 2. THE LINK RULE (#2710, kept for a wiki older than the marker). An <a>
+#    inside the article whose href is http(s) to a host other than the wiki's
+#    own and other than Ostler's, whose only child is text, and which is not
+#    already inside a marked element.
+CUSTOMER_TITLES_JS = r"""() => {
+  const root = document.querySelector('article') || document.body;
+  const ours = /(^|\.)(ostler\.ai|creativemachines\.ai)$/i;
+  const MARK = '[data-ostler-customer]', HEAD = 'h1,h2,h3,h4,h5,h6';
+  const marked = [...root.querySelectorAll(MARK)].filter(e =>
+      !(e.parentElement && e.parentElement.closest(MARK)) && !e.matches(HEAD) && !e.querySelector(HEAD));
+  const links = [...root.querySelectorAll('a[href]')].filter(a => !a.closest(MARK)
+      && /^https?:$/.test(a.protocol) && a.hostname && a.hostname !== location.hostname
+      && !ours.test(a.hostname) && a.children.length === 0);
+  return [...marked, ...links].map(e => e.innerText).filter(t => t && t.trim()); }"""
+
 # Leaf elements set in a monospace face whose text is a date (the old mono
 # styling the reskin removed). Counted per page; the text is not kept.
 MONO_DATES_JS = r"""() => {
@@ -1049,7 +1087,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     fr.goto(wbase + rel, wait_until="load", timeout=60000)
                     fr.page.wait_for_timeout(2000)
                     pg = {"text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
-                          "boxes": fr.evaluate(WIDTH_JS) or []}
+                          "boxes": fr.evaluate(WIDTH_JS) or [],
+                          "customer_titles": fr.evaluate(CUSTOMER_TITLES_JS) or []}
                     if name == "front":
                         f["needs_now_wiki"] = fr.evaluate(NEEDS_NOW_JS, [".pw-fcard", "h3,h4,strong,[class*='title']"])
                         # The list directly under the heading, and only that list: the
@@ -1106,7 +1145,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                         fr.page.wait_for_timeout(1200)
                         crawl[rel or "(front)"] = {
                             "text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
-                            "mono_dates": fr.evaluate(MONO_DATES_JS)}
+                            "mono_dates": fr.evaluate(MONO_DATES_JS),
+                            "customer_titles": fr.evaluate(CUSTOMER_TITLES_JS) or []}
                     except Exception as exc:
                         f["wiki"].setdefault("errors", []).append("crawl {}: {}".format(rel, str(exc)[:120]))
                 f["wiki"]["nav_links"] = [r or "(front)" for r in rels]
@@ -1476,6 +1516,24 @@ def self_test():
     else:
         print("  ok    a silent duplicate, absent from the duplicate-review surface, FAILS")
 
+    # An @handle is customer data, so it must PASS the internal-values check;
+    # the same token without the "@" is a stored key and must still FAIL.
+    want_jargon = DECLARED[MUTANT_TARGETS["snake_case key on the front page (#2549)"]]
+    handle = copy.deepcopy(_good())
+    handle["wiki"]["pages"]["front"]["text"] += "Followed @ann_lee\n"
+    got = [ok for n, ok, _ in judge(handle) if n == want_jargon]
+    if got != [True]:
+        missed.append("an @handle is flagged as an internal key ({!r}, want [True])".format(got))
+    else:
+        print("  ok    an @handle on a wiki page PASSES the internal-values check")
+    bare = copy.deepcopy(_good())
+    bare["wiki"]["pages"]["front"]["text"] += "Followed ann_lee\n"
+    got = [ok for n, ok, _ in judge(bare) if n == want_jargon]
+    if got != [False]:
+        missed.append("a bare snake_case token is no longer flagged ({!r}, want [False])".format(got))
+    else:
+        print("  ok    the same token without the @ still FAILS")
+
     # The collector could not read /api/v1/contacts/diff at all: a real
     # duplicate must read CANNOT-RUN, never a silent pass -- a transport
     # failure must not masquerade as "nothing to review".
@@ -1598,6 +1656,39 @@ def self_test():
         missed.append("a list-shaped freshness section naming every working source still fails ({!r})".format(got19))
     else:
         print("  ok    a list-shaped freshness section naming every working source PASSES")
+
+    # Walk #11 (cut #12): the 3 em dashes on People/timeline and activity were
+    # all inside Safari page TITLES, which are the customer's data, not Ostler
+    # copy. The crawl records the text of each such link (CUSTOMER_TITLES_JS)
+    # and the judge removes exactly those strings, once each, before counting.
+    # Synthetic titles only.
+    title = "Harbour trains \u2014 a short history"
+    browsed = copy.deepcopy(_good())
+    browsed["wiki"]["nav_links"].append("People/Example-Person/timeline/")
+    browsed["wiki"]["crawl"]["People/Example-Person/timeline/"] = {
+        "text": "Timeline\nBrowsing history\n12 Mar \u2013 " + title + "\n", "mono_dates": 0,
+        "customer_titles": [title]}
+    got1 = [(ok, d) for n, ok, d in judge(browsed) if n == DECLARED[1]]
+    if [ok for ok, _ in got1] != [True]:
+        missed.append("an em dash inside a customer's browsing title still fails ({!r})".format(got1))
+    else:
+        print("  ok    an em dash inside a customer's browsing-page title PASSES (customer data, not Ostler copy)")
+    for label, text in (("template copy on the same page", "Pages you visited \u2014 this week\n"),
+                        ("a heading", "Harbour trains \u2014 recent\n")):
+        mut = copy.deepcopy(browsed)
+        mut["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += text
+        got = [ok for n, ok, _ in judge(mut) if n == DECLARED[1]]
+        if got != [False]:
+            missed.append("an em dash in {} beside an exempt title is hidden ({!r})".format(label, got))
+        else:
+            print("  ok    an em dash in {} beside an exempt title still FAILS".format(label))
+    twice = copy.deepcopy(browsed)
+    twice["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += title + "\n"
+    got = [ok for n, ok, _ in judge(twice) if n == DECLARED[1]]
+    if got != [False]:
+        missed.append("one recorded title exempts two copies of its text ({!r})".format(got))
+    else:
+        print("  ok    one recorded title exempts one occurrence only; a second copy of the same text FAILS")
 
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})

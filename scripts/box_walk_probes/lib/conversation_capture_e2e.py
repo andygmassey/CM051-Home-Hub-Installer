@@ -305,9 +305,15 @@ def _http(method, url, data=None, headers=None, timeout=30, insecure=False):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    # OpenerDirector.open() takes no `context`: the TLS context belongs to the
+    # HTTPSHandler. Passing it to open() raised TypeError on every HTTPS call,
+    # which the status poll read as "unreadable" until it timed out (walk #10).
+    handlers = [urllib.request.ProxyHandler({})]
+    if ctx is not None:
+        handlers.append(urllib.request.HTTPSHandler(context=ctx))
+    opener = urllib.request.build_opener(*handlers)
     try:
-        with opener.open(req, timeout=timeout, context=ctx) if ctx is not None else opener.open(req, timeout=timeout) as r:
+        with opener.open(req, timeout=timeout) as r:
             code = r.getcode()
             body = r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:

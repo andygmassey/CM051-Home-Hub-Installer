@@ -596,3 +596,208 @@ unchanged by running the full suite against the pre-fix file via the same
 `git checkout origin/main --` swap, not `git stash`.
 
 Retire by landing CM041 PR #197 and re-pinning.
+
+## Eleventh graft: browsing page summaries, Save to Knowledge, browsing search (CM051 Lane 6)
+
+Tree `cm041/assistant_api`. Files: `ical-server.py` (`api_safari_ingest`
+extended; new `api_safari_save`, `api_browsing_search`, `_enrich_*` wiring,
+routes `POST /api/safari/save` and `GET /api/v1/browsing/search`, worker
+resume on startup), new sibling module `browsing_enrich.py` (copied
+byte-identical from CM041), `TOOLS.md` is NOT changed here (it differs from
+upstream already and the BROWSING routing line is owed in the same re-pin).
+Matches CM041 branch `claude/lane6-page-summaries` (open at time of writing,
+not yet on CM041 main, so no sha exists to ack; the manifest ack is OWED
+after that merge, same shape as #2642 and #2658).
+
+What the measurement found first. The shipped `api_safari_ingest` stored
+only url, title, domain, timestamp (plus `html_len`); it never summarised
+anything, although the extension README claimed it did. There was no browsing
+read endpoint at all: nothing in this tree reads `safari_history` except the
+wiki, so "the assistant's existing history search" does not exist and
+`/api/v1/browsing/search` is new.
+
+Behaviour added. Optional `text` (clamped to 20480 chars) and `dwell_ms` on
+ingest. Text goes to a spool-backed, bounded, rate limited worker that yields
+to the chat lease (`~/.ostler/run/ollama-user-active`, same contract as
+CM024 and CM048), calls the loopback Ollama, writes summary, tags and
+entities onto the stored visit, and DELETES the raw text. Skip-listed pages
+(explicit default list plus the customer's own
+`~/.ostler/config/browsing_text_skiplist.txt`) keep the visit and capture no
+text. History.db and Chrome history rows have no field and read as
+`unsummarised`. Save to Knowledge writes a `web_clip` item to the
+`evernote_knowledge` collection at `compartment_level` 2 in the importers'
+shape, linked to the visit.
+
+THE ONE CM051-ONLY LINE. `api_safari_save` calls
+`_subscription_paused("safari_capture")` first (Rule 0.8, browser capture
+pauses without Ostler Pro). CM041 source has no subscription gate, so this
+is a divergence by construction, pinned by
+`TestD_VendoredSubscriptionGate` in the vendored test. The startup hunk
+also differs in context only (`ThreadingHTTPServer` here).
+
+Doctor: `vendor/doctor/agent/proxy.py` widens the extension credential from
+one path to exactly two POST paths (`/api/safari/ingest`,
+`/api/safari/save`), pinned by
+`tests/test_extension_credential_covers_the_save_route.py`, which also pins
+that every other path, GET, a remote caller and a wrong token stay refused.
+`install.sh` DOCTOR_PROXY_PATHS gains `/api/safari/save` and
+`/api/v1/browsing/search`. The proxy.py change has no upstream (HR015) twin
+yet: OWED, and it is a security-boundary change that wants a human read.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_browsing_enrich.py`
+(20 tests). Retire by landing the CM041 branch and re-pinning.
+
+## Twelfth graft: the hydration conversations counter follows CM048 completions (v1.0.107 #11)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+functions `_wiki_conversations_progress`, `_conversation_state_is_complete`,
+`_conversation_state_is_stalled`. Matches CM041 PR #201.
+
+`GET /api/v1/hydration/status` counted a conversation completed only when
+`state.json` had `current_step == "completed"`. CM048 never writes that for a
+real run: it leaves `current_step` on the last step entered (or back on
+`00_raw` after a re-entry) and records finished work in `completed_steps`, with
+`09_bundle` as the terminal step (CM048 `src/seed.py` `already_enriched`).
+Measured read-only on a walk box: 84 of 90 "running" had `09_bundle` done, so
+the counter sat flat while pwg-convo logged completions. Completed is now
+`09_bundle` in `completed_steps`; `stalled` (subset of running, no update for
+30 minutes) is added and never promoted to a failure.
+
+Test `vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py`
+(5 tests), wired in `.github/workflows/walk-meeting-id-collision-guard.yml`.
+
+Upstream landed as CM041 #201, squash sha `1e18c6b0`, acked in `hold_ack_shas`
+in `vendor/VENDOR_MANIFEST.toml`. Retire by re-pinning.
+
+## Thirteenth graft: the coach reader read a path the writer never wrote (CM051 v1.0.107 #11)
+
+Mirrors CM041 PR #202. `vendor/cm041/assistant_api/ical-server.py`:
+`COACH_DB`, `coach_recent`, and the `/api/v1/coach/recent` handler.
+
+CM048 writes coach observations to `~/.ostler/coach/observations.db`
+(`vendor/cm048_pipeline/src/ostler_paths.py:52`, `ingest.py` `_write_coach`),
+SQLCipher-encrypted. The reader defaulted to `PWG_HOME/coach/...`
+(`~/.pwg`), opened an empty file and returned an empty list, silently.
+
+Now: `COACH_DB` is `~/.ostler/coach/observations.db` (`OSTLER_COACH_DB`
+overrides, `PWG_HOME` no longer does). An ABSENT db is a fresh box (the writer creates it on the first
+observation; the context-refresh generator polls and counts non-200 as failure):
+200 with `observations: []` and `db_state: "absent"`. An existing db with no
+key, a wrong key or a missing table raises `CoachDbError`, logs to stderr and
+answers HTTP 500 with an `error` and no `observations` key. The key is the one
+already resolved at import by `resolve_db_key()` (CM051 #1956 precedent, which
+CM041 source does not carry; that is why this file differs from upstream there).
+
+The walk probe `db_key_reaches_every_service` had the same hard-coded
+`~/.pwg` path (and created the 0-byte decoy by connecting to it); it now
+resolves the writer's path and never creates the file.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`
+(7 tests; one loads the vendored CM048 `coach_db_path()` itself). Retire by
+landing CM041 #202 and re-pinning. ACKED: CM041 #202 merged as 9f2b883c859d53d65e65fcac1e461c1afe8edea1 and that sha is in the VENDOR_MANIFEST hold_ack for this tree. The pin is still held.
+
+## Fourteenth graft: failed conversations retry automatically on a backoff and are never lost (CM051 v1.0.107 #11)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #203, squash sha
+`e1de0cfdb696d21475ff0e89f161ddcf7d08d442`, acked in `hold_ack_shas`.
+
+2 of 129 conversations failed at the processor step on the walk box
+(macmini16-walk). The one in-process retry above was spent
+(`retry_count=1`) and the only thing that resumes a failed conversation is
+the manual `pwg-convo retry-all`, which nothing schedules and a customer
+cannot run. They sat failed forever and the hydration panel showed
+`needs_attention` with no way out.
+
+Added to this tree's `ical-server.py`: `CONVERSATION_RETRY_*` constants,
+`_conversation_process_tracked`, `_preserve_cm048_progress`,
+`_retry_one_conversation`, `_conversation_retry_sweep`,
+`_conversation_retry_rearm`, `_start_conversation_retry_thread`,
+`api_conversation_retry_failed` (`POST /api/v1/conversation/retry-failed`),
+the sidecar helpers, and edits to `_conversation_process_background` (one
+call before its final state write), `api_conversation_process` (thread
+target), `_wiki_conversations_progress` (`retrying`, `gave_up`),
+`api_hydration_status` (retrying is `running`, spent cap is
+`needs_attention` with a `message`), the POST router, and `__main__` (thread
+start). Bookkeeping is a sidecar `auto_retry.json`, NOT a new state.json key,
+because `PipelineState.from_dict` was `cls(**data)` and rejects an unknown
+key. The retry re-runs `_invoke_pwg_convo(["process", ...])`, this tree's own
+CM048 invocation (CM041 source uses `OSTLER_VENV_PYTHON -m src.cli`), the
+one adaptation against the source graft.
+
+The `09_bundle` completion predicate and `stalled` (CM041 #201, the Twelfth graft above) are now in this tree, so `retrying` / `gave_up` sit beside `stalled`.
+
+### What a future sync must preserve
+
+All of the above. Guarded by
+`vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py`
+(12 tests, 12 fail against main's ical-server) and by
+`tests/test_vendored_conversation_process_failure_reason.py`, whose fixture
+now loads the real `_preserve_cm048_progress` helpers. Wired into
+`.github/workflows/failed-conversations-auto-retry-guard.yml`.
+
+## Fifteenth graft: a 14+ digit internal id is never shown as a phone (CM051 v1.0.107 #12)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #204, squash sha
+`c05b35edd6441976fe2b068c90bd4d13e88fa004`, acked in `hold_ack_shas`. The
+four ical-server.py hunks applied unchanged (offsets only), so the changed
+lines are identical to upstream.
+
+Walk #11 measured 1 of 2,571 Hub People rows showing a 17-digit internal id
+(a WhatsApp linked-device id or another app's id written before the writer
+fixes) as its phone. `people_list` and `person_enrichment` took `phones[0]`
+with no check. Added `_displayable_phone`: under 14 digits shown as stored,
+over 15 never, 14 or 15 only when `identity_resolver.normalise.is_valid_phone`
+says valid (hidden if that check cannot run). Read-side only; the graph is
+untouched. Edits: `person_enrichment` (identifier loop and Qdrant payload
+phones) and `people_list` (payload phones and identifier phones).
+
+### What a future sync must preserve
+
+`_displayable_phone` and its four call sites. Guarded by
+`vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
+`TestPeopleListNeverShowsAnInternalIdAsAPhone` (6 tests: 5 fail against main's
+ical-server, the ordinary-number control passes on both), wired in
+`.github/workflows/walk6-people-list-correctness-guard.yml`. Retire by
+re-pinning.
+
+## Sixteenth graft: an encrypted connection gets its own Row class (CM051 v1.0.107 walk #12)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #205 (open at graft
+time; ack its squash sha in `hold_ack_shas` when it merges). The helper and
+both call-site lines are identical to upstream.
+
+Walk #12 FAIL `db_key_reaches_every_service`: the box's ical-server.err read
+`Row() argument 1 must be sqlite3.Cursor, not sqlcipher3.dbapi2.Cursor` and
+every coach read returned 500. Added `_row_factory_for(conn)`, which returns
+the Row class of the module that made the connection. Edits:
+`conn.row_factory` in `coach_recent` and in `_memory_corrections_connect`.
+
+### What a future sync must preserve
+
+`_row_factory_for` and its two call sites. Guarded by
+`vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py`
+(unfixed: 3 failed, control passed; fixed: 4 passed), run on a real sqlcipher3
+connection by `.github/workflows/db-key-delivery-and-recovery.yml`. Retire by
+re-pinning.
+
+## Seventeenth graft: People list hides business-shaped names (CM051 cut #15, walk #14)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #206, pre-merge head
+`f9458b91e18f38040ccb10305ee75732dd68fb4a` (acked in `hold_ack_shas`; swap for
+the squash sha on merge). The ical-server.py hunks applied unchanged.
+
+Walk #14 measured 33 of 7,815 Hub People rows that were businesses or
+automated senders ("<brand> official", "<x> swimming gear store",
+"<x> hk official"). Added `_is_business_shaped_name` and one call from
+`_is_automated_or_service_name`: corporate last word (official, ltd, limited,
+inc, ...) after at least one word; retail last word (store, shop, ...) only
+with three or more words; support/customer-service team endings; noreply.
+Uncarded records only (existing Contacts-card gate). "HK" alone is never a
+signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG tier of institutional words (official, ltd, solutions, group, university...) hides a row even when it HAS a Contacts card; a WEAK tier (club, news, bank, team, store...) stays uncarded-only and needs 3+ words. Read-side only.
+
+### What a future sync must preserve
+
+`_BUSINESS_*` constants, `_is_business_shaped_name`, and its call in
+`_is_automated_or_service_name`. Guarded by
+`vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
+`BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.

@@ -120,6 +120,7 @@ import phonenumbers
 
 from .turtle_escape import escape_turtle_iri_path, escape_turtle_literal
 from . import outstanding_todos as _outstanding_todos
+from .participants import normalise_participants
 from .schemas import (
     Classification,
     ExtractedFact,
@@ -720,7 +721,7 @@ def _participant_identity_triples(
     fabricate a Person node from a name we cannot key.
     """
     channel = (metadata.get("channel") or "").strip().lower()
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     if not isinstance(participants, list):
         return []
 

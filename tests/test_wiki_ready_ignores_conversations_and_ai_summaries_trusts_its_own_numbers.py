@@ -50,6 +50,9 @@ ns = {
     "_wiki_read_compiler_status": lambda: _STUB["comp"],
     "_wiki_conversations_progress": lambda: dict(_STUB["conv"]),
     "_wiki_eta_seconds": lambda eta: None,
+    # Module constant read by api_hydration_status since the retry sweeper
+    # (CM041 #203); this harness execs single functions, not the module.
+    "CONVERSATION_RETRY_GAVE_UP_MESSAGE": "couldn't process, will retry on the next update",
 }
 exec(compile(ast.Module(body=keep, type_ignores=[]), str(SRC), "exec"), ns)
 api_hydration_status = ns["api_hydration_status"]

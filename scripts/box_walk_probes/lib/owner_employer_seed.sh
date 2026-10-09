@@ -29,6 +29,23 @@ _oes_box() {
     fi
 }
 
+# THE COUNT, shared by the apply and the forget so "seeded" and "removed" are
+# read off the same predicate: PersonFacts carrying all three of source
+# linkedin_positions, the seed organisation and the seed title, the triples
+# linkedin_career.import_positions writes (vendor/cm041/contact_syncer/
+# linkedin_career.py:232-240). Box-side text; curl and python are overridable
+# only so a test can stand in for Oxigraph.
+_OES_TITLE="Staff engineer"
+_oes_count_sh() {
+    printf '%s\n' "K=\${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}
+OXI=\${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}
+OES_CURL=\${OSTLER_OES_CURL:-/usr/bin/curl}
+OES_PY=\${OSTLER_OES_PY:-/usr/bin/python3}
+P='PREFIX pwg: <https://schema.ostler.ai/ontology#> '
+M='?f pwg:source \"linkedin_positions\" ; pwg:organization \"${OSTLER_OWNER_SEED_ORG}\" ; pwg:jobTitle \"${_OES_TITLE}\" .'
+n() { \"\$OES_CURL\" -sS --noproxy '*' -m 20 -K \"\$K\" -H 'Content-Type: application/sparql-query' -H 'Accept: application/sparql-results+json' --data-binary \"\${P}SELECT (COUNT(DISTINCT ?f) AS ?n) WHERE { \$M }\" \"\$OXI\" | \"\$OES_PY\" -c 'import json,sys; print(json.load(sys.stdin)[\"results\"][\"bindings\"][0][\"n\"][\"value\"])' 2>&1; }"
+}
+
 owner_employer_seed_apply() {
     printf '%s\n' "--- OWNER EMPLOYER SEED: a synthetic LinkedIn Positions.csv through ostler-import ---"
     local out
@@ -37,14 +54,25 @@ D=\$HOME/.ostler/walk-seed/owner-linkedin/Basic_LinkedInDataExport
 mkdir -p \"\$D\" || { echo 'OES no-dir'; exit 2; }
 printf 'Company Name,Title,Description,Location,Started On,Finished On\n%s,Staff engineer,,Riverside,Jan 2020,\n' '${OSTLER_OWNER_SEED_ORG}' > \"\$D/Positions.csv\"
 [ -x \$HOME/.ostler/bin/ostler-import ] || { echo 'OES no-importer'; exit 2; }
+$(_oes_count_sh)
+echo \"OES count before=\$(n)\"
 \$HOME/.ostler/bin/ostler-import \"\$(dirname \"\$D\")\" >/tmp/ostler-walk-owner-seed.log 2>&1; echo \"OES import rc=\$?\"
+echo 'OES importer log, last 15 lines (/tmp/ostler-walk-owner-seed.log):'
+tail -n 15 /tmp/ostler-walk-owner-seed.log 2>&1 | sed 's/^/OES log | /'
+c=\$(n); echo \"OES count=\$c\"
+case \"\$c\" in ''|*[!0-9]*|0) echo 'OES no career fact in the graph; not waiting on the digest'; exit 4 ;; esac
 C=\$HOME/.ostler/assistant-config/workspace/CONTEXT.md
 before=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0)
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.context-refresh >/dev/null 2>&1; echo \"OES refresh rc=\$?\"
 i=0; while [ \$i -lt 120 ]; do now=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0); [ \"\$now\" -gt \"\$before\" ] && { echo 'OES digest rewritten'; exit 0; }; sleep 5; i=\$((i+1)); done
 echo 'OES digest not rewritten in 600s'; exit 3" 2>&1)"
     printf '%s\n' "$out" | sed 's/^/    /'
-    if printf '%s' "$out" | grep -q '^OES import rc=0' && printf '%s' "$out" | grep -q '^OES digest rewritten'; then
+    # SEEDED IS A COUNT, NOT AN EXIT CODE. ostler-import's code was the last
+    # step's (the universal importer's 3 "unknown format" on walk #13), and it
+    # says nothing about whether the fact landed. The graph does.
+    local cnt
+    cnt="$(printf '%s\n' "$out" | sed -n 's/^OES count=\([0-9][0-9]*\)$/\1/p' | tail -1)"
+    if [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && printf '%s' "$out" | grep -q '^OES digest rewritten'; then
         OSTLER_OWNER_SEED_STATE="seeded"
     else
         OSTLER_OWNER_SEED_STATE="failed"
@@ -59,7 +87,6 @@ echo 'OES digest not rewritten in 600s'; exit 3" 2>&1)"
 # deletes ONLY a PersonFact carrying all three of source linkedin_positions,
 # the seed organisation and the seed title, and prints the count before and
 # after so a delete that matched nothing is visible, not silent.
-_OES_TITLE="Staff engineer"
 owner_employer_seed_forget() {
     [ "$OSTLER_OWNER_SEED_STATE" = "seeded" ] || [ "$OSTLER_OWNER_SEED_STATE" = "failed" ] || return 0
     if [ "${OSTLER_OWNER_SEED_KEEP:-0}" = "1" ]; then
@@ -69,13 +96,9 @@ owner_employer_seed_forget() {
     printf -- '--- OWNER EMPLOYER SEED: removing the synthetic position ---\n'
     local out
     out="$(_oes_box "set -u
-K=\${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}
-OXI=\${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}
-P='PREFIX pwg: <https://schema.ostler.ai/ontology#> '
-M='?f pwg:source \"linkedin_positions\" ; pwg:organization \"${OSTLER_OWNER_SEED_ORG}\" ; pwg:jobTitle \"${_OES_TITLE}\" .'
-n() { /usr/bin/curl -sS --noproxy '*' -m 20 -K \"\$K\" -H 'Content-Type: application/sparql-query' -H 'Accept: application/sparql-results+json' --data-binary \"\${P}SELECT (COUNT(DISTINCT ?f) AS ?n) WHERE { \$M }\" \"\$OXI\" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)[\"results\"][\"bindings\"][0][\"n\"][\"value\"])' 2>&1; }
+$(_oes_count_sh)
 echo \"OES before=\$(n)\"
-/usr/bin/curl -sS --noproxy '*' -m 30 -K \"\$K\" -H 'Content-Type: application/sparql-update' --data-binary \"\${P}DELETE { ?f ?p ?o } WHERE { \$M ?f ?p ?o }\" \"\${OXI%/query}/update\"; echo \"OES delete rc=\$?\"
+\"\$OES_CURL\" -sS --noproxy '*' -m 30 -K \"\$K\" -H 'Content-Type: application/sparql-update' --data-binary \"\${P}DELETE { ?f ?p ?o } WHERE { \$M ?f ?p ?o }\" \"\${OXI%/query}/update\"; echo \"OES delete rc=\$?\"
 echo \"OES after=\$(n)\"
 rm -rf \$HOME/.ostler/walk-seed/owner-linkedin
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.context-refresh >/dev/null 2>&1; echo \"OES refresh rc=\$?\"" 2>&1)"
