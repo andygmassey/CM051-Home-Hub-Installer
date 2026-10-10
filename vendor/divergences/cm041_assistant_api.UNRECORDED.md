@@ -980,3 +980,17 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## People list judges human evidence, not only the name (CM051 F7, walk #16)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream. `ical-server.py` gains `_is_non_human_person` (with `_address_is_automated`, `_junk_name_reason`, `_is_plausible_email`, `_is_plausible_phone` and their vocabulary constants, inserted immediately before the "Cut #15 (walk #14)" block comment) and three call sites: `people_list` (before the "Sort keys" comment), `people_search` (after its `_is_nameless_name` check) and `people_stale` (after its `_is_nameless_name` check). It applies to UNCARDED records only (a Contacts card always wins) and hides, from the list only: organisation-worded names, handle/id/calendar-id/no-letter names with no given or family name, a record whose only identifiers are single-token non-phone non-email values (an alphanumeric sender id), and a record whose every email address is shaped like a bulk or brand mailbox. A record with no identifier at all is left alone.
+
+The predicates mirror `scripts/box_walk_probes/lib/customer_read.py` (CM051 #2768) so the list and the judge agree; `tests/test_people_have_human_evidence.py` pins the address rule against the cm021 copy.
+
+### What a future sync must preserve
+
+`_is_non_human_person` and its three call sites. Guarded by `tests/test_people_have_human_evidence.py` (8 tests: 7 red on origin/main), run by `.github/workflows/people-have-human-evidence.yml`. Retire by landing the same change in CM041 `assistant_api/ical-server.py` and re-pinning.
+
+### F7 follow-ups (same graft, same guard)
+
+`people_list` (a) no longer applies the cut #15 name-SHAPE rules (`_is_organisation_name`, `_is_automated_or_service_name`, `_is_service_mailbox_name`) to a record that carries a given or family name (they hid real people on the walk box: names typed in capitals, "Name - Role"); (b) hides a social-only, handle-only node (single-token name, an `instagram_username` identifier, no given/family, no card, no phone/email/LinkedIn) from the default list only (ruling: Archie); (c) drops a Contacts card matching `ASSISTANT_EMAIL` / `ASSISTANT_PHONE` (`_is_assistant_identity`), delivered by new plist keys in `install.sh`. Guarded by `tests/test_people_have_human_evidence.py` (12 tests).
