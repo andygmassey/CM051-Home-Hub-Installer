@@ -182,3 +182,8 @@ assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn stream_native|oa #
 wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|^_PWG_SENTINEL_RE = re\.compile|CM044 #318 the raw [pwg:src=...] provenance sentinel never reaches a customer-visible string (walk #16). 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|_prov\.clean_body\(text or|CM044 #318 the Activity snippet strips raw conversation frontmatter before display (walk #16). 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|class="pw-person-n" data-ostler-customer="1"|CM044 #318 person and org names carry data-ostler-customer so the walk em dash check exempts them (walk #16). 0 -> 1.
+# --- v1.0.107 wiki v0.1.51 (CM044 37f33694, #319 #320). The three lines below read 0 in the v0.1.50 compiler
+# image (a76e02e0) and 1 in v0.1.51 (e57dff40), crane export + /usr/bin/grep -cE.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|^def _source_state_text\(|CM044 #319 the settling panel words a no_data source by the writer's reason, not a contradiction (walk #16 F8). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/locale.yaml|^  settling_source_state_no_data_nothing_new: Checked, nothing new|CM044 #319 the reason-worded no_data row copy (walk #16 F8). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|^def _instagram_row\(|CM044 #320 the person page states the Facebook friend and Instagram handle identifier lines (walk #16 F4). 0 -> 1.
