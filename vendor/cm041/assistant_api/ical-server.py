@@ -1668,18 +1668,53 @@ def _to_iso8601(raw):
     """
     if not raw:
         return ""
-    s = str(raw)
+    return _timeline_timestamp(str(raw))
+
+
+def _timeline_timestamp(s, tz=None):
+    """A Timeline row's date as full ISO 8601 WITH an offset, or "".
+
+    The CM031 app read only full ISO 8601 with an offset and dated every
+    other shape "now", so a month of history landed under Today (Andy's
+    device walk, 2026-10-10). Emitting the offset fixes it for app builds
+    already in hand, not only new ones.
+
+    Local date-times (iCal "20260428T093000", ISO "2026-04-28T09:30:00") are
+    the Hub's local time: the offset is attached. A bare date ("20260428",
+    "2026-04-28") becomes local NOON with the offset, so it stays on its own
+    day in any nearby time zone (entries also carry all_day). A value that
+    already carries "Z" or an offset is normalised. Anything unreadable is
+    "": the row is dropped, never shown as today.
+    """
+    s = (s or "").strip()
+    if not s:
+        return ""
+
+    def local(dt):
+        # The offset IN FORCE ON THAT DATE, not today's: a fixed "current"
+        # offset gave a January 09:30 in Europe/London +01:00 (Archie,
+        # CM051 #2774). astimezone() on a naive value applies the local
+        # zone's rules for that instant; an explicit zone (tests) likewise.
+        return dt.replace(tzinfo=tz) if tz is not None else dt.astimezone()
+
+    for fmt in ("%Y%m%dT%H%M%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
+                "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return local(datetime.strptime(s, fmt)).isoformat(timespec="seconds")
+        except ValueError:
+            pass
+    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+        try:
+            return local(datetime.strptime(s, fmt).replace(hour=12)).isoformat(timespec="seconds")
+        except ValueError:
+            pass
     try:
-        if len(s) == 15 and "T" in s:
-            dt = datetime.strptime(s, "%Y%m%dT%H%M%S")
-            return dt.strftime("%Y-%m-%dT%H:%M:%S")
-        if len(s) == 8 and s.isdigit():
-            dt = datetime.strptime(s, "%Y%m%d")
-            return dt.strftime("%Y-%m-%d")
-        # Already looks ISO-ish: leave it alone.
-        return s
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = local(dt)
+        return dt.isoformat(timespec="seconds")
     except ValueError:
-        return s
+        return ""
 
 
 # Google Calendar via gws CLI
@@ -8220,9 +8255,11 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
         # time (CM047/CM048 schema alignment). Accept any of them rather than
         # dropping a whole source on a field rename -- a missing date is the
         # only disqualifier, since the Timeline is ordered by it.
+        # EVENT dates only. created_at / ingested_at are when the row was
+        # written, so a historic import was dated by its import day (Andy's
+        # device walk, 2026-10-10). No event date: the row is dropped.
         raw_date = ""
-        for key in ("occurred_at", "created_at", "date", "ingested_at",
-                    "timestamp", "started_at"):
+        for key in ("occurred_at", "date", "timestamp", "started_at"):
             val = payload.get(key)
             if val:
                 raw_date = str(val)
@@ -8381,7 +8418,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
     entries = []
     for it in items:
         kind = it.get("kind") or ""
-        if kind in ("calendar_error", "meeting_error"):
+        if kind in ("calendar_error", "meeting_error", "conversation_error"):
             # Surface but skip – CM031 does not render error sentinels.
             continue
         # Carry the row's real kind (#106c). This used to collapse every
@@ -8394,6 +8431,10 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
             entry_type = kind or "event"
         raw_date = it.get("date") or ""
         timestamp = _to_iso8601(raw_date)
+        if not timestamp:
+            # No readable event date: never shown, and never as "today".
+            continue
+        raw_s = str(raw_date).strip()
         # Attendee names come in two shapes:
         #   calendar items: list-of-dicts {name?, email?, role?}
         #   meeting items: a `participants` list-of-strings
@@ -8411,6 +8452,8 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
         entries.append({
             "type": entry_type,
             "timestamp": timestamp,
+            # A date with no time of its own: the app says "All day".
+            "all_day": bool(re.fullmatch(r"\d{8}|\d{4}-\d{2}-\d{2}", raw_s)),
             "title": it.get("summary") or "",
             "subtitle": it.get("location") or "",
             "attendees": attendee_names,

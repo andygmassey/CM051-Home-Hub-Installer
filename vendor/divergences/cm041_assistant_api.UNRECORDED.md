@@ -1002,3 +1002,11 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upst
 ### What a future sync must preserve
 
 The owner-subject split in `api_memory_list` and the `about_others` key. Guarded by `tests/test_memory_about_you.py` (4 tests; the straight arm and the about_others test fail on the pre-fix reader), run by `.github/workflows/writer-reader-vocabulary.yml`. `tests/test_writer_reader_vocabulary_contracts.py::test_the_memory_endpoint_itself_returns_the_cm048_facts` now seeds owner-subject rows (its rows had been about other people). Retire by landing the same change in CM041 `assistant_api/ical-server.py` and re-pinning.
+
+## Timeline dates: ISO 8601 with offset, event dates only (CM031 device walk, 2026-10-10)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream (the CM041 port is CM041 #213, on hold). `ical-server.py`: `_to_iso8601` now delegates to a new `_timeline_timestamp` (inserted immediately after it), which returns full ISO 8601 with the Hub's local offset (a bare date becomes local noon) or "" when unreadable. `_timeline_conversations` reads only event-date keys (`occurred_at`, `date`, `timestamp`, `started_at`; no `created_at` / `ingested_at`). `api_timeline`'s `entries` loop skips `conversation_error`, drops a row whose timestamp is "", and adds `all_day` to each entry.
+
+### What a future sync must preserve
+
+`_timeline_timestamp` and its use by `_to_iso8601`, the event-date key list, and the three `entries` changes. Guarded by `tests/test_timeline_dates_are_event_dates_with_offset.py` (7 tests: 7 red on the branch base), run by `.github/workflows/timeline-dates-with-offset.yml`. Retire by landing CM041 #213 (rebased on this) and re-pinning.
