@@ -22,7 +22,8 @@ cannot observe.
 
 Sync paths:
 1. ``activate_first_month_free()`` -- called by install.sh after license
-   verification. Hub gets 30 days of Pro for free.
+   verification. Hub gets 3 MONTHS of Pro included (pricing 2026-10-10;
+   it was 30 days). The function keeps its historical name.
 2. ``refresh_from_companion()`` -- called when the iOS Companion pushes a
    fresh StoreKit receipt via ``POST /api/v1/subscription/receipt``.
 3. ``expire_check()`` -- run periodically by the ical-server's
@@ -41,7 +42,7 @@ Sync paths:
    persists that walk so the Doctor banner and support can see it.
 
 Paid-once rule (Andy, 2026-07-31, re-made 2026-09-16): "keep it as long
-as they've paid (fully) for Pro at least once. ie. not the 30 days free
+as they've paid (fully) for Pro at least once. ie. not the 3 months included
 plus a failed card try." Implemented here as the ``has_ever_paid`` sticky
 bit -- see ``_has_ever_paid``. It mirrors the daemon's
 ``SubscriptionConfig::has_ever_paid`` (zeroclaw-config schema.rs) and the
@@ -68,7 +69,7 @@ Helper contract (the only public surface other pipelines depend on):
 - ``expire_check() -> None`` -- periodic state walker.
 
 Per locked memory feedback_subscription_gating_v1 + the 2026-05-27
-pricing decision: Hub GBP 99 one-time + Pro GBP 9.99/mo with first 30 days
+pricing decision: Hub GBP 99 one-time + Pro GBP 9.99/mo with the first 3 months
 free at install time.
 """
 
@@ -90,6 +91,12 @@ GRACE_DAYS = 14
 # was within this window. Apple-restraint: never block a legitimate customer
 # on infrastructure failure we cannot observe.
 OFFLINE_GRACE_DAYS = 30
+
+# Pro INCLUDED with a standard Hub purchase, in calendar months (Andy's pricing
+# ruling 2026-10-10; was 30 days). Founding customers get 6 via an App Store
+# offer code (CM050), not from this grant. After this period, with no App
+# Store receipt, Pro is OFF: _walk refuses grace to anyone who never paid.
+INCLUDED_MONTHS = 3
 
 # Status enum -- string-typed for JSON-on-disk simplicity.
 STATUS_ACTIVE = "active"
@@ -680,6 +687,16 @@ def refresh_from_companion(receipt_b64: str, expires_at_iso: str) -> None:
     _write(new_state)
 
 
+def _add_months(dt: datetime, months: int) -> datetime:
+    """``dt`` plus ``months`` calendar months, the day clamped to the month's end."""
+    import calendar
+    index = dt.month - 1 + months
+    year = dt.year + index // 12
+    month = index % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
 def activate_first_month_free(
     purchase_date_iso: str,
     licence_tier: Optional[str] = None,
@@ -688,9 +705,12 @@ def activate_first_month_free(
 ) -> None:
     """Called at install.sh time after license verification succeeds.
 
-    Hub gets 30 days of Pro free with Hub purchase. Customer can then
-    subscribe via the iOS app to extend. Writes the canonical first-
-    month-free state: ``status=active`` for 30 days.
+    Hub gets INCLUDED_MONTHS (3) calendar months of Pro with Hub purchase
+    (Andy's pricing ruling 2026-10-10; it was 30 days). Customer can then
+    subscribe via the iOS app to extend. Writes the canonical included-
+    period state: ``status=active`` for 3 months. The function and the
+    ``first_month_free`` source value keep their historical names: renaming
+    either would break readers of state files already on disk.
 
     ``has_ever_paid`` is CARRIED OVER from any existing state, never
     granted. Two consequences, both intended:
@@ -699,7 +719,7 @@ def activate_first_month_free(
       the bit, so re-running install.sh cannot cost them their grace.
     - A trialist who deletes the state file and reinstalls to farm a
       second free month gets ``has_ever_paid=False`` again, so their
-      month still ends on day 30 with no grace after it.
+      included period still ends at month 3 with no grace after it.
 
     The 14-day ``grace_period_end`` is still written so support and the
     Doctor banner can see the shape of the window, but it is INERT for a
@@ -722,7 +742,7 @@ def activate_first_month_free(
         # Defensive: caller passed garbage. Fall back to now so install
         # never silently writes a broken state.
         purchase_dt = _now()
-    expires = purchase_dt + timedelta(days=30)
+    expires = _add_months(purchase_dt, INCLUDED_MONTHS)
 
     # ── A BETA TESTER'S WINDOW IS THEIR BETA, NOT A CALENDAR MONTH ──
     #
@@ -734,12 +754,12 @@ def activate_first_month_free(
     # customer was given.
     #
     # ONLY for tier `beta`, and only when the beta window is a date we
-    # can actually read. A hub or pro licence keeps the 30-day free
-    # month unchanged: their update window is about updates, not about
+    # can actually read. A hub or pro licence keeps the 3-month included
+    # period unchanged: their update window is about updates, not about
     # whether the product runs, and reading it as an entitlement would
     # cut off paying customers.
     #
-    # Deliberately NOT clamped to 30 days. The beta window IS the grant.
+    # Deliberately NOT clamped to the included period. The beta window IS the grant.
     licence_dt = _parse_iso(licence_expires_at)
     if licence_tier == TIER_BETA and licence_dt is not None:
         expires = licence_dt
