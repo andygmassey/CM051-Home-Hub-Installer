@@ -57,6 +57,14 @@ JARGON = [
     # Not after "@": an account handle (@ann_lee) is the customer's own data, a
     # real identifier, and Ostler must not rewrite it (walk #10 review, CM044 #312).
     (re.compile(r"(?<![@\w.])[a-z]+_[a-z]+(?:_[a-z]+)*\b"), "snake_case key"),
+    # Walk #16: raw YAML frontmatter leaked into customer text, both as an
+    # inline fragment ("--- conversation_id: ...") and as a block of lowercase
+    # "key: value" lines. Keys with no underscore ("date:", "title:", "source:")
+    # slip past the snake_case rule, so these are their own patterns.
+    (re.compile(r"(?:^|\s)---[ \t]*\n?[ \t]*[a-z][a-z0-9_]*:[ \t]"), "raw frontmatter"),
+    (re.compile(r"(?m)^(?:[ \t]*[a-z][a-z0-9_]*:[ \t]+\S[^\n]*\n){2,}"), "raw frontmatter key block"),
+    # Walk #16: internal provenance tags ("[pwg:src=...]") in customer text.
+    (re.compile(r"\[pwg:[a-z_]+=[^\]]*\]"), "internal provenance tag"),
 ]
 
 # A customer source and every label any screen uses for it. A label that maps
@@ -377,6 +385,16 @@ def judge(f, declared=None):
     # Hub screens too (walk #15): the marker was honoured on the wiki only, so a
     # contact's own LinkedIn title on Hub People counted as Ostler copy.
     cust_titles.update({"hub " + k: (v or {}).get("customer_titles") or [] for k, v in screens.items()})
+    # Walk #16: a person's or organisation's NAME is contact-written by
+    # definition (it comes from their card or their own messages), so a dash
+    # inside it is the customer's data, not Ostler copy. Every name the people
+    # API returned is exempt on the Hub People screen and on a person detail
+    # screen, ONE occurrence per API row, so Ostler's own label beside it, or a
+    # second copy of the same text, still counts.
+    _people_names = [p.get("name") or "" for p in (f.get("people_api") or []) if p.get("name")]
+    for k in screens:
+        if k == "people" or k.startswith("person"):
+            cust_titles["hub " + k] = list(cust_titles.get("hub " + k, [])) + _people_names
     measured = [t for t in texts if t[1].strip()]
 
     def over_text(name, pred, show):
@@ -1341,6 +1359,12 @@ def _txt(path, add):
 MUTANTS = [
     ("ISO date on a card (#2534, #2550)", _txt(["screens", "home", "text"], "last seen 2026-01-15\n")),
     ("em dash on a wiki page (#2550)", _txt(["wiki", "pages", "front", "text"], "spans 5 years — from 2021\n")),
+    ("raw frontmatter fragment in a conversation summary (walk #16)",
+     _txt(["wiki", "pages", "front", "text"], "Catch up\n--- title: Catch up with Alexandra\n")),
+    ("raw frontmatter key block on a page (walk #16)",
+     _txt(["wiki", "pages", "front", "text"], "Catch up\ndate: 2030-01-01\nsource: whatsapp\nAgreed the plan.\n")),
+    ("internal provenance tag in customer text (walk #16)",
+     _txt(["screens", "home", "text"], "Jane Doe moved to Acme Corp [pwg:src=whatsapp]\n")),
     ("Ostler placeholder dash on People (#2562)", _txt(["screens", "people", "text"], "Jane Doe\n\u2014\n")),
     ("Ostler placeholder dash on the SAME Timeline screen as an exempt title (#2562)",
      _txt(["screens", "timeline", "text"], "EVENT\nUntitled\n\u2014\n")),
@@ -1411,7 +1435,7 @@ MUTANTS = [
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28]))
 
 
 def _proxy_bypass_self_test():
@@ -1688,6 +1712,27 @@ def self_test():
             missed.append("an em dash in {} beside an exempt title is hidden ({!r})".format(label, got))
         else:
             print("  ok    an em dash in {} beside an exempt title still FAILS".format(label))
+    # Walk #16: an em dash inside a person's NAME on Hub People is the
+    # contact's own data and PASSES; our own label beside it still FAILS.
+    named = copy.deepcopy(_good())
+    dashed = "Jane Doe \u2014 Acme Corp"
+    named["people_api"].append({"name": dashed, "email": ""})
+    named["people_api_total"] = named.get("people_api_total", 0) + 1
+    named["screens"]["people"]["text"] += dashed + "\n"
+    gotn = [ok for n, ok, _ in judge(named) if n == DECLARED[1]]
+    if gotn != [True]:
+        missed.append("an em dash inside a person's name on Hub People still fails ({!r})".format(gotn))
+    else:
+        print("  ok    an em dash inside a person's name on Hub People PASSES (contact-written, not Ostler copy)")
+    for label, text in (("our own label beside it", "Recently added \u2014 this week\n"),
+                        ("a second copy of the same name", dashed + "\n")):
+        mut = copy.deepcopy(named)
+        mut["screens"]["people"]["text"] += text
+        got = [ok for n, ok, _ in judge(mut) if n == DECLARED[1]]
+        if got != [False]:
+            missed.append("an em dash in {} on Hub People is hidden by the name exemption ({!r})".format(label, got))
+        else:
+            print("  ok    an em dash in {} on Hub People still FAILS".format(label))
     twice = copy.deepcopy(browsed)
     twice["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += title + "\n"
     got = [ok for n, ok, _ in judge(twice) if n == DECLARED[1]]
