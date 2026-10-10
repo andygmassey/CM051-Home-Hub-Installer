@@ -30396,14 +30396,19 @@ TSPLIST
                 #      Google Chrome. The Chrome leg matters on the fresh
                 #      .136 Mac, where no default-browser association
                 #      existed yet and the bare `open` did nothing.
-                #   3. A single backgrounded re-issue 4s later as a
-                #      dropped-event safety net.
                 #
-                # All three are belt-and-braces on top of the plain-text
-                # URL above, so a total auto-open failure is never a
-                # dead-end.
+                # Both are belt-and-braces on top of the plain-text URL
+                # above, so a total auto-open failure is never a dead-end.
+                #
+                # NO RE-ISSUE. A backgrounded `open -a Safari "$TS_URL"`
+                # 4s later used to sit here as a dropped-event safety net.
+                # It fired unconditionally, so whenever the first open
+                # worked (the normal case) the customer got a SECOND,
+                # identical sign-in tab, every time (#16 console walk).
+                # A dropped open is already covered by the Safari pre-warm
+                # above and the plain-text URL in the log.
+                # tests/test_tailscale_signin_opens_one_tab.sh counts it.
                 open -a Safari "$TS_URL" >/dev/null 2>&1 || _ts_open_url "$TS_URL" || true
-                ( sleep 4; open -a Safari "$TS_URL" >/dev/null 2>&1 || true ) &
             fi
 
             # 180s window: a non-technical user opening the login URL and
