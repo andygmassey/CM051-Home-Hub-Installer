@@ -1002,4 +1002,4 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upst
 
 ### What a future sync must preserve
 
-`_timeline_timestamp` and its use by `_to_iso8601`, the event-date key list, and the three `entries` changes. Guarded by `tests/test_timeline_dates_are_event_dates_with_offset.py` (6 tests: 6 red on the branch base), run by `.github/workflows/timeline-dates-with-offset.yml`. Retire by landing CM041 #213 (rebased on this) and re-pinning.
+`_timeline_timestamp` and its use by `_to_iso8601`, the event-date key list, and the three `entries` changes. Guarded by `tests/test_timeline_dates_are_event_dates_with_offset.py` (7 tests: 7 red on the branch base), run by `.github/workflows/timeline-dates-with-offset.yml`. Retire by landing CM041 #213 (rebased on this) and re-pinning.

@@ -36,8 +36,8 @@ jobs:
           n="$(python -m pytest tests/test_timeline_dates_are_event_dates_with_offset.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 6 ]; then
-            echo "REFUSING: expected 6 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected 7 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_timeline_dates_are_event_dates_with_offset.py -v -rs

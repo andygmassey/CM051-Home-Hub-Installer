@@ -103,3 +103,22 @@ def test_entries_have_offsets_all_day_and_no_undated_rows():
 
 def test_a_conversation_error_is_not_an_entry():
     assert _timeline([], conv_err="qdrant down")["entries"] == []
+
+
+def test_the_offset_is_the_one_in_force_on_that_date():
+    """Europe/London: GMT in January, BST in July. A fixed current offset
+    stamped both with the same one (Archie, CM051 #2774)."""
+    import os, time
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = "Europe/London"
+    time.tzset()
+    try:
+        assert server._timeline_timestamp("2026-01-15T09:30:00") == "2026-01-15T09:30:00+00:00"
+        assert server._timeline_timestamp("2026-07-15T09:30:00") == "2026-07-15T09:30:00+01:00"
+        assert server._timeline_timestamp("2026-01-15") == "2026-01-15T12:00:00+00:00"
+    finally:
+        if old is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old
+        time.tzset()

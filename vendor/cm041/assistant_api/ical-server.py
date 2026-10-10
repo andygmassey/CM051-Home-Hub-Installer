@@ -1689,22 +1689,29 @@ def _timeline_timestamp(s, tz=None):
     s = (s or "").strip()
     if not s:
         return ""
-    tz = tz or datetime.now().astimezone().tzinfo
+
+    def local(dt):
+        # The offset IN FORCE ON THAT DATE, not today's: a fixed "current"
+        # offset gave a January 09:30 in Europe/London +01:00 (Archie,
+        # CM051 #2774). astimezone() on a naive value applies the local
+        # zone's rules for that instant; an explicit zone (tests) likewise.
+        return dt.replace(tzinfo=tz) if tz is not None else dt.astimezone()
+
     for fmt in ("%Y%m%dT%H%M%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
                 "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(s, fmt).replace(tzinfo=tz).isoformat(timespec="seconds")
+            return local(datetime.strptime(s, fmt)).isoformat(timespec="seconds")
         except ValueError:
             pass
     for fmt in ("%Y%m%d", "%Y-%m-%d"):
         try:
-            return datetime.strptime(s, fmt).replace(hour=12, tzinfo=tz).isoformat(timespec="seconds")
+            return local(datetime.strptime(s, fmt).replace(hour=12)).isoformat(timespec="seconds")
         except ValueError:
             pass
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=tz)
+            dt = local(dt)
         return dt.isoformat(timespec="seconds")
     except ValueError:
         return ""
