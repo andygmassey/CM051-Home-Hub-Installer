@@ -1182,7 +1182,7 @@ class BusinessShapedNameFilterTests(unittest.TestCase):
             _point("b2", "Acme swimming gear store"),
             _point("c1", "Carded brand official", icloud_uid=card),
             _point("c2", "Carded person jr", icloud_uid=card + "2"),
-            _point("c3", "Carded tom club", icloud_uid=card + "3"),
+            _point("c3", "Carded tom club", icloud_uid=card + "3", given_name="Carded"),
             _point("p1", "Jane store"),
             _point("p2", "Tom hk"),
         ]
