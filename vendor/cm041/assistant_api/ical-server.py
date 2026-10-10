@@ -853,9 +853,11 @@ def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None)
         # sets) is an organisation card, not a person's. A person's card has a
         # given name, so "Jane AG", "anna ag", "kim nv", "tom inc" stay.
         if (not (p.get("given_name") or "").strip()
-                and (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm))):
-            # Legal forms ONLY on a card: a real Contacts card named "X Y club" is
-            # a person (pinned by BusinessShapedNameFilterTests).
+                and (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm)
+                     or _ORG_FINAL_WORD_RE.match(nm)
+                     or _ORG_INSTITUTION_OF_RE.match(nm) or _ORG_THE_GROUP_RE.match(nm))):
+            # The guard is the missing GIVEN name: Apple's model gives a Contacts
+            # organisation card no given name, a person's card has one.
             return "organisation_card"
         return None
     # A subject line is caught BEFORE any email branch: it is a header, not a name.

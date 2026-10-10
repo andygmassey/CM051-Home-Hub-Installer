@@ -417,3 +417,17 @@ def test_the_leading_institution_and_the_group_shapes_are_hidden():
     for name in ("university of acmetown", "college of foo", "the acme holdings group", "the foo team",
                  "institute of bar", "academy of baz"):
         assert server._is_non_human_person({"display_name": name}, name), name
+
+
+# --- Contacts cards: the missing given name is the guard (F7d round 3) ---
+
+def test_a_carded_record_with_no_given_name_is_an_org_card_for_the_wider_rules():
+    for name in ("foo bar bank", "foo bar team", "university of acmetown", "the acme holdings group"):
+        pt = _pt("oc", name, icloud_uid="card-oc", contact_type="person")
+        assert _list([pt])["people"] == [], name
+
+
+def test_control_a_carded_person_with_a_given_name_stays_for_the_same_names():
+    for name in ("jane doe bank", "jane doe team", "jane doe club"):
+        pt = _pt("cp", name, given_name="jane", family_name="doe", icloud_uid="card-cp", contact_type="person")
+        assert [r["name"] for r in _list([pt])["people"]] == [name], name
