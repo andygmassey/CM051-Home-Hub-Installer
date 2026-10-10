@@ -676,6 +676,22 @@ _COMMON_SECOND_LEVEL = frozenset({"com", "co", "org", "net", "gov", "edu", "ac",
 _EMAIL_ADDRESS_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def _digits_tail(value, n=9):
+    d = "".join(c for c in (value or "") if c.isdigit())
+    return d[-n:] if len(d) >= 7 else ""
+
+
+def _is_assistant_identity(emails, phones):
+    """True when any of these addresses / numbers IS the assistant's own,
+    as configured in ASSISTANT_EMAIL / ASSISTANT_PHONE. Empty config matches
+    nothing (and never matches an empty value)."""
+    ae = (os.environ.get("ASSISTANT_EMAIL") or "").strip().lower()
+    ap = _digits_tail(os.environ.get("ASSISTANT_PHONE") or "")
+    if ae and any((e or "").strip().lower() == ae for e in emails):
+        return True
+    return bool(ap) and any(_digits_tail(x) == ap for x in phones)
+
+
 def _is_plausible_email(value):
     return bool(_EMAIL_ADDRESS_RE.match((value or "").strip()))
 
@@ -7182,10 +7198,10 @@ def people_list(sort=None, ceiling=10000):
             uri = r.get("person")
             typ = (r.get("type") or "").strip()
             val = (r.get("value") or "").strip()
-            if not uri or typ not in ("phone", "email", "linkedin_url") or not val:
+            if not uri or typ not in ("phone", "email", "linkedin_url", "instagram_username") or not val:
                 continue
             bucket = ident_by_uri.setdefault(
-                uri, {"phone": [], "email": [], "linkedin_url": []}
+                uri, {"phone": [], "email": [], "linkedin_url": [], "instagram_username": []}
             )
             if val not in bucket[typ]:
                 bucket[typ].append(val)
@@ -7231,6 +7247,14 @@ def people_list(sort=None, ceiling=10000):
         name = p.get("display_name") or p.get("name") or ""
         given = (p.get("given_name") or "").strip()
         family = (p.get("family_name") or "").strip()
+
+        # F7: the assistant's own Contacts card is not a person to list. Matched
+        # by the assistant's EMAIL or PHONE (ASSISTANT_EMAIL / ASSISTANT_PHONE
+        # from the plist), never by name alone: a friend can share the name.
+        if _is_assistant_identity(
+                list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", [])),
+                list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))):
+            continue
 
         # Walk #6, bug 2: the STORED name can be a bare email/phone
         # fallback even though this same record now carries a real
@@ -7289,10 +7313,18 @@ def people_list(sort=None, ceiling=10000):
         # specifically, not "has a given/family name" generically -- only a
         # card is proof of a real address-book entry.
         has_contacts_card = bool((p.get("icloud_uid") or "").strip())
+        # F7 follow-up (walk #16): a record that carries a GIVEN or FAMILY
+        # name was parsed into a person's name by something that read it as
+        # one. The name-SHAPE rules below were hiding real people on the walk
+        # box: 18 multi-word names typed in capitals, 10 "Name - Role" names,
+        # 4 other named records. Those rules now apply to records with no
+        # given/family name only; a legal-form suffix on a named record is
+        # still caught by _is_non_human_person (F7), which is evidence-based.
+        _has_person_name = bool(given or family)
         # Cut #15: a STRONG organisation word outranks even a card.
-        if _is_organisation_name(name):
+        if not _has_person_name and _is_organisation_name(name):
             continue
-        if not has_contacts_card and (
+        if not has_contacts_card and not _has_person_name and (
             _is_automated_or_service_name(name)
             or _is_service_mailbox_name(name)
         ):
@@ -7334,6 +7366,19 @@ def people_list(sort=None, ceiling=10000):
             _ev_phones = list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))
             _ev_emails = list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", []))
             if _is_non_human_person(p, name, _ev_phones, _ev_emails):
+                continue
+            # Ruling (Archie, F7): a SOCIAL-ONLY, HANDLE-ONLY node (an Instagram
+            # username with no given or family name, no card, no phone, no
+            # email, no LinkedIn) leaves the DEFAULT list. It stays in the graph,
+            # in search and in the wiki.
+            # HANDLE-only means the NAME is a single token as well: on the walk
+            # box 418 of 1,508 such nodes carry a readable multi-word name
+            # (two words, both capitalised), which is a person known only through a social
+            # account, and those stay.
+            if (not given and not family and len(name.split()) == 1
+                    and not _ev_phones and not _ev_emails
+                    and not ident_by_uri.get(uri, {}).get("linkedin_url")
+                    and ident_by_uri.get(uri, {}).get("instagram_username")):
                 continue
 
         # Sort keys -- prefer the parsed given/family name, fall back to a

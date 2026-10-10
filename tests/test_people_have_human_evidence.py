@@ -67,8 +67,12 @@ def _pt(pid, name, **payload):
     return {"id": pid, "payload": dict({"display_name": name, "contact_type": "unclassified"}, **payload)}
 
 
+IG = {}
+
+
 def _list(points):
-    with patch.object(server, "_sparql_select", return_value=[]), \
+    rows = [{"person": u, "type": "instagram_username", "value": v} for u, v in IG.items()]
+    with patch.object(server, "_sparql_select", return_value=rows), \
          patch.object(server, "_load_people_list_self_uris", return_value=set()), \
          patch.object(server.urllib.request, "urlopen", lambda *a, **k: _HELPERS._scroll_resp(points)):
         return server.people_list(ceiling=1000)
@@ -89,12 +93,26 @@ JUNK = [
     _pt("c3", "acme holdings ltd", given_name="acme", family_name="holdings"),
     # the judge's shapes (CM051 #2768): subject lines, legal form / team mailbox, handles
     _pt("d1", "Re: lunch"), _pt("d2", "FW: deck"), _pt("d3", "Invitation: weekly sync @ Mon"),
+    # the same shapes with NO given/family name stay hidden (control)
+    _pt("y1", "ACME TRADING PARTNERS"), _pt("y2", "Payment declined - update required"),
+    _pt("y3", "acme official"),
     _pt("d4", "customer support"), _pt("d5", "support team"),
     _pt("d6", "acme co."), _pt("d7", "acme llp"), _pt("d8", "ACME TRADING AG"), _pt("d9", "ACME TRADING BV"),
     _pt("d12", "acme sdn bhd"), _pt("d12b", "acme gmbh"),
     _pt("d13", "\u963f\u514b\u7c73\u6709\u9650\u516c\u53f8"), _pt("d14", "\u682a\u5f0f\u4f1a\u793e\u30a2\u30af\u30df"),
     _pt("d17", "shanef3d"), _pt("d18", "3d1ohk"),
 ]
+# social-only, handle-only nodes (Archie's ruling): an instagram_username, no
+# given/family name, no card, no phone/email/LinkedIn, and a single-token name.
+SOCIAL_JUNK = [_pt("z1", "kittenlover", person_uri="urn:t:z1"), _pt("z2", "xyzzyplugh", person_uri="urn:t:z2")]
+SOCIAL_KEEP = [
+    _pt("z3", "kim doe", person_uri="urn:t:z3"),                       # readable name: a person known via a social account
+    _pt("z4", "kitten2lover", person_uri="urn:t:z4", phones=["+44 " + "7700 900124"]),   # has a phone
+    _pt("z5", "kittenfan", person_uri="urn:t:z5", given_name="Kit", family_name="Fan"),  # named
+    _pt("z6", "kittenfriend", person_uri="urn:t:z6", icloud_uid="card-9", contact_type="person"),  # carded
+]
+IG.update({p["payload"]["person_uri"]: p["payload"]["display_name"]
+           for p in SOCIAL_JUNK + SOCIAL_KEEP})
 KEEP = [
     _pt("k1", "Jane Doe", given_name="Jane", family_name="Example", icloud_uid="card-1",
         phones=["+44 " + "7700 900123"], contact_type="person"),
@@ -120,15 +138,23 @@ KEEP = [
     _pt("o1", " ".join(("Jane", "AG"))), _pt("o2", " ".join(("Anna", "Ag"))), _pt("o3", " ".join(("Kim", "Nv"))),
     # ordinary words are not organisations (the judge's "Official" and friends)
     _pt("w2", "acme services"),
+    # real people the cut #15 shape rules used to hide (walk #16 box: 32 named
+    # records): names typed in capitals, "Name - Role", all with a parsed
+    # given/family name. Synthetic shapes.
+    _pt("x1", "JANE DOE", given_name="Jane", family_name="Doe"),
+    _pt("x2", "BOB DOE", given_name="Bob", family_name="Doe", emails=["bob.doe" + EX]),
+    _pt("x3", "Alex Doe - Plumber", given_name="Alex", family_name="Doe"),
+    _pt("x4", "mary doe - acme foundation", given_name="Mary", family_name="Doe"),
+    _pt("x5", "raj doe official group", given_name="Raj", family_name="Doe"),
 ]
 
 
 def test_the_list_drops_every_junk_row_and_keeps_every_real_person():
-    out = _list(JUNK + KEEP)
+    out = _list(JUNK + SOCIAL_JUNK + KEEP + SOCIAL_KEEP)
     names = sorted(r["name"] for r in out["people"])
-    want = sorted(p["payload"]["display_name"] for p in KEEP)
+    want = sorted(p["payload"]["display_name"] for p in KEEP + SOCIAL_KEEP)
     assert names == want, (set(names) ^ set(want))
-    assert out["total"] == len(KEEP)
+    assert out["total"] == len(KEEP) + len(SOCIAL_KEEP)
 
 
 def test_control_without_the_rule_the_junk_rows_are_listed():
@@ -256,3 +282,33 @@ def test_shared_predicates_are_identical_and_the_product_only_narrows_the_rest()
         if server._is_non_human_person(pt["payload"], n) in (
                 "subject_line", "organisation_name", "handle_no_channel", "calendar_id"):
             assert any(r.search(n) for r in judge) or not any(c.isalpha() for c in n), n
+
+
+# --- the assistant's own Contacts card (matched by email or phone, never name) ---
+
+def test_the_assistants_own_card_is_hidden_by_email_or_phone_not_by_name(monkeypatch):
+    monkeypatch.setenv("ASSISTANT_NAME", "Assistantname")
+    monkeypatch.setenv("ASSISTANT_EMAIL", "assistant.own" + EX)
+    monkeypatch.setenv("ASSISTANT_PHONE", "+44 " + "7700 900199")
+    own_e = _pt("m1", "Assistantname", given_name="Assistantname", icloud_uid="card-m1",
+                emails=["Assistant.Own" + EX], contact_type="person")
+    own_p = _pt("m2", "Assistantname", given_name="Assistantname", icloud_uid="card-m2",
+                phones=["07700 900199"], contact_type="person")
+    friend = _pt("m3", "Assistantname", given_name="Assistantname", icloud_uid="card-m3",
+                 emails=["friend" + EX], contact_type="person")
+    names = [r["id"] for r in _list([own_e, own_p, friend])["people"]]
+    assert names == ["m3"], names
+
+
+def test_control_with_no_assistant_identity_configured_nothing_is_hidden(monkeypatch):
+    for k in ("ASSISTANT_NAME", "ASSISTANT_EMAIL", "ASSISTANT_PHONE"):
+        monkeypatch.delenv(k, raising=False)
+    card = _pt("m1", "Assistantname", given_name="Assistantname", icloud_uid="card-m1",
+               emails=["assistant.own" + EX], contact_type="person")
+    assert [r["id"] for r in _list([card])["people"]] == ["m1"]
+
+
+def test_install_sh_delivers_the_assistant_identity_to_the_ical_plist():
+    text = (ROOT / "install.sh").read_text()
+    for k in ("ASSISTANT_NAME", "ASSISTANT_EMAIL", "ASSISTANT_PHONE"):
+        assert "<key>%s</key>" % k in text, k

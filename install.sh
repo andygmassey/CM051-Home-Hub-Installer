@@ -25941,6 +25941,19 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              flow. -->
         <key>USER_PHONE</key>
         <string>${USER_PHONE}</string>
+        <!-- ASSISTANT_NAME / ASSISTANT_EMAIL / ASSISTANT_PHONE (F7, walk #16):
+             the assistant's OWN identity, so people_list can drop the
+             Contacts card Andy made for it ("Marvin"). The match is by
+             EMAIL or PHONE, never by name alone (a friend can share the
+             name). ASSISTANT_NAME is chosen in onboarding; the assistant's
+             own email/phone are optional and EMPTY unless the installer
+             scope carries them, in which case the card is NOT hidden. -->
+        <key>ASSISTANT_NAME</key>
+        <string>${ASSISTANT_NAME:-}</string>
+        <key>ASSISTANT_EMAIL</key>
+        <string>${ASSISTANT_EMAIL:-}</string>
+        <key>ASSISTANT_PHONE</key>
+        <string>${ASSISTANT_PHONE:-}</string>
         <!-- REPLY_DEBT_PROJECT_DIR reaches the read API ONLY through this
              block, and without it the "N people are waiting on you" card, the
              FIRST card on the public front-page design, can never render.
