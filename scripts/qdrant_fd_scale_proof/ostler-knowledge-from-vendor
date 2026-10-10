@@ -1,0 +1,10 @@
+#!/bin/bash
+# The vendored CM024 CLI (vendor/cm024_knowledge), run from the source tree.
+# Stands in for the installed /usr/local/bin/ostler-knowledge in
+# scripts/qdrant_fd_scale_proof.sh. Needs a python with CM024's requirements
+# (click, httpx, pyyaml, qdrant-client): set OSTLER_PROOF_PYTHON.
+set -euo pipefail
+here="$(cd "$(dirname "$0")/../.." && pwd)"
+py="${OSTLER_PROOF_PYTHON:?set OSTLER_PROOF_PYTHON to a python with vendor/cm024_knowledge/requirements.txt installed}"
+cd "$here/vendor/cm024_knowledge"
+exec "$py" -c 'import sys; from ostler_knowledge.cli import cli; sys.argv[0] = "ostler-knowledge"; cli()' "$@"

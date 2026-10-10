@@ -46,6 +46,14 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/scale_fixture_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it after "
+        "usage_seed and calls scale_fixture_apply, which replays the synthetic "
+        "scale fixture (lib/scale_fixture.py) through the installed hydrate "
+        "so qdrant_has_fd_headroom_and_writes_land reads a box that carried "
+        "real volume. It has no PROBE_NAME and no verdict; collecting it would "
+        "run a seed as if it were a measurement. Its invocation is pinned by "
+        "tests/test_scale_gate_probes.sh (grep for ^scale_fixture_apply).",
     "lib/conversation_capture_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2, after owner_employer_seed and before "

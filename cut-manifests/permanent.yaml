@@ -1219,3 +1219,48 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "meeting_brief_text_is_grounded"
+
+  - id: box-walk-qdrant-has-fd-headroom-and-writes-land
+    title: ostler-qdrant runs with nofile >= 65535 and under half of it open, and every hydrate step with input wrote, by its own counts
+    incident: >-
+      v1.0.107 cut #16 console walk. ostler-qdrant ran with nofile=1024 (no
+      ulimits in compose); 751 RocksDB .sst files were open (reminders 394,
+      apple notes 276) and Places then wrote 0 of 979 while printing
+      status=ok. The walk replays a synthetic scale fixture
+      (scripts/box_walk_probes/lib/scale_fixture.py) through the installed
+      hydrate first; scripts/qdrant_fd_scale_proof.sh is the RED/GREEN proof
+      on the pinned image. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "qdrant_has_fd_headroom_and_writes_land"
+
+  - id: box-walk-assistant-self-description-is-clean
+    title: the assistant describes itself without internal tool names and never addresses the user by its own name
+    incident: >-
+      Asked what it can do, the assistant listed internal tool names and
+      addressed the owner by the assistant's own name. Names read from the
+      box config. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_self_description_is_clean"
+
+  - id: box-walk-pair-endpoints-refuse-off-window
+    title: from the LAN with no pairing window open, the pair endpoints are refused at the router without a code being checked
+    incident: >-
+      Security (#17). POST /api/pair and POST /pair on the companion listener
+      evaluate any code from any LAN host at any time. Asserted from the walk
+      driver against the box. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "pair_endpoints_refuse_off_window"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, chat_latency_baseline row): a
+  # baseline measurement, not an install check. Declared here because every
+  # probe on disk must be invoked by the cut; the promote scope decides it
+  # never refuses a promote.
+  - id: box-walk-chat-latency-baseline
+    title: "advisory: time to first token and total time on /ws/chat for five fixed questions, with the model and the RAM tier"
+    incident: "Andy: chat replies took a while, and Hub-side LLM latency was NOT INSTRUMENTED"
+    proof:
+      kind: box_walk_probe
+      probe: "chat_latency_baseline"
