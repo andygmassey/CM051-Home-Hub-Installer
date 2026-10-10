@@ -859,6 +859,7 @@ vendor_path      = "vendor/cm052_ai_conversations"
 source_repo      = "$CM052"
 source_path      = "."
 pinned_sha       = "1ec05783be953314847c476d4b5013d40de53650"
+unrecorded_divergence = "vendor/divergences/cm052_ai_conversations.UNRECORDED.md"  # 2026-10-10: 3-month included Pro period, upstream CM052 #14
 divergence_patch = ""
 exclude          = ["tests/", "docs/", "prompts/", ".github/", ".claude/", "fixtures_private/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "PLAN.md", "README.md", ".env.example", ".gitignore"]
 verify           = "full"
