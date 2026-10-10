@@ -177,3 +177,8 @@ assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|The user's own pro
 assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|About the user themselves, from their personal graph|oa #489 the owner card (CONTEXT.md About you) rides on every turn (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7 (3140e252), 1 at hub-v0.5.8.
 assistant_tag_grep|src/main.rs|"meeting-brief"|oa #470 #479 the meeting-brief composer and its sender-callable CLI (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7, 3 at hub-v0.5.8.
 assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn stream_native|oa #480 Ollama token streaming with live-chat priority (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7, 1 at hub-v0.5.8.
+# --- v1.0.107 wiki v0.1.50 (CM044 5175a107, #318). The three lines below read 0 in the v0.1.49 compiler
+# image (0942d7a7) and 1 in v0.1.50 (a76e02e0), crane export + /usr/bin/grep -cE.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|^_PWG_SENTINEL_RE = re\.compile|CM044 #318 the raw [pwg:src=...] provenance sentinel never reaches a customer-visible string (walk #16). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|_prov\.clean_body\(text or|CM044 #318 the Activity snippet strips raw conversation frontmatter before display (walk #16). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|class="pw-person-n" data-ostler-customer="1"|CM044 #318 person and org names carry data-ostler-customer so the walk em dash check exempts them (walk #16). 0 -> 1.
