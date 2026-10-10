@@ -1104,3 +1104,21 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## Tree `doctor`: Lane 30 routes in `agent/web_ui.py` (2026-10-10)
+
+Location and shape only. `agent/web_ui.py` gained three flag-gated routes
+(`GET /doctor/exposure`, `GET /api/v1/exposure-check`,
+`POST /api/v1/exposure-check/run`), `_render_exposure_page`,
+`_exposure_refusal`, a footer link on `render_dashboard`
+(`exposure_check_enabled`, default False), and two imports at the top. They sit
+immediately before `/api/v1/box-status`, so they are registered BEFORE
+`register_proxy_routes`. `regenerate_forbidden` is set on this tree, so no
+patch was regenerated; this entry is the record.
+
+### What a future sync must preserve
+
+The three routes, the footer link argument and its call site in `dashboard()`,
+and the vendor-only files `agent/exposure_check.py` and
+`agent/exposure_check_copy.py` (declared in `vendor/VENDOR_ONLY.tsv`). Guarded
+by `tests/test_exposure_check.py`. Retire by landing the feature in HR015.

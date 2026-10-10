@@ -35,6 +35,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+import exposure_check_copy as _EXPOSURE_COPY
+from html import escape as _html_esc
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
@@ -1440,6 +1442,7 @@ def render_dashboard(
     findings: list[dict],
     *,
     import_evernote_enabled: bool = False,
+    exposure_check_enabled: bool = False,
 ) -> str:
     """Render the diagnostic dashboard as HTML.
 
@@ -1453,6 +1456,11 @@ def render_dashboard(
     """
     import_evernote_link = (
         DASHBOARD_IMPORT_EVERNOTE_LINK if import_evernote_enabled else ''
+    )
+    # Lane 30: footer link to "If this Mac were taken", flag-gated (OFF).
+    import_evernote_link += (
+        ' &ndash; <a href="/doctor/exposure">' + _html_esc(_EXPOSURE_COPY.FOOTER_LINK_TEXT) + '</a>'
+        if exposure_check_enabled else ''
     )
 
     # Build service status cards
@@ -2616,9 +2624,11 @@ async def dashboard():
     # the feature flag is on. Read here (not inside the renderer) so
     # render_dashboard stays decoupled from import_evernote.
     from import_evernote import is_feature_enabled as _evernote_flag
+    from exposure_check import is_feature_enabled as _exposure_flag
     return render_dashboard(
         snapshot, findings,
         import_evernote_enabled=_evernote_flag(),
+        exposure_check_enabled=_exposure_flag(),
     )
 
 
@@ -3282,6 +3292,120 @@ async def api_remote_access_post(request: Request):
         return JSONResponse({"error": "enabled must be true or false"}, status_code=400)
     from remote_access import set_enabled
     return JSONResponse(set_enabled(body["enabled"]), status_code=200)
+
+
+# ── Lane 30: "If this Mac were taken" (flag-gated, OFF by default) ──────────
+#
+# A local, metadata-only exposure check. Counts and locates; never reads,
+# shows, logs or stores a secret value (see exposure_check.py). Makes no
+# network call. All three routes 404 unless ``features.exposure_check`` is
+# true in features.yaml, are loopback-only, and the run is a POST that refuses
+# cross-site callers. Registered BEFORE ``register_proxy_routes`` so the proxy
+# catch-all cannot shadow them.
+
+def _exposure_refusal(request: Request):
+    from exposure_check import is_feature_enabled
+    if not is_feature_enabled():
+        return JSONResponse({"error": _EXPOSURE_COPY.DISABLED_DETAIL}, status_code=404)
+    return _not_hub_local(request) or _cross_site_refusal(request)
+
+
+def _render_exposure_page() -> str:
+    c = _EXPOSURE_COPY
+    t = _html_esc
+    texts = json.dumps({
+        "score": c.SCORE_LABEL, "scoreNone": c.SCORE_NONE, "topFixes": c.TOP_FIXES_HEADING,
+        "noFixes": c.NO_FIXES, "unmeasured": c.UNMEASURED_NOTE, "never": c.NEVER_RUN,
+        "running": c.RUNNING, "verdict": c.VERDICT_LABEL, "run": c.RUN_BUTTON,
+    })
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{t(c.PAGE_TITLE)}</title>
+<style>
+:root {{ --ink:#0d0b08; --panel:#fff; --chassis:#ECE8DD; --ok:#2f6b3a; --risk:#9a5b00; --muted:#6b665c; }}
+body {{ font-family: system-ui, -apple-system, sans-serif; background:var(--chassis); color:var(--ink); margin:0; }}
+main {{ max-width:760px; margin:0 auto; padding:24px 16px 48px; }}
+.card {{ background:var(--panel); border-radius:12px; padding:16px 20px; margin:12px 0; }}
+button {{ font:inherit; padding:8px 16px; border-radius:8px; border:0; background:var(--ink); color:#fff; cursor:pointer; }}
+.muted {{ color:var(--muted); font-size:.9em; }} .ok {{ color:var(--ok); }} .risk {{ color:var(--risk); }}
+.score {{ font-size:2.4em; font-weight:600; }} ul {{ padding-left:1.2em; }}
+</style></head><body><main>
+<p><a href="/doctor">&larr; Doctor</a></p>
+<h1>{t(c.PAGE_TITLE)}</h1>
+<p class="muted">{t(c.PAGE_LEAD)}</p>
+<p><button id="run" type="button">{t(c.RUN_BUTTON)}</button> <span id="status" class="muted"></span></p>
+<div id="out"></div>
+<script>
+const T = {texts};
+const out = document.getElementById("out"), status = document.getElementById("status");
+function el(tag, cls, text) {{ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }}
+function render(r) {{
+  out.replaceChildren();
+  if (!r) {{ out.append(el("p", "muted", T.never)); return; }}
+  const top = el("div", "card");
+  top.append(el("div", "muted", T.score));
+  top.append(el("div", "score", r.score == null ? T.scoreNone : String(r.score) + " / 100"));
+  if (r.summary) top.append(el("p", null, r.summary));
+  top.append(el("h3", null, T.topFixes));
+  if (r.top_fixes.length) {{ const ul = el("ul"); r.top_fixes.forEach(f => ul.append(el("li", null, f.title + ": " + f.fix))); top.append(ul); }}
+  else top.append(el("p", null, T.noFixes));
+  const un = r.total - r.measured;
+  if (un > 0) top.append(el("p", "muted", T.unmeasured.replace("{{n}}", un)));
+  out.append(top);
+  r.checks.forEach(c => {{
+    const card = el("div", "card");
+    card.append(el("strong", null, c.title + " "));
+    card.append(el("span", c.verdict === "OK" ? "ok" : (c.verdict === "risk" ? "risk" : "muted"), "(" + (T.verdict[c.verdict] || c.verdict) + ")"));
+    card.append(el("p", null, c.found));
+    if (c.thief) card.append(el("p", "muted", c.thief));
+    if (c.fix) card.append(el("p", null, "Fix: " + c.fix));
+    if (c.locations.length) {{ const ul = el("ul", "muted"); c.locations.forEach(l => ul.append(el("li", null, l.path + " \u2013 " + l.type))); card.append(ul); }}
+    if (c.note) card.append(el("p", "muted", c.note));
+    out.append(card);
+  }});
+}}
+async function load() {{ try {{ const r = await fetch("/api/v1/exposure-check"); render(r.ok ? await r.json() : null); }} catch (e) {{ render(null); }} }}
+document.getElementById("run").addEventListener("click", async () => {{
+  status.textContent = T.running;
+  try {{ const r = await fetch("/api/v1/exposure-check/run", {{method: "POST"}}); render(r.ok ? await r.json() : null); status.textContent = ""; }}
+  catch (e) {{ status.textContent = ""; }}
+}});
+load();
+</script></main></body></html>"""
+
+
+@app.get("/doctor/exposure", response_class=HTMLResponse)
+async def exposure_page(request: Request):
+    refusal = _exposure_refusal(request)
+    if refusal is not None:
+        return refusal
+    return HTMLResponse(_render_exposure_page())
+
+
+@app.get("/api/v1/exposure-check", response_class=JSONResponse)
+async def api_exposure_check_last(request: Request):
+    """The last saved result, or ``null`` when the check has never run."""
+    refusal = _exposure_refusal(request)
+    if refusal is not None:
+        return refusal
+    from exposure_check import load_last
+    return JSONResponse(load_last())
+
+
+@app.post("/api/v1/exposure-check/run", response_class=JSONResponse)
+async def api_exposure_check_run(request: Request):
+    """Run the check now (on demand only; never scheduled). Local, no network."""
+    refusal = _exposure_refusal(request)
+    if refusal is not None:
+        return refusal
+    from exposure_check import run_all, save_last
+    result = await asyncio.to_thread(run_all)
+    try:
+        save_last(result)
+    except OSError:  # pragma: no cover - the result is still returned
+        pass
+    return JSONResponse(result)
 
 
 @app.get("/api/v1/box-status", response_class=JSONResponse)
