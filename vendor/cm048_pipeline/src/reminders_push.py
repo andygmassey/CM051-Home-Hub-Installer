@@ -20,7 +20,8 @@ Privacy ladder (HARD rule, locked 2026-05-09):
                              contract). Todos stay file-only in
                              ``todos.md``.
     L2                    -- pushed with redacted title (owner +
-                             "Follow up" phrase + deadline; no body
+                             "Follow up" phrase; the deadline is its
+                             own due-date field, never in the title; no body
                              text).
     L1 / L0               -- pushed with full title + notes.
     Unknown level         -- treated as L3 (no push). Defence in
@@ -202,8 +203,10 @@ def _format_push_title(
             # user is the only labelled participant). Don't name
             # anyone; keep the title neutral.
             base = "Follow up on commitment"
-        if todo.deadline:
-            return f"{base} -- {todo.deadline}"
+        # The deadline is NOT part of the title. It travels in its own
+        # field (``PushDecision.push_deadline``, the reminder's due date),
+        # so appending the raw ISO date here only put "2026-10-14" in the
+        # customer's timeline and wiki digest.
         return base
     return (todo.text or "").strip() or "(empty commitment)"
 
