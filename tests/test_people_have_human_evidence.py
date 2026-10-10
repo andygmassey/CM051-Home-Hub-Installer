@@ -94,6 +94,12 @@ JUNK = [
     # the judge's shapes (CM051 #2768): subject lines, legal form / team mailbox, handles
     _pt("d1", "Re: lunch"), _pt("d2", "FW: deck"), _pt("d3", "Invitation: weekly sync @ Mon"),
     # the same shapes with NO given/family name stay hidden (control)
+    # F7b (walk #17): organisations with no legal-form suffix, by evidence
+    _pt("f1", "foo bar baz (FBB)"), _pt("f2", "acme retail solutions (electronic shelf label)"),
+    _pt("f3", "acme linkedin marketing solutions"), _pt("f4", "acme web services (AWS)"),
+    # an ORGANISATION CARD: a card with no given name whose name is a legal form
+    _pt("c9", "acme holdings ltd.", family_name="acme holdings ltd.", icloud_uid="card-c9", contact_type="person"),
+    _pt("c10", "acme trading co.", family_name="acme trading co.", icloud_uid="card-c10", contact_type="person"),
     _pt("y1", "ACME TRADING PARTNERS"), _pt("y2", "Payment declined - update required"),
     _pt("y3", "acme official"),
     _pt("d4", "customer support"), _pt("d5", "support team"),
@@ -114,6 +120,15 @@ SOCIAL_KEEP = [
 IG.update({p["payload"]["person_uri"]: p["payload"]["display_name"]
            for p in SOCIAL_JUNK + SOCIAL_KEEP})
 KEEP = [
+    # F7b controls: real names that must stay (a trailing acronym after only two
+    # words, a comma, a surname-like final word, an all-caps name)
+    # lower-case / short forms of AG, NV, Inc are people; a carded person keeps the card
+    _pt("g6", "jane ag"), _pt("g7", "anna ag"), _pt("g8", "kim nv"), _pt("g9", "tom inc"),
+    _pt("g10", "jane ag", given_name="jane", family_name="ag", icloud_uid="card-g10", contact_type="person"),
+    _pt("g11", "acme ltd", given_name="jane", family_name="acme ltd", icloud_uid="card-g11", contact_type="person"),
+    _pt("g1", "jane doe (EXT)"), _pt("g2", "jane doe (CBE)"),
+    _pt("g3", "bob doe, ACME(HK)"), _pt("g4", "jane services"),
+    _pt("g5", "BOB DOE", given_name="bob", family_name="doe"),
     _pt("k1", "Jane Doe", given_name="Jane", family_name="Example", icloud_uid="card-1",
         phones=["+44 " + "7700 900123"], contact_type="person"),
     # real people known only by a personal address, no card, no given/family
@@ -312,3 +327,21 @@ def test_install_sh_delivers_the_assistant_identity_to_the_ical_plist():
     text = (ROOT / "install.sh").read_text()
     for k in ("ASSISTANT_NAME", "ASSISTANT_EMAIL", "ASSISTANT_PHONE"):
         assert "<key>%s</key>" % k in text, k
+
+
+# --- F7b: a person's name with a company appended resolves to the person ---
+
+def test_a_person_name_with_a_company_appended_resolves_to_the_person():
+    pt = _pt("r1", "jane doe acme retail and logistics solutions", given_name="jane", family_name="doe")
+    out = _list([pt])["people"]
+    assert [r["name"] for r in out] == ["jane doe"], out
+
+
+def test_control_resolution_needs_a_single_token_given_and_family_and_a_phrase_of_its_own():
+    # given/family that swallowed the whole company name: no safe person name to
+    # resolve to, so the org rule hides it rather than inventing one
+    swallowed = _pt("r2", "foo bar baz (FBB)", given_name="foo", family_name="bar baz (FBB)")
+    assert _list([swallowed])["people"] == []
+    # one appended word is not an org phrase of its own: the name is left alone
+    short = _pt("r3", "jane doe acme", given_name="jane", family_name="doe")
+    assert [r["name"] for r in _list([short])["people"]] == ["jane doe acme"]

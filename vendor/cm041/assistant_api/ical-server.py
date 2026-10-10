@@ -789,17 +789,70 @@ def _junk_name_reason(name):
     return None
 
 
+# F7b (walk #17): organisations with no legal-form suffix. EVIDENCE shapes in
+# the NAME of an UNCARDED record (a card always wins), judged with the node's
+# channels where it matters:
+#   * a trailing parenthesised ACRONYM after at least THREE words and no comma
+#     ("Foo Bar Baz (FBB)"): how a company or product writes itself. After only
+#     two words it stays: "Jane Doe (EXT)" and "Jane Doe (CBE)" are people;
+#   * an organisation phrase as the FINAL words (Solutions, Services,
+#     Marketing), optionally followed by a parenthesised descriptor, after at
+#     least two other words. A person's surname is not the third word of a
+#     phrase ending in one of these.
+# ALL-CAPS names are NOT a signal (ruling: they are people).
+_TRAILING_ACRONYM_RE = re.compile(r"^[^\s,()]+(\s+[^\s,()]+){2,}\s+\([A-Z][A-Z0-9]{1,5}\)\s*$")
+_FINAL_ORG_PHRASE_RE = re.compile(
+    r"\b(solutions|services|marketing)\b(\s*\([^)]*\))?\s*$", re.I)
+
+
+def _org_phrase_reason(name):
+    nm = (name or "").strip()
+    words = nm.split()
+    if _TRAILING_ACRONYM_RE.match(nm):
+        return "trailing_acronym"
+    if len(words) >= 3 and _FINAL_ORG_PHRASE_RE.search(nm):
+        return "final_org_phrase"
+    return None
+
+
+def _person_name_before_org_phrase(name, given, family):
+    """\"<given> <family> <org phrase>\" is a person's name with a company
+    appended. Return \"<given> <family>\" when the card-less record has a
+    single-token given and family name, the display name starts with them, and
+    what follows is an organisation phrase of its own (two or more words)."""
+    g, f, nm = (given or "").strip(), (family or "").strip(), (name or "").strip()
+    if not g or not f or len(g.split()) != 1 or len(f.split()) != 1:
+        return None
+    prefix = g + " " + f
+    if not nm.lower().startswith(prefix.lower() + " "):
+        return None
+    rest = nm[len(prefix):].strip()
+    if len(rest.split()) < 2 or not _org_phrase_reason(nm):
+        return None
+    return prefix
+
+
 def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None):
     """Return a short reason when this UNCARDED record has no human evidence,
     else None. A Contacts card always wins. See the block comment above: no
     rule here fires on a surname word alone."""
     p = payload or {}
-    if (p.get("icloud_uid") or "").strip():
-        return None
     nm = (name or "").strip()
+    if (p.get("icloud_uid") or "").strip():
+        # A Contacts card wins EXCEPT for one shape: a card with NO given name
+        # whose name is a legal form (the judge's ORG_NAME / ORG_SHORT_FORM
+        # sets) is an organisation card, not a person's. A person's card has a
+        # given name, so "Jane AG", "anna ag", "kim nv", "tom inc" stay.
+        if (not (p.get("given_name") or "").strip()
+                and (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm))):
+            return "organisation_card"
+        return None
     # A subject line is caught BEFORE any email branch: it is a header, not a name.
     if _SUBJECT_LINE_RE.match(nm):
         return "subject_line"
+    why_org = _org_phrase_reason(nm)
+    if why_org:
+        return why_org
     if _ORG_NAME_RE.search(nm) or (_ORG_SHORT_FORM_RE.match(nm)):
         return "organisation_name"
     if (p.get("given_name") or "").strip() or (p.get("family_name") or "").strip():
@@ -882,7 +935,14 @@ _ORG_NEWS_RE = re.compile(r"\bnews\b", re.I)
 def _is_organisation_name(display_name):
     """STRONG tier: true for ANY record regardless of Contacts card."""
     words = (display_name or "").split()
-    return len(words) >= 2 and bool(_ORG_STRONG_RE.search(display_name))
+    m = _ORG_STRONG_RE.search(display_name or "")
+    if not m or len(words) < 2:
+        return False
+    # F7: a two-word name ending in "inc" is a person; "inc" is a legal form only after at least two
+    # other words (the judge dropped the bare two-word form too).
+    if m.group(1).lower() == "inc" and len(words) < 3:
+        return False
+    return True
 
 
 def _is_business_shaped_name(display_name):
@@ -892,7 +952,7 @@ def _is_business_shaped_name(display_name):
     if len(words) < 2:
         return False
     last = words[-1].strip(".,;:()[]").lower()
-    if last in _BUSINESS_LAST_WORDS:
+    if last in _BUSINESS_LAST_WORDS and not (last == "inc" and len(words) < 3):
         return True
     if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
         return True
@@ -7300,6 +7360,13 @@ def people_list(sort=None, ceiling=10000):
         given = (p.get("given_name") or "").strip()
         family = (p.get("family_name") or "").strip()
 
+        # F7b: "<given> <family> <org phrase>" is a person with a company
+        # appended: show the person's name, never hide the person.
+        if not (p.get("icloud_uid") or "").strip():
+            _resolved = _person_name_before_org_phrase(name, given, family)
+            if _resolved:
+                name = _resolved
+
         # F7: the assistant's own Contacts card is not a person to list. Matched
         # by the assistant's EMAIL or PHONE (ASSISTANT_EMAIL / ASSISTANT_PHONE
         # from the plist), never by name alone: a friend can share the name.
@@ -7414,6 +7481,8 @@ def people_list(sort=None, ceiling=10000):
         # F7 (walk #16): no human evidence at all (see _is_non_human_person).
         # Uncarded only; a card outranks it. Hidden from the LIST, never
         # deleted, still searchable by the assistant.
+        if has_contacts_card and _is_non_human_person(p, name) == "organisation_card":
+            continue
         if not has_contacts_card:
             _ev_phones = list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))
             _ev_emails = list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", []))
