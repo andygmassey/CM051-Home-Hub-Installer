@@ -6517,6 +6517,89 @@ def _moat_limit(params):
     return limit, None
 
 
+def _decision_facts_from_conversations(about=None, query=None):
+    """Decision facts from the Qdrant ``conversations`` collection.
+
+    THIS IS THE STORE THE WIKI DECISIONS PAGE READS (CM044
+    ``compiler/pwg_data.py`` ``load_decision_facts`` scrolls ``conversations``
+    and keeps ``type == "decision"``; ``compiler/pages/decision_pages.py``
+    renders them). The assistant's ``pwg_decisions`` tool called this module's
+    ``decisions_list``, which read only Oxigraph ``pwg:Decision`` nodes, so
+    the owner could see a decision in the wiki that the assistant could not
+    find (wow gate, item 2). One source of truth: both now read this store.
+
+    Privacy: a conversation- or fact-level ``L3`` is withheld here (the wiki
+    withholds it on a broadcast build; the assistant can be reached from other
+    channels, so it does not take the operator-build exception).
+
+    Returns ``(rows, error_or_None)``. A 404 (no conversations collection) is
+    the empty-by-design path, ``([], None)``; any other failure returns
+    ``([], reason)`` so the caller can say the read was degraded.
+    """
+    rows, points, next_offset = [], [], None
+    try:
+        while len(points) < 20000:
+            body = {
+                "filter": {"must": [{"key": "type", "match": {"value": "decision"}}]},
+                "limit": 500,
+                "with_payload": True,
+                "with_vector": False,
+            }
+            if next_offset is not None:
+                body["offset"] = next_offset
+            req = urllib.request.Request(
+                QDRANT_URL.rstrip("/") + "/collections/conversations/points/scroll",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read()).get("result", {}) or {}
+            batch = result.get("points", []) or []
+            points.extend(batch)
+            next_offset = result.get("next_page_offset")
+            if not batch or not next_offset:
+                break
+    except Exception as exc:
+        if getattr(exc, "code", None) == 404:
+            return [], None
+        return [], str(exc)
+
+    q_lower = (query or "").strip().lower()
+    for pt in points:
+        p = pt.get("payload") or {}
+        if (p.get("type") or "").strip().lower() != "decision":
+            continue
+        text = (p.get("text") or "").strip()
+        if not text:
+            continue
+        if str(p.get("sensitivity_level") or "").strip().upper() == "L3" \
+                or str(p.get("privacy_level") or "").strip().upper() == "L3":
+            continue
+        subject = str(p.get("subject") or "").strip()
+        subject_slug = subject.partition(":")[2].strip() if ":" in subject else subject
+        if about and subject_slug != about:
+            continue
+        if q_lower and q_lower not in text.lower():
+            continue
+        date_raw = ""
+        for key in ("ingested_at", "created_at", "date", "observed_at"):
+            if p.get(key):
+                date_raw = str(p[key])
+                break
+        about_people = []
+        if subject and subject.lower() != "user" and subject_slug:
+            about_people = [subject_slug.replace("_", " ").replace("-", " ").title()]
+        rows.append({
+            "summary": text,
+            "date": date_raw[:10],
+            "about": about_people,
+            "source": str(p.get("conversation_id") or ""),
+            "status": "",
+            "store": "conversations",
+        })
+    return rows, None
+
+
 def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     """Handle GET /api/v1/decisions?about=<slug>&q=<text>&limit=N.
 
@@ -6602,6 +6685,15 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
             '}}'.format(ns=PWG_NS, about_clause=about_clause)
         )
     except Exception as exc:
+        # The graph being down no longer blanks the answer when the wiki's own
+        # store (conversations) can still speak: that is the source of truth.
+        conv_rows, _conv_err = _decision_facts_from_conversations(about, query)
+        if conv_rows:
+            conv_rows.sort(key=lambda d: d["date"], reverse=True)
+            conv_rows = conv_rows[:limit]
+            return {"decisions": conv_rows, "count": len(conv_rows),
+                    "degraded": True,
+                    "reason": f"oxigraph_query_failed: {exc}"}, 200
         return {
             "decisions": [],
             "count": 0,
@@ -6641,10 +6733,22 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
             "status": r.get("status", ""),
         })
 
+    # The wiki Decisions page's store, merged in. De-duplicated on summary so a
+    # decision present in both stores is listed once.
+    conv_rows, conv_err = _decision_facts_from_conversations(about, query)
+    seen = {d["summary"].strip().lower() for d in decisions}
+    for row in conv_rows:
+        if row["summary"].strip().lower() not in seen:
+            seen.add(row["summary"].strip().lower())
+            decisions.append(row)
+
     # Newest first; undated decisions sort last (empty string < any date).
     decisions.sort(key=lambda d: d["date"], reverse=True)
     decisions = decisions[:limit]
-    return {"decisions": decisions, "count": len(decisions)}, 200
+    out = {"decisions": decisions, "count": len(decisions)}
+    if conv_err:
+        out["conversations_unreadable"] = conv_err
+    return out, 200
 
 
 def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):

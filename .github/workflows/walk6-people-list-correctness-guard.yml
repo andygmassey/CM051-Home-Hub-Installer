@@ -25,6 +25,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
@@ -33,6 +34,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
@@ -108,6 +110,17 @@ jobs:
             exit 1
           fi
           python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py -v
+      - name: The assistant's decisions tool reads the store the wiki Decisions page reads
+        if: always()
+        run: |
+          out="$(python -m pytest vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py -q 2>&1)" || true
+          echo "$out"
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then exit 1; fi
+          if [ "${got:-0}" -lt 6 ]; then
+            echo "::error::expected 6 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
+            exit 1
+          fi
 
   suggestions-apply-people-list-filters:
     runs-on: ubuntu-latest
