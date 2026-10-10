@@ -1014,3 +1014,7 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upst
 ### F7b (walk #17): organisations with no legal-form suffix
 
 Tree `cm041/assistant_api`: `ical-server.py` adds `_org_phrase_reason` (a trailing parenthesised ACRONYM after at least three words and no comma, or a final Solutions/Services/Marketing phrase after at least two words, optionally followed by a parenthesised descriptor) and `_person_name_before_org_phrase` (a card-less record with a single-token given and family name whose display name starts with them and continues with an organisation phrase of its own shows as the person's name). `_is_non_human_person` calls the first; `people_list` calls the second before the assistant-identity check. All-caps names are deliberately NOT a signal (ruling). Guarded by `tests/test_people_have_human_evidence.py` (14 tests).
+
+### F7c (walk #17): organisation cards and two-word "Inc" names
+
+Tree `cm041/assistant_api`: `_is_non_human_person` now returns `organisation_card` for a CARDED record with no given name whose name matches the judge's legal-form sets (`_ORG_NAME_RE` / `_ORG_SHORT_FORM_RE`, copied from `customer_read.py` ORG_NAME / ORG_SHORT_FORM); `people_list` hides it. A person's card has a given name, so it stays. `_is_organisation_name` and `_is_business_shaped_name` no longer treat a two-word name ending in "inc" as an organisation ("... inc" needs three words). Guarded by `tests/test_people_have_human_evidence.py`.

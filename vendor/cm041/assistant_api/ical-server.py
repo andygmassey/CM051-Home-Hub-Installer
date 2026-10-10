@@ -837,9 +837,16 @@ def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None)
     else None. A Contacts card always wins. See the block comment above: no
     rule here fires on a surname word alone."""
     p = payload or {}
-    if (p.get("icloud_uid") or "").strip():
-        return None
     nm = (name or "").strip()
+    if (p.get("icloud_uid") or "").strip():
+        # A Contacts card wins EXCEPT for one shape: a card with NO given name
+        # whose name is a legal form (the judge's ORG_NAME / ORG_SHORT_FORM
+        # sets) is an organisation card, not a person's. A person's card has a
+        # given name, so "Jane AG", "anna ag", "kim nv", "tom inc" stay.
+        if (not (p.get("given_name") or "").strip()
+                and (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm))):
+            return "organisation_card"
+        return None
     # A subject line is caught BEFORE any email branch: it is a header, not a name.
     if _SUBJECT_LINE_RE.match(nm):
         return "subject_line"
@@ -928,7 +935,14 @@ _ORG_NEWS_RE = re.compile(r"\bnews\b", re.I)
 def _is_organisation_name(display_name):
     """STRONG tier: true for ANY record regardless of Contacts card."""
     words = (display_name or "").split()
-    return len(words) >= 2 and bool(_ORG_STRONG_RE.search(display_name))
+    m = _ORG_STRONG_RE.search(display_name or "")
+    if not m or len(words) < 2:
+        return False
+    # F7: a two-word name ending in "inc" is a person; "inc" is a legal form only after at least two
+    # other words (the judge dropped the bare two-word form too).
+    if m.group(1).lower() == "inc" and len(words) < 3:
+        return False
+    return True
 
 
 def _is_business_shaped_name(display_name):
@@ -938,7 +952,7 @@ def _is_business_shaped_name(display_name):
     if len(words) < 2:
         return False
     last = words[-1].strip(".,;:()[]").lower()
-    if last in _BUSINESS_LAST_WORDS:
+    if last in _BUSINESS_LAST_WORDS and not (last == "inc" and len(words) < 3):
         return True
     if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
         return True
@@ -7467,6 +7481,8 @@ def people_list(sort=None, ceiling=10000):
         # F7 (walk #16): no human evidence at all (see _is_non_human_person).
         # Uncarded only; a card outranks it. Hidden from the LIST, never
         # deleted, still searchable by the assistant.
+        if has_contacts_card and _is_non_human_person(p, name) == "organisation_card":
+            continue
         if not has_contacts_card:
             _ev_phones = list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))
             _ev_emails = list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", []))

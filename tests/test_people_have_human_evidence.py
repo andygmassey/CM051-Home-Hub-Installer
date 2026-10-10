@@ -97,6 +97,9 @@ JUNK = [
     # F7b (walk #17): organisations with no legal-form suffix, by evidence
     _pt("f1", "foo bar baz (FBB)"), _pt("f2", "acme retail solutions (electronic shelf label)"),
     _pt("f3", "acme linkedin marketing solutions"), _pt("f4", "acme web services (AWS)"),
+    # an ORGANISATION CARD: a card with no given name whose name is a legal form
+    _pt("c9", "acme holdings ltd.", family_name="acme holdings ltd.", icloud_uid="card-c9", contact_type="person"),
+    _pt("c10", "acme trading co.", family_name="acme trading co.", icloud_uid="card-c10", contact_type="person"),
     _pt("y1", "ACME TRADING PARTNERS"), _pt("y2", "Payment declined - update required"),
     _pt("y3", "acme official"),
     _pt("d4", "customer support"), _pt("d5", "support team"),
@@ -119,6 +122,10 @@ IG.update({p["payload"]["person_uri"]: p["payload"]["display_name"]
 KEEP = [
     # F7b controls: real names that must stay (a trailing acronym after only two
     # words, a comma, a surname-like final word, an all-caps name)
+    # lower-case / short forms of AG, NV, Inc are people; a carded person keeps the card
+    _pt("g6", "jane ag"), _pt("g7", "anna ag"), _pt("g8", "kim nv"), _pt("g9", "tom inc"),
+    _pt("g10", "jane ag", given_name="jane", family_name="ag", icloud_uid="card-g10", contact_type="person"),
+    _pt("g11", "acme ltd", given_name="jane", family_name="acme ltd", icloud_uid="card-g11", contact_type="person"),
     _pt("g1", "jane doe (EXT)"), _pt("g2", "jane doe (CBE)"),
     _pt("g3", "bob doe, ACME(HK)"), _pt("g4", "jane services"),
     _pt("g5", "BOB DOE", given_name="bob", family_name="doe"),
