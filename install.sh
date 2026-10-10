@@ -22624,6 +22624,17 @@ CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
 # walks #11-#13: 0 career facts). An explicit --user-name still wins.
 [[ -z "$USER_NAME_ARG" ]] && USER_NAME_ARG="${USER_DISPLAY_NAME:-${PWG_USER_NAME:-${USER_NAME:-}}}"
 
+# CM051 F6: ONE run ledger for the whole invocation, so an export reached
+# through two roots (an archive extracted into its own folder AND flat beside
+# it) is imported by the people graph once, not once per root. import_all
+# claims each source file's sha256 here and skips identical bytes it has
+# already imported. A caller that already set one (a test) keeps its own.
+if [[ -z "${OSTLER_IMPORT_RUN_LEDGER:-}" ]]; then
+    OSTLER_IMPORT_RUN_LEDGER="$(mktemp -t ostler-import-run.XXXXXX)" || OSTLER_IMPORT_RUN_LEDGER=""
+    [[ -n "$OSTLER_IMPORT_RUN_LEDGER" ]] && trap 'rm -f "$OSTLER_IMPORT_RUN_LEDGER"' EXIT
+fi
+export OSTLER_IMPORT_RUN_LEDGER
+
 rc=0
 for d in "${DIRS[@]}"; do
     [[ -d "$d" ]] || continue

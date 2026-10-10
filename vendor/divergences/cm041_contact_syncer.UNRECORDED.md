@@ -238,3 +238,22 @@ The same hunk is in `contact_syncer/places_ingest.py` (the copy `install.sh` cp 
 ### What a future sync must preserve
 
 The third guard in `ingest_places` (the `error_write_failed` / `error_partial_write` statuses). Guarded by `tests/test_places_ingest_total_write_failure_is_not_ok.py` (6 tests over both copies: 4 red on origin/main, 6 green here), run by `.github/workflows/places-ingest-write-failure.yml`. Retire by landing the same change in CM041 `contact_syncer/places_ingest.py` and re-pinning.
+## Added 2026-10-10, CM051 cut #17 (F6): one Facebook export imported once, a re-import keeps its node
+
+Hand-recorded, location and shape only (the tree is `regenerate_forbidden`;
+`scripts/regenerate_divergence_patch.sh cm041/contact_syncer --write` refuses).
+Not yet upstream in CM041.
+
+| file | what diverges |
+|---|---|
+| `import_all.py` | `claim_source()` + `_RUN_CLAIMS`: each source file's sha256 is claimed once per run via the file named by `OSTLER_IMPORT_RUN_LEDGER` (created per invocation by the `ostler-import` heredoc in install.sh); the Facebook Friends and Facebook Events legs skip identical bytes already imported from another root and say so |
+| `facebook_friends.py` | `friend_source_key()` (sha256 of casefolded name + friendship timestamp) written as `pwg:sourceKey` on the facebook_friend signal in both the create and enrich paths; `load_friend_index()` reads existing facebook_friend nodes once per run (by key, legacy fallback by displayName + signalDate) and a known friend is attached to that node BEFORE the fuzzy match can choose another; an unreadable index refuses the import rather than re-resolving by name |
+
+### What a future sync must preserve
+
+Proven by `tests/test_facebook_export_imports_once.py` (wired in
+`.github/workflows/forget-tombstone.yml`). RED on origin/main 23555fa7: two roots
+holding one export imported twice (`runs=[30, 30]`); a re-import with same-named
+competitor nodes put 30 of 30 friends on a second node (`fb_nodes=60 friends=30`).
+GREEN with these changes: `runs=[30]`, `fb_nodes=30 friends=30`. A sync that drops
+either change turns that test red.
