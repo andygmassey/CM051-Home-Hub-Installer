@@ -5354,9 +5354,21 @@ def api_memory_list():
     # employer resolver's own inline overlay is orthogonal.
     hygiene, verdicts = _hygiene_overlay()
 
+    # F12b (cut #17 iOS walk): the userId / belongsToUser scoping above says
+    # whose MEMORY a fact is in, not who it is ABOUT. "About you" listed a
+    # contact speaking at an event and a relative's job as the owner's. A
+    # fact is the owner's when its subject is the owner (pwg user node or the
+    # CM048 urn:ostler:user/<id>) or when it names no subject at all (legacy
+    # writers); everything else goes to "about_others", carrying the
+    # subject's name, so "who is my wife" still has its answer.
+    owner_subjects = {USER_URI.lower(), f"urn:ostler:user/{USER_ID}".lower()}
+
     out = []
+    others = []
     for row in raw_facts:
         uri = row.get("fact", "")
+        about = (row.get("about") or "").strip()
+        about_owner = (not about) or about.lower() in owner_subjects
         if hygiene is not None and hygiene.is_dropped(uri, verdicts):
             # Retired by the hygiene pass -- withheld from the surface
             # exactly like a user "forget" (the source triple stays put).
@@ -5393,7 +5405,7 @@ def api_memory_list():
                 source = "user_correction"
                 corrected = True
 
-        out.append({
+        (out if about_owner else others).append({
             "id": fact_id,
             "predicate": domain,
             "object": text,
@@ -5408,6 +5420,9 @@ def api_memory_list():
             # Private sort key (hygiene effectiveWeight or confidence);
             # popped before the response so the wire shape is unchanged.
             "_rank": rank,
+            **({} if about_owner else {
+                "about_name": (row.get("aboutName") or "").strip(),
+            }),
         })
 
     # Sort by (rank desc, valid_from desc) where rank is the hygiene
@@ -5420,9 +5435,11 @@ def api_memory_list():
         reverse=True,
     )
     out = out[:MEMORY_LIMIT]
-    for f in out:
+    others.sort(key=lambda f: (f["_rank"], f["valid_from"]), reverse=True)
+    others = others[:MEMORY_LIMIT]
+    for f in out + others:
         f.pop("_rank", None)
-    response = {"facts": out, "count": len(out)}
+    response = {"facts": out, "count": len(out), "about_others": others}
     # Overlay the deterministically-resolved current employer so the
     # brief LLM never has to guess it from the flat fact list. Guarded:
     # a failure here must not degrade the Memory tab.
