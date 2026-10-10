@@ -25,7 +25,7 @@ scripts/owner_score.sh --questions mine.jsonl   the owner's real questions, lock
 - One fresh socket per question (no carry-over). The reply graded is
   `done.full_response`, falling back to the chunks, as the grounding probe does.
 - The owner cheat sheet the assistant answers from is
-  `~/.zeroclaw/workspace/CONTEXT.md` (written by ostler-assistant
+  `~/.ostler/assistant-config/workspace/CONTEXT.md` (written by ostler-assistant
   `scripts/generate_pwg_context.py`, injected by `crates/zeroclaw-runtime/src/agent/prompt.rs`).
 - The gateway must be loopback. A non-loopback `--gateway` is refused; the only
   socket opened is to it. Results print to the terminal; `--out FILE` writes a
@@ -89,7 +89,7 @@ bearer token.
 
 `scripts/box_walk_probes/probes/owner_knowledge_score.sh` runs a stratified
 sample of 8 visible questions on the box (each is a full LLM turn, 2 to 5
-minutes), puts the persona digest at `~/.zeroclaw/workspace/CONTEXT.md` for the
+minutes), puts the persona digest at `~/.ostler/assistant-config/workspace/CONTEXT.md` for the
 run and restores the file after (`context_swap.sh`: atomic backup, restore on
 EXIT/INT/TERM/HUP, a leftover backup from a SIGKILLed run is restored first, and
 it REFUSES, as CANNOT-RUN, unless the existing file is the synthetic seed: it

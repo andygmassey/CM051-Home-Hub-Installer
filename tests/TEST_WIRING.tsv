@@ -187,6 +187,7 @@ test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_contact_card_prefill.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contact_email_coverage_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contact_resync_scheduled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_contacts_diff_answers_fast_at_scale.py	WIRED	.github/workflows/contacts-diff-fast.yml
 test_container_engine_liveness_and_recovery.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_container_runtime_guard_tests_the_engine_not_the_client.sh	WIRED	.github/workflows/container-runtime-guard.yml
 test_container_runtime_precondition.sh	WIRED	.github/workflows/container-runtime-precondition.yml
@@ -792,6 +793,7 @@ test_wiki_ready_ignores_conversations_and_ai_summaries_trusts_its_own_numbers.py
 test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_wiring_ceiling_only_ever_decreases.sh	WIRED	.github/workflows/test-wiring.yml
+test_wow_moment_probes.sh	WIRED	.github/workflows/wow-moment-probes.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_writer_reader_vocabulary_contracts.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_youtube_parser_does_not_claim_facebook.py	WIRED	.github/workflows/parser-claim-separation.yml

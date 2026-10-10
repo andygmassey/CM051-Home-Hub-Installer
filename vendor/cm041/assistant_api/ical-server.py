@@ -167,6 +167,7 @@ def _warn_plaintext_once(db_path: str) -> None:
         flush=True,
     )
 import threading
+import time
 import urllib.request
 import uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -789,17 +790,70 @@ def _junk_name_reason(name):
     return None
 
 
+# F7b (walk #17): organisations with no legal-form suffix. EVIDENCE shapes in
+# the NAME of an UNCARDED record (a card always wins), judged with the node's
+# channels where it matters:
+#   * a trailing parenthesised ACRONYM after at least THREE words and no comma
+#     ("Foo Bar Baz (FBB)"): how a company or product writes itself. After only
+#     two words it stays: "Jane Doe (EXT)" and "Jane Doe (CBE)" are people;
+#   * an organisation phrase as the FINAL words (Solutions, Services,
+#     Marketing), optionally followed by a parenthesised descriptor, after at
+#     least two other words. A person's surname is not the third word of a
+#     phrase ending in one of these.
+# ALL-CAPS names are NOT a signal (ruling: they are people).
+_TRAILING_ACRONYM_RE = re.compile(r"^[^\s,()]+(\s+[^\s,()]+){2,}\s+\([A-Z][A-Z0-9]{1,5}\)\s*$")
+_FINAL_ORG_PHRASE_RE = re.compile(
+    r"\b(solutions|services|marketing)\b(\s*\([^)]*\))?\s*$", re.I)
+
+
+def _org_phrase_reason(name):
+    nm = (name or "").strip()
+    words = nm.split()
+    if _TRAILING_ACRONYM_RE.match(nm):
+        return "trailing_acronym"
+    if len(words) >= 3 and _FINAL_ORG_PHRASE_RE.search(nm):
+        return "final_org_phrase"
+    return None
+
+
+def _person_name_before_org_phrase(name, given, family):
+    """\"<given> <family> <org phrase>\" is a person's name with a company
+    appended. Return \"<given> <family>\" when the card-less record has a
+    single-token given and family name, the display name starts with them, and
+    what follows is an organisation phrase of its own (two or more words)."""
+    g, f, nm = (given or "").strip(), (family or "").strip(), (name or "").strip()
+    if not g or not f or len(g.split()) != 1 or len(f.split()) != 1:
+        return None
+    prefix = g + " " + f
+    if not nm.lower().startswith(prefix.lower() + " "):
+        return None
+    rest = nm[len(prefix):].strip()
+    if len(rest.split()) < 2 or not _org_phrase_reason(nm):
+        return None
+    return prefix
+
+
 def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None):
     """Return a short reason when this UNCARDED record has no human evidence,
     else None. A Contacts card always wins. See the block comment above: no
     rule here fires on a surname word alone."""
     p = payload or {}
-    if (p.get("icloud_uid") or "").strip():
-        return None
     nm = (name or "").strip()
+    if (p.get("icloud_uid") or "").strip():
+        # A Contacts card wins EXCEPT for one shape: a card with NO given name
+        # whose name is a legal form (the judge's ORG_NAME / ORG_SHORT_FORM
+        # sets) is an organisation card, not a person's. A person's card has a
+        # given name, so "Jane AG", "anna ag", "kim nv", "tom inc" stay.
+        if (not (p.get("given_name") or "").strip()
+                and (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm))):
+            return "organisation_card"
+        return None
     # A subject line is caught BEFORE any email branch: it is a header, not a name.
     if _SUBJECT_LINE_RE.match(nm):
         return "subject_line"
+    why_org = _org_phrase_reason(nm)
+    if why_org:
+        return why_org
     if _ORG_NAME_RE.search(nm) or (_ORG_SHORT_FORM_RE.match(nm)):
         return "organisation_name"
     if (p.get("given_name") or "").strip() or (p.get("family_name") or "").strip():
@@ -882,7 +936,14 @@ _ORG_NEWS_RE = re.compile(r"\bnews\b", re.I)
 def _is_organisation_name(display_name):
     """STRONG tier: true for ANY record regardless of Contacts card."""
     words = (display_name or "").split()
-    return len(words) >= 2 and bool(_ORG_STRONG_RE.search(display_name))
+    m = _ORG_STRONG_RE.search(display_name or "")
+    if not m or len(words) < 2:
+        return False
+    # F7: a two-word name ending in "inc" is a person; "inc" is a legal form only after at least two
+    # other words (the judge dropped the bare two-word form too).
+    if m.group(1).lower() == "inc" and len(words) < 3:
+        return False
+    return True
 
 
 def _is_business_shaped_name(display_name):
@@ -892,7 +953,7 @@ def _is_business_shaped_name(display_name):
     if len(words) < 2:
         return False
     last = words[-1].strip(".,;:()[]").lower()
-    if last in _BUSINESS_LAST_WORDS:
+    if last in _BUSINESS_LAST_WORDS and not (last == "inc" and len(words) < 3):
         return True
     if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
         return True
@@ -7300,6 +7361,13 @@ def people_list(sort=None, ceiling=10000):
         given = (p.get("given_name") or "").strip()
         family = (p.get("family_name") or "").strip()
 
+        # F7b: "<given> <family> <org phrase>" is a person with a company
+        # appended: show the person's name, never hide the person.
+        if not (p.get("icloud_uid") or "").strip():
+            _resolved = _person_name_before_org_phrase(name, given, family)
+            if _resolved:
+                name = _resolved
+
         # F7: the assistant's own Contacts card is not a person to list. Matched
         # by the assistant's EMAIL or PHONE (ASSISTANT_EMAIL / ASSISTANT_PHONE
         # from the plist), never by name alone: a friend can share the name.
@@ -7414,6 +7482,8 @@ def people_list(sort=None, ceiling=10000):
         # F7 (walk #16): no human evidence at all (see _is_non_human_person).
         # Uncarded only; a card outranks it. Hidden from the LIST, never
         # deleted, still searchable by the assistant.
+        if has_contacts_card and _is_non_human_person(p, name) == "organisation_card":
+            continue
         if not has_contacts_card:
             _ev_phones = list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))
             _ev_emails = list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", []))
@@ -8669,26 +8739,86 @@ def api_contacts_diff():
             "reason": f"tidy engine unavailable: {exc}",
         }
 
+    return _contacts_diff_cached(TidyEngine)
+
+
+# ── Tidy report: built in the background, served from a cache (CM051 F18) ──
+#
+# Measured on a 6,700-person graph: the duplicate scan is O(n^2) over names
+# (~22M pairs) and does not finish inside the Doctor proxy's 30s upstream
+# timeout, so GET /api/v1/contacts/diff came back 502 at 30.04s and the
+# customer's "Tidy your contacts" tab errored. In-process on a synthetic
+# 6,700-person fixture build_report took 60.8s and stopped on its own 60s
+# budget with a PARTIAL report. Raising the proxy timeout to minutes would
+# just make the customer stare at a spinner, so the request path never builds
+# the report any more: a background thread does, and the request returns the
+# last finished report with its "as_of" time at once. With no report yet it
+# returns at once with degraded=True, preparing=True and a reason the Doctor
+# tab already renders. A stale report is served while a fresh one builds.
+# Off the request path the scan gets a larger budget, so it completes instead
+# of truncating.
+_CONTACTS_DIFF_TTL_SECONDS = float(os.environ.get("OSTLER_CONTACTS_DIFF_TTL_SECONDS", "600"))
+_CONTACTS_DIFF_BUILD_BUDGET_SECONDS = float(
+    os.environ.get("OSTLER_CONTACTS_DIFF_BUILD_BUDGET_SECONDS", "900"))
+_contacts_diff_lock = threading.Lock()
+_contacts_diff_state = {"report": None, "as_of": 0.0, "building": False,
+                        "last_error": "", "started": 0.0}
+
+
+def _contacts_diff_build(engine_cls) -> None:
     engine = None
     try:
-        engine = TidyEngine(oxigraph_url=OXIGRAPH_URL, qdrant_url=QDRANT_URL)
-        return engine.build_report().to_dict()
+        engine = engine_cls(
+            oxigraph_url=OXIGRAPH_URL, qdrant_url=QDRANT_URL,
+            config={"fuzzy_match_max_seconds": _CONTACTS_DIFF_BUILD_BUDGET_SECONDS},
+        )
+        report = engine.build_report().to_dict()
+        with _contacts_diff_lock:
+            _contacts_diff_state.update(report=report, as_of=time.time(),
+                                        last_error="")
     except Exception as exc:
-        return {
-            "schema_version": 1,
-            "total_persons": 0,
-            "counts": {},
-            "items": [],
-            "degraded": True,
-            "reason": str(exc)[:200],
-            "error": str(exc),
-        }
+        with _contacts_diff_lock:
+            _contacts_diff_state["last_error"] = str(exc)[:200]
     finally:
+        with _contacts_diff_lock:
+            _contacts_diff_state["building"] = False
         if engine is not None:
             try:
                 engine.close()
             except Exception:
                 pass
+
+
+def _contacts_diff_kick(engine_cls) -> None:
+    """Start a background build unless one is running. Caller holds the lock."""
+    if _contacts_diff_state["building"]:
+        return
+    _contacts_diff_state["building"] = True
+    _contacts_diff_state["started"] = time.time()
+    threading.Thread(target=_contacts_diff_build, args=(engine_cls,),
+                     name="contacts-diff-build", daemon=True).start()
+
+
+def _contacts_diff_cached(engine_cls) -> dict:
+    now = time.time()
+    with _contacts_diff_lock:
+        report = _contacts_diff_state["report"]
+        age = now - _contacts_diff_state["as_of"]
+        if report is None or age > _CONTACTS_DIFF_TTL_SECONDS:
+            _contacts_diff_kick(engine_cls)
+        building = _contacts_diff_state["building"]
+        last_error = _contacts_diff_state["last_error"]
+        as_of = _contacts_diff_state["as_of"]
+    if report is None:
+        reason = ("Still preparing your contacts report. Check back in a minute."
+                  if not last_error else f"Could not build the report: {last_error}")
+        return {"schema_version": 1, "total_persons": 0, "counts": {},
+                "items": [], "degraded": True, "preparing": not last_error or building,
+                "reason": reason}
+    out = dict(report)
+    out["as_of"] = datetime.fromtimestamp(as_of, tz=timezone.utc).isoformat(timespec="seconds")
+    out["refreshing"] = building
+    return out
 
 
 def api_ingest_ios(payload):
@@ -12005,6 +12135,11 @@ if __name__ == "__main__":
     # Spooled memory/assert facts: attached when the model is free, and a
     # restart resumes them from the encrypted spool.
     _start_assert_spool_thread()
+    # F18: warm the Tidy report off the request path, after the stores settle,
+    # so the Doctor tab's first visit is served from the cache.
+    _warm = threading.Timer(120.0, api_contacts_diff)
+    _warm.daemon = True
+    _warm.start()
     # Lane 6: resume any spooled page-summary jobs left by a restart.
     try:
         _enrich_queue()

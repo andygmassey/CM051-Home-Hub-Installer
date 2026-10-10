@@ -162,7 +162,11 @@ def _name_windows(text, lo=2, hi=4):
             yield " ".join(w[i:i + k])
 
 
-FRESH_STATUS = re.compile(r"^(Up to date|Nothing found|Not started|Working|Failed|Behind|Stale)", re.I)
+# Every CM044 settling_source_state_* string (compiler/locale.yaml). Walk #17:
+# CM044 #319 added "Checked, nothing new", this list did not know it, and Mail
+# and Messages read as absent from a panel that showed them.
+FRESH_STATUS = re.compile(r"^(Up to date|Nothing found|Not started|Working|Failed|Behind|Stale|"
+                          r"Checked, nothing new|Waiting for iCloud|Did not finish|Could not|Took too long)", re.I)
 
 
 def freshness_labels(section):
@@ -243,9 +247,10 @@ def service_sender(name):
         if SERVICE_LOCAL.match(local) or MARKETPLACES.search(n):
             return "service mailbox"
         return None
-    words = re.findall(r"[A-Za-z]+", n)
-    if len(words) >= 2 and all(w.isupper() for w in words) and sum(len(w) for w in words) >= 4:
-        return "all-caps multiword"
+    # Walk #17: all-caps is not a service signal. Of 19 all-caps multiword rows
+    # on the walk #17 box, 16 were people who type their name in capitals, and
+    # F7 un-hid those on purpose. An all-caps sender is still caught by its
+    # wording ("EXAMPLE BANK ALERTS" by SERVICE_PHRASE) or its legal form.
     if SERVICE_PHRASE.search(n):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
@@ -1320,6 +1325,10 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             # items' text for a phone-shaped substring -- regardless of
             # which strategy nominally won -- finds it. This is also more
             # robust to a future strategy rename than matching the name.
+            # #2786: the report is built off the request path. "preparing" is
+            # an empty list that means NOT LOOKED YET, never "nothing to review".
+            if diff.get("preparing") or (diff.get("degraded") and not diff.get("items")):
+                raise RuntimeError("duplicate review not ready: " + str(diff.get("reason") or "degraded")[:100])
             reviewed = set()
             for item in diff.get("items") or []:
                 details = (item.get("evidence") or {}).get("details") or ""
@@ -1813,7 +1822,9 @@ def self_test():
                  # pairs; ORG_NAME is case-insensitive, so the test is equal)
                  "jane bank", "joe college", "ann school", "robert hospital", "lee council",
                  "Jane Doe (Official)", "Jane2", "R2D2", "jdoe",
-                 "Jane AG", "anna ag", "kim nv", "tom inc", "Coco", "co li"):
+                 "Jane AG", "anna ag", "kim nv", "tom inc", "Coco", "co li",
+                 # walk #17: people who type their own name in capitals
+                 "JANE DOE", "J. R. DOE", "MARY-JANE O'NEIL", "JU CHUN (JC) DOE"):
         if junk_name(real) or service_sender(real):
             missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
         else:
@@ -1835,6 +1846,13 @@ def self_test():
     else:
         print("  ok    one recorded title exempts one occurrence only; a second copy of the same text FAILS")
 
+    # walk #17: every state CM044 prints is a row, not a gap
+    got = freshness_labels({"kind": "list", "text": "\u2713\nMail\nChecked, nothing new \u00b7 2h ago\n"
+                            "\u2026\nMessages\nWaiting for iCloud to finish syncing\n"})
+    if got != ["Mail", "Messages"]:
+        missed.append("a freshness row in a newer CM044 state is read as absent ({!r})".format(got))
+    else:
+        print("  ok    freshness rows in every CM044 state are read as listed")
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})
     if any(ok is True for n, ok, _ in empty if not n.startswith("customer read:")):
