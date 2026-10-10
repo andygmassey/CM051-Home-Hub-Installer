@@ -1,0 +1,50 @@
+# CM051 F7 (walk #16): non-people in the Hub People list. Runs the shipped
+# writer rules (cm021 email sender, ostler_fda iMessage sender id) and the
+# shipped read surface (ical-server people_list) over one synthetic fixture,
+# with real-person controls that must stay.
+name: people-have-human-evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm021/src/cli.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/role_addresses.py'
+      - 'tests/test_people_have_human_evidence.py'
+      - '.github/workflows/people-have-human-evidence.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm021/src/cli.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/role_addresses.py'
+      - 'tests/test_people_have_human_evidence.py'
+      - '.github/workflows/people-have-human-evidence.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  people-have-human-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest and the vendored modules' runtime dependencies
+        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject
+      - name: Junk senders and sender ids are not people, real people stay, a card always wins
+        run: |
+          n="$(python -m pytest tests/test_people_have_human_evidence.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 12 ]; then
+            echo "REFUSING: expected 12 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_have_human_evidence.py -v -rs

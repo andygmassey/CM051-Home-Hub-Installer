@@ -637,6 +637,201 @@ def _is_service_mailbox_name(display_name):
     return False
 
 
+# F7 (walk #16, CM051): THE PEOPLE LIST HAD NO "IS THERE ANY HUMAN EVIDENCE"
+# TEST. Every screen above reads the NAME. Three producers write a Person for
+# a non-human and the name carries no signal at all:
+#   (a) an EMAIL sender with no list headers ("Quidco", "HSBC Hong Kong"): the
+#       node holds only email + lastContactEmail + displayName + prefLabel;
+#   (b) an iMESSAGE alphanumeric sender id ("Google", "2inldn", "3d1ohk",
+#       "001"): the id is stored as an identifier of type email/phone though it
+#       is neither;
+#   (c) a calendar-invite relay id (an imip.me.com address).
+# _is_non_human_person reads the EVIDENCE instead, and only for an UNCARDED
+# record with no given/family name of its own (a Contacts card, or a name a
+# human typed, always wins -- the same gate as every sibling above). A record
+# with NO identifier at all is left alone: absence of evidence is not evidence
+# of a robot, and an existing fixture pins "JOHN" as a person.
+_AUTOMATED_LOCAL_STEMS = (
+    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
+    "notification", "newsletter", "service", "statement", "ereceipt",
+    "enews", "mailer", "bounce", "unsubscribe", "survey", "tracking",
+    "marketing", "promotion", "automated", "customercare", "concierge",
+    "reception", "reservation", "enquir", "mailbox", "postmaster",
+)
+_AUTOMATED_LOCAL_TOKENS = frozenset({
+    "info", "support", "help", "hello", "hi", "sales", "billing", "news",
+    "alert", "alerts", "update", "updates", "offers", "offer", "deals",
+    "orders", "order", "account", "accounts", "admin", "team", "contact",
+    "mail", "messages", "message", "notify", "digest", "rewards", "reward",
+    "bill", "ebill", "bot", "system", "security", "careers", "jobs",
+})
+_AUTOMATED_DOMAIN_LABELS = frozenset({
+    "info", "notification", "notifications", "email", "emails", "mail",
+    "e", "em", "news", "newsletter", "marketing", "communication",
+    "communications", "mailer", "updates", "sender", "imip", "bounce",
+    "bounces", "reply", "alerts", "statements", "informationservices",
+    "survey", "donotreply", "noreply", "mailing", "campaign", "campaigns",
+})
+_COMMON_SECOND_LEVEL = frozenset({"com", "co", "org", "net", "gov", "edu", "ac", "or", "ne"})
+_EMAIL_ADDRESS_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _digits_tail(value, n=9):
+    d = "".join(c for c in (value or "") if c.isdigit())
+    return d[-n:] if len(d) >= 7 else ""
+
+
+def _is_assistant_identity(emails, phones):
+    """True when any of these addresses / numbers IS the assistant's own,
+    as configured in ASSISTANT_EMAIL / ASSISTANT_PHONE. Empty config matches
+    nothing (and never matches an empty value)."""
+    ae = (os.environ.get("ASSISTANT_EMAIL") or "").strip().lower()
+    ap = _digits_tail(os.environ.get("ASSISTANT_PHONE") or "")
+    if ae and any((e or "").strip().lower() == ae for e in emails):
+        return True
+    return bool(ap) and any(_digits_tail(x) == ap for x in phones)
+
+
+def _is_plausible_email(value):
+    return bool(_EMAIL_ADDRESS_RE.match((value or "").strip()))
+
+
+def _is_plausible_phone(value):
+    v = (value or "").strip()
+    if not v or not all(c in _NAMELESS_BARE_ID_CHARS for c in v):
+        return False
+    return sum(c.isdigit() for c in v) >= 7
+
+
+def _address_is_automated(addr):
+    """True when an email ADDRESS is shaped like a machine/bulk/brand mailbox.
+
+    Judged on the address alone (no headers reach this layer):
+      * the local part contains an automation stem (noreply, notification,
+        service, statement ...) or is, token by token, a role word
+        (info, support, sales ...) after a plus-tag and trailing digits are
+        stripped;
+      * a sub-domain label is a bulk-mail label (info., notification.,
+        emails., mail., e., imip. ...);
+      * the local part IS the sender's own domain name (local part "quidco" at
+        the quidco domain, "barclays" at an emails. sub-domain): a brand mailbox, not a person.
+    A person at a company writes from first.last@company, which none of these
+    match.
+    """
+    a = (addr or "").strip().lower()
+    if not _is_plausible_email(a):
+        return False
+    local, _, domain = a.rpartition("@")
+    local = local.split("+", 1)[0]
+    bare = re.sub(r"[-._]?\d+$", "", local)
+    squashed = re.sub(r"[-._]", "", bare)
+    if any(stem in bare or stem in squashed for stem in _AUTOMATED_LOCAL_STEMS):
+        return True
+    tokens = [t for t in re.split(r"[-._]", bare) if t]
+    if tokens and all(t in _AUTOMATED_LOCAL_TOKENS for t in tokens):
+        return True
+    labels = domain.split(".")
+    sub_labels = labels[:-2] if len(labels) > 2 else []
+    if len(labels) > 2 and labels[-2] in _COMMON_SECOND_LEVEL:
+        sub_labels = labels[:-3]
+    if any(l in _AUTOMATED_DOMAIN_LABELS for l in sub_labels):
+        return True
+    brand_labels = {l for l in labels[:-1] if l not in _COMMON_SECOND_LEVEL}
+    return bool(squashed) and squashed in brand_labels
+
+
+# F7: HIDE BY EVIDENCE, NEVER BY A SURNAME WORD ALONE. People whose surname
+# is also an institution word (bank, college, school, hospital, council,
+# "official") are real, and so are nicknames with a capital ("Jane2"). A word
+# list flags them (the independent review of CM051 #2768 measured exactly that),
+# so the NAME rules below are the same four shapes the walk's customer-eyes
+# judge uses (scripts/box_walk_probes/lib/customer_read.py @ #2768 8aef29b3),
+# copied verbatim and pinned equal by tests/test_people_have_human_evidence.py:
+#   * a subject-line prefix (Re:, FW:, Fwd:, Invitation:, Accepted:, Declined:);
+#   * an organisation by LEGAL FORM or team-mailbox name only (Ltd, LLP, GmbH,
+#     AG, BV, Co., sdn bhd, a customer-support or support-team mailbox name,
+#     CJK company marks);
+#   * a handle: ONE token, no capitals, at least one digit, 5-40 chars, an
+#     optional leading @ ("2inldn", "shanef3d"); "jdoe", "Jane2", "R2D2" stay;
+#   * a calendar/invite relay id, or a name with no letters.
+# The EVIDENCE rules below them (alphanumeric sender id, bulk or brand mailbox
+# address) read the identifiers the record holds. A Contacts card always wins
+# and a given/family name stops the handle and no-letters rules.
+_JUNK_HANDLE_RE = re.compile(r"^@?(?=[a-z0-9._-]*\d)[a-z0-9._-]{5,40}$")
+# Hiding a real friend is worse than showing one junk row, so the product
+# narrows the judge's handle shape: letters then a plain 1-4 digit suffix
+# ("nana1", "kat99", "mum12", "jdoe1984") is how people name themselves and
+# STAYS. What is hidden is a digit run in the MIDDLE of the token ("shanef3d",
+# "3d1ohk", "2inldn"), and only with no channel at all.
+_SIMPLE_NICKNAME_RE = re.compile(r"^@?[a-z]+[0-9]{1,4}$")
+_CALENDAR_ID_RE = re.compile(
+    r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$", re.I)
+# Legal forms that cannot be a surname, in any case; AG / BV / NV / SA only
+# in UPPER CASE and only after at least two other words (a given name plus
+# a short surname that spells one of them is a person), checked in the function.
+_ORG_NAME_RE = re.compile(
+    r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
+    r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
+_ORG_SHORT_FORM_RE = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
+_SUBJECT_LINE_RE = re.compile(
+    r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
+
+
+def _junk_name_reason(name):
+    n = (name or "").strip()
+    if not n:
+        return None
+    if not any(ch.isalpha() for ch in n):
+        return "no_letters"
+    if _CALENDAR_ID_RE.search(n):
+        return "calendar_id"
+    return None
+
+
+def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None):
+    """Return a short reason when this UNCARDED record has no human evidence,
+    else None. A Contacts card always wins. See the block comment above: no
+    rule here fires on a surname word alone."""
+    p = payload or {}
+    if (p.get("icloud_uid") or "").strip():
+        return None
+    nm = (name or "").strip()
+    # A subject line is caught BEFORE any email branch: it is a header, not a name.
+    if _SUBJECT_LINE_RE.match(nm):
+        return "subject_line"
+    if _ORG_NAME_RE.search(nm) or (_ORG_SHORT_FORM_RE.match(nm)):
+        return "organisation_name"
+    if (p.get("given_name") or "").strip() or (p.get("family_name") or "").strip():
+        return None
+    why = _junk_name_reason(nm)
+    if why:
+        return why
+    ph = [x for x in (phones if phones is not None else (p.get("phones") or [])) if x]
+    em = [x for x in (emails if emails is not None else (p.get("emails") or [])) if x]
+    idents = ph + em
+    if not idents:
+        if (_JUNK_HANDLE_RE.match(nm) and not _SIMPLE_NICKNAME_RE.match(nm)
+                and not (p.get("linkedin_url") or "").strip()):
+            return "handle_no_channel"
+        return None
+    if any(_is_plausible_phone(x) for x in ph + em):
+        return None
+    real_emails = [x for x in em if _is_plausible_email(x)]
+    if not real_emails:
+        # Identifiers exist and not one is a phone number or an email address:
+        # an alphanumeric sender id ("Google", "2inldn", "001"). A sender id is
+        # ONE token. An identifier with a space in it ("Jane Doe" stored as its
+        # own handle) is a person's name held in the wrong field, which is a
+        # real person with a bad identifier and is never hidden here.
+        if any(re.search(r"\s", x.strip()) for x in idents):
+            return None
+        return "sender_id"
+    if all(_address_is_automated(x) for x in real_emails):
+        return "automated_address"
+    return None
+
+
 # Cut #15 (walk #14): 33 of 7,815 people-list rows were businesses or
 # automated senders ("<brand> official", "<x> swimming gear store",
 # "<x> hk official"). None trip the vocabulary above. CONSERVATIVE by
@@ -1473,18 +1668,53 @@ def _to_iso8601(raw):
     """
     if not raw:
         return ""
-    s = str(raw)
+    return _timeline_timestamp(str(raw))
+
+
+def _timeline_timestamp(s, tz=None):
+    """A Timeline row's date as full ISO 8601 WITH an offset, or "".
+
+    The CM031 app read only full ISO 8601 with an offset and dated every
+    other shape "now", so a month of history landed under Today (Andy's
+    device walk, 2026-10-10). Emitting the offset fixes it for app builds
+    already in hand, not only new ones.
+
+    Local date-times (iCal "20260428T093000", ISO "2026-04-28T09:30:00") are
+    the Hub's local time: the offset is attached. A bare date ("20260428",
+    "2026-04-28") becomes local NOON with the offset, so it stays on its own
+    day in any nearby time zone (entries also carry all_day). A value that
+    already carries "Z" or an offset is normalised. Anything unreadable is
+    "": the row is dropped, never shown as today.
+    """
+    s = (s or "").strip()
+    if not s:
+        return ""
+
+    def local(dt):
+        # The offset IN FORCE ON THAT DATE, not today's: a fixed "current"
+        # offset gave a January 09:30 in Europe/London +01:00 (Archie,
+        # CM051 #2774). astimezone() on a naive value applies the local
+        # zone's rules for that instant; an explicit zone (tests) likewise.
+        return dt.replace(tzinfo=tz) if tz is not None else dt.astimezone()
+
+    for fmt in ("%Y%m%dT%H%M%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
+                "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return local(datetime.strptime(s, fmt)).isoformat(timespec="seconds")
+        except ValueError:
+            pass
+    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+        try:
+            return local(datetime.strptime(s, fmt).replace(hour=12)).isoformat(timespec="seconds")
+        except ValueError:
+            pass
     try:
-        if len(s) == 15 and "T" in s:
-            dt = datetime.strptime(s, "%Y%m%dT%H%M%S")
-            return dt.strftime("%Y-%m-%dT%H:%M:%S")
-        if len(s) == 8 and s.isdigit():
-            dt = datetime.strptime(s, "%Y%m%d")
-            return dt.strftime("%Y-%m-%d")
-        # Already looks ISO-ish: leave it alone.
-        return s
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = local(dt)
+        return dt.isoformat(timespec="seconds")
     except ValueError:
-        return s
+        return ""
 
 
 # Google Calendar via gws CLI
@@ -2214,6 +2444,10 @@ def people_search(query, limit=10, timeout=30):
         # the People list / search results. Render-time filter only; the
         # Qdrant point is never deleted. Ref #664.
         if _is_nameless_name(dn):
+            continue
+        # F7 (walk #16): the same human-evidence test people_list applies, so a
+        # sender id or bulk mailbox is not found by search either.
+        if _is_non_human_person(p, dn):
             continue
         # Person-level L3 (F5): an L3-classified person must not surface in
         # search at all. Only an EXPLICIT L3 person-tag drops the person
@@ -5155,9 +5389,21 @@ def api_memory_list():
     # employer resolver's own inline overlay is orthogonal.
     hygiene, verdicts = _hygiene_overlay()
 
+    # F12b (cut #17 iOS walk): the userId / belongsToUser scoping above says
+    # whose MEMORY a fact is in, not who it is ABOUT. "About you" listed a
+    # contact speaking at an event and a relative's job as the owner's. A
+    # fact is the owner's when its subject is the owner (pwg user node or the
+    # CM048 urn:ostler:user/<id>) or when it names no subject at all (legacy
+    # writers); everything else goes to "about_others", carrying the
+    # subject's name, so "who is my wife" still has its answer.
+    owner_subjects = {USER_URI.lower(), f"urn:ostler:user/{USER_ID}".lower()}
+
     out = []
+    others = []
     for row in raw_facts:
         uri = row.get("fact", "")
+        about = (row.get("about") or "").strip()
+        about_owner = (not about) or about.lower() in owner_subjects
         if hygiene is not None and hygiene.is_dropped(uri, verdicts):
             # Retired by the hygiene pass -- withheld from the surface
             # exactly like a user "forget" (the source triple stays put).
@@ -5194,7 +5440,7 @@ def api_memory_list():
                 source = "user_correction"
                 corrected = True
 
-        out.append({
+        (out if about_owner else others).append({
             "id": fact_id,
             "predicate": domain,
             "object": text,
@@ -5209,6 +5455,9 @@ def api_memory_list():
             # Private sort key (hygiene effectiveWeight or confidence);
             # popped before the response so the wire shape is unchanged.
             "_rank": rank,
+            **({} if about_owner else {
+                "about_name": (row.get("aboutName") or "").strip(),
+            }),
         })
 
     # Sort by (rank desc, valid_from desc) where rank is the hygiene
@@ -5221,9 +5470,11 @@ def api_memory_list():
         reverse=True,
     )
     out = out[:MEMORY_LIMIT]
-    for f in out:
+    others.sort(key=lambda f: (f["_rank"], f["valid_from"]), reverse=True)
+    others = others[:MEMORY_LIMIT]
+    for f in out + others:
         f.pop("_rank", None)
-    response = {"facts": out, "count": len(out)}
+    response = {"facts": out, "count": len(out), "about_others": others}
     # Overlay the deterministically-resolved current employer so the
     # brief LLM never has to guess it from the flat fact list. Guarded:
     # a failure here must not degrade the Memory tab.
@@ -6999,10 +7250,10 @@ def people_list(sort=None, ceiling=10000):
             uri = r.get("person")
             typ = (r.get("type") or "").strip()
             val = (r.get("value") or "").strip()
-            if not uri or typ not in ("phone", "email", "linkedin_url") or not val:
+            if not uri or typ not in ("phone", "email", "linkedin_url", "instagram_username") or not val:
                 continue
             bucket = ident_by_uri.setdefault(
-                uri, {"phone": [], "email": [], "linkedin_url": []}
+                uri, {"phone": [], "email": [], "linkedin_url": [], "instagram_username": []}
             )
             if val not in bucket[typ]:
                 bucket[typ].append(val)
@@ -7048,6 +7299,14 @@ def people_list(sort=None, ceiling=10000):
         name = p.get("display_name") or p.get("name") or ""
         given = (p.get("given_name") or "").strip()
         family = (p.get("family_name") or "").strip()
+
+        # F7: the assistant's own Contacts card is not a person to list. Matched
+        # by the assistant's EMAIL or PHONE (ASSISTANT_EMAIL / ASSISTANT_PHONE
+        # from the plist), never by name alone: a friend can share the name.
+        if _is_assistant_identity(
+                list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", [])),
+                list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))):
+            continue
 
         # Walk #6, bug 2: the STORED name can be a bare email/phone
         # fallback even though this same record now carries a real
@@ -7106,10 +7365,18 @@ def people_list(sort=None, ceiling=10000):
         # specifically, not "has a given/family name" generically -- only a
         # card is proof of a real address-book entry.
         has_contacts_card = bool((p.get("icloud_uid") or "").strip())
+        # F7 follow-up (walk #16): a record that carries a GIVEN or FAMILY
+        # name was parsed into a person's name by something that read it as
+        # one. The name-SHAPE rules below were hiding real people on the walk
+        # box: 18 multi-word names typed in capitals, 10 "Name - Role" names,
+        # 4 other named records. Those rules now apply to records with no
+        # given/family name only; a legal-form suffix on a named record is
+        # still caught by _is_non_human_person (F7), which is evidence-based.
+        _has_person_name = bool(given or family)
         # Cut #15: a STRONG organisation word outranks even a card.
-        if _is_organisation_name(name):
+        if not _has_person_name and _is_organisation_name(name):
             continue
-        if not has_contacts_card and (
+        if not has_contacts_card and not _has_person_name and (
             _is_automated_or_service_name(name)
             or _is_service_mailbox_name(name)
         ):
@@ -7142,6 +7409,28 @@ def people_list(sort=None, ceiling=10000):
                 for v in ident_by_uri.get(uri, {}).get("email", [])
             )
             if row_emails & human_named_emails:
+                continue
+
+        # F7 (walk #16): no human evidence at all (see _is_non_human_person).
+        # Uncarded only; a card outranks it. Hidden from the LIST, never
+        # deleted, still searchable by the assistant.
+        if not has_contacts_card:
+            _ev_phones = list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))
+            _ev_emails = list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", []))
+            if _is_non_human_person(p, name, _ev_phones, _ev_emails):
+                continue
+            # Ruling (Archie, F7): a SOCIAL-ONLY, HANDLE-ONLY node (an Instagram
+            # username with no given or family name, no card, no phone, no
+            # email, no LinkedIn) leaves the DEFAULT list. It stays in the graph,
+            # in search and in the wiki.
+            # HANDLE-only means the NAME is a single token as well: on the walk
+            # box 418 of 1,508 such nodes carry a readable multi-word name
+            # (two words, both capitalised), which is a person known only through a social
+            # account, and those stay.
+            if (not given and not family and len(name.split()) == 1
+                    and not _ev_phones and not _ev_emails
+                    and not ident_by_uri.get(uri, {}).get("linkedin_url")
+                    and ident_by_uri.get(uri, {}).get("instagram_username")):
                 continue
 
         # Sort keys -- prefer the parsed given/family name, fall back to a
@@ -7299,6 +7588,8 @@ def people_stale(months=3, limit=5):
         # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
         # Stale / reconnect list. Render-time filter only. Ref #664.
         if _is_nameless_name(name):
+            continue
+        if _is_non_human_person(p, name):
             continue
         # 🔴 AND A SECOND, STRICTER SCREEN, BECAUSE RECONNECT ASKS A HARDER
         # QUESTION THAN "IS THIS DISPLAYABLE".
@@ -7964,9 +8255,11 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
         # time (CM047/CM048 schema alignment). Accept any of them rather than
         # dropping a whole source on a field rename -- a missing date is the
         # only disqualifier, since the Timeline is ordered by it.
+        # EVENT dates only. created_at / ingested_at are when the row was
+        # written, so a historic import was dated by its import day (Andy's
+        # device walk, 2026-10-10). No event date: the row is dropped.
         raw_date = ""
-        for key in ("occurred_at", "created_at", "date", "ingested_at",
-                    "timestamp", "started_at"):
+        for key in ("occurred_at", "date", "timestamp", "started_at"):
             val = payload.get(key)
             if val:
                 raw_date = str(val)
@@ -8125,7 +8418,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
     entries = []
     for it in items:
         kind = it.get("kind") or ""
-        if kind in ("calendar_error", "meeting_error"):
+        if kind in ("calendar_error", "meeting_error", "conversation_error"):
             # Surface but skip – CM031 does not render error sentinels.
             continue
         # Carry the row's real kind (#106c). This used to collapse every
@@ -8138,6 +8431,10 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
             entry_type = kind or "event"
         raw_date = it.get("date") or ""
         timestamp = _to_iso8601(raw_date)
+        if not timestamp:
+            # No readable event date: never shown, and never as "today".
+            continue
+        raw_s = str(raw_date).strip()
         # Attendee names come in two shapes:
         #   calendar items: list-of-dicts {name?, email?, role?}
         #   meeting items: a `participants` list-of-strings
@@ -8155,6 +8452,8 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
         entries.append({
             "type": entry_type,
             "timestamp": timestamp,
+            # A date with no time of its own: the app says "All day".
+            "all_day": bool(re.fullmatch(r"\d{8}|\d{4}-\d{2}-\d{2}", raw_s)),
             "title": it.get("summary") or "",
             "subtitle": it.get("location") or "",
             "attendees": attendee_names,

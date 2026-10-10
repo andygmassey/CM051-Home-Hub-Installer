@@ -989,6 +989,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "about_others",
     "count",
     "current_employer",
     "degraded",
@@ -3312,6 +3313,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "about_others",
     "count",
     "current_employer",
     "degraded",
@@ -5184,6 +5186,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "about_others",
     "count",
     "current_employer",
     "degraded",

@@ -29,6 +29,7 @@ on:
       - 'vendor/cm041/identity_resolver/compartment.py'
       - 'vendor/ostler_security/**'
       - 'tests/test_meeting_brief_real_hub.py'
+      - 'tests/test_meeting_brief_probe_sends_the_store_credential.py'
       - 'tests/helpers/real_hub.py'
       - 'tests/helpers/real_hub_seed.py'
       - 'tests/fixtures/meeting_brief_real_hub/**'
@@ -67,6 +68,9 @@ jobs:
       - name: The oa composer fixtures still equal the real Hub's output
         if: always()
         run: python scripts/capture_meeting_brief_hub_fixtures.py --check tests/fixtures/meeting_brief_real_hub
+      - name: The probe's seed write sends the store credential (walk #16, HTTP 401)
+        if: always()
+        run: python3 tests/test_meeting_brief_probe_sends_the_store_credential.py
       - name: The sent-brief judge catches every mutant
         if: always()
         run: python3 scripts/box_walk_probes/lib/meeting_brief_sent_text.py --self-test

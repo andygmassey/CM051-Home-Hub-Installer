@@ -177,3 +177,18 @@ assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|The user's own pro
 assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|About the user themselves, from their personal graph|oa #489 the owner card (CONTEXT.md About you) rides on every turn (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7 (3140e252), 1 at hub-v0.5.8.
 assistant_tag_grep|src/main.rs|"meeting-brief"|oa #470 #479 the meeting-brief composer and its sender-callable CLI (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7, 3 at hub-v0.5.8.
 assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn stream_native|oa #480 Ollama token streaming with live-chat priority (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7, 1 at hub-v0.5.8.
+# --- v1.0.107 wiki v0.1.50 (CM044 5175a107, #318). The three lines below read 0 in the v0.1.49 compiler
+# image (0942d7a7) and 1 in v0.1.50 (a76e02e0), crane export + /usr/bin/grep -cE.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|^_PWG_SENTINEL_RE = re\.compile|CM044 #318 the raw [pwg:src=...] provenance sentinel never reaches a customer-visible string (walk #16). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|_prov\.clean_body\(text or|CM044 #318 the Activity snippet strips raw conversation frontmatter before display (walk #16). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|class="pw-person-n" data-ostler-customer="1"|CM044 #318 person and org names carry data-ostler-customer so the walk em dash check exempts them (walk #16). 0 -> 1.
+# --- v1.0.107 wiki v0.1.51 (CM044 37f33694, #319 #320). The three lines below read 0 in the v0.1.50 compiler
+# image (a76e02e0) and 1 in v0.1.51 (e57dff40), crane export + /usr/bin/grep -cE.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|^def _source_state_text\(|CM044 #319 the settling panel words a no_data source by the writer's reason, not a contradiction (walk #16 F8). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/locale.yaml|^  settling_source_state_no_data_nothing_new: Checked, nothing new|CM044 #319 the reason-worded no_data row copy (walk #16 F8). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|^def _instagram_row\(|CM044 #320 the person page states the Facebook friend and Instagram handle identifier lines (walk #16 F4). 0 -> 1.
+assistant_tag_grep|crates/ostler-reminders/src/watcher.rs|\.ostler/state/install-in-progress|oa #499 the Reminders TCC prompt is never raised while the install-in-progress marker is set (walk #16 F2; hub-v0.5.9, ae65b992). 0 at hub-v0.5.8 (8c41eec5).
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/system_prompt.rs|^pub const SELF_DESCRIPTION_RULES|oa #500 the no-internals self-description rule (never name a tool or internal system) (hub-v0.5.9). 0 at hub-v0.5.8.
+assistant_tag_grep|crates/zeroclaw-gateway/src/lib.rs|async fn companion_pair_window_gate|oa #501 8443 pairing only inside an owner-opened window, with a lockout (hub-v0.5.9). 0 at hub-v0.5.8.
+assistant_tag_grep|crates/zeroclaw-gateway/src/lib.rs|fn companion_v6_twin|oa #501 the 8443 companion listener's IPv6 twin bind, link-local/ULA/loopback only (hub-v0.5.9). 0 at hub-v0.5.8.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/self_vocative.rs|fn strip_self_vocative|oa #500 the self-vocative guard: the assistant never addresses the owner by its own name, and stands down when the owner shares it (hub-v0.5.9). 0 at hub-v0.5.8.

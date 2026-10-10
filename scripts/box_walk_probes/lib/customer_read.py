@@ -57,6 +57,14 @@ JARGON = [
     # Not after "@": an account handle (@ann_lee) is the customer's own data, a
     # real identifier, and Ostler must not rewrite it (walk #10 review, CM044 #312).
     (re.compile(r"(?<![@\w.])[a-z]+_[a-z]+(?:_[a-z]+)*\b"), "snake_case key"),
+    # Walk #16: raw YAML frontmatter leaked into customer text, both as an
+    # inline fragment ("--- conversation_id: ...") and as a block of lowercase
+    # "key: value" lines. Keys with no underscore ("date:", "title:", "source:")
+    # slip past the snake_case rule, so these are their own patterns.
+    (re.compile(r"(?:^|\s)---[ \t]*\n?[ \t]*[a-z][a-z0-9_]*:[ \t]"), "raw frontmatter"),
+    (re.compile(r"(?m)^(?:[ \t]*[a-z][a-z0-9_]*:[ \t]+\S[^\n]*\n){2,}"), "raw frontmatter key block"),
+    # Walk #16: internal provenance tags ("[pwg:src=...]") in customer text.
+    (re.compile(r"\[pwg:[a-z_]+=[^\]]*\]"), "internal provenance tag"),
 ]
 
 # A customer source and every label any screen uses for it. A label that maps
@@ -101,6 +109,30 @@ MARKETPLACES = re.compile(
     r"\b(amazon|ebay|etsy|aliexpress|alibaba|shopee|lazada|taobao|tmall|rakuten|walmart|temu|shein|"
     r"zalando|asos|wish)\b", re.I)
 DOMAIN_NAME = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr|shop|store)$", re.I)
+# Walk #16 console, "customer eyes" (Andy): a People row named by a username,
+# an id, a calendar address or digits is not a name a customer recognises.
+# Measured on the walk #16 box (7,782 rows): 138 handles or ids, 5 calendar or
+# invite ids, 2 rows with no letters, and the check that existed caught none.
+# A name in decorative Unicode letters IS a name (isalpha counts it).
+# A handle: one token, no capitals, at least one digit, five or more
+# characters, optionally @-prefixed ("2inldn", "shanef3d", "@jdoe84"). Capitals
+# or a space mean a human wrote it ("Jane2", "Henry 8th"); "R2D2" is too short.
+# A digitless handle ("jdoe") cannot be told from a name and is not flagged.
+JUNK_HANDLE = re.compile(r"^@?(?=[a-z0-9._-]*\d)[a-z0-9._-]{5,40}$")
+CALENDAR_ID = re.compile(r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$", re.I)
+# An organisation by its LEGAL FORM or a team mailbox name, never by an
+# ordinary word: a surname can be Bank, College, School or Council, and one
+# such customer must not turn the gate red (review of #2768).
+# AG / BV / NV / Inc are also short given names or initials ("Jane AG", "Tom
+# Inc" read as people), so the bare two-letter forms count only in capitals
+# after at least two words (\S+ \S+ AG); the review of #2768 found the one
+# "organisation" on the walk #16 capture was a person matched on "ag".
+ORG_SHORT_FORM = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
+ORG_NAME = re.compile(
+    r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
+    r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
+SUBJECT_LINE = re.compile(r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
 GONE_QUIET = re.compile(r"gone quiet|no contact for|not been in touch|haven.t (spoken|been in touch)", re.I)
 QUIET_SPAN = re.compile(r"(\d[\d,]*)\s+(day|week|month|year)s?\b", re.I)
 RAW_MONTHS = re.compile(r"\b(\d[\d,]*)\s+months?\b", re.I)
@@ -204,6 +236,8 @@ def service_sender(name):
         return None
     if n.startswith("#"):
         return "hash-prefixed"
+    if SUBJECT_LINE.match(n):
+        return "subject line"
     if "@" in n:
         local = n.split("@", 1)[0]
         if SERVICE_LOCAL.match(local) or MARKETPLACES.search(n):
@@ -216,6 +250,22 @@ def service_sender(name):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
         return "marketplace or domain"
+    if ORG_NAME.search(n) or ORG_SHORT_FORM.match(n):
+        return "organisation name"
+    return None
+
+
+def junk_name(name):
+    """A People row name a customer cannot read as a person's name (walk #16 console)."""
+    n = (name or "").strip()
+    if not n:
+        return None
+    if not any(ch.isalpha() for ch in n):
+        return "no letters"
+    if CALENDAR_ID.search(n):
+        return "calendar or invite id"
+    if JUNK_HANDLE.match(n):
+        return "handle or id"
     return None
 
 
@@ -352,6 +402,7 @@ DECLARED = [
     "customer text: no raw http(s) URL in customer copy",
     "wiki: every page linked from the nav was read (the text checks cover all of them)",
     "wiki: no date is set in the old monospace style, on any page",
+    "people: no row is named by a handle, an id, a calendar address or digits",
 ]
 
 
@@ -377,6 +428,16 @@ def judge(f, declared=None):
     # Hub screens too (walk #15): the marker was honoured on the wiki only, so a
     # contact's own LinkedIn title on Hub People counted as Ostler copy.
     cust_titles.update({"hub " + k: (v or {}).get("customer_titles") or [] for k, v in screens.items()})
+    # Walk #16: a person's or organisation's NAME is contact-written by
+    # definition (it comes from their card or their own messages), so a dash
+    # inside it is the customer's data, not Ostler copy. Every name the people
+    # API returned is exempt on the Hub People screen and on a person detail
+    # screen, ONE occurrence per API row, so Ostler's own label beside it, or a
+    # second copy of the same text, still counts.
+    _people_names = [p.get("name") or "" for p in (f.get("people_api") or []) if p.get("name")]
+    for k in screens:
+        if k == "people" or k.startswith("person"):
+            cust_titles["hub " + k] = list(cust_titles.get("hub " + k, [])) + _people_names
     measured = [t for t in texts if t[1].strip()]
 
     def over_text(name, pred, show):
@@ -673,6 +734,7 @@ def judge(f, declared=None):
     if papi is None:
         add(DECLARED[23], None, "NOT MEASURED: the People list was not read from /api/v1/people")
         add(DECLARED[24], None, "NOT MEASURED: the People list was not read from /api/v1/people")
+        add(DECLARED[31], None, "NOT MEASURED: the People list was not read from /api/v1/people")
     else:
         human_by_email = {}
         for r in papi:
@@ -687,14 +749,32 @@ def judge(f, declared=None):
         add(DECLARED[23], not shadowed,
             "{} of {} People rows are named by an email address while a human-named row shares that address "
             "({} email-named rows in all; names withheld)".format(len(shadowed), len(papi), len(email_named)))
+        # A row with a phone is a contact card the customer filled in: the name
+        # on it is theirs, whatever its shape (F7 measured 5 real carded people
+        # this check flagged, plus cards named only by digits). Phone, not
+        # email: a service mailbox carries an email too.
+        named_by_customer = [r for r in papi if r.get("has_phone")]
         kinds = {}
         for r in papi:
+            if r.get("has_phone"):
+                continue
             k = service_sender(r.get("name"))
             if k:
                 kinds[k] = kinds.get(k, 0) + 1
         add(DECLARED[24], not kinds,
             "{} of {} People rows look like services, organisations or subject lines: {} (names withheld)".format(
                 sum(kinds.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(kinds.items()))))
+        junk = {}
+        for r in papi:
+            if r.get("has_phone"):
+                continue
+            k = junk_name(r.get("name"))
+            if k:
+                junk[k] = junk.get(k, 0) + 1
+        add(DECLARED[31], not junk,
+            "{} of {} People rows are named by something a customer cannot read as a name: {} (names withheld)".format(
+                sum(junk.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(junk.items())))
+            + "; {} rows with a phone (a customer-filled card) not judged".format(len(named_by_customer)))
 
     selfd = set(f.get("self_digests") or [])
     if f.get("owner_source") in ("synthetic", "unknown-walk"):
@@ -1000,7 +1080,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     preq = urllib.request.Request(base + "/api/v1/people", headers={"Authorization": "Bearer " + token})
                     with _local_urlopen(preq, timeout=60) as r:
                         body = json.load(r)
-                    f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or ""}
+                    f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or "",
+                                        "has_phone": bool(p.get("phone"))}
                                        for p in body.get("people") or []]
                     f["people_api_total"] = body.get("total", len(f["people_api"]))
                 except Exception as exc:
@@ -1341,6 +1422,12 @@ def _txt(path, add):
 MUTANTS = [
     ("ISO date on a card (#2534, #2550)", _txt(["screens", "home", "text"], "last seen 2026-01-15\n")),
     ("em dash on a wiki page (#2550)", _txt(["wiki", "pages", "front", "text"], "spans 5 years — from 2021\n")),
+    ("raw frontmatter fragment in a conversation summary (walk #16)",
+     _txt(["wiki", "pages", "front", "text"], "Catch up\n--- title: Catch up with Alexandra\n")),
+    ("raw frontmatter key block on a page (walk #16)",
+     _txt(["wiki", "pages", "front", "text"], "Catch up\ndate: 2030-01-01\nsource: whatsapp\nAgreed the plan.\n")),
+    ("internal provenance tag in customer text (walk #16)",
+     _txt(["screens", "home", "text"], "Jane Doe moved to Acme Corp [pwg:src=whatsapp]\n")),
     ("Ostler placeholder dash on People (#2562)", _txt(["screens", "people", "text"], "Jane Doe\n\u2014\n")),
     ("Ostler placeholder dash on the SAME Timeline screen as an exempt title (#2562)",
      _txt(["screens", "timeline", "text"], "EVENT\nUntitled\n\u2014\n")),
@@ -1407,11 +1494,19 @@ MUTANTS = [
      _app(["wiki", "nav_links"], "System/Statistics/")),
     ("a calendar title whose URL still shows raw (walk #6 f)",
      _txt(["screens", "timeline", "text"], "EVENT\nCheck in https://example.com/checkin\n")),
+    ("an organisation listed as a person (walk #16 console)",
+     _app(["people_api"], {"name": "example holdings ltd", "email": ""})),
+    ("a username as a People name (walk #16 console)", _app(["people_api"], {"name": "jdoe1984", "email": ""})),
+    ("a calendar address as a People name (walk #16 console)",
+     _app(["people_api"], {"name": "abc123" + "@group.calendar" + ".google.com", "email": ""})),
+    ("digits as a People name (walk #16 console)", _app(["people_api"], {"name": "001", "email": ""})),
+    ("an email subject line as a People name (review of #2768)",
+     _app(["people_api"], {"name": "re: lunch on friday", "email": ""})),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31, 24]))
 
 
 def _proxy_bypass_self_test():
@@ -1688,6 +1783,50 @@ def self_test():
             missed.append("an em dash in {} beside an exempt title is hidden ({!r})".format(label, got))
         else:
             print("  ok    an em dash in {} beside an exempt title still FAILS".format(label))
+    # Walk #16: an em dash inside a person's NAME on Hub People is the
+    # contact's own data and PASSES; our own label beside it still FAILS.
+    named = copy.deepcopy(_good())
+    dashed = "Jane Doe \u2014 Acme Corp"
+    named["people_api"].append({"name": dashed, "email": ""})
+    named["people_api_total"] = named.get("people_api_total", 0) + 1
+    named["screens"]["people"]["text"] += dashed + "\n"
+    gotn = [ok for n, ok, _ in judge(named) if n == DECLARED[1]]
+    if gotn != [True]:
+        missed.append("an em dash inside a person's name on Hub People still fails ({!r})".format(gotn))
+    else:
+        print("  ok    an em dash inside a person's name on Hub People PASSES (contact-written, not Ostler copy)")
+    carded = copy.deepcopy(_good())
+    carded["people_api"] += [{"name": "999", "email": "", "has_phone": True},
+                             {"name": "EXAMPLE BANK ALERTS", "email": "", "has_phone": True}]
+    gotc = [ok for n, ok, _ in judge(carded) if n in (DECLARED[24], DECLARED[31])]
+    if gotc != [True, True]:
+        missed.append("a customer-filled card (has a phone) is still judged by its name shape ({!r})".format(gotc))
+    else:
+        print("  ok    a contact card with a phone keeps the name the customer gave it")
+    # Walk #16 customer eyes: real names that look unusual must PASS the junk
+    # and organisation predicates, or the check fails real people.
+    for real in ("\U0001d479\U0001d48a\U0001d484\U0001d48c\U0001d49a Doe", "Mary-Jane O'Neil", "Henry 8th",
+                 "\u674e\u5c0f\u9f8d", "J. R. R. Doe", "jane doe",
+                 # review of #2768: ordinary words that are also surnames, and
+                 # short or capitalised tokens a human wrote
+                 # (lower case so the PII guard does not read them as name
+                 # pairs; ORG_NAME is case-insensitive, so the test is equal)
+                 "jane bank", "joe college", "ann school", "robert hospital", "lee council",
+                 "Jane Doe (Official)", "Jane2", "R2D2", "jdoe",
+                 "Jane AG", "anna ag", "kim nv", "tom inc", "Coco", "co li"):
+        if junk_name(real) or service_sender(real):
+            missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
+        else:
+            print("  ok    a real name passes the People name checks: {!r}".format(real))
+    for label, text in (("our own label beside it", "Recently added \u2014 this week\n"),
+                        ("a second copy of the same name", dashed + "\n")):
+        mut = copy.deepcopy(named)
+        mut["screens"]["people"]["text"] += text
+        got = [ok for n, ok, _ in judge(mut) if n == DECLARED[1]]
+        if got != [False]:
+            missed.append("an em dash in {} on Hub People is hidden by the name exemption ({!r})".format(label, got))
+        else:
+            print("  ok    an em dash in {} on Hub People still FAILS".format(label))
     twice = copy.deepcopy(browsed)
     twice["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += title + "\n"
     got = [ok for n, ok, _ in judge(twice) if n == DECLARED[1]]

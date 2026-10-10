@@ -333,3 +333,7 @@ jobs:
           set -e
           python -m pip install --quiet httpx
           python3 tests/test_gateway_conversations_reach_the_store.py
+
+      - name: A finished contact sync lets the settling bar reach 100% (walk #16 F8)
+        if: always()
+        run: bash tests/test_settling_contacts_reaches_100_when_sync_finished.sh

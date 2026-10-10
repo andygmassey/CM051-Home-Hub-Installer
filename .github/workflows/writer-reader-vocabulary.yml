@@ -46,6 +46,7 @@ on:
       - 'tests/test_the_preference_projection_runs_before_the_compile_that_reads_it.sh'
       - 'tests/test_the_front_page_catch_up_survives_a_late_ingest.sh'
       - 'tests/test_writer_reader_vocabulary_contracts.py'
+      - 'tests/test_memory_about_you.py'
       - '.github/workflows/writer-reader-vocabulary.yml'
   pull_request:
     paths:
@@ -65,6 +66,7 @@ on:
       - 'tests/test_the_preference_projection_runs_before_the_compile_that_reads_it.sh'
       - 'tests/test_the_front_page_catch_up_survives_a_late_ingest.sh'
       - 'tests/test_writer_reader_vocabulary_contracts.py'
+      - 'tests/test_memory_about_you.py'
       - '.github/workflows/writer-reader-vocabulary.yml'
 
 concurrency:
@@ -233,3 +235,15 @@ jobs:
       - name: The Front Page catch-up survives a late ingest
         if: always()
         run: bash tests/test_the_front_page_catch_up_survives_a_late_ingest.sh
+
+      # F12b: /api/v1/memory "About you" holds only the owner's facts; facts
+      # about other people go to about_others. Real query over rdflib, real
+      # api_memory_list. Floor + run in one step; `if: always()` so an
+      # earlier red cannot delete it.
+      - name: About you holds only the owner's facts (F12b)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_memory_about_you.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected 4 F12b tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest tests/test_memory_about_you.py -v -s

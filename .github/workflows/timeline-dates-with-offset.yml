@@ -1,0 +1,44 @@
+# CM031 device walk 2026-10-10: Timeline rows dated "now". The shipped
+# ical-server api_timeline must emit ISO 8601 with an offset, date
+# conversations by the event (never the ingest time), and drop unreadable rows.
+name: timeline-dates-with-offset
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_timeline_dates_are_event_dates_with_offset.py'
+      - '.github/workflows/timeline-dates-with-offset.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_timeline_dates_are_event_dates_with_offset.py'
+      - '.github/workflows/timeline-dates-with-offset.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  timeline-dates-with-offset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest and the vendored modules' runtime dependencies
+        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject
+      - name: "Timeline dates: offset, event dates only, unreadable rows dropped"
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_timeline_dates_are_event_dates_with_offset.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_timeline_dates_are_event_dates_with_offset.py -v -rs

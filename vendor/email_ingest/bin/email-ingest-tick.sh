@@ -100,6 +100,71 @@ fi
 # 1. Emit fresh messages from Apple Mail
 # ---------------------------------------------------------------------------
 
+_report_email_settling() {
+    # $1 = messages read this tick. An EMPTY tick reports too (read=0), so a
+    # backfill the reader has marked complete still reaches 100% (walk #16
+    # review: completion was only read after a tick that found mail).
+# Settling panel, `emails` channel (walk #16 console). This agent is what
+# actually reads the customer's mail, hour by hour, yet it never reported
+# progress, so the panel kept the install-time pass's "nothing found" while
+# 12,339 emails were processed. Report CUMULATIVE messages read: the writer
+# keeps done monotonic, so pass previous + this tick. The total is the
+# mailbox size, measured once. Best effort: a failed report never fails the
+# tick, and the reason is logged.
+OSTLER_HOME="$OSTLER_DIR" OSTLER_SETTLING_TICK_READ="${1:-0}" \
+OSTLER_SETTLING_WINDOW_DAYS="$OSTLER_BACKFILL_DAYS" \
+"$OSTLER_PYTHON" - <<'PYEOF' || log "WARNING: settling progress for emails not written (exit $?); the ingest itself succeeded."
+import json, os, time
+from pathlib import Path
+from ostler_fda.settling_progress import report_settling_progress
+home = Path(os.environ["OSTLER_HOME"])
+state = home / "state"
+shard = state / "settling_progress.d" / "emails.json"
+prev_done = prev_total = 0
+try:
+    d = json.loads(shard.read_text(encoding="utf-8"))
+    prev_done = max(0, int(d.get("done") or 0))
+    prev_total = max(0, int(d.get("total") or 0))
+except Exception:
+    pass
+read = int(os.environ.get("OSTLER_SETTLING_TICK_READ") or 0)
+# The denominator is what THIS agent will ever read: whole messages (not
+# *.partial.emlx) inside its backfill window. Counting the whole mailbox made
+# an old mailbox unable to reach 100%. Measured once, then kept.
+total = prev_total
+if total <= 0:
+    window_s = int(os.environ.get("OSTLER_SETTLING_WINDOW_DAYS") or 1825) * 86400
+    floor = time.time() - window_s
+    mail = Path.home() / "Library" / "Mail"
+    total = 0
+    if mail.is_dir():
+        for p in mail.rglob("*.emlx"):
+            if p.name.endswith(".partial.emlx"):
+                continue
+            try:
+                if p.stat().st_mtime >= floor:
+                    total += 1
+            except OSError:
+                pass
+done = prev_done + read
+# The reader says when its backward sweep has crossed the oldest message.
+# That is "finished", whatever the running count says, so the bar reaches
+# 100% instead of freezing just short of it.
+complete = False
+try:
+    ck = json.loads((state / "apple_mail_mbox_checkpoint.json").read_text(encoding="utf-8"))
+    complete = bool(ck.get("backfill_complete"))
+except Exception:
+    pass
+if total > 0:
+    done = total if complete else min(done, total)
+else:
+    total = done
+report_settling_progress("emails", done=done, total=total, needs_source=False, state_dir=state)
+print(f"settling: emails done={done} total={total} complete={complete} (+{read} this tick)")
+PYEOF
+}
+
 log "email-ingest tick start: mbox=$MBOX backfill_days=$OSTLER_BACKFILL_DAYS"
 
 # Legacy checkpoint location. This tick used to hand ostler-fda
@@ -137,6 +202,7 @@ if [ ! -s "$MBOX" ]; then
     log "no new messages this tick, skipping ingest"
     # Tidy up an empty file if one was created (defence in depth).
     [ -f "$MBOX" ] && rm -f "$MBOX"
+    _report_email_settling 0
     exit 0
 fi
 
@@ -197,6 +263,10 @@ fi
 }
 
 log "ingested $MBOX successfully"
+_SETTLING_TICK_READ="$(grep -c '^From ' "$MBOX" 2>/dev/null || true)"
+case "${_SETTLING_TICK_READ:-}" in ''|*[!0-9]*) _SETTLING_TICK_READ=0 ;; esac
+_report_email_settling "$_SETTLING_TICK_READ"
+
 
 # ---------------------------------------------------------------------------
 # 3. Mark first_ingest_complete_ts (#260)

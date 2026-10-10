@@ -498,6 +498,18 @@ else
     printf '  SKIPPED (read-only): usage seed not applied (install.sh ingest sweep not run by hand).\n\n'
 fi
 
+# ── AND THE SCALE FIXTURE, the volume that exhausted Qdrant on the #16 walk ──
+# lib/scale_fixture_seed.sh: thousands of synthetic reminders and notes through
+# the INSTALLED hydrate path, so qdrant_has_fd_headroom_and_writes_land reads a
+# box that has carried real volume. Long by design; OSTLER_WALK_SCALE=0 skips it
+# and the skip is recorded. Gated on READ_ONLY like every writer.
+. "$HERE/lib/scale_fixture_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+scale_fixture_apply || true
+else
+    printf '  SKIPPED (read-only): scale fixture not replayed.\n\n'
+fi
+
 # ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
 #
 # The four seeds above give the box a person, a preference, a conversation and
