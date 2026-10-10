@@ -16,7 +16,7 @@
 # The replay is long by design (the SST count grows with the wall time of
 # paced writes): about 18 minutes at 40 ms an embed. OSTLER_WALK_SCALE=0 skips
 # it (recorded as skipped, never as passed); OSTLER_WALK_SCALE_BUDGET_S bounds it
-# (default 5400). The fixture is synthetic: cast names, example.com, the Ofcom
+# (default 5400); the F12 neighbour note is seeded either way. The fixture is synthetic: cast names, example.com, the Ofcom
 # drama range. The outcome is written to ~/.walk-scale-fixture-run.
 
 _sfs_box() {
@@ -31,14 +31,22 @@ scale_fixture_apply() {
     local here state rc
     here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     printf 'Scale fixture (v1.0.107 #16: Qdrant fd exhaustion under real volume)\n'
+    local dir='$HOME/.ostler/walk-scale-fixture'
+    _sfs_box "mkdir -p ${dir} && printf %s '$(base64 < "${here}/scale_fixture.py" | tr -d '\n')' | base64 -d > ${dir}/scale_fixture.py" \
+        || { printf '  CANNOT-RUN: could not stage scale_fixture.py on the box\n\n'; printf 'failed-stage rc=2\n' > "${HOME}/.walk-scale-fixture-run"; return 1; }
+    # F12: the neighbour's note, written into the owner's named graph about the
+    # NEIGHBOUR, then the digest is refreshed. owner_digest_knows_the_owner
+    # reads OSTLER_NEIGHBOUR_SEED_STATE and FAILS if the note is presented as
+    # the owner's. Fast, so it runs before the long replay.
+    OSTLER_NEIGHBOUR_SEED_STATE="$(_sfs_box "cd ${dir} && python3 scale_fixture.py seed-neighbour" 2>/dev/null | tail -1)"
+    OSTLER_NEIGHBOUR_SEED_STATE="${OSTLER_NEIGHBOUR_SEED_STATE:-failed-no-answer}"
+    export OSTLER_NEIGHBOUR_SEED_STATE
+    printf '  neighbour note: %s\n' "$OSTLER_NEIGHBOUR_SEED_STATE"
     if [ "${OSTLER_WALK_SCALE:-1}" = "0" ]; then
         printf '  SKIPPED (OSTLER_WALK_SCALE=0): the scale replay was not run.\n\n'
         printf 'skipped rc=0\n' > "${HOME}/.walk-scale-fixture-run"
         return 0
     fi
-    local dir='$HOME/.ostler/walk-scale-fixture'
-    _sfs_box "mkdir -p ${dir} && printf %s '$(base64 < "${here}/scale_fixture.py" | tr -d '\n')' | base64 -d > ${dir}/scale_fixture.py" \
-        || { printf '  CANNOT-RUN: could not stage scale_fixture.py on the box\n\n'; printf 'failed-stage rc=2\n' > "${HOME}/.walk-scale-fixture-run"; return 1; }
     rc=0
     _sfs_box "cd ${dir} && { [ -f fixture/manifest.json ] || python3 scale_fixture.py generate --out fixture >/dev/null; } \
         && perl -e 'alarm shift; exec @ARGV' ${OSTLER_WALK_SCALE_BUDGET_S:-5400} python3 scale_fixture.py replay --fixture fixture" \

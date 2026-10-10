@@ -56,6 +56,15 @@ for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_cl
     bash "scripts/box_walk_probes/probes/$p.sh" --self-test >/dev/null 2>&1; rc=$?
     [ "$rc" -eq 1 ] && ok "$p --self-test returns FAIL (1)" || bad "$p --self-test returned $rc"
 done
+python3 - <<'PY' && ok "F12: the seeded neighbour note is the same string in the seeder and the probe" || bad "F12: NEIGHBOUR_NOTE differs between scale_fixture.py and owner_digest.py"
+import sys
+sys.path.insert(0, "scripts/box_walk_probes/lib")
+import scale_fixture, owner_digest
+assert scale_fixture.NEIGHBOUR_NOTE == owner_digest.NEIGHBOUR_NOTE
+assert owner_digest.NEIGHBOUR_MARK in scale_fixture.NEIGHBOUR_NOTE.lower()
+PY
+python3 scripts/box_walk_probes/lib/owner_digest.py --self-test >/dev/null 2>&1 \
+    && ok "owner_digest (F12): the neighbour note in About you, a non-owner fact and a leaking chat all go red" || bad "owner_digest self-test"
 grep -q '^scale_fixture_apply' scripts/box_walk_probes/run_box_walk.sh \
     && ok "run_box_walk.sh calls scale_fixture_apply" || bad "run_box_walk.sh never calls scale_fixture_apply"
 for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_clean; do

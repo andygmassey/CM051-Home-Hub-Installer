@@ -67,6 +67,14 @@ _WORDS = ("the plan needs another pass before we share it with the group and agr
           "steps for the spring with everyone who said they could help on the day").split()
 BASE = datetime(2030, 1, 1, 9, 0, 0, tzinfo=timezone.utc)
 
+# F12: a neighbour's note, written into the OWNER's named graph but ABOUT the
+# neighbour. MUST equal lib/owner_digest.py NEIGHBOUR_NOTE (pinned by
+# tests/test_scale_gate_probes.sh). owner_digest_knows_the_owner FAILS if it is
+# ever presented as the owner's.
+NEIGHBOUR_NOTE = "Philip Coe is based in Initech Town"
+NEIGHBOUR_URI = "https://schema.ostler.ai/ontology#person_walkfixture_neighbour"
+NEIGHBOUR_FACT = "urn:ostler:fact/walkfixture-neighbour-location"
+
 
 def _cap(w):
     return w[:1].upper() + w[1:]
@@ -237,6 +245,65 @@ def replay(fixture, knowledge_bin, qdrant, ollama, home):
     return diag, results
 
 
+def _owner_user_id(home):
+    for path in (os.path.join(home, ".ostler", "config", ".env"), os.path.join(home, ".ostler", ".env")):
+        try:
+            for line in open(path):
+                if line.strip().startswith("USER_ID="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+        except OSError:
+            pass
+    return ""
+
+
+def neighbour_update(uid, now):
+    """The SPARQL UPDATE that seeds the neighbour note (idempotent)."""
+    return ("DELETE WHERE { GRAPH ?g { <%s> ?p ?o } } ;\n"
+           "INSERT DATA {\n <%s> a <https://schema.ostler.ai/ontology#Person> ;"
+           " <https://schema.ostler.ai/ontology#displayName> \"Philip Coe\" .\n"
+           " GRAPH <urn:ostler:user/%s> {\n  <%s> a <urn:ostler:Fact> ; <urn:ostler:text> \"%s\" ;"
+           " <urn:ostler:about> <%s> ; <urn:ostler:userId> \"%s\" ; <urn:ostler:type> \"location\" ;"
+           " <urn:ostler:domain> \"personal\" ; <urn:ostler:privacyLevel> \"L1\" ;"
+           " <urn:ostler:observedAt> \"%s\"^^<http://www.w3.org/2001/XMLSchema#dateTime> .\n }\n}"
+           % (NEIGHBOUR_FACT, NEIGHBOUR_URI, uid, NEIGHBOUR_FACT, NEIGHBOUR_NOTE, NEIGHBOUR_URI, uid, now))
+
+
+def seed_neighbour(home, store="http://127.0.0.1:7878", wait_s=600):
+    """Write the neighbour's note into the owner's named graph (the way CM048
+    writes a Fact, urn:ostler:about = the NEIGHBOUR), refresh the digest, and
+    wait for CONTEXT.md to be rewritten. -> state word."""
+    import urllib.request
+    uid = _owner_user_id(home)
+    if not uid:
+        return "failed-no-user-id"
+    tok = os.environ.get("OXIGRAPH_TOKEN") or ""
+    if not tok:
+        try:
+            tok = open(os.path.join(home, ".ostler", "secrets", "oxigraph_token")).read().strip()
+        except OSError:
+            tok = ""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    upd = neighbour_update(uid, now)
+    headers = {"Content-Type": "application/sparql-update"}
+    if tok:
+        headers["Authorization"] = "Bearer " + tok
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        opener.open(urllib.request.Request(store + "/update", data=upd.encode(), headers=headers, method="POST"), timeout=30).read()
+    except Exception as e:
+        return "failed-write-%s" % type(e).__name__
+    ctx = os.path.join(home, ".ostler", "assistant-config", "workspace", "CONTEXT.md")
+    before = os.path.getmtime(ctx) if os.path.exists(ctx) else 0
+    subprocess.call(["launchctl", "kickstart", "-k", "gui/%d/com.creativemachines.ostler.context-refresh" % os.getuid()],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.time() + wait_s
+    while time.time() < deadline:
+        if os.path.exists(ctx) and os.path.getmtime(ctx) > before:
+            return "seeded"
+        time.sleep(5)
+    return "failed-digest-not-rewritten"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -252,7 +319,13 @@ def main(argv=None):
     r.add_argument("--qdrant", default=os.environ.get("QDRANT_URL", "http://localhost:6333"))
     r.add_argument("--ollama", default=os.environ.get("EMBED_OLLAMA_URL", "http://localhost:11434"))
     r.add_argument("--home", default=os.path.expanduser("~"))
+    nbp = sub.add_parser("seed-neighbour")
+    nbp.add_argument("--home", default=os.path.expanduser("~"))
     a = ap.parse_args(argv)
+    if a.cmd == "seed-neighbour":
+        state = seed_neighbour(a.home)
+        print(state)
+        return 0 if state == "seeded" else 1
     if a.cmd == "generate":
         if a.people < 4000:
             ap.error("--people must be at least 4000 (the scale this fixture exists for)")
