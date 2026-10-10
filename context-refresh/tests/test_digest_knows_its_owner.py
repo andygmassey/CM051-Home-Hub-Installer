@@ -54,6 +54,7 @@ SERVICE_TOKEN = "synthetic-service-token-0000"
 OWNER_ID = "jane"
 OWNER_NAME = "Jane Doe"
 OWNER_EMAIL = "jane@example.com"
+NEIGHBOUR_PLACE = "Sam Patel is based in Lyonville."
 
 # Strings that must NEVER reach the digest (L3, or not a person).
 FORBIDDEN = (
@@ -75,7 +76,8 @@ def _lit(v) -> ox.Literal:
 
 
 def _seed_store(*, mecard_org: str | None = "ExampleCo",
-                linkedin_current: str | None = None) -> ox.Store:
+                linkedin_current: str | None = None,
+                neighbour_place: bool = False) -> ox.Store:
     store = ox.Store()
     dg = ox.DefaultGraph()
     rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
@@ -125,8 +127,10 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     # Conversation-mined facts in the owner's named graph.
     ug = ox.NamedNode(f"urn:ostler:user/{OWNER_ID}")
 
-    def ufact(fid, text, ftype, domain, level="L0"):
+    def ufact(fid, text, ftype, domain, level="L0", about=None):
         f = ox.NamedNode(f"urn:ostler:fact/{fid}")
+        if about:
+            add(f, ox.NamedNode("urn:ostler:about"), ox.NamedNode(about), ug)
         add(f, rdf_type, ox.NamedNode("urn:ostler:Fact"), ug)
         add(f, ox.NamedNode("urn:ostler:text"), _lit(text), ug)
         add(f, ox.NamedNode("urn:ostler:userId"), _lit(OWNER_ID), ug)
@@ -148,6 +152,14 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     ufact("u1", "Lives in Fictionville", "location", "general")
     ufact("u2", "Has a sister called Liz Doe", "relationship", "family")
     ufact("u3", "L3 SECRET FAMILY FACT", "relationship", "family", level="L3")
+    if neighbour_place:
+        # F12: the CM048 writer's real shape. The owner's own place carries
+        # about=urn:ostler:user/<id>; a contact's carries their person URN.
+        # Both sit in the OWNER's graph with the owner's userId.
+        ufact("u4", "Works from Harbourtown on Fridays", "location", "general",
+              about=f"urn:ostler:user/{OWNER_ID}")
+        ufact("u5", NEIGHBOUR_PLACE, "location", "general",
+              about="urn:ostler:person/sam_patel")
 
     # People the owner interacts with.
     def person(pid, name, org=None, level="L2"):
@@ -528,3 +540,53 @@ def test_digest_is_capped_on_a_busy_graph(env):
     store = _seed_store()
     _, digest = _build(env, _SCRIPT, store)
     assert len(digest) <= 6000 + 80
+
+
+# ── F12: a contact's place is not the owner's ────────────────────────────────
+#
+# Cut #17 device walk: asked "what do you know about me", the assistant listed
+# another contact's "is based in <city>" as the owner's. On the box the fact
+# was a CM048 urn:ostler:Fact with userId = the owner and urn:ostler:about =
+# that contact's person URN, and CONTEXT.md's About you Places line had it.
+
+# origin/main before this fix: the About-you generator that shipped in #16.
+_F12_PREFIX_SHA = "23555fa7"
+
+
+def _about_places(digest: str) -> str:
+    about = _section(digest, "About you")
+    return "\n".join(ln for ln in about.splitlines() if ln.startswith("- Places:"))
+
+
+def test_f12_control_the_seed_holds_both_places():
+    store = _seed_store(neighbour_place=True)
+    texts = {r["t"].value for r in store.query(
+        "SELECT ?t WHERE { GRAPH ?g { ?f <urn:ostler:type> \"location\" ; "
+        "<urn:ostler:text> ?t ; <urn:ostler:userId> ?u } }")}
+    assert NEIGHBOUR_PLACE in texts and "Works from Harbourtown on Fridays" in texts
+
+
+def test_f12_red_shipped_generator_gives_the_owner_a_contacts_place(env, tmp_path):
+    try:
+        src = subprocess.run(
+            ["git", "-C", str(_REPO), "show",
+             f"{_F12_PREFIX_SHA}:context-refresh/bin/generate_pwg_context.py"],
+            capture_output=True, text=True, check=True, timeout=30).stdout
+    except (subprocess.CalledProcessError, OSError) as exc:
+        pytest.fail(f"CANNOT-RUN: generator not readable at {_F12_PREFIX_SHA}: {exc}")
+    pre = tmp_path / "generate_pwg_context_f12_prefix.py"
+    pre.write_text(src, encoding="utf-8")
+    _, digest = _build(env, pre, _seed_store(neighbour_place=True), name="gen_f12_prefix")
+    places = _about_places(digest)
+    print(f"\n[F12 RED] {places}")
+    assert NEIGHBOUR_PLACE in places
+
+
+def test_f12_green_a_contacts_place_never_reaches_about_you(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(neighbour_place=True), name="gen_f12")
+    places = _about_places(digest)
+    print(f"\n[F12 GREEN] {places}")
+    assert NEIGHBOUR_PLACE not in _section(digest, "About you")
+    # Control: the owner's own places, tagged and legacy-untagged, still show.
+    assert "Works from Harbourtown on Fridays" in places
+    assert "Lives in Fictionville" in places
