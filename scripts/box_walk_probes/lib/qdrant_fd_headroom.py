@@ -174,7 +174,7 @@ def self_test():
         "an embed step with chunks and no vectors": dict(good, steps=good["steps"][:1] + parsed_e),
         "the real-path RED: 9,266 of 18,000 written, 8,734 errors, exit 0": dict(good, steps=good["steps"][:1] + parse_log(
             "hydrate-apple-notes.log", "  Chunks created: 18,000\n  Vectors inserted: 9,266\n"
-            + "ERROR - Failed to upsert chunk: Unexpected Response: 500\n" * 8734)),
+            + "ERROR - Failed to upsert chunk: HTTP 500\n" * 8734)),
         "every chunk written but errors reported": dict(good, steps=[dict(good["steps"][1], errors=3)]),
     }
     full = parse_log("hydrate-apple-notes.log", "  Chunks created: 18,000\n  Vectors inserted: 18,000\n")
