@@ -25,7 +25,7 @@
 #
 # THE PERSONA. A stock walk box knows nothing about the synthetic owner, so the
 # probe puts the persona digest where the owner cheat sheet lives
-# (~/.zeroclaw/workspace/CONTEXT.md, which ostler-assistant's
+# (~/.ostler/assistant-config/workspace/CONTEXT.md, which ostler-assistant's
 # crates/zeroclaw-runtime/src/agent/prompt.rs injects into every system
 # prompt), then RESTORES the file on exit. If the LaunchAgent regenerates
 # CONTEXT.md mid-run the persona marker is gone and the probe says CANNOT-RUN
@@ -37,7 +37,7 @@
 #   OSTLER_OWNER_SCORE_LIMIT      questions to sample (default 8; 0 = all 60 visible)
 #   OSTLER_OWNER_SCORE_TARGET     percent (default 70)
 #   OSTLER_OWNER_SCORE_QUESTIONS  path ON THE BOX to the owner's own questions file
-#   OSTLER_WORKSPACE_DIR          default $HOME/.zeroclaw/workspace
+#   OSTLER_WORKSPACE_DIR          default $HOME/.ostler/assistant-config/workspace
 #   OSTLER_PROBE_CHAT_TIMEOUT     per-turn ceiling in seconds (default 420)
 #
 # Runs under bash 3.2. No associative arrays, no mapfile.
@@ -50,7 +50,9 @@ PROBE_QUESTION="asked the way a customer asks, how many questions about the owne
 LIMIT="${OSTLER_OWNER_SCORE_LIMIT:-8}"
 TARGET="${OSTLER_OWNER_SCORE_TARGET:-70}"
 CUSTOM_Q="${OSTLER_OWNER_SCORE_QUESTIONS:-}"
-WORKSPACE="${OSTLER_WORKSPACE_DIR:-\$HOME/.zeroclaw/workspace}"
+# The daemon runs with ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config (install.sh);
+# ~/.zeroclaw/workspace does not exist on a v1.0.107 box (walk #17: SWAP_RC=12).
+WORKSPACE="${OSTLER_WORKSPACE_DIR:-\$HOME/.ostler/assistant-config/workspace}"
 TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-~/.ostler/secrets/zeroclaw_admin_token}"
 CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-420}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../owner_score" && pwd)"

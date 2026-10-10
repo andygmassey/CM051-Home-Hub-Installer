@@ -28,7 +28,7 @@ GOLD = {q["question"]: q["gold"] for q in t.ALL}
 class Box:
     def __init__(self, ctx, declare_synthetic=False, table=None):
         self.home = tempfile.mkdtemp()
-        self.ws = self.home + "/.zeroclaw/workspace"
+        self.ws = self.home + "/.ostler/assistant-config/workspace"
         os.makedirs(self.ws)
         os.makedirs(self.home + "/.ostler/secrets")
         open(self.home + "/.ostler/secrets/zeroclaw_admin_token", "w").write("tok123")
