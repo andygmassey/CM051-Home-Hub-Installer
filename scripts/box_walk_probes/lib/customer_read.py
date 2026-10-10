@@ -1325,6 +1325,10 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             # items' text for a phone-shaped substring -- regardless of
             # which strategy nominally won -- finds it. This is also more
             # robust to a future strategy rename than matching the name.
+            # #2786: the report is built off the request path. "preparing" is
+            # an empty list that means NOT LOOKED YET, never "nothing to review".
+            if diff.get("preparing") or (diff.get("degraded") and not diff.get("items")):
+                raise RuntimeError("duplicate review not ready: " + str(diff.get("reason") or "degraded")[:100])
             reviewed = set()
             for item in diff.get("items") or []:
                 details = (item.get("evidence") or {}).get("details") or ""
