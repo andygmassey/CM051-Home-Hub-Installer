@@ -167,6 +167,7 @@ def _warn_plaintext_once(db_path: str) -> None:
         flush=True,
     )
 import threading
+import time
 import urllib.request
 import uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -8669,26 +8670,86 @@ def api_contacts_diff():
             "reason": f"tidy engine unavailable: {exc}",
         }
 
+    return _contacts_diff_cached(TidyEngine)
+
+
+# ── Tidy report: built in the background, served from a cache (CM051 F18) ──
+#
+# Measured on a 6,700-person graph: the duplicate scan is O(n^2) over names
+# (~22M pairs) and does not finish inside the Doctor proxy's 30s upstream
+# timeout, so GET /api/v1/contacts/diff came back 502 at 30.04s and the
+# customer's "Tidy your contacts" tab errored. In-process on a synthetic
+# 6,700-person fixture build_report took 60.8s and stopped on its own 60s
+# budget with a PARTIAL report. Raising the proxy timeout to minutes would
+# just make the customer stare at a spinner, so the request path never builds
+# the report any more: a background thread does, and the request returns the
+# last finished report with its "as_of" time at once. With no report yet it
+# returns at once with degraded=True, preparing=True and a reason the Doctor
+# tab already renders. A stale report is served while a fresh one builds.
+# Off the request path the scan gets a larger budget, so it completes instead
+# of truncating.
+_CONTACTS_DIFF_TTL_SECONDS = float(os.environ.get("OSTLER_CONTACTS_DIFF_TTL_SECONDS", "600"))
+_CONTACTS_DIFF_BUILD_BUDGET_SECONDS = float(
+    os.environ.get("OSTLER_CONTACTS_DIFF_BUILD_BUDGET_SECONDS", "900"))
+_contacts_diff_lock = threading.Lock()
+_contacts_diff_state = {"report": None, "as_of": 0.0, "building": False,
+                        "last_error": "", "started": 0.0}
+
+
+def _contacts_diff_build(engine_cls) -> None:
     engine = None
     try:
-        engine = TidyEngine(oxigraph_url=OXIGRAPH_URL, qdrant_url=QDRANT_URL)
-        return engine.build_report().to_dict()
+        engine = engine_cls(
+            oxigraph_url=OXIGRAPH_URL, qdrant_url=QDRANT_URL,
+            config={"fuzzy_match_max_seconds": _CONTACTS_DIFF_BUILD_BUDGET_SECONDS},
+        )
+        report = engine.build_report().to_dict()
+        with _contacts_diff_lock:
+            _contacts_diff_state.update(report=report, as_of=time.time(),
+                                        last_error="")
     except Exception as exc:
-        return {
-            "schema_version": 1,
-            "total_persons": 0,
-            "counts": {},
-            "items": [],
-            "degraded": True,
-            "reason": str(exc)[:200],
-            "error": str(exc),
-        }
+        with _contacts_diff_lock:
+            _contacts_diff_state["last_error"] = str(exc)[:200]
     finally:
+        with _contacts_diff_lock:
+            _contacts_diff_state["building"] = False
         if engine is not None:
             try:
                 engine.close()
             except Exception:
                 pass
+
+
+def _contacts_diff_kick(engine_cls) -> None:
+    """Start a background build unless one is running. Caller holds the lock."""
+    if _contacts_diff_state["building"]:
+        return
+    _contacts_diff_state["building"] = True
+    _contacts_diff_state["started"] = time.time()
+    threading.Thread(target=_contacts_diff_build, args=(engine_cls,),
+                     name="contacts-diff-build", daemon=True).start()
+
+
+def _contacts_diff_cached(engine_cls) -> dict:
+    now = time.time()
+    with _contacts_diff_lock:
+        report = _contacts_diff_state["report"]
+        age = now - _contacts_diff_state["as_of"]
+        if report is None or age > _CONTACTS_DIFF_TTL_SECONDS:
+            _contacts_diff_kick(engine_cls)
+        building = _contacts_diff_state["building"]
+        last_error = _contacts_diff_state["last_error"]
+        as_of = _contacts_diff_state["as_of"]
+    if report is None:
+        reason = ("Still preparing your contacts report. Check back in a minute."
+                  if not last_error else f"Could not build the report: {last_error}")
+        return {"schema_version": 1, "total_persons": 0, "counts": {},
+                "items": [], "degraded": True, "preparing": not last_error or building,
+                "reason": reason}
+    out = dict(report)
+    out["as_of"] = datetime.fromtimestamp(as_of, tz=timezone.utc).isoformat(timespec="seconds")
+    out["refreshing"] = building
+    return out
 
 
 def api_ingest_ios(payload):
@@ -12005,6 +12066,11 @@ if __name__ == "__main__":
     # Spooled memory/assert facts: attached when the model is free, and a
     # restart resumes them from the encrypted spool.
     _start_assert_spool_thread()
+    # F18: warm the Tidy report off the request path, after the stores settle,
+    # so the Doctor tab's first visit is served from the cache.
+    _warm = threading.Timer(120.0, api_contacts_diff)
+    _warm.daemon = True
+    _warm.start()
     # Lane 6: resume any spooled page-summary jobs left by a restart.
     try:
         _enrich_queue()

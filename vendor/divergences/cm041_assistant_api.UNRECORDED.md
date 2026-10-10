@@ -1010,3 +1010,11 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upst
 ### What a future sync must preserve
 
 `_timeline_timestamp` and its use by `_to_iso8601`, the event-date key list, and the three `entries` changes. Guarded by `tests/test_timeline_dates_are_event_dates_with_offset.py` (7 tests: 7 red on the branch base), run by `.github/workflows/timeline-dates-with-offset.yml`. Retire by landing CM041 #213 (rebased on this) and re-pinning.
+
+## Tidy report built in the background, served from a cache (CM051 F18, #18 Mini16)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream. `ical-server.py` `api_contacts_diff` no longer runs `TidyEngine.build_report()` on the request path: `_contacts_diff_cached` serves the last finished report with `as_of` (and `refreshing` while a new one builds), or answers at once with `degraded: true, preparing: true` and a reason when none exists yet. `_contacts_diff_build` runs in a daemon thread with `fuzzy_match_max_seconds` raised to `OSTLER_CONTACTS_DIFF_BUILD_BUDGET_SECONDS` (900), since it is off the request path. Reports go stale after `OSTLER_CONTACTS_DIFF_TTL_SECONDS` (600). A daemon `threading.Timer` warms the cache 120s after start. A module-level `import time` is added.
+
+### What a future sync must preserve
+
+`_contacts_diff_cached`, `_contacts_diff_build`, `_contacts_diff_kick`, the state dict and lock, and the warm-up timer in `main`. Guarded by `tests/test_contacts_diff_answers_fast_at_scale.py` (the 6,700-person arm fails on the pre-fix server), run by `.github/workflows/contacts-diff-fast.yml`. Retire by landing the same change in CM041 and re-pinning.
