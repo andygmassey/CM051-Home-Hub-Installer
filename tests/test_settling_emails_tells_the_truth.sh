@@ -98,17 +98,31 @@ cat > "$H/py/ostler_fda/apple_mail_mbox.py" <<'PY'
 import sys
 out = sys.argv[sys.argv.index("--emit-mbox") + 1]
 with open(out, "w") as fh:
-    for i in range(3):
+    import os
+    for i in range(int(os.environ.get("STUB_N", "3"))):
         fh.write("From a@example.com 2026-10-09\nsubject: t%d\n\nbody\n\n" % i)
 PY
-for tick in 1 2; do
+tick() {  # $1 = messages the stub reader emits this tick
     HOME="$H" OSTLER_DIR="$H/.ostler" PYTHONPATH="$H/py" PWG_EMAIL_INGEST=/usr/bin/true \
-        OSTLER_MARK_FIRST_INGEST=/nonexistent \
-        bash "$ROOT/vendor/email_ingest/bin/email-ingest-tick.sh" >"$WORK/tick$tick.log" 2>&1 \
-        || fail "tick $tick exited non-zero: $(tail -2 "$WORK/tick$tick.log")"
+        OSTLER_MARK_FIRST_INGEST=/nonexistent STUB_N="$1" \
+        bash "$ROOT/vendor/email_ingest/bin/email-ingest-tick.sh" >"$WORK/tick.log" 2>&1 \
+        || fail "tick exited non-zero: $(tail -2 "$WORK/tick.log")"
     rm -f "$H/.ostler/imports/email/"*.mbox.txt
-    sleep 1
-done
+}
+# Review: the install-time pass reports FIRST on a real box. Its total must be
+# the same windowed count the tick uses, or the bar moves backwards.
+(
+    export HOME="$H"
+    # shellcheck source=/dev/null
+    . "$ROOT/lib/settling_progress.sh"
+    settling_report_measured emails 3 false
+) >/dev/null 2>&1
+f4="$H/.ostler/state/settling_progress.d/emails.json"
+t="$(read_field "$f4" total 2>/dev/null)"
+[ "$t" = "8" ] && pass "install-time total is the windowed 8, the tick's own denominator" \
+    || fail "install-time total=$t (want 8: no partials, nothing older than the window)"
+rm -f "$f4"
+tick 3; sleep 1; tick 3
 f4="$H/.ostler/state/settling_progress.d/emails.json"
 if [ -f "$f4" ]; then
     d="$(read_field "$f4" done)"; n="$(read_field "$f4" needs_source)"; t="$(read_field "$f4" total)"
@@ -116,18 +130,23 @@ if [ -f "$f4" ]; then
     [ "$t" = "8" ] && pass "total is the 8 whole messages in the window (no partial, no out-of-window)" \
         || fail "total=$t (want 8: partial and out-of-window messages excluded)"
     [ "$n" = "false" ] && pass "the hourly tick never says needs_source" || fail "hourly tick needs_source=$n"
-    # The reader marks its backward sweep complete: the bar must reach 100%.
-    printf '{"schema_version": 2, "backfill_complete": true}\n' > "$H/.ostler/state/apple_mail_mbox_checkpoint.json"
-    HOME="$H" OSTLER_DIR="$H/.ostler" PYTHONPATH="$H/py" PWG_EMAIL_INGEST=/usr/bin/true \
-        OSTLER_MARK_FIRST_INGEST=/nonexistent \
-        bash "$ROOT/vendor/email_ingest/bin/email-ingest-tick.sh" >"$WORK/tick3.log" 2>&1
+    # Review: a checkpoint reset re-reads mail; done must be capped at the total.
+    printf '{"key":"emails","done":7,"total":8,"needs_source":false}\n' > "$f4"
+    tick 3 >/dev/null
     d="$(read_field "$f4" done)"
-    [ "$d" = "8" ] && pass "a complete backfill reads 8 of 8, so the bar can finish" \
-        || fail "complete backfill -> done $d of 8 (the bar freezes short of 100%)"
+    [ "$d" = "8" ] && pass "done is capped at the total (7 + 3 -> 8, not 10)" || fail "done=$d after 7+3 of 8 (want 8, capped)"
+    # Review: the reader marks the sweep complete, and the NEXT tick finds no new
+    # mail at all. That empty tick must still finish the bar.
+    printf '{"key":"emails","done":6,"total":8,"needs_source":false}\n' > "$f4"
+    printf '{"schema_version": 2, "backfill_complete": true}\n' > "$H/.ostler/state/apple_mail_mbox_checkpoint.json"
+    tick 0 >/dev/null
+    d="$(read_field "$f4" done)"
+    [ "$d" = "8" ] && pass "an EMPTY tick after a complete backfill reads 8 of 8" \
+        || fail "empty tick after backfill_complete -> done $d of 8 (the bar freezes short of 100%)"
 else
     fail "the hourly tick wrote no emails.json (the walk #16 defect)"
 fi
 
-echo "denominator: 8 assertions (writer x3, install.sh branch, real tick x4)"
+echo "denominator: 10 assertions (writer x3, install.sh branch, install total, real tick x5)"
 [ "$fails" -eq 0 ] || exit 1
 exit 0

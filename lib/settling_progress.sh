@@ -132,8 +132,13 @@ settling_source_total() {
             # to carry found 6,584 of 16,844 -- a wrong denominator is the same
             # class of defect as no denominator. An unbounded find over 16k
             # files measured 0s, so the cap bought nothing.
+            #
+            # The SAME denominator the hourly mail agent uses (walk #16 review):
+            # whole messages, not *.partial.emlx, inside the agent's backfill
+            # window. Two writers with two totals made the bar move backwards.
             [[ -d "${HOME}/Library/Mail" ]] && \
-                n="$(find "${HOME}/Library/Mail" -name '*.emlx' 2>/dev/null | wc -l | tr -d ' ')"
+                n="$(find "${HOME}/Library/Mail" -name '*.emlx' ! -name '*.partial.emlx' \
+                        -mtime "-${OSTLER_BACKFILL_DAYS:-1825}" 2>/dev/null | wc -l | tr -d ' ')"
             ;;
         contacts)
             # Contacts do NOT live in the top-level AddressBook-v22.abcddb --

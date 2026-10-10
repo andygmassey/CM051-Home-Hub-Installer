@@ -11,8 +11,10 @@ this file records the edit, location and shape only.
 
 ## The edit
 
-- `vendor/email_ingest/bin/email-ingest-tick.sh`, immediately after the
-  `log "ingested $MBOX successfully"` line: a new block that counts the
+- `vendor/email_ingest/bin/email-ingest-tick.sh`: a new function
+  `_report_email_settling`, defined just before the "tick start" log line and
+  called on BOTH exits of a successful tick (the empty-mbox exit with 0, and
+  after "ingested ... successfully" with the count). It counts the
   messages in this tick's mbox (`grep -c '^From '`) and calls
   `ostler_fda.settling_progress.report_settling_progress("emails", ...)` with
   the CUMULATIVE count (previous shard `done` + this tick), capped at a
@@ -28,3 +30,8 @@ while 12,339 emails were processed (walk #16 box).
 
 Test: `tests/test_settling_emails_tells_the_truth.sh` arm 4 runs this tick for
 real (two ticks of 3 messages -> done 6). Upstream port: HR015 email-ingest.
+
+Not instrumented (review of #2766): when the reader fails, the tick exits
+before reporting, and the Mail source row comes from the install-time
+`state/hydrate/email.done`, so it does not show the failure. Reading the
+ongoing activity record into that row is a v1.0.108 row.
