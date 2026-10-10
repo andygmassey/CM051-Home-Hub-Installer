@@ -87,7 +87,11 @@ fi
 
 # ---- arm 4: the hourly tick, run for real with its two externals stubbed ---
 H="$WORK/h4"; mkdir -p "$H/Library/Mail/V10/acct" "$H/py/ostler_fda" "$H/.ostler"
-for i in 1 2 3 4 5; do : > "$H/Library/Mail/V10/acct/$i.emlx"; done
+for i in 1 2 3 4 5 6 7 8; do : > "$H/Library/Mail/V10/acct/$i.emlx"; done
+# Not in the denominator: an incomplete download, and a message older than the
+# tick's backfill window (the agent will never read it).
+: > "$H/Library/Mail/V10/acct/9.partial.emlx"
+: > "$H/Library/Mail/V10/acct/old.emlx"; touch -t 200001010000 "$H/Library/Mail/V10/acct/old.emlx"
 cp "$ROOT/vendor/ostler_fda/settling_progress.py" "$H/py/ostler_fda/"
 : > "$H/py/ostler_fda/__init__.py"
 cat > "$H/py/ostler_fda/apple_mail_mbox.py" <<'PY'
@@ -107,13 +111,23 @@ for tick in 1 2; do
 done
 f4="$H/.ostler/state/settling_progress.d/emails.json"
 if [ -f "$f4" ]; then
-    d="$(read_field "$f4" done)"; n="$(read_field "$f4" needs_source)"
+    d="$(read_field "$f4" done)"; n="$(read_field "$f4" needs_source)"; t="$(read_field "$f4" total)"
     [ "$d" = "6" ] && pass "two hourly ticks of 3 -> done 6" || fail "two hourly ticks of 3 -> done $d (want 6)"
+    [ "$t" = "8" ] && pass "total is the 8 whole messages in the window (no partial, no out-of-window)" \
+        || fail "total=$t (want 8: partial and out-of-window messages excluded)"
     [ "$n" = "false" ] && pass "the hourly tick never says needs_source" || fail "hourly tick needs_source=$n"
+    # The reader marks its backward sweep complete: the bar must reach 100%.
+    printf '{"schema_version": 2, "backfill_complete": true}\n' > "$H/.ostler/state/apple_mail_mbox_checkpoint.json"
+    HOME="$H" OSTLER_DIR="$H/.ostler" PYTHONPATH="$H/py" PWG_EMAIL_INGEST=/usr/bin/true \
+        OSTLER_MARK_FIRST_INGEST=/nonexistent \
+        bash "$ROOT/vendor/email_ingest/bin/email-ingest-tick.sh" >"$WORK/tick3.log" 2>&1
+    d="$(read_field "$f4" done)"
+    [ "$d" = "8" ] && pass "a complete backfill reads 8 of 8, so the bar can finish" \
+        || fail "complete backfill -> done $d of 8 (the bar freezes short of 100%)"
 else
     fail "the hourly tick wrote no emails.json (the walk #16 defect)"
 fi
 
-echo "denominator: 5 arms (writer x3, install.sh branch, real tick x2)"
+echo "denominator: 8 assertions (writer x3, install.sh branch, real tick x4)"
 [ "$fails" -eq 0 ] || exit 1
 exit 0

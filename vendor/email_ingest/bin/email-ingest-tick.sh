@@ -208,11 +208,13 @@ log "ingested $MBOX successfully"
 _SETTLING_TICK_READ="$(grep -c '^From ' "$MBOX" 2>/dev/null || true)"
 case "${_SETTLING_TICK_READ:-}" in ''|*[!0-9]*) _SETTLING_TICK_READ=0 ;; esac
 OSTLER_HOME="$OSTLER_DIR" OSTLER_SETTLING_TICK_READ="$_SETTLING_TICK_READ" \
+OSTLER_SETTLING_WINDOW_DAYS="$OSTLER_BACKFILL_DAYS" \
 "$OSTLER_PYTHON" - <<'PYEOF' || log "WARNING: settling progress for emails not written (exit $?); the ingest itself succeeded."
-import json, os
+import json, os, time
 from pathlib import Path
 from ostler_fda.settling_progress import report_settling_progress
-state = Path(os.environ["OSTLER_HOME"]) / "state"
+home = Path(os.environ["OSTLER_HOME"])
+state = home / "state"
 shard = state / "settling_progress.d" / "emails.json"
 prev_done = prev_total = 0
 try:
@@ -222,14 +224,40 @@ try:
 except Exception:
     pass
 read = int(os.environ.get("OSTLER_SETTLING_TICK_READ") or 0)
+# The denominator is what THIS agent will ever read: whole messages (not
+# *.partial.emlx) inside its backfill window. Counting the whole mailbox made
+# an old mailbox unable to reach 100%. Measured once, then kept.
 total = prev_total
 if total <= 0:
+    window_s = int(os.environ.get("OSTLER_SETTLING_WINDOW_DAYS") or 1825) * 86400
+    floor = time.time() - window_s
     mail = Path.home() / "Library" / "Mail"
-    total = sum(1 for _ in mail.rglob("*.emlx")) if mail.is_dir() else 0
+    total = 0
+    if mail.is_dir():
+        for p in mail.rglob("*.emlx"):
+            if p.name.endswith(".partial.emlx"):
+                continue
+            try:
+                if p.stat().st_mtime >= floor:
+                    total += 1
+            except OSError:
+                pass
 done = prev_done + read
-report_settling_progress("emails", done=done, total=max(total, done),
-                         needs_source=False, state_dir=state)
-print(f"settling: emails done={done} total={max(total, done)} (+{read} this tick)")
+# The reader says when its backward sweep has crossed the oldest message.
+# That is "finished", whatever the running count says, so the bar reaches
+# 100% instead of freezing just short of it.
+complete = False
+try:
+    ck = json.loads((state / "apple_mail_mbox_checkpoint.json").read_text(encoding="utf-8"))
+    complete = bool(ck.get("backfill_complete"))
+except Exception:
+    pass
+if total > 0:
+    done = total if complete else min(done, total)
+else:
+    total = done
+report_settling_progress("emails", done=done, total=total, needs_source=False, state_dir=state)
+print(f"settling: emails done={done} total={total} complete={complete} (+{read} this tick)")
 PYEOF
 
 # ---------------------------------------------------------------------------

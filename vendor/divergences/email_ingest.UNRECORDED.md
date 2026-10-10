@@ -15,9 +15,12 @@ this file records the edit, location and shape only.
   `log "ingested $MBOX successfully"` line: a new block that counts the
   messages in this tick's mbox (`grep -c '^From '`) and calls
   `ostler_fda.settling_progress.report_settling_progress("emails", ...)` with
-  the CUMULATIVE count (previous shard `done` + this tick) and a total
-  measured once from `~/Library/Mail/**/*.emlx`. `needs_source` is always
-  false. Best effort: a failure logs a WARNING and never fails the tick.
+  the CUMULATIVE count (previous shard `done` + this tick), capped at a
+  total measured once: whole messages (`*.emlx`, not `*.partial.emlx`)
+  whose mtime falls inside the tick's own backfill window. When the
+  reader's checkpoint says `backfill_complete`, done = total. `needs_source`
+  is always false. Best effort: a failure logs a WARNING and never fails
+  the tick.
 
 Why: the hourly agent is what reads the customer's mail, and it never wrote
 the settling shard, so the panel kept the install-time pass's "nothing found"
