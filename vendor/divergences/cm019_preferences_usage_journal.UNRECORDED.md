@@ -134,3 +134,39 @@ phone`'s install.sh wiring) is flagged for Archie/Andy, not assumed here.
 Retire the parser-fix portion by landing CM019 PR #396 and re-pinning;
 the repair script has no upstream to retire against since it is native
 to this repo.
+
+## cm019_preferences: an enrichment miss is not an import error (walk #16)
+
+A second hand-edit on `cm019_preferences`, recorded here because this tree's
+manifest block declares this file as its `unrecorded_divergence` record.
+
+**Measured refusal:** `scripts/regenerate_divergence_patch.sh cm019_preferences --write`
+prints `CANNOT RUN -- cm019_preferences declares no divergence_patch path in the
+manifest` (2026-10-10). Turning a patch on would also take on the pre-existing
+reconciliation gap described above, which is not this change's decision.
+
+**Location and shape of every edit in cm019_preferences:**
+
+- `vendor/cm019_preferences/services/enrich/src/enricher.py`
+  - `import re` added.
+  - `EnrichmentStats`: new fields `no_match: int` and `misses: List[str]`;
+    `attempted()` now adds `no_match`; `summary()` prints `No match: N`.
+  - New module-level `_MISS_MESSAGE` regex and `is_enrichment_miss(result)`:
+    true only for `MatchType.NONE` AND a fixed "answered, no confident match"
+    phrasing. Fail-closed; `MatchType.UNAVAILABLE` is never a miss.
+  - `enrich_batch()`: a new `elif` before the failure branch counts a miss in
+    `no_match`/`misses` and logs it at INFO instead of `failed`/`errors`.
+  - `enrich_categories()`: merges `no_match` and `misses` like the others.
+- `vendor/cm019_preferences/services/enrich/src/cli.py`
+  - `_run_enrichment()`: prints misses under
+    `--- No enrichment match (N, not errors) ---` before the errors block; the
+    exit rule (`failed > successful`) is unchanged and now excludes misses.
+
+**Why:** three Wikidata look-ups that found nothing made the enrich CLI exit 1,
+which `ostler-import` carried into install.sh's warn branch, so import_data went
+red over a fully successful import. Tests:
+`tests/test_an_enrichment_miss_is_not_an_import_error.py` and
+`tests/test_ostler_import_exit_code_separates_misses_from_failures.sh`.
+Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
+
+**Upstream status:** not ported; owed to personal-world-graph `services/enrich`.
