@@ -508,7 +508,7 @@
     "id": "tailscale_connect",
     "title": "Setting up remote access",
     "subtitle": "You sign in at the end",
-    "why": "Installs Tailscale, the private link between your own devices that lets the Ostler iOS app reach this Mac away from home. Nothing to do yet: the sign-in comes at the very end of the install.",
+    "why": "This installs Tailscale, the private link between your own devices that lets the Ostler iOS app reach this Mac away from home. Nothing to do yet: the sign-in comes at the very end of the install.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 300,
     "long_running_copy": null,
