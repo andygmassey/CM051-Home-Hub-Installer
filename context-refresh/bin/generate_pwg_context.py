@@ -883,10 +883,11 @@ def _about_you_section() -> list[str]:
     uid = identity["user_id"]
     if uid:
         fact_rows = _sparql_select(
-            "SELECT ?text ?t ?d ?l ?at WHERE {\n"
+            "SELECT ?text ?t ?d ?l ?at ?about WHERE {\n"
             "  GRAPH ?g {\n"
             "    ?f a <urn:ostler:Fact> ; <urn:ostler:text> ?text ;\n"
             "       <urn:ostler:userId> ?uid .\n"
+            "    OPTIONAL { ?f <urn:ostler:about> ?about }\n"
             "    OPTIONAL { ?f <urn:ostler:type> ?t }\n"
             "    OPTIONAL { ?f <urn:ostler:domain> ?d }\n"
             "    OPTIONAL { ?f <urn:ostler:privacyLevel> ?l }\n"
@@ -898,8 +899,20 @@ def _about_you_section() -> list[str]:
         ) or []
         places: list[str] = []
         family: list[str] = []
+        # F12 (cut #17 device walk): urn:ostler:userId names whose GRAPH a
+        # fact lives in, NOT who it is about. The CM048 writer puts the
+        # subject on urn:ostler:about: urn:ostler:user/<id> for the owner,
+        # urn:ostler:person/<slug> for anyone else. Reading userId alone put
+        # "<a contact> is based in <city>" on the owner's Places line, and
+        # "what do you know about me" recited it as the owner's. A place
+        # about somebody else is not the owner's place. (Family and close
+        # people are other people by definition, so that bucket keeps them.)
+        owner_about = f"urn:ostler:user/{uid}".lower()
         for row in fact_rows:
             if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+                continue
+            about = (row.get("about") or "").strip().lower()
+            if row.get("t") == "location" and about and about != owner_about:
                 continue
             text = " ".join((row.get("text") or "").split())
             if not text:
