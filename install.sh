@@ -24476,7 +24476,7 @@ set -uo pipefail
 
 OSTLER_DIR="${HOME}/.ostler"
 LOG_FILE="${OSTLER_DIR}/logs/reconnect-nudge-sender.log"
-ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://127.0.0.1:8000}"
+ANNOUNCE_URL="${OSTLER_ASSISTANT_URL:-http://127.0.0.1:8000}"
 CONFIG_TOML="${OSTLER_BRIEF_CONFIG:-${OSTLER_DIR}/assistant-config/config.toml}"
 COMPOSER="${OSTLER_BRIEF_COMPOSER:-${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant}"
 # The composer loads the assistant's own config (Pro state, weekly limit), which
@@ -24591,7 +24591,7 @@ print(json.dumps({"channel": sys.argv[1], "kind": "reconnect_nudge", "message": 
 ' "${BRIEF_CHANNEL}")" || cannot_deliver 75 "could not build the announce body"
 
 if ! curl -sS -f -m 8 -X POST -H "Content-Type: application/json" \
-        --data-binary "${BODY}" "${ASSISTANT_URL}/announce" >/dev/null 2>>"${LOG_FILE}"; then
+        --data-binary "${BODY}" "${ANNOUNCE_URL}/announce" >/dev/null 2>>"${LOG_FILE}"; then
     cannot_deliver 75 "/announce refused the nudge on ${BRIEF_CHANNEL}; nothing was recorded, so it retries next run"
 fi
 

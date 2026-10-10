@@ -52,7 +52,7 @@ echo "ws=${ZEROCLAW_WORKSPACE:-unset}" >> "$STUB_DIR/composer.env"
 case "$1 $2" in
   "reconnect-nudge --keys-file")
     case "$COMPOSER_MODE" in
-      message)  printf 'k1\nk2\n' > "$3"; printf 'Worth saying hello this week\nJane Doe: quiet\nDraft: Hi Jane\nNothing has been sent.\n'; exit 0 ;;
+      message)  printf 'k1\nk2\n' > "$3"; printf 'Worth saying hello this week\nJane Doe: quiet\nDraft: hi Jane\nNothing has been sent.\n'; exit 0 ;;
       nothing)  echo "reconnect-nudge: nothing to send (weekly limit reached or paused)" >&2; exit 3 ;;
       old)      echo "error: unrecognized subcommand 'reconnect-nudge'" >&2; exit 2 ;;
       broken)   echo "boom" >&2; exit 1 ;;
@@ -79,7 +79,7 @@ run_sender message; rc=$?
 [ "$rc" -eq 0 ] && ok "a composed nudge is delivered: exit 0" || bad "delivered case exit $rc"
 grep -q '"kind": "reconnect_nudge"' "$WORK/stub/body.json" 2>/dev/null && ok "posted with kind=reconnect_nudge" || bad "announce body lacks kind=reconnect_nudge: $(cat "$WORK/stub/body.json" 2>/dev/null)"
 grep -q '"channel": "imessage"' "$WORK/stub/body.json" 2>/dev/null && ok "posted on the owner's own brief channel (imessage, from config.toml)" || bad "wrong channel"
-grep -q 'Draft: Hi Jane' "$WORK/stub/body.json" 2>/dev/null && ok "the posted message is what the composer wrote" || bad "message not carried"
+grep -q 'Draft: hi Jane' "$WORK/stub/body.json" 2>/dev/null && ok "the posted message is what the composer wrote" || bad "message not carried"
 [ "$(cat "$WORK/stub/marked.keys" 2>/dev/null | tr '\n' ',')" = "k1,k2," ] && ok "the people who went out were recorded AFTER delivery" || bad "keys not recorded: $(cat "$WORK/stub/marked.keys" 2>/dev/null)"
 
 grep -q "^ws=$WORK/home/.ostler/assistant-config$" "$WORK/stub/composer.env" 2>/dev/null && ok "the composer is given the assistant's workspace (ZEROCLAW_WORKSPACE) so it can read Pro state" || bad "composer ran without ZEROCLAW_WORKSPACE: $(cat "$WORK/stub/composer.env" 2>/dev/null)"

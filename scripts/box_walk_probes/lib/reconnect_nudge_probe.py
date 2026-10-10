@@ -137,7 +137,7 @@ GOOD = {
     "hub_people_screen": True,
     "run1": {"rc": 0, "stderr": "", "posts": [{
         "kind": "reconnect_nudge", "channel": "imessage",
-        "message": "Worth saying hello this week\nJane Doe: quiet for 5 months.\nDraft: Hi Jane\nNothing has been sent."}]},
+        "message": "Worth saying hello this week\nJane Doe: quiet for 5 months.\nDraft: hi Jane\nNothing has been sent."}]},
     "run2": {"rc": 0, "stderr": "", "posts": []},
     "state_keys": ["k1"],
 }
