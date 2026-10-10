@@ -1469,7 +1469,7 @@ MUTANTS = [
     ("a calendar title whose URL still shows raw (walk #6 f)",
      _txt(["screens", "timeline", "text"], "EVENT\nCheck in https://example.com/checkin\n")),
     ("an organisation listed as a person (walk #16 console)",
-     _app(["people_api"], {"name": "Example Holdings Ltd", "email": ""})),
+     _app(["people_api"], {"name": "example holdings ltd", "email": ""})),
     ("a username as a People name (walk #16 console)", _app(["people_api"], {"name": "jdoe1984", "email": ""})),
     ("a calendar address as a People name (walk #16 console)",
      _app(["people_api"], {"name": "abc123@group.calendar.google.com", "email": ""})),
