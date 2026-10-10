@@ -198,6 +198,40 @@ fi
 
 log "ingested $MBOX successfully"
 
+# Settling panel, `emails` channel (walk #16 console). This agent is what
+# actually reads the customer's mail, hour by hour, yet it never reported
+# progress, so the panel kept the install-time pass's "nothing found" while
+# 12,339 emails were processed. Report CUMULATIVE messages read: the writer
+# keeps done monotonic, so pass previous + this tick. The total is the
+# mailbox size, measured once. Best effort: a failed report never fails the
+# tick, and the reason is logged.
+_SETTLING_TICK_READ="$(grep -c '^From ' "$MBOX" 2>/dev/null || true)"
+case "${_SETTLING_TICK_READ:-}" in ''|*[!0-9]*) _SETTLING_TICK_READ=0 ;; esac
+OSTLER_HOME="$OSTLER_DIR" OSTLER_SETTLING_TICK_READ="$_SETTLING_TICK_READ" \
+"$OSTLER_PYTHON" - <<'PYEOF' || log "WARNING: settling progress for emails not written (exit $?); the ingest itself succeeded."
+import json, os
+from pathlib import Path
+from ostler_fda.settling_progress import report_settling_progress
+state = Path(os.environ["OSTLER_HOME"]) / "state"
+shard = state / "settling_progress.d" / "emails.json"
+prev_done = prev_total = 0
+try:
+    d = json.loads(shard.read_text(encoding="utf-8"))
+    prev_done = max(0, int(d.get("done") or 0))
+    prev_total = max(0, int(d.get("total") or 0))
+except Exception:
+    pass
+read = int(os.environ.get("OSTLER_SETTLING_TICK_READ") or 0)
+total = prev_total
+if total <= 0:
+    mail = Path.home() / "Library" / "Mail"
+    total = sum(1 for _ in mail.rglob("*.emlx")) if mail.is_dir() else 0
+done = prev_done + read
+report_settling_progress("emails", done=done, total=max(total, done),
+                         needs_source=False, state_dir=state)
+print(f"settling: emails done={done} total={max(total, done)} (+{read} this tick)")
+PYEOF
+
 # ---------------------------------------------------------------------------
 # 3. Mark first_ingest_complete_ts (#260)
 # ---------------------------------------------------------------------------

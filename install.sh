@@ -33281,6 +33281,13 @@ except Exception:
             # already says so about the -maxdepth 8 bug in settling_progress.sh.
             settling_report_measured emails "$_HYDRATE_EMAIL_MSGS" false
             _HYDRATE_EMAIL_OUTCOME="imported"
+        elif [[ "$_HYDRATE_EMAIL_MSGS" -gt 0 ]]; then
+            # Mail WAS read, it just named nobody new (walk #16: 31 messages,
+            # all automated senders). That is not "no source": report the
+            # messages read, never needs_source.
+            info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
+            settling_report_measured emails "$_HYDRATE_EMAIL_MSGS" false
+            _HYDRATE_EMAIL_OUTCOME="no_correspondents_in_window"
         else
             info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
             # Ran, found nothing: invite a source rather than showing a

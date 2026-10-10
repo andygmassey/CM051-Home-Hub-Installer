@@ -248,6 +248,7 @@ now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 # Preserve started_at: it anchors CM044's rate-based ETA. Rewriting it on
 # every tick makes the estimate reset forever and the bar stops falling.
 started = None
+prev_done = 0
 try:
     with open(target, "r", encoding="utf-8") as fh:
         prev = json.load(fh)
@@ -255,15 +256,30 @@ try:
         cand = prev.get("started_at")
         if isinstance(cand, str) and cand.strip():
             started = cand
+        try:
+            prev_done = max(0, int(prev.get("done") or 0))
+        except (TypeError, ValueError):
+            prev_done = 0
 except Exception:
     started = None
 
+# `done` is MONOTONIC, exactly as ostler_fda/settling_progress.py already is.
+# Walk #16 console: the hourly mail agent had read 12,339 emails, then the
+# install-time 90-day pass found nothing new and wrote done=0 with
+# needs_source=true over it, so the panel said "Mail: nothing found" for good.
+# A later, narrower writer can never walk the bar backwards, and a channel
+# that has already counted work is by definition not missing its source.
+done = max(_int("OSTLER_SETTLING_DONE"), prev_done)
+total = max(_int("OSTLER_SETTLING_TOTAL"), done)
+needs = os.environ.get("OSTLER_SETTLING_NEEDS", "false").strip().lower() in ("1", "true", "yes")
+if done > 0:
+    needs = False
+
 payload = {
     "key": key,
-    "done": _int("OSTLER_SETTLING_DONE"),
-    "total": _int("OSTLER_SETTLING_TOTAL"),
-    "needs_source": os.environ.get("OSTLER_SETTLING_NEEDS", "false").strip().lower()
-    in ("1", "true", "yes"),
+    "done": done,
+    "total": total,
+    "needs_source": needs,
     "started_at": started or now,
     "updated_at": now,
 }
