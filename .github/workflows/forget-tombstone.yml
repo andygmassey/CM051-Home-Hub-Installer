@@ -11,6 +11,8 @@ on:
       - 'vendor/ostler_fda/**'
       - 'tests/test_forget_tombstone_*.py'
       - 'tests/_fake_oxigraph.py'
+      - 'tests/test_facebook_export_imports_once.py'
+      - 'install.sh'
       - '.github/workflows/forget-tombstone.yml'
   pull_request:
     paths:
@@ -18,6 +20,8 @@ on:
       - 'vendor/ostler_fda/**'
       - 'tests/test_forget_tombstone_*.py'
       - 'tests/_fake_oxigraph.py'
+      - 'tests/test_facebook_export_imports_once.py'
+      - 'install.sh'
       - '.github/workflows/forget-tombstone.yml'
 
 concurrency:
@@ -49,3 +53,10 @@ jobs:
           check tests/test_forget_tombstone_every_syncer.py 18
           check tests/test_forget_tombstone_ostler_fda.py 10
           python -m pytest tests/test_forget_tombstone_every_syncer.py tests/test_forget_tombstone_ostler_fda.py -v
+      - name: "F6: one Facebook export is imported once and re-imports keep their node"
+        run: |
+          set -eu
+          n="$(python -m pytest tests/test_facebook_export_imports_once.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected 4 F6 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest tests/test_facebook_export_imports_once.py -v -s
