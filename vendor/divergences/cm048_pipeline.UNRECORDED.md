@@ -115,3 +115,22 @@ box carried 21 occurrences in four shapes.
 `tests/test_cm048_reminders_sidecar_never_reaches_the_body.py` (CM051 repo
 root, 7 tests; the write-path test fails with the vendored call removed),
 wired into `.github/workflows/cm048-participants-as-strings.yml`.
+
+## L2 reminder title drops the raw ISO deadline (CM051, 2026-10-11)
+
+Tree `cm048_pipeline`, file `vendor/cm048_pipeline/src/reminders_push.py`:
+`_format_push_title`'s L2 branch returns `base` only. It used to return
+`f"{base} -- {todo.deadline}"`, which put "Follow up on conversation --
+2026-10-14" in the customer's timeline and wiki digest. The deadline is
+unchanged in its own field, `PushDecision.push_deadline` (the reminder's due
+date), so nothing is lost. Docstring updated to match.
+
+Not attempted against the regeneration tool: this tree is `verify = "skip"` /
+`unverifiable_ack = true`, same state as the grafts above.
+
+### What a future sync must preserve
+
+The L2 branch of `_format_push_title` returning `base` with no deadline
+suffix. Guarded by `tests/test_cm048_reminder_title_has_no_iso_date.py` (CM051
+repo root, 4 tests, 4 fail against main), wired into
+`.github/workflows/cm048-participants-as-strings.yml`.
