@@ -66,6 +66,19 @@ def parse_log(name, text):
     return steps
 
 
+def collect(named_texts):
+    """[(log name, text)] -> (steps, unmeasured log names). A log that yields
+    no count line is NOT MEASURED and is reported by name, never skipped."""
+    steps, unmeasured = [], []
+    for name, text in named_texts:
+        got = parse_log(name, text)
+        if got:
+            steps += got
+        else:
+            unmeasured.append(name)
+    return steps, unmeasured
+
+
 def _docker():
     for d in ("/opt/homebrew/bin/docker", "/usr/local/bin/docker", "docker"):
         if d == "docker" or os.path.exists(d):
@@ -96,16 +109,17 @@ def box():
     scale = [d for d in dirs if d.endswith("-scale-fixture")]
     chosen = install[-1:] + scale[-1:]
     out["diag_dirs"] = [os.path.basename(d) for d in chosen]
-    out["logs_examined"] = 0
-    out["steps"] = []
+    named = []
     for d in chosen:
         for log in sorted(glob.glob(os.path.join(d, "*.log"))):
-            out["logs_examined"] += 1
+            name = "%s/%s" % (os.path.basename(d), os.path.basename(log))
             try:
                 text = open(log, encoding="utf-8", errors="replace").read()
             except OSError:
-                continue
-            out["steps"] += parse_log("%s/%s" % (os.path.basename(d), os.path.basename(log)), text)
+                text = ""
+            named.append((name, text))
+    out["logs_examined"] = len(named)
+    out["steps"], out["unmeasured_logs"] = collect(named)
     return out
 
 
@@ -135,6 +149,8 @@ def judge(c):
         check("qdrant open fds %d < 50%% of the limit (%d); %s RocksDB .sst files"
               % (c.get("fds", -1), int(lim * MAX_FD_FRACTION), c.get("sst", "?")),
               c.get("fds", 1 << 30) < lim * MAX_FD_FRACTION)
+    for name in c.get("unmeasured_logs") or []:
+        lines.append("NOT MEASURED %s" % name)
     steps = c.get("steps") or []
     with_input = [s for s in steps if s.get("input", 0) > 0]
     if not with_input:
@@ -177,6 +193,14 @@ def self_test():
             + "ERROR - Failed to upsert chunk: HTTP 500\n" * 8734)),
         "every chunk written but errors reported": dict(good, steps=[dict(good["steps"][1], errors=3)]),
     }
+    # A log with no count line is reported by name, never silently skipped.
+    st, um = collect([("d/hydrate-reminders.log", "  Chunks created: 9,000\n  Vectors inserted: 9,000\n"),
+                      ("d/hydrate-email.log", "Started.\nnothing countable here\n")])
+    nl, _ = judge(dict(good, steps=st, unmeasured_logs=um))
+    hit = [l for l in nl if l.startswith("NOT MEASURED ")]
+    print("  %s  a log with no count line prints exactly 'NOT MEASURED d/hydrate-email.log'" %
+          ("ok    " if hit == ["NOT MEASURED d/hydrate-email.log"] else "FAIL  "))
+    ok &= hit == ["NOT MEASURED d/hydrate-email.log"]
     full = parse_log("hydrate-apple-notes.log", "  Chunks created: 18,000\n  Vectors inserted: 18,000\n")
     _, rcf = judge(dict(good, steps=full))
     print("  %s  a full write (18,000 of 18,000, 0 errors) passes" % ("ok    " if rcf == EX_PASS else "FAIL  "))
