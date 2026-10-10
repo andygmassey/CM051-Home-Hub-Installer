@@ -786,7 +786,10 @@ def test_the_memory_endpoint_itself_returns_the_cm048_facts(monkeypatch):
             "domain": "travel",
             "conf": "0.9",
             "validFrom": "2026-01-0{}".format((n % 9) + 1),
-            "about": f"urn:ostler:person/fixture-{n}",
+            # The owner's own facts (CM048 writes subject "user" as
+            # urn:ostler:user/<id>). Facts about OTHER people leave "facts"
+            # for "about_others" since F12b; see test_memory_about_you.py.
+            "about": "urn:ostler:user/Fixture",
         }
         for n in range(1, 6)
     ]

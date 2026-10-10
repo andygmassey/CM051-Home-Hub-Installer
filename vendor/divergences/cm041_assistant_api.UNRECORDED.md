@@ -994,3 +994,11 @@ The predicates mirror `scripts/box_walk_probes/lib/customer_read.py` (CM051 #276
 ### F7 follow-ups (same graft, same guard)
 
 `people_list` (a) no longer applies the cut #15 name-SHAPE rules (`_is_organisation_name`, `_is_automated_or_service_name`, `_is_service_mailbox_name`) to a record that carries a given or family name (they hid real people on the walk box: names typed in capitals, "Name - Role"); (b) hides a social-only, handle-only node (single-token name, an `instagram_username` identifier, no given/family, no card, no phone/email/LinkedIn) from the default list only (ruling: Archie); (c) drops a Contacts card matching `ASSISTANT_EMAIL` / `ASSISTANT_PHONE` (`_is_assistant_identity`), delivered by new plist keys in `install.sh`. Guarded by `tests/test_people_have_human_evidence.py` (12 tests).
+
+## Memory "About you" holds only the owner's facts (CM051 F12b, cut #17 iOS walk)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream. `ical-server.py` `api_memory_list`: `_memory_query_facts` scopes by whose memory a fact is in (`urn:ostler:userId`, `pwg:belongsToUser`), so facts ABOUT other people (a contact at an event, a relative's job) were listed in "About you". A fact now stays in `facts` only when its subject (`?about`) is the owner (`USER_URI` or `urn:ostler:user/<USER_ID>`, case-folded) or is unset (legacy writers, same rule as CM051 #2770). Every other fact moves to a new `about_others` list carrying `about_name`, so "who is my wife" keeps its answer. `count` counts `facts` only.
+
+### What a future sync must preserve
+
+The owner-subject split in `api_memory_list` and the `about_others` key. Guarded by `tests/test_memory_about_you.py` (4 tests; the straight arm and the about_others test fail on the pre-fix reader), run by `.github/workflows/writer-reader-vocabulary.yml`. `tests/test_writer_reader_vocabulary_contracts.py::test_the_memory_endpoint_itself_returns_the_cm048_facts` now seeds owner-subject rows (its rows had been about other people). Retire by landing the same change in CM041 `assistant_api/ical-server.py` and re-pinning.
