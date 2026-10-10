@@ -100,6 +100,9 @@ JUNK = [
     # an ORGANISATION CARD: a card with no given name whose name is a legal form
     _pt("c9", "acme holdings ltd.", family_name="acme holdings ltd.", icloud_uid="card-c9", contact_type="person"),
     _pt("c10", "acme trading co.", family_name="acme trading co.", icloud_uid="card-c10", contact_type="person"),
+    # F7d (walk #18): "<Word> Inc" and a final org word after 2+ other words
+    _pt("i1", "tom inc"), _pt("i2", "acme inc."), _pt("i3", "foo bar bank"), _pt("i4", "foo acme banking"),
+    _pt("i5", "the acme team"), _pt("i6", "acme retail alumni"), _pt("i7", "foo bar baz team"),
     _pt("y1", "ACME TRADING PARTNERS"), _pt("y2", "Payment declined - update required"),
     _pt("y3", "acme official"),
     _pt("d4", "customer support"), _pt("d5", "support team"),
@@ -123,7 +126,9 @@ KEEP = [
     # F7b controls: real names that must stay (a trailing acronym after only two
     # words, a comma, a surname-like final word, an all-caps name)
     # lower-case / short forms of AG, NV, Inc are people; a carded person keeps the card
-    _pt("g6", "jane ag"), _pt("g7", "anna ag"), _pt("g8", "kim nv"), _pt("g9", "tom inc"),
+    _pt("g6", "jane ag"), _pt("g7", "anna ag"), _pt("g8", "kim nv"),
+    # two-word "<given> <org word>": a surname, a person (F7d)
+    _pt("g12", "jane bank"), _pt("g13", "bob banking"), _pt("g14", "alex team"), _pt("g15", "mary alumni"),
     _pt("g10", "jane ag", given_name="jane", family_name="ag", icloud_uid="card-g10", contact_type="person"),
     _pt("g11", "acme ltd", given_name="jane", family_name="acme ltd", icloud_uid="card-g11", contact_type="person"),
     _pt("g1", "jane doe (EXT)"), _pt("g2", "jane doe (CBE)"),
@@ -159,8 +164,8 @@ KEEP = [
     _pt("x1", "JANE DOE", given_name="Jane", family_name="Doe"),
     _pt("x2", "BOB DOE", given_name="Bob", family_name="Doe", emails=["bob.doe" + EX]),
     _pt("x3", "Alex Doe - Plumber", given_name="Alex", family_name="Doe"),
-    _pt("x4", "mary doe - acme foundation", given_name="Mary", family_name="Doe"),
-    _pt("x5", "raj doe official group", given_name="Raj", family_name="Doe"),
+    _pt("x4", "mary doe - acme plumbing", given_name="Mary", family_name="Doe"),
+    _pt("x5", "raj doe official visits", given_name="Raj", family_name="Doe"),
 ]
 
 
@@ -276,17 +281,22 @@ PINNED = {
     "CALENDAR_ID": r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$",
     "SUBJECT_LINE": r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s",
     "ORG_SHORT_FORM": r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$",
-    "ORG_NAME": (r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    "ORG_FINAL_WORD": r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni|group|company|promotions?|newsletter|research|card|support|store|shop|official|services?|solutions|foundation|association|council|institute|university|academy|club|magazine|news|no-?reply|noreply)$",
+    "ORG_INSTITUTION_OF": r"^(university|college|institute|academy)\s+of\s+\S+",
+    "ORG_THE_GROUP": r"^the\s+\S+(\s+\S+)*\s+(group|team)$",
+    "ORG_NAME": (r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
                  r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
                  r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)"),
 }
 MIRROR = {"JUNK_HANDLE": "_JUNK_HANDLE_RE", "CALENDAR_ID": "_CALENDAR_ID_RE",
           "SUBJECT_LINE": "_SUBJECT_LINE_RE", "ORG_NAME": "_ORG_NAME_RE",
-          "ORG_SHORT_FORM": "_ORG_SHORT_FORM_RE"}
+          "ORG_SHORT_FORM": "_ORG_SHORT_FORM_RE", "ORG_FINAL_WORD": "_ORG_FINAL_WORD_RE",
+          "ORG_INSTITUTION_OF": "_ORG_INSTITUTION_OF_RE", "ORG_THE_GROUP": "_ORG_THE_GROUP_RE"}
 
 
 def test_shared_predicates_are_identical_and_the_product_only_narrows_the_rest():
-    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM"):
+    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM", "ORG_FINAL_WORD",
+                "ORG_INSTITUTION_OF", "ORG_THE_GROUP"):
         assert getattr(server, MIRROR[k]).pattern == PINNED[k], k
     import re as _re
     judge = [_re.compile(PINNED[k], 0 if k == "ORG_SHORT_FORM" else _re.I) for k in PINNED]
@@ -345,3 +355,65 @@ def test_control_resolution_needs_a_single_token_given_and_family_and_a_phrase_o
     # one appended word is not an org phrase of its own: the name is left alone
     short = _pt("r3", "jane doe acme", given_name="jane", family_name="doe")
     assert [r["name"] for r in _list([short])["people"]] == ["jane doe acme"]
+
+
+def test_the_product_and_the_judge_in_the_repo_share_every_organisation_predicate():
+    """Strict parity against the judge file in THIS repo (pattern and flags)."""
+    cr = _load(ROOT / "scripts" / "box_walk_probes" / "lib" / "customer_read.py", "customer_read_parity")
+    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM", "ORG_FINAL_WORD",
+                "ORG_INSTITUTION_OF", "ORG_THE_GROUP"):
+        theirs, mine = getattr(cr, k), getattr(server, MIRROR[k])
+        assert (theirs.pattern, theirs.flags) == (mine.pattern, mine.flags), k
+    # and the two agree, name by name, on every org shape and every control
+    for pt in JUNK + KEEP + SOCIAL_JUNK + SOCIAL_KEEP:
+        n = pt["payload"]["display_name"]
+        pl = pt["payload"]
+        mine = server._is_non_human_person(pl, n) in ("organisation_name", "subject_line")
+        if mine and not pl.get("icloud_uid") and not (pl.get("given_name") or pl.get("family_name")):
+            assert cr.service_sender(n), ("product hides, judge does not flag", n)
+
+
+# --- tie the product to the walk's own judge: hub_screens._org_like / ORG_MARKERS ---
+
+def _marker_words():
+    """Every word hub_screens.ORG_MARKERS flags, read from the live pattern so a
+    marker added there fails this test until the product handles it."""
+    import re as _re
+    hs = _load(ROOT / "scripts" / "box_walk_probes" / "lib" / "hub_screens.py", "hub_screens_parity")
+    inner = _re.search(r"\\b\((.*)\)\\b", hs.ORG_MARKERS.pattern, _re.S).group(1)
+    words = set()
+    for alt in inner.split("|"):
+        alt = alt.replace("\\.", ".")
+        if alt.endswith("?"):                 # promotion(s)?, service(s)?
+            words.update({alt[:-1], alt[:-2]})
+        elif "-?" in alt:                     # no-?reply
+            words.update({alt.replace("-?", "-"), alt.replace("-?", "")})
+        else:
+            words.add(alt)
+    return hs, sorted(words)
+
+
+def test_every_org_marker_shape_is_hidden_by_the_product():
+    hs, words = _marker_words()
+    assert len(words) >= 30, words            # the denominator: a broken parse cannot pass
+    missed = []
+    for w in words:
+        name = "acme foo " + w                # an organisation shape: 2 words + the marker
+        if w != "co.":                        # \\bco\\.\\b can never match at the end of a name
+            assert hs._org_like(name), ("the judge no longer flags its own marker", w)
+        for payload in ({}, {"given_name": "acme", "family_name": "foo " + w}):
+            if not server._is_non_human_person(dict(payload, display_name=name), name):
+                missed.append((w, bool(payload)))
+    assert not missed, missed
+
+
+def test_control_a_two_word_given_plus_marker_is_a_person_for_the_surname_markers():
+    for w in ("bank", "team", "group", "news", "club", "card", "shop", "store"):
+        name = "jane " + w
+        assert server._is_non_human_person({"display_name": name}, name) is None, name
+
+
+def test_the_leading_institution_and_the_group_shapes_are_hidden():
+    for name in ("university of acmetown", "college of foo", "the acme holdings group", "the foo team",
+                 "institute of bar", "academy of baz"):
+        assert server._is_non_human_person({"display_name": name}, name), name

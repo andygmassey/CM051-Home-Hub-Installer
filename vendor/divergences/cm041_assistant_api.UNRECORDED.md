@@ -1025,3 +1025,9 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upst
 ### What a future sync must preserve
 
 `_contacts_diff_cached`, `_contacts_diff_build`, `_contacts_diff_kick`, the state dict and lock, and the warm-up timer in `main`. Guarded by `tests/test_contacts_diff_answers_fast_at_scale.py` (the 6,700-person arm fails on the pre-fix server), run by `.github/workflows/contacts-diff-fast.yml`. Retire by landing the same change in CM041 and re-pinning.
+
+### F7d (walk #18): "<Word> Inc" and a final organisation word
+
+Tree `cm041/assistant_api`: `_ORG_NAME_RE` gains `inc` as a legal form (a two-word "<Word> Inc" is an organisation, shared with the judge), and `_ORG_FINAL_WORD_RE` (bank, banking, team, alumni after at least two other words; a two-word "<given> Bank" stays a person) is applied in `_is_non_human_person` for uncarded records and for org cards. The two older rules that exempted a two-word "inc" name (`_is_organisation_name`, `_is_business_shaped_name`) are restored to their original behaviour. The judge (`customer_read.py` `ORG_NAME`, `ORG_FINAL_WORD`) carries the same patterns; `tests/test_people_have_human_evidence.py` pins them equal (pattern and flags) and agrees on every fixture.
+
+Tree `cm041/assistant_api`, F7d round 2: `_ORG_FINAL_WORD_RE` now covers every word `hub_screens.ORG_MARKERS` flags (final word after at least two other words), and `_ORG_INSTITUTION_OF_RE` ("University of X", "College of X", "Institute of X", "Academy of X") and `_ORG_THE_GROUP_RE` ("The ... Group" or "... Team") are added; all three are mirrored in `customer_read.py` and pinned equal by the parity test. A two-word "<given> <marker>" still stays.

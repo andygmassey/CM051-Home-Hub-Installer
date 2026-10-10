@@ -771,9 +771,17 @@ _CALENDAR_ID_RE = re.compile(
 # in UPPER CASE and only after at least two other words (a given name plus
 # a short surname that spells one of them is a person), checked in the function.
 _ORG_NAME_RE = re.compile(
-    r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
     r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
     r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
+# F7d (walk #18): a final org word after at least two other words: every word
+# hub_screens.ORG_MARKERS flags. Shared with the judge (customer_read.py
+# ORG_FINAL_WORD); a TWO-word "<given> Bank" is a surname and stays.
+_ORG_FINAL_WORD_RE = re.compile(r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni|group|company|promotions?|newsletter|research|card|support|store|shop|official|services?|solutions|foundation|association|council|institute|university|academy|club|magazine|news|no-?reply|noreply)$", re.I)
+# "University of <X>" and friends: an institution named by what it is.
+_ORG_INSTITUTION_OF_RE = re.compile(r"^(university|college|institute|academy)\s+of\s+\S+", re.I)
+# "The <...> Group" / "The <...> Team".
+_ORG_THE_GROUP_RE = re.compile(r"^the\s+\S+(\s+\S+)*\s+(group|team)$", re.I)
 _ORG_SHORT_FORM_RE = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
 _SUBJECT_LINE_RE = re.compile(
     r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
@@ -846,6 +854,8 @@ def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None)
         # given name, so "Jane AG", "anna ag", "kim nv", "tom inc" stay.
         if (not (p.get("given_name") or "").strip()
                 and (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm))):
+            # Legal forms ONLY on a card: a real Contacts card named "X Y club" is
+            # a person (pinned by BusinessShapedNameFilterTests).
             return "organisation_card"
         return None
     # A subject line is caught BEFORE any email branch: it is a header, not a name.
@@ -854,7 +864,8 @@ def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None)
     why_org = _org_phrase_reason(nm)
     if why_org:
         return why_org
-    if _ORG_NAME_RE.search(nm) or (_ORG_SHORT_FORM_RE.match(nm)):
+    if (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm) or _ORG_FINAL_WORD_RE.match(nm)
+            or _ORG_INSTITUTION_OF_RE.match(nm) or _ORG_THE_GROUP_RE.match(nm)):
         return "organisation_name"
     if (p.get("given_name") or "").strip() or (p.get("family_name") or "").strip():
         return None
@@ -936,14 +947,7 @@ _ORG_NEWS_RE = re.compile(r"\bnews\b", re.I)
 def _is_organisation_name(display_name):
     """STRONG tier: true for ANY record regardless of Contacts card."""
     words = (display_name or "").split()
-    m = _ORG_STRONG_RE.search(display_name or "")
-    if not m or len(words) < 2:
-        return False
-    # F7: a two-word name ending in "inc" is a person; "inc" is a legal form only after at least two
-    # other words (the judge dropped the bare two-word form too).
-    if m.group(1).lower() == "inc" and len(words) < 3:
-        return False
-    return True
+    return len(words) >= 2 and bool(_ORG_STRONG_RE.search(display_name))
 
 
 def _is_business_shaped_name(display_name):
@@ -953,7 +957,7 @@ def _is_business_shaped_name(display_name):
     if len(words) < 2:
         return False
     last = words[-1].strip(".,;:()[]").lower()
-    if last in _BUSINESS_LAST_WORDS and not (last == "inc" and len(words) < 3):
+    if last in _BUSINESS_LAST_WORDS:
         return True
     if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
         return True
