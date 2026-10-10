@@ -36,8 +36,16 @@ trap 'rm -rf "$WORK"' EXIT
 cannot() { echo "CANNOT RUN: $*" >&2; exit 2; }
 
 [[ -f "$INSTALL_SH" ]] || cannot "install.sh not found"
-"$PY" -c "import sys; sys.path.insert(0, '${ENRICH}'); import src.cli" 2>/dev/null \
-    || cannot "the vendored enrich CLI is not importable by ${PY} (pip install -r vendor/cm019_preferences/requirements.txt)"
+
+# THE STUB STANDS IN FOR THE CM019 VENV PYTHON, whose site-packages do not
+# depend on HOME. This test runs ostler-import under a scratch HOME, and on the
+# CI runner `pip install` lands in the USER site, which Python derives from
+# HOME. Measured on 9ac92713: arm 1 died on "No module named pydantic_settings"
+# before enrich ran, and the rc=1 that came out read exactly like the defect.
+# So the stub keeps the interpreter's ORIGINAL user base, the way a venv keeps
+# its packages, and the import check below runs in the stub's exact
+# environment so that shape is CANNOT-RUN, never a FAIL.
+PY_USERBASE="$("$PY" -c 'import site; print(site.getuserbase())' 2>/dev/null)"
 
 awk '/cat > "\$IMPORT_SCRIPT" <<.IMPORTEOF./{f=1;next} f&&/^IMPORTEOF$/{exit} f{print}' "$INSTALL_SH" > "$WORK/ostler-import"
 grep -q 'services.enrich.src.cli enrich' "$WORK/ostler-import" || cannot "could not extract ostler-import from install.sh"
@@ -47,6 +55,8 @@ chmod +x "$WORK/ostler-import"
 H="$WORK/home"
 CM019_DIR="$H/.ostler/services/cm019"
 mkdir -p "$CM019_DIR/.venv/bin" "$H/.ostler/config" "$WORK/exports/synthetic"
+HOME="$H" PYTHONUSERBASE="$PY_USERBASE" "$PY" -c "import sys; sys.path.insert(0, '${ENRICH}'); import src.cli" 2>/dev/null \
+    || cannot "the vendored enrich CLI is not importable by ${PY} in the stub's environment (pip install -r vendor/cm019_preferences/requirements.txt)"
 : > "$WORK/exports/synthetic/placeholder.json"
 
 # Runs the REAL enrich CLI over N synthetic misses (helper owns the fake
@@ -90,7 +100,7 @@ case " \$* " in
         exit "\${STUB_INGEST_RC:-0}" ;;
     *" services.enrich.src.cli enrich "*)
         [[ "\${STUB_MISSES:-0}" -gt 0 ]] || exit 0
-        exec "$PY" "$WORK/enrich_misses.py" "$ENRICH" "\${STUB_MISSES}" ;;
+        PYTHONUSERBASE="$PY_USERBASE" exec "$PY" "$WORK/enrich_misses.py" "$ENRICH" "\${STUB_MISSES}" ;;
 esac
 exit 0
 STUB
@@ -111,7 +121,7 @@ arm() {
 status=0
 rc="$(arm 0 3)"
 echo "arm 1: ingest ok, 3 enrichment misses -> ostler-import rc=${rc} (install.sh: $([[ $rc -eq 0 ]] && echo ok || echo warn))"
-if [[ "$rc" -eq 0 ]]; then echo "PASS: 3 enrichment misses do not fail the import"; else echo "FAIL: 3 enrichment misses made ostler-import exit ${rc}, so import_data goes red"; status=1; fi
+if [[ "$rc" -eq 0 ]]; then echo "PASS: 3 enrichment misses do not fail the import"; else echo "FAIL: 3 enrichment misses made ostler-import exit ${rc}, so import_data goes red"; echo "  ostler-import output, last 15 lines:"; tail -n 15 "$WORK/arm.log" | sed 's/^/  | /'; status=1; fi
 
 rc="$(arm 1 0)"
 echo "arm 2: ingest PARSE FAILURE, enrich ok -> ostler-import rc=${rc} (install.sh: $([[ $rc -eq 0 ]] && echo ok || echo warn))"
