@@ -1219,3 +1219,12 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "meeting_brief_text_is_grounded"
+
+  # ADVISORY for its first cut (scripts/walk_promote_scope.tsv). Declared here
+  # because every probe on disk must be invoked by the cut.
+  - id: box-walk-phone-reaches-hub-over-tailnet
+    title: "the Hub answers on its tailnet IP at 8443 with the certificate the phone pins, and /admin/paircode there is a 404"
+    incident: "v1.0.108 wow-moment #10: the pairing QR advertises hub_tailnet_addr; without a raw-TCP tailscale serve for 8443 the advertised route is dead, and a TLS-terminating serve breaks the SPKI pin"
+    proof:
+      kind: box_walk_probe
+      probe: "phone_reaches_hub_over_tailnet"

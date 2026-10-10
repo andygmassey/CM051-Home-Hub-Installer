@@ -476,6 +476,7 @@ test_people_sweep_partial_landing_is_not_success.py	WIRED	.github/workflows/peop
 test_person_removal_audit.py	WIRED	.github/workflows/person-removal-audit.yml
 test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/bash32-compat.yml
 test_phase_2_failures_reach_the_walk_record.sh	WIRED	.github/workflows/cut-manifest.yml
+test_phone_port_is_tailnet_served_raw_tcp.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_photo_events_carry_place_names.py	WIRED	.github/workflows/privacy-spine.yml
 test_photo_events_reach_the_graph.py	WIRED	.github/workflows/privacy-spine.yml
 test_photos_events_are_in_the_default_preset.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

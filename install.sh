@@ -25059,6 +25059,27 @@ for _plist in "${HOME}/Library/LaunchAgents/${_U_NS_CORE}."*.plist \
     fi
 done
 
+# Take the phone port off the tailnet BEFORE tailscaled is booted out below
+# (`serve ... off` needs the daemon). Best-effort and LOGGED: a Mac where
+# Tailscale was skipped has nothing to remove, and a failure must not stop the
+# uninstall. Deleting ~/.ostler/tailscale afterwards would drop the serve config
+# anyway; this makes the removal explicit instead of incidental.
+_u_tailscale_unserve() {
+    local _cli _sock
+    _cli="$(command -v tailscale 2>/dev/null || true)"
+    _sock="${OSTLER_DIR:-${HOME}/.ostler}/tailscale/tailscaled.sock"
+    if [ -z "$_cli" ] || [ ! -S "$_sock" ]; then
+        echo "  Tailscale serve for port 8443: nothing to remove (no tailscale CLI or no daemon socket)"
+        return 0
+    fi
+    if "$_cli" --socket="$_sock" serve --tcp=8443 off >/dev/null 2>&1; then
+        echo "  Removed the tailnet forward for port 8443"
+    else
+        echo "  (warning: could not remove the tailnet forward for port 8443; it goes with the Tailscale state below)"
+    fi
+}
+_u_tailscale_unserve
+
 for _label in "${_u_agent_labels[@]}"; do
     launchctl bootout "gui/$(id -u)/${_label}" 2>/dev/null || \
         launchctl unload "${HOME}/Library/LaunchAgents/${_label}.plist" 2>/dev/null || true
@@ -30455,9 +30476,25 @@ TSPLIST
             # raw-TCP served -- see the identity-gated HTTP path below,
             # which is the "`tailscale serve https` identity headers"
             # fix this comment used to defer.
-            for _ts_port in 8089; do
+            #
+            # v1.0.108 (wow-moment #10, the phone works away from home):
+            # 8443 is the companion listener the iPhone app pairs with. It is
+            # served as RAW TCP PASSTHROUGH (`--tcp=`), never `--https=` or
+            # `--tls-terminated-tcp=`: the app pins the Hub's certificate
+            # SPKI, and a TLS-terminating serve would present Tailscale's cert
+            # instead and break the pin. What 8443 exposes is an allowlist
+            # (ostler-assistant #492: only the routes the app calls; every
+            # loopback-trusted route is a 404), and the bearer still gates
+            # /api. `serve --bg --tcp=N` re-run with the same target is a
+            # no-op, so a re-install does not stack forwarders. The uninstaller
+            # removes it (`_u_tailscale_unserve`).
+            for _ts_port in 8089 8443; do
                 if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
-                    info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
+                    if [[ "$_ts_port" == "8443" ]]; then
+                        info "$(printf "$MSG_INFO_TAILSCALE_SERVE_COMPANION" "$_ts_port")"
+                    else
+                        info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
+                    fi
                 else
                     warn "$(printf "$MSG_WARN_TAILSCALE_SERVE_PORT_FAILED" "$_ts_port")"
                 fi

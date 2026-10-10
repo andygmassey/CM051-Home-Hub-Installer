@@ -586,6 +586,7 @@ MSG_OK_TAILSCALED_USERSPACE_STARTED="Tailscale background service started (users
 MSG_WARN_TAILSCALED_USERSPACE_START_FAILED="Could not start the Tailscale background service. You can re-run setup from Settings later."
 MSG_INFO_TAILSCALE_SIGN_IN_URL="Opening your browser to sign in to Tailscale: %s"
 MSG_INFO_TAILSCALE_SERVE_PORT="Exposed Hub port %s on your tailnet"
+MSG_INFO_TAILSCALE_SERVE_COMPANION="Exposed the Hub phone port %s on your tailnet (raw TCP, so the app's certificate pin still holds)"
 MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="Could not expose Hub port %s on your tailnet; off-LAN reach may be limited"
 # ── Wiki on the tailnet, owner-gated (v1.0.17) ──
 MSG_OK_WIKI_TAILNET_SERVED="Your wiki is now readable from your own devices at %s – signed in as you, and only you."
