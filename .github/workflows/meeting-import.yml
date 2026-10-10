@@ -1,0 +1,53 @@
+# Lane 31: meeting-history importer (Granola / Otter / Fireflies / VTT-SRT-DOCX).
+# Feature flag OFF; this runs the synthetic-fixture tests so they are wired.
+name: meeting-import
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'meeting_import/**'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'vendor/cm048_pipeline/src/channel_adapter.py'
+      - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'tests/test_meeting_import.py'
+      - '.github/workflows/meeting-import.yml'
+  pull_request:
+    paths:
+      - 'meeting_import/**'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'vendor/cm048_pipeline/src/channel_adapter.py'
+      - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'tests/test_meeting_import.py'
+      - '.github/workflows/meeting-import.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  meeting-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest and cm048 runtime dependencies
+        run: |
+          python -m pip install --quiet pytest httpx pyyaml phonenumbers
+          python -m pip install --quiet ./vendor/ostler_security
+      - name: Meeting importer (synthetic fixtures)
+        run: |
+          n="$(python -m pytest tests/test_meeting_import.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 15 ]; then
+            echo "REFUSING: expected at least 15 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_meeting_import.py -v
