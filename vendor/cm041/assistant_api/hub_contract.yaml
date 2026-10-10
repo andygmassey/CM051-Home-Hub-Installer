@@ -531,6 +531,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "conversations_unreadable",
     "count",
     "decisions",
     "degraded",
@@ -3235,6 +3236,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "conversations_unreadable",
     "count",
     "decisions",
     "degraded",
@@ -4982,6 +4984,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "conversations_unreadable",
     "count",
     "decisions",
     "degraded",
