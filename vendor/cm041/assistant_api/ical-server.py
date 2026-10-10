@@ -713,8 +713,8 @@ def _address_is_automated(addr):
         stripped;
       * a sub-domain label is a bulk-mail label (info., notification.,
         emails., mail., e., imip. ...);
-      * the local part IS the sender's own domain name (quidco@...quidco.com,
-        barclays@emails.barclays.co.uk): a brand mailbox, not a person.
+      * the local part IS the sender's own domain name (local part "quidco" at
+        the quidco domain, "barclays" at an emails. sub-domain): a brand mailbox, not a person.
     A person at a company writes from first.last@company, which none of these
     match.
     """
