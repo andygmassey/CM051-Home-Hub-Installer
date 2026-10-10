@@ -1018,3 +1018,10 @@ Tree `cm041/assistant_api`: `ical-server.py` adds `_org_phrase_reason` (a traili
 ### F7c (walk #17): organisation cards and two-word "Inc" names
 
 Tree `cm041/assistant_api`: `_is_non_human_person` now returns `organisation_card` for a CARDED record with no given name whose name matches the judge's legal-form sets (`_ORG_NAME_RE` / `_ORG_SHORT_FORM_RE`, copied from `customer_read.py` ORG_NAME / ORG_SHORT_FORM); `people_list` hides it. A person's card has a given name, so it stays. `_is_organisation_name` and `_is_business_shaped_name` no longer treat a two-word name ending in "inc" as an organisation ("... inc" needs three words). Guarded by `tests/test_people_have_human_evidence.py`.
+## Tidy report built in the background, served from a cache (CM051 F18, #18 Mini16)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream. `ical-server.py` `api_contacts_diff` no longer runs `TidyEngine.build_report()` on the request path: `_contacts_diff_cached` serves the last finished report with `as_of` (and `refreshing` while a new one builds), or answers at once with `degraded: true, preparing: true` and a reason when none exists yet. `_contacts_diff_build` runs in a daemon thread with `fuzzy_match_max_seconds` raised to `OSTLER_CONTACTS_DIFF_BUILD_BUDGET_SECONDS` (900), since it is off the request path. Reports go stale after `OSTLER_CONTACTS_DIFF_TTL_SECONDS` (600). A daemon `threading.Timer` warms the cache 120s after start. A module-level `import time` is added.
+
+### What a future sync must preserve
+
+`_contacts_diff_cached`, `_contacts_diff_build`, `_contacts_diff_kick`, the state dict and lock, and the warm-up timer in `main`. Guarded by `tests/test_contacts_diff_answers_fast_at_scale.py` (the 6,700-person arm fails on the pre-fix server), run by `.github/workflows/contacts-diff-fast.yml`. Retire by landing the same change in CM041 and re-pinning.
