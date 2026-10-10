@@ -95,6 +95,67 @@ class TestDefaultState(SubscriptionGateTestCase):
         self.assertEqual(snapshot["source"], "default")
 
 
+class TestIncludedThreeMonths(SubscriptionGateTestCase):
+    """Pricing ruling 2026-10-10 (Andy): a standard Hub sale includes 3 MONTHS
+    of Pro, not 30 days. After that, with no App Store receipt, Pro is OFF.
+    A valid receipt still turns it on. All dates are relative to now."""
+
+    @staticmethod
+    def _months_out(start: datetime, months: int) -> datetime:
+        import calendar
+        month_index = start.month - 1 + months
+        year = start.year + month_index // 12
+        month = month_index % 12 + 1
+        day = min(start.day, calendar.monthrange(year, month)[1])
+        return start.replace(year=year, month=month, day=day)
+
+    def test_a_hub_only_owner_gets_at_most_three_months(self) -> None:
+        purchase = datetime.now(timezone.utc) - timedelta(days=1)
+        activate_first_month_free(_iso(purchase))
+        snapshot = state_dict()
+        expires = datetime.fromisoformat(snapshot["expires_at"].replace("Z", "+00:00"))
+        self.assertEqual(expires, self._months_out(purchase, 3))
+        # Never more than 3 calendar months (92 days is the longest span).
+        self.assertLessEqual((expires - purchase).days, 92)
+        self.assertGreaterEqual((expires - purchase).days, 89)
+        self.assertTrue(is_active_or_grace())
+
+    def test_pro_is_still_on_in_month_three(self) -> None:
+        purchase = datetime.now(timezone.utc) - timedelta(days=60)
+        activate_first_month_free(_iso(purchase))
+        self.assertTrue(is_active_or_grace())
+
+    def test_pro_is_off_after_expiry_with_no_receipt(self) -> None:
+        # Installed ~3 months and a few days ago: past the included period.
+        # The 14 day grace field is INERT for a customer who never paid.
+        purchase = datetime.now(timezone.utc) - timedelta(days=95)
+        activate_first_month_free(_iso(purchase))
+        self.assertFalse(is_active_or_grace())
+        self.assertEqual(state_dict()["status"], STATUS_INACTIVE)
+
+    def test_never_pro_after_expiry_even_inside_the_inert_grace_field(self) -> None:
+        purchase = datetime.now(timezone.utc) - timedelta(days=95)
+        activate_first_month_free(_iso(purchase))
+        snap = state_dict()
+        grace_end = datetime.fromisoformat(snap["grace_period_end"].replace("Z", "+00:00"))
+        self.assertGreater(grace_end, datetime.now(timezone.utc))  # the field says grace
+        self.assertFalse(is_active_or_grace())  # and it is still off
+
+    def test_the_old_thirty_day_figure_is_gone(self) -> None:
+        purchase = datetime.now(timezone.utc) - timedelta(days=1)
+        activate_first_month_free(_iso(purchase))
+        expires = datetime.fromisoformat(state_dict()["expires_at"].replace("Z", "+00:00"))
+        self.assertNotEqual(expires - purchase, timedelta(days=30))
+
+    def test_a_valid_receipt_still_turns_pro_on_after_the_included_period(self) -> None:
+        purchase = datetime.now(timezone.utc) - timedelta(days=95)
+        activate_first_month_free(_iso(purchase))
+        self.assertFalse(is_active_or_grace())
+        refresh_from_companion("cmVjZWlwdA==", _iso(datetime.now(timezone.utc) + timedelta(days=30)))
+        self.assertTrue(is_active_or_grace())
+        self.assertEqual(state_dict()["status"], STATUS_ACTIVE)
+
+
 class TestFirstMonthFree(SubscriptionGateTestCase):
     def test_activate_writes_active_state_with_30d_expiry(self) -> None:
         # Purchase date is RELATIVE to now, because an install happens now.
