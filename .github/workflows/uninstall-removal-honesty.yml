@@ -37,6 +37,8 @@ on:
       - 'gui/OstlerInstaller/ProgressProtocol.swift'
       - 'tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh'
       - 'tests/test_the_generated_uninstaller_parses.sh'
+      - 'tests/test_phone_port_is_tailnet_served_raw_tcp.sh'
+      - 'install.sh.strings.en-GB.sh'
       - '.github/workflows/uninstall-removal-honesty.yml'
   push:
     branches: [main]
@@ -86,6 +88,12 @@ jobs:
       - name: The generated uninstaller actually parses
         if: always()
         run: bash tests/test_the_generated_uninstaller_parses.sh
+
+      # v1.0.108 wow-moment #10: 8443 is tailscale-served as raw TCP (SPKI pin
+      # holds), idempotent, logged, and removed by the uninstaller.
+      - name: The phone port is served raw-TCP on the tailnet and removed by uninstall
+        if: always()
+        run: bash tests/test_phone_port_is_tailnet_served_raw_tcp.sh
 
       # #1560: AN UNINSTALL THAT CANNOT ASK MUST REMOVE NOTHING.
       #
