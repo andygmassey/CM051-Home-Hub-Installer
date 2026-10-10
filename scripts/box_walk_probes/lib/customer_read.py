@@ -123,8 +123,13 @@ CALENDAR_ID = re.compile(r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.
 # An organisation by its LEGAL FORM or a team mailbox name, never by an
 # ordinary word: a surname can be Bank, College, School or Council, and one
 # such customer must not turn the gate red (review of #2768).
+# AG / BV / NV / Inc are also short given names or initials ("Jane AG", "Tom
+# Inc" read as people), so the bare two-letter forms count only in capitals
+# after at least two words (\S+ \S+ AG); the review of #2768 found the one
+# "organisation" on the walk #16 capture was a person matched on "ag".
+ORG_SHORT_FORM = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
 ORG_NAME = re.compile(
-    r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|ag|bv|nv|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
     r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
     r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
 SUBJECT_LINE = re.compile(r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
@@ -245,7 +250,7 @@ def service_sender(name):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
         return "marketplace or domain"
-    if ORG_NAME.search(n):
+    if ORG_NAME.search(n) or ORG_SHORT_FORM.match(n):
         return "organisation name"
     return None
 
@@ -1788,7 +1793,8 @@ def self_test():
                  # (lower case so the PII guard does not read them as name
                  # pairs; ORG_NAME is case-insensitive, so the test is equal)
                  "jane bank", "joe college", "ann school", "robert hospital", "lee council",
-                 "Jane Doe (Official)", "Jane2", "R2D2", "jdoe"):
+                 "Jane Doe (Official)", "Jane2", "R2D2", "jdoe",
+                 "Jane AG", "anna ag", "kim nv", "tom inc", "Coco", "co li"):
         if junk_name(real) or service_sender(real):
             missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
         else:
