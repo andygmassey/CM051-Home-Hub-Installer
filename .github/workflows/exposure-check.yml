@@ -1,0 +1,39 @@
+name: exposure-check
+
+# Lane 30, "If this Mac were taken": the Doctor's local, metadata-only exposure
+# check. Runs on Linux, so every Mac-only probe is exercised through scripted
+# command output; what genuinely needs a real Mac is listed in
+# vendor/doctor/agent/exposure_check.py and in the PR that added it.
+#
+# The load-bearing test is test_canary_appears_nowhere: it plants a canary
+# secret in every place the check looks and fails if the canary reaches the
+# result, the saved state, the logs or stdout/stderr. A path filter is safe
+# here because every file that can change the answer is listed.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/doctor/agent/exposure_check.py'
+      - 'vendor/doctor/agent/exposure_check_copy.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'tests/test_exposure_check.py'
+      - '.github/workflows/exposure-check.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  exposure-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Doctor test dependencies
+        run: pip install pytest "fastapi>=0.115,<1.0" "httpx>=0.28.1,<1.0" "pyyaml>=6.0,<7.0" "qrcode>=7.4,<9.0" "uvicorn>=0.32,<1.0"
+      - name: Exposure check, canary and no-network proofs
+        run: python3 -m pytest tests/test_exposure_check.py -q
