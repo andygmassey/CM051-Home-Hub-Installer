@@ -98,3 +98,7 @@ jobs:
       - name: Tailscale prompt is conditional on tailnet state (#875)
         if: always()
         run: bash tests/test_tailscale_prompt_is_conditional_on_tailnet_state.sh
+
+      - name: Tailscale sign-in and the install marker sit at the END (F2)
+        if: always()
+        run: bash tests/test_tailscale_signin_is_at_the_end.sh

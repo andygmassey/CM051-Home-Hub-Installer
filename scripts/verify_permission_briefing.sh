@@ -136,6 +136,11 @@ check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "installer" "Downloads"   
 check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "assistant" "Downloads"        yes
 check_prompt "kTCCServiceSystemPolicyDocumentsFolder" "assistant" "Documents"        yes
 check_prompt "kTCCServiceSystemPolicyAppData"         "assistant" "other apps"       yes
+# F2: the daemon's Reminders watcher (ostler-reminders) requests full
+# Reminders access under the ASSISTANT's identity, separately from the
+# installer's NSRemindersFullAccessUsageDescription row. It was raised and
+# never named in the printed list.
+check_prompt "kTCCServiceReminders"                   "assistant" "Reminders"        yes
 
 # ---------------------------------------------------------------------------
 # THIS WOULD BE THE THIRD RECURRENCE OF THE SAME SHAPE. The five check_prompt

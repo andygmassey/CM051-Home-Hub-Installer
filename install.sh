@@ -3373,13 +3373,22 @@ _ostler_promote_prelaunch_tree() {
     # subsequent install.sh writes land at ~/.ostler/.
     _ostler_set_paths "$OSTLER_FINAL_DIR"
 
+    # F2: a state/ collision above is resolved with rm -rf, which takes the
+    # install-in-progress marker with it. Put it back so the daemon's first,
+    # mid-install start still defers its Reminders prompt. Only when Phase 3
+    # had set one: before that the variable is empty (it is declared next to
+    # composite_cleanup), and the helper is defined there too.
+    if [[ -n "${OSTLER_INSTALL_MARKER:-}" ]] && declare -F _ostler_install_marker_set >/dev/null; then
+        _ostler_install_marker_set
+    fi
+
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8410) captures the path BY
+    # _ostler_write_store_curl_config (defined :8427) captures the path BY
     # VALUE and never re-reads it:
-    #     :8411   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8456   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8465 and :15414, both of which run
+    #     :8428   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8473   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8482 and :15474, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
     # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
@@ -3397,13 +3406,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16194, where the note reads
+    # WhatsApp Web session path did it again at :16254, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16211 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16271 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3412,13 +3421,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5927 against a definition at :8410. Top-level
+    # writer's own definition: :5936 against a definition at :8427. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8465, :15414) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8482, :15474) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18342 / :18520 / :18677 / :19019 path. There the
+    # :18402 / :18580 / :18737 / :19079 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5984,9 +5993,16 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      whole point of this list.)
 #  13. iMessage Automation            (CX-55 if iMessage channel enabled)
 #  14. macOS admin password           (sudo for Homebrew, sleep-disable)
+#  15. Reminders -- daemon            (the assistant's Reminders watcher asks
+#                                      under its OWN identity, separately from
+#                                      the installer's #3, same TCC pinning as
+#                                      #10/#11. F2: it waits for the
+#                                      install-in-progress marker to go, so it
+#                                      lands at the END, after the Tailscale
+#                                      sign-in, never mid-install.)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=14
+PERMISSIONS_TOTAL=15
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -6013,6 +6029,7 @@ echo -e "    12. ${BOLD}Data from other apps${NC}            macOS words it exac
 echo -e "        ${BOLD}(assistant)${NC}                     reading the app data you already approved (near the end)"
 echo -e "    13. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
 echo -e "    14. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
+echo -e "    15. ${BOLD}Reminders (assistant)${NC}           The assistant asks for itself, at the very end of the install"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
@@ -12390,6 +12407,12 @@ SUDO_KEEPALIVE_PID=""
 PHASE3_BATTERY_WATCH_PID=""
 ASSISTANT_TMPDIR=""
 TAILSCALE_TMP_ENV=""
+# F2: path of the install-in-progress marker while it exists (see
+# _ostler_install_marker_set below). Cleared on the normal path just before
+# the final assistant-daemon start; composite_cleanup removes it on any
+# other exit so an aborted install does not hold the daemon's Reminders
+# prompt back for the marker's 6h lifetime.
+OSTLER_INSTALL_MARKER=""
 # OSTLER_PRELAUNCH_PROMOTED was declared early (near the OSTLER_DIR
 # definitions at the top of the script) so the Phase-2 re-run branch
 # could call _ostler_promote_prelaunch_tree before this trap was
@@ -12465,6 +12488,10 @@ composite_cleanup() {
         rm -f "$TAILSCALE_TMP_ENV"
         TAILSCALE_TMP_ENV=""
     fi
+    if [[ -n "${OSTLER_INSTALL_MARKER:-}" ]]; then
+        rm -f "$OSTLER_INSTALL_MARKER"
+        OSTLER_INSTALL_MARKER=""
+    fi
     # CX-87 (DMG #48g): wipe the pre-FDA staging tree if we are
     # exiting before the promotion step ran. If a staging-tree
     # install log exists, copy it to a failsafe location first so
@@ -12533,6 +12560,39 @@ composite_cleanup() {
     fi
 }
 trap composite_cleanup EXIT
+
+# ── F2: INSTALL-IN-PROGRESS MARKER (the daemon's Reminders prompt) ─────
+#
+# Andy (console walk of DMG #16): every interactive moment at the START or
+# the END of the install, never mid-progress. The assistant daemon is first
+# started mid-install, and on startup its Reminders watcher used to call
+# requestFullAccessToReminders at once, raising a TCC prompt half-way
+# through a walk-away install.
+#
+# The daemon (ostler-reminders, watcher.rs) now reads this marker: while it
+# exists and is under 6h old, the watcher only READS authorisation status
+# (never prompts) and asks on its first tick after the marker is gone. A
+# missing marker is the old behaviour, so a daemon built before that change
+# simply ignores it.
+#
+# The path is FIXED at ${HOME}/.ostler/state, not ${OSTLER_DIR}: during
+# Phase 3 OSTLER_DIR can still be the /tmp prelaunch staging tree, and the
+# daemon only ever looks under $HOME/.ostler. The promote re-asserts it,
+# because a promote resolves a name collision on state/ with rm -rf.
+_ostler_install_marker_set() {
+    local _m="${HOME}/.ostler/state/install-in-progress"
+    ( umask 077; mkdir -p "${_m%/*}" ) 2>/dev/null || true
+    if ( umask 077; printf 'pid=%s\n' "$$" > "$_m" ) 2>/dev/null; then
+        OSTLER_INSTALL_MARKER="$_m"
+    fi
+}
+_ostler_install_marker_clear() {
+    if [[ -n "${OSTLER_INSTALL_MARKER:-}" ]]; then
+        rm -f "$OSTLER_INSTALL_MARKER"
+        OSTLER_INSTALL_MARKER=""
+    fi
+}
+_ostler_install_marker_set
 # _ostler_promote_prelaunch_tree is defined early (near the path
 # variable setup at the top of this script) so the Phase-2 re-run
 # branch can call it before this trap is registered. See the
@@ -30055,7 +30115,7 @@ fi
 #   - Post-write .env verification (grep) so a silent persist failure
 #     no longer leaves the iOS Companion unreachable.
 
-progress "Connect your iPhone and Watch" "tailscale_connect"
+progress "Setting up remote access (you sign in at the end)" "tailscale_connect"
 
 OSTLER_TAILSCALE_IP=""
 
@@ -30371,392 +30431,23 @@ TSPLIST
             sleep 1; TS_SOCK_WAIT=$((TS_SOCK_WAIT + 1))
         done
 
-        # #644 idempotency gate (the worst defect): only run the sign-in
-        # flow if tailscaled is ACTUALLY up. With no daemon, `tailscale
-        # up` cannot mint a login URL and `tailscale ip` never returns,
-        # so the wait below can only ever full-timeout -- the 382s hang
-        # observed on the .136 relaunch (daemon down, yet it still entered
-        # "Waiting for you to sign in (up to 3 minutes)"). If the daemon
-        # is not reachable, skip cleanly with the "set up later" message.
-        TS_SIGNIN_ATTEMPTED=0
-        if _ts_daemon_up; then
-            TS_SIGNIN_ATTEMPTED=1
-            # ── Browser auth: `tailscale up` prints a login URL ─────
-            # No GUI app to click, so capture the URL tailscale prints
-            # and open it. up runs in the background so the installer can
-            # poll for the assigned IP while the customer completes OAuth.
-            info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
-            TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
-            # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE,
-            # before `tailscale up` and the URL-poll loop below, so the
-            # browser gets the entire 2-30s poll window to finish a cold
-            # launch instead of the fixed 2s the old code allowed at
-            # delivery time. Under heavy fresh-install load (Colima +
-            # Ollama + importer) Safari's cold start routinely outran that
-            # 2s, so the open-URL event landed on a still-bouncing Safari
-            # and was dropped (~40% on a clean Mac -- the prior #644
-            # mitigation reduced but did not close this race). Priming
-            # during the already-existing wait costs nothing.
-            # Best-effort, backgrounded (-g) so it does not steal focus.
-            open -g -a Safari >/dev/null 2>&1 || true
-            # Register the Hub under a stable, predictable tailnet name so
-            # the iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
-            # regardless of the customer's Mac hostname. Without --hostname,
-            # the node inherits the Mac's local name (random per customer).
-            # Tailscale auto-suffixes (-1, -2) only on a collision within
-            # the same tailnet, which a single-Hub customer tailnet will
-            # not hit.
-            ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
-            # Surface + open the login URL once tailscale prints it.
-            TS_URL=""
-            TS_URL_WAIT=0
-            while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
-                TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
-                [[ -n "$TS_URL" ]] && break
-                # Already-authenticated installs print no URL; stop once
-                # an IP exists.
-                [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
-                sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
-            done
-            if [[ -n "$TS_URL" ]]; then
-                # #644 defect 2: the URL is ALWAYS surfaced as plain,
-                # copyable text FIRST (via info, which the GUI renders in
-                # its log pane), so the sign-in path never depends on a
-                # browser launching at all.
-                info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
-                # Auto-open is best-effort, and this is the UNION of the
-                # two hardenings that were developed in parallel:
-                #
-                #   1. `open -a Safari <url>` FIRST, because it hands
-                #      LaunchServices a single launch-if-needed-THEN-open
-                #      request. A bare `open <url>` is a separate LS
-                #      request racing the launch, and against a COLD
-                #      browser under fresh-install load (Colima VM +
-                #      Ollama + importer) it intermittently drops the
-                #      open-URL Apple event or wedges Safari outright:
-                #      ~1 in 4 with the old fixed-2s-sleep mitigation,
-                #      still ~40% after it. Safari was already warmed
-                #      above, so it has had the full poll window.
-                #   2. `_ts_open_url` as the fallback CHAIN, which is a
-                #      superset of the previous fallback: bare `open`
-                #      (the default handler), then Safari by name, then
-                #      Google Chrome. The Chrome leg matters on the fresh
-                #      .136 Mac, where no default-browser association
-                #      existed yet and the bare `open` did nothing.
-                #
-                # Both are belt-and-braces on top of the plain-text URL
-                # above, so a total auto-open failure is never a dead-end.
-                #
-                # NO RE-ISSUE. A backgrounded `open -a Safari "$TS_URL"`
-                # 4s later used to sit here as a dropped-event safety net.
-                # It fired unconditionally, so whenever the first open
-                # worked (the normal case) the customer got a SECOND,
-                # identical sign-in tab, every time (#16 console walk).
-                # A dropped open is already covered by the Safari pre-warm
-                # above and the plain-text URL in the log.
-                # tests/test_tailscale_signin_opens_one_tab.sh counts it.
-                open -a Safari "$TS_URL" >/dev/null 2>&1 || _ts_open_url "$TS_URL" || true
-            fi
-
-            # 180s window: a non-technical user opening the login URL and
-            # completing OAuth (Apple/Google/Microsoft, possible 2FA)
-            # easily eats 2-3 minutes. The loop already breaks the instant
-            # an IP appears (not a fixed timer). #644 defect 3 adds a skip
-            # path: a Skip affordance in the GUI writes
-            # ${TS_STATE_DIR}/.signin_skip, which breaks the wait at once;
-            # and the URL is re-shown on each tick so it never scrolls
-            # out of reach.
-            TS_SKIP_SENTINEL="${TS_STATE_DIR}/.signin_skip"
-            rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
-            info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
-            TS_WAIT=0
-            TS_NEXT_TICK=30
-            while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
-                OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
-                [[ -n "$OSTLER_TAILSCALE_IP" ]] && break
-                if [[ -f "$TS_SKIP_SENTINEL" ]]; then
-                    rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
-                    info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"
-                    TS_SIGNIN_ATTEMPTED=0   # suppress the trailing timeout warning
-                    break
-                fi
-                sleep 3
-                TS_WAIT=$((TS_WAIT + 3))
-                if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
-                    info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
-                    [[ -n "$TS_URL" ]] && info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
-                    TS_NEXT_TICK=$((TS_NEXT_TICK + 30))
-                fi
-            done
-        else
-            info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"
-        fi
-
-        if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
-            # ── Expose the Hub's local ports on the tailnet ─────────
-            # In userspace mode the tailnet IP does not reach local
-            # listeners without an explicit proxy, so serve each Hub
-            # port. --bg keeps the forwarder running after the
-            # installer exits. Best-effort: a serve failure is surfaced
-            # but does not fail the install (on-LAN pairing still works).
-            #
-            # v1.0.10 security lockdown: ONLY 8089 (the Doctor API) is
-            # raw-TCP tailscale-served. 8089 has its own device-pairing
-            # bearer auth, so a tailnet peer still cannot read anything
-            # without a paired token. The wiki on :8044 is still NEVER
-            # raw-TCP served -- see the identity-gated HTTP path below,
-            # which is the "`tailscale serve https` identity headers"
-            # fix this comment used to defer.
-            for _ts_port in 8089; do
-                if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
-                    info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
-                else
-                    warn "$(printf "$MSG_WARN_TAILSCALE_SERVE_PORT_FAILED" "$_ts_port")"
-                fi
-            done
-            unset _ts_port
-
-            # ── Wiki on the tailnet, owner-gated (v1.0.17) ──────────
-            #
-            # Andy's locked call: "my devices" means the TAILNET, not
-            # the LAN. A student in a hall of residence must not get
-            # their whole personal graph served to the building, so
-            # :8044 stays bound to 127.0.0.1 and the ONLY off-box route
-            # is this one. Never LAN, never Funnel.
-            #
-            # Shape: tailscale serve (HTTP-proxy mode) -> nginx gate on
-            # 127.0.0.1:8144 -> wiki-site. tailscaled deletes any
-            # client-supplied Tailscale-* headers and re-stamps them
-            # from the verified WireGuard identity, so the gate's
-            # Tailscale-User-Login check cannot be forged by a peer.
-            #
-            # Fail-closed at every step: no owner login -> no gate, no
-            # serve. Gate reload fails -> no serve. Serve fails -> the
-            # wiki simply stays on-device and the install continues.
-            if [[ "${OSTLER_WIKI_TAILNET_SERVE:-1}" == "1" ]]; then
-                # Resolve the human who owns this node. Self.UserID
-                # indexes the User map; a tagged node has no human
-                # owner and must not open the gate.
-                OSTLER_TAILNET_OWNER="$("$TS_CLI" --socket="$TS_SOCK" status --json 2>/dev/null | python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    raise SystemExit(0)
-if not isinstance(d, dict):
-    raise SystemExit(0)
-self_block = d.get("Self")
-if not isinstance(self_block, dict):
-    raise SystemExit(0)
-uid = self_block.get("UserID")
-if uid is None:
-    raise SystemExit(0)
-users = d.get("User")
-if not isinstance(users, dict):
-    raise SystemExit(0)
-user = users.get(str(uid))
-if not isinstance(user, dict):
-    raise SystemExit(0)
-login = user.get("LoginName")
-if not isinstance(login, str):
-    raise SystemExit(0)
-login = login.strip()
-if login and not login.startswith("tagged-devices"):
-    print(login)
-' 2>/dev/null || true)"
-
-                if [[ -z "${OSTLER_TAILNET_OWNER:-}" ]]; then
-                    warn "$MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED"
-                elif ! write_wiki_tailnet_gate "$OSTLER_TAILNET_OWNER"; then
-                    warn "$MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED"
-                elif ! docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1; then
-                    # Roll the gate back to fail-closed so a stale
-                    # config can never be picked up by a later restart
-                    # without the operator re-running the installer.
-                    write_wiki_tailnet_gate "" || true
-                    warn "$MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED"
-                else
-                    # Prefer HTTPS (real cert, clean URL) but fall back
-                    # to plain HTTP-over-WireGuard, which needs no
-                    # tailnet HTTPS-certificates opt-in and is still
-                    # end-to-end encrypted by Tailscale itself. Both
-                    # modes inject the identity headers the gate reads.
-                    OSTLER_WIKI_TAILNET_URL=""
-                    if "$TS_CLI" --socket="$TS_SOCK" serve --bg --https=443 "http://127.0.0.1:8144" >/dev/null 2>&1; then
-                        OSTLER_WIKI_TAILNET_URL="https://$("$TS_CLI" --socket="$TS_SOCK" status --json 2>/dev/null | python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    raise SystemExit(0)
-if not isinstance(d, dict):
-    raise SystemExit(0)
-self_block = d.get("Self")
-if not isinstance(self_block, dict):
-    raise SystemExit(0)
-name = self_block.get("DNSName")
-if not isinstance(name, str):
-    raise SystemExit(0)
-name = name.rstrip(".")
-if name:
-    print(name)
-' 2>/dev/null || true)"
-                        # MagicDNS off => empty DNSName; the tailnet IP
-                        # still reaches the serve listener.
-                        if [[ "$OSTLER_WIKI_TAILNET_URL" == "https://" ]]; then
-                            OSTLER_WIKI_TAILNET_URL="https://${OSTLER_TAILSCALE_IP}"
-                        fi
-                    elif "$TS_CLI" --socket="$TS_SOCK" serve --bg --http=80 "http://127.0.0.1:8144" >/dev/null 2>&1; then
-                        OSTLER_WIKI_TAILNET_URL="http://${OSTLER_TAILSCALE_IP}"
-                    fi
-
-                    if [[ -n "$OSTLER_WIKI_TAILNET_URL" ]]; then
-                        ok "$(printf "$MSG_OK_WIKI_TAILNET_SERVED" "$OSTLER_WIKI_TAILNET_URL")"
-                        info "$(printf "$MSG_INFO_WIKI_TAILNET_OWNER" "$OSTLER_TAILNET_OWNER")"
-                    else
-                        write_wiki_tailnet_gate "" || true
-                        docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1 || true
-                        warn "$MSG_WARN_WIKI_TAILNET_SERVE_FAILED"
-                    fi
-
-                    # We never enable Funnel. If the operator has, say
-                    # so plainly -- the gate already refuses Funnel
-                    # traffic, but a surprised customer deserves to
-                    # know their machine has a public front door.
-                    #
-                    # v1018-D001. The old predicate was
-                    #     funnel status | grep -qi "https://"
-                    # and it fired on the SUCCESS path. `funnel status`
-                    # and `serve status` are the same upstream function:
-                    # both subcommands register `runServeStatus` in
-                    # cmd/tailscale/cli/serve_legacy.go, and there is no
-                    # funnel-only filter. A tailnet-private serve prints
-                    #     https://<host> (tailnet only)
-                    # so every install that successfully published the
-                    # wiki over HTTPS on the tailnet -- the happy path,
-                    # two lines above -- then told the customer their
-                    # machine had a public front door. Confirmed on the
-                    # shipped v1.0.18 box 2026-08-09: both commands emit
-                    # byte-identical output reading "(tailnet only)".
-                    #
-                    # `AllowFunnel` is the real predicate. `tailscale
-                    # serve` sets it false for the port it configures,
-                    # `tailscale funnel` sets it true, and the key is
-                    # absent entirely when nothing is funnelled (that is
-                    # what the v1.0.18 box reports today). Foreground
-                    # sessions carry their own nested ServeConfig, so
-                    # recurse rather than reading the top level only.
-                    #
-                    # Those two locations are the COMPLETE set, and that
-                    # is upstream's answer rather than an inference from
-                    # one sample. `ipn.ServeConfig` (ipn/serve.go) has
-                    # exactly one funnel field, `AllowFunnel`, written
-                    # only by `SetFunnel`; funnel is not supported for
-                    # `Services` at all. Upstream's own predicates say
-                    # the same: `HasAllowFunnel` and `FindFunnel` check
-                    # the top-level `AllowFunnel` and then each
-                    # `Foreground` config's `AllowFunnel`, and nothing
-                    # else. Under-reporting here would mean silence on a
-                    # genuinely public box, so it is worth being sure.
-                    #
-                    # No prompt and no mutation here. This runs deep in
-                    # Phase 3 where a blocking question stalls a
-                    # walk-away install (see the Mail history-window
-                    # note in Phase 2, hoisted for exactly that reason),
-                    # and neither Tailscale verb does what it looks
-                    # like: `funnel reset` is SetServeConfig(new(...)),
-                    # which wipes OUR serve config and kills the wiki
-                    # URL, and `funnel <port> off` removes the web
-                    # handler while carrying an upstream
-                    # "TODO: remove funnel" -- it never clears the bit.
-                    #
-                    # The BEGIN/END markers are load-bearing:
-                    # tests/test_wiki_tailnet_gate.sh extracts this exact
-                    # block and runs it against on/off fixtures.
-                    # >>> OSTLER_FUNNEL_DETECT_BEGIN
-                    OSTLER_FUNNEL_PORTS="$("$TS_CLI" --socket="$TS_SOCK" funnel status --json 2>/dev/null | python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    raise SystemExit(0)
-
-def collect(cfg, out):
-    if not isinstance(cfg, dict):
-        return
-    allow = cfg.get("AllowFunnel")
-    if isinstance(allow, dict):
-        for hostport, allowed in allow.items():
-            if allowed:
-                out.append(str(hostport))
-    fg = cfg.get("Foreground")
-    if isinstance(fg, dict):
-        for nested in fg.values():
-            collect(nested, out)
-
-ports = []
-collect(d, ports)
-if ports:
-    print(", ".join(sorted(set(ports))))
-' 2>/dev/null || true)"
-                    # <<< OSTLER_FUNNEL_DETECT_END
-                    if [[ -n "${OSTLER_FUNNEL_PORTS:-}" ]]; then
-                        warn "$(printf "$MSG_WARN_WIKI_TAILNET_FUNNEL_ON" "$OSTLER_FUNNEL_PORTS")"
-                    fi
-                fi
-            else
-                info "$MSG_INFO_WIKI_TAILNET_LOCAL_ONLY"
-            fi
-            ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
-            echo "  Use this address in the Ostler iOS companion app:"
-            echo "    http://${OSTLER_TAILSCALE_IP}:8089"
-            # Persist to .env (replace existing line if present, append otherwise)
-            ENV_FILE="${CONFIG_DIR}/.env"
-            if [[ -f "$ENV_FILE" ]]; then
-                if grep -q "^OSTLER_TAILSCALE_IP=" "$ENV_FILE"; then
-                    # In-place rewrite of the line. Composite cleanup
-                    # (registered at top of Phase 3) rms the tmp file
-                    # if we exit before the mv completes -- e.g. disk
-                    # full or SIGINT mid-sed. Per-resource flag is
-                    # TAILSCALE_TMP_ENV; clear it after a successful
-                    # mv so composite_cleanup is a no-op for this
-                    # resource on normal exit.
-                    TAILSCALE_TMP_ENV=$(mktemp)
-                    sed "s|^OSTLER_TAILSCALE_IP=.*|OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TAILSCALE_TMP_ENV"
-                    mv "$TAILSCALE_TMP_ENV" "$ENV_FILE"
-                    TAILSCALE_TMP_ENV=""
-                else
-                    echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
-                fi
-                # Wiki tailnet URL, if the owner-gated serve landed.
-                # Read back by the Doctor / completion banner so the
-                # customer is told the address once, in one place.
-                if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
-                    if grep -q "^OSTLER_WIKI_TAILNET_URL=" "$ENV_FILE"; then
-                        WIKI_TAILNET_TMP_ENV=$(mktemp)
-                        sed "s|^OSTLER_WIKI_TAILNET_URL=.*|OSTLER_WIKI_TAILNET_URL=\"${OSTLER_WIKI_TAILNET_URL}\"|" "$ENV_FILE" > "$WIKI_TAILNET_TMP_ENV"
-                        mv "$WIKI_TAILNET_TMP_ENV" "$ENV_FILE"
-                    else
-                        echo "OSTLER_WIKI_TAILNET_URL=\"${OSTLER_WIKI_TAILNET_URL}\"" >> "$ENV_FILE"
-                    fi
-                fi
-                # CX-81 Tailscale step verify (2026-05-26): grep the
-                # written value back so a silent persist failure (e.g.
-                # .env permission flip, partial mv) is caught rather
-                # than leaving the iOS Companion unreachable.
-                if grep -q "^OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" "$ENV_FILE"; then
-                    ok "$MSG_OK_TAILSCALE_ENV_PERSISTED"
-                else
-                    warn "$MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED"
-                fi
-            fi
-        elif [[ "${TS_SIGNIN_ATTEMPTED:-0}" == 1 ]]; then
-            # Only warn about a timeout when we genuinely entered the wait
-            # (daemon up, sign-in attempted). After a daemon-down skip or
-            # a user Skip, the "set up later" message already covered it.
-            warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
-            warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
-        fi
+        # ── F2 (console walk of DMG #16): SIGN-IN MOVED TO THE END ──────
+        #
+        # Andy: every interactive moment belongs at the START or the END of
+        # the install, never mid-progress. The browser sign-in (up to 3
+        # minutes of waiting on the customer) and the `tailscale serve`
+        # publish that depends on its IP used to run HERE, between the Hub
+        # app and graph hydration, which pulled the customer back to the
+        # screen half-way through a walk-away install.
+        #
+        # Only the binary, the recovery wrapper and the tailscaled
+        # LaunchAgent stay here. The sign-in + serve block now runs as the
+        # `tailscale_signin` step after health_check and before the final
+        # assistant-daemon start (search "TAILSCALE SIGN-IN, AT THE END").
+        # This flag is the only hand-off: it is set on exactly the path that
+        # used to reach the sign-in, so a declined, failed or CLI-less
+        # install still never sees a sign-in.
+        OSTLER_TS_SIGNIN_PENDING=1
     else
         warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
         # SAY WHAT IT COSTS, not just what failed. This branch is where the
@@ -37322,8 +37013,9 @@ _probe_http_live() {
 # call that raises the daemon's own Documents-folder + "control Messages"
 # Automation prompts. That single honest prompt is acceptable -- Andy's
 # complaint was the STACK, not one prompt -- but it must land ALONE. The assist
-# block already force-closed System Settings + Finder minutes ago, and the
-# Tailscale/Safari sign-in resolved many hydration phases earlier; this cheap
+# block already force-closed System Settings + Finder minutes ago (the
+# Tailscale/Safari sign-in now runs at the very END, after health_check: F2,
+# search "TAILSCALE SIGN-IN, AT THE END"); this cheap
 # close is defense-in-depth so a reopened FDA pane can never be on screen when
 # the prompt fires. (The way to remove even this one prompt is to PRIME the
 # Documents + Automation grants early in the front batch -- scoped in the PR as
@@ -38710,6 +38402,427 @@ fi
 # (disabled path: deliberately silent -- the section ships dark on
 # v1.0.x and the customer never hears about a feature that is off.)
 
+# ── TAILSCALE SIGN-IN, AT THE END (F2, console walk of DMG #16) ──────
+#
+# Moved here from §3.15 (tailscale_connect), which now only installs the
+# binary, the recovery wrapper and the userspace tailscaled LaunchAgent and
+# sets OSTLER_TS_SIGNIN_PENDING=1. Andy's rule: every interactive moment is
+# at the START or the END of the install, never mid-progress. This is the
+# END: after health_check, before the final assistant-daemon start.
+#
+# Runs at most ONCE per install.sh run: the flag is cleared on entry. The
+# Sparkle upgrade path (OSTLER_UPGRADE_MODE, the _UPG_* block at the top of
+# this file) exits long before Phase 3, so it never reaches either half.
+#
+# Every consumer of what this block produces is below it:
+#   OSTLER_TAILSCALE_IP     -> .env persist (inside the block)
+#   OSTLER_TAILNET_OWNER    -> write_wiki_tailnet_gate (inside the block)
+#   OSTLER_WIKI_TAILNET_URL -> .env persist (inside) + the completion banner
+# tests/test_tailscale_signin_is_at_the_end.sh enforces the order.
+#
+# The block below is moved VERBATIM, including its indentation: it embeds
+# Python heredocs whose indentation is significant, so re-indenting it to
+# this nesting level would be a code change, not a move.
+if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
+    OSTLER_TS_SIGNIN_PENDING=0
+    # Same open shape as health_check above: `step` sets the phase title,
+    # gui_step_begin gives the sidebar its own row (closing health_check).
+    # Not a `progress` call, so TOTAL_STEPS is unchanged. This row stays
+    # open to the end of the script, like health_check did before it.
+    step "$MSG_STEP_TAILSCALE_SIGNIN" "tailscale_signin"
+    if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
+        gui_step_end
+    fi
+    __OSTLER_STEP_ID="tailscale_signin"
+    gui_step_begin "tailscale_signin" "$MSG_STEP_TAILSCALE_SIGNIN" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
+        # #644 idempotency gate (the worst defect): only run the sign-in
+        # flow if tailscaled is ACTUALLY up. With no daemon, `tailscale
+        # up` cannot mint a login URL and `tailscale ip` never returns,
+        # so the wait below can only ever full-timeout -- the 382s hang
+        # observed on the .136 relaunch (daemon down, yet it still entered
+        # "Waiting for you to sign in (up to 3 minutes)"). If the daemon
+        # is not reachable, skip cleanly with the "set up later" message.
+        TS_SIGNIN_ATTEMPTED=0
+        if _ts_daemon_up; then
+            TS_SIGNIN_ATTEMPTED=1
+            # ── Browser auth: `tailscale up` prints a login URL ─────
+            # No GUI app to click, so capture the URL tailscale prints
+            # and open it. up runs in the background so the installer can
+            # poll for the assigned IP while the customer completes OAuth.
+            info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
+            TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
+            # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE,
+            # before `tailscale up` and the URL-poll loop below, so the
+            # browser gets the entire 2-30s poll window to finish a cold
+            # launch instead of the fixed 2s the old code allowed at
+            # delivery time. Under heavy fresh-install load (Colima +
+            # Ollama + importer) Safari's cold start routinely outran that
+            # 2s, so the open-URL event landed on a still-bouncing Safari
+            # and was dropped (~40% on a clean Mac -- the prior #644
+            # mitigation reduced but did not close this race). Priming
+            # during the already-existing wait costs nothing.
+            # Best-effort, backgrounded (-g) so it does not steal focus.
+            open -g -a Safari >/dev/null 2>&1 || true
+            # Register the Hub under a stable, predictable tailnet name so
+            # the iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
+            # regardless of the customer's Mac hostname. Without --hostname,
+            # the node inherits the Mac's local name (random per customer).
+            # Tailscale auto-suffixes (-1, -2) only on a collision within
+            # the same tailnet, which a single-Hub customer tailnet will
+            # not hit.
+            ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
+            # Surface + open the login URL once tailscale prints it.
+            TS_URL=""
+            TS_URL_WAIT=0
+            while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
+                TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
+                [[ -n "$TS_URL" ]] && break
+                # Already-authenticated installs print no URL; stop once
+                # an IP exists.
+                [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
+                sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
+            done
+            if [[ -n "$TS_URL" ]]; then
+                # #644 defect 2: the URL is ALWAYS surfaced as plain,
+                # copyable text FIRST (via info, which the GUI renders in
+                # its log pane), so the sign-in path never depends on a
+                # browser launching at all.
+                info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
+                # Auto-open is best-effort, and this is the UNION of the
+                # two hardenings that were developed in parallel:
+                #
+                #   1. `open -a Safari <url>` FIRST, because it hands
+                #      LaunchServices a single launch-if-needed-THEN-open
+                #      request. A bare `open <url>` is a separate LS
+                #      request racing the launch, and against a COLD
+                #      browser under fresh-install load (Colima VM +
+                #      Ollama + importer) it intermittently drops the
+                #      open-URL Apple event or wedges Safari outright:
+                #      ~1 in 4 with the old fixed-2s-sleep mitigation,
+                #      still ~40% after it. Safari was already warmed
+                #      above, so it has had the full poll window.
+                #   2. `_ts_open_url` as the fallback CHAIN, which is a
+                #      superset of the previous fallback: bare `open`
+                #      (the default handler), then Safari by name, then
+                #      Google Chrome. The Chrome leg matters on the fresh
+                #      .136 Mac, where no default-browser association
+                #      existed yet and the bare `open` did nothing.
+                #
+                # Both are belt-and-braces on top of the plain-text URL
+                # above, so a total auto-open failure is never a dead-end.
+                #
+                # NO RE-ISSUE. A backgrounded `open -a Safari "$TS_URL"`
+                # 4s later used to sit here as a dropped-event safety net.
+                # It fired unconditionally, so whenever the first open
+                # worked (the normal case) the customer got a SECOND,
+                # identical sign-in tab, every time (#16 console walk).
+                # A dropped open is already covered by the Safari pre-warm
+                # above and the plain-text URL in the log.
+                # tests/test_tailscale_signin_opens_one_tab.sh counts it.
+                open -a Safari "$TS_URL" >/dev/null 2>&1 || _ts_open_url "$TS_URL" || true
+            fi
+
+            # 180s window: a non-technical user opening the login URL and
+            # completing OAuth (Apple/Google/Microsoft, possible 2FA)
+            # easily eats 2-3 minutes. The loop already breaks the instant
+            # an IP appears (not a fixed timer). #644 defect 3 adds a skip
+            # path: a Skip affordance in the GUI writes
+            # ${TS_STATE_DIR}/.signin_skip, which breaks the wait at once;
+            # and the URL is re-shown on each tick so it never scrolls
+            # out of reach.
+            TS_SKIP_SENTINEL="${TS_STATE_DIR}/.signin_skip"
+            rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
+            info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
+            TS_WAIT=0
+            TS_NEXT_TICK=30
+            while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
+                OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
+                [[ -n "$OSTLER_TAILSCALE_IP" ]] && break
+                if [[ -f "$TS_SKIP_SENTINEL" ]]; then
+                    rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
+                    info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"
+                    TS_SIGNIN_ATTEMPTED=0   # suppress the trailing timeout warning
+                    break
+                fi
+                sleep 3
+                TS_WAIT=$((TS_WAIT + 3))
+                if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
+                    info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
+                    [[ -n "$TS_URL" ]] && info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
+                    TS_NEXT_TICK=$((TS_NEXT_TICK + 30))
+                fi
+            done
+        else
+            info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"
+        fi
+
+        if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
+            # ── Expose the Hub's local ports on the tailnet ─────────
+            # In userspace mode the tailnet IP does not reach local
+            # listeners without an explicit proxy, so serve each Hub
+            # port. --bg keeps the forwarder running after the
+            # installer exits. Best-effort: a serve failure is surfaced
+            # but does not fail the install (on-LAN pairing still works).
+            #
+            # v1.0.10 security lockdown: ONLY 8089 (the Doctor API) is
+            # raw-TCP tailscale-served. 8089 has its own device-pairing
+            # bearer auth, so a tailnet peer still cannot read anything
+            # without a paired token. The wiki on :8044 is still NEVER
+            # raw-TCP served -- see the identity-gated HTTP path below,
+            # which is the "`tailscale serve https` identity headers"
+            # fix this comment used to defer.
+            for _ts_port in 8089; do
+                if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
+                    info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
+                else
+                    warn "$(printf "$MSG_WARN_TAILSCALE_SERVE_PORT_FAILED" "$_ts_port")"
+                fi
+            done
+            unset _ts_port
+
+            # ── Wiki on the tailnet, owner-gated (v1.0.17) ──────────
+            #
+            # Andy's locked call: "my devices" means the TAILNET, not
+            # the LAN. A student in a hall of residence must not get
+            # their whole personal graph served to the building, so
+            # :8044 stays bound to 127.0.0.1 and the ONLY off-box route
+            # is this one. Never LAN, never Funnel.
+            #
+            # Shape: tailscale serve (HTTP-proxy mode) -> nginx gate on
+            # 127.0.0.1:8144 -> wiki-site. tailscaled deletes any
+            # client-supplied Tailscale-* headers and re-stamps them
+            # from the verified WireGuard identity, so the gate's
+            # Tailscale-User-Login check cannot be forged by a peer.
+            #
+            # Fail-closed at every step: no owner login -> no gate, no
+            # serve. Gate reload fails -> no serve. Serve fails -> the
+            # wiki simply stays on-device and the install continues.
+            if [[ "${OSTLER_WIKI_TAILNET_SERVE:-1}" == "1" ]]; then
+                # Resolve the human who owns this node. Self.UserID
+                # indexes the User map; a tagged node has no human
+                # owner and must not open the gate.
+                OSTLER_TAILNET_OWNER="$("$TS_CLI" --socket="$TS_SOCK" status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+if not isinstance(d, dict):
+    raise SystemExit(0)
+self_block = d.get("Self")
+if not isinstance(self_block, dict):
+    raise SystemExit(0)
+uid = self_block.get("UserID")
+if uid is None:
+    raise SystemExit(0)
+users = d.get("User")
+if not isinstance(users, dict):
+    raise SystemExit(0)
+user = users.get(str(uid))
+if not isinstance(user, dict):
+    raise SystemExit(0)
+login = user.get("LoginName")
+if not isinstance(login, str):
+    raise SystemExit(0)
+login = login.strip()
+if login and not login.startswith("tagged-devices"):
+    print(login)
+' 2>/dev/null || true)"
+
+                if [[ -z "${OSTLER_TAILNET_OWNER:-}" ]]; then
+                    warn "$MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED"
+                elif ! write_wiki_tailnet_gate "$OSTLER_TAILNET_OWNER"; then
+                    warn "$MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED"
+                elif ! docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1; then
+                    # Roll the gate back to fail-closed so a stale
+                    # config can never be picked up by a later restart
+                    # without the operator re-running the installer.
+                    write_wiki_tailnet_gate "" || true
+                    warn "$MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED"
+                else
+                    # Prefer HTTPS (real cert, clean URL) but fall back
+                    # to plain HTTP-over-WireGuard, which needs no
+                    # tailnet HTTPS-certificates opt-in and is still
+                    # end-to-end encrypted by Tailscale itself. Both
+                    # modes inject the identity headers the gate reads.
+                    OSTLER_WIKI_TAILNET_URL=""
+                    if "$TS_CLI" --socket="$TS_SOCK" serve --bg --https=443 "http://127.0.0.1:8144" >/dev/null 2>&1; then
+                        OSTLER_WIKI_TAILNET_URL="https://$("$TS_CLI" --socket="$TS_SOCK" status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+if not isinstance(d, dict):
+    raise SystemExit(0)
+self_block = d.get("Self")
+if not isinstance(self_block, dict):
+    raise SystemExit(0)
+name = self_block.get("DNSName")
+if not isinstance(name, str):
+    raise SystemExit(0)
+name = name.rstrip(".")
+if name:
+    print(name)
+' 2>/dev/null || true)"
+                        # MagicDNS off => empty DNSName; the tailnet IP
+                        # still reaches the serve listener.
+                        if [[ "$OSTLER_WIKI_TAILNET_URL" == "https://" ]]; then
+                            OSTLER_WIKI_TAILNET_URL="https://${OSTLER_TAILSCALE_IP}"
+                        fi
+                    elif "$TS_CLI" --socket="$TS_SOCK" serve --bg --http=80 "http://127.0.0.1:8144" >/dev/null 2>&1; then
+                        OSTLER_WIKI_TAILNET_URL="http://${OSTLER_TAILSCALE_IP}"
+                    fi
+
+                    if [[ -n "$OSTLER_WIKI_TAILNET_URL" ]]; then
+                        ok "$(printf "$MSG_OK_WIKI_TAILNET_SERVED" "$OSTLER_WIKI_TAILNET_URL")"
+                        info "$(printf "$MSG_INFO_WIKI_TAILNET_OWNER" "$OSTLER_TAILNET_OWNER")"
+                    else
+                        write_wiki_tailnet_gate "" || true
+                        docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1 || true
+                        warn "$MSG_WARN_WIKI_TAILNET_SERVE_FAILED"
+                    fi
+
+                    # We never enable Funnel. If the operator has, say
+                    # so plainly -- the gate already refuses Funnel
+                    # traffic, but a surprised customer deserves to
+                    # know their machine has a public front door.
+                    #
+                    # v1018-D001. The old predicate was
+                    #     funnel status | grep -qi "https://"
+                    # and it fired on the SUCCESS path. `funnel status`
+                    # and `serve status` are the same upstream function:
+                    # both subcommands register `runServeStatus` in
+                    # cmd/tailscale/cli/serve_legacy.go, and there is no
+                    # funnel-only filter. A tailnet-private serve prints
+                    #     https://<host> (tailnet only)
+                    # so every install that successfully published the
+                    # wiki over HTTPS on the tailnet -- the happy path,
+                    # two lines above -- then told the customer their
+                    # machine had a public front door. Confirmed on the
+                    # shipped v1.0.18 box 2026-08-09: both commands emit
+                    # byte-identical output reading "(tailnet only)".
+                    #
+                    # `AllowFunnel` is the real predicate. `tailscale
+                    # serve` sets it false for the port it configures,
+                    # `tailscale funnel` sets it true, and the key is
+                    # absent entirely when nothing is funnelled (that is
+                    # what the v1.0.18 box reports today). Foreground
+                    # sessions carry their own nested ServeConfig, so
+                    # recurse rather than reading the top level only.
+                    #
+                    # Those two locations are the COMPLETE set, and that
+                    # is upstream's answer rather than an inference from
+                    # one sample. `ipn.ServeConfig` (ipn/serve.go) has
+                    # exactly one funnel field, `AllowFunnel`, written
+                    # only by `SetFunnel`; funnel is not supported for
+                    # `Services` at all. Upstream's own predicates say
+                    # the same: `HasAllowFunnel` and `FindFunnel` check
+                    # the top-level `AllowFunnel` and then each
+                    # `Foreground` config's `AllowFunnel`, and nothing
+                    # else. Under-reporting here would mean silence on a
+                    # genuinely public box, so it is worth being sure.
+                    #
+                    # No prompt and no mutation here. This runs deep in
+                    # Phase 3 where a blocking question stalls a
+                    # walk-away install (see the Mail history-window
+                    # note in Phase 2, hoisted for exactly that reason),
+                    # and neither Tailscale verb does what it looks
+                    # like: `funnel reset` is SetServeConfig(new(...)),
+                    # which wipes OUR serve config and kills the wiki
+                    # URL, and `funnel <port> off` removes the web
+                    # handler while carrying an upstream
+                    # "TODO: remove funnel" -- it never clears the bit.
+                    #
+                    # The BEGIN/END markers are load-bearing:
+                    # tests/test_wiki_tailnet_gate.sh extracts this exact
+                    # block and runs it against on/off fixtures.
+                    # >>> OSTLER_FUNNEL_DETECT_BEGIN
+                    OSTLER_FUNNEL_PORTS="$("$TS_CLI" --socket="$TS_SOCK" funnel status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+
+def collect(cfg, out):
+    if not isinstance(cfg, dict):
+        return
+    allow = cfg.get("AllowFunnel")
+    if isinstance(allow, dict):
+        for hostport, allowed in allow.items():
+            if allowed:
+                out.append(str(hostport))
+    fg = cfg.get("Foreground")
+    if isinstance(fg, dict):
+        for nested in fg.values():
+            collect(nested, out)
+
+ports = []
+collect(d, ports)
+if ports:
+    print(", ".join(sorted(set(ports))))
+' 2>/dev/null || true)"
+                    # <<< OSTLER_FUNNEL_DETECT_END
+                    if [[ -n "${OSTLER_FUNNEL_PORTS:-}" ]]; then
+                        warn "$(printf "$MSG_WARN_WIKI_TAILNET_FUNNEL_ON" "$OSTLER_FUNNEL_PORTS")"
+                    fi
+                fi
+            else
+                info "$MSG_INFO_WIKI_TAILNET_LOCAL_ONLY"
+            fi
+            ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
+            echo "  Use this address in the Ostler iOS companion app:"
+            echo "    http://${OSTLER_TAILSCALE_IP}:8089"
+            # Persist to .env (replace existing line if present, append otherwise)
+            ENV_FILE="${CONFIG_DIR}/.env"
+            if [[ -f "$ENV_FILE" ]]; then
+                if grep -q "^OSTLER_TAILSCALE_IP=" "$ENV_FILE"; then
+                    # In-place rewrite of the line. Composite cleanup
+                    # (registered at top of Phase 3) rms the tmp file
+                    # if we exit before the mv completes -- e.g. disk
+                    # full or SIGINT mid-sed. Per-resource flag is
+                    # TAILSCALE_TMP_ENV; clear it after a successful
+                    # mv so composite_cleanup is a no-op for this
+                    # resource on normal exit.
+                    TAILSCALE_TMP_ENV=$(mktemp)
+                    sed "s|^OSTLER_TAILSCALE_IP=.*|OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TAILSCALE_TMP_ENV"
+                    mv "$TAILSCALE_TMP_ENV" "$ENV_FILE"
+                    TAILSCALE_TMP_ENV=""
+                else
+                    echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
+                fi
+                # Wiki tailnet URL, if the owner-gated serve landed.
+                # Read back by the Doctor / completion banner so the
+                # customer is told the address once, in one place.
+                if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
+                    if grep -q "^OSTLER_WIKI_TAILNET_URL=" "$ENV_FILE"; then
+                        WIKI_TAILNET_TMP_ENV=$(mktemp)
+                        sed "s|^OSTLER_WIKI_TAILNET_URL=.*|OSTLER_WIKI_TAILNET_URL=\"${OSTLER_WIKI_TAILNET_URL}\"|" "$ENV_FILE" > "$WIKI_TAILNET_TMP_ENV"
+                        mv "$WIKI_TAILNET_TMP_ENV" "$ENV_FILE"
+                    else
+                        echo "OSTLER_WIKI_TAILNET_URL=\"${OSTLER_WIKI_TAILNET_URL}\"" >> "$ENV_FILE"
+                    fi
+                fi
+                # CX-81 Tailscale step verify (2026-05-26): grep the
+                # written value back so a silent persist failure (e.g.
+                # .env permission flip, partial mv) is caught rather
+                # than leaving the iOS Companion unreachable.
+                if grep -q "^OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" "$ENV_FILE"; then
+                    ok "$MSG_OK_TAILSCALE_ENV_PERSISTED"
+                else
+                    warn "$MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED"
+                fi
+            fi
+        elif [[ "${TS_SIGNIN_ATTEMPTED:-0}" == 1 ]]; then
+            # Only warn about a timeout when we genuinely entered the wait
+            # (daemon up, sign-in attempted). After a daemon-down skip or
+            # a user Skip, the "set up later" message already covered it.
+            warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
+            warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
+        fi
+fi
+
 # ── Final assistant-daemon restart (FDA inheritance) ───────────────
 #
 # .152 walk (2026-06-16): iMessage was DEAD on a fresh install until
@@ -38753,6 +38866,12 @@ fi
 # declined / the FDA poll timed out, the daemon starts here without FDA and
 # may raise the Documents prompt once -- but ALONE, after the FDA windows
 # are gone, never stacked on them.
+#
+# F2: the install-in-progress marker goes JUST before this start. From here
+# the daemon's Reminders watcher asks for access (this start's own startup
+# probe, or at most one 30s tick later), which is the END of the install,
+# after the Tailscale sign-in above. See _ostler_install_marker_set.
+_ostler_install_marker_clear
 _ostler_start_assistant_daemon
 
 # #1538: and SAY what the customer has, whatever the channel set. TOP LEVEL,

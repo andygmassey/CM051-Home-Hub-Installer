@@ -598,6 +598,7 @@ test_tailnet_owner_resolution.py	WIRED	.github/workflows/tests-unwired-sweep-mz.
 test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_tailscale_signin_is_at_the_end.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_signin_opens_one_tab.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
