@@ -549,10 +549,6 @@ def test_digest_is_capped_on_a_busy_graph(env):
 # was a CM048 urn:ostler:Fact with userId = the owner and urn:ostler:about =
 # that contact's person URN, and CONTEXT.md's About you Places line had it.
 
-# origin/main before this fix: the About-you generator that shipped in #16.
-_F12_PREFIX_SHA = "23555fa7"
-
-
 def _about_places(digest: str) -> str:
     about = _section(digest, "About you")
     return "\n".join(ln for ln in about.splitlines() if ln.startswith("- Places:"))
@@ -566,27 +562,19 @@ def test_f12_control_the_seed_holds_both_places():
     assert NEIGHBOUR_PLACE in texts and "Works from Harbourtown on Fridays" in texts
 
 
-def test_f12_red_shipped_generator_gives_the_owner_a_contacts_place(env, tmp_path):
-    try:
-        src = subprocess.run(
-            ["git", "-C", str(_REPO), "show",
-             f"{_F12_PREFIX_SHA}:context-refresh/bin/generate_pwg_context.py"],
-            capture_output=True, text=True, check=True, timeout=30).stdout
-    except (subprocess.CalledProcessError, OSError) as exc:
-        pytest.fail(f"CANNOT-RUN: generator not readable at {_F12_PREFIX_SHA}: {exc}")
-    pre = tmp_path / "generate_pwg_context_f12_prefix.py"
-    pre.write_text(src, encoding="utf-8")
-    _, digest = _build(env, pre, _seed_store(neighbour_place=True), name="gen_f12_prefix")
-    places = _about_places(digest)
-    print(f"\n[F12 RED] {places}")
-    assert NEIGHBOUR_PLACE in places
-
-
-def test_f12_green_a_contacts_place_never_reaches_about_you(env):
+def test_f12_a_contacts_place_is_absent_from_about_you(env):
+    """STRAIGHT arm: FAILS on the generator at 23555fa7 (main before this fix),
+    passes with it."""
     _, digest = _build(env, _SCRIPT, _seed_store(neighbour_place=True), name="gen_f12")
     places = _about_places(digest)
-    print(f"\n[F12 GREEN] {places}")
+    print(f"\n[F12] {places}")
+    assert NEIGHBOUR_PLACE not in places, f"a contact's place is on the owner's Places line: {places}"
     assert NEIGHBOUR_PLACE not in _section(digest, "About you")
+
+
+def test_f12_control_the_owners_own_places_still_render(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(neighbour_place=True), name="gen_f12c")
+    places = _about_places(digest)
     # Control: the owner's own places, tagged and legacy-untagged, still show.
     assert "Works from Harbourtown on Fridays" in places
     assert "Lives in Fictionville" in places
