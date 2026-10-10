@@ -994,3 +994,12 @@ The predicates mirror `scripts/box_walk_probes/lib/customer_read.py` (CM051 #276
 ### F7 follow-ups (same graft, same guard)
 
 `people_list` (a) no longer applies the cut #15 name-SHAPE rules (`_is_organisation_name`, `_is_automated_or_service_name`, `_is_service_mailbox_name`) to a record that carries a given or family name (they hid real people on the walk box: names typed in capitals, "Name - Role"); (b) hides a social-only, handle-only node (single-token name, an `instagram_username` identifier, no given/family, no card, no phone/email/LinkedIn) from the default list only (ruling: Archie); (c) drops a Contacts card matching `ASSISTANT_EMAIL` / `ASSISTANT_PHONE` (`_is_assistant_identity`), delivered by new plist keys in `install.sh`. Guarded by `tests/test_people_have_human_evidence.py` (12 tests).
+
+
+## Timeline dates: ISO 8601 with offset, event dates only (CM031 device walk, 2026-10-10)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream (the CM041 port is CM041 #213, on hold). `ical-server.py`: `_to_iso8601` now delegates to a new `_timeline_timestamp` (inserted immediately after it), which returns full ISO 8601 with the Hub's local offset (a bare date becomes local noon) or "" when unreadable. `_timeline_conversations` reads only event-date keys (`occurred_at`, `date`, `timestamp`, `started_at`; no `created_at` / `ingested_at`). `api_timeline`'s `entries` loop skips `conversation_error`, drops a row whose timestamp is "", and adds `all_day` to each entry.
+
+### What a future sync must preserve
+
+`_timeline_timestamp` and its use by `_to_iso8601`, the event-date key list, and the three `entries` changes. Guarded by `tests/test_timeline_dates_are_event_dates_with_offset.py` (6 tests: 6 red on the branch base), run by `.github/workflows/timeline-dates-with-offset.yml`. Retire by landing CM041 #213 (rebased on this) and re-pinning.
