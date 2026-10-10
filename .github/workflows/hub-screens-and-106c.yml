@@ -34,6 +34,11 @@ on:
       - 'scripts/box_walk_probes/lib/conversation_capture_e2e.py'
       - 'scripts/box_walk_probes/fixtures/conversation_capture_e2e/**'
       - 'scripts/box_walk_probes/lib/conversation_capture_seed.sh'
+      - 'scripts/box_walk_probes/lib/companion_pair.py'
+      - 'scripts/box_walk_probes/lib/companion_pair.sh'
+      - 'scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh'
+      - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
+      - 'tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh'
       - 'scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh'
       - 'tests/test_the_walk_seeds_the_conversation_capture.sh'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
@@ -138,6 +143,20 @@ jobs:
       - name: The conversation-capture judge catches every mutant, including the mandated missing-artefact one (v1.0.107 #10)
         if: always()
         run: python3 scripts/box_walk_probes/lib/conversation_capture_e2e.py --self-test
+      - name: The companion pairing helper builds what the Hub verifies (#17, real /auth/pair flow)
+        # HKDF against RFC 5869, the webauthn.create/get clientData bind the
+        # server challenge, the ES256 assertion verifies, companion_proof =
+        # HMAC(KEK(prf)). The end-to-end proof is against a gateway built from
+        # ostler-assistant #501 (recorded in the PR); this pins the offline half.
+        if: always()
+        run: |
+          python3 -m pip install --quiet cryptography
+          python3 scripts/box_walk_probes/lib/companion_pair.py --self-test
+      - name: Probes pair through the companion flow, and a non-answer is not a rejection
+        if: always()
+        run: |
+          bash tests/test_a_pairing_non_answer_is_not_a_rejection.sh
+          bash tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh
       - name: The conversation-capture probe's own self-test
         if: always()
         run: |
