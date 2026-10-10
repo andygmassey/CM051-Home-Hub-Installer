@@ -7,9 +7,10 @@ wrote 0 of 979 while printing status=ok. Three assertions, all BLOCKING:
   1. the qdrant PROCESS's soft nofile limit is >= 65535 (read from
      /proc/<pid>/limits inside the container, not from compose text);
   2. its open fds are under 50% of that limit;
-  3. every hydrate step that had input wrote something: written > 0 whenever
-     input > 0, read from the STEP'S OWN COUNT LINES in its log, never from a
-     status word ("status=ok" printed over 0 written is the #16 shape).
+  3. every hydrate step that had input wrote ALL of it: written == input and
+     no errors, read from the STEP'S OWN COUNT LINES in its log, never from a
+     status word or exit code ("status=ok" over 0 written is the #16 shape; the
+     real-path RED exited 0 having inserted 9,266 of 18,000 chunks).
 
 Count lines read (the producers, file:line in this repo):
   places      "Done: N places (W written, E errors)"
@@ -37,6 +38,8 @@ CONTAINER = os.environ.get("OSTLER_QDRANT_CONTAINER", "ostler-qdrant")
 PLACES = re.compile(r"Done: ([\d,]+) places \(([\d,]+) written, ([\d,]+) errors\)(?:.*status=(\w+))?")
 CHUNKS = re.compile(r"Chunks created:\s*([\d,]+)")
 VECTORS = re.compile(r"Vectors inserted:\s*([\d,]+)")
+EMBED_ERRORS = re.compile(r"^Errors \(([\d,]+)\):", re.M)
+UPSERT_FAILED = re.compile(r"Failed to upsert chunk")
 
 
 def _n(s):
@@ -54,8 +57,12 @@ def parse_log(name, text):
                       "status_word": st or None})
     c, v = CHUNKS.findall(text), VECTORS.findall(text)
     if c and v:
+        # CM024 prints "Errors (N):" only for embed failures; a failed Qdrant
+        # upsert is logged per chunk ("Failed to upsert chunk"), so count both.
+        e = EMBED_ERRORS.findall(text)
+        errs = max(_n(e[-1]) if e else 0, len(UPSERT_FAILED.findall(text)))
         steps.append({"step": name + ": embed", "input": _n(c[-1]), "written": _n(v[-1]),
-                      "errors": None, "status_word": None})
+                      "errors": errs, "status_word": None})
     return steps
 
 
@@ -136,7 +143,9 @@ def judge(c):
         return lines, EX_FAIL if fail else EX_CANNOT
     for s in with_input:
         word = " (it printed status=%s)" % s["status_word"] if s.get("status_word") else ""
-        check("%s wrote %d of %d%s" % (s["step"], s["written"], s["input"], word), s["written"] > 0)
+        errs = s.get("errors") or 0
+        check("%s wrote %d of %d, %d error(s)%s" % (s["step"], s["written"], s["input"], errs, word),
+              s["written"] >= s["input"] and errs == 0)
     lines.append("  note   %d step(s) with input examined, from %d log(s)" % (len(with_input), c.get("logs_examined", 0)))
     return lines, EX_FAIL if fail else EX_PASS
 
@@ -152,7 +161,7 @@ def self_test():
     embed_text = "  Notes processed: 6,000\n  Chunks created: 18,000\n  Vectors inserted: 0\n"
     parsed_e = parse_log("hydrate-apple-notes.log", embed_text)
     if parsed != [{"step": "places-ingest.log: places", "input": 979, "written": 0, "errors": 979, "status_word": "ok"}] \
-            or parsed_e != [{"step": "hydrate-apple-notes.log: embed", "input": 18000, "written": 0, "errors": None, "status_word": None}]:
+            or parsed_e != [{"step": "hydrate-apple-notes.log: embed", "input": 18000, "written": 0, "errors": 0, "status_word": None}]:
         print("  FAIL   the parser misreads the producers' count lines: %r %r" % (parsed, parsed_e))
         ok = False
     else:
@@ -163,7 +172,15 @@ def self_test():
         "fds over half a raised limit": dict(good, fds=40000),
         "#16: Places 0 written of 979 with status=ok": dict(good, steps=parsed + good["steps"][1:]),
         "an embed step with chunks and no vectors": dict(good, steps=good["steps"][:1] + parsed_e),
+        "the real-path RED: 9,266 of 18,000 written, 8,734 errors, exit 0": dict(good, steps=good["steps"][:1] + parse_log(
+            "hydrate-apple-notes.log", "  Chunks created: 18,000\n  Vectors inserted: 9,266\n"
+            + "ERROR - Failed to upsert chunk: Unexpected Response: 500\n" * 8734)),
+        "every chunk written but errors reported": dict(good, steps=[dict(good["steps"][1], errors=3)]),
     }
+    full = parse_log("hydrate-apple-notes.log", "  Chunks created: 18,000\n  Vectors inserted: 18,000\n")
+    _, rcf = judge(dict(good, steps=full))
+    print("  %s  a full write (18,000 of 18,000, 0 errors) passes" % ("ok    " if rcf == EX_PASS else "FAIL  "))
+    ok &= rcf == EX_PASS
     _, rc = judge(good)
     print("  %s  the good capture passes" % ("ok    " if rc == EX_PASS else "FAIL  "))
     ok &= rc == EX_PASS

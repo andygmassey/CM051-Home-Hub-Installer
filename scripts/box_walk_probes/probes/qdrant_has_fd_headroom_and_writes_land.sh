@@ -12,8 +12,8 @@
 #   1. the qdrant PROCESS's soft nofile limit is >= 65535 (/proc/<pid>/limits
 #      inside ostler-qdrant, not the compose text);
 #   2. its open fds are under 50% of that limit;
-#   3. every hydrate step with input wrote something (written > 0 whenever
-#      input > 0), read from the step's OWN count lines in the kept install
+#   3. every hydrate step with input wrote ALL of it (written == input and no
+#      errors), read from the step's OWN count lines in the kept install
 #      diagnostics (and the newest scale-fixture replay), never its status word.
 #
 # CANNOT-RUN, never PASS: docker or the container cannot be read, or no step
@@ -29,10 +29,10 @@ _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 self_test() {
     if python3 "${_HERE}/lib/qdrant_fd_headroom.py" --self-test; then
-        probe_examined 7 "known-bad captures (nofile 1024, fds at the limit, fds over half, 0 written with status=ok, chunks with no vectors, docker unreachable, no step found)"
+        probe_examined 9 "known-bad captures (nofile 1024, fds at the limit, fds over half, 0 written with status=ok, chunks with no vectors, a partial write with errors, errors with a full write, docker unreachable, no step found)"
         probe_fail "negative control behaved: every #16 shape went red by its own assertion"
     fi
-    probe_examined 7 "known-bad captures"
+    probe_examined 9 "known-bad captures"
     probe_pass "SELF-TEST BROKEN: the judge let a #16 shape through"
 }
 
