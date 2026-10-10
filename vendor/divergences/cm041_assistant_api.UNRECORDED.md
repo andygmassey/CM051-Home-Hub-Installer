@@ -1010,3 +1010,7 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upst
 ### What a future sync must preserve
 
 `_timeline_timestamp` and its use by `_to_iso8601`, the event-date key list, and the three `entries` changes. Guarded by `tests/test_timeline_dates_are_event_dates_with_offset.py` (7 tests: 7 red on the branch base), run by `.github/workflows/timeline-dates-with-offset.yml`. Retire by landing CM041 #213 (rebased on this) and re-pinning.
+
+### F7b (walk #17): organisations with no legal-form suffix
+
+`ical-server.py` adds `_org_phrase_reason` (a trailing parenthesised ACRONYM after at least three words and no comma, or a final Solutions/Services/Marketing phrase after at least two words, optionally followed by a parenthesised descriptor) and `_person_name_before_org_phrase` (a card-less record with a single-token given and family name whose display name starts with them and continues with an organisation phrase of its own shows as the person's name). `_is_non_human_person` calls the first; `people_list` calls the second before the assistant-identity check. All-caps names are deliberately NOT a signal (ruling). Guarded by `tests/test_people_have_human_evidence.py` (14 tests).
