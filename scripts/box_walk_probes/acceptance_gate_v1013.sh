@@ -286,24 +286,29 @@ tp=$(echo "$health" | grep -oE '"token_paired"[: ]*(true|false)' | grep -oE 'tru
 rp=$(echo "$health" | grep -oE '"require_pairing"[: ]*(true|false)' | grep -oE 'true|false')
 dev_ct=$(box "sqlite3 \$(find ~/.ostler -name devices.db 2>/dev/null | head -1) 'select count(*) from devices' 2>/dev/null")
 [ -z "$dev_ct" ] && dev_ct="err"
-if [ "$EXPECT_PAIRED" = "1" ]; then
-  if [ "$cp" = "true" ] && [ "$pd" = "true" ] && [ "${dev_ct:-0}" -ge 1 ] 2>/dev/null; then
-    result PASS A4 "Pairing complete + consistent" "companion=$cp paired=$pd token=$tp devices=$dev_ct"
-  else
-    result FAIL A4 "Pairing complete + consistent" "companion=$cp paired=$pd token=$tp devices=$dev_ct (want all-true + >=1 device)"
-  fi
+a4_readable=0
+[ -n "$cp" ] && a4_readable=$((a4_readable+1))
+[ -n "$pd" ] && a4_readable=$((a4_readable+1))
+is_count "$dev_ct" && a4_readable=$((a4_readable+1))
+if [ "$a4_readable" -eq 0 ]; then
+  # 0 of 3 signals readable (e.g. no phone paired, no registry): nothing was
+  # measured. Same verdict and cause as pair_state_agreement: CANNOT-RUN, never
+  # FAIL (this used to fall through to FAIL when OSTLER_BOX_EXPECT_PAIRED=1).
+  result CANNOT A4 "Pairing signals consistent" \
+    "companion='$cp' paired='$pd' token='$tp' devices='$dev_ct': only 0 of 3 pairing signals were readable, so NOTHING about pairing was measured"
 else
-  # Unpaired box. What the daemon guarantees (ostler-assistant #208, read from
-  # crates/zeroclaw-gateway/src/lib.rs:1946-1972 on 2026-09-10): paired and
-  # companion_paired come from the device registry and the passkey file, and
-  # are false with no device; token_paired is the bearer-token set being
-  # non-empty, which the installer makes TRUE on every install by seeding the
-  # admin token (install.sh: the paired_tokens merge). So on a healthy
-  # unpaired box the truth is companion=false paired=false token=true and
-  # devices=0. The old predicate demanded all three flags AGREE, which no
-  # correctly installed box can satisfy; it read FAIL on v1.0.82, v1.0.85 and
-  # v1.0.87 behind the A7 footer. The device-state assertion is the two device
-  # flags plus the device count. token_paired is reported, not judged.
+  # CONSISTENCY FIRST. What the daemon guarantees (ostler-assistant #208, read
+  # from crates/zeroclaw-gateway/src/lib.rs:1946-1972 on 2026-09-10): paired and
+  # companion_paired come from the device registry and the passkey file;
+  # token_paired is the bearer-token set being non-empty, which the installer
+  # makes TRUE on every install (admin token), so it is reported, not judged.
+  # The device-state assertion is the two device flags plus the device count:
+  #   true/true and devices>=1   -> PASS "paired, consistent"
+  #   false/false and devices=0  -> PASS "unpaired, consistent"
+  #   any mix                    -> FAIL (lying-UI)
+  # Walk #18 read companion=true paired=true devices=1 and called it a lie
+  # because the walk pairs its own companion and EXPECT_PAIRED was unset.
+  # OSTLER_BOX_EXPECT_PAIRED=1 adds exactly one thing: consistent-unpaired FAILs.
   if [ "$rp" = "false" ]; then
     # The device registry (and devices.db) exists only when require_pairing is
     # true (ostler-assistant lib.rs:1581-1587); the default is true and the
@@ -313,10 +318,16 @@ else
   elif [ -z "$cp" ] || [ -z "$pd" ] || ! is_count "$dev_ct"; then
     result CANNOT A4 "Pairing signals consistent" \
       "companion='$cp' paired='$pd' token='$tp' devices='$dev_ct': a signal could not be read, so NOTHING about pairing was measured"
+  elif [ "$cp" = "true" ] && [ "$pd" = "true" ] && [ "$dev_ct" -ge 1 ]; then
+    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct (paired, consistent); token=$tp"
   elif [ "$cp" = "false" ] && [ "$pd" = "false" ] && [ "$dev_ct" -eq 0 ]; then
-    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct (unpaired, agree); token=$tp is the installer's admin token, expected"
+    if [ "$EXPECT_PAIRED" = "1" ]; then
+      result FAIL A4 "Pairing complete + consistent" "companion=$cp paired=$pd devices=$dev_ct (unpaired, consistent, but a paired box was expected); token=$tp"
+    else
+      result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct (unpaired, consistent); token=$tp is the installer's admin token, expected"
+    fi
   else
-    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct -- a device flag or the device count claims a pairing that does not exist (lying-UI); token=$tp"
+    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct -- the signals disagree, a device flag or the device count claims a pairing that does not exist (lying-UI); token=$tp"
   fi
 fi
 
