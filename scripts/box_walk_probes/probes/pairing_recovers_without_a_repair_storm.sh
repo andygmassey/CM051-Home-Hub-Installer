@@ -210,7 +210,8 @@ run_probe() {
     ''|*[!0-9]*) _own=0 ;;
   esac
   if [ "$_own" -eq 0 ]; then
-    _ans=$(box_run "curl -sk --noproxy '*' --max-time 4 -o /dev/null -w '%{http_code}' -X POST https://127.0.0.1:8443/pair") || true
+    # /health is on the 8443 allowlist (ostler-assistant #492); /pair is not.
+    _ans=$(box_run "curl -sk --noproxy '*' --max-time 4 -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/health") || true
     case "${_ans:-000}" in
       000|"")
         probe_cannot_run "nothing is listening on :8443 and nothing answered there, so pairing recovery could not be exercised at all. Limb 1 passed (${n} tokens persisted) but recovery is UNMEASURED. Not a pass."
@@ -221,70 +222,61 @@ run_probe() {
     esac
   fi
 
-  admin=$(box_run 'cat ~/.ostler/secrets/zeroclaw_admin_token 2>/dev/null') || true
-  [ -n "${admin:-}" ] || { probe_cannot_run "no zeroclaw_admin_token -- cannot mint a code. NOT a pass."; return; }
-
-  code=$(box_run "curl -s --noproxy '*' --max-time 6 -X POST -H 'Authorization: Bearer ${admin}' http://127.0.0.1:8000/admin/paircode/new | python3 -c 'import json,sys;print(json.load(sys.stdin)[\"pairing_code\"])'") || true
-  [ -n "${code:-}" ] || { probe_cannot_run "gateway would not issue a pairing code"; return; }
-
-  # The port the APP uses. One post, one code.
+  # PAIRS THE WAY THE iPHONE DOES (lib/companion_pair.sh / companion_pair.py):
+  # the owner mints a QR token on the loopback admin port, then
+  # /auth/pair/init + /auth/pair/register on :8443 with a software passkey.
+  # This probe used to POST a 6-digit code to :8443/pair, which ostler-assistant
+  # #492/#501 refuse on 8443 because the iPhone never uses it.
   #
-  # ⚠️ TAKE curl'S EXIT CODE. A REFUSAL AND A NON-ANSWER ARE DIFFERENT FINDINGS.
-  # MEASURED, archie@.240, two runs of the SAME artefact 28 minutes apart
-  # (v1.0.67-20260905T031918Z vs T034741Z): run A passed here, run B printed
-  #   "REJECTED a code the gateway had just issued ... Response:"
-  # with NOTHING after "Response:". An empty body is the signature of a curl
-  # that never got an answer -- --max-time 6 expiring, a refused connection, a
-  # TLS handshake that died. A GENUINE rejection carries a JSON body; run A's
-  # own replay arm printed {"error":"Invalid pairing code"} to prove it.
-  #
-  # Without the rc, all three collapse into one FAIL that asserts "a customer
-  # whose session dies cannot get back in" -- a product claim about the shipped
-  # artefact -- on the strength of a six-second timeout. That is CANNOT-RUN
-  # wearing a FAIL's clothes, and it spent a red in the v1.0.67 walk record.
-  first=""; _first_rc=0
-  first=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair") || _first_rc=$?
-  if [ "${_first_rc}" -ne 0 ] || [ -z "${first}" ]; then
-    probe_cannot_run "8443 gave NO ANSWER (curl rc=${_first_rc}, body ${#first} bytes). That is a transport failure, not a rejection: a real refusal carries a JSON error body. The pairing path was NOT MEASURED. Not a pass, and not a product failure."
+  # ⚠️ THE TRANSPORT IS STILL NOT A REJECTION. The helper reports the stage it
+  # stopped at and the HTTP status; a stage with no HTTP answer is CANNOT-RUN,
+  # never a FAIL, the same rule the old curl rc enforced (v1.0.67 runs A/B).
+  box_run 'test -r ~/.ostler/secrets/zeroclaw_admin_token' || { probe_cannot_run "no zeroclaw_admin_token -- the owner cannot open a pairing window. NOT a pass."; return; }
+  declare -F companion_pair_box_snippet >/dev/null \
+    || . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/companion_pair.sh"
+  local cp
+  cp=$(box_run "set -u
+GW=https://127.0.0.1:8443
+$(companion_pair_box_snippet '$GW' 1)
+printf '%s' \"\$CP_JSON\"") || true
+  local cp_ok cp_stage cp_http cp_replay cp_detail
+  read -r cp_ok cp_stage cp_http cp_replay <<EOF2
+$(printf '%s' "$cp" | python3 -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: d={}
+print(d.get("ok"), d.get("stage") or "none", d.get("http") or 0, d.get("replay_http") or 0)' 2>/dev/null)
+EOF2
+  cp_detail=$(printf '%s' "$cp" | python3 -c 'import json,sys
+try: print((json.load(sys.stdin).get("detail") or "")[:120])
+except Exception: print("")' 2>/dev/null)
+  case "${cp_stage:-none}" in
+    none|crypto|admin)
+      probe_cannot_run "the companion pairing could not be attempted (stage ${cp_stage:-none}: ${cp_detail}). The pairing path was NOT MEASURED. Not a pass, and not a product failure."
+      return ;;
+  esac
+  if [ "${cp_ok}" != "True" ]; then
+    if [ "${cp_http:-0}" = "0" ]; then
+      probe_cannot_run "8443 gave NO ANSWER at stage ${cp_stage} (${cp_detail}). That is a transport failure, not a rejection. NOT MEASURED."
+      return
+    fi
+    probe_fail "8443 -- the port the app pairs against -- REJECTED the real companion flow at ${cp_stage} (HTTP ${cp_http}) with a QR token the owner had just minted. A customer whose session dies cannot get back in. Detail: ${cp_detail}"
     return
   fi
-  case "$first" in
-    # A REAL PAIR JUST HAPPENED. Record it before anything else can return:
-    # this is the line that puts a token in config.toml, and limb 1 of the NEXT
-    # walk is what counts it.
-    *'"paired":true'*) note_minted_pair_token ;;
-    *) probe_fail "8443 -- the port the app pairs against -- REJECTED a code the gateway had just issued. A customer whose session dies cannot get back in. Response: ${first:0:100}"
+  # A REAL PAIR JUST HAPPENED: a device bearer now sits in config.toml, and
+  # limb 1 of the NEXT walk counts it.
+  note_minted_pair_token
+
+  # CONTROL: the QR token register just spent must be refused on replay. A
+  # token that still opens /auth/pair/init is a standing key to the hub.
+  probe_examined "1" "replay of the spent QR token at /auth/pair/init -- HTTP ${cp_replay}"
+  case "${cp_replay:-0}" in
+    0) probe_cannot_run "the single-use CONTROL got no answer on the replay. The pair SUCCEEDED, so this cannot be a pass: whether a spent token is still live was NOT MEASURED."
+       return ;;
+    200) probe_fail "CONTROL FAILED: the spent QR token opened /auth/pair/init again (HTTP 200). A pairing token must die on use."
        return ;;
   esac
 
-  # CONTROL, and it is the one the withdrawn probe got backwards: replaying the
-  # SAME code must now be refused. If it were accepted, the code is not
-  # single-use and every issued code stays live forever -- a worse defect than
-  # the one under test, and it would otherwise read as a clean pass.
-  #
-  # ⚠️ AND THE CONTROL HAS THE INVERSE BUG, WHICH IS THE WORSE HALF. Below, only
-  # a body containing '"paired":true' fails. So if this second curl ALSO gets no
-  # answer, $second is empty, the case does not match, and the probe walks
-  # straight to probe_pass -- reporting "refused its replay" when nothing
-  # refused anything. A control that passes by never running is not a control,
-  # and this one guards a standing key to the customer's hub.
-  second=""; _second_rc=0
-  second=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair") || _second_rc=$?
-  if [ "${_second_rc}" -ne 0 ] || [ -z "${second}" ]; then
-    probe_cannot_run "the single-use CONTROL got no answer from 8443 on the replay (curl rc=${_second_rc}, body ${#second} bytes). The first pair SUCCEEDED, so this cannot be reported as a pass: whether a spent code is still live was NOT MEASURED."
-    return
-  fi
-  probe_examined "1" "replay of the spent code -- response: ${second:0:60}"
-  case "$second" in
-    *'"paired":true'*)
-      # Two pairs, two tokens. Record the second before failing, or the ledger
-      # under-counts and the next walk blames the product for our replay.
-      note_minted_pair_token
-      probe_fail "CONTROL FAILED: the same code paired TWICE. Pairing codes are meant to be consumed on first use (pairing.rs sets pairing_code = None); a code that never expires is a standing key to the customer's hub."
-      return ;;
-  esac
-
-  probe_pass "recovery works and does not storm: 8443 accepted a fresh code, refused its replay, and only ${_attrib} of the ${n} persisted tokens are attributable to the product (${_minted} were minted by this suite, including the one this run just added)"
+  probe_pass "recovery works and does not storm: 8443 paired through the real companion flow with a fresh owner QR token, refused its replay, and only ${_attrib} of the ${n} persisted tokens are attributable to the product (${_minted} were minted by this suite, including the one this run just added)"
 }
 
 # ---------------------------------------------------------------------------

@@ -50,7 +50,11 @@ ALLOWED="running_config_matches_disk"
 # --- discover the mutator ---------------------------------------------------
 MUTATORS=""
 for f in "$DIR"/*.sh; do
-    if [ "$(grep -cE "curl[^|]*-X POST[^|]*8443/pair" "$f")" -gt 0 ]; then
+    # A probe pairs when it runs the companion flow (lib/companion_pair.sh,
+    # /auth/pair/init + register on :8443) -- or, the old way, a curl POST to
+    # :8443/pair. Both shapes are matched so a probe that regressed to the
+    # legacy route is still found as a mutator.
+    if [ "$(grep -cE "companion_pair_box_snippet|curl[^|]*-X POST[^|]*8443/pair" "$f")" -gt 0 ]; then
         MUTATORS="${MUTATORS} $(basename "$f" .sh)"
     fi
 done
@@ -62,7 +66,7 @@ if [ "$#" -ne 1 ]; then
     exit 2
 fi
 MUTATOR="$1"
-ok "the pairing mutator is ${MUTATOR} (exactly one probe posts to :8443/pair)"
+ok "the pairing mutator is ${MUTATOR} (exactly one probe pairs against :8443)"
 
 # --- discover the readers ---------------------------------------------------
 # Device-layer and policy pairing state. Deliberately NOT the word "pair" alone:
