@@ -37,8 +37,6 @@ on:
       - 'scripts/box_walk_probes/lib/companion_pair.py'
       - 'scripts/box_walk_probes/lib/companion_pair.sh'
       - 'scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh'
-      - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
-      - 'tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh'
       - 'scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh'
       - 'tests/test_the_walk_seeds_the_conversation_capture.sh'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
@@ -152,11 +150,12 @@ jobs:
         run: |
           python3 -m pip install --quiet cryptography
           python3 scripts/box_walk_probes/lib/companion_pair.py --self-test
-      - name: Probes pair through the companion flow, and a non-answer is not a rejection
-        if: always()
-        run: |
-          bash tests/test_a_pairing_non_answer_is_not_a_rejection.sh
-          bash tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh
+      # The two pairing tests (non-answer, reader-before-mutator) are NOT run
+      # here. They run in walk-record-gate.yml, whose checkout is fetch-depth 0:
+      # the non-answer test's negative control reads the pre-fix tree 5532772b,
+      # which this job's shallow checkout cannot see (it exited CANNOT-RUN here
+      # on #2773, run 38045813471). walk-record-gate triggers on
+      # scripts/box_walk_probes/**, so lib/companion_pair.* changes run them.
       - name: The conversation-capture probe's own self-test
         if: always()
         run: |
