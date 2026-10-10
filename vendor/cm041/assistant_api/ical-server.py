@@ -637,6 +637,185 @@ def _is_service_mailbox_name(display_name):
     return False
 
 
+# F7 (walk #16, CM051): THE PEOPLE LIST HAD NO "IS THERE ANY HUMAN EVIDENCE"
+# TEST. Every screen above reads the NAME. Three producers write a Person for
+# a non-human and the name carries no signal at all:
+#   (a) an EMAIL sender with no list headers ("Quidco", "HSBC Hong Kong"): the
+#       node holds only email + lastContactEmail + displayName + prefLabel;
+#   (b) an iMESSAGE alphanumeric sender id ("Google", "2inldn", "3d1ohk",
+#       "001"): the id is stored as an identifier of type email/phone though it
+#       is neither;
+#   (c) a calendar-invite relay id (an imip.me.com address).
+# _is_non_human_person reads the EVIDENCE instead, and only for an UNCARDED
+# record with no given/family name of its own (a Contacts card, or a name a
+# human typed, always wins -- the same gate as every sibling above). A record
+# with NO identifier at all is left alone: absence of evidence is not evidence
+# of a robot, and an existing fixture pins "JOHN" as a person.
+_AUTOMATED_LOCAL_STEMS = (
+    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
+    "notification", "newsletter", "service", "statement", "ereceipt",
+    "enews", "mailer", "bounce", "unsubscribe", "survey", "tracking",
+    "marketing", "promotion", "automated", "customercare", "concierge",
+    "reception", "reservation", "enquir", "mailbox", "postmaster",
+)
+_AUTOMATED_LOCAL_TOKENS = frozenset({
+    "info", "support", "help", "hello", "hi", "sales", "billing", "news",
+    "alert", "alerts", "update", "updates", "offers", "offer", "deals",
+    "orders", "order", "account", "accounts", "admin", "team", "contact",
+    "mail", "messages", "message", "notify", "digest", "rewards", "reward",
+    "bill", "ebill", "bot", "system", "security", "careers", "jobs",
+})
+_AUTOMATED_DOMAIN_LABELS = frozenset({
+    "info", "notification", "notifications", "email", "emails", "mail",
+    "e", "em", "news", "newsletter", "marketing", "communication",
+    "communications", "mailer", "updates", "sender", "imip", "bounce",
+    "bounces", "reply", "alerts", "statements", "informationservices",
+    "survey", "donotreply", "noreply", "mailing", "campaign", "campaigns",
+})
+_COMMON_SECOND_LEVEL = frozenset({"com", "co", "org", "net", "gov", "edu", "ac", "or", "ne"})
+_EMAIL_ADDRESS_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _is_plausible_email(value):
+    return bool(_EMAIL_ADDRESS_RE.match((value or "").strip()))
+
+
+def _is_plausible_phone(value):
+    v = (value or "").strip()
+    if not v or not all(c in _NAMELESS_BARE_ID_CHARS for c in v):
+        return False
+    return sum(c.isdigit() for c in v) >= 7
+
+
+def _address_is_automated(addr):
+    """True when an email ADDRESS is shaped like a machine/bulk/brand mailbox.
+
+    Judged on the address alone (no headers reach this layer):
+      * the local part contains an automation stem (noreply, notification,
+        service, statement ...) or is, token by token, a role word
+        (info, support, sales ...) after a plus-tag and trailing digits are
+        stripped;
+      * a sub-domain label is a bulk-mail label (info., notification.,
+        emails., mail., e., imip. ...);
+      * the local part IS the sender's own domain name (quidco@...quidco.com,
+        barclays@emails.barclays.co.uk): a brand mailbox, not a person.
+    A person at a company writes from first.last@company, which none of these
+    match.
+    """
+    a = (addr or "").strip().lower()
+    if not _is_plausible_email(a):
+        return False
+    local, _, domain = a.rpartition("@")
+    local = local.split("+", 1)[0]
+    bare = re.sub(r"[-._]?\d+$", "", local)
+    squashed = re.sub(r"[-._]", "", bare)
+    if any(stem in bare or stem in squashed for stem in _AUTOMATED_LOCAL_STEMS):
+        return True
+    tokens = [t for t in re.split(r"[-._]", bare) if t]
+    if tokens and all(t in _AUTOMATED_LOCAL_TOKENS for t in tokens):
+        return True
+    labels = domain.split(".")
+    sub_labels = labels[:-2] if len(labels) > 2 else []
+    if len(labels) > 2 and labels[-2] in _COMMON_SECOND_LEVEL:
+        sub_labels = labels[:-3]
+    if any(l in _AUTOMATED_DOMAIN_LABELS for l in sub_labels):
+        return True
+    brand_labels = {l for l in labels[:-1] if l not in _COMMON_SECOND_LEVEL}
+    return bool(squashed) and squashed in brand_labels
+
+
+# F7: HIDE BY EVIDENCE, NEVER BY A SURNAME WORD ALONE. People whose surname
+# is also an institution word (bank, college, school, hospital, council,
+# "official") are real, and so are nicknames with a capital ("Jane2"). A word
+# list flags them (the independent review of CM051 #2768 measured exactly that),
+# so the NAME rules below are the same four shapes the walk's customer-eyes
+# judge uses (scripts/box_walk_probes/lib/customer_read.py @ #2768 8aef29b3),
+# copied verbatim and pinned equal by tests/test_people_have_human_evidence.py:
+#   * a subject-line prefix (Re:, FW:, Fwd:, Invitation:, Accepted:, Declined:);
+#   * an organisation by LEGAL FORM or team-mailbox name only (Ltd, LLP, GmbH,
+#     AG, BV, Co., sdn bhd, a customer-support or support-team mailbox name,
+#     CJK company marks);
+#   * a handle: ONE token, no capitals, at least one digit, 5-40 chars, an
+#     optional leading @ ("2inldn", "shanef3d"); "jdoe", "Jane2", "R2D2" stay;
+#   * a calendar/invite relay id, or a name with no letters.
+# The EVIDENCE rules below them (alphanumeric sender id, bulk or brand mailbox
+# address) read the identifiers the record holds. A Contacts card always wins
+# and a given/family name stops the handle and no-letters rules.
+_JUNK_HANDLE_RE = re.compile(r"^@?(?=[a-z0-9._-]*\d)[a-z0-9._-]{5,40}$")
+# Hiding a real friend is worse than showing one junk row, so the product
+# narrows the judge's handle shape: letters then a plain 1-4 digit suffix
+# ("nana1", "kat99", "mum12", "jdoe1984") is how people name themselves and
+# STAYS. What is hidden is a digit run in the MIDDLE of the token ("shanef3d",
+# "3d1ohk", "2inldn"), and only with no channel at all.
+_SIMPLE_NICKNAME_RE = re.compile(r"^@?[a-z]+[0-9]{1,4}$")
+_CALENDAR_ID_RE = re.compile(
+    r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$", re.I)
+# Legal forms that cannot be a surname, in any case; AG / BV / NV / SA only
+# in UPPER CASE and only after at least two other words (a given name plus
+# a short surname that spells one of them is a person), checked in the function.
+_ORG_NAME_RE = re.compile(
+    r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
+    r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
+_ORG_SHORT_FORM_RE = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
+_SUBJECT_LINE_RE = re.compile(
+    r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
+
+
+def _junk_name_reason(name):
+    n = (name or "").strip()
+    if not n:
+        return None
+    if not any(ch.isalpha() for ch in n):
+        return "no_letters"
+    if _CALENDAR_ID_RE.search(n):
+        return "calendar_id"
+    return None
+
+
+def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None):
+    """Return a short reason when this UNCARDED record has no human evidence,
+    else None. A Contacts card always wins. See the block comment above: no
+    rule here fires on a surname word alone."""
+    p = payload or {}
+    if (p.get("icloud_uid") or "").strip():
+        return None
+    nm = (name or "").strip()
+    # A subject line is caught BEFORE any email branch: it is a header, not a name.
+    if _SUBJECT_LINE_RE.match(nm):
+        return "subject_line"
+    if _ORG_NAME_RE.search(nm) or (_ORG_SHORT_FORM_RE.match(nm)):
+        return "organisation_name"
+    if (p.get("given_name") or "").strip() or (p.get("family_name") or "").strip():
+        return None
+    why = _junk_name_reason(nm)
+    if why:
+        return why
+    ph = [x for x in (phones if phones is not None else (p.get("phones") or [])) if x]
+    em = [x for x in (emails if emails is not None else (p.get("emails") or [])) if x]
+    idents = ph + em
+    if not idents:
+        if (_JUNK_HANDLE_RE.match(nm) and not _SIMPLE_NICKNAME_RE.match(nm)
+                and not (p.get("linkedin_url") or "").strip()):
+            return "handle_no_channel"
+        return None
+    if any(_is_plausible_phone(x) for x in ph + em):
+        return None
+    real_emails = [x for x in em if _is_plausible_email(x)]
+    if not real_emails:
+        # Identifiers exist and not one is a phone number or an email address:
+        # an alphanumeric sender id ("Google", "2inldn", "001"). A sender id is
+        # ONE token. An identifier with a space in it ("Jane Doe" stored as its
+        # own handle) is a person's name held in the wrong field, which is a
+        # real person with a bad identifier and is never hidden here.
+        if any(re.search(r"\s", x.strip()) for x in idents):
+            return None
+        return "sender_id"
+    if all(_address_is_automated(x) for x in real_emails):
+        return "automated_address"
+    return None
+
+
 # Cut #15 (walk #14): 33 of 7,815 people-list rows were businesses or
 # automated senders ("<brand> official", "<x> swimming gear store",
 # "<x> hk official"). None trip the vocabulary above. CONSERVATIVE by
@@ -2214,6 +2393,10 @@ def people_search(query, limit=10, timeout=30):
         # the People list / search results. Render-time filter only; the
         # Qdrant point is never deleted. Ref #664.
         if _is_nameless_name(dn):
+            continue
+        # F7 (walk #16): the same human-evidence test people_list applies, so a
+        # sender id or bulk mailbox is not found by search either.
+        if _is_non_human_person(p, dn):
             continue
         # Person-level L3 (F5): an L3-classified person must not surface in
         # search at all. Only an EXPLICIT L3 person-tag drops the person
@@ -7144,6 +7327,15 @@ def people_list(sort=None, ceiling=10000):
             if row_emails & human_named_emails:
                 continue
 
+        # F7 (walk #16): no human evidence at all (see _is_non_human_person).
+        # Uncarded only; a card outranks it. Hidden from the LIST, never
+        # deleted, still searchable by the assistant.
+        if not has_contacts_card:
+            _ev_phones = list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))
+            _ev_emails = list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", []))
+            if _is_non_human_person(p, name, _ev_phones, _ev_emails):
+                continue
+
         # Sort keys -- prefer the parsed given/family name, fall back to a
         # split of the display name so LinkedIn/email-only people still sort.
         if not given and not family:
@@ -7299,6 +7491,8 @@ def people_stale(months=3, limit=5):
         # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
         # Stale / reconnect list. Render-time filter only. Ref #664.
         if _is_nameless_name(name):
+            continue
+        if _is_non_human_person(p, name):
             continue
         # 🔴 AND A SECOND, STRICTER SCREEN, BECAUSE RECONNECT ASKS A HARDER
         # QUESTION THAN "IS THIS DISPLAYABLE".

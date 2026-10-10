@@ -1104,3 +1104,11 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## iMessage alphanumeric sender ids never become a Person (CM051 F7, walk #16)
+
+Tree `ostler_fda`. NEW CM051-side behaviour. `role_addresses.py` gains `is_sender_id_identifier` (appended at the end of the file); `pwg_ingest.py` imports it and `ingest_imessage` skips a participant for which it is true, immediately before the existing `_observe_identifier` role-address skip. "Google", "2inldn", "3d1ohk" and "001" were stored as an identifier of type `email` on a new `pwg:Person` because the participant was neither an email nor a phone number and the old code defaulted to `email`. A phone number is a string of `0-9 + - ( ) . space` with at least 7 digits; an email contains `@`; anything else non-empty is a sender id. The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The `is_sender_id_identifier` skip in `ingest_imessage`. Guarded by `tests/test_people_have_human_evidence.py` (`test_imessage_ingest_does_not_mint_a_person_for_a_sender_id`, red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.

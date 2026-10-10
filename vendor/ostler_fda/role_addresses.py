@@ -73,3 +73,29 @@ def is_role_identifier(identifier: str) -> bool:
     # `messages-noreply@`, `inmail-hit-reply@`: a role word joined by a dash.
     parts = re.split(r"[-._]", local)
     return bool(parts) and any(p in _ROLE_LOCALS for p in parts if p)
+
+
+_PHONE_CHARS = frozenset("".join(str(d) for d in range(10)) + "+-(). ")
+
+
+def is_sender_id_identifier(identifier: str) -> bool:
+    """True when an iMessage handle is an ALPHANUMERIC SENDER ID, not a person.
+
+    CM051 F7 (walk #16): "Google", "2inldn", "3d1ohk", "001" are the sender
+    names businesses stamp on verification and alert texts. They reach
+    ``ingest_imessage`` as a participant that is neither an email address
+    (no ``@``) nor a phone number (fewer than 7 digits, or letters), and the
+    old code stored them as an identifier of type ``email`` on a brand-new
+    ``pwg:Person``. ``is_role_identifier`` cannot see them because it returns
+    False for anything without an ``@``.
+
+    A phone number is any string made only of ``0-9 + - ( ) . space`` with at
+    least 7 digits. An email address contains ``@``. Everything else that is
+    non-empty is a sender id.
+    """
+    ident = (identifier or "").strip()
+    if not ident or "@" in ident:
+        return False
+    if all(c in _PHONE_CHARS for c in ident) and sum(c.isdigit() for c in ident) >= 7:
+        return False
+    return True

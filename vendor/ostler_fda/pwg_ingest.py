@@ -35,6 +35,7 @@ import phonenumbers
 from . import forget_tombstone
 from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
+from .role_addresses import is_sender_id_identifier
 from .identifier_quality import observe as _observe_identifier
 from .usage_journal import record_usage as _record_usage
 from .usage_journal import tokens_from_ollama as _tokens_from_ollama
@@ -745,6 +746,11 @@ def ingest_imessage(fda_dir: Path) -> dict:
             if not participant:
                 continue
 
+            # F7 (walk #16): an alphanumeric business sender id ("Google",
+            # "2inldn") is not a person and is neither an email nor a phone.
+            if is_sender_id_identifier(participant):
+                logger.debug("skipping alphanumeric sender id %s", participant)
+                continue
             # A role/bulk sender is not a person. Keying on it merges every
             # iMessage participant who shared it into ONE node (#659).
             # observe() also applies the STRUCTURAL rule: the moment this
