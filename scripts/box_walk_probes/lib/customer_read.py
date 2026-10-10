@@ -162,7 +162,11 @@ def _name_windows(text, lo=2, hi=4):
             yield " ".join(w[i:i + k])
 
 
-FRESH_STATUS = re.compile(r"^(Up to date|Nothing found|Not started|Working|Failed|Behind|Stale)", re.I)
+# Every CM044 settling_source_state_* string (compiler/locale.yaml). Walk #17:
+# CM044 #319 added "Checked, nothing new", this list did not know it, and Mail
+# and Messages read as absent from a panel that showed them.
+FRESH_STATUS = re.compile(r"^(Up to date|Nothing found|Not started|Working|Failed|Behind|Stale|"
+                          r"Checked, nothing new|Waiting for iCloud|Did not finish|Could not|Took too long)", re.I)
 
 
 def freshness_labels(section):
@@ -1838,6 +1842,13 @@ def self_test():
     else:
         print("  ok    one recorded title exempts one occurrence only; a second copy of the same text FAILS")
 
+    # walk #17: every state CM044 prints is a row, not a gap
+    got = freshness_labels({"kind": "list", "text": "\u2713\nMail\nChecked, nothing new \u00b7 2h ago\n"
+                            "\u2026\nMessages\nWaiting for iCloud to finish syncing\n"})
+    if got != ["Mail", "Messages"]:
+        missed.append("a freshness row in a newer CM044 state is read as absent ({!r})".format(got))
+    else:
+        print("  ok    freshness rows in every CM044 state are read as listed")
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})
     if any(ok is True for n, ok, _ in empty if not n.startswith("customer read:")):
