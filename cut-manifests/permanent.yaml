@@ -1244,6 +1244,16 @@ entries:
       kind: box_walk_probe
       probe: "assistant_self_description_is_clean"
 
+  - id: box-walk-pair-endpoints-refuse-off-window
+    title: from the LAN with no pairing window open, the pair endpoints are refused at the router without a code being checked
+    incident: >-
+      Security (#17). POST /api/pair and POST /pair on the companion listener
+      evaluate any code from any LAN host at any time. Asserted from the walk
+      driver against the box. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "pair_endpoints_refuse_off_window"
+
   # ADVISORY (scripts/walk_promote_scope.tsv, chat_latency_baseline row): a
   # baseline measurement, not an install check. Declared here because every
   # probe on disk must be invoked by the cut; the promote scope decides it

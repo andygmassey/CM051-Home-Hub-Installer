@@ -52,7 +52,9 @@ python3 scripts/box_walk_probes/lib/qdrant_fd_headroom.py --self-test >/dev/null
     && ok "qdrant_fd_headroom judge: the #16 shapes all go red, the good capture passes" || bad "qdrant_fd_headroom self-test"
 python3 scripts/box_walk_probes/lib/assistant_chat.py --self-test >/dev/null 2>&1 \
     && ok "assistant_chat judges: leaky and vocative replies red, clean and self-naming replies green" || bad "assistant_chat self-test"
-for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_clean chat_latency_baseline; do
+python3 scripts/box_walk_probes/lib/pair_offwindow.py --self-test >/dev/null 2>&1 \
+    && ok "pair_offwindow judge: canned 400 'invalid code', a code-checking 403 and a logged check all go red" || bad "pair_offwindow self-test"
+for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_clean chat_latency_baseline pair_endpoints_refuse_off_window; do
     bash "scripts/box_walk_probes/probes/$p.sh" --self-test >/dev/null 2>&1; rc=$?
     [ "$rc" -eq 1 ] && ok "$p --self-test returns FAIL (1)" || bad "$p --self-test returned $rc"
 done
@@ -67,7 +69,7 @@ python3 scripts/box_walk_probes/lib/owner_digest.py --self-test >/dev/null 2>&1 
     && ok "owner_digest (F12): the neighbour note in About you, a non-owner fact and a leaking chat all go red" || bad "owner_digest self-test"
 grep -q '^scale_fixture_apply' scripts/box_walk_probes/run_box_walk.sh \
     && ok "run_box_walk.sh calls scale_fixture_apply" || bad "run_box_walk.sh never calls scale_fixture_apply"
-for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_clean; do
+for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_clean pair_endpoints_refuse_off_window; do
     grep -q "^${p}	blocking	" scripts/walk_promote_scope.tsv \
         && ok "$p is BLOCKING in walk_promote_scope.tsv" || bad "$p is not declared blocking"
 done
