@@ -24479,6 +24479,9 @@ LOG_FILE="${OSTLER_DIR}/logs/reconnect-nudge-sender.log"
 ASSISTANT_URL="${OSTLER_ASSISTANT_URL:-http://127.0.0.1:8000}"
 CONFIG_TOML="${OSTLER_BRIEF_CONFIG:-${OSTLER_DIR}/assistant-config/config.toml}"
 COMPOSER="${OSTLER_BRIEF_COMPOSER:-${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant}"
+# The composer loads the assistant's own config (Pro state, weekly limit), which
+# the daemon finds through ZEROCLAW_WORKSPACE. launchd gives this job no such env.
+export ZEROCLAW_WORKSPACE="${ZEROCLAW_WORKSPACE:-${OSTLER_DIR}/assistant-config}"
 PYTHON_BIN="${OSTLER_DIR}/.venv/bin/python3"
 [ -x "${PYTHON_BIN}" ] || PYTHON_BIN="python3"
 
