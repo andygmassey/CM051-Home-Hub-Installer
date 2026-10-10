@@ -110,7 +110,7 @@ def box(tmp_path):
     py = pipe / ".venv" / "bin" / "python3"
     py.write_text(f"#!/bin/sh\nexec {sys.executable} \"$@\"\n")
     py.chmod(0o755)
-    (ostler / "config" / ".env").write_text('USER_ID=""\nUSER_NAME="Owner Synthetic"\n')
+    (ostler / "config" / ".env").write_text('USER_ID=""\nUSER_NAME="Jane Doe"\n')
     imp = ostler / "bin" / "ostler-import"
     _carve_ostler_import(imp)
 
