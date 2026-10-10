@@ -30,10 +30,10 @@ _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 self_test() {
     if python3 "${_HERE}/lib/memory_correction.py" --self-test; then
-        probe_examined 14 "fake-box round trips and graded fixtures"
+        probe_examined 20 "fake-box round trips and graded fixtures"
         probe_fail "negative control behaved: every mutant reader that ignores a correction went red by its own row, and every blind control was CANNOT-RUN"
     fi
-    probe_examined 14 "fake-box round trips and graded fixtures"
+    probe_examined 20 "fake-box round trips and graded fixtures"
     probe_pass "SELF-TEST BROKEN: the memory-correction judge let a known-bad reader through"
 }
 

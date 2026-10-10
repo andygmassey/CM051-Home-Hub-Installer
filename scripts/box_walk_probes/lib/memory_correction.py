@@ -60,6 +60,8 @@ READER_NAME = {
 }
 
 DECLARED = (
+    "owner: exactly one owner Person before the asserts",
+    "owner: still exactly one owner Person after the asserts, and both facts attached to it",
     "control: fact A is in all three readers before any correction",
     "control: fact B is in all three readers before any correction",
     "step 3: forget via the owner path is accepted",
@@ -95,9 +97,37 @@ def judge(f):
             add(d, None, reason)
         return out
 
+    # THE OWNER IS ONE NODE, OR NO READER RESULT MEANS ANYTHING. /people/context
+    # resolves by NAME (ical-server.py person_context(name) at :5299; the
+    # route reads only ?name= at :10604-10606, so there is no id to pass). If
+    # assert minted a second owner Person, that lookup can read the wrong node
+    # and the control passes or fails by accident.
+    owner = f.get("owner") or {}
+    nb, na = owner.get("before"), owner.get("after")
+    owner_ok = True
+    if nb is None:
+        add(DECLARED[0], None, "NOT MEASURED: the owner Person count could not be read")
+        owner_ok = False
+    else:
+        add(DECLARED[0], nb == 1, "{} owner Person node(s) carry the owner's name".format(nb))
+        owner_ok = owner_ok and nb == 1
+    if na is None:
+        add(DECLARED[1], None, "NOT MEASURED: the owner Person count after the asserts could not be read")
+        owner_ok = False
+    else:
+        bad = []
+        if na != 1:
+            bad.append("{} owner Person node(s) after the asserts".format(na))
+        if owner.get("minted"):
+            bad.append("assert MINTED a new Person for the owner")
+        if owner.get("attached_to_owner") is not True:
+            bad.append("a fact is not attached to the owner node")
+        add(DECLARED[1], not bad, "; ".join(bad) if bad else "one owner node, both facts on it")
+        owner_ok = owner_ok and not bad
+
     before = f.get("before") or {}
-    controls_ok = True
-    for i, key in enumerate(("A", "B")):
+    controls_ok = owner_ok
+    for i, key in ((2, "A"), (3, "B")):
         seed = (f.get("seed") or {}).get(key) or {}
         rows = before.get(key) or {}
         if not seed.get("banked"):
@@ -119,8 +149,8 @@ def judge(f):
             add(DECLARED[i], True, "present in all 3 readers")
 
     if not controls_ok:
-        reason = "NOT MEASURED: the control did not hold (see the control rows)"
-        for d in DECLARED[2:]:
+        reason = "NOT MEASURED: the owner or the control did not hold (see the rows above)"
+        for d in DECLARED[4:]:
             add(d, None, reason)
         return _close(out)
 
@@ -128,9 +158,9 @@ def judge(f):
 
     # Forget (steps 3 to 6).
     if f.get("forget_ok") is True:
-        add(DECLARED[2], True, "ok")
+        add(DECLARED[4], True, "ok")
         a_old = after.get("A_old") or {}
-        for name, r in zip(DECLARED[3:6], READERS):
+        for name, r in zip(DECLARED[5:8], READERS):
             v = a_old.get(r)
             if v is None:
                 add(name, None, "NOT MEASURED: could not read " + READER_NAME[r])
@@ -138,16 +168,16 @@ def judge(f):
                 add(name, v is False, "absent" if v is False else
                     "STILL PRESENT after the owner forgot it")
     else:
-        add(DECLARED[2], False, "forget was refused or failed ({})".format(f.get("forget_detail", "no detail")))
-        for d in DECLARED[3:6]:
+        add(DECLARED[4], False, "forget was refused or failed ({})".format(f.get("forget_detail", "no detail")))
+        for d in DECLARED[5:8]:
             add(d, None, "NOT MEASURED: the forget was not accepted")
 
     # Correct (step 7).
     if f.get("correct_ok") is True:
-        add(DECLARED[6], True, "ok")
+        add(DECLARED[8], True, "ok")
         b_old = after.get("B_old") or {}
         b_new = after.get("B_new") or {}
-        for name, r in zip(DECLARED[7:10], READERS):
+        for name, r in zip(DECLARED[9:12], READERS):
             old, new = b_old.get(r), b_new.get(r)
             if old is None or new is None:
                 add(name, None, "NOT MEASURED: could not read " + READER_NAME[r])
@@ -159,8 +189,8 @@ def judge(f):
                 bad.append("the OLD value is STILL shown")
             add(name, not bad, "; ".join(bad) if bad else "correction shown, old value gone")
     else:
-        add(DECLARED[6], False, "correct was refused or failed ({})".format(f.get("correct_detail", "no detail")))
-        for d in DECLARED[7:10]:
+        add(DECLARED[8], False, "correct was refused or failed ({})".format(f.get("correct_detail", "no detail")))
+        for d in DECLARED[9:12]:
             add(d, None, "NOT MEASURED: the correction was not accepted")
     return _close(out)
 
@@ -225,9 +255,11 @@ def _read_env(path):
 class Box:
     """Everything the round trip touches, so the self-test can stand in."""
 
-    def __init__(self, api, token, owner, context_path, refresh, cleanup):
+    def __init__(self, api, token, owner, context_path, refresh, cleanup, owner_nodes):
         self.api, self.token, self.owner = api.rstrip("/"), token, owner
         self.context_path, self.refresh, self.cleanup = context_path, refresh, cleanup
+        # owner_nodes() -> list of Person URIs carrying the owner's name, or None
+        self.owner_nodes = owner_nodes
 
     def assert_fact(self, text, deadline_s=180):
         st, body = _http("POST", self.api + "/api/v1/memory/assert", self.token,
@@ -304,11 +336,19 @@ def round_trip(box, write_allowed=True, nonce=None):
     }
     seeds = {}
     try:
+        owners_before = box.owner_nodes()
+        f["owner"] = {"before": None if owners_before is None else len(owners_before)}
         f["seed"] = {}
         for k in ("A", "B"):
             seeds[k] = box.assert_fact(text[k])
             f["seed"][k] = {"banked": seeds[k].get("banked", False), "status": seeds[k].get("status"),
                             "created_person": seeds[k].get("created_person")}
+        owners_after = box.owner_nodes()
+        f["owner"]["after"] = None if owners_after is None else len(owners_after)
+        f["owner"]["minted"] = any(seeds[k].get("created_person") for k in ("A", "B"))
+        f["owner"]["attached_to_owner"] = (
+            None if owners_before is None else
+            all(seeds[k].get("person_uri") in owners_before for k in ("A", "B")))
         if not all(seeds[k].get("banked") and seeds[k].get("fact_id") for k in ("A", "B")):
             return f
         f["refresh_before"] = box.refresh()
@@ -355,6 +395,39 @@ def _box_refresh(context_path, timeout_s=600):
     return False
 
 
+def _store_headers():
+    hdrs = {}
+    try:
+        for line in open(os.path.expanduser("~/.ostler/secrets/store-curl.conf")):
+            m = re.match(r'\s*header\s*=\s*"?([^:"]+):\s*([^"]*)"?\s*$', line)
+            if m:
+                hdrs[m.group(1).strip()] = m.group(2).strip()
+    except IOError:
+        pass
+    return hdrs
+
+
+def _box_owner_nodes(owner):
+    """Person URIs whose displayName is the owner's name (case-insensitive),
+    or None when the store could not be read. URIs stay on the box."""
+    import urllib.parse
+    import urllib.request
+    esc = owner.lower().replace("\\", "\\\\").replace('"', '\\"')
+    q = ('PREFIX pwg: <%s>\nSELECT DISTINCT ?p WHERE { ?p a pwg:Person ; pwg:displayName ?n . '
+         'FILTER(LCASE(STR(?n)) = "%s") }' % (PWG_NS, esc))
+    oxi = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878/query")
+    h = _store_headers()
+    h.update({"Content-Type": "application/sparql-query", "Accept": "application/sparql-results+json"})
+    req = urllib.request.Request(oxi, data=q.encode(), headers=h)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=20) as r:
+            rows = json.loads(r.read().decode())["results"]["bindings"]
+    except Exception:
+        return None
+    return [b["p"]["value"] for b in rows if "p" in b]
+
+
 def _box_cleanup(seeds):
     """Delete the synthetic facts from the graph by URI; a person node only if
     this run minted it. Returns a count, never text."""
@@ -392,7 +465,7 @@ def box_main(argv):
         print(json.dumps({"write_allowed": True, "setup_error": "no service token at ~/.ostler/secrets/service_token"}))
         return 0
     box = Box(a.get("--api", "http://127.0.0.1:8090"), token, owner, context,
-              lambda: _box_refresh(context), _box_cleanup)
+              lambda: _box_refresh(context), _box_cleanup, lambda: _box_owner_nodes(owner))
     print(json.dumps(round_trip(box, write_allowed)))
     return 0
 
@@ -401,12 +474,12 @@ def box_main(argv):
 # self-test: the box half against a fake ical-server
 # ---------------------------------------------------------------------------
 
-def _fake_server(ignore_corrections_in=(), keep_old_in=(), drop_new_in=()):
+def _fake_server(ignore_corrections_in=(), keep_old_in=(), drop_new_in=(), mint_duplicate=False):
     """A stand-in for ical-server with the real wire shapes. Readers named in
     ignore_corrections_in read the source facts and never the overlay: the
     mutant, and also the shape /people/context and the digest have today."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    state = {"facts": {}, "corr": {}, "n": 0}
+    state = {"facts": {}, "corr": {}, "n": 0, "owners": [PWG_NS + "user_jane"]}
 
     def view(reader):
         rows = []
@@ -452,6 +525,13 @@ def _fake_server(ignore_corrections_in=(), keep_old_in=(), drop_new_in=()):
                 state["n"] += 1
                 fid = "fact_%012d" % state["n"]
                 state["facts"][fid] = body["fact_text"]
+                if mint_duplicate:
+                    # The defect this guards: no confident match, so assert
+                    # mints a SECOND Person carrying the owner's name.
+                    dup = PWG_NS + "person_dup%d" % state["n"]
+                    state["owners"].append(dup)
+                    return self._send(200, {"status": "created_person", "fact_id": fid,
+                                            "person_uri": dup})
                 return self._send(200, {"status": "stored", "fact_id": fid,
                                         "person_uri": PWG_NS + "user_jane"})
             if self.path.startswith("/api/v1/memory/correct/"):
@@ -468,9 +548,9 @@ def _fake_server(ignore_corrections_in=(), keep_old_in=(), drop_new_in=()):
     return srv, state, view
 
 
-def _run_fake(ignore=(), keep_old=(), drop_new=(), digest_refreshes=True, correct_ok=True, readonly=False, owner="Jane Doe"):
+def _run_fake(ignore=(), keep_old=(), drop_new=(), mint_duplicate=False, owners_readable=True, digest_refreshes=True, correct_ok=True, readonly=False, owner="Jane Doe"):
     import tempfile
-    srv, state, view = _fake_server(ignore, keep_old, drop_new)
+    srv, state, view = _fake_server(ignore, keep_old, drop_new, mint_duplicate)
     d = tempfile.mkdtemp()
     ctx = os.path.join(d, "CONTEXT.md")
 
@@ -482,7 +562,8 @@ def _run_fake(ignore=(), keep_old=(), drop_new=(), digest_refreshes=True, correc
         return digest_refreshes
 
     box = Box("http://127.0.0.1:%d" % srv.server_address[1], "synthetic-service-token",
-              owner, ctx, refresh, lambda seeds: "fake cleanup of {}".format(len(seeds)))
+              owner, ctx, refresh, lambda seeds: "fake cleanup of {}".format(len(seeds)),
+              lambda: list(state["owners"]) if owners_readable else None)
     if not correct_ok:
         box.correct = lambda fid, body: (False, "HTTP 503 ok=None")
     try:
@@ -519,21 +600,34 @@ def self_test():
     good = _run_fake()
     expect("good: every reader honours the correction, PASS", good, EX_PASS)
     expect("MUTANT: /people/context ignores corrections, FAIL on step 5",
-           _run_fake(ignore=("context",)), EX_FAIL, DECLARED[4])
+           _run_fake(ignore=("context",)), EX_FAIL, DECLARED[6])
     expect("MUTANT: CONTEXT.md ignores corrections, FAIL on step 6",
-           _run_fake(ignore=("digest",)), EX_FAIL, DECLARED[5])
+           _run_fake(ignore=("digest",)), EX_FAIL, DECLARED[7])
     expect("MUTANT: the memory list ignores corrections, FAIL on step 4",
-           _run_fake(ignore=("memory",)), EX_FAIL, DECLARED[3])
+           _run_fake(ignore=("memory",)), EX_FAIL, DECLARED[5])
     expect("MUTANT: every reader ignores corrections, FAIL on step 7 (memory list)",
-           _run_fake(ignore=READERS), EX_FAIL, DECLARED[7])
+           _run_fake(ignore=READERS), EX_FAIL, DECLARED[9])
     expect("today's shape (context and digest ignore the overlay) is FAIL, not CANNOT-RUN",
-           _run_fake(ignore=("context", "digest")), EX_FAIL, DECLARED[9])
+           _run_fake(ignore=("context", "digest")), EX_FAIL, DECLARED[11])
     expect("MUTANT: /people/context shows the correction but keeps the old value, FAIL on step 7",
-           _run_fake(keep_old=("context",)), EX_FAIL, DECLARED[8])
+           _run_fake(keep_old=("context",)), EX_FAIL, DECLARED[10])
     expect("MUTANT: the memory list drops a corrected fact instead of showing it, FAIL on step 7",
-           _run_fake(drop_new=("memory",)), EX_FAIL, DECLARED[7])
+           _run_fake(drop_new=("memory",)), EX_FAIL, DECLARED[9])
     expect("the owner path refuses the correction: FAIL",
-           _run_fake(correct_ok=False), EX_FAIL, DECLARED[2])
+           _run_fake(correct_ok=False), EX_FAIL, DECLARED[8])
+    expect("MUTANT: assert mints a SECOND owner Person, FAIL on the owner row, later steps unmeasured",
+           _run_fake(mint_duplicate=True), EX_FAIL, DECLARED[1], want_unmeasured=DECLARED[4])
+    for label, change in (("assert reports it minted a Person", {"minted": True}),
+                          ("a second owner node appears", {"after": 2}),
+                          ("a fact attached to a node that is not the owner", {"attached_to_owner": False})):
+        one = json.loads(json.dumps(good))
+        one["owner"].update(change)
+        expect("owner row alone: " + label + " FAILS", one, EX_FAIL, DECLARED[1])
+    expect("the owner count cannot be read: CANNOT-RUN, never PASS",
+           _run_fake(owners_readable=False), EX_CANNOT, want_unmeasured=DECLARED[0])
+    two = json.loads(json.dumps(good))
+    two["owner"]["before"] = 2
+    expect("a box whose owner is already two nodes FAILS the owner row", two, EX_FAIL, DECLARED[0])
     expect("CONTROL: the digest never refreshes, so absence proves nothing: CANNOT-RUN",
            _run_fake(digest_refreshes=False), EX_CANNOT)
     expect("a read-only walk is CANNOT-RUN, never PASS", _run_fake(readonly=True), EX_CANNOT)
@@ -544,7 +638,7 @@ def self_test():
     blind = json.loads(json.dumps(good))
     blind["before"]["A"]["context"] = False
     expect("CONTROL: a reader blind before the correction is CANNOT-RUN, not PASS", blind, EX_CANNOT,
-           want_unmeasured=DECLARED[0])
+           want_unmeasured=DECLARED[2])
 
     if fails:
         print("SELF-TEST FAIL: " + "; ".join(fails))
