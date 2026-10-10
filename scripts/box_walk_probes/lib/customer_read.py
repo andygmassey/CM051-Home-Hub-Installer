@@ -749,8 +749,15 @@ def judge(f, declared=None):
         add(DECLARED[23], not shadowed,
             "{} of {} People rows are named by an email address while a human-named row shares that address "
             "({} email-named rows in all; names withheld)".format(len(shadowed), len(papi), len(email_named)))
+        # A row with a phone is a contact card the customer filled in: the name
+        # on it is theirs, whatever its shape (F7 measured 5 real carded people
+        # this check flagged, plus cards named only by digits). Phone, not
+        # email: a service mailbox carries an email too.
+        named_by_customer = [r for r in papi if r.get("has_phone")]
         kinds = {}
         for r in papi:
+            if r.get("has_phone"):
+                continue
             k = service_sender(r.get("name"))
             if k:
                 kinds[k] = kinds.get(k, 0) + 1
@@ -759,12 +766,15 @@ def judge(f, declared=None):
                 sum(kinds.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(kinds.items()))))
         junk = {}
         for r in papi:
+            if r.get("has_phone"):
+                continue
             k = junk_name(r.get("name"))
             if k:
                 junk[k] = junk.get(k, 0) + 1
         add(DECLARED[31], not junk,
             "{} of {} People rows are named by something a customer cannot read as a name: {} (names withheld)".format(
-                sum(junk.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(junk.items()))))
+                sum(junk.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(junk.items())))
+            + "; {} rows with a phone (a customer-filled card) not judged".format(len(named_by_customer)))
 
     selfd = set(f.get("self_digests") or [])
     if f.get("owner_source") in ("synthetic", "unknown-walk"):
@@ -1070,7 +1080,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     preq = urllib.request.Request(base + "/api/v1/people", headers={"Authorization": "Bearer " + token})
                     with _local_urlopen(preq, timeout=60) as r:
                         body = json.load(r)
-                    f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or ""}
+                    f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or "",
+                                        "has_phone": bool(p.get("phone"))}
                                        for p in body.get("people") or []]
                     f["people_api_total"] = body.get("total", len(f["people_api"]))
                 except Exception as exc:
@@ -1784,6 +1795,14 @@ def self_test():
         missed.append("an em dash inside a person's name on Hub People still fails ({!r})".format(gotn))
     else:
         print("  ok    an em dash inside a person's name on Hub People PASSES (contact-written, not Ostler copy)")
+    carded = copy.deepcopy(_good())
+    carded["people_api"] += [{"name": "999", "email": "", "has_phone": True},
+                             {"name": "EXAMPLE BANK ALERTS", "email": "", "has_phone": True}]
+    gotc = [ok for n, ok, _ in judge(carded) if n in (DECLARED[24], DECLARED[31])]
+    if gotc != [True, True]:
+        missed.append("a customer-filled card (has a phone) is still judged by its name shape ({!r})".format(gotc))
+    else:
+        print("  ok    a contact card with a phone keeps the name the customer gave it")
     # Walk #16 customer eyes: real names that look unusual must PASS the junk
     # and organisation predicates, or the check fails real people.
     for real in ("\U0001d479\U0001d48a\U0001d484\U0001d48c\U0001d49a Doe", "Mary-Jane O'Neil", "Henry 8th",
