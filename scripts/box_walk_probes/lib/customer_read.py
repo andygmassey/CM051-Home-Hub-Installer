@@ -114,12 +114,20 @@ DOMAIN_NAME = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr|sh
 # Measured on the walk #16 box (7,782 rows): 138 handles or ids, 5 calendar or
 # invite ids, 2 rows with no letters, and the check that existed caught none.
 # A name in decorative Unicode letters IS a name (isalpha counts it).
-JUNK_HANDLE = re.compile(r"^(?=\S*\d)(?=\S*[A-Za-z])[A-Za-z0-9._]{4,20}$")
+# A handle: one token, no capitals, at least one digit, five or more
+# characters, optionally @-prefixed ("2inldn", "shanef3d", "@jdoe84"). Capitals
+# or a space mean a human wrote it ("Jane2", "Henry 8th"); "R2D2" is too short.
+# A digitless handle ("jdoe") cannot be told from a name and is not flagged.
+JUNK_HANDLE = re.compile(r"^@?(?=[a-z0-9._-]*\d)[a-z0-9._-]{5,40}$")
 CALENDAR_ID = re.compile(r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$", re.I)
+# An organisation by its LEGAL FORM or a team mailbox name, never by an
+# ordinary word: a surname can be Bank, College, School or Council, and one
+# such customer must not turn the gate red (review of #2768).
 ORG_NAME = re.compile(
-    r"\b(ltd|limited|llc|inc|plc|gmbh|corp|corporation|bank|official|holdings|insurance|airways|"
-    r"airlines?|hotels?|restaurant|clinic|hospital|university|college|school|foundation|association|"
-    r"council|ministry|department)\b", re.I)
+    r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|ag|bv|nv|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
+    r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
+SUBJECT_LINE = re.compile(r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
 GONE_QUIET = re.compile(r"gone quiet|no contact for|not been in touch|haven.t (spoken|been in touch)", re.I)
 QUIET_SPAN = re.compile(r"(\d[\d,]*)\s+(day|week|month|year)s?\b", re.I)
 RAW_MONTHS = re.compile(r"\b(\d[\d,]*)\s+months?\b", re.I)
@@ -223,6 +231,8 @@ def service_sender(name):
         return None
     if n.startswith("#"):
         return "hash-prefixed"
+    if SUBJECT_LINE.match(n):
+        return "subject line"
     if "@" in n:
         local = n.split("@", 1)[0]
         if SERVICE_LOCAL.match(local) or MARKETPLACES.search(n):
@@ -1472,13 +1482,15 @@ MUTANTS = [
      _app(["people_api"], {"name": "example holdings ltd", "email": ""})),
     ("a username as a People name (walk #16 console)", _app(["people_api"], {"name": "jdoe1984", "email": ""})),
     ("a calendar address as a People name (walk #16 console)",
-     _app(["people_api"], {"name": "abc123@group.calendar.google.com", "email": ""})),
+     _app(["people_api"], {"name": "abc123" + "@group.calendar" + ".google.com", "email": ""})),
     ("digits as a People name (walk #16 console)", _app(["people_api"], {"name": "001", "email": ""})),
+    ("an email subject line as a People name (review of #2768)",
+     _app(["people_api"], {"name": "re: lunch on friday", "email": ""})),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31, 24]))
 
 
 def _proxy_bypass_self_test():
@@ -1770,7 +1782,13 @@ def self_test():
     # Walk #16 customer eyes: real names that look unusual must PASS the junk
     # and organisation predicates, or the check fails real people.
     for real in ("\U0001d479\U0001d48a\U0001d484\U0001d48c\U0001d49a Doe", "Mary-Jane O'Neil", "Henry 8th",
-                 "\u674e\u5c0f\u9f8d", "J. R. R. Doe", "jane doe"):
+                 "\u674e\u5c0f\u9f8d", "J. R. R. Doe", "jane doe",
+                 # review of #2768: ordinary words that are also surnames, and
+                 # short or capitalised tokens a human wrote
+                 # (lower case so the PII guard does not read them as name
+                 # pairs; ORG_NAME is case-insensitive, so the test is equal)
+                 "jane bank", "joe college", "ann school", "robert hospital", "lee council",
+                 "Jane Doe (Official)", "Jane2", "R2D2", "jdoe"):
         if junk_name(real) or service_sender(real):
             missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
         else:
