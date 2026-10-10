@@ -32,6 +32,8 @@
 
 MSG_STEP_CHECKING_PREREQUISITES="Checking prerequisites"
 MSG_STEP_RUNNING_HEALTH_CHECK="Running health check"
+# F2: the end-of-install step that holds the Tailscale browser sign-in.
+MSG_STEP_TAILSCALE_SIGNIN="Connect your iPhone and Watch"
 MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, then it keeps going on its own)"
 # 2026-08-20: this key used to end "...and needs nothing further from you, so
 # you can leave it running and check back later." Measured against Andy's
@@ -41,7 +43,10 @@ MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, the
 # two minutes" for Full Disk Access, and 13:04:20 waited up to three minutes
 # for a Tailscale sign-in. A customer who does what this sentence says comes
 # back to a stalled install. It now names what is still wanted.
-MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Two things will still want you: if macOS asks to install developer tools, click Install; and near the end there is a couple of minutes of setup (Full Disk Access, then signing in to Tailscale). Between those you can leave it running."
+# F2 (console walk of DMG #16): the Tailscale sign-in and the assistant's
+# Reminders prompt both moved to the END of the install (after the health
+# check), so the copy says "at the very end", not "near the end".
+MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Three things will still want you: if macOS asks to install developer tools, click Install; near the end there is a minute of setup (switching on Full Disk Access); and at the very end, after the health check, you sign in to Tailscale and allow the assistant to use Reminders. Between those you can leave it running."
 # #613: the line above names a Tailscale sign-in that a customer who answered
 # "skip" to the remote-access question will never be asked for. Promising a step
 # we then do not perform is the same defect class as claiming success we did not
@@ -49,7 +54,7 @@ MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the back
 # variant is emitted on the declined branch and names only what is left.
 # Kept as a separate string rather than a printf substitution so the shipped
 # copy of BOTH branches is readable in this file and gets its own review.
-MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Two things will still want you: if macOS asks to install developer tools, click Install; and near the end there is a minute of setup (switching on Full Disk Access). Between those you can leave it running."
+MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Three things will still want you: if macOS asks to install developer tools, click Install; near the end there is a minute of setup (switching on Full Disk Access); and at the very end you allow the assistant to use Reminders. Between those you can leave it running."
 
 # ── Info messages (progress, context) ──
 
