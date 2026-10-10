@@ -286,7 +286,17 @@ tp=$(echo "$health" | grep -oE '"token_paired"[: ]*(true|false)' | grep -oE 'tru
 rp=$(echo "$health" | grep -oE '"require_pairing"[: ]*(true|false)' | grep -oE 'true|false')
 dev_ct=$(box "sqlite3 \$(find ~/.ostler -name devices.db 2>/dev/null | head -1) 'select count(*) from devices' 2>/dev/null")
 [ -z "$dev_ct" ] && dev_ct="err"
-if [ "$EXPECT_PAIRED" = "1" ]; then
+a4_readable=0
+[ -n "$cp" ] && a4_readable=$((a4_readable+1))
+[ -n "$pd" ] && a4_readable=$((a4_readable+1))
+is_count "$dev_ct" && a4_readable=$((a4_readable+1))
+if [ "$a4_readable" -eq 0 ]; then
+  # 0 of 3 signals readable (e.g. no phone paired, no registry): nothing was
+  # measured. Same verdict and cause as pair_state_agreement: CANNOT-RUN, never
+  # FAIL (this used to fall through to FAIL when OSTLER_BOX_EXPECT_PAIRED=1).
+  result CANNOT A4 "Pairing signals consistent" \
+    "companion='$cp' paired='$pd' token='$tp' devices='$dev_ct': only 0 of 3 pairing signals were readable, so NOTHING about pairing was measured"
+elif [ "$EXPECT_PAIRED" = "1" ]; then
   if [ "$cp" = "true" ] && [ "$pd" = "true" ] && [ "${dev_ct:-0}" -ge 1 ] 2>/dev/null; then
     result PASS A4 "Pairing complete + consistent" "companion=$cp paired=$pd token=$tp devices=$dev_ct"
   else

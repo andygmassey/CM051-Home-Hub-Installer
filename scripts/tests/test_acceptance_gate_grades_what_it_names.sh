@@ -129,6 +129,13 @@ _fake_box() {
                 *found=0*)              echo 0 ;;
                 *)                      echo "" ;;
             esac ;;
+        paired_healthy)
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":true,"paired":true,"token_paired":true}' ;;
+                *sqlite3*)              echo 2 ;;
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
         lying_ui)
             case "${cmd}" in
                 */health*)              echo '{"companion_paired":false,"paired":true,"token_paired":true}' ;;
@@ -147,6 +154,12 @@ _fake_box() {
             case "${cmd}" in
                 */health*)              echo "" ;;
                 *sqlite3*)              echo 0 ;;
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
+        signals_all_unreadable)
+            # health empty AND no devices.db: 0 of 3 pairing signals readable.
+            case "${cmd}" in
                 *found=0*)              echo 0 ;;
                 *)                      echo "" ;;
             esac ;;
@@ -234,6 +247,7 @@ fi
 run_gate() {
     printf '%s' "$1" > "${STUB_MODE}"
     STUB_MODE="${STUB_MODE}" OSTLER_BOX_HOST="fake.invalid" \
+        OSTLER_BOX_EXPECT_PAIRED="${2:-0}" \
         bash "${COPY}" > "${WORK}/out.txt" 2>&1
     printf '%s' "$?"
 }
@@ -287,6 +301,26 @@ if grep -qE '  CANT  A4 ' "${WORK}/out.txt" && [ "${rc}" = "78" ]; then
     ok "empty pairing signals render as could-not-run and the gate exits 78"
 else
     bad "empty pairing signals rendered as '$(row A4)' with rc=${rc}, expected CANT and 78"
+fi
+
+echo "== A4 with a phone expected: 0 of 3 signals readable is could-not-run, not fail =="
+rc="$(run_gate signals_all_unreadable 1)"
+if grep -qE '  CANT  A4 ' "${WORK}/out.txt" && grep -q '0 of 3 pairing signals were readable' "${WORK}/out.txt"; then
+    ok "EXPECT_PAIRED=1 with nothing readable renders A4 as could-not-run"
+else
+    bad "0 readable signals with a phone expected rendered as '$(row A4)', expected CANT"
+fi
+rc="$(run_gate lying_ui 1)"
+if grep -qE '  FAIL  A4 ' "${WORK}/out.txt"; then
+    ok "EXPECT_PAIRED=1 with readable signals that disagree is still FAIL"
+else
+    bad "readable disagreeing signals with a phone expected rendered as '$(row A4)', expected FAIL"
+fi
+rc="$(run_gate paired_healthy 1)"
+if grep -qE '  PASS  A4 ' "${WORK}/out.txt"; then
+    ok "EXPECT_PAIRED=1 with all signals agreeing is PASS"
+else
+    bad "a fully paired healthy box rendered as '$(row A4)', expected PASS"
 fi
 
 echo "== CONTROL: A6 still fails on the wiki compiler's own log =="
