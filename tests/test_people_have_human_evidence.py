@@ -3,8 +3,8 @@
 Three producers wrote a pwg:Person for something that is not a person, and the
 People list read only the NAME, which carried no signal:
 
-  (a) EMAIL: "Quidco" (quidco@info.quidco.com), "HSBC Hong Kong"
-      (onlineservices@notification.hsbc.com.hk): vendor/cm021/src/cli.py wrote
+  (a) EMAIL: "Quidco" (local part "quidco" at an info. sub-domain), "HSBC Hong Kong"
+      (local part "onlineservices" at a notification. sub-domain): vendor/cm021/src/cli.py wrote
       email + lastContactEmail + displayName + skos:prefLabel because neither
       the local part nor the display name read as automated and the message
       carried no list header the parser sees.
