@@ -149,6 +149,55 @@ echo \"VAR2=[\$OSTLER_INSTALL_MARKER]\"" 2>&1)"
     fi
 fi
 
+# ── Behaviour: the step really ANNOUNCES tailscale_signin to the GUI ────
+# A grep for the id would pass on a comment. So the real step header (the
+# pending gate down to its gui_step_begin) is RUN, with the REAL
+# gui_step_begin from lib/progress_emitter.sh and gui_emit captured, and the
+# wire must carry STEP_BEGIN id=tailscale_signin, the id HintCopy.json's
+# "tailscale_signin" entry is keyed on. Without it the GUI row never lights.
+EMITTER="$(dirname "$INSTALL_SH")/lib/progress_emitter.sh"
+HEADER="$(awk '/^if \[\[ "\$\{OSTLER_TS_SIGNIN_PENDING:-0\}" == 1 \]\]; then$/{f=1} f{print} f&&/^[[:space:]]*gui_step_begin /{exit}' "$INSTALL_SH")"
+BEGIN_FN="$(awk '/^gui_step_begin\(\) \{$/{f=1} f{print} f&&/^\}$/{exit}' "$EMITTER" 2>/dev/null)"
+announce() { # $1 = header, $2 = OSTLER_TS_SIGNIN_PENDING
+    OSTLER_TS_SIGNIN_PENDING="$2" HEADER="$1" BEGIN_FN="$BEGIN_FN" bash -c '
+        set -u
+        gui_emit() { echo "EMIT $*"; }
+        step() { :; }
+        gui_step_end() { :; }
+        eval "$BEGIN_FN"
+        MSG_STEP_TAILSCALE_SIGNIN="Connect your iPhone and Watch"
+        CURRENT_STEP=44; TOTAL_STEPS=44; __OSTLER_STEP_ID="health_check"
+        eval "$HEADER
+fi"
+    ' 2>&1
+}
+if [[ -z "$BEGIN_FN" ]]; then
+    fail "could not extract gui_step_begin from lib/progress_emitter.sh"
+elif [[ -z "$HEADER" ]] || ! printf '%s\n' "$HEADER" | /usr/bin/grep -q '^[[:space:]]*gui_step_begin '; then
+    fail "no end-of-install step header (pending gate -> gui_step_begin) found in install.sh"
+else
+    o_on="$(announce "$HEADER" 1)"
+    o_off="$(announce "$HEADER" 0)"
+    if printf '%s\n' "$o_on" | /usr/bin/grep -q '^EMIT STEP_BEGIN id=tailscale_signin '; then
+        pass "the step emits STEP_BEGIN id=tailscale_signin when sign-in is pending"
+    else
+        fail "the step does not announce tailscale_signin to the GUI: ${o_on:-<no output>}"
+    fi
+    if printf '%s\n' "$o_off" | /usr/bin/grep -q 'STEP_BEGIN'; then
+        fail "the step announces itself even when no sign-in is pending (declined/failed): $o_off"
+    else
+        pass "no STEP_BEGIN when no sign-in is pending (a declined install sees no row)"
+    fi
+    # MUST-FAIL: drop the announcement and the arm above must go red, or it
+    # proves nothing.
+    MUT="$(printf '%s\n' "$HEADER" | /usr/bin/grep -v '^[[:space:]]*gui_step_begin ')"
+    if printf '%s\n' "$(announce "$MUT" 1)" | /usr/bin/grep -q 'STEP_BEGIN id=tailscale_signin'; then
+        fail "MUST-FAIL: with gui_step_begin removed the step still 'announces' -- the arm is blind"
+    else
+        pass "MUST-FAIL: with gui_step_begin removed there is no announcement, so the arm is real"
+    fi
+fi
+
 echo ""
 if [[ "$FAILS" -gt 0 ]]; then
     echo "FAIL: test_tailscale_signin_is_at_the_end.sh ($FAILS failure(s))"
