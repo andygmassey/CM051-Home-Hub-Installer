@@ -95,7 +95,7 @@ import sys
 out = sys.argv[sys.argv.index("--emit-mbox") + 1]
 with open(out, "w") as fh:
     for i in range(3):
-        fh.write("From sender@example.com Thu Oct  9 10:00:00 2026\nSubject: t%d\n\nbody\n\n" % i)
+        fh.write("From a@example.com 2026-10-09\nsubject: t%d\n\nbody\n\n" % i)
 PY
 for tick in 1 2; do
     HOME="$H" OSTLER_DIR="$H/.ostler" PYTHONPATH="$H/py" PWG_EMAIL_INGEST=/usr/bin/true \
