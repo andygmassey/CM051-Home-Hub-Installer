@@ -77,11 +77,26 @@ case "$last" in
 esac
 CURLSTUB
     chmod +x "$h/stub/curl"
+    # The seed pairs through the REAL companion flow (lib/companion_pair.sh ->
+    # companion_pair.py: owner QR token, /auth/pair/init + register). This stub
+    # answers as that helper does, by MODE, via the OSTLER_COMPANION_PAIR_CMD
+    # seam, so no crypto or network is needed here.
+    cat > "$h/stub/companion_pair" <<'PAIRSTUB'
+#!/bin/bash
+echo "companion_pair $*" >> "$CURL_STUB_HOME/.ostler/walk-seed/calls.log"
+if [ "${CURL_STUB_MODE:-ok}" = "pair_rejected" ]; then
+    echo '{"ok": false, "stage": "register", "http": 401, "detail": "companion_proof_mismatch", "device_token": null, "replay_http": null}'
+else
+    echo '{"ok": true, "stage": "register", "http": 200, "detail": "", "device_token": "faketoken1234", "replay_http": null}'
+fi
+PAIRSTUB
+    chmod +x "$h/stub/companion_pair"
     echo "$h"
 }
 
 run_seed() { # $1 = box home, $2 = mode; prints "<state> <job1> <job2>"
-    ( export HOME="$1" PATH="$1/stub:$PATH" CURL_STUB_MODE="$2" CURL_STUB_HOME="$1"
+    ( export HOME="$1" PATH="$1/stub:$PATH" CURL_STUB_MODE="$2" CURL_STUB_HOME="$1" \
+             OSTLER_COMPANION_PAIR_CMD="$1/stub/companion_pair"
       unset OSTLER_BOX_HOST
       _ccs_box() { bash -c "$1"; }
       . "$LIB"
@@ -103,7 +118,7 @@ arm "the minted token never appears in the printed log" "$tokleak"
 echo "3. MUST-FAIL arms"
 H2=$(mkbox pair_rejected)
 read -r state2 _ _ <<<"$(run_seed "$H2" pair_rejected)"
-arm "MUST-FAIL: /pair rejecting the fresh code reads failed" "$(b [ "$state2" = "failed" ])" "got $state2"
+arm "MUST-FAIL: the companion pair rejecting the fresh QR token reads failed" "$(b [ "$state2" = "failed" ])" "got $state2"
 
 H3=$(mkbox second_no_jobid)
 read -r state3 j1_3 j2_3 <<<"$(run_seed "$H3" second_no_jobid)"

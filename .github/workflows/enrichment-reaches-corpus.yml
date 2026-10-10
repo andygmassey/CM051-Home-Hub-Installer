@@ -29,6 +29,8 @@ on:
       # the only workflow that checks it.
       - 'tests/test_a_truncated_category_is_not_reported_complete.py'
       - 'tests/test_no_unbounded_enrich_invocation.sh'
+      - 'tests/test_an_enrichment_miss_is_not_an_import_error.py'
+      - 'tests/test_ostler_import_exit_code_separates_misses_from_failures.sh'
   push:
     branches: [main]
 
@@ -86,3 +88,21 @@ jobs:
         # customer runs. if: always() -- independent axis again.
         if: always()
         run: bash tests/test_no_unbounded_enrich_invocation.sh
+
+      - name: An enrichment miss is not an import error (walk #16)
+        # import_data went red over a fully successful import because three
+        # Wikidata look-ups found nothing and the enrich CLI counted them as
+        # failures. Drives the REAL _run_enrichment exit code over the REAL
+        # enrich_batch loop: three misses exit 0; a client exception, an
+        # unreachable source, and an unrecognised error message each still
+        # exit 1. if: always() -- independent axis.
+        if: always()
+        run: python3 tests/test_an_enrichment_miss_is_not_an_import_error.py
+
+      - name: ostler-import exits 0 on misses and non-zero on a parse failure (walk #16)
+        # The install.sh end of the same contract: install.sh picks ok vs warn
+        # on import_data from ostler-import's rc. Runs the REAL generated
+        # ostler-import (extracted from install.sh) with the CM019 leg's enrich
+        # driving the real vendored CLI. Exit 2 is CANNOT-RUN and fails the step.
+        if: always()
+        run: bash tests/test_ostler_import_exit_code_separates_misses_from_failures.sh

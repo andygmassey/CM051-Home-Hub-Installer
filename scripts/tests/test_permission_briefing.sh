@@ -43,27 +43,29 @@ ROWS='echo -e "    1. ${BOLD}Full Disk Access${NC}  x"
 echo -e "    2. ${BOLD}Downloads${NC}  y"
 echo -e "    3. ${BOLD}Downloads (assistant)${NC}  y"
 echo -e "    4. ${BOLD}Documents (assistant)${NC}  y"
-echo -e "    5. ${BOLD}Data from other apps${NC}  z. It is the assistant"'
+echo -e "    5. ${BOLD}Data from other apps${NC}  z. It is the assistant"
+echo -e "    6. ${BOLD}Reminders (assistant)${NC}  r"'
 
-mk "$TMP/a" "PERMISSIONS_TOTAL=5
+mk "$TMP/a" "PERMISSIONS_TOTAL=6
 $ROWS"
 [[ "$(rc "$TMP/a")" == 0 ]] && ok "matching count -> green" || no "matching count wrongly failed"
 
 mk "$TMP/b" "PERMISSIONS_TOTAL=8
 $ROWS"
-[[ "$(rc "$TMP/b")" == 1 ]] && ok "promises 8, prints 5 -> rc=1" || no "count mismatch NOT caught"
+[[ "$(rc "$TMP/b")" == 1 ]] && ok "promises 8, prints 6 -> rc=1" || no "count mismatch NOT caught"
 grep -q 'customer counts the rows' "$TMP/o" && ok "and it names the asymmetry" || no "message did not name it"
 
 # The range row is the ORIGINAL gate bug and stays pinned permanently: "2-4."
 # is ONE line and THREE permissions. A gate that counts lines reports 5 vs 7
 # on a correct list, and a gate that cries wolf on a correct tree gets
-# switched off. Total below is 1 + 3 + 1 + 1 + 1 = 7.
-mk "$TMP/c" 'PERMISSIONS_TOTAL=7
+# switched off. Total below is 1 + 3 + 1 + 1 + 1 + 1 = 8.
+mk "$TMP/c" 'PERMISSIONS_TOTAL=8
 echo -e "    1. ${BOLD}Full Disk Access${NC}  x"
 echo -e "    2-4. ${BOLD}Downloads/Desktop/Documents${NC}  y"
 echo -e "    5. ${BOLD}Downloads (assistant)${NC}  y"
 echo -e "    6. ${BOLD}Documents (assistant)${NC}  y"
-echo -e "    7. ${BOLD}Data from other apps${NC}  z. It is the assistant"'
+echo -e "    7. ${BOLD}Data from other apps${NC}  z. It is the assistant"
+echo -e "    8. ${BOLD}Reminders (assistant)${NC}  r"'
 [[ "$(rc "$TMP/c")" == 0 ]] && ok "a RANGE row counts as its span, not as 1" || no "range row miscounted (the original gate bug)"
 
 # AND THE REGISTRY LIMB NEEDS ITS OWN ARM, or the fixtures above quietly
@@ -76,6 +78,18 @@ echo -e "    2. ${BOLD}Downloads${NC}  y"
 echo -e "    3. ${BOLD}Downloads (assistant)${NC}  y"
 echo -e "    4. ${BOLD}Data from other apps${NC}  z. It is the assistant"'
 [[ "$(rc "$TMP/d")" == 1 ]] && ok "a self-consistent count does NOT excuse an unnamed prompt" || no "the registry limb did not fire on a missing assistant-Documents row"
+
+# F2: the same limb for the assistant's OWN Reminders prompt (the daemon's
+# watcher asks under its identity). Every other registry row present, count
+# self-consistent, no row naming the assistant for Reminders -> refused.
+mk "$TMP/r" 'PERMISSIONS_TOTAL=5
+echo -e "    1. ${BOLD}Full Disk Access${NC}  x"
+echo -e "    2. ${BOLD}Downloads${NC}  y"
+echo -e "    3. ${BOLD}Downloads (assistant)${NC}  y"
+echo -e "    4. ${BOLD}Documents (assistant)${NC}  y"
+echo -e "    5. ${BOLD}Data from other apps${NC}  z. It is the assistant"'
+[[ "$(rc "$TMP/r")" == 1 ]] && ok "an unnamed assistant Reminders prompt -> rc=1" || no "the registry limb did not fire on a missing assistant-Reminders row"
+grep -q 'kTCCServiceReminders' "$TMP/o" && ok "and it names kTCCServiceReminders" || no "message did not name kTCCServiceReminders"
 
 mk "$TMP/d" 'PERMISSIONS_TOTAL=1
 echo -e "    1. ${BOLD}Contacts${NC}  x"
@@ -93,7 +107,7 @@ kTCCServiceSystemPolicyAppData'
 
 # E. A plist-declared, MAPPED key with NO row naming it must fail, by name --
 # this is the exact shape of the live Photos gap (see the file's own header).
-mk "$TMP/e" "PERMISSIONS_TOTAL=5
+mk "$TMP/e" "PERMISSIONS_TOTAL=6
 $ROWS"
 mkplist "$TMP/e" '<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -105,8 +119,8 @@ grep -q 'NSContactsUsageDescription' "$TMP/o" && ok "and it names the exact key"
 # F. The SAME key, now WITH a matching row, must go green -- proving E failed
 # for the right reason and this is not just a check that always reds.
 ROWS_WITH_CONTACTS="$ROWS
-"'echo -e "    6. ${BOLD}Contacts${NC}  w"'
-mk "$TMP/f" "PERMISSIONS_TOTAL=6
+"'echo -e "    7. ${BOLD}Contacts${NC}  w"'
+mk "$TMP/f" "PERMISSIONS_TOTAL=7
 $ROWS_WITH_CONTACTS"
 mkplist "$TMP/f" '<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -118,7 +132,7 @@ mkplist "$TMP/f" '<?xml version="1.0" encoding="UTF-8"?>
 # the NEXT permission someone adds to Info.plist -- must fail loudly and name
 # the key, not pass because keyword_for_key() has no case for it. This is the
 # "cannot drift again" property: an unmapped key is a fail, not a silent skip.
-mk "$TMP/g" "PERMISSIONS_TOTAL=5
+mk "$TMP/g" "PERMISSIONS_TOTAL=6
 $ROWS"
 mkplist "$TMP/g" '<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -130,7 +144,7 @@ grep -q 'NSMicrophoneUsageDescription' "$TMP/o" && grep -q 'NO mapping' "$TMP/o"
 
 # H. No Info.plist at all is CANNOT RUN (exit 2), never a pass -- this file
 # cannot certify a briefing against a plist it never read.
-mk "$TMP/h" "PERMISSIONS_TOTAL=5
+mk "$TMP/h" "PERMISSIONS_TOTAL=6
 $ROWS"
 rm -f "$TMP/h/gui/OstlerInstaller/Info.plist"
 [[ "$(rc "$TMP/h")" == 2 ]] && ok "no Info.plist present -> CANNOT (exit 2), not a pass" || no "a missing plist was NOT treated as CANNOT-RUN"

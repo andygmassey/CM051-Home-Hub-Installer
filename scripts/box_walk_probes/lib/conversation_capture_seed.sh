@@ -14,9 +14,9 @@
 # conversation out the other end. Nothing before this seed had ever gone
 # through that door.
 #
-# WHAT IT DOES. Mints a device bearer the same way
-# probes/pairing_recovers_without_a_repair_storm.sh does (admin token at
-# :8000 mints a pairing code, POST :8443/pair spends it), then POSTs TWO
+# WHAT IT DOES. Mints a device bearer the way the iPhone does, through
+# lib/companion_pair.sh (the owner mints a QR token on the loopback admin
+# port, then /auth/pair/init + /auth/pair/register on :8443), then POSTs TWO
 # synthetic two-speaker transcripts to the SAME gateway's
 # /api/v1/conversation/process, same day, same two participants, different
 # `type` (conversation vs meeting) so they are two distinct conversations
@@ -67,17 +67,19 @@ _ccs_box() {
 # a live credential (CLAUDE.md security rule 2).
 conversation_capture_seed_apply() {
     printf '%s\n' "--- CONVERSATION CAPTURE SEED: two synthetic conversations through the paired gateway (:8443) ---"
+    # PAIRS THE WAY THE iPHONE DOES (lib/companion_pair.sh): the owner mints a
+    # QR token on the loopback admin port, then /auth/pair/init + register on
+    # :8443. The legacy 6-digit POST :8443/pair this used to take is refused
+    # there by ostler-assistant #492/#501.
+    declare -F companion_pair_box_snippet >/dev/null \
+        || . "$(dirname "${BASH_SOURCE[0]}")/companion_pair.sh"
     local out
     out="$(_ccs_box "set -u
 GW=\${OSTLER_CONVCAP_GATEWAY:-https://127.0.0.1:8443}
-ADMIN=\$(cat \$HOME/.ostler/secrets/zeroclaw_admin_token 2>/dev/null)
-[ -n \"\$ADMIN\" ] || { echo 'CCS no-admin-token'; exit 2; }
-CODE=\$(curl -sk --noproxy '*' -m 10 -X POST -H \"Authorization: Bearer \$ADMIN\" http://127.0.0.1:8000/admin/paircode/new | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"pairing_code\",\"\"))' 2>/dev/null)
-[ -n \"\$CODE\" ] || { echo 'CCS no-pairing-code'; exit 2; }
-PAIR=\$(curl -sk --noproxy '*' -m 10 -X POST -H \"X-Pairing-Code: \$CODE\" \"\$GW/pair\")
-case \"\$PAIR\" in *'\"paired\":true'*|*'\"paired\": true'*) : ;; *) echo \"CCS pair-rejected \${PAIR:0:120}\"; exit 2 ;; esac
-TOKEN=\$(printf '%s' \"\$PAIR\" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"token\",\"\"))' 2>/dev/null)
-[ -n \"\$TOKEN\" ] || { echo 'CCS pair-no-token-field'; exit 2; }
+[ -r \$HOME/.ostler/secrets/zeroclaw_admin_token ] || { echo 'CCS no-admin-token'; exit 2; }
+$(companion_pair_box_snippet '$GW' 0)
+TOKEN=\$CP_TOKEN
+[ -n \"\$TOKEN\" ] || { echo \"CCS pair-rejected \$(printf '%s' \"\$CP_JSON\" | head -c 200)\"; exit 2; }
 echo \"CCS token-len=\${#TOKEN}\"
 mkdir -p \"\$HOME/.ostler/walk-seed\" || { echo 'CCS no-token-dir'; exit 2; }
 ( umask 077; printf '%s' \"\$TOKEN\" > \"\$HOME/.ostler/walk-seed/.convcap-devtoken\" )

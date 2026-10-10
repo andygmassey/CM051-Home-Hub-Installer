@@ -698,6 +698,16 @@ async def _run_enrichment(
                 for key, value in client_info.items():
                     click.echo(f"  {key}: {value}", err=True)
 
+        # Misses are reported, but as INFORMATION and in their own block: the
+        # source answered and had no match, which is a fact about the item and
+        # not an error in the import (walk #16). They never set the exit code.
+        if getattr(stats, "misses", None):
+            click.echo(f"\n--- No enrichment match ({len(stats.misses)}, not errors) ---", err=True)
+            for miss in stats.misses[:10]:
+                click.echo(f"  {miss}", err=True)
+            if len(stats.misses) > 10:
+                click.echo(f"  ... and {len(stats.misses) - 10} more", err=True)
+
         # Show errors if any
         if stats.errors:
             click.echo(f"\n--- Errors ({len(stats.errors)}) ---", err=True)
@@ -709,7 +719,8 @@ async def _run_enrichment(
         duration = (datetime.utcnow() - start_time).total_seconds()
         click.echo(f"\nTotal duration: {duration:.1f}s", err=True)
 
-        # Return exit code based on success
+        # Return exit code based on success. `failed` holds real failures
+        # only; a no-match is counted in `no_match` and cannot fail the run.
         if stats.failed > stats.successful:
             raise SystemExit(1)
 

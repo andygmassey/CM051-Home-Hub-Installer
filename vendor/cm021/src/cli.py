@@ -248,6 +248,65 @@ _AUTOMATED_LOCAL_RE = re.compile(
 )
 
 
+# F7 (walk #16): Quidco and HSBC Hong Kong became People because their mail
+# carried NO list header this parser sees, and neither the local part
+# ("quidco", "onlineservices") nor the display name ("Quidco", "HSBC Hong
+# Kong") reads as automated. The ADDRESS still does: a bulk-mail sub-domain
+# (info., notification., emails.), a local part that is the sender's own domain
+# name, or an automation stem. Mirrors vendor/cm041/assistant_api/ical-server.py
+# _address_is_automated (the People list's read-side rule); the two are pinned
+# together by tests/test_people_no_human_evidence.py.
+_ADDR_LOCAL_STEMS = (
+    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
+    "notification", "newsletter", "service", "statement", "ereceipt",
+    "enews", "mailer", "bounce", "unsubscribe", "survey", "tracking",
+    "marketing", "promotion", "automated", "customercare", "concierge",
+    "reception", "reservation", "enquir", "mailbox", "postmaster",
+)
+_ADDR_LOCAL_TOKENS = frozenset({
+    "info", "support", "help", "hello", "hi", "sales", "billing", "news",
+    "alert", "alerts", "update", "updates", "offers", "offer", "deals",
+    "orders", "order", "account", "accounts", "admin", "team", "contact",
+    "mail", "messages", "message", "notify", "digest", "rewards", "reward",
+    "bill", "ebill", "bot", "system", "security", "careers", "jobs",
+})
+_ADDR_DOMAIN_LABELS = frozenset({
+    "info", "notification", "notifications", "email", "emails", "mail",
+    "e", "em", "news", "newsletter", "marketing", "communication",
+    "communications", "mailer", "updates", "sender", "imip", "bounce",
+    "bounces", "reply", "alerts", "statements", "informationservices",
+    "survey", "donotreply", "noreply", "mailing", "campaign", "campaigns",
+})
+_ADDR_SECOND_LEVEL = frozenset({"com", "co", "org", "net", "gov", "edu", "ac", "or", "ne"})
+_ADDR_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def automated_address_reason(addr: Optional[str]) -> Optional[str]:
+    """Why an email ADDRESS is a machine/bulk/brand mailbox, or None."""
+    a = (addr or "").strip().lower()
+    if not _ADDR_RE.match(a):
+        return None
+    local, _, domain = a.rpartition("@")
+    local = local.split("+", 1)[0]
+    bare = re.sub(r"[-._]?\d+$", "", local)
+    squashed = re.sub(r"[-._]", "", bare)
+    if any(stem in bare or stem in squashed for stem in _ADDR_LOCAL_STEMS):
+        return "address-local-stem"
+    tokens = [t for t in re.split(r"[-._]", bare) if t]
+    if tokens and all(t in _ADDR_LOCAL_TOKENS for t in tokens):
+        return "address-role-local"
+    labels = domain.split(".")
+    sub_labels = labels[:-2] if len(labels) > 2 else []
+    if len(labels) > 2 and labels[-2] in _ADDR_SECOND_LEVEL:
+        sub_labels = labels[:-3]
+    if any(l in _ADDR_DOMAIN_LABELS for l in sub_labels):
+        return "address-bulk-subdomain"
+    brand_labels = {l for l in labels[:-1] if l not in _ADDR_SECOND_LEVEL}
+    if squashed and squashed in brand_labels:
+        return "address-brand-mailbox"
+    return None
+
+
 # An organisation writing from a personal-looking address still names itself
 # as one: "... support team", "<shop> customer service", "<name> ltd".
 # Andy's v1.0.106 walk: 42 email-only Persons survived the header rules
@@ -331,7 +390,13 @@ def automated_sender_reason(email: FastEmail) -> Optional[str]:
     local = (email.from_address or "").split("@", 1)[0].lower()
     if _AUTOMATED_LOCAL_RE.search(local):
         return "local-part"
-    return organisation_name_reason(getattr(email, "from_name", None))
+    # The display-name reason keeps its existing label; the address-shape
+    # rule (F7) is the last resort for a sender whose NAME reads as a person
+    # or a brand and whose ADDRESS says otherwise.
+    name_reason = organisation_name_reason(getattr(email, "from_name", None))
+    if name_reason is not None:
+        return name_reason
+    return automated_address_reason(email.from_address)
 
 
 # --- A From-header display name is not necessarily a name (CM051 #2544) ---

@@ -1,0 +1,29 @@
+name: settling-truth
+
+# Walk #16 console: the settling panel misreported what the Hub had read
+# (Mail "nothing found" beside 12,339 emails; contacts frozen short of 100%).
+# These tests run the shipped writer, install.sh's own branches, and the real
+# hourly mail tick, and each was red on main before its fix.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  settling-truth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mail settling progress tells the truth
+        if: always()
+        run: bash tests/test_settling_emails_tells_the_truth.sh
