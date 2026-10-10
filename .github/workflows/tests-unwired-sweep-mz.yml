@@ -74,7 +74,6 @@ jobs:
             tests/test_preferences_vendor_wired.sh \
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
-            tests/test_settling_contacts_reaches_100_when_sync_finished.sh \
             tests/test_subscription_activation_path.sh \
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
@@ -334,3 +333,7 @@ jobs:
           set -e
           python -m pip install --quiet httpx
           python3 tests/test_gateway_conversations_reach_the_store.py
+
+      - name: A finished contact sync lets the settling bar reach 100% (walk #16 F8)
+        if: always()
+        run: bash tests/test_settling_contacts_reaches_100_when_sync_finished.sh
