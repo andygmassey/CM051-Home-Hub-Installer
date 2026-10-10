@@ -1,0 +1,45 @@
+# F5 / walk #16: places-ingest printed "0 written, 979 errors ... status=ok".
+# A step whose writes all fail must report an error. Runs the test against both
+# copies (contact_syncer/, which install.sh ships, and vendor/cm041/).
+name: places-ingest-write-failure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contact_syncer/places_ingest.py'
+      - 'vendor/cm041/contact_syncer/places_ingest.py'
+      - 'tests/test_places_ingest_total_write_failure_is_not_ok.py'
+      - '.github/workflows/places-ingest-write-failure.yml'
+  pull_request:
+    paths:
+      - 'contact_syncer/places_ingest.py'
+      - 'vendor/cm041/contact_syncer/places_ingest.py'
+      - 'tests/test_places_ingest_total_write_failure_is_not_ok.py'
+      - '.github/workflows/places-ingest-write-failure.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  places-ingest-write-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest and the module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx qdrant-client
+      - name: A step whose writes all fail reports an error, not ok
+        run: |
+          n="$(python -m pytest tests/test_places_ingest_total_write_failure_is_not_ok.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_places_ingest_total_write_failure_is_not_ok.py -v

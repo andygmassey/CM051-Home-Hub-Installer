@@ -19545,6 +19545,22 @@ services:
       QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     volumes:
       - qdrant_data:/qdrant/storage
+    # F5 / walk #16: THE CONTAINER'S FD LIMIT. Inside the Colima VM this
+    # container ran with `ulimit -n` = 1024 (HostConfig.Ulimits was [] on the
+    # walk box). Qdrant stores payloads in RocksDB, which keeps one fd per SST
+    # file, and many small upserts make SST files multiply (measured on the
+    # #16 box: 751 .sst fds, tracking SST files almost 1:1 per collection, and
+    # only 2 segments per collection). At 1023 fds RocksDB put_cf failed with
+    # "Too many open files (os error 24)", every later write got "Not
+    # recovered from previous error", and initial_hydrate went red (Places:
+    # 0 written, 979 failed, HTTP 500 on PUT /collections/preferences/points).
+    # This is LOAD, not a leak. The limit is the mitigation; batching the
+    # upserts and/or Qdrant >= 1.13 is tracked separately. 65535 is the
+    # documented headroom for RocksDB-backed stores.
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     restart: unless-stopped
 
   oxigraph:
@@ -19562,6 +19578,13 @@ services:
     volumes:
       - oxigraph_data:/data
     command: serve --location /data --bind 0.0.0.0:7878
+    # Oxigraph is RocksDB too and sits in the same Colima VM at the same
+    # default 1024 fd limit; see the qdrant service above for the measured
+    # failure. Same headroom, same reason.
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     restart: unless-stopped
 
   # ── Store front proxy (v1.0.10 security lockdown) ────────────────

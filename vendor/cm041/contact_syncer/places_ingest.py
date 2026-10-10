@@ -490,6 +490,22 @@ def ingest_places(
         )
         status = "error_empty_result"
 
+    # Third guard (walk #16: "0 written, 979 errors ... status=ok"). A step
+    # whose writes all fail is an error, never ok. Any upsert error means the
+    # status cannot be ok; ALL failing is reported separately so the log names
+    # the worse case. An earlier guard's status is kept (first cause wins).
+    if upsert_counts["errors"] > 0 and status == "ok":
+        if upsert_counts["written"] == 0:
+            status = "error_write_failed"
+        else:
+            status = "error_partial_write"
+        logger.warning(
+            "PLACES INGEST GUARD: %d of %d place points failed to write "
+            "(%d written). status=%s",
+            upsert_counts["errors"], len(payloads),
+            upsert_counts["written"], status,
+        )
+
     return {
         "status": status,
         "meeting_locations": len(meeting_rows),
