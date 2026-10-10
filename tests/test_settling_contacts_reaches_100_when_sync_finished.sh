@@ -10,10 +10,12 @@
 # This test runs install.sh's own contacts-count block with a stubbed
 # settling_report_measured and asserts the DONE it reports:
 #   arm 1  finished sync, 2381 imported + 44 skipped   -> done 2425
-#   arm 2  finished sync with an errors LIST of 3       -> done counts them
+#   arm 2  the syncer's REAL shape: skipped=N AND errors=[the same N cards]
+#          -> done = imported + N, never imported + 2N (no double count)
 #   arm 3  TIMED-OUT sync (did not see every card)      -> done = imported only
 #   arm 4  malformed JSON                               -> the zero branch (0 of 0)
 # Red on main: arm 1 reports 2381 and arm 2 reports imported only.
+# Arm 3 is defensive: install.sh blanks the payload on a timeout today.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -50,10 +52,10 @@ run_arm() {
     fi
 }
 
-run_arm "finished sync, 2381 imported + 44 skipped" \
-    '{"imported": 2381, "skipped": 44, "errors": [], "deleted": 0}' false 2425
-run_arm "finished sync, errors list of 3" \
-    '{"imported": 100, "skipped": 2, "errors": ["a", "b", "c"], "deleted": 0}' false 105
+run_arm "finished sync, 2381 imported + 44 skipped (real shape: errors lists the same 44)" \
+    "{\"imported\": 2381, \"skipped\": 44, \"errors\": [$(python3 -c 'print(",".join(["{}"]*44))')], \"deleted\": 0}" false 2425
+run_arm "skipped count absent, errors list of 3 stands in" \
+    '{"imported": 100, "errors": [{}, {}, {}], "deleted": 0}' false 103
 run_arm "timed-out sync reports imported only" \
     '{"imported": 2381, "skipped": 44, "errors": [], "deleted": 0}' true 2381
 run_arm "malformed JSON reports nothing as done" \

@@ -32614,7 +32614,10 @@ except Exception:
     print(0)' 2>/dev/null
     )" || { _HYDRATE_CONTACTS_COUNT_UNMEASURED=true; _HYDRATE_CONTACTS_COUNT=""; }
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
-    # PROCESSED = imported + skipped + errored: every card the sync looked at.
+    # PROCESSED = imported + skipped: every card the sync looked at. The
+    # syncer's "errors" list is the DETAIL of the skipped cards (the same
+    # cards), so it is never added on top; it stands in only when a payload
+    # carries the list without the count.
     # The settling bar measures how much of the address book has been gone
     # through, not how much was written. Walk #16 console: 2381 imported of
     # 2425 cards (44 skipped) froze the contacts bar at 98% forever, which kept
@@ -32625,9 +32628,11 @@ except Exception:
         | python3 -c 'import json,sys
 try:
     d=json.loads(sys.stdin.read())
-    e=d.get("errors", 0)
-    e=len(e) if isinstance(e, list) else int(e or 0)
-    print(int(d.get("imported", 0)) + int(d.get("skipped", 0)) + e)
+    sk=d.get("skipped")
+    if sk is None:
+        e=d.get("errors") or []
+        sk=len(e) if isinstance(e, list) else int(e or 0)
+    print(int(d.get("imported", 0)) + int(sk or 0))
 except Exception:
     print(0)' 2>/dev/null
     )" || _HYDRATE_CONTACTS_PROCESSED=""
