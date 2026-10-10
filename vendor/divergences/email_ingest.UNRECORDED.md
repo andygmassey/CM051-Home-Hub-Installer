@@ -1,4 +1,4 @@
-# email_ingest — divergence NOT captured by the patch
+# email_ingest: divergence NOT captured by the patch
 
 **Hand-written 2026-10-10 (Archie, candidate #17, walk #16 console F8).**
 
