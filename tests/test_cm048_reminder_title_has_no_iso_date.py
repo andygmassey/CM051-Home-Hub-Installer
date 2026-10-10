@@ -42,7 +42,7 @@ def _bundle(participants, level="L2"):
 
 
 def _decide(participants, deadline=DEADLINE):
-    todo = Todo(id="t1", text="Send the synthetic draft", owner="user", deadline=deadline)
+    todo = Todo(id="t1", text="send the synthetic draft", owner="user", deadline=deadline)
     return decide_push(
         todo, _bundle(participants), demo_mode=False, user_id="user",
         summary_path=Path("/tmp/synthetic/summary.md"),
@@ -50,8 +50,8 @@ def _decide(participants, deadline=DEADLINE):
 
 
 @pytest.mark.parametrize("participants", [
-    ("user", "Sam Example"),                  # one other party
-    ("user", "Sam Example", "Alex Example"),  # multi-party
+    ("user", "partner_a"),                  # one other party
+    ("user", "partner_a", "partner_b"),  # multi-party
     ("user",),                                # solo
 ])
 def test_l2_title_has_no_iso_date_and_due_date_carries_deadline(participants):
@@ -63,7 +63,7 @@ def test_l2_title_has_no_iso_date_and_due_date_carries_deadline(participants):
 
 
 def test_no_deadline_gives_no_due_date_and_same_title():
-    with_deadline = _decide(("user", "Sam Example"))
-    without = _decide(("user", "Sam Example"), deadline=None)
+    with_deadline = _decide(("user", "partner_a"))
+    without = _decide(("user", "partner_a"), deadline=None)
     assert without.push_deadline is None
     assert without.push_title == with_deadline.push_title
