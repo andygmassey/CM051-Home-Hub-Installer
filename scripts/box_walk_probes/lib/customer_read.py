@@ -128,8 +128,14 @@ CALENDAR_ID = re.compile(r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.
 # after at least two words (\S+ \S+ AG); the review of #2768 found the one
 # "organisation" on the walk #16 capture was a person matched on "ag".
 ORG_SHORT_FORM = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
+# F7d (walk #18): "<Word> Inc" is an organisation like "<Word> Ltd"; ONE rule, shared
+# with the product filter (ical-server.py _ORG_NAME_RE), pinned equal by
+# tests/test_people_have_human_evidence.py. A final org word (bank, banking, team,
+# alumni) after at least two other words is an organisation too ("The X Team",
+# "X Y Bank"); a TWO-word "<given> Bank" stays a person (a surname).
+ORG_FINAL_WORD = re.compile(r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni)$", re.I)
 ORG_NAME = re.compile(
-    r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
     r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
     r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
 SUBJECT_LINE = re.compile(r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
@@ -255,7 +261,7 @@ def service_sender(name):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
         return "marketplace or domain"
-    if ORG_NAME.search(n) or ORG_SHORT_FORM.match(n):
+    if ORG_NAME.search(n) or ORG_SHORT_FORM.match(n) or ORG_FINAL_WORD.match(n):
         return "organisation name"
     return None
 
@@ -1822,13 +1828,20 @@ def self_test():
                  # pairs; ORG_NAME is case-insensitive, so the test is equal)
                  "jane bank", "joe college", "ann school", "robert hospital", "lee council",
                  "Jane Doe (Official)", "Jane2", "R2D2", "jdoe",
-                 "Jane AG", "anna ag", "kim nv", "tom inc", "Coco", "co li",
+                 "Jane AG", "anna ag", "kim nv", "Coco", "co li",
                  # walk #17: people who type their own name in capitals
                  "JANE DOE", "J. R. DOE", "MARY-JANE O'NEIL", "JU CHUN (JC) DOE"):
         if junk_name(real) or service_sender(real):
             missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
         else:
             print("  ok    a real name passes the People name checks: {!r}".format(real))
+    # F7d: organisation shapes the judge MUST flag (the product hides the same set)
+    for org in ("tom inc", "acme inc.", "bob doe bank", "the acme team", "acme alumni network alumni",
+                "jane doe banking"):
+        if not service_sender(org):
+            missed.append("an organisation name is NOT flagged: {!r}".format(org))
+        else:
+            print("  ok    an organisation name is flagged: {!r}".format(org))
     for label, text in (("our own label beside it", "Recently added \u2014 this week\n"),
                         ("a second copy of the same name", dashed + "\n")):
         mut = copy.deepcopy(named)

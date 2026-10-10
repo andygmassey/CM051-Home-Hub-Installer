@@ -100,6 +100,9 @@ JUNK = [
     # an ORGANISATION CARD: a card with no given name whose name is a legal form
     _pt("c9", "acme holdings ltd.", family_name="acme holdings ltd.", icloud_uid="card-c9", contact_type="person"),
     _pt("c10", "acme trading co.", family_name="acme trading co.", icloud_uid="card-c10", contact_type="person"),
+    # F7d (walk #18): "<Word> Inc" and a final org word after 2+ other words
+    _pt("i1", "tom inc"), _pt("i2", "acme inc."), _pt("i3", "foo bar bank"), _pt("i4", "foo acme banking"),
+    _pt("i5", "the acme team"), _pt("i6", "acme retail alumni"), _pt("i7", "foo bar baz team"),
     _pt("y1", "ACME TRADING PARTNERS"), _pt("y2", "Payment declined - update required"),
     _pt("y3", "acme official"),
     _pt("d4", "customer support"), _pt("d5", "support team"),
@@ -123,7 +126,9 @@ KEEP = [
     # F7b controls: real names that must stay (a trailing acronym after only two
     # words, a comma, a surname-like final word, an all-caps name)
     # lower-case / short forms of AG, NV, Inc are people; a carded person keeps the card
-    _pt("g6", "jane ag"), _pt("g7", "anna ag"), _pt("g8", "kim nv"), _pt("g9", "tom inc"),
+    _pt("g6", "jane ag"), _pt("g7", "anna ag"), _pt("g8", "kim nv"),
+    # two-word "<given> <org word>": a surname, a person (F7d)
+    _pt("g12", "jane bank"), _pt("g13", "bob banking"), _pt("g14", "alex team"), _pt("g15", "mary alumni"),
     _pt("g10", "jane ag", given_name="jane", family_name="ag", icloud_uid="card-g10", contact_type="person"),
     _pt("g11", "acme ltd", given_name="jane", family_name="acme ltd", icloud_uid="card-g11", contact_type="person"),
     _pt("g1", "jane doe (EXT)"), _pt("g2", "jane doe (CBE)"),
@@ -276,17 +281,18 @@ PINNED = {
     "CALENDAR_ID": r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$",
     "SUBJECT_LINE": r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s",
     "ORG_SHORT_FORM": r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$",
-    "ORG_NAME": (r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    "ORG_FINAL_WORD": r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni)$",
+    "ORG_NAME": (r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
                  r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
                  r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)"),
 }
 MIRROR = {"JUNK_HANDLE": "_JUNK_HANDLE_RE", "CALENDAR_ID": "_CALENDAR_ID_RE",
           "SUBJECT_LINE": "_SUBJECT_LINE_RE", "ORG_NAME": "_ORG_NAME_RE",
-          "ORG_SHORT_FORM": "_ORG_SHORT_FORM_RE"}
+          "ORG_SHORT_FORM": "_ORG_SHORT_FORM_RE", "ORG_FINAL_WORD": "_ORG_FINAL_WORD_RE"}
 
 
 def test_shared_predicates_are_identical_and_the_product_only_narrows_the_rest():
-    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM"):
+    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM", "ORG_FINAL_WORD"):
         assert getattr(server, MIRROR[k]).pattern == PINNED[k], k
     import re as _re
     judge = [_re.compile(PINNED[k], 0 if k == "ORG_SHORT_FORM" else _re.I) for k in PINNED]
@@ -345,3 +351,19 @@ def test_control_resolution_needs_a_single_token_given_and_family_and_a_phrase_o
     # one appended word is not an org phrase of its own: the name is left alone
     short = _pt("r3", "jane doe acme", given_name="jane", family_name="doe")
     assert [r["name"] for r in _list([short])["people"]] == ["jane doe acme"]
+
+
+def test_the_product_and_the_judge_in_the_repo_share_every_organisation_predicate():
+    """Strict parity against the judge file in THIS repo (pattern and flags)."""
+    cr = _load(ROOT / "scripts" / "box_walk_probes" / "lib" / "customer_read.py", "customer_read_parity")
+    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM", "ORG_FINAL_WORD"):
+        theirs, mine = getattr(cr, k), getattr(server, MIRROR[k])
+        assert (theirs.pattern, theirs.flags) == (mine.pattern, mine.flags), k
+    # and the two agree, name by name, on every org shape and every control
+    for pt in JUNK + KEEP + SOCIAL_JUNK + SOCIAL_KEEP:
+        n = pt["payload"]["display_name"]
+        pl = pt["payload"]
+        mine = server._is_non_human_person(pl, n) in ("organisation_name", "subject_line")
+        judged = bool(cr.service_sender(n)) and not pl.get("icloud_uid")
+        if mine and not pl.get("icloud_uid") and not (pl.get("given_name") or pl.get("family_name")):
+            assert cr.service_sender(n), ("product hides, judge does not flag", n)

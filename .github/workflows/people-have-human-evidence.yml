@@ -13,6 +13,7 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/role_addresses.py'
       - 'tests/test_people_have_human_evidence.py'
+      - 'scripts/box_walk_probes/lib/customer_read.py'
       - '.github/workflows/people-have-human-evidence.yml'
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/role_addresses.py'
       - 'tests/test_people_have_human_evidence.py'
+      - 'scripts/box_walk_probes/lib/customer_read.py'
       - '.github/workflows/people-have-human-evidence.yml'
 
 concurrency:
@@ -43,8 +45,8 @@ jobs:
           n="$(python -m pytest tests/test_people_have_human_evidence.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 14 ]; then
-            echo "REFUSING: expected 14 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 15 ]; then
+            echo "REFUSING: expected 15 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_people_have_human_evidence.py -v -rs
