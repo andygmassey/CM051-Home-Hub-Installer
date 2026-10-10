@@ -243,9 +243,10 @@ def service_sender(name):
         if SERVICE_LOCAL.match(local) or MARKETPLACES.search(n):
             return "service mailbox"
         return None
-    words = re.findall(r"[A-Za-z]+", n)
-    if len(words) >= 2 and all(w.isupper() for w in words) and sum(len(w) for w in words) >= 4:
-        return "all-caps multiword"
+    # Walk #17: all-caps is not a service signal. Of 19 all-caps multiword rows
+    # on the walk #17 box, 16 were people who type their name in capitals, and
+    # F7 un-hid those on purpose. An all-caps sender is still caught by its
+    # wording ("EXAMPLE BANK ALERTS" by SERVICE_PHRASE) or its legal form.
     if SERVICE_PHRASE.search(n):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
@@ -1813,7 +1814,9 @@ def self_test():
                  # pairs; ORG_NAME is case-insensitive, so the test is equal)
                  "jane bank", "joe college", "ann school", "robert hospital", "lee council",
                  "Jane Doe (Official)", "Jane2", "R2D2", "jdoe",
-                 "Jane AG", "anna ag", "kim nv", "tom inc", "Coco", "co li"):
+                 "Jane AG", "anna ag", "kim nv", "tom inc", "Coco", "co li",
+                 # walk #17: people who type their own name in capitals
+                 "JANE DOE", "J. R. DOE", "MARY-JANE O'NEIL", "JU CHUN (JC) DOE"):
         if junk_name(real) or service_sender(real):
             missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
         else:
