@@ -65,10 +65,10 @@ chmod +x "$WORK/composer"
 
 run_sender() {  # run_sender <composer-mode> [env assignments...]
     local mode="$1"; shift
-    rm -rf "$WORK/home" "$WORK/stub"; mkdir -p "$WORK/home/.ostler/assistant-config" "$WORK/stub"
+    rm -rf "$WORK/fakehome" "$WORK/stub"; mkdir -p "$WORK/fakehome/.ostler/assistant-config" "$WORK/stub"
     printf '[[cron.jobs]]\nid = "morning-brief"\n[cron.jobs.delivery]\nmode = "announce"\nchannel = "imessage"\nto = "owner"\n' \
-        > "$WORK/home/.ostler/assistant-config/config.toml"
-    env -i PATH="$WORK/bin:$PYDIR:/usr/bin:/bin" HOME="$WORK/home" STUB_DIR="$WORK/stub" \
+        > "$WORK/fakehome/.ostler/assistant-config/config.toml"
+    env -i PATH="$WORK/bin:$PYDIR:/usr/bin:/bin" HOME="$WORK/fakehome" STUB_DIR="$WORK/stub" \
         COMPOSER_MODE="$mode" OSTLER_BRIEF_COMPOSER="$WORK/composer" OSTLER_BRIEF_QUIET_START=25 OSTLER_BRIEF_QUIET_END=0 \
         "$@" bash "$SENDER" >/dev/null 2>"$WORK/stderr"
     return $?
@@ -82,7 +82,7 @@ grep -q '"channel": "imessage"' "$WORK/stub/body.json" 2>/dev/null && ok "posted
 grep -q 'Draft: hi Jane' "$WORK/stub/body.json" 2>/dev/null && ok "the posted message is what the composer wrote" || bad "message not carried"
 [ "$(cat "$WORK/stub/marked.keys" 2>/dev/null | tr '\n' ',')" = "k1,k2," ] && ok "the people who went out were recorded AFTER delivery" || bad "keys not recorded: $(cat "$WORK/stub/marked.keys" 2>/dev/null)"
 
-grep -q "^ws=$WORK/home/.ostler/assistant-config$" "$WORK/stub/composer.env" 2>/dev/null && ok "the composer is given the assistant's workspace (ZEROCLAW_WORKSPACE) so it can read Pro state" || bad "composer ran without ZEROCLAW_WORKSPACE: $(cat "$WORK/stub/composer.env" 2>/dev/null)"
+grep -q "^ws=$WORK/fakehome/.ostler/assistant-config$" "$WORK/stub/composer.env" 2>/dev/null && ok "the composer is given the assistant's workspace (ZEROCLAW_WORKSPACE) so it can read Pro state" || bad "composer ran without ZEROCLAW_WORKSPACE: $(cat "$WORK/stub/composer.env" 2>/dev/null)"
 
 echo "== a refused announce must not spend the week =="
 run_sender message CURL_RC=22; rc=$?
@@ -97,16 +97,16 @@ run_sender message OSTLER_BRIEF_QUIET_START=0 OSTLER_BRIEF_QUIET_END=0; rc=$?
 
 echo "== failures are loud =="
 run_sender broken; rc=$?; [ "$rc" -eq 75 ] && [ ! -e "$WORK/stub/curl.log" ] && ok "composer failure: exit 75, nothing announced" || bad "composer-failure case: rc=$rc"
-rm -rf "$WORK/home"; mkdir -p "$WORK/home/.ostler/assistant-config" "$WORK/stub"; : > "$WORK/home/.ostler/assistant-config/config.toml"
-env -i PATH="$WORK/bin:$PYDIR:/usr/bin:/bin" HOME="$WORK/home" STUB_DIR="$WORK/stub" COMPOSER_MODE=message \
+rm -rf "$WORK/fakehome"; mkdir -p "$WORK/fakehome/.ostler/assistant-config" "$WORK/stub"; : > "$WORK/fakehome/.ostler/assistant-config/config.toml"
+env -i PATH="$WORK/bin:$PYDIR:/usr/bin:/bin" HOME="$WORK/fakehome" STUB_DIR="$WORK/stub" COMPOSER_MODE=message \
     OSTLER_BRIEF_COMPOSER="$WORK/composer" OSTLER_BRIEF_QUIET_START=25 OSTLER_BRIEF_QUIET_END=0 bash "$SENDER" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 78 ] && ok "no brief channel configured: exit 78" || bad "no-channel case: rc=$rc, wanted 78"
 
 echo "== Ostler Pro paused =="
-rm -rf "$WORK/home" "$WORK/stub"; mkdir -p "$WORK/home/.ostler/assistant-config" "$WORK/home/.ostler/services/ical-server" "$WORK/stub"
-printf '[[cron.jobs]]\nid = "morning-brief"\n[cron.jobs.delivery]\nmode = "announce"\nchannel = "imessage"\nto = "owner"\n' > "$WORK/home/.ostler/assistant-config/config.toml"
-printf 'import sys\nsys.exit(3)\n' > "$WORK/home/.ostler/services/ical-server/subscription_gate.py"
-env -i PATH="$WORK/bin:$PYDIR:/usr/bin:/bin" HOME="$WORK/home" STUB_DIR="$WORK/stub" COMPOSER_MODE=message \
+rm -rf "$WORK/fakehome" "$WORK/stub"; mkdir -p "$WORK/fakehome/.ostler/assistant-config" "$WORK/fakehome/.ostler/services/ical-server" "$WORK/stub"
+printf '[[cron.jobs]]\nid = "morning-brief"\n[cron.jobs.delivery]\nmode = "announce"\nchannel = "imessage"\nto = "owner"\n' > "$WORK/fakehome/.ostler/assistant-config/config.toml"
+printf 'import sys\nsys.exit(3)\n' > "$WORK/fakehome/.ostler/services/ical-server/subscription_gate.py"
+env -i PATH="$WORK/bin:$PYDIR:/usr/bin:/bin" HOME="$WORK/fakehome" STUB_DIR="$WORK/stub" COMPOSER_MODE=message \
     OSTLER_BRIEF_COMPOSER="$WORK/composer" OSTLER_BRIEF_QUIET_START=25 OSTLER_BRIEF_QUIET_END=0 bash "$SENDER" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ ! -e "$WORK/stub/composer.log" ] && ok "gate exit 3 pauses: exit 0, composer not run" || bad "paused case: rc=$rc"
 
