@@ -25,10 +25,10 @@ _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 self_test() {
     if python3 "${_HERE}/lib/owner_digest.py" --self-test; then
-        probe_examined 10 "mutated owner-digest facts"
+        probe_examined 11 "mutated owner-digest facts"
         probe_fail "negative control behaved: an empty digest fails (a) and (b), a digest without the organisation fails (c), and every mutant went red by its own assertion"
     fi
-    probe_examined 10 "mutated owner-digest facts"
+    probe_examined 11 "mutated owner-digest facts"
     probe_pass "SELF-TEST BROKEN: the owner-digest judge let a known-bad fixture through"
 }
 

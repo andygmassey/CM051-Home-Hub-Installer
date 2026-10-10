@@ -17,7 +17,8 @@ Three assertions, each graded from COUNTS and yes/no facts only:
       generate_pwg_context.py resolves them), and a SEEDED neighbour's note
       (NEIGHBOUR_NOTE, written by lib/scale_fixture.py seed-neighbour into the
       owner's own named graph, about the neighbour) appears neither in About
-      you nor in the chat's answer to "What do you know about me?".
+      you, nor in GET /api/v1/memory (the Memory / "About you" list), nor in
+      the chat's answer to "What do you know about me?".
 
 Two halves, kept apart so the judge can be mutation-tested without a box:
 
@@ -199,6 +200,8 @@ def judge(f):
                 a["not_owner"], a.get("items", 0)))
         if nb.get("in_about_you"):
             bad.append("the seeded neighbour's note is in About you")
+        if nb.get("in_memory"):
+            bad.append("GET /api/v1/memory lists the seeded neighbour's note as a fact about the owner")
         if nb.get("in_chat"):
             bad.append("the chat's 'What do you know about me?' repeats the neighbour's note as the owner's")
         if bad:
@@ -206,10 +209,12 @@ def judge(f):
         elif nb.get("state") != "seeded":
             add(DECLARED[3], None, "NOT MEASURED: the neighbour note was not seeded (state {}); {} entries checked, {} unmatched".format(
                 nb.get("state", "unrun"), a.get("items", 0), a.get("unmatched", 0)))
+        elif nb.get("in_memory") is None:
+            add(DECLARED[3], None, "NOT MEASURED: GET /api/v1/memory could not be read ({})".format(nb.get("memory_error", "no answer")))
         elif nb.get("in_chat") is None:
             add(DECLARED[3], None, "NOT MEASURED: the chat gave no answer to 'What do you know about me?'")
         else:
-            add(DECLARED[3], True, "{} About-you entries, all about the owner ({} unmatched in the graph); neighbour note absent from About you and the chat".format(
+            add(DECLARED[3], True, "{} About-you entries, all about the owner ({} unmatched in the graph); neighbour note absent from About you, /api/v1/memory and the chat".format(
                 a.get("items", 0), a.get("unmatched", 0)))
 
     names = [n for n, _, _ in out]
@@ -474,6 +479,34 @@ def about_check(text):
     return {"items": len(items), "not_owner": not_owner, "unmatched": unmatched, "owner_uris": len(owners)}
 
 
+def memory_has_neighbour():
+    """-> (in_memory bool or None, error). Reads GET /api/v1/memory with the
+    service token; counts only, never the facts themselves."""
+    tok = ""
+    try:
+        tok = open(os.path.expanduser("~/.ostler/secrets/service_token")).read().strip()
+    except IOError:
+        pass
+    try:
+        body = _http("http://127.0.0.1:8090/api/v1/memory", headers={"Authorization": "Bearer " + tok} if tok else {})
+    except Exception as e:
+        return None, type(e).__name__
+    if not isinstance(body, dict):
+        return None, "unparseable"
+    if body.get("degraded"):
+        return None, body.get("reason", "degraded")
+    return memory_names_neighbour(body), None
+
+
+def memory_names_neighbour(body):
+    """True when any /api/v1/memory fact carries the neighbour note."""
+    for f in body.get("facts") or []:
+        blob = " ".join(str(v) for v in (f or {}).values() if isinstance(v, str)).lower()
+        if NEIGHBOUR_MARK in blob:
+            return True
+    return False
+
+
 def box_main(argv):
     a = dict(zip(argv[0::2], argv[1::2]))
     seed_org = a.get("--seed-org", "")
@@ -494,6 +527,9 @@ def box_main(argv):
     facts["about_check"] = about_check(text)
     nb_state = a.get("--neighbour-state", "unrun")
     nb = {"state": nb_state, "in_about_you": NEIGHBOUR_MARK in " ".join(about_you_items(text)).lower()}
+    nb["in_memory"], err = memory_has_neighbour()
+    if err:
+        nb["memory_error"] = err
     if facts["hydrated"]:
         r = ask_chat("What do you know about me?", NEIGHBOUR_MARK)
         nb["in_chat"] = bool(r.get("names_seed_org")) if r.get("answered") else None
@@ -540,7 +576,7 @@ def _good():
             "chat": {"answered": True, "names_seed_org": True},
             "about_check": {"items": len(about_you_items(GOOD_DIGEST)), "not_owner": 0, "unmatched": 0, "owner_uris": 2},
             "neighbour": {"state": "seeded", "in_about_you": NEIGHBOUR_MARK in " ".join(about_you_items(GOOD_DIGEST)).lower(),
-                          "in_chat": False}}
+                          "in_chat": False, "in_memory": False}}
 
 
 def self_test():
@@ -593,6 +629,10 @@ def self_test():
              GOOD_DIGEST.replace("- Places: Lives in Fictionville", "- Places: Lives in Fictionville; " + NEIGHBOUR_NOTE))).lower())),
         ("F12: an About-you entry rendered from a fact about someone else", 3, lambda f: f["about_check"].update(not_owner=1)),
         ("F12: the chat repeats the neighbour's note as the owner's", 3, lambda f: f["neighbour"].update(in_chat=True)),
+        ("F12: /api/v1/memory lists the neighbour's note (canned response)", 3, lambda f: f["neighbour"].update(
+            in_memory=memory_names_neighbour({"facts": [
+                {"id": "fact_a1", "object": "Lives in Fictionville", "source_label": "From your conversations"},
+                {"id": "fact_b2", "object": NEIGHBOUR_NOTE, "source_label": "From your conversations"}], "count": 2}))),
     ]
     for name, i, mutate in mutants:
         f = copy.deepcopy(g)
@@ -610,6 +650,9 @@ def self_test():
     unseeded = copy.deepcopy(g); unseeded["seed_state"] = "skipped"
     nb_unseeded = copy.deepcopy(g); nb_unseeded["neighbour"]["state"] = "skipped"
     nb_nochat = copy.deepcopy(g); nb_nochat["neighbour"]["in_chat"] = None
+    nb_nomem = copy.deepcopy(g); nb_nomem["neighbour"]["in_memory"] = None
+    mem_clean = copy.deepcopy(g); mem_clean["neighbour"]["in_memory"] = memory_names_neighbour(
+        {"facts": [{"id": "fact_a1", "object": "Lives in Fictionville", "source_label": "From your conversations"}], "count": 1})
     dry = copy.deepcopy(g); dry["hydrated"] = False
     silent = copy.deepcopy(g); silent["chat"] = {"answered": False, "error": "timeout"}
     checks = [(row(honest, 1), [True], "nothing stored over an empty store PASSES"),
@@ -619,6 +662,8 @@ def self_test():
               (row(silent, 2), [None], "a chat that never answers is CANNOT-RUN"),
               (row(nb_unseeded, 3), [None], "F12: an unseeded neighbour is CANNOT-RUN, never a pass"),
               (row(nb_nochat, 3), [None], "F12: no answer to 'What do you know about me?' is CANNOT-RUN"),
+              (row(nb_nomem, 3), [None], "F12: an unreadable /api/v1/memory is CANNOT-RUN"),
+              (row(mem_clean, 3), [True], "F12: a canned /api/v1/memory without the neighbour's note PASSES"),
               (about_you_items(GOOD_DIGEST), ["Lives in Fictionville", "Has a sister called Liz Doe"],
                "F12: the parser reads the About-you place and family entries")]
     for got, want, label in checks:
