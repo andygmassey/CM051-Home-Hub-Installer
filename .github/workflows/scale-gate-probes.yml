@@ -1,0 +1,45 @@
+name: scale-gate-probes
+
+# v1.0.107 #17 scale gate. The #16 console walk ran Qdrant out of file
+# descriptors under real volume (nofile=1024, 751 .sst files, Places 0 of 979
+# written with status=ok) and the synthetic walk could not see it. This runs
+# everything that can be proven without a box: the scale fixture is
+# deterministic, 4,000+ people and synthetic only; the fd/writes judge rejects
+# the #16 shapes; the self-description judge rejects leaky and vocative
+# replies and keeps clean and self-naming ones; the walk runner calls the
+# replay; the scopes are declared. The pinned-image RED/GREEN is
+# scripts/qdrant_fd_scale_proof.sh (docker, about 20 minutes per arm), by hand.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/lib/scale_fixture.py'
+      - 'scripts/box_walk_probes/lib/scale_fixture_seed.sh'
+      - 'scripts/box_walk_probes/lib/qdrant_fd_headroom.py'
+      - 'scripts/box_walk_probes/lib/assistant_chat.py'
+      - 'scripts/box_walk_probes/probes/qdrant_has_fd_headroom_and_writes_land.sh'
+      - 'scripts/box_walk_probes/probes/assistant_self_description_is_clean.sh'
+      - 'scripts/box_walk_probes/probes/chat_latency_baseline.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - '.pii-name-registry.tsv'
+      - 'tests/test_scale_gate_probes.sh'
+      - '.github/workflows/scale-gate-probes.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  scale-gate-probes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: the scale gate's fixture, judges and wiring
+        run: /bin/bash tests/test_scale_gate_probes.sh
