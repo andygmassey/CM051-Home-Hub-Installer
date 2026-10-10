@@ -38,7 +38,7 @@
 # 3 skipped (excluded). Line numbers are the write/load site measured that day.
 
 # ---- launch_agent (enumerable; both directions enforced) ----------------------
-# 14 UNCONDITIONAL -> required (13 seeded + meeting-brief-sender, cut #16). On any successful install these are present, so
+# 15 UNCONDITIONAL -> required (13 seeded + meeting-brief-sender, cut #16, + reconnect-nudge-sender, v1.0.108). On any successful install these are present, so
 # they are also the positive controls for the type: a broken enumerator that
 # scored everything absent fails here loudly.
 launch_agent	com.ostler.stay-awake	required	com.ostler.stay-awake	baseline	write 10309/load 10333; installed on both paths deliberately
@@ -56,6 +56,7 @@ launch_agent	com.creativemachines.ostler.assistant	required	com.creativemachines
 launch_agent	com.creativemachines.ostler.email-ingest	required	com.creativemachines.ostler.email-ingest	baseline	invoke 19868; hard-fails ERR-20 if vendor missing, so present on any SUCCESSFUL install
 launch_agent	com.creativemachines.ostler.wiki-recompile	required	com.creativemachines.ostler.wiki-recompile	baseline	invoke 20799; bundled in the .app
 launch_agent	com.creativemachines.ostler.editor-frontpage	required	com.creativemachines.ostler.editor-frontpage	baseline	vendor/cm059_editor invoke 21017; bundled
+launch_agent	com.ostler.reconnect-nudge-sender	required	com.ostler.reconnect-nudge-sender	v1.0.108	INSTALL_RECONNECT_NUDGE_LAUNCHAGENT defaults true (wow gate item 3: the weekly nudge about people to get back in touch); false is the operator opt-out. Weekly StartCalendarInterval, not a poll.
 launch_agent	com.ostler.meeting-brief-sender	required	com.ostler.meeting-brief-sender	cut16	INSTALL_MEETING_BRIEF_LAUNCHAGENT defaults true from cut #16 (Andy: ship briefs, flag ON); false is the operator opt-out. Was excluded as a v1.0.1 feature whose endpoints had not shipped.
 # 13 GATED -> conditional. Present only under the stated condition; absent is not
 # a failure, but if present they are declared (not an UNDECLARED surprise).

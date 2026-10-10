@@ -1112,3 +1112,19 @@ Tree `ostler_fda`. NEW CM051-side behaviour. `role_addresses.py` gains `is_sende
 ### What a future sync must preserve
 
 The `is_sender_id_identifier` skip in `ingest_imessage`. Guarded by `tests/test_people_have_human_evidence.py` (`test_imessage_ingest_does_not_mint_a_person_for_a_sender_id`, red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## doctor: the weekly reconnect nudge sender joins the scheduled-agent card (CM051 v1.0.108, wow gate item 3)
+
+Tree `doctor`, file `agent/diagnostic_rules.py`. Recorded here because this
+file is the doctor tree's declared `unrecorded_divergence` pointer and the edit
+has no patch.
+
+Location and shape. One row appended to the `_SCHEDULED_AGENTS` tuple:
+`("com.ostler.reconnect-nudge-sender", "your weekly nudge about people to get
+back in touch", "reconnect-nudge-sender", 604800)`, plus a four-line comment.
+No rule logic, copy or severity changed. Reason: the sender exits 75 (composer
+failed, or /announce refused) or 78 (no brief channel); without the row launchd
+records that exit code and nothing reads it. Pinned by
+`tests/test_scheduled_agent_failure_is_loud.sh` (reconnect limb). There is no
+HR015 upstream twin yet: OWED.
+

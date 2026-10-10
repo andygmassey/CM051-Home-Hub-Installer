@@ -788,6 +788,23 @@ entries:
       kind: box_walk_probe
       probe: "assistant_grounds_the_opening_turn"
 
+  - id: box-walk-reconnect-nudge-reaches-the-owner
+    title: the weekly reconnect nudge must reach the owner, once, with a draft and nothing sent
+    incident: >-
+      Wow gate item 3 (v1.0.108). The reconnect nudge is three halves that
+      only work together: the installed sender, its weekly LaunchAgent and the
+      installed assistant's reconnect-nudge command. A half shipped alone is
+      silent: nothing posts and nothing errors. The probe runs the INSTALLED
+      sender twice against a synthetic chat.db, a loopback stub Hub and a
+      loopback /announce shim. Run 1 must post exactly one reconnect_nudge
+      naming the synthetic drifted contact with a draft and "nothing has been
+      sent"; run 2 must post nothing. CANNOT-RUN when the box is not on
+      Ostler Pro. Advisory in walk_promote_scope.tsv until it has passed once
+      on a real box.
+    proof:
+      kind: box_walk_probe
+      probe: "reconnect_nudge_reaches_the_owner"
+
 
   # ==========================================================================
   # The two probes added for the v1.0.45 walk. Both existed on disk with NO

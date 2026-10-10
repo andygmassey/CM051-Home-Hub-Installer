@@ -24439,6 +24439,211 @@ else
     info "$MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED"
 fi
 
+# ── Weekly reconnect nudge (wow gate item 3, v1.0.108) ──────────────
+#
+# "Who have I drifted from?" Once a week the owner gets a short message on the
+# same brief channel as the morning summary: people they usually talk to who
+# have gone quiet, each with a draft hello. NOTHING is sent to those people;
+# the owner reads and sends it themselves. Ostler Pro; ON by default; at most N
+# (default 3) per rolling week; the owner can change or pause N from chat. The
+# text, the Pro gate, the weekly limit and the repeat guard all live in the
+# assistant binary's `reconnect-nudge` command. This script only delivers it and
+# then records who went out, so a failed delivery does not spend the week.
+# INSTALL_RECONNECT_NUDGE_LAUNCHAGENT=false is the operator opt-out. The walk
+# probe reconnect_nudge_reaches_the_owner measures it.
+
+INSTALL_RECONNECT_NUDGE_LAUNCHAGENT="${INSTALL_RECONNECT_NUDGE_LAUNCHAGENT:-true}"
+if [ "$INSTALL_RECONNECT_NUDGE_LAUNCHAGENT" = "true" ]; then
+cat > "${OSTLER_DIR}/bin/ostler-reconnect-nudge-sender" <<'RECONNECTEOF'
+# Weekly reconnect nudge: tell the owner which people they have drifted from,
+# with a draft hello for each, on the owner's own brief channel. Wow gate item 3
+# (v1.0.108). NOTHING is sent to the people named: the owner reads the draft
+# and sends it themselves (the composer has no send path by construction).
+#
+# The text is composed by the assistant binary's `reconnect-nudge` command
+# (Pro-gated, People-list-screened, at most N per rolling week, never the same
+# person twice inside 28 days, owner-mutable from chat). This script only
+# DELIVERS it and then tells the composer who went out, so a delivery that
+# failed does not use up the week.
+#
+# Exit codes are the failure surface (the Doctor's scheduled-agent rule turns a
+# repeated non-zero into a card naming this job and its .err log):
+#   0   sent, nothing due, quiet hours, Ostler Pro paused, or the installed
+#       daemon predates the command (steady states)
+#   75  CANNOT-DELIVER: the composer failed, or /announce refused the message
+#   78  CANNOT-DELIVER: no brief channel is configured, so none ever can be
+set -uo pipefail
+
+OSTLER_DIR="${HOME}/.ostler"
+LOG_FILE="${OSTLER_DIR}/logs/reconnect-nudge-sender.log"
+ANNOUNCE_URL="${OSTLER_ASSISTANT_URL:-http://127.0.0.1:8000}"
+CONFIG_TOML="${OSTLER_BRIEF_CONFIG:-${OSTLER_DIR}/assistant-config/config.toml}"
+COMPOSER="${OSTLER_BRIEF_COMPOSER:-${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant}"
+# The composer loads the assistant's own config (Pro state, weekly limit), which
+# the daemon finds through ZEROCLAW_WORKSPACE. launchd gives this job no such env.
+export ZEROCLAW_WORKSPACE="${ZEROCLAW_WORKSPACE:-${OSTLER_DIR}/assistant-config}"
+PYTHON_BIN="${OSTLER_DIR}/.venv/bin/python3"
+[ -x "${PYTHON_BIN}" ] || PYTHON_BIN="python3"
+
+mkdir -p "$(dirname "${LOG_FILE}")"
+
+log() { echo "$(date -u +%FT%TZ) $*" >> "${LOG_FILE}"; }
+
+cannot_deliver() {
+    # $1 exit code, $2 reason: the log AND stderr (the .err log the Doctor card
+    # points at), then the non-zero exit launchd records.
+    log "CANNOT-DELIVER: $2"
+    echo "$(date -u +%FT%TZ) CANNOT-DELIVER: $2" >&2
+    exit "$1"
+}
+
+# --- Rule 0.8: the Ostler Pro subscription gate ----------------------
+# The nudge is a Pro feature. Same canonical gate module and the same contract
+# as the meeting-brief sender: exit 3 is the ONLY code that pauses; anything
+# else fails OPEN, because a paying customer must never lose a nudge because we
+# could not ask. The composer re-checks Pro itself (fresh, never cached).
+_ostler_gate="${OSTLER_DIR}/services/ical-server/subscription_gate.py"
+if [ -f "$_ostler_gate" ]; then
+    _gate_rc=0
+    "${PYTHON_BIN}" "$_ostler_gate" --check >/dev/null 2>>"${LOG_FILE}" || _gate_rc=$?
+    if [ "$_gate_rc" -eq 3 ]; then
+        log "skip: Ostler Pro is not active, so reconnect nudges are paused."
+        exit 0
+    fi
+fi
+# --- end Rule 0.8 gate -----------------------------------------------
+
+# The owner's brief channel: NOT chosen here. install.sh chose it once, for the
+# 09:00 brief, and wrote it as the announce job's delivery in config.toml; the
+# gateway's /announce resolves the recipient from the job whose channel
+# matches. Parsed, not line-scanned (the daemon rewrites config.toml as an
+# inline table array).
+_chan_rc=0
+BRIEF_CHANNEL="$("${PYTHON_BIN}" - "${CONFIG_TOML}" <<'CHANPY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    print("this interpreter has no TOML parser (needs Python 3.11+), so the brief channel cannot be read")
+    sys.exit(2)
+path = sys.argv[1]
+try:
+    with open(path, "rb") as fh:
+        data = tomllib.load(fh)
+except FileNotFoundError:
+    print("no assistant config at " + path + ", so no brief channel is configured")
+    sys.exit(1)
+except Exception as exc:
+    print("the assistant config at " + path + " could not be read (" + exc.__class__.__name__ + ")")
+    sys.exit(2)
+cron = data.get("cron") if isinstance(data.get("cron"), dict) else {}
+found = []
+for job in cron.get("jobs") or []:
+    if not isinstance(job, dict) or not isinstance(job.get("delivery"), dict):
+        continue
+    d = job["delivery"]
+    channel = str(d.get("channel") or "").strip().lower()
+    if str(d.get("mode") or "").strip() != "announce" or not channel or not str(d.get("to") or "").strip():
+        continue
+    found.append((0 if job.get("id") == "morning-brief" else 1, channel))
+if not found:
+    print("no brief channel is configured (no announce job with a channel and a recipient in " + path + "); set up iMessage or WhatsApp in the Ostler app")
+    sys.exit(1)
+print(sorted(found)[0][1])
+CHANPY
+)" || _chan_rc=$?
+if [ "${_chan_rc}" -ne 0 ] || [ -z "${BRIEF_CHANNEL}" ]; then
+    cannot_deliver 78 "${BRIEF_CHANNEL:-the brief channel could not be read (rc=${_chan_rc})}"
+fi
+
+# Quiet hours: default 07:00 - 21:00 local.
+HOUR_NOW=$(date +%H)
+QUIET_START="${OSTLER_BRIEF_QUIET_START:-21}"
+QUIET_END="${OSTLER_BRIEF_QUIET_END:-7}"
+if (( 10#${HOUR_NOW} >= 10#${QUIET_START} || 10#${HOUR_NOW} < 10#${QUIET_END} )); then
+    log "skip: quiet hours (hour=${HOUR_NOW})"
+    exit 0
+fi
+
+KEYS_FILE="$(mktemp "${TMPDIR:-/tmp}/ostler-reconnect-keys.XXXXXX")"
+ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/ostler-reconnect-err.XXXXXX")"
+trap 'rm -f "${KEYS_FILE}" "${ERR_FILE}"' EXIT
+
+_rc=0
+MESSAGE="$("${COMPOSER}" reconnect-nudge --keys-file "${KEYS_FILE}" 2>"${ERR_FILE}")" || _rc=$?
+if [ "${_rc}" -eq 3 ]; then
+    log "nothing to send: $(tr '\n' ' ' < "${ERR_FILE}" | cut -c1-200)"
+    exit 0
+fi
+if [ "${_rc}" -eq 2 ] && grep -qiE "unrecognized subcommand|unexpected argument|invalid subcommand" "${ERR_FILE}"; then
+    # The installed daemon predates the command. A steady state until the next
+    # daemon update, not a fault the owner can act on.
+    log "skip: the installed assistant has no reconnect-nudge command yet"
+    exit 0
+fi
+if [ "${_rc}" -ne 0 ] || [ -z "${MESSAGE}" ]; then
+    cannot_deliver 75 "the composer failed (rc=${_rc}): $(tr '\n' ' ' < "${ERR_FILE}" | tail -c 200)"
+fi
+
+BODY="$(printf '%s' "${MESSAGE}" | "${PYTHON_BIN}" -c '
+import json, sys
+print(json.dumps({"channel": sys.argv[1], "kind": "reconnect_nudge", "message": sys.stdin.read()}))
+' "${BRIEF_CHANNEL}")" || cannot_deliver 75 "could not build the announce body"
+
+if ! curl -sS -f -m 8 -X POST -H "Content-Type: application/json" \
+        --data-binary "${BODY}" "${ANNOUNCE_URL}/announce" >/dev/null 2>>"${LOG_FILE}"; then
+    cannot_deliver 75 "/announce refused the nudge on ${BRIEF_CHANNEL}; nothing was recorded, so it retries next run"
+fi
+
+# Delivered: only now does the week's budget get spent.
+if ! "${COMPOSER}" reconnect-nudge --mark-sent "${KEYS_FILE}" 2>>"${LOG_FILE}"; then
+    log "WARNING: the nudge was delivered but could not be recorded; the repeat guard may allow it again"
+fi
+log "sent a reconnect nudge on ${BRIEF_CHANNEL}"
+exit 0
+RECONNECTEOF
+chmod +x "${OSTLER_DIR}/bin/ostler-reconnect-nudge-sender"
+
+mkdir -p "${HOME}/Library/LaunchAgents"
+RECONNECT_PLIST="${HOME}/Library/LaunchAgents/com.ostler.reconnect-nudge-sender.plist"
+cat > "$RECONNECT_PLIST" <<RCPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.reconnect-nudge-sender</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/bin/ostler-reconnect-nudge-sender</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/reconnect-nudge-sender.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/reconnect-nudge-sender.err</string>
+</dict>
+</plist>
+RCPLIST
+if _ostler_launchagent_load_verified "$RECONNECT_PLIST"; then
+    ok "$MSG_OK_RECONNECT_NUDGE_SENDER_INSTALLED"
+else
+    warn "$MSG_WARN_RECONNECT_NUDGE_SENDER_NOT_LOADED"
+fi
+else
+    info "$MSG_INFO_RECONNECT_NUDGE_AGENT_SKIPPED"
+fi
+
 # ── Deferred device-registration retry ─────────────────────────────
 #
 # The GUI installer POSTs each Mac's hardware fingerprint to
@@ -25074,6 +25279,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.colima
     com.ostler.engine-supervisor
     com.ostler.meeting-brief-sender
+    com.ostler.reconnect-nudge-sender
     com.ostler.ollama-logrotate
     com.ostler.ollama-watchdog
     com.ostler.stay-awake

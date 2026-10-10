@@ -2010,6 +2010,10 @@ _SCHEDULED_AGENTS = (
     # brief was not delivered and 78 when no brief channel is configured, so a
     # brief that never arrives reaches this card instead of only its own log.
     ("com.ostler.meeting-brief-sender", "your pre-meeting briefs", "meeting-brief-sender", 600),
+    # Wow gate item 3, v1.0.108: the weekly reconnect nudge exits 75 when the
+    # composer failed or /announce refused it, and 78 when no brief channel is
+    # configured. Weekly job, so the interval is a week in seconds.
+    ("com.ostler.reconnect-nudge-sender", "your weekly nudge about people to get back in touch", "reconnect-nudge-sender", 604800),
 )
 
 # How many consecutive failed ticks before the card goes critical. One bad

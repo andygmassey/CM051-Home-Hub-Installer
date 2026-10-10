@@ -486,6 +486,9 @@ MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY="Export watcher installed 
 # The export watcher's refusal names the exact path it looked for, so the
 # install log does not send the reader hunting for what was missing.
 MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING="  Export watcher not started yet: the assistant program it runs is not on disk. Looked for: %s"
+MSG_OK_RECONNECT_NUDGE_SENDER_INSTALLED="Weekly nudge about people to get back in touch installed (Mondays, 10:00)"
+MSG_WARN_RECONNECT_NUDGE_SENDER_NOT_LOADED="The weekly nudge about people to get back in touch could not be scheduled. Everything else is unaffected."
+MSG_INFO_RECONNECT_NUDGE_AGENT_SKIPPED="Weekly reconnect nudge skipped (INSTALL_RECONNECT_NUDGE_LAUNCHAGENT=false)"
 MSG_OK_MEETING_BRIEF_SENDER_INSTALLED="Pre-meeting brief sender installed (polls every 10 minutes during waking hours)"
 MSG_OK_MEMORY_HYGIENE_INSTALLED="Memory-hygiene pass scheduled (runs daily to keep stale facts from crowding out current ones)"
 MSG_OK_STAY_AWAKE_AGENT_INSTALLED="Your Mac will stay awake on mains power so Ostler keeps working (it still sleeps on battery)"

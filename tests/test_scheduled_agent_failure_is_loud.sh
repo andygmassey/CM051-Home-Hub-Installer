@@ -403,6 +403,25 @@ mb_ok="$(run rule '{"com.ostler.meeting-brief-sender":{"state":"healthy","runs":
     && ok "a healthy meeting-brief sender stays silent" \
     || bad "a healthy meeting-brief sender emitted a card: ${mb_ok}"
 
+echo "== 14. THE WEEKLY RECONNECT NUDGE REACHES THIS CARD (v1.0.108, wow gate item 3) =="
+rn="$(run rule '{"com.ostler.reconnect-nudge-sender":{"state":"failing","runs":2,"last_exit":75}}')"
+rn_hit="$(printf '%s' "$rn" | jqf 'sum(1 for f in d if "com.ostler.reconnect-nudge-sender" in json.dumps(f) and "get back in touch" in json.dumps(f))' 2>/dev/null || true)"
+if [[ "${rn_hit:-0}" -ge 1 ]]; then
+    ok "a failing reconnect-nudge sender (exit 75) produces a card naming it and its feed"
+else
+    bad "a failing reconnect-nudge sender produced no card: ${rn}"
+fi
+printf '%s' "$rn" | grep -q 'reconnect-nudge-sender.err' \
+    && ok "the card's fix tails reconnect-nudge-sender.err" \
+    || bad "the card does not point at reconnect-nudge-sender.err: ${rn}"
+grep -q '<string>${LOGS_DIR}/reconnect-nudge-sender.err</string>' "$(dirname "$0")/../install.sh" \
+    && ok "that .err is the reconnect sender plist's StandardErrorPath in install.sh" \
+    || bad "install.sh's reconnect sender plist does not write reconnect-nudge-sender.err"
+rn_ok="$(run rule '{"com.ostler.reconnect-nudge-sender":{"state":"healthy","runs":2,"last_exit":0}}')"
+[[ "$(printf '%s' "$rn_ok" | jqf 'len(d)')" == "0" ]] \
+    && ok "a healthy reconnect-nudge sender stays silent" \
+    || bad "a healthy reconnect-nudge sender emitted a card: ${rn_ok}"
+
 echo
 echo "PASS=${PASS} FAIL=${FAIL}"
 [[ $FAIL -eq 0 ]]
