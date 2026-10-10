@@ -288,8 +288,8 @@ Forget tombstone respected by ostler_fda	CM051	7e20c029	no	forget_tombstone_vend
 Meeting-brief sender LaunchAgent on by default (Pro-gated)	CM051	7e20c029	no	meeting_brief_launchagent_on	TBD	CM051 #2707 (#2749)
 Person removals are audited in ostler_fda	CM051	7e20c029	no	person_removal_audited_ostler_fda	TBD	CM051 #2748 (#2749)
 # 2026-10-10 (ORM, candidate #17, launch candidate): CM051 #2773 batch (main 011101ea) + #2759; hub-v0.5.9 (oa ae65b992) in #2778; wiki v0.1.51 (CM044 37f33694) in #2777. cut.env CM051=011101ea, DAEMON_COMMIT=ae65b992. CI-only #2780 (hub-screens duplicate step) carries no product row.
-pin(daemon): 0.5.9 daemon tarball 65d18a07 (oa ae65b992)	CM051	f9aa2ca8	no	daemon_pinned_at_hub_v0509	TBD	oa #499 #500 #501 (CM051 #2778)
-pin(daemon): 0.5.9 hub app ff3ad532	CM051	f9aa2ca8	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2778
+# SUPERSEDED (#18, ORM 2026-10-11): hub-v0.5.10 replaced this pin; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.9 daemon tarball 65d18a07 (oa ae65b992) | CM051 | f9aa2ca8 | no | daemon_pinned_at_hub_v0509 | TBD | oa #499 #500 #501 (CM051 #2778)
+# SUPERSEDED (#18, ORM 2026-10-11): hub-v0.5.10 replaced this pin; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.9 hub app ff3ad532 | CM051 | f9aa2ca8 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2778
 repin(wiki): both wiki images at CM044 v0.1.51 (37f33694)	CM051	3daa9163	no	wiki_images_pinned_at_cm044_v0151	TBD	CM051 #2777
 The Reminders TCC prompt is never raised while the install-in-progress marker is set	CM051	f9aa2ca8	no	oa_reminders_no_prompt_mid_install	TBD	oa #499
 Asked what it can do, the assistant never names a tool, function or internal system	CM051	f9aa2ca8	no	oa_self_description_no_internals	TBD	oa #500
@@ -321,3 +321,15 @@ The pairing walk harness runs the customer QR flow	CM051	c6d2ef20	no	probe_pairi
 The vendored assistant API timeline graft is DST-correct	CM051	2a72d075	no	timeline_timestamp_dst_correct	TBD	CM051 #2774
 The meeting-brief walk seed sends the store credential	CM051	7540b386	no	probe_meeting_brief_seed_sends_store_credential	TBD	CM051 #2759
 The walk customer_read check flags raw frontmatter and [pwg:...] provenance tags	CM051	7540b386	no	probe_customer_read_flags_pwg_tags_and_frontmatter	TBD	CM051 #2759
+# 2026-10-11 (ORM, candidate #18, launch candidate): CM051 #2787 batch (main 05df2f03): #2784 #2785 #2786 #2760 and the hub-v0.5.10 re-pin #2788 (oa ca8b2fec, #505 #497). Wiki stays v0.1.51. cut.env CM051=05df2f03, DAEMON_COMMIT=ca8b2fec.
+pin(daemon): 0.5.10 daemon tarball d5f67031 (oa ca8b2fec)	CM051	4a6c2442	no	daemon_pinned_at_hub_v0510	TBD	oa #505 #497 (CM051 #2788)
+pin(daemon): 0.5.10 hub app 62642338	CM051	4a6c2442	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2788
+pin(daemon): 0.5.10 Reminders watcher survives a dropped sender	CM051	4a6c2442	no	oa_reminders_watcher_survives_dropped_sender	TBD	oa #505
+pin(daemon): 0.5.10 morning brief catch-up block	CM051	4a6c2442	no	oa_morning_brief_catchup_block	TBD	oa #497
+pin(daemon): 0.5.10 catch-up reads the compact calendar start	CM051	4a6c2442	no	oa_catchup_reads_compact_calendar_start	TBD	oa #497
+People list drops organisations without a legal-form suffix	CM051	d13f9d9f	no	people_org_without_legal_suffix_leaves_list	TBD	CM051 #2785
+Tidy contacts-diff answers at once, built in the background	CM051	fa53b4d8	no	doctor_tidy_contacts_diff_cached	TBD	CM051 #2786
+Walk freshness reader knows every CM044 state	CM051	9d4efb53	no	probe_freshness_reads_every_cm044_state	TBD	CM051 #2784
+Walk probe: the morning brief catches me up	CM051	d31ff5a4	no	probe_morning_brief_catches_me_up	TBD	CM051 #2760
+Walk probe: reply debt is answered	CM051	d31ff5a4	no	probe_reply_debt_is_answered	TBD	CM051 #2760
+Walk probe library for the wow moments	CM051	d31ff5a4	no	probe_wow_moments_lib	TBD	CM051 #2760
