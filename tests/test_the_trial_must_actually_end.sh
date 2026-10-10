@@ -9,7 +9,7 @@
 #      install.sh wrote on day zero said status=active and nothing ever
 #      changed it, so every Hub buyer had Ostler Pro free for life.
 #   2. Andy's paid-once rule (BACKLOG.yaml, 2026-07-31: "keep it as long
-#      as they've paid (fully) for Pro at least once. ie. not the 30 days
+#      as they've paid (fully) for Pro at least once. ie. not the 3 months
 #      free plus a failed card try") was implemented in the Rust daemon
 #      and entirely absent from the Python gate that actually ships.
 #   3. PRODUCTISATION_CHECKLIST.md Rule 0.8 names eleven ingestion
@@ -134,7 +134,7 @@ fi
 # ---------------------------------------------------------------------
 echo "--- Limb B: the customer, end to end ---"
 
-install_days_ago 29
+install_days_ago 85
 "$PY" "$GATE" --check >/dev/null 2>&1
 rc=$?
 if [ "$rc" -eq 0 ]; then
@@ -143,19 +143,19 @@ else
     fail "B1" "day 29 returned $rc (expected 0). The free month must be a real month."
 fi
 
-install_days_ago 31
+install_days_ago 95
 "$PY" "$GATE" --check >"$TMPROOT/b2.log" 2>&1
 rc=$?
 if [ "$rc" -eq 3 ]; then
     pass "B2" "day 31, never subscribed: ongoing intelligence pauses"
 else
-    fail "B2" "day 31 returned $rc (expected 3). THIS IS THE REVENUE DEFECT: every Hub buyer keeps Pro for free forever."
+    fail "B2" "day 95 returned $rc (expected 3). THIS IS THE REVENUE DEFECT: every Hub buyer keeps Pro for free forever."
     cat "$TMPROOT/b2.log"
 fi
 
 # The state file still SAYS active at this point on a Hub whose ticker
 # never ran. The answer must not depend on the ticker.
-install_days_ago 31
+install_days_ago 95
 stored="$("$PY" -c "import json;print(json.load(open('$STATE'))['status'])")"
 "$PY" "$GATE" --check >/dev/null 2>&1
 rc=$?
@@ -165,13 +165,13 @@ else
     fail "B3" "stored=$stored rc=$rc (expected stored=active, rc=3)"
 fi
 
-install_days_ago 40
+install_days_ago 100
 "$PY" "$GATE" --check >/dev/null 2>&1
 rc=$?
 if [ "$rc" -eq 3 ]; then
     pass "B4" "day 40, never subscribed: no 14-day grace. Andy's rule -- grace is for people who paid."
 else
-    fail "B4" "day 40 returned $rc (expected 3). A never-paid trialist is being handed the grace fortnight."
+    fail "B4" "day 100 returned $rc (expected 3). A never-paid trialist is being handed the grace fortnight."
 fi
 
 pay_for_pro_until_days_from_now 30
@@ -273,11 +273,11 @@ for w in $WRAPPERS; do
         continue
     fi
 
-    # An unpaid customer, 31 days in.
-    install_days_ago 31
+    # An unpaid customer, 95 days in.
+    install_days_ago 95
     out="$(/bin/bash "$harness" 2>&1)"
     if printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE"; then
-        fail "C:$base" "the pipeline ran for a customer 31 days in who never paid"
+        fail "C:$base" "the pipeline ran for a customer 95 days in who never paid"
     else
         pass "C:$base" "paused before ingesting, day 31, never subscribed"
     fi
@@ -295,7 +295,7 @@ for w in $WRAPPERS; do
     # confirm the wrapper still ingests. A gate that blocks when it cannot
     # be found turns a packaging slip into a mass lockout of paying
     # customers, and nothing else in this suite would notice.
-    install_days_ago 31
+    install_days_ago 95
     mv "$GATE" "$GATE.hidden"
     out="$(/bin/bash "$harness" 2>&1)"
     mv "$GATE.hidden" "$GATE"
@@ -334,11 +334,11 @@ else
     if ! /bin/bash -n "$mb_h"; then
         fail "C2" "the sender's gate block does not parse under /bin/bash"
     else
-        install_days_ago 31
+        install_days_ago 95
         : > "$TMPROOT/mb.log"
         out="$(/bin/bash "$mb_h" 2>&1)"
         if printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE"; then
-            fail "C2" "a pre-meeting brief would be sent to a customer 31 days in who never paid"
+            fail "C2" "a pre-meeting brief would be sent to a customer 95 days in who never paid"
         elif /usr/bin/grep -q "Ostler Pro is not active" "$TMPROOT/mb.log"; then
             pass "C2" "paused before sending, day 31, never subscribed, and the log says why"
         else
@@ -354,7 +354,7 @@ else
         printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE" \
             && pass "C2(paid)" "a paying customer's briefs are sent" \
             || fail "C2(paid)" "a PAYING customer's briefs were stopped: $out"
-        install_days_ago 31
+        install_days_ago 95
         mv "$GATE" "$GATE.hidden"
         out="$(/bin/bash "$mb_h" 2>&1)"
         mv "$GATE.hidden" "$GATE"

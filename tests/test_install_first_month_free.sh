@@ -4,11 +4,11 @@
 #
 # Locks the install.sh G2 first-month-free activation block. This test
 # verifies the post-licence-verification subscription activation that
-# wires every fresh Hub install to 30 days of Ostler Pro per the G0
+# wires every fresh Hub install to 3 months of Ostler Pro per the G0
 # subscription_gate contract (CM051 PR #190).
 #
 # Why this test exists:
-#   - The activation is the customer's only path to the first 30 days
+#   - The activation is the customer's only path to the included 3 months
 #     of Pro. A regression silently breaks the trial without any obvious
 #     symptom -- the Hub installs cleanly, the customer never knows.
 #   - The non-fatal posture (warn-only on failure) must hold so a broken
@@ -18,7 +18,7 @@
 #   1. activate_first_month_free() writes a JSON state file when called
 #      with a synthetic OSTLER_SUBSCRIPTION_STATE override.
 #   2. The state has status=active, source=first_month_free, and an
-#      expires_at ~30 days in the future.
+#      expires_at ~3 months in the future.
 #   3. install.sh contains the activation block + the 4 G2 MSG_* keys
 #      are present in the en-GB strings catalogue.
 #   4. install.sh structural sanity (still parses with bash -n).
@@ -167,17 +167,17 @@ expires_iso = state.get("expires_at")
 assert expires_iso, "expires_at missing"
 expires = datetime.fromisoformat(expires_iso.replace("Z", "+00:00"))
 delta_days = (expires - datetime.now(timezone.utc)).days
-# 30 days +/- 1 day tolerance for clock jitter at the boundary
-assert 28 <= delta_days <= 31, f"expires_at not ~30 days out: {delta_days} days"
-print(f"PASS: expires_at ~30 days out ({delta_days} days)")
+# 3 calendar months (89-93 days) tolerance for month length at the boundary
+assert 89 <= delta_days <= 93, f"expires_at not ~3 months out: {delta_days} days"
+print(f"PASS: expires_at ~3 months out ({delta_days} days)")
 
 grace_iso = state.get("grace_period_end")
 assert grace_iso, "grace_period_end missing"
 grace = datetime.fromisoformat(grace_iso.replace("Z", "+00:00"))
 grace_delta = (grace - datetime.now(timezone.utc)).days
-# 30 + 14 grace = ~44 days; +/- 1 day tolerance
-assert 42 <= grace_delta <= 45, f"grace_period_end not ~44 days out: {grace_delta} days"
-print(f"PASS: grace_period_end ~44 days out ({grace_delta} days)")
+# 3 months + 14 grace = ~103-107 days
+assert 103 <= grace_delta <= 107, f"grace_period_end not ~105 days out: {grace_delta} days"
+print(f"PASS: grace_period_end ~105 days out ({grace_delta} days)")
 PYEOF
 
 echo ""
