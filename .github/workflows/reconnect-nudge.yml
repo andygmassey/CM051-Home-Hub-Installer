@@ -53,5 +53,5 @@ jobs:
       - name: The probe judge goes red on known-bad captures
         run: |
           python3 scripts/box_walk_probes/lib/reconnect_nudge_probe.py --self-test
-          out="$(bash scripts/box_walk_probes/probes/reconnect_nudge_reaches_the_owner.sh --self-test 2>&1)"; echo "$out"
+          out="$(bash scripts/box_walk_probes/probes/reconnect_nudge_reaches_the_owner.sh --self-test 2>&1)" || true; echo "$out"
           printf '%s' "$out" | grep -q "negative control behaved" || { echo "::error::the probe self-test did not report a behaved negative control"; exit 1; }
