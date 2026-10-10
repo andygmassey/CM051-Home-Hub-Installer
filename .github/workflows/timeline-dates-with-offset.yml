@@ -31,7 +31,8 @@ jobs:
           python-version: '3.12'
       - name: Install pytest and the vendored modules' runtime dependencies
         run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject
-      - name: Timeline dates: offset, event dates only, unreadable rows dropped
+      - name: "Timeline dates: offset, event dates only, unreadable rows dropped"
+        if: always()
         run: |
           n="$(python -m pytest tests/test_timeline_dates_are_event_dates_with_offset.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
