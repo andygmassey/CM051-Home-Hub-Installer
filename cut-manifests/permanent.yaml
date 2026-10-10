@@ -1219,3 +1219,24 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "meeting_brief_text_is_grounded"
+
+  - id: box-walk-reply-debt-is-answered
+    title: asked "who do I owe a reply to?" in chat, the assistant names the people the Hub reports as waiting, from an undegraded reply-debt source
+    incident: >-
+      v1.0.108 wow moment 1 (launch/WOW_MOMENTS_GATE.md). Reply debt reached
+      the iOS Today tab only; chat had no tool for it (ostler-assistant #497
+      adds pwg_reply_debt). iMessage only today. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "reply_debt_is_answered"
+
+  - id: box-walk-morning-brief-catches-me-up
+    title: the morning brief names the owner's open promises (never another person's), who is waiting on a reply and today's meetings
+    incident: >-
+      v1.0.108 wow moment 7. The 09:00 brief prompt asked only about
+      yesterday and the job was given no replies owed, promises or today's
+      meetings (ostler-assistant #497 prepends them; install.sh's prompt now
+      leads with today). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "morning_brief_catches_me_up"
