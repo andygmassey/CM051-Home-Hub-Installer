@@ -323,6 +323,26 @@ else
     bad "a fully paired healthy box rendered as '$(row A4)', expected PASS"
 fi
 
+echo "== A4: a consistently PAIRED box passes without EXPECT_PAIRED (walk #18) =="
+rc="$(run_gate paired_healthy 0)"
+if grep -qE '  PASS  A4 ' "${WORK}/out.txt"; then
+    ok "companion=true paired=true devices=2 with EXPECT_PAIRED=0 is PASS"
+else
+    bad "a consistently paired box with EXPECT_PAIRED=0 rendered as '$(row A4)', expected PASS"
+fi
+rc="$(run_gate lying_ui 0)"
+if grep -qE '  FAIL  A4 ' "${WORK}/out.txt"; then
+    ok "CONTROL: lying_ui is FAIL under EXPECT_PAIRED=0"
+else
+    bad "lying_ui under EXPECT_PAIRED=0 rendered as '$(row A4)', expected FAIL"
+fi
+rc="$(run_gate unpaired_healthy 1)"
+if grep -qE '  FAIL  A4 ' "${WORK}/out.txt"; then
+    ok "EXPECT_PAIRED=1 makes a consistent-unpaired box FAIL"
+else
+    bad "consistent-unpaired with EXPECT_PAIRED=1 rendered as '$(row A4)', expected FAIL"
+fi
+
 echo "== CONTROL: A6 still fails on the wiki compiler's own log =="
 rc="$(run_gate wiki_dirty)"
 if grep -qE '  FAIL  A6 ' "${WORK}/out.txt" && grep -q 'broken-link-lines=133 found=0(summed over 0 compiles) repaired=0 dead=133' "${WORK}/out.txt"; then
