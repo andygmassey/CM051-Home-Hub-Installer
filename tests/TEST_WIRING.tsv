@@ -487,6 +487,7 @@ test_pinterest_parser.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_pip_stage_outside_bundle.sh	WIRED	.github/workflows/pip-stage.yml
 test_pipefail_shortcircuit_inversion.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_placeholder_strip.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_places_ingest_total_write_failure_is_not_ok.py	WIRED	.github/workflows/places-ingest-write-failure.yml
 test_port_preflight_covers_published.sh	WIRED	.github/workflows/colima-autostart.yml
 test_port_preflight_recognises_own_colima_567.sh	WIRED	.github/workflows/colima-autostart.yml
 test_port_preflight_survives_a_held_port.sh	WIRED	.github/workflows/colima-autostart.yml
@@ -654,6 +655,7 @@ test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows
 test_the_shipped_compose_mounts_ai_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_compose_mounts_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_compose_mounts_the_editor_feed.sh	WIRED	.github/workflows/editor-feed-gate.yml
+test_the_shipped_stores_have_fd_headroom.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
