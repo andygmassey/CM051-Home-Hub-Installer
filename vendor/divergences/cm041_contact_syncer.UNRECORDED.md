@@ -228,3 +228,13 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## places-ingest reports an error when its writes fail (CM051 F5, walk #16)
+
+Tree `cm041/contact_syncer`. NEW CM041/HR015-side behaviour, not a graft of merged upstream. `vendor/cm041/contact_syncer/places_ingest.py::ingest_places` printed `Done: 979 places (0 written, 979 errors) ... status=ok`: the status was set before the upsert and never revisited. One block was added after the "second loud guard" and before the final `return`: when `upsert_counts["errors"] > 0` and the status is still `ok`, the status becomes `error_write_failed` (nothing written) or `error_partial_write`, with a WARNING line. An earlier guard's status is kept. No SPARQL, no store write and no signature changed; `main()` already exited 1 for `errors > 0`.
+
+The same hunk is in `contact_syncer/places_ingest.py` (the copy `install.sh` cp -R's into the pipeline directory). This tree is `regenerate_forbidden`, so the patch cannot record it.
+
+### What a future sync must preserve
+
+The third guard in `ingest_places` (the `error_write_failed` / `error_partial_write` statuses). Guarded by `tests/test_places_ingest_total_write_failure_is_not_ok.py` (6 tests over both copies: 4 red on origin/main, 6 green here), run by `.github/workflows/places-ingest-write-failure.yml`. Retire by landing the same change in CM041 `contact_syncer/places_ingest.py` and re-pinning.
