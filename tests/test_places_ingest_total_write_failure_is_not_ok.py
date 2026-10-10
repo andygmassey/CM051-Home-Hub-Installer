@@ -57,7 +57,7 @@ class _OkQdrant(_FailingQdrant):
 
 
 def _rows(mod, n):
-    return [{"location": "Example Place %d, Exampletown" % i, "date": "2026-10-0%d" % (1 + i % 9)}
+    return [{"location": "Room %d, Testtown" % i, "date": "2026-10-0%d" % (1 + i % 9)}
             for i in range(n)]
 
 
