@@ -109,6 +109,17 @@ MARKETPLACES = re.compile(
     r"\b(amazon|ebay|etsy|aliexpress|alibaba|shopee|lazada|taobao|tmall|rakuten|walmart|temu|shein|"
     r"zalando|asos|wish)\b", re.I)
 DOMAIN_NAME = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr|shop|store)$", re.I)
+# Walk #16 console, "customer eyes" (Andy): a People row named by a username,
+# an id, a calendar address or digits is not a name a customer recognises.
+# Measured on the walk #16 box (7,782 rows): 138 handles or ids, 5 calendar or
+# invite ids, 2 rows with no letters, and the check that existed caught none.
+# A name in decorative Unicode letters IS a name (isalpha counts it).
+JUNK_HANDLE = re.compile(r"^(?=\S*\d)(?=\S*[A-Za-z])[A-Za-z0-9._]{4,20}$")
+CALENDAR_ID = re.compile(r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$", re.I)
+ORG_NAME = re.compile(
+    r"\b(ltd|limited|llc|inc|plc|gmbh|corp|corporation|bank|official|holdings|insurance|airways|"
+    r"airlines?|hotels?|restaurant|clinic|hospital|university|college|school|foundation|association|"
+    r"council|ministry|department)\b", re.I)
 GONE_QUIET = re.compile(r"gone quiet|no contact for|not been in touch|haven.t (spoken|been in touch)", re.I)
 QUIET_SPAN = re.compile(r"(\d[\d,]*)\s+(day|week|month|year)s?\b", re.I)
 RAW_MONTHS = re.compile(r"\b(\d[\d,]*)\s+months?\b", re.I)
@@ -224,6 +235,22 @@ def service_sender(name):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
         return "marketplace or domain"
+    if ORG_NAME.search(n):
+        return "organisation name"
+    return None
+
+
+def junk_name(name):
+    """A People row name a customer cannot read as a person's name (walk #16 console)."""
+    n = (name or "").strip()
+    if not n:
+        return None
+    if not any(ch.isalpha() for ch in n):
+        return "no letters"
+    if CALENDAR_ID.search(n):
+        return "calendar or invite id"
+    if JUNK_HANDLE.match(n):
+        return "handle or id"
     return None
 
 
@@ -360,6 +387,7 @@ DECLARED = [
     "customer text: no raw http(s) URL in customer copy",
     "wiki: every page linked from the nav was read (the text checks cover all of them)",
     "wiki: no date is set in the old monospace style, on any page",
+    "people: no row is named by a handle, an id, a calendar address or digits",
 ]
 
 
@@ -691,6 +719,7 @@ def judge(f, declared=None):
     if papi is None:
         add(DECLARED[23], None, "NOT MEASURED: the People list was not read from /api/v1/people")
         add(DECLARED[24], None, "NOT MEASURED: the People list was not read from /api/v1/people")
+        add(DECLARED[31], None, "NOT MEASURED: the People list was not read from /api/v1/people")
     else:
         human_by_email = {}
         for r in papi:
@@ -713,6 +742,14 @@ def judge(f, declared=None):
         add(DECLARED[24], not kinds,
             "{} of {} People rows look like services, organisations or subject lines: {} (names withheld)".format(
                 sum(kinds.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(kinds.items()))))
+        junk = {}
+        for r in papi:
+            k = junk_name(r.get("name"))
+            if k:
+                junk[k] = junk.get(k, 0) + 1
+        add(DECLARED[31], not junk,
+            "{} of {} People rows are named by something a customer cannot read as a name: {} (names withheld)".format(
+                sum(junk.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(junk.items()))))
 
     selfd = set(f.get("self_digests") or [])
     if f.get("owner_source") in ("synthetic", "unknown-walk"):
@@ -1431,11 +1468,17 @@ MUTANTS = [
      _app(["wiki", "nav_links"], "System/Statistics/")),
     ("a calendar title whose URL still shows raw (walk #6 f)",
      _txt(["screens", "timeline", "text"], "EVENT\nCheck in https://example.com/checkin\n")),
+    ("an organisation listed as a person (walk #16 console)",
+     _app(["people_api"], {"name": "Example Holdings Ltd", "email": ""})),
+    ("a username as a People name (walk #16 console)", _app(["people_api"], {"name": "jdoe1984", "email": ""})),
+    ("a calendar address as a People name (walk #16 console)",
+     _app(["people_api"], {"name": "abc123@group.calendar.google.com", "email": ""})),
+    ("digits as a People name (walk #16 console)", _app(["people_api"], {"name": "001", "email": ""})),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31]))
 
 
 def _proxy_bypass_self_test():
@@ -1724,6 +1767,14 @@ def self_test():
         missed.append("an em dash inside a person's name on Hub People still fails ({!r})".format(gotn))
     else:
         print("  ok    an em dash inside a person's name on Hub People PASSES (contact-written, not Ostler copy)")
+    # Walk #16 customer eyes: real names that look unusual must PASS the junk
+    # and organisation predicates, or the check fails real people.
+    for real in ("\U0001d479\U0001d48a\U0001d484\U0001d48c\U0001d49a Doe", "Mary-Jane O'Neil", "Henry 8th",
+                 "\u674e\u5c0f\u9f8d", "J. R. R. Doe", "jane doe"):
+        if junk_name(real) or service_sender(real):
+            missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
+        else:
+            print("  ok    a real name passes the People name checks: {!r}".format(real))
     for label, text in (("our own label beside it", "Recently added \u2014 this week\n"),
                         ("a second copy of the same name", dashed + "\n")):
         mut = copy.deepcopy(named)
