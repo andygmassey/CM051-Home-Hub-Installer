@@ -32642,6 +32642,33 @@ except Exception:
     print(0)' 2>/dev/null
     )" || { _HYDRATE_CONTACTS_COUNT_UNMEASURED=true; _HYDRATE_CONTACTS_COUNT=""; }
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
+    # PROCESSED = imported + skipped: every card the sync looked at. The
+    # syncer's "errors" list is the DETAIL of the skipped cards (the same
+    # cards), so it is never added on top; it stands in only when a payload
+    # carries the list without the count.
+    # The settling bar measures how much of the address book has been gone
+    # through, not how much was written. Walk #16 console: 2381 imported of
+    # 2425 cards (44 skipped) froze the contacts bar at 98% forever, which kept
+    # the whole panel in the 80s on every walk. A timed-out sync did NOT go
+    # through every card, so it reports imported only.
+    _HYDRATE_CONTACTS_PROCESSED="$(
+        printf '%s' "$_HYDRATE_CONTACTS_JSON" \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    sk=d.get("skipped")
+    if sk is None:
+        e=d.get("errors") or []
+        sk=len(e) if isinstance(e, list) else int(e or 0)
+    print(int(d.get("imported", 0)) + int(sk or 0))
+except Exception:
+    print(0)' 2>/dev/null
+    )" || _HYDRATE_CONTACTS_PROCESSED=""
+    _HYDRATE_CONTACTS_PROCESSED="${_HYDRATE_CONTACTS_PROCESSED:-0}"
+    if [[ "${_HYDRATE_CONTACTS_TIMED_OUT:-false}" == true ]] \
+       || [[ "$_HYDRATE_CONTACTS_PROCESSED" -lt "$_HYDRATE_CONTACTS_COUNT" ]]; then
+        _HYDRATE_CONTACTS_PROCESSED="$_HYDRATE_CONTACTS_COUNT"
+    fi
 
     # Settling panel, `contacts` channel. Reported HERE rather than as a
     # running tick because this is one blocking call and there is no
@@ -32655,7 +32682,7 @@ except Exception:
     # found nothing, so needs_source invites the customer to connect a source
     # rather than leaving a permanent 0%.
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
-        settling_report_measured contacts "$_HYDRATE_CONTACTS_COUNT" false
+        settling_report_measured contacts "$_HYDRATE_CONTACTS_PROCESSED" false
     else
         settling_report contacts 0 0 true
     fi
@@ -33652,7 +33679,7 @@ unset _HYDRATE_OXIGRAPH_WA
 
 unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY \
       _HYDRATE_CALENDAR_VENV _HYDRATE_CALENDAR_PY
-unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT
+unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT _HYDRATE_CONTACTS_PROCESSED
 unset _HYDRATE_CONTACTS_CAP _HYDRATE_CONTACTS_TIMEOUT_WRAP _HYDRATE_CONTACTS_RC
 unset _HYDRATE_CONTACTS_TIMED_OUT _HYDRATE_CONTACTS_STARTED_AT _HYDRATE_CONTACTS_ELAPSED_S
 unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
