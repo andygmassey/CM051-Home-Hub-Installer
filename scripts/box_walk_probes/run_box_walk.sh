@@ -242,6 +242,12 @@ if [ "$READ_ONLY" -eq 0 ] && [ "$ALLOW_WRITES" -ne 1 ]; then
     fi
 fi
 
+# A PROBE THAT WRITES reads this, not READ_ONLY: READ_ONLY is a runner-local
+# variable and a probe is a child process. memory_correction_round_trip
+# (v1.0.108 #9) asserts and corrects facts itself, so it must know. Unset in a
+# probe means read-only, fail-closed.
+OSTLER_WALK_READ_ONLY="$READ_ONLY"; export OSTLER_WALK_READ_ONLY
+
 # -------------------------------------------------------------------------
 # PHASE 1 -- negative controls. Try to make every probe fail.
 # -------------------------------------------------------------------------

@@ -1,0 +1,48 @@
+name: memory correction round trip
+
+# v1.0.108 #9 (iOS & Pin's design). The probe must be able to FAIL: its
+# self-test drives the real box half against a fake ical-server whose readers
+# ignore, half-apply or drop a correction, and each mutant must go red by its
+# own row, while a reader that never showed the fact is CANNOT-RUN, never PASS.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/lib/memory_correction.py'
+      - 'scripts/box_walk_probes/probes/memory_correction_round_trip.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'context-refresh/bin/generate_pwg_context.py'
+      - '.github/workflows/memory-correction-round-trip.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: The round-trip judge and fake-box self-test
+        run: python3 scripts/box_walk_probes/lib/memory_correction.py --self-test
+      - name: The probe's own self-test must FAIL (phase-1 contract)
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/memory_correction_round_trip.sh --self-test 2>&1); rc=$?
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
+          printf '%s\n' "$out" | grep -q '^VERDICT: FAIL -- negative control behaved' || { echo "self-test FAIL was not the negative control"; exit 1; }
+      - name: The probe is blocking in the promote scope
+        run: |
+          awk -F'\t' '$1=="memory_correction_round_trip"{print $2; f=1} END{if(!f) print "MISSING"}' scripts/walk_promote_scope.tsv | grep -qx blocking
+      - name: The runner tells a writing probe whether the walk is read-only
+        run: grep -q '^OSTLER_WALK_READ_ONLY="\$READ_ONLY"; export OSTLER_WALK_READ_ONLY$' scripts/box_walk_probes/run_box_walk.sh
