@@ -133,7 +133,9 @@ ORG_SHORT_FORM = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)
 # tests/test_people_have_human_evidence.py. A final org word (bank, banking, team,
 # alumni) after at least two other words is an organisation too ("The X Team",
 # "X Y Bank"); a TWO-word "<given> Bank" stays a person (a surname).
-ORG_FINAL_WORD = re.compile(r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni)$", re.I)
+ORG_FINAL_WORD = re.compile(r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni|group|company|promotions?|newsletter|research|card|support|store|shop|official|services?|solutions|foundation|association|council|institute|university|academy|club|magazine|news|no-?reply|noreply)$", re.I)
+ORG_INSTITUTION_OF = re.compile(r"^(university|college|institute|academy)\s+of\s+\S+", re.I)
+ORG_THE_GROUP = re.compile(r"^the\s+\S+(\s+\S+)*\s+(group|team)$", re.I)
 ORG_NAME = re.compile(
     r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
     r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
@@ -261,7 +263,8 @@ def service_sender(name):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
         return "marketplace or domain"
-    if ORG_NAME.search(n) or ORG_SHORT_FORM.match(n) or ORG_FINAL_WORD.match(n):
+    if ORG_NAME.search(n) or ORG_SHORT_FORM.match(n) or ORG_FINAL_WORD.match(n) \
+            or ORG_INSTITUTION_OF.match(n) or ORG_THE_GROUP.match(n):
         return "organisation name"
     return None
 
