@@ -35,7 +35,7 @@ python3 "$LIB" --self-test >"$W/lib.out" 2>&1; rc=$?
 
 echo "--- 2. probe self-test goes red ---"
 out="$(bash "$PROBE" --self-test 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'negative control behaved'; then
+if [ "$rc" -eq 1 ] && grep -q 'negative control behaved' <<< "$out"; then
     ok "probe --self-test exits 1 with 'negative control behaved'"
 else printf '%s\n' "$out"; bad "probe --self-test rc=$rc"; fi
 
@@ -45,7 +45,7 @@ cp "$PROBE" "$M/probes/"; cp "${ROOT}/scripts/box_walk_probes/lib/probe.sh" "$M/
 python3 -c "import sys; s=sys.stdin.read(); a='rows match any chat.db thread'; i=s.index(a); j=s.index('return lines, EX_FAIL', i); sys.stdout.write(s[:j]+'return lines, EX_PASS'+s[j+len('return lines, EX_FAIL'):])" < "$LIB" > "$M/lib/followup_keys_probe.py"
 if cmp -s "$LIB" "$M/lib/followup_keys_probe.py"; then bad "mutant did not apply"; else
     out="$(bash "$M/probes/followup_keys_match_chat_threads.sh" --self-test 2>&1)"; rc=$?
-    if [ "$rc" -ne 1 ] || ! printf '%s\n' "$out" | grep -q 'negative control behaved'; then
+    if [ "$rc" -ne 1 ] || ! grep -q 'negative control behaved' <<< "$out"; then
         ok "with the display-name FAIL turned into PASS, the self-test no longer claims a behaved control (rc=$rc)"
     else bad "the self-test still reports a behaved control against a mutant judge"; fi
 fi
@@ -74,7 +74,7 @@ fu() { printf '{"followup": {"available": true, "measured": true, "enabled": tru
 arm() { # arm <label> <want rc> <want verdict word> <body>
     printf '%s\n' "$4" > "$W/body.json"
     out="$(unset OSTLER_BOX_HOST; OSTLER_PROBE_GATEWAY="http://127.0.0.1:${PORT}" OSTLER_SECRETS_DIR="$W/secrets" HOME="$W" bash "$PROBE" 2>&1)"; rc=$?
-    if [ "$rc" -eq "$2" ] && printf '%s\n' "$out" | grep -q "^VERDICT: $3 "; then ok "$1 -> $3"
+    if [ "$rc" -eq "$2" ] && grep -q "^VERDICT: $3 " <<< "$out"; then ok "$1 -> $3"
     else printf '%s\n' "$out"; bad "$1: rc=$rc, wanted $2 / $3"; fi
 }
 arm "1 of 4 rows matches a 1:1 chat" 0 PASS "$(fu true 4 1 0)"
@@ -85,7 +85,7 @@ arm "daemon predates the followup block" 78 CANNOT-RUN '{"reminders_list": {}}'
 # The denominator is printed on a PASS.
 printf '%s\n' "$(fu true 4 1 0)" > "$W/body.json"
 out="$(unset OSTLER_BOX_HOST; OSTLER_PROBE_GATEWAY="http://127.0.0.1:${PORT}" OSTLER_SECRETS_DIR="$W/secrets" HOME="$W" bash "$PROBE" 2>&1)"
-printf '%s\n' "$out" | grep -q 'denominator: 4 pushed map row' && ok "a PASS prints its denominator" || bad "no denominator on PASS"
+grep -q 'denominator: 4 pushed map row' <<< "$out" && ok "a PASS prints its denominator" || bad "no denominator on PASS"
 
 echo "--- 5. read-only ---"
 [ "$(grep -c '^# WALK_READ_ONLY:' "$PROBE")" -eq 1 ] && ok "declares WALK_READ_ONLY" || bad "no WALK_READ_ONLY marker"

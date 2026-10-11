@@ -1230,6 +1230,19 @@ entries:
       kind: box_walk_probe
       probe: "reply_debt_is_answered"
 
+  - id: box-walk-followup-keys-match-chat-threads
+    title: the reminders map's thread keys match chat.db threads, so a reminder can be completed when the owner follows up
+    incident: >-
+      ostler-assistant #509 marks a reminder done when the owner messages its
+      thread, matching CM048's thread_key (CM051 #2802) against the same hash
+      of each chat.db chat's handles. Keys built from display names would
+      match nothing and the feature would be silently dead. Read-only: reads
+      the daemon's own census in GET /api/status -> followup, never seeds.
+      CANNOT-RUN until a hub pin carries #509. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "followup_keys_match_chat_threads"
+
   - id: box-walk-morning-brief-catches-me-up
     title: the morning brief names the owner's open promises (never another person's), who is waiting on a reply and today's meetings
     incident: >-
