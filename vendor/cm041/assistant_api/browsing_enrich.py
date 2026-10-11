@@ -39,9 +39,8 @@ from typing import Any, Callable, Dict, List, Optional
 # ── Caps ────────────────────────────────────────────────────────────
 TEXT_CAP_CHARS = 20 * 1024            # ordinary visit text
 KNOWLEDGE_TEXT_CAP_CHARS = 200 * 1024  # explicit Save to Knowledge
-# Only this much of the text is shown to the model: a 16 GB machine runs an
-# 8192 (or 4096 on the floor tier) context for enrichment, see
-# OSTLER_ENRICH_NUM_CTX in CM051 install.sh.
+# Only this much of the text is shown to the model. The prompt caps are
+# about prompt size, not the context window: see ``_num_ctx`` for that.
 PROMPT_CHARS_VISIT = 8000
 PROMPT_CHARS_KNOWLEDGE = 14000
 MAX_TAGS_USER = 20
@@ -227,14 +226,22 @@ def summary_model() -> Optional[str]:
             or None)
 
 
+# The daemon's chat context window (OLLAMA_NUM_CTX in the assistant plist).
+CHAT_NUM_CTX = 32768
+
+
 def _num_ctx() -> int:
-    # install.sh sets OSTLER_ENRICH_NUM_CTX per resource tier (4096 floor,
-    # 8192 low, empty on high). Browsing summaries never need more than 8192.
+    """Context window for a summary: OSTLER_ENRICH_NUM_CTX if the operator set
+    one, else the CHAT window, never a smaller default. Ollama keys a loaded
+    runner on (model, num_ctx), and summaries use the chat model, so any other
+    value unloads and reloads the chat model on every switch. That reload
+    thrash starved Ollama on a 16 GB walk box (CM051 #2804, which also leaves
+    OSTLER_ENRICH_NUM_CTX empty on every tier)."""
     try:
         n = int(os.environ.get("OSTLER_ENRICH_NUM_CTX") or 0)
     except ValueError:
         n = 0
-    return n if n > 0 else 8192
+    return n if n > 0 else CHAT_NUM_CTX
 
 
 def ollama_generate(prompt: str, *, timeout: float = 120.0) -> str:

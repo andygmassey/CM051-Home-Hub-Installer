@@ -168,6 +168,19 @@ EXEMPT: dict[str, str] = {
         "it anyway. It IS invoked, through its permanent.yaml row, and "
         "post_walk_qa.sh runs the manifest verifier alongside the walk, so its "
         "result does reach the QA output under the manifest section.",
+    "lib/promote_order.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it just "
+        "before the phase-2 loop and calls promote_order, which only REORDERS "
+        "the probes already collected so the previous walk's FAILs run first "
+        "(a probe declaring WALK_WRITES is never moved). It makes no "
+        "measurement, has no PROBE_NAME and no probe_pass/probe_fail verdict, "
+        "and adds or drops nothing; collecting it would run a reorder helper "
+        "as if it were a measurement. Its invocation and its order guarantees "
+        "are pinned by tests/test_a_writing_probe_declares_it_and_is_never_"
+        "promoted.sh, tests/test_a_pairing_reader_runs_before_the_pairing_"
+        "mutator.sh (promoted lists) and arm G of scripts/tests/"
+        "test_the_early_pass_rechecks_last_walks_failures.sh (the runner "
+        "really reorders).",
     "lib/wiki_summaries_wait.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2, below the usage seed and above the phase-2 loop, "

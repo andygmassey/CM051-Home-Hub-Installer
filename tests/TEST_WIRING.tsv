@@ -96,6 +96,8 @@ test_a_walk_can_ask_for_a_fresh_graph.sh	WIRED	.github/workflows/reset-uninstall
 test_a_walk_failure_is_classified.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_walk_record_is_found_under_either_spelling.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_a_walk_record_names_the_instrument_that_graded_it.sh	WIRED	.github/workflows/cut-manifest.yml
+test_a_writing_probe_declares_it_and_is_never_promoted.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_ab_results_gate.sh	WIRED	.github/workflows/ab-results-gate.yml
 test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ai_conversations_default_to_the_locked_privacy_level.py	WIRED	.github/workflows/privacy-spine.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -322,6 +324,7 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_followup_keys_probe.sh	WIRED	.github/workflows/followup-keys-probe.yml
 test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
 test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml
@@ -707,6 +710,7 @@ test_the_workspace_marker_survives_the_promote.sh	WIRED	.github/workflows/usage-
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_timeline_dates_are_event_dates_with_offset.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-timeout-honesty.yml
+test_todo_reminders_cleanup_deletes_what_it_created.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -892,6 +896,7 @@ scripts/tests/test_regenerate_divergence_patch.sh	WIRED	.github/workflows/vendor
 scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile
 scripts/tests/test_run_box_walk_records_phase1_verdicts.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secrets-dir-mode.yml
+scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_verify_app_provenance.sh	WIRED	gui/Makefile

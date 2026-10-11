@@ -1,0 +1,46 @@
+name: ab-results-gate
+
+# No new assistant (hub) build is pinned into the installer unless a chat
+# regression A/B shows no drops. A PR that changes DAEMON_SHA256 or
+# HUB_APP_SHA256 in gui/Makefile must commit ab-results/<new DAEMON_SHA256>.tsv
+# with drops=0 (recomputed from the rows, not trusted). Format and parser:
+# scripts/verify_ab_results.py. A PR that leaves both pins alone is skipped
+# inside the script, so the check is always green-or-skipped for unrelated PRs.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/Makefile'
+      - 'ab-results/**'
+      - 'scripts/verify_ab_results.py'
+      - 'tests/test_ab_results_gate.sh'
+      - '.github/workflows/ab-results-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ab-results-gate-self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gate rejects a missing file, a lying drops line, a tools_none rise, an extra column
+        run: bash tests/test_ab_results_gate.sh
+
+  ab-results-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: A re-pin must carry a clean A/B results file
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/verify_ab_results.py --base "$BASE" --head "$HEAD"

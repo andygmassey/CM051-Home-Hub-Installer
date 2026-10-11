@@ -74,6 +74,10 @@
 #   --no-record          skip it. ANNOUNCED, never silent. The probe suite
 #                        writes to the live store, so a box mid-demo is a real
 #                        reason to decline.
+#   --no-early-pass      skip the EARLY PASS (read-only re-check of the previous
+#                        walk's FAILED probes, run right after the install; see
+#                        scripts/early_repeat_fail_pass.sh). ANNOUNCED. It never
+#                        enters WALK_VERDICT or walks/.
 #   --console "<who was at the console, when, what they granted>"
 #                        record this as a CONSOLE walk. Without it the record
 #                        says walk_kind=thin and does NOT authorise repointing
@@ -121,6 +125,10 @@ STAGE_ONLY=0
 # person into the LIVE store, #829), so a box mid-demo is a real reason to
 # decline. Declining is ANNOUNCED, never silent.
 NO_RECORD=0
+# The early repeat-failure pass (scripts/early_repeat_fail_pass.sh) runs by
+# default, right after the install finishes. It is read-only, labelled, and
+# never reaches WALK_VERDICT or walks/. --no-early-pass declines it, announced.
+NO_EARLY_PASS=0
 CONSOLE_WALK="${OSTLER_CONSOLE_WALK:-}"
 
 die() { printf 'CANNOT-RUN: %s\n' "$*" >&2; exit "$CANNOT_RUN"; }
@@ -138,6 +146,7 @@ while [[ $# -gt 0 ]]; do
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --no-record)    NO_RECORD=1; shift ;;
+        --no-early-pass) NO_EARLY_PASS=1; shift ;;
         --console)      CONSOLE_WALK="${2:-}"; shift 2 ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
         -h|--help)      sed -n '2,90p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -1692,6 +1701,22 @@ while :; do
 done
 
 say "finished $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+# ── EARLY PASS: the previous walk's FAILED probes, read-only, NOW ────────────
+# So a repeat failure shows within minutes of the install and not at the end of
+# the walk. It is informational: its exit status is discarded on purpose and it
+# touches neither WALK_VERDICT nor the walk record. The full probe run in
+# record_walk.sh below is unchanged and alone decides the verdict.
+if [[ "$NO_EARLY_PASS" -eq 1 ]]; then
+    say ""
+    say "early-pass: DECLINED -- --no-early-pass was passed."
+elif [[ ! -f "${REPO_ROOT}/scripts/early_repeat_fail_pass.sh" ]]; then
+    say ""
+    say "early-pass: CANNOT-RUN -- ${REPO_ROOT}/scripts/early_repeat_fail_pass.sh is absent."
+else
+    bash "${REPO_ROOT}/scripts/early_repeat_fail_pass.sh" --host "$HOST" || \
+        say "early-pass: CANNOT-RUN -- the pass itself exited non-zero; the full walk is unaffected."
+fi
 
 LOG="$("${SSH[@]}" 'cat ~/.walk-log 2>/dev/null')"
 report "$LOG"

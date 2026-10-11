@@ -1031,3 +1031,11 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upst
 Tree `cm041/assistant_api`: `_ORG_NAME_RE` gains `inc` as a legal form (a two-word "<Word> Inc" is an organisation, shared with the judge), and `_ORG_FINAL_WORD_RE` (bank, banking, team, alumni after at least two other words; a two-word "<given> Bank" stays a person) is applied in `_is_non_human_person` for uncarded records and for org cards. The two older rules that exempted a two-word "inc" name (`_is_organisation_name`, `_is_business_shaped_name`) are restored to their original behaviour. The judge (`customer_read.py` `ORG_NAME`, `ORG_FINAL_WORD`) carries the same patterns; `tests/test_people_have_human_evidence.py` pins them equal (pattern and flags) and agrees on every fixture.
 
 Tree `cm041/assistant_api`, F7d round 2: `_ORG_FINAL_WORD_RE` now covers every word `hub_screens.ORG_MARKERS` flags (final word after at least two other words), and `_ORG_INSTITUTION_OF_RE` ("University of X", "College of X", "Institute of X", "Academy of X") and `_ORG_THE_GROUP_RE` ("The ... Group" or "... Team") are added; all three are mirrored in `customer_read.py` and pinned equal by the parity test. A two-word "<given> <marker>" still stays.
+
+## Browsing summaries ask for the chat context window (walk #19 Ollama starvation, part 3)
+
+Tree `cm041/assistant_api`. A CM051-side graft, mirrored upstream as CM041 #214 (open). `browsing_enrich.py` `_num_ctx()` fell back to 8192 when `OSTLER_ENRICH_NUM_CTX` was unset or empty; it now falls back to a new module constant `CHAT_NUM_CTX = 32768`, the daemon's `OLLAMA_NUM_CTX`. An operator value still wins. The comment above `PROMPT_CHARS_VISIT` no longer claims an 8192 window. Why: summaries use the chat model, Ollama keys a loaded runner on (model, num_ctx), and a smaller window reloads the chat model on every switch (CM051 #2804, which makes `OSTLER_ENRICH_NUM_CTX` empty on every tier and so would have left this module at 8192).
+
+### What a future sync must preserve
+
+`CHAT_NUM_CTX` and the `_num_ctx` fallback to it. Guarded by `TestE_SummaryContextIsTheChatWindow` in `tests/test_browsing_enrich.py` (5 tests, 4 red on the old `_num_ctx`), run by `.github/workflows/browsing-summaries-and-save.yml`. Retire by landing CM041 #214 and re-pinning.

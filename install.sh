@@ -3388,7 +3388,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8428   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8473   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8482 and :15474, both of which run
+    # Its two top-level arming calls are :8482 and :15497, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
     # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
@@ -3406,13 +3406,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16254, where the note reads
+    # WhatsApp Web session path did it again at :16277, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16271 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16294 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3425,9 +3425,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8482, :15474) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8482, :15497) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18402 / :18580 / :18737 / :19079 path. There the
+    # :18425 / :18603 / :18760 / :19102 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9365,9 +9365,9 @@ cat > "${OSTLER_DIR}/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
 #                               run; 0 = allow (high tier)
 #   OSTLER_LOADAVG_CEILING      per-core 1-min loadavg above which a
 #                               non-essential tick defers (tenths allowed)
-#   OSTLER_ENRICH_NUM_CTX       reduced num_ctx for ENRICHMENT summaries
-#                               ONLY (never the interactive chat); empty on
-#                               high tier (use the model default)
+#   OSTLER_ENRICH_NUM_CTX       EMPTY on every tier: enrichment must ask for
+#                               the chat window (32768) or Ollama reloads the
+#                               model each switch (tests/...tier_governor.sh)
 #   OSTLER_RAM_GB               detected RAM in whole GB (diagnostics)
 #   OSTLER_CPU_CORES            detected total cores (diagnostics)
 #   OSTLER_PERF_CORES           detected performance cores. DIAGNOSTIC ONLY:
@@ -9648,14 +9648,14 @@ ostler_resource_tier_detect() {
             OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-2}"
             OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
             OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-2.0}"
-            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-8192}"
+            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-}"
             ;;
         *)  # floor (the conservative fallback)
             OSTLER_TIER="floor"
             OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-1}"
             OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
             OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-1.5}"
-            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-4096}"
+            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-}"
             ;;
     esac
 
@@ -14820,9 +14820,32 @@ ev="${EVIDENCE_DIR}/wedge-$(date -u +%Y%m%dT%H%M%SZ)-$$.txt"
 } > "$ev" 2>&1
 log "EVIDENCE ${ev}"
 ls -1t "$EVIDENCE_DIR"/wedge-*.txt 2>/dev/null | awk -v k="$EVIDENCE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -f "$_old"; done
+# PREWARM, CHAT MODEL FIRST (walk #19, 16 GB box). After a restart nothing is
+# loaded. If the embed model loads first, the steady stream of embed calls
+# keeps it busy, and under memory pressure Ollama cannot evict it to load the
+# chat model: live chat waited 180 s in the lab. Loading the chat model first,
+# at the daemon's num_ctx (a different num_ctx is a different runner), avoids
+# that; the small embed model then fits alongside it. Order is tested.
+prewarm() {
+    local envf="${OSTLER_WATCHDOG_ENV_FILE:-${HOME}/.ostler/.env}" chat ctx c i
+    chat="${OSTLER_WATCHDOG_CHAT_MODEL:-$(sed -n 's/^AI_MODEL=//p' "$envf" 2>/dev/null | tail -1 | tr -d "\"'")}"
+    ctx="${OSTLER_WATCHDOG_CHAT_NUM_CTX:-32768}"
+    for i in $(seq 1 30); do curl -s -o /dev/null --max-time 2 "${URL}/api/version" && break; sleep "${OSTLER_WATCHDOG_UP_POLL_S:-2}"; done
+    if [ -n "$chat" ]; then
+        c=$(curl -s -o /dev/null -w '%{http_code}' --max-time "${OSTLER_WATCHDOG_PREWARM_S:-180}" "${URL}/api/generate" \
+            -d "{\"model\":\"${chat}\",\"prompt\":\"\",\"keep_alive\":-1,\"options\":{\"num_ctx\":${ctx}}}" 2>/dev/null)
+        log "PREWARM chat ${chat} num_ctx=${ctx}: http=${c:-none}"
+    else
+        log "PREWARM chat SKIPPED: no AI_MODEL in ${envf}"
+    fi
+    c=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$PROBE_S" "${URL}/api/embed" \
+        -d "{\"model\":\"${MODEL}\",\"input\":\"ok\",\"keep_alive\":-1}" 2>/dev/null)
+    log "PREWARM embed ${MODEL}: http=${c:-none}"
+}
 if launchctl kickstart -k "gui/$(id -u)/${LABEL}"; then
     date +%s > "$LAST"; rm -f "$FAILS"
     log "RESTARTED ${LABEL}"
+    prewarm
 else
     log "RESTART FAILED for ${LABEL}"
 fi
