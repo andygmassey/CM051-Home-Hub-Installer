@@ -345,11 +345,11 @@ Acceptance gate A4 is CANNOT-RUN when pairing is unreadable	CM051	6c488c63	no	pr
 pin(daemon): 0.5.13 daemon tarball d6a506ba (oa a59a6d1d)	CM051	5b83ad3e	no	daemon_pinned_at_hub_v0513	TBD	oa #508 #511 (CM051 #2810)
 pin(daemon): 0.5.13 hub app d3a50fa0	CM051	5b83ad3e	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #2810
 pin(daemon): 0.5.13 failed Reminders pushes retry with backoff	CM051	5b83ad3e	no	oa_reminders_failed_push_retry	TBD	oa #508
-pin(daemon): 0.5.13 dedicated Ostler Reminders list status	CM051	5b83ad3e	no	oa_reminders_list_status_published	TBD	oa #508
+pin(daemon): 0.5.13 dedicated Ostler reminders list status	CM051	5b83ad3e	no	oa_reminders_list_status_published	TBD	oa #508
 pin(daemon): 0.5.13 reply-debt questions prefetched	CM051	5b83ad3e	no	oa_reply_debt_prefetched	TBD	oa #511
 pin(daemon): 0.5.13 about-me questions prefetch the overview	CM051	5b83ad3e	no	oa_about_me_family_prefetch	TBD	oa #511
 Reminders never show a handle and skip organisations	CM051	3a03485f	no	reminder_push_no_handle_title	TBD	CM051 #2802
-Walk Reminders cleanup deletes by id	CM051	9fb84aaa	no	probe_todos_cleanup_deletes_by_id	TBD	CM051 #2800
+Walk reminders cleanup deletes by id	CM051	9fb84aaa	no	probe_todos_cleanup_deletes_by_id	TBD	CM051 #2800
 Walk probe: follow-up keys match chat threads (advisory)	CM051	9fb84aaa	no	probe_followup_keys_match_chat_threads	TBD	CM051 #2803
 One num_ctx for chat and enrichment	CM051	9fb84aaa	no	enrich_num_ctx_matches_chat	TBD	CM051 #2804
 Ollama keep_alive -1m on the assistant	CM051	9fb84aaa	no	ollama_keep_alive_forever	TBD	CM051 #2806
