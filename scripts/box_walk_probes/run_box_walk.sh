@@ -100,11 +100,44 @@ PROBES=""
 for f in "$PROBE_DIR"/*.sh; do
     b="$(basename "$f" .sh)"
     if [ -n "$ONLY" ]; then
-        case "$b" in *"$ONLY"*) ;; *) continue ;; esac
+        # --only takes ONE substring or a COMMA-SEPARATED LIST of them; a probe
+        # is selected when ANY item is a substring of its name. One item (no
+        # comma) takes exactly the old path.
+        _only_hit=0
+        _only_rest="$ONLY,"
+        while [ -n "$_only_rest" ]; do
+            _only_item="${_only_rest%%,*}"
+            _only_rest="${_only_rest#*,}"
+            [ -n "$_only_item" ] || continue
+            case "$b" in *"$_only_item"*) _only_hit=1; break ;; esac
+        done
+        [ "$_only_hit" -eq 1 ] || continue
     fi
     PROBES="$PROBES $f"
 done
 shopt -u nullglob
+
+# A LIST IS AN EXPLICIT CLAIM THAT EACH ITEM EXISTS. An item that matches no
+# probe is refused by name, never dropped: a dropped item reads as "that probe
+# passed" to anyone who asked for it. (Single-item behaviour is unchanged: it
+# already ends in the 0-probes FATAL below.)
+if [ -n "$ONLY" ] && [ -n "${PROBES// /}" ]; then
+    _only_rest="$ONLY,"
+    while [ -n "$_only_rest" ]; do
+        _only_item="${_only_rest%%,*}"
+        _only_rest="${_only_rest#*,}"
+        [ -n "$_only_item" ] || continue
+        _only_found=0
+        for f in $PROBES; do
+            case "$(basename "$f" .sh)" in *"$_only_item"*) _only_found=1; break ;; esac
+        done
+        if [ "$_only_found" -eq 0 ]; then
+            printf 'FATAL: --only item "%s" matches no probe.\n' "$_only_item"
+            printf 'Refusing to run the rest and report a list that quietly lost an entry.\n'
+            exit 2
+        fi
+    done
+fi
 
 # DETERMINISTIC ORDER, PINNED TO C. A glob sorts by LC_COLLATE, so the order this
 # suite executes in has been whatever locale the operator happens to have.
@@ -816,7 +849,13 @@ conversation_capture_seed_forget || true
 # rows just removed. v1.0.87: graph 1838, vectors 1838, tile 1839, two FAIL
 # rows on a box with no defect. Recompile so the replay reads the box the
 # probes read. Never fails the walk; see lib/wiki_summaries_wait.sh.
+if [ "$READ_ONLY" -eq 0 ]; then
 wiki_baseline_resync || true
+else
+    # It kickstarts the recompile LaunchAgent and waits up to 900 s, which is a
+    # write the forgets above (all state-gated) never made in a read-only run.
+    printf -- '--- WIKI BASELINE ---\n  SKIPPED (read-only): recompile LaunchAgent not kickstarted.\n\n'
+fi
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.
