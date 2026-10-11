@@ -40,11 +40,9 @@
 #                               run; 0 = allow (high tier)
 #   OSTLER_LOADAVG_CEILING      per-core 1-min loadavg above which a
 #                               non-essential tick defers (tenths allowed)
-#   OSTLER_ENRICH_NUM_CTX       num_ctx override for ENRICHMENT requests.
-#                               EMPTY ON EVERY TIER, so enrichment uses the
-#                               same window as the daemon's chat (32768) and
-#                               one Ollama runner serves both. Operator
-#                               override only; see the policy table below.
+#   OSTLER_ENRICH_NUM_CTX       EMPTY on every tier: enrichment must ask for
+#                               the chat window (32768) or Ollama reloads the
+#                               model each switch (tests/...tier_governor.sh)
 #   OSTLER_RAM_GB               detected RAM in whole GB (diagnostics)
 #   OSTLER_CPU_CORES            detected total cores (diagnostics)
 #   OSTLER_PERF_CORES           detected performance cores. DIAGNOSTIC ONLY:
@@ -314,25 +312,6 @@ ostler_resource_tier_detect() {
     OSTLER_TIER="$tier"
 
     # Per-tier policy. Operator/test overrides win if already set.
-    #
-    # OSTLER_ENRICH_NUM_CTX IS EMPTY ON EVERY TIER, AND THAT IS THE FIX FOR
-    # THE WALK #19 OLLAMA STARVATION. It used to be 8192 on low and 4096 on
-    # floor, to save RAM on small Macs. It saved none. The enrichment callers
-    # (CM048 pwg-convo, CM024, browsing enrich) use the SAME model as chat,
-    # and Ollama keys a loaded runner on (model, num_ctx): a request whose
-    # num_ctx differs from the resident runner forces a full unload and
-    # reload. The daemon pins chat at 32768 (OLLAMA_NUM_CTX), so every
-    # alternation between a chat turn and an enrichment request reloaded the
-    # model. Measured on the 16 GB walk box, 2026-10-11, 90 minutes of
-    # ollama.err: 121 llama-server starts, 94 of them gemma4:e2b flipping
-    # between -c 65536 (32768 x 2 slots) and -c 16384 (8192 x 2), the rest
-    # the embed model evicted by those reloads. Measured in the lab, same
-    # load, only this value changed: live chat 1 reply in 180 s plus a 120 s
-    # timeout at 8192, 8 of 8 replies (p95 11-16 s) and zero reloads at
-    # 32768. With chat continuously busy the other direction appears
-    # instead: enrichment never gets the runner (0 done, 300 s timeouts).
-    # The chat runner is resident at 32768 anyway, so matching it costs no
-    # RAM. Guarded by tests/test_resource_tier_governor.sh.
     case "$OSTLER_TIER" in
         high)
             OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-4}"
