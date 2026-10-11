@@ -52,7 +52,7 @@ chmod +x "${BIN}/ssh"
 # assistant_answers_grounded (a name in the runner's SEED_DEPENDENT_PROBES).
 _stage() {   # $1 = name -> prints the scripts/ dir of the staged tree
     local r="${WORK}/$1"
-    mkdir -p "$r/scripts" "$r/walks"
+    mkdir -p "$r/scripts" "$r/walks" "$r/store"
     cp -R "$SRC" "$r/scripts/box_walk_probes"
     [ -f "${REPO}/scripts/early_repeat_fail_pass.sh" ] && cp "${REPO}/scripts/early_repeat_fail_pass.sh" "$r/scripts/"
     [ -f "${REPO}/scripts/walk_promote_scope.tsv" ] && cp "${REPO}/scripts/walk_promote_scope.tsv" "$r/scripts/"
@@ -139,8 +139,8 @@ fi
 EP() { echo "$1/scripts/early_repeat_fail_pass.sh"; }
 _ep() {   # tree, extra args
     local r="$1"; shift
-    : > "${r}/ran.txt"; : > "${r}/verdicts.txt"
-    ( cd "$r" && PATH="${BIN}:${PATH}" RAN_FILE="${r}/ran.txt" \
+    mkdir -p "${r}/store"; : > "${r}/ran.txt"; : > "${r}/verdicts.txt"
+    ( cd "$r" && PATH="${BIN}:${PATH}" RAN_FILE="${r}/ran.txt" OSTLER_WALK_STORE="${r}/store" \
         perl -e 'alarm 120; exec @ARGV' bash "$(EP "$r")" --host fake.invalid "$@" ) > "${r}/ep.txt" 2>&1
     return $?
 }
@@ -150,23 +150,23 @@ T="$(_stage b)"
 if [ ! -f "$(EP "$T")" ]; then
     bad "scripts/early_repeat_fail_pass.sh does not exist"
 else
-    rm -rf "$T/walks"
+    rm -rf "$T/store"
     _ep "$T"
     if grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && [ -z "$(_ran "$T")" ] && ! grep -q 'EARLY PASS RESULT: 0 repeat' "$T/ep.txt"; then
         ok "no walks dir: CANNOT-RUN (early), nothing ran"
     else bad "no walks dir: $(tail -n 4 "$T/ep.txt" | tr '\n' ' ')"; fi
-    mkdir -p "$T/walks"
+    mkdir -p "$T/store"
     _ep "$T"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && grep -q '0 files examined' "$T/ep.txt" \
         && ok "empty walks dir: CANNOT-RUN (early) with the denominator" || bad "empty walks dir: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
-    _ep "$T" --prev-record "$T/walks/v9.9.9.tsv"
+    _ep "$T" --prev-record "$T/store/v9.9.9-20260101T000000Z.tsv"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && grep -q 'missing or unreadable' "$T/ep.txt" \
         && ok "named record absent: CANNOT-RUN (early) names the file" || bad "absent record: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
-    printf 'version\tv9.9.9\n' > "$T/walks/v9.9.9.tsv"
+    printf 'version\tv9.9.9\nwalked_at\t2026-01-01T00:00:00Z\n' > "$T/store/v9.9.9-20260101T000000Z.tsv"
     _ep "$T"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && grep -q 'no verdict row' "$T/ep.txt" \
         && ok "a record with no verdict row: CANNOT-RUN (early)" || bad "no-verdict record: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
-    printf 'verdict\tFAILED\nfailed_probe_names_recorded\t0 of 0\n' > "$T/walks/v9.9.9.tsv"
+    printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t0 of 0\n' > "$T/store/v9.9.9-20260101T000000Z.tsv"
     _ep "$T"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && [ -z "$(_ran "$T")" ] \
         && ok "FAILED verdict naming no probe: CANNOT-RUN (early), not an empty pass" || bad "FAILED, no names: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
@@ -178,14 +178,14 @@ if [ ! -f "$(EP "$T")" ]; then
     bad "scripts/early_repeat_fail_pass.sh does not exist"
 else
     # older record must be ignored in favour of the newest by VERSION sort
-    printf 'verdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tbeta_probe\n' > "$T/walks/v1.0.9.tsv"
-    printf 'verdict\tFAILED\nfailed_probe_names_recorded\t3 of 4\nfailed_probe\talpha_probe\nfailed_probe\tassistant_answers_grounded\nfailed_probe\tsome_phase2_row\n' > "$T/walks/v1.0.10.tsv"
+    printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tbeta_probe\n' > "$T/store/v1.0.10-20260101T000000Z.tsv"
+    printf 'walked_at\t2026-02-01T00:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t3 of 4\nfailed_probe\talpha_probe\nfailed_probe\tassistant_answers_grounded\nfailed_probe\tsome_phase2_row\n' > "$T/store/v1.0.9-20260201T000000Z.tsv"
     VF="${T}/verdicts-canary.txt"; : > "$VF"
     rm -f "${WORK}/ssh_called"   # earlier arms ran FULL walks, which do ssh the in-use check
-    ( cd "$T" && PATH="${BIN}:${PATH}" RAN_FILE="${T}/ran.txt" OSTLER_PHASE1_VERDICTS="$VF" \
+    ( cd "$T" && PATH="${BIN}:${PATH}" RAN_FILE="${T}/ran.txt" OSTLER_PHASE1_VERDICTS="$VF" OSTLER_WALK_STORE="${T}/store" \
         perl -e 'alarm 120; exec @ARGV' bash "$(EP "$T")" --host fake.invalid ) > "${T}/ep.txt" 2>&1
     # control that the early pass really ran the probe: alpha ran, once
-    [ "$(_ran "$T")" = "alpha_probe" ] && ok "only the runnable previous failure ran (alpha_probe; v1.0.10 beat v1.0.9 by version sort)" \
+    [ "$(_ran "$T")" = "alpha_probe" ] && ok "only the runnable previous failure ran (alpha_probe; the newer STAMP won though its version sorts lower)" \
         || bad "ran: '$(_ran "$T")'"
     grep -q 'EARLY FAIL alpha_probe: REPEAT FAILURE' "$T/ep.txt" && ok "a repeat failure is reported as EARLY FAIL" || bad "no EARLY FAIL line"
     grep -q 'CANNOT-RUN (early) assistant_answers_grounded: seed-dependent' "$T/ep.txt" && ok "seed-dependent probe is CANNOT-RUN (early), not run" || bad "seed-dependent not refused"
@@ -200,7 +200,7 @@ else
     [ -e "${WORK}/ssh_called" ] && bad "something shelled out to the box over ssh" || ok "nothing shelled out over ssh (stub probes only)"
     # The early pass uses its own verdicts file; the caller's must not be written.
     [ ! -s "$VF" ] && ok "the caller's OSTLER_PHASE1_VERDICTS file stayed empty (nothing reaches a record)" || bad "caller's verdicts file was written"
-    [ -z "$(ls "$T/walks" | grep -v -E '^v1\.0\.(9|10)\.tsv$')" ] && ok "no walks/ file was written" || bad "walks/ gained a file"
+    [ -z "$(ls "$T/store" | grep -v -E '^v1\.0\.(9|10)-')" ] && ok "no walks/ file was written" || bad "walks/ gained a file"
     # POSITIVE CONTROL for the sentinels: the same tree, full run, writes them all.
     _runner "$T"
     n=0; for w in grounding preference owner convcap conversation usage scale wiki_wait wiki_resync; do [ -e "${WORK}/sent-c/${w}" ] && n=$((n+1)); done
@@ -209,6 +209,49 @@ else
     T2="$(_stage c2)"
     _runner "$T2" --read-only --only alpha_probe
     [ ! -e "${WORK}/sent-c2/wiki_resync" ] && ok "--read-only no longer runs wiki_baseline_resync" || bad "--read-only still kickstarts the wiki recompile (wiki_baseline_resync ran)"
+fi
+
+printf -- '--- E: a fresh clone reads the operator walk store, not the checkout walks/ ---\n'
+T="$(_stage e)"
+if [ ! -f "$(EP "$T")" ]; then
+    bad "scripts/early_repeat_fail_pass.sh does not exist"
+else
+    # The fresh clone: walks/ holds an OLD build's FAILED record naming alpha_probe.
+    printf 'walked_at\t2026-09-30T16:20:37Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\talpha_probe\n' > "$T/walks/v1.0.106.tsv"
+    # The store holds the walk that actually just happened, naming beta_probe.
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tbeta_probe\n' > "$T/store/v1.0.107-20261010T080000Z.tsv"
+    : > "$T/store/v1.0.107-20261010T075900Z.log"      # older than the record: fine
+    _ep "$T"
+    [ "$(_ran "$T")" = "beta_probe" ] && ok "re-checked the STORE's failure (beta_probe), not the stale repo record's (alpha_probe)" \
+        || bad "fresh-clone fixture ran: '$(_ran "$T")' (alpha_probe here means the stale checkout record was read)"
+    grep -q 'v1.0.107-20261010T080000Z.tsv' "$T/ep.txt" && ok "names the store record it read" || bad "does not name the store record"
+    # Staleness: a walk ran after the record and left none.
+    : > "$T/store/v1.0.107-20261011T010203Z.log"
+    _ep "$T"
+    if [ -z "$(_ran "$T")" ] && grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && grep -q '20261011T010203Z' "$T/ep.txt" && grep -q '20261010T080000Z' "$T/ep.txt"; then
+        ok "a newer walk log than the record: CANNOT-RUN (early), both stamps named, nothing ran"
+    else bad "stale record not refused: ran='$(_ran "$T")' $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"; fi
+    rm -rf "$T/store"; mkdir -p "$T/store"
+    _ep "$T"
+    [ -z "$(_ran "$T")" ] && grep -q 'CANNOT-RUN (early)' "$T/ep.txt" \
+        && ok "empty store with a populated checkout walks/: CANNOT-RUN (early), no fallback to the checkout" || bad "fell back to the checkout record"
+fi
+
+printf -- '--- F: record_walk.sh copies each record into the walk store ---\n'
+R="${WORK}/f"; mkdir -p "$R/rec" "$R/store"
+cat > "$R/qa.sh" <<QAEOF
+#!/bin/sh
+printf 'version\t%s\nwalked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\n' "\$2" > "$R/rec/\$2.tsv"
+exit 1
+QAEOF
+chmod +x "$R/qa.sh"
+( cd "$R" && OSTLER_POST_WALK_QA="$R/qa.sh" OSTLER_WALK_RECORD_DIR="$R/rec" OSTLER_WALK_STORE="$R/store" \
+    bash "${REPO}/scripts/record_walk.sh" --host fake.invalid --version v9.9.9 --walk-verdict 1 ) > "$R/out.txt" 2>&1
+n="$(ls "$R/store" | grep -c -E '^v9\.9\.9-[0-9]{8}T[0-9]{6}Z\.tsv$')"
+if [ "$n" -eq 1 ] && cmp -s "$R/rec/v9.9.9.tsv" "$R/store/"v9.9.9-*.tsv; then
+    ok "record_walk.sh copied the record to the store byte-for-byte"
+else
+    bad "no store copy (matching files: ${n}): $(tail -n 3 "$R/out.txt" | tr '\n' ' ')"
 fi
 
 printf -- '--- D: the full walk is unchanged and not wired to the early pass ---\n'

@@ -13,8 +13,18 @@
 # follows is unchanged. Exit status is informational: 0 always, except 2 for a
 # usage error. ttywalk.sh must not fold it into WALK_VERDICT.
 #
-# WHERE THE PREVIOUS FAILURES COME FROM: the newest walks/v*.tsv (version
-# sort). Its `failed_probe` rows are the names; `failed_probe_names_recorded`
+# WHERE THE PREVIOUS FAILURES COME FROM: the newest record in the OPERATOR'S
+# walk store, ~/.ostler/walks/<ver>-<stamp>.tsv (record_walk.sh copies every
+# record there; OSTLER_WALK_STORE or --walks-dir overrides). NOT the repo's
+# walks/: records are written into the walking checkout and never committed, so
+# a fresh clone holds some older build's record and would re-check stale
+# failures. The store persists across clones, like the walk logs beside it.
+# Newest is by the <stamp> in the filename, never by version.
+#
+# STALENESS: if the newest ~/.ostler/walks/*.log is newer than that record's
+# walked_at, a walk ran after it and left no record, so the record is not "the
+# previous walk". That is CANNOT-RUN (early), naming both stamps.
+# Its `failed_probe` rows are the names; `failed_probe_names_recorded`
 # says "N of M", and the M-N unnamed ones are reported, not dropped.
 #
 # THREE OUTCOMES PER PROBE, never two:
@@ -40,7 +50,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
 HOST=""
-WALKS_DIR="${REPO_ROOT}/walks"
+WALKS_DIR="${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}"
 PREV_RECORD=""
 RUNNER="${HERE}/box_walk_probes/run_box_walk.sh"
 BUDGET_S="${OSTLER_EARLY_PASS_BUDGET_S:-900}"
@@ -72,15 +82,42 @@ cannot_all() {  # $1 = reason
 
 # -- 1. find the previous walk's evidence file ------------------------------
 if [ -z "$PREV_RECORD" ]; then
-    [ -d "$WALKS_DIR" ] || cannot_all "no walks directory at ${WALKS_DIR}"
-    PREV_RECORD=""
-    for f in $(ls "$WALKS_DIR" 2>/dev/null | grep -E '^v?[0-9]+(\.[0-9]+)*\.tsv$' | sort -V); do
-        PREV_RECORD="${WALKS_DIR}/${f}"   # last one wins = newest version
+    [ -d "$WALKS_DIR" ] || cannot_all "no walk store at ${WALKS_DIR}"
+    PREV_RECORD=""; _best=""
+    for f in "$WALKS_DIR"/*.tsv; do
+        [ -f "$f" ] || continue
+        _b="$(basename "$f" .tsv)"
+        _st="${_b##*-}"
+        case "$_st" in
+            [0-9]*T[0-9]*Z) ;;
+            *) continue ;;
+        esac
+        if [ -z "$_best" ] || [ "$_st" \> "$_best" ]; then _best="$_st"; PREV_RECORD="$f"; fi
     done
-    [ -n "$PREV_RECORD" ] || cannot_all "no walks/v*.tsv record in ${WALKS_DIR} (0 files examined)"
+    [ -n "$PREV_RECORD" ] || cannot_all "no <ver>-<stamp>.tsv record in ${WALKS_DIR} (0 files examined; the first walk after record_walk.sh started copying records leaves none yet)"
 fi
 [ -f "$PREV_RECORD" ] && [ -r "$PREV_RECORD" ] || cannot_all "previous walk record is missing or unreadable: ${PREV_RECORD}"
 say "previous walk record: ${PREV_RECORD}"
+
+# -- 1b. is this record really the previous walk? ----------------------------
+WALKED_AT="$(awk -F'\t' '$1=="walked_at"{print $2; exit}' "$PREV_RECORD")"
+REC_STAMP="$(printf '%s' "$WALKED_AT" | tr -d ':-')"
+case "$REC_STAMP" in
+    [0-9]*T[0-9]*Z) ;;
+    *) cannot_all "${PREV_RECORD} has no readable walked_at (got '${WALKED_AT}'), so it cannot be ordered against the walk logs" ;;
+esac
+NEWEST_LOG=""; NLOGS=0
+for f in "$WALKS_DIR"/*.log; do
+    [ -f "$f" ] || continue
+    NLOGS=$((NLOGS + 1))
+    _b="$(basename "$f" .log)"; _st="${_b##*-}"
+    case "$_st" in [0-9]*T[0-9]*Z) ;; *) continue ;; esac
+    if [ -z "$NEWEST_LOG" ] || [ "$_st" \> "$NEWEST_LOG" ]; then NEWEST_LOG="$_st"; fi
+done
+say "record walked_at: ${REC_STAMP}; newest walk log: ${NEWEST_LOG:-<none>} (${NLOGS} logs examined)"
+if [ -n "$NEWEST_LOG" ] && [ "$NEWEST_LOG" \> "$REC_STAMP" ]; then
+    cannot_all "a walk ran after the newest record and left none: newest walk log ${NEWEST_LOG} is newer than ${PREV_RECORD##*/} walked_at ${REC_STAMP}. Its failures are unknown."
+fi
 
 VERDICT="$(awk -F'\t' '$1=="verdict"{print $2; exit}' "$PREV_RECORD")"
 NAMES_REC="$(awk -F'\t' '$1=="failed_probe_names_recorded"{print $2; exit}' "$PREV_RECORD")"
