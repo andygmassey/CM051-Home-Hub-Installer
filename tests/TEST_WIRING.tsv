@@ -889,6 +889,7 @@ scripts/tests/test_regenerate_divergence_patch.sh	WIRED	.github/workflows/vendor
 scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile
 scripts/tests/test_run_box_walk_records_phase1_verdicts.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secrets-dir-mode.yml
+scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_verify_app_provenance.sh	WIRED	gui/Makefile
