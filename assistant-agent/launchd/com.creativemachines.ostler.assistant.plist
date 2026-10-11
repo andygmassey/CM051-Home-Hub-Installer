@@ -173,14 +173,21 @@
             a customer Mac). Proven live on the .153 box: at ctx 4096 the
             agent prompt returns empty; at 32768 it returns a real reply.
             KEEP_ALIVE pins the model resident so it does not cold-reload
-            between turns. These are fixed product constants (not
+            between turns. It is -1m (forever), matching the Ollama server's
+            OLLAMA_KEEP_ALIVE=-1: the daemon stamps it on every request, and
+            30m let the chat model expire on a quiet box, which is the cold
+            start that starved chat on walk #19. It MUST carry a unit: the
+            daemon sends it as a JSON string, and Ollama parses a string
+            with time.ParseDuration, which rejects a bare "-1" ("missing
+            unit in duration") and so fails every chat request. Measured
+            on Ollama 0.30.11. These are fixed product constants (not
             customer-variable), so they are hard-coded here rather than
             rendered by INSTALL_SNIPPET.
         -->
         <key>OLLAMA_NUM_CTX</key>
         <string>32768</string>
         <key>OLLAMA_KEEP_ALIVE</key>
-        <string>30m</string>
+        <string>-1m</string>
     </dict>
 
     <!--
