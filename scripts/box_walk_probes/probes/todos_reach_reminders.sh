@@ -71,7 +71,7 @@ import json,sys
 f=json.load(open(sys.argv[1]))
 try: f['cleanup']=json.loads(open(sys.argv[2]).read().strip().splitlines()[-1])
 except Exception: pass
-json.dump(f,open(sys.argv[1],'w'))" "${facts}" "${forgot}" 2>/dev/null
+json.dump(f,open(sys.argv[1],'w'))" "${facts}" "${forgot}"
     out="$(python3 "${_HERE}/lib/todo_reminders_probe.py" judge "${facts}")"; rc=$?
     rm -f "${facts}" "${forgot}"
     printf '%s\n' "${out}"

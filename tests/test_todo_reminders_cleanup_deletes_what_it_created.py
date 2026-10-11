@@ -81,9 +81,21 @@ check("judge: no forget output is CANNOT-RUN", [ok for n, ok, _ in probe.judge({
 d = [d for n, ok, d in probe.judge(dict(good, cleanup={"calendar_item_identifier": ID, "expected_title": "Follow up on conversation", "reminder": {"state": "blocked_tcc"}})) if n == probe.DECLARED[3]][0]
 check("judge: the CANNOT-RUN names the id and the title", ID in d and "Follow up on conversation" in d)
 
+# FAIL dominates: assertions 1-3 FAIL + cleanup blocked_tcc must exit FAIL (1), not CANNOT-RUN (78)
+import contextlib, io
+bad = dict(good, push={"status": "failed", "waited_s": 5}, readback={},
+           cleanup={"calendar_item_identifier": ID, "reminder": {"state": "blocked_tcc"}})
+with contextlib.redirect_stdout(io.StringIO()):
+    rc = probe.report(probe.judge(bad))
+check("a FAIL plus a TCC-blocked cleanup exits FAIL (1), not CANNOT-RUN (78); rc={}".format(rc), rc == probe.EX_FAIL)
+with contextlib.redirect_stdout(io.StringIO()):
+    rc = probe.report(probe.judge(dict(good, cleanup={"calendar_item_identifier": ID, "reminder": {"state": "blocked_tcc"}})))
+check("a TCC-blocked cleanup alone exits CANNOT-RUN (78); rc={}".format(rc), rc == probe.EX_CANNOT)
+
 # the probe wiring: forget's output must reach the judge
 sh = open(os.path.join(os.path.dirname(LIB), "probes", "todos_reach_reminders.sh")).read()
 check("probe folds the forget output into the judged facts", "f['cleanup']" in sh)
+check("the fold lets its stderr through", '"${facts}" "${forgot}" 2>/dev/null' not in sh)
 
 print("FAIL: " + "; ".join(fails) if fails else "PASS")
 sys.exit(1 if fails else 0)
