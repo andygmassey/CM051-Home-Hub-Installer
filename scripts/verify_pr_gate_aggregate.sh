@@ -138,10 +138,21 @@
 #   OSTLER_GATE_SELF_WORKFLOW_FILE   basename excluded from the floor scan.
 #                                    Default: ci-required-gate.yml
 #   OSTLER_GATE_POLL_INTERVAL_SECONDS  default 20
-#   OSTLER_GATE_MAX_WAIT_SECONDS        default 2700 (45 min; the job's own
-#                                    timeout-minutes is 60, leaving headroom
-#                                    for this script to report CANNOT-RUN
-#                                    rather than being killed mid-poll)
+#   OSTLER_GATE_MAX_WAIT_SECONDS        default 2700 (45 min). An IDLE window,
+#                                    not a total: the clock restarts whenever
+#                                    any check changes state (queued ->
+#                                    started -> completed). Added after
+#                                    probe-tests queued ~17 min then ran ~31
+#                                    min and a total budget gave up (CANNOT-RUN)
+#                                    on every PR that triggers it (PR #2799,
+#                                    twice). A queue wait is not a hang.
+#   OSTLER_GATE_HARD_CAP_SECONDS        default 4500 (75 min). Absolute ceiling
+#                                    from the first poll, so a check that
+#                                    flaps state forever still ends in
+#                                    CANNOT-RUN. The job's timeout-minutes
+#                                    (85) must stay above this so the script
+#                                    reports CANNOT-RUN rather than being
+#                                    killed mid-poll and reporting nothing.
 #   OSTLER_CHECKRUNS_JSON            test-mode: one fixture, used every poll
 #   OSTLER_CHECKRUNS_JSON_SEQUENCE   test-mode: colon-separated fixtures, one
 #                                    consumed per poll attempt (repeats the
@@ -472,6 +483,7 @@ poll_and_decide() {
     own="${OSTLER_GATE_OWN_JOB_NAMES:-CI Required Gate,cut,preflight,dry-run}"
     interval="${OSTLER_GATE_POLL_INTERVAL_SECONDS:-20}"
     max_wait="${OSTLER_GATE_MAX_WAIT_SECONDS:-2700}"
+    hard_cap="${OSTLER_GATE_HARD_CAP_SECONDS:-4500}"
 
     floor="$(resolve_floor)"
     if [ "$floor" = "CANNOT-RUN-FLOOR" ] || ! [[ "$floor" =~ ^[0-9]+$ ]]; then
@@ -483,7 +495,9 @@ poll_and_decide() {
     dim "polling check-runs for ${sha:0:12} in $repo -- floor=${floor}, excluding: ${own}"
 
     local start now elapsed attempt=0 tmp state subverdict total completed excluded detail fetch_rc
+    local last_progress sig last_sig="" idle
     start=$(date +%s)
+    last_progress=$start
     while true; do
         attempt=$((attempt + 1))
         tmp="$(mktemp)"
@@ -499,6 +513,22 @@ poll_and_decide() {
             IFS=$'\t' read -r state subverdict total completed excluded detail < <(
                 OSTLER_GATE_FLOOR_RESOLVED="$floor" OSTLER_GATE_OWN_JOB_NAMES="$own" evaluate "$tmp")
         fi
+        # Progress = the (name,status) set changed since the last good read.
+        # An unreadable or unparseable payload yields an empty signature and
+        # is never progress, so a dead API cannot extend the window.
+        if [ "$fetch_rc" -eq 0 ]; then
+            sig="$(python3 -c '
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+    print("|".join(sorted("%s:%s" % (r.get("name"), r.get("status")) for r in d.get("check_runs", []))))
+except Exception:
+    pass' "$tmp" 2>/dev/null)"
+            if [ -n "$sig" ] && [ "$sig" != "$last_sig" ]; then
+                last_sig="$sig"; last_progress=$now
+            fi
+        fi
+        idle=$((now - last_progress))
         rm -f "$tmp" "$tmp.err" 2>/dev/null
 
         dim "  [poll ${attempt}, ${elapsed}s elapsed] EXAMINED ${total} non-self check-run(s) (${completed} completed, ${excluded} excluded as self) -- ${detail}"
@@ -507,9 +537,14 @@ poll_and_decide() {
             break
         fi
 
-        if [ "$elapsed" -ge "$max_wait" ]; then
+        if [ "$idle" -ge "$max_wait" ]; then
             state="DONE"; subverdict="CANNOT-RUN"
-            detail="timed out after ${elapsed}s still waiting (last look: ${detail})"
+            detail="timed out after ${elapsed}s (${idle}s with no check changing state) still waiting (last look: ${detail})"
+            break
+        fi
+        if [ "$elapsed" -ge "$hard_cap" ]; then
+            state="DONE"; subverdict="CANNOT-RUN"
+            detail="timed out at the ${hard_cap}s hard cap after ${elapsed}s, still waiting (last look: ${detail})"
             break
         fi
 
@@ -703,6 +738,34 @@ if [ "${1:-}" = "--self-test" ]; then
     else
         note "FAIL  rc=$rc want=0  the second poll's clean result was not picked up"; fail=1
     fi
+
+    echo "=== the wait window restarts on progress (probe-tests queued 17m, ran 31m) ==="
+    # Same polls, state advances every 2 polls: total elapsed (~5s) exceeds the
+    # 3s idle window, no single quiet stretch does. Must PASS.
+    (
+        OSTLER_CHECKRUNS_JSON_SEQUENCE="$TMP/allqueued3.json:$TMP/allqueued3.json:$TMP/allstarted3.json:$TMP/allstarted3.json:$TMP/green3.json" \
+        OSTLER_GATE_FLOOR=3 OSTLER_GATE_MAX_WAIT_SECONDS=3 OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
+        poll_and_decide deadbeefdeadbeef owner/repo
+    ) >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then note "PASS  rc=$rc  late-start check finishing inside a restarted window passes"; else note "FAIL  rc=$rc want=0  late-start check"; fail=1; fi
+    # CONTROL: stuck in_progress, no change, longer than the idle window -> CANNOT-RUN (2).
+    (
+        OSTLER_CHECKRUNS_JSON_SEQUENCE="$TMP/allqueued3.json:$TMP/allstarted3.json" \
+        OSTLER_GATE_FLOOR=3 OSTLER_GATE_MAX_WAIT_SECONDS=3 OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
+        poll_and_decide deadbeefdeadbeef owner/repo
+    ) >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 2 ]; then note "PASS  rc=$rc  a check stuck past the idle window is CANNOT-RUN"; else note "FAIL  rc=$rc want=2  stuck check"; fail=1; fi
+    # HARD CAP: never settles; idle window huge, cap must end it. Uses the
+    # one-state fixture so the cap (not a state flap) is what trips.
+    (
+        OSTLER_CHECKRUNS_JSON="$TMP/allstarted3.json" \
+        OSTLER_GATE_FLOOR=3 OSTLER_GATE_MAX_WAIT_SECONDS=100 OSTLER_GATE_HARD_CAP_SECONDS=3 \
+        OSTLER_GATE_POLL_INTERVAL_SECONDS=1 poll_and_decide deadbeefdeadbeef owner/repo
+    ) >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 2 ]; then note "PASS  rc=$rc  hard cap ends a never-settling gate as CANNOT-RUN"; else note "FAIL  rc=$rc want=2  hard cap"; fail=1; fi
 
     echo "=== a superseded attempt must not outvote the one that replaced it ==="
     # The CM051 #1937 shape: one name has TWO check-run objects on the same
