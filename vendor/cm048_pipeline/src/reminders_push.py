@@ -325,6 +325,30 @@ def _people_rules_candidates() -> list[Path]:
     return seen
 
 
+REMINDERS_LOG_NAME = "cm048-reminders.err"
+
+
+def _append_reminders_log(message: str) -> Optional[Path]:
+    """Append one line to ``<ostler>/logs/cm048-reminders.err``.
+
+    cm048 has no LaunchAgent of its own: ``pwg-convo`` is a CLI run by
+    ical-server (which CAPTURES its stderr) and by the bundle ticks (each its
+    own .err), so a bare ``log.error`` lands in no single, findable file. This
+    is the one stable place, named like the other per-component logs
+    (``~/.ostler/logs/<name>.err``). Never raises.
+    """
+    try:
+        d = ostler_paths.ostler_root() / "logs"
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / REMINDERS_LOG_NAME
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("%s ERROR %s\n" % (stamp, message))
+        return path
+    except Exception:  # noqa: BLE001 -- a log must never break a push
+        return None
+
+
 def _load_people_rules():
     """Load people_rules.py (stdlib only; the single source ical-server.py
     also imports). Returns the module, or None.
@@ -1019,14 +1043,18 @@ def apply_push_status_to_todos(
         if unverifiable_rows:
             # ONE line per run, not per row. FAIL OPEN: these todos WERE
             # pushed, without the organisation filter, and flagged.
-            log.error(
+            msg = (
                 "reminders_push: %d todo(s) pushed WITHOUT the organisation "
                 "filter (flag=%s): the People rules (people_rules.py) could "
                 "not be loaded, so banks and automated senders may get "
-                "reminders. Tried: %s. Set OSTLER_PEOPLE_RULES_PATH to fix.",
-                unverifiable_rows, FLAG_ORG_FILTER_UNAVAILABLE,
-                "; ".join(_PEOPLE_TRY_LOG) or "(no candidate paths)",
+                "reminders. Tried: %s. Set OSTLER_PEOPLE_RULES_PATH to fix."
+                % (
+                    unverifiable_rows, FLAG_ORG_FILTER_UNAVAILABLE,
+                    "; ".join(_PEOPLE_TRY_LOG) or "(no candidate paths)",
+                )
             )
+            log.error("%s", msg)
+            _append_reminders_log(msg)
         return tuple(out)
     finally:
         conn.close()

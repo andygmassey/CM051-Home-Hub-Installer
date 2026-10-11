@@ -29,7 +29,10 @@ STORE = {
 
 
 @pytest.fixture(autouse=True)
-def _store(monkeypatch):
+def _store(monkeypatch, tmp_path):
+    # the fail-open path writes <ostler>/logs/cm048-reminders.err: keep it
+    # out of the developer's (or CI runner's) real ~/.ostler
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "ostler"))
     monkeypatch.setattr(reminders_push, "_people_store_record", lambda h: STORE.get(h))
 
 

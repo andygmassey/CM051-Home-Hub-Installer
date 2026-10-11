@@ -100,7 +100,7 @@ def test_behaviour_is_unchanged_by_the_move_for_every_golden_row():
         got = m._is_non_human_person(payload, name) if phones is None else m._is_non_human_person(payload, name, phones, emails)
         assert got == want, (name, payload, phones, emails)
         checked += 1
-    assert checked > 1000
+    assert checked > 1000, checked
     assert any(r[-1] for r in GOLDEN["nonhuman"]) and any(not r[-1] for r in GOLDEN["nonhuman"])
 
 
@@ -119,3 +119,38 @@ def test_ical_server_re_exports_the_same_functions():
 
     for n in ("_is_nameless_name", "_is_non_human_person", "_is_automated_or_service_name"):
         assert getattr(srv, n) is getattr(pr, n), n
+
+
+def test_the_golden_table_still_reaches_every_branch_it_used_to():
+    """Anti-shrink: the replay must execute at least as many lines of
+    people_rules.py as the table it replaced (147), so thinning the table
+    cannot quietly stop it pinning a branch."""
+    m = _load_rules()
+    hit = set()
+    fn = str(RULES)
+
+    def tr(frame, ev, arg):
+        if frame.f_code.co_filename != fn:
+            return None
+
+        def lt(f, e, a):
+            if e == "line":
+                hit.add(f.f_lineno)
+            return lt
+
+        hit.add(frame.f_lineno)
+        return lt
+
+    sys.settrace(tr)
+    try:
+        for f, rows in GOLDEN["single"].items():
+            for name, _ in rows:
+                getattr(m, f)(name)
+        for name, payload, phones, emails, _ in GOLDEN["nonhuman"]:
+            if phones is None:
+                m._is_non_human_person(payload, name)
+            else:
+                m._is_non_human_person(payload, name, phones, emails)
+    finally:
+        sys.settrace(None)
+    assert len(hit) >= 150, len(hit)

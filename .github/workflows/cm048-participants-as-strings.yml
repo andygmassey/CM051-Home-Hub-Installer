@@ -166,8 +166,8 @@ jobs:
         run: |
           n="$(python -m pytest tests/test_cm048_reminder_push_people_rules_installed_layout.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 5 ]; then
-            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 8 ]; then
+            echo "REFUSING: expected at least 8 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_people_rules_installed_layout.py -v
@@ -176,8 +176,8 @@ jobs:
         run: |
           n="$(python -m pytest tests/test_people_rules_is_stdlib_only.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 6 ]; then
-            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_people_rules_is_stdlib_only.py -v

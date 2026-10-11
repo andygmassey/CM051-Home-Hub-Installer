@@ -194,3 +194,58 @@ def test_ical_server_resolves_the_same_shared_dir_install_sh_creates(installed):
     assert Path(got) == home / ".ostler" / "services" / "shared"
     assert (Path(got) / "people_rules.py").is_file()
     assert not (ical_py.parent / "people_rules.py").exists()
+
+
+APPLY_SCRIPT = textwrap.dedent(
+    """
+    import sys
+    from pathlib import Path
+    from src import reminders_push as rp
+    from src.conversation_writer import ConversationBundle, ConversationSummary, Todo
+
+    def todo(i):
+        return Todo(id=i, text="send the synthetic draft", owner="user", deadline=None)
+
+    b = ConversationBundle(
+        conversation_id="c", source_kind="channel", source_subtype="imessage",
+        source_session_id="s", channel="im", participants=("user", "Jane Doe"),
+        started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+        summary=ConversationSummary(overall="x", topics=()), transcript="x",
+        privacy_level="L2")
+    rp.apply_push_status_to_todos((todo("t1"), todo("t2")), b, summary_path=Path("/tmp/s.md"),
+                                  user_id="user", db_path=Path(sys.argv[1]))
+    """
+)
+
+
+def test_the_fail_open_error_lands_in_the_known_log_file(installed):
+    """The pipeline has no LaunchAgent of its own (ical-server captures the
+    CLI's stderr), so the loud line must be written to a known file:
+    <ostler>/logs/cm048-reminders.err, with the flagged-row count."""
+    home, ical_py, site = installed
+    shutil.rmtree(home / ".ostler" / "services" / "shared")
+    r = _run(APPLY_SCRIPT, [str(home / "m.db")], home, site)
+    assert r.returncode == 0, r.stderr[-800:]
+    log_file = home / ".ostler" / "logs" / "cm048-reminders.err"
+    text = log_file.read_text()
+    assert text.count("WITHOUT the organisation filter") == 1, text  # one per run, not per row
+    assert "org_filter_unavailable" in text and "1 todo(s)" in text
+    assert "people_rules.py: no such file" in text
+
+
+def test_no_log_line_when_the_rules_load(installed):
+    home, ical_py, site = installed
+    r = _run(APPLY_SCRIPT, [str(home / "m.db")], home, site)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert not (home / ".ostler" / "logs" / "cm048-reminders.err").exists()
+
+
+def test_the_log_follows_an_overridden_ostler_dir(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    custom = tmp_path / "elsewhere"
+    ical_py, site = _lay_out(custom, shared=False)
+    r = _run(APPLY_SCRIPT, [str(home / "m.db")], home, site, ostler_dir=custom)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert (custom / "logs" / "cm048-reminders.err").is_file()
+    assert not (home / ".ostler").exists()

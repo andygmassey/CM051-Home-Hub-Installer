@@ -187,7 +187,10 @@ Tree `cm048_pipeline`, files `vendor/cm048_pipeline/src/reminders_push.py` and
 - FAIL OPEN: if the rules cannot load, the todo is still pushed (title uses
   the name when one resolves), the row is flagged `org_filter_unavailable`
   (stored in `skip_reason` on a pending/pushed row), and the run logs ONE
-  ERROR naming every path tried. The organisation filter is a quality
+  ERROR naming every path tried, written to stderr AND appended to
+  `<ostler>/logs/cm048-reminders.err` (cm048 has no LaunchAgent of its own:
+  ical-server captures the CLI's stderr, the bundle ticks each have their
+  own .err, so the file is the one findable place). The organisation filter is a quality
   filter, not a privacy one. The `todos_reach_reminders` walk probe FAILs on
   any such row.
 
