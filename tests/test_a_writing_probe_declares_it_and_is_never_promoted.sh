@@ -13,6 +13,9 @@
 # lines stripped) contain a writing shape and that has neither the marker nor a
 # reviewed `# WALK_READ_ONLY: <why>` acknowledgement.
 #
+# Writes the lint cannot see through a plain shell word (a lib call that creates
+# a todo / reminder) are listed in SHAPES by the call's name.
+#
 # Each absence is paired with a control: the lint must flag an unmarked fixture
 # for EACH shape, and pass the same fixture once marked.
 #
@@ -28,7 +31,7 @@ ok()  { printf '  [PASS] %s\n' "$1"; PASS=$((PASS+1)); }
 bad() { printf '  [FAIL] %s\n' "$1"; FAIL=$((FAIL+1)); }
 
 # The writing shapes, matched on non-comment lines only.
-SHAPES='launchctl[[:space:]]+(kickstart|bootstrap|bootout|load|unload)|"kickstart"|-X[[:space:]]+(POST|PUT|PATCH|DELETE)|INSERT[[:space:]]+(DATA|INTO)|DELETE[[:space:]]+(WHERE|DATA|FROM)|companion_pair_box_snippet'
+SHAPES='launchctl[[:space:]]+(kickstart|bootstrap|bootout|load|unload)|"kickstart"|-X[[:space:]]+(POST|PUT|PATCH|DELETE)|INSERT[[:space:]]+(DATA|INTO)|DELETE[[:space:]]+(WHERE|DATA|FROM)|companion_pair_box_snippet|todo_reminders_box\.py|src\.conversation_writer|src\.reminders_push'
 
 # lint_file <file> -> 0 clean, 1 unmarked writer
 lint_file() {
@@ -49,7 +52,7 @@ done
 echo "--- lint control: it flags an unmarked fixture, per shape, and passes it once marked ---"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 i=0
-for shape in 'launchctl kickstart gui/501/x' 'curl -X POST http://h/p' 'INSERT DATA { }' 'DELETE WHERE { ?s ?p ?o }' 'companion_pair_box_snippet'; do
+for shape in 'launchctl kickstart gui/501/x' 'curl -X POST http://h/p' 'INSERT DATA { }' 'DELETE WHERE { ?s ?p ?o }' 'companion_pair_box_snippet' 'python3 lib/todo_reminders_box.py run' 'from src.conversation_writer import write'; do
     i=$((i+1)); f="$W/fx$i.sh"
     printf '#!/usr/bin/env bash\n# a comment mentioning launchctl kickstart is not a hit\nrun %s\n' "$shape" > "$f"
     if lint_file "$f"; then bad "lint MISSED an unmarked fixture: ${shape}"; else
@@ -61,7 +64,7 @@ printf '#!/usr/bin/env bash\n# launchctl kickstart in a comment only\necho hi\n'
 lint_file "$W/c.sh" && ok "a writing shape inside a comment alone is not a hit" || bad "comment-only mention was flagged"
 
 echo "--- the known writers are marked ---"
-for w in pairing_recovers_without_a_repair_storm people_stores_reconcile pair_endpoints_refuse_off_window; do
+for w in pairing_recovers_without_a_repair_storm people_stores_reconcile pair_endpoints_refuse_off_window todos_reach_reminders; do
     [ "$(grep -c '^# WALK_WRITES:' "$DIR/$w.sh")" -gt 0 ] && ok "$w declares WALK_WRITES" || bad "$w is not marked WALK_WRITES"
 done
 
@@ -72,7 +75,7 @@ PROBES="$(for f in "$DIR"/*.sh; do printf '%s\n' "$f"; done | LC_ALL=C sort | tr
 names_of() { for p in $1; do basename "$p" .sh; done; }
 BASE="$(names_of "$PROBES")"
 rest_of() { printf '%s\n' "$1" | grep -v -x -E "$2"; }
-for w in people_stores_reconcile pairing_recovers_without_a_repair_storm pair_endpoints_refuse_off_window; do
+for w in people_stores_reconcile pairing_recovers_without_a_repair_storm pair_endpoints_refuse_off_window todos_reach_reminders; do
     ORD="$(names_of "$(promote_order "$w")")"
     [ "$ORD" = "$BASE" ] && ok "promoting only ${w}: order identical to C-sorted (not moved)" || bad "${w} was moved"
 done
