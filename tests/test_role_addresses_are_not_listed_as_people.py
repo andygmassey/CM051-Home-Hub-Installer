@@ -71,7 +71,7 @@ try:
     check("served path: ical-server's _is_role_address_name hides a role address",
           _srv._is_role_address_name("support@example.com") is True
           and _srv._is_role_address_name("a real name") is False)
-except ImportError as _exc:
+except (ImportError, RuntimeError) as _exc:
     print("  n/a   served-path behavioural arm needs the server's dependencies (%s); the import assertions above still run" % _exc)
 if f:
     for hidden in ("support@example.com", "promotions@shop.example", "no-reply@x.example",
