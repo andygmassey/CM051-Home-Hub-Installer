@@ -286,53 +286,176 @@ _ICAL_TRIED = False
 
 
 def _ical_server_candidates() -> list[Path]:
+    """Where ical-server.py (the owner of the People list rules) can be.
+
+    INSTALLED layout (install.sh): ical-server is copied to
+    ``<ostler>/services/ical-server/ical-server.py`` (``ICAL_SERVER_DIR``)
+    and cm048 is ``pip install``ed (NOT editable) into
+    ``<ostler>/services/cm048/.venv``, so this module runs from
+    ``.venv/lib/python3.X/site-packages/src/`` and ``Path(__file__)`` says
+    nothing about where the services live. The installed path is therefore
+    built from ``ostler_paths.ostler_root()``, never from ``__file__``.
+    The ``__file__``-relative paths remain for a repo checkout (dev, CI).
+    """
     import os
 
-    here = Path(__file__).resolve()
     out: list[Path] = []
     env = os.environ.get("OSTLER_ICAL_SERVER_PATH")
     if env:
         out.append(Path(env))
-    services = here.parents[2]  # <...>/services (installed) or vendor (repo)
-    out.append(services / "ical-server" / "ical-server.py")
-    out.append(services / "cm041" / "assistant_api" / "ical-server.py")
-    return out
+    try:
+        out.append(ostler_paths.ostler_root() / "services" / "ical-server" / "ical-server.py")
+    except Exception:  # noqa: BLE001 -- no resolvable home
+        pass
+    here = Path(__file__).resolve()
+    if len(here.parents) > 2:
+        services = here.parents[2]  # repo: <repo>/vendor
+        out.append(services / "cm041" / "assistant_api" / "ical-server.py")
+        out.append(services / "ical-server" / "ical-server.py")
+    seen: list[Path] = []
+    for c in out:
+        if c not in seen:
+            seen.append(c)
+    return seen
+
+
+# The People list rules reminders_push needs, by name in ical-server.py.
+_PEOPLE_RULE_NAMES = (
+    "_looks_like_bare_email_or_phone",
+    "_is_nameless_name",
+    "_is_role_address_name",
+    "_is_organisation_name",
+    "_is_automated_or_service_name",
+    "_is_service_mailbox_name",
+    "_is_non_human_person",
+)
+# Imports a rule may use. Anything else in a rule's closure (ostler_security,
+# pwg_privacy, identity_resolver, ...) means the rule is not self-contained
+# and we refuse rather than guess.
+_PEOPLE_RULE_ALLOWED_IMPORTS = frozenset(
+    {"re", "os", "unicodedata", "string", "json", "math", "functools"}
+)
+
+
+def _extract_people_rules(source: str, filename: str):
+    """Build a namespace holding ONLY the People list rules from the text of
+    ical-server.py, with their transitive module-level dependencies.
+
+    ical-server.py is a server: importing it pulls ostler_security,
+    pwg_privacy, identity_resolver and more, none of which exist in cm048's
+    own venv. The rules themselves are plain functions and compiled regexes,
+    so the source of truth stays ical-server.py (nothing is copied) and only
+    the definitions the rules reach are executed. Raises ``ValueError`` when
+    a rule is missing, reaches a non-stdlib import, or fails a smoke call.
+    """
+    import ast
+    import types
+
+    tree = ast.parse(source, filename=filename)
+    defs: dict[str, ast.stmt] = {}
+    imports: dict[str, ast.stmt] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defs[node.name] = node
+        elif isinstance(node, ast.Assign):
+            for t in node.targets:
+                for n in ast.walk(t):
+                    if isinstance(n, ast.Name):
+                        defs[n.id] = node
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defs[node.target.id] = node
+        elif isinstance(node, ast.Import):
+            for al in node.names:
+                imports[(al.asname or al.name).split(".")[0]] = node
+        elif isinstance(node, ast.ImportFrom):
+            for al in node.names:
+                imports[al.asname or al.name] = node
+
+    missing = [n for n in _PEOPLE_RULE_NAMES if n not in defs]
+    if missing:
+        raise ValueError("rules not found in ical-server.py: %s" % ", ".join(missing))
+
+    wanted: dict[int, ast.stmt] = {}
+    need_imports: dict[int, ast.stmt] = {}
+    queue = list(_PEOPLE_RULE_NAMES)
+    seen: set[str] = set()
+    while queue:
+        name = queue.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        if name in defs:
+            node = defs[name]
+            wanted[id(node)] = node
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Name) and sub.id not in seen:
+                    queue.append(sub.id)
+        elif name in imports:
+            node = imports[name]
+            mods = (
+                [al.name for al in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+            )
+            for m in mods:
+                if m.split(".")[0] not in _PEOPLE_RULE_ALLOWED_IMPORTS:
+                    raise ValueError(
+                        "a People rule reaches the non-stdlib import %r" % m
+                    )
+            need_imports[id(node)] = node
+
+    ordered = sorted(
+        list(need_imports.values()) + list(wanted.values()),
+        key=lambda n: (n.lineno, n.col_offset),
+    )
+    module = ast.Module(body=ordered, type_ignores=[])
+    ast.fix_missing_locations(module)
+    ns: dict = {"__name__": "_ostler_people_rules"}
+    exec(compile(module, filename, "exec"), ns)  # noqa: S102
+
+    # Smoke: every rule must RUN (a NameError for something the closure
+    # missed would otherwise surface per row, much later).
+    try:
+        ns["_looks_like_bare_email_or_phone"]("x")
+        ns["_is_nameless_name"]("Jane Doe")
+        ns["_is_role_address_name"]("Jane Doe")
+        ns["_is_organisation_name"]("Jane Doe")
+        ns["_is_automated_or_service_name"]("Jane Doe")
+        ns["_is_service_mailbox_name"]("Jane Doe")
+        ns["_is_non_human_person"]({}, "Jane Doe", [], [])
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("a People rule failed its smoke call: %r" % (exc,)) from exc
+    return types.SimpleNamespace(**{n: ns[n] for n in _PEOPLE_RULE_NAMES})
+
+
+# What the last load tried, for the one ERROR line: every path and why it
+# did not work. Empty when the rules loaded.
+_ICAL_TRY_LOG: list[str] = []
 
 
 def _load_ical_server():
-    """Import ical-server.py (the module that owns the People list rules).
+    """Load the People list rules from ical-server.py (the file that owns
+    them). Returns an object exposing the rule functions, or None.
 
-    Returns the module or None. NEVER silently treated as "is a person":
-    callers fail closed on None (see ``_record_verdict``).
+    NEVER silently treated as "is a person": callers fail closed on None.
     """
     global _ICAL_MODULE, _ICAL_TRIED
     if _ICAL_TRIED:
         return _ICAL_MODULE
     _ICAL_TRIED = True
-    import importlib.util
-    import sys
-
+    _ICAL_TRY_LOG.clear()
     for cand in _ical_server_candidates():
         if not cand.is_file():
+            _ICAL_TRY_LOG.append("%s: no such file" % cand)
             continue
-        added = str(cand.parent)
-        sys.path.insert(0, added)
         try:
-            spec = importlib.util.spec_from_file_location(
-                "_ostler_ical_server_rules", cand
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            _ICAL_MODULE = mod
-            return mod
+            _ICAL_MODULE = _extract_people_rules(cand.read_text(encoding="utf-8"), str(cand))
+            return _ICAL_MODULE
         except Exception as exc:  # noqa: BLE001
+            _ICAL_TRY_LOG.append("%s: %s" % (cand, exc))
             log.warning(
-                "reminders_push: cannot import People rules from %s (%s)",
-                cand, exc,
+                "reminders_push: cannot load People rules from %s (%s)", cand, exc,
             )
-        finally:
-            if added in sys.path:
-                sys.path.remove(added)
     return None
 
 
@@ -994,11 +1117,12 @@ def apply_push_status_to_todos(
             # because the People list's own rules could not be imported.
             log.error(
                 "reminders_push: %d todo(s) NOT pushed (skip_reason=%s): the "
-                "People list rules (ical-server.py) could not be imported, so "
+                "People list rules (ical-server.py) could not be loaded, so "
                 "organisations / automated senders cannot be told apart from "
-                "people. Failing closed. Set OSTLER_ICAL_SERVER_PATH or fix "
-                "the import error logged above.",
+                "people. Failing closed. Tried: %s. Set "
+                "OSTLER_ICAL_SERVER_PATH to fix.",
                 unverifiable_rows, SKIP_REASON_UNVERIFIABLE,
+                "; ".join(_ICAL_TRY_LOG) or "(no candidate paths)",
             )
         return tuple(out)
     finally:

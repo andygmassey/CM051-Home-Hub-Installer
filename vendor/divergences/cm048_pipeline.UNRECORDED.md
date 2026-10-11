@@ -170,3 +170,26 @@ Not attempted against the regeneration tool: `cm048_pipeline` is pinned with
 Tests: `tests/test_cm048_reminder_title_has_no_handle.py`,
 `tests/test_cm048_reminder_push_thread_and_sender.py`,
 `tests/test_cm048_reminder_push_person_parity.py`.
+
+## The People rules load from the INSTALLED layout (CM051, 2026-10-12, walk #20 blocker)
+
+Tree `cm048_pipeline`, file `vendor/cm048_pipeline/src/reminders_push.py`:
+
+- `_ical_server_candidates` now builds the installed path from
+  `ostler_paths.ostler_root()` (`<ostler>/services/ical-server/ical-server.py`,
+  install.sh `ICAL_SERVER_DIR`) first. It used to derive it from
+  `Path(__file__).parents[2]`, which in the installed layout is
+  `.venv/lib/python3.X`, because install.sh `pip install`s cm048 into
+  `<ostler>/services/cm048/.venv` non-editable;
+- `_extract_people_rules` replaces importing the whole of ical-server.py
+  (impossible from cm048's venv: ostler_security, pwg_privacy,
+  identity_resolver, rapidfuzz are not there). It parses the file and
+  executes only the seven People rules and their module-level dependencies,
+  refusing any non-stdlib import in that closure, then smoke-calls each rule.
+  Nothing is copied: ical-server.py stays the single source of truth;
+- the one ERROR line per run now lists every path tried and why it failed.
+
+Tests: `tests/test_cm048_reminder_push_people_rules_installed_layout.py`
+(a temp HOME laid out as install.sh does, a fresh interpreter with only
+cm048's site-packages) and the parity test, whose oracle is now the fully
+imported real `ical-server.py` (`people_list`), not the product loader.

@@ -28,8 +28,17 @@ SERVER = ROOT / "vendor" / "cm041" / "assistant_api" / "ical-server.py"
 
 
 def _server():
-    mod = reminders_push._load_ical_server()
-    assert mod is not None, "People rules failed to import; see the warning above"
+    """The ORACLE: the real ical-server module, fully imported (people_list
+    and all). reminders_push itself loads only the rules, from the file."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_oracle_ical_server", SERVER)
+    mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(SERVER.parent))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(str(SERVER.parent))
     return mod
 
 
@@ -68,6 +77,9 @@ def _listed_names(srv, monkeypatch):
 
 
 def test_push_gate_agrees_with_people_list_on_every_record(monkeypatch):
+    monkeypatch.setenv("OSTLER_ICAL_SERVER_PATH", str(SERVER))
+    monkeypatch.setattr(reminders_push, "_ICAL_TRIED", False)
+    monkeypatch.setattr(reminders_push, "_ICAL_MODULE", None)
     srv = _server()
     listed = _listed_names(srv, monkeypatch)
     verdicts = {}
