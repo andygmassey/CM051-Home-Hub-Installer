@@ -272,6 +272,19 @@ else
     [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "gamma_probe alpha_probe assistant_answers_grounded beta_probe" ] \
         && ok "full walk: gamma_probe (the previous FAIL) ran first, the rest in C order, none lost" \
         || bad "full-walk order: $(tr '\n' ' ' < "$T/ran.txt")"
+    # a previous FAIL that declares WALK_WRITES keeps its place and says so
+    printf '\n# WALK_WRITES: stub writer\n' >> "$T/scripts/box_walk_probes/probes/beta_probe.sh"
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t2 of 2\nfailed_probe\tgamma_probe\nfailed_probe\tbeta_probe\n' > "$ST/v1.0.107-20261010T080000Z.tsv"
+    _runner_store "$T" "$ST"
+    [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "gamma_probe alpha_probe assistant_answers_grounded beta_probe" ] \
+        && grep -q 'PROMOTION: beta_probe not moved (writes)' "$T/out.txt" \
+        && ok "a previous FAIL that writes (beta_probe) is NOT moved and the walk says so" \
+        || bad "writer promotion: $(tr '\n' ' ' < "$T/ran.txt") / $(grep PROMOTION "$T/out.txt" | tr '\n' ' ')"
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tbeta_probe\n' > "$ST/v1.0.107-20261010T080000Z.tsv"
+    _runner_store "$T" "$ST"
+    [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "alpha_probe assistant_answers_grounded beta_probe gamma_probe" ] \
+        && ok "only a writer in the FAIL list: order is exactly the C-sorted one" || bad "writer-only list reordered: $(tr '\n' ' ' < "$T/ran.txt")"
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tgamma_probe\n' > "$ST/v1.0.107-20261010T080000Z.tsv"
     : > "$ST/v1.0.107-20261011T000000Z.log"
     _runner_store "$T" "$ST"
     if [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "alpha_probe assistant_answers_grounded beta_probe gamma_probe" ] && grep -q 'PROMOTION: CANNOT-RUN' "$T/out.txt"; then

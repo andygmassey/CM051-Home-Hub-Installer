@@ -126,8 +126,11 @@ done
 
 # --- a PROMOTED list must keep the reader ahead of the mutator --------------
 # scripts/box_walk_probes/lib/promote_order.sh moves the previous walk's failed
-# probes to the front of the full walk. Promoting the mutator on its own would
-# put it ahead of every reader, so the lib promotes the readers WITH it.
+# probes to the front of the full walk. A probe that declares `# WALK_WRITES:`
+# (the pairing mutator does) is never moved, and promoting a read-only probe only
+# moves it EARLIER, so every reader stays ahead of the mutator. Checked on real
+# probes for several promoted lists, with a control that a naive promotion of the
+# mutator is caught by the same checker.
 LIB="${REPO}/scripts/box_walk_probes/lib/promote_order.sh"
 if [ ! -f "$LIB" ]; then
     bad "lib/promote_order.sh is absent, so a promoted order is unchecked"
@@ -137,7 +140,7 @@ else
     PROBES="$(for f in "$DIR"/*.sh; do printf '%s\n' "$f"; done | LC_ALL=C sort | tr '\n' ' ')"
     N_ALL="$(printf '%s' "$PROBES" | wc -w | tr -d ' ')"
     check_promoted() {   # label, ordered path list ; asserts reader < mutator and nothing lost
-        local label="$1" ord="$2" names n mpos rpos r
+        local label="$1" ord="$2" names mpos rpos r
         names="$(for p in $ord; do basename "$p" .sh; done)"
         [ "$(printf '%s\n' "$names" | wc -l | tr -d ' ')" = "$N_ALL" ] \
             && ok "${label}: all ${N_ALL} probes still present, none added" \

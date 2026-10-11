@@ -213,3 +213,5 @@ self_test() {
 }
 
 probe_main "$@"
+
+# WALK_READ_ONLY: reads require_pairing and service_token on disk and in the running process; "launchctl kickstart" appears only inside a probe_fail message telling the operator what NOT to rely on

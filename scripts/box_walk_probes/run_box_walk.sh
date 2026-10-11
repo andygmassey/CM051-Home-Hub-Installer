@@ -704,9 +704,10 @@ _record_verdict() {
 # added, dropped or re-run, and the verdicts are unchanged. Names come from the
 # same source as the early pass (the operator walk store, via
 # scripts/early_repeat_fail_pass.sh --names-only). If they cannot be read this
-# says CANNOT-RUN and leaves the C-sorted order alone. The pairing mutator is
-# never promoted ahead of a pairing reader: lib/promote_order.sh promotes the
-# readers with it. OSTLER_PROMOTE_PREV_FAILS=0 turns it off.
+# says CANNOT-RUN and leaves the C-sorted order alone. A writer is
+# never promoted: a probe that declares "# WALK_WRITES:" keeps its place, because
+# moving a writer changes what later probes read. OSTLER_PROMOTE_PREV_FAILS=0
+# turns this off.
 . "$HERE/lib/promote_order.sh"
 if [ -z "$ONLY" ] && [ "${OSTLER_PROMOTE_PREV_FAILS:-1}" = "1" ]; then
     _pf_rc=0
@@ -718,6 +719,9 @@ if [ -z "$ONLY" ] && [ "${OSTLER_PROMOTE_PREV_FAILS:-1}" = "1" ]; then
         printf '  PROMOTION: the previous walk named no failed probe; probe order left as C-sorted.\n\n'
     else
         _pf_new="$(promote_order "$_pf_names")"
+        for _pf_w in $(promote_writers_named "$_pf_names"); do
+            printf '  PROMOTION: %s not moved (writes)\n' "$_pf_w"
+        done
         printf '  PROMOTION: previous FAILs moved to the front (order only): %s\n' \
             "$(printf '%s' "$_pf_names" | tr '\n' ' ')"
         PROBES="$_pf_new"
