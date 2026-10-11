@@ -69,6 +69,10 @@ logger = logging.getLogger(__name__)
 STATE_PERMISSION_DENIED = "permission_denied"
 STATE_OK = "ok"
 STATE_NO_DATA = "no-data"
+# The customer deleted Ostler's Reminders list; the assistant paused pushes
+# (rows carry status reminders_list_removed) and does not recreate it.
+STATE_LIST_REMOVED = "list_removed"
+_ASSISTANT_LIST_REMOVED = "reminders_list_removed"
 
 # Mirror of CM048 reminders_push.STATUS_PERMISSION_DENIED. Duplicated
 # (not imported) so Doctor carries no build-time dependency on the
@@ -138,6 +142,19 @@ def read_reminders_runtime() -> RemindersRuntime:
         total_rows = int(cur.fetchone()[0])
         if total_rows == 0:
             return {"state": STATE_NO_DATA, "denied_count": 0, "total_rows": 0}
+
+        cur.execute(
+            "SELECT COUNT(*) FROM reminders_map WHERE status = ?",
+            (_ASSISTANT_LIST_REMOVED,),
+        )
+        removed_count = int(cur.fetchone()[0])
+        if removed_count:
+            return {
+                "state": STATE_LIST_REMOVED,
+                "denied_count": 0,
+                "total_rows": total_rows,
+                "removed_count": removed_count,
+            }
 
         cur.execute(
             "SELECT COUNT(*) FROM reminders_map WHERE status = ?",

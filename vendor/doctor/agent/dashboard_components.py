@@ -55,6 +55,7 @@ from reminders_posture import read_reminders_posture
 from reminders_runtime import (
     STATE_NO_DATA,
     STATE_OK,
+    STATE_LIST_REMOVED,
     STATE_PERMISSION_DENIED,
     read_reminders_runtime,
 )
@@ -1135,11 +1136,13 @@ def render_reminders_posture(now_dt=None) -> str:
 _REMINDERS_RUNTIME_COLOURS = {
     STATE_OK: "#2C4A2C",
     STATE_PERMISSION_DENIED: "#5C4611",
+    STATE_LIST_REMOVED: "#5C4611",
     STATE_NO_DATA: "rgba(236,232,221,0.40)",
 }
 _REMINDERS_RUNTIME_ICONS = {
     STATE_OK: "&#10003;",
     STATE_PERMISSION_DENIED: "&#9888;",
+    STATE_LIST_REMOVED: "&#9888;",
     STATE_NO_DATA: "&#8211;",
 }
 
@@ -1175,12 +1178,14 @@ def render_reminders_runtime(now_dt=None) -> str:
         REMINDERS_RUNTIME_DENIED_EXAMPLE_FMT,
         REMINDERS_RUNTIME_DENIED_SINCE_FMT,
         REMINDERS_RUNTIME_DETAIL_DENIED,
+        REMINDERS_RUNTIME_DETAIL_LIST_REMOVED,
         REMINDERS_RUNTIME_DETAIL_NO_DATA,
         REMINDERS_RUNTIME_DETAIL_OK,
         REMINDERS_RUNTIME_HOW_TO_FIX_LABEL,
         REMINDERS_RUNTIME_REMEDIATION_DENIED,
         REMINDERS_RUNTIME_SECTION_TITLE,
         REMINDERS_RUNTIME_STATUS_DENIED,
+        REMINDERS_RUNTIME_STATUS_LIST_REMOVED,
         REMINDERS_RUNTIME_STATUS_NO_DATA,
         REMINDERS_RUNTIME_STATUS_OK,
     )
@@ -1201,10 +1206,12 @@ def render_reminders_runtime(now_dt=None) -> str:
     status_label_map = {
         STATE_OK: REMINDERS_RUNTIME_STATUS_OK,
         STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_STATUS_DENIED,
+        STATE_LIST_REMOVED: REMINDERS_RUNTIME_STATUS_LIST_REMOVED,
     }
     detail_map = {
         STATE_OK: REMINDERS_RUNTIME_DETAIL_OK,
         STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_DETAIL_DENIED,
+        STATE_LIST_REMOVED: REMINDERS_RUNTIME_DETAIL_LIST_REMOVED,
     }
     status_label = status_label_map[state]
     detail = detail_map[state]

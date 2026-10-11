@@ -23,6 +23,10 @@ on:
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_doctor_reminders_list_removed.py'
+      - 'vendor/doctor/agent/reminders_runtime.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
@@ -41,6 +45,10 @@ on:
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_doctor_reminders_list_removed.py'
+      - 'vendor/doctor/agent/reminders_runtime.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
@@ -133,3 +141,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_person_parity.py -v
+      - name: Doctor shows one line when the Ostler Reminders list was removed
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_doctor_reminders_list_removed.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_doctor_reminders_list_removed.py -v

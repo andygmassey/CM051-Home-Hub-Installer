@@ -252,6 +252,7 @@ test_doctor_probe_cap_exceeds_the_command.sh	WIRED	.github/workflows/cold-box-so
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_proxy_paths_predicate.sh	WIRED	.github/workflows/launchagent-success-verification.yml
+test_doctor_reminders_list_removed.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_doctor_repo_fallback.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_routines_are_measured_live.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
