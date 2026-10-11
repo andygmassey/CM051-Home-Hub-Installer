@@ -1238,7 +1238,7 @@ entries:
       of each chat.db chat's handles. Keys built from display names would
       match nothing and the feature would be silently dead. Read-only: reads
       the daemon's own census in GET /api/status -> followup, never seeds.
-      CANNOT-RUN until a hub pin carries #509. BLOCKING.
+      CANNOT-RUN until a hub pin carries #509. ADVISORY until then (walk_promote_scope.tsv); flips to BLOCKING in the PR that re-pins a hub carrying #509.
     proof:
       kind: box_walk_probe
       probe: "followup_keys_match_chat_threads"
