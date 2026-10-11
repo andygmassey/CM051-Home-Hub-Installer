@@ -251,7 +251,7 @@ echo
 # If the durable path cannot be created we fall back to mktemp and SAY SO,
 # rather than silently returning to the old behaviour.
 PROBE_LOG=""
-_walk_logdir="${HOME}/.ostler/walks"
+_walk_logdir="${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}"
 if mkdir -p "$_walk_logdir" 2>/dev/null; then
     PROBE_LOG="${_walk_logdir}/${CUT_VERSION:-unversioned}-$(date -u +%Y%m%dT%H%M%SZ).log"
     : > "$PROBE_LOG" 2>/dev/null || PROBE_LOG=""

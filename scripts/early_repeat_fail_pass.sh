@@ -97,7 +97,9 @@ cannot_all() {  # $1 = reason
 # -- 1. find the previous walk's evidence file ------------------------------
 if [ -z "$PREV_RECORD" ]; then
     [ -d "$WALKS_DIR" ] || cannot_all "no walk store at ${WALKS_DIR}"
-    PREV_RECORD=""; _best=""
+    # shellcheck source=lib_walk_store.sh
+    . "${HERE}/lib_walk_store.sh" 2>/dev/null || cannot_all "scripts/lib_walk_store.sh is missing, so a fixture record cannot be told from a real one"
+    PREV_RECORD=""; _best=""; _seen=0; _skipped=0; _skipnames=""
     for f in "$WALKS_DIR"/*.tsv; do
         [ -f "$f" ] || continue
         _b="$(basename "$f" .tsv)"
@@ -106,9 +108,20 @@ if [ -z "$PREV_RECORD" ]; then
             [0-9]*T[0-9]*Z) ;;
             *) continue ;;
         esac
+        _seen=$((_seen + 1))
+        # A record whose version is not a real cut (v9.9.9 and friends) is a
+        # test fixture that leaked into the store. Skip it, fall back to the
+        # next newest, and say so.
+        _fv="${_b%-*}"
+        _rv="$(awk -F'\t' '$1=="version"{print $2; exit}' "$f" 2>/dev/null)"
+        if ! walk_store_version_is_cut "$_fv" || { [ -n "$_rv" ] && ! walk_store_version_is_cut "$_rv"; }; then
+            _skipped=$((_skipped + 1)); _skipnames="${_skipnames} ${f##*/}"
+            continue
+        fi
         if [ -z "$_best" ] || [ "$_st" \> "$_best" ]; then _best="$_st"; PREV_RECORD="$f"; fi
     done
-    [ -n "$PREV_RECORD" ] || cannot_all "no <ver>-<stamp>.tsv record in ${WALKS_DIR} (0 files examined; the first walk after record_walk.sh started copying records leaves none yet)"
+    [ "$_skipped" -gt 0 ] && say "skipped ${_skipped} record(s) with a non-cut version (fixtures, not walks):${_skipnames}"
+    [ -n "$PREV_RECORD" ] || cannot_all "no valid <ver>-<stamp>.tsv record in ${WALKS_DIR} (${_seen} files examined, ${_skipped} skipped as non-cut versions; the first walk after record_walk.sh started copying records leaves none yet)"
 fi
 [ -f "$PREV_RECORD" ] && [ -r "$PREV_RECORD" ] || cannot_all "previous walk record is missing or unreadable: ${PREV_RECORD}"
 say "previous walk record: ${PREV_RECORD}"

@@ -68,6 +68,9 @@ on:
       - 'scripts/tests/test_run_box_walk_records_phase1_verdicts.sh'
       - 'scripts/tests/test_read_only_walk_never_writes.sh'
       - 'scripts/early_repeat_fail_pass.sh'
+      - 'scripts/lib_walk_store.sh'
+      - 'scripts/record_walk.sh'
+      - 'tests/test_a_test_cannot_reach_the_real_walk_store.sh'
       - 'tests/test_a_writing_probe_declares_it_and_is_never_promoted.sh'
       - 'scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh'
       - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
@@ -724,6 +727,12 @@ jobs:
         # with a control) plus the real promote_order on the real probes.
         if: always()
         run: /bin/bash tests/test_a_writing_probe_declares_it_and_is_never_promoted.sh
+
+      - name: No walk-record test can reach the real walk store
+        # HOME is a sentinel; the store env is unset; the sentinel .ostler tree
+        # must be byte-identical afterwards. Two controls inside prove it fires.
+        if: always()
+        run: /bin/bash tests/test_a_test_cannot_reach_the_real_walk_store.sh
 
       - name: The walk record says whether the box was SEEDED before the grounded probe asked
         # `if: always()` REQUIRED, same reason as every sibling here: a red in an
