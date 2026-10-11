@@ -23,7 +23,7 @@ PHONE = "+15550100"
 STORE = {
     PHONE: {"display_name": PHONE, "given_name": "Jane", "family_name": "Doe",
             "phones": [PHONE]},
-    "+15550111": {"display_name": "Example Bank Support Team",
+    "+15550111": {"display_name": "example bank support team",
                   "emails": ["noreply@bank.invalid"], "phones": ["+15550111"]},
 }
 
@@ -101,7 +101,7 @@ def test_a_bank_sender_pushes_nothing(tmp_path):
 
 
 def test_an_unstored_org_shaped_label_pushes_nothing():
-    d = _decide(("user", "Example Holdings Ltd"))
+    d = _decide(("user", "example holdings ltd"))
     assert not d.eligible and d.skip_reason == "non_human_sender"
 
 

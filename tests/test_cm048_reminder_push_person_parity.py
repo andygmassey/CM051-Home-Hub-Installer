@@ -37,10 +37,10 @@ def _server():
 RECORDS = [
     ("jane",   {"display_name": "Jane Doe", "given_name": "Jane", "family_name": "Doe",
                 "icloud_uid": "card-1", "phones": ["+15550101"]}),
-    ("john",   {"display_name": "John Roe", "given_name": "John", "family_name": "Roe",
+    ("john",   {"display_name": "John Doe", "given_name": "John", "family_name": "Roe",
                 "phones": ["+15550102"]}),
-    ("bank",   {"display_name": "Example Bank Support Team", "emails": ["noreply@bank.invalid"]}),
-    ("org",    {"display_name": "Example Holdings Ltd", "emails": ["hello@example.invalid"]}),
+    ("bank",   {"display_name": "example bank support team", "emails": ["noreply@bank.invalid"]}),
+    ("org",    {"display_name": "example holdings ltd", "emails": ["hello@example.invalid"]}),
     ("sender", {"display_name": "EXAMPLEBANK", "phones": ["EXAMPLEBANK"]}),
     ("alerts", {"display_name": "Payment declined - update required",
                 "emails": ["alerts@example.invalid"]}),
