@@ -727,5 +727,53 @@ class TestC_ExtensionContract(Lane6Base):
         self.assertEqual(len(job["text"]), bn.TEXT_CAP_CHARS)
 
 
+class TestE_SummaryContextIsTheChatWindow(unittest.TestCase):
+    """A summary must ask Ollama for the chat model's context window, or Ollama
+    reloads the chat model on every switch between chat and summaries."""
+
+    def _ctx(self, value):
+        env = {k: v for k, v in os.environ.items() if k != "OSTLER_ENRICH_NUM_CTX"}
+        if value is not None:
+            env["OSTLER_ENRICH_NUM_CTX"] = value
+        with patch.dict(os.environ, env, clear=True):
+            return bn._num_ctx()
+
+    def test_e1_unset_falls_back_to_the_chat_window(self):
+        self.assertEqual(self._ctx(None), 32768)
+
+    def test_e2_empty_falls_back_to_the_chat_window(self):
+        self.assertEqual(self._ctx(""), 32768)
+
+    def test_e3_garbage_falls_back_to_the_chat_window(self):
+        self.assertEqual(self._ctx("not-a-number"), 32768)
+
+    def test_e4_operator_override_still_wins(self):
+        self.assertEqual(self._ctx("16384"), 16384)
+
+    def test_e5_the_generate_request_carries_it(self):
+        sent = {}
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'{"response": "{}"}'
+
+        def _fake_urlopen(req, timeout=None):
+            sent.update(json.loads(req.data))
+            return _Resp()
+
+        env = {k: v for k, v in os.environ.items() if k != "OSTLER_ENRICH_NUM_CTX"}
+        env["AI_MODEL"] = "example-model:tiny"
+        with patch.dict(os.environ, env, clear=True), \
+                patch.object(bn.urllib.request, "urlopen", _fake_urlopen):
+            bn.ollama_generate("hello")
+        self.assertEqual(sent["options"]["num_ctx"], 32768)
+
+
 if __name__ == "__main__":
     unittest.main()

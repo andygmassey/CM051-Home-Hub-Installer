@@ -12,7 +12,7 @@ print personal-content-shaped strings from a box).
 
 Subcommands:
   run --token T --text TEXT --wait-s N   write + poll + read back
-  forget --token T --text TEXT           best-effort cleanup, prints before/after
+  forget --token T --text TEXT           delete the reminder by id, verify, then the map row
 """
 import json
 import os
@@ -179,42 +179,90 @@ def cmd_run(argv):
     return 0
 
 
-def cmd_forget(argv):
+def _as_quote(v):
+    return v.replace('\\', '\\\\').replace('"', '\\"')
+
+
+def _osa(script, runner=None):
+    """Run one AppleScript. Returns (rc, stdout, stderr); never raises."""
+    runner = runner or subprocess.run
+    try:
+        p = runner(["osascript", "-e", script], capture_output=True, text=True, timeout=20)
+        return p.returncode, (p.stdout or ""), (p.stderr or "")
+    except Exception as exc:
+        return 1, "", "osascript could not run: {}".format(exc)
+
+
+def delete_reminder(ident, runner=None):
+    """Delete the reminder the daemon created, by the identifier the daemon
+    recorded in reminders_map.db, then COUNT to prove it is gone.
+
+    The old code matched `name is <the todo text>`. The daemon never titles a
+    reminder with the todo text (reminders_push._format_push_title builds
+    "Follow up on conversation"), so that match found nothing, and an ssh
+    session without the Automation grant failed outright; both read as
+    reminder_deleted=false and the reminder synced back via iCloud into the
+    next walk (walk #19).
+
+    State is one of: deleted (verified count 0), none_to_delete (the daemon
+    never created one), blocked_tcc, failed. Never a bare bool.
+    """
+    if not ident:
+        return {"state": "none_to_delete"}
+    q = _as_quote(ident)
+    sel = 'every reminder whose id contains "%s"' % q
+    rc, out, err = _osa('tell application "Reminders" to delete (%s)' % sel, runner)
+    if rc != 0:
+        blocked = any(m in err.lower() for m in _TCC_MARKERS)
+        return {"state": "blocked_tcc" if blocked else "failed", "error": err.strip()[:200]}
+    rc, out, err = _osa('tell application "Reminders" to count (%s)' % sel, runner)
+    if rc != 0:
+        return {"state": "failed", "error": "delete ran but the verifying count failed: " + err.strip()[:160]}
+    try:
+        left = int(out.strip())
+    except ValueError:
+        return {"state": "failed", "error": "verifying count unreadable: " + out.strip()[:80]}
+    if left > 0:
+        return {"state": "failed", "error": "{} reminder(s) still present after delete".format(left)}
+    return {"state": "deleted"}
+
+
+def cmd_forget(argv, runner=None):
     a = dict(zip(argv[0::2], argv[1::2]))
     token = a.get("--token")
     text = a.get("--text")
     uid = _user_id() or "walk-probe"
-    result = {"db_deleted": False, "reminder_deleted": None}
+    result = {"db_deleted": False, "reminder": {"state": "failed", "error": "not attempted"}}
+    ident = None
     try:
         from src.conversation_writer import make_todo_id
         todo_id = make_todo_id(token, "user", text)
         db_path = _default_db_path()
         conn = sqlite3.connect(str(db_path), timeout=5.0)
-        before = conn.execute(
-            "SELECT COUNT(*) FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
+        # Read the daemon's identifier BEFORE the row is deleted: it is the
+        # only handle on the reminder.
+        row = conn.execute(
+            "SELECT calendar_item_identifier FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
             (uid, token, todo_id),
-        ).fetchone()[0]
-        conn.execute(
-            "DELETE FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
-            (uid, token, todo_id),
-        )
-        conn.commit()
-        after = conn.execute(
-            "SELECT COUNT(*) FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
-            (uid, token, todo_id),
-        ).fetchone()[0]
+        ).fetchone()
+        ident = row[0] if row else None
+        result["calendar_item_identifier"] = ident
+        # Delete the reminder first; the row is dropped only if that worked or
+        # there was nothing to delete, so a retry still has its handle.
+        result["reminder"] = delete_reminder(ident, runner)
+        if result["reminder"]["state"] in ("deleted", "none_to_delete"):
+            conn.execute(
+                "DELETE FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
+                (uid, token, todo_id),
+            )
+            conn.commit()
+            result["db_deleted"] = True
         conn.close()
-        result["db_deleted"] = True
-        result["db_before"] = before
-        result["db_after"] = after
     except Exception as exc:
         result["db_error"] = str(exc)[:160]
-    try:
-        script = 'tell application "Reminders" to delete (every reminder whose name is "%s")' % text.replace('\\', '\\\\').replace('"', '\\"')
-        proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=20)
-        result["reminder_deleted"] = (proc.returncode == 0)
-    except Exception:
-        result["reminder_deleted"] = False
+        if ident is None:
+            result["reminder"] = {"state": "failed", "error": "could not read the map row: " + str(exc)[:120]}
+    result["expected_title"] = "Follow up on conversation"
     print(json.dumps(result))
     return 0
 

@@ -15,7 +15,7 @@ claim the row, then tries to read the result back from Reminders.app itself
 -- never trusting the mapping table's "pushed" status as proof the item is
 actually visible to the customer.
 
-Three assertions:
+Four assertions (the fourth, cleanup, was added after walk #19):
   (a) WRITE. The synthetic commitment, run through the real gate, lands a
       ``pending`` row keyed by (user_id, source_session_id, todo_id).
   (b) CLAIM. The installed daemon (not this probe) claims the row within the
@@ -38,6 +38,7 @@ DECLARED = [
     "write: a synthetic commitment, run through the shipped gate, lands a pending row in reminders_map.db",
     "claim: the installed daemon claims the pending row within the wait budget (EventKit attempted)",
     "visible: the reminder is actually readable in Reminders.app by its own text",
+    "cleanup: the reminder the probe created is deleted and verified gone (residue syncs via iCloud into the next walk)",
 ]
 
 
@@ -102,7 +103,26 @@ def judge(f):
     else:
         add(DECLARED[2], None, "NOT MEASURED: the read-back gave no clear answer ({})".format(rb.get("error", "no detail")))
 
+    _cleanup(f, out)
     return _finish(out)
+
+
+def _cleanup(f, out):
+    name = DECLARED[3]
+    cl = f.get("cleanup")
+    if not cl:
+        out.append((name, None, "CANNOT-RUN: the forget step returned nothing; a reminder may be left behind"))
+        return
+    r = cl.get("reminder") or {}
+    st = r.get("state")
+    ident = cl.get("calendar_item_identifier")
+    who = "reminder id={} titled '{}...'".format(ident, cl.get("expected_title", "Follow up"))
+    if st in ("deleted", "none_to_delete"):
+        out.append((name, True, st))
+    elif st == "blocked_tcc":
+        out.append((name, None, "CANNOT-RUN: Automation permission (TCC) refused the delete over ssh; LEFT BEHIND, delete by hand at the console: {}".format(who)))
+    else:
+        out.append((name, False, "LEFT BEHIND: delete failed ({}): {}".format(r.get("error", "no detail"), who)))
 
 
 def _finish(out):
@@ -121,6 +141,8 @@ def _good():
         "write": {"attempted": True, "todo_id": "abc123"},
         "push": {"status": "pushed", "waited_s": 12, "calendar_item_identifier": "ek-9f8e"},
         "readback": {"attempted": True, "blocked_tcc": False, "found": True},
+        "cleanup": {"db_deleted": True, "calendar_item_identifier": "ek-9f8e",
+                    "expected_title": "Follow up on conversation", "reminder": {"state": "deleted"}},
     }
 
 
@@ -138,10 +160,10 @@ def self_test():
     print("  ok    good fixture: every assertion passes")
 
     dry = {"write": {"attempted": False, "error": "no settings.yaml user_id"}}
-    if any(row(dry, i) != [None] for i in range(3)):
-        fails.append("a failed write should cascade CANNOT-RUN to all three: {}".format([row(dry, i) for i in range(3)]))
+    if any(row(dry, i) != [None] for i in range(4)):
+        fails.append("a failed write should cascade CANNOT-RUN to all four: {}".format([row(dry, i) for i in range(4)]))
     else:
-        print("  ok    a failed write cascades CANNOT-RUN to all three assertions, never a pass")
+        print("  ok    a failed write cascades CANNOT-RUN to all four assertions, never a pass")
 
     stuck = copy.deepcopy(g); stuck["push"] = {"status": "pending", "waited_s": 120}
     if row(stuck, 1) != [False]:
@@ -193,12 +215,26 @@ def self_test():
     else:
         print("  ok    mutant caught: EventKit says pushed but the reminder is not actually visible")
 
+    for label, cl, want in (
+            ("delete refused by TCC", {"calendar_item_identifier": "ek-1", "reminder": {"state": "blocked_tcc"}}, None),
+            ("delete failed", {"calendar_item_identifier": "ek-1", "reminder": {"state": "failed", "error": "boom"}}, False),
+            ("reminder_deleted=false in the old shape", {"reminder_deleted": False, "db_deleted": True}, False),
+            ("forget returned nothing", None, None)):
+        c = copy.deepcopy(g); c["cleanup"] = cl
+        if row(c, 3) != [want]:
+            fails.append("cleanup {} should be {} (d): {}".format(label, want, row(c, 3)))
+        else:
+            print("  ok    cleanup mutant caught: {}".format(label))
+    named = [d for n, ok, d in judge(dict(g, cleanup={"calendar_item_identifier": "ek-1", "reminder": {"state": "blocked_tcc"}})) if n == DECLARED[3]]
+    if not named or "ek-1" not in named[0] or "Follow up" not in named[0]:
+        fails.append("a CANNOT-RUN cleanup must name the reminder: {}".format(named))
+
     if [ok for n, ok, _ in judge({}) if n in DECLARED and ok is True]:
         fails.append("an empty collection reads as a pass")
     if fails:
         print("SELF-TEST FAIL: " + "; ".join(fails))
         return EX_FAIL
-    print("SELF-TEST PASS: good fixture passes, 4 mutants caught by their own assertion")
+    print("SELF-TEST PASS: good fixture passes, 8 mutants caught by their own assertion")
     return EX_PASS
 
 

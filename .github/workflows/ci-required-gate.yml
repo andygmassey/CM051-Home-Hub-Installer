@@ -60,11 +60,13 @@ jobs:
     # This job WAITS for the slowest other check on the same head to
     # conclude before it can pass -- keyless-store-probe-tests.yml alone has
     # measured up to 21.2 minutes (see workflow-jobs-have-timeouts.yml). 60
-    # minutes matches that workflow's own tier and leaves headroom for this
-    # job's internal wait window (45 minutes) to close on its own and report
+    # minutes matches that workflow's own tier. probe-tests has since measured
+    # ~17 min queued plus ~31 min running, so the script's wait is an idle
+    # window (45 min, restarts on any check changing state) under a 75 minute
+    # hard cap. 85 leaves headroom for the cap to close on its own and report
     # CANNOT-RUN, rather than being killed by the job timeout mid-poll, which
     # would report nothing at all instead of an honest refusal.
-    timeout-minutes: 60
+    timeout-minutes: 85
     steps:
       - name: Checkout
         uses: actions/checkout@v4
