@@ -196,9 +196,25 @@ def judge(f):
     names = p.get("names") or []
     orgs = [n for n in names if _org_like(n)]
     add("people: it has rows", len(names) > 0, p.get("error", "no rows"))
-    add("people: no organisations or automated senders in the list",
+    add("people: no organisations or automated senders among the rows on screen",
         not orgs, "{} of {}: {}".format(len(orgs), len(names),
                                          ", ".join(sorted(set(orgs))[:3]) if orgs else ""))
+    # EVERY row, not the screen. Ostler DMG #21 (ostler-assistant #514): the
+    # page mounts only its first window of rows (100 of 6,700 on the walk box),
+    # so the screen alone would judge 1.5% of the list and pass an organisation
+    # at row 6,500. The full list comes from the same people API the page
+    # renders, read with the same token.
+    api = p.get("api") or {}
+    api_names = api.get("names")
+    full = "people: no organisations or automated senders in the list (every row, from the people API)"
+    if api.get("error") or api_names is None:
+        add(full, None, "NOT MEASURED: " + (api.get("error") or "the people API was not read"))
+    elif names and not api_names:
+        add(full, None, "NOT MEASURED: the people API returned 0 rows while the screen showed {}".format(len(names)))
+    else:
+        api_orgs = [n for n in api_names if _org_like(n)]
+        add(full, not api_orgs, "{} of {}: {}".format(
+            len(api_orgs), len(api_names), ", ".join(sorted(set(api_orgs))[:3]) if api_orgs else ""))
 
     h = f.get("home") or {}
     if h.get("not_me_checked"):
@@ -231,6 +247,47 @@ _PEOPLE_SEG = re.compile(r"(/people/)[^/?#\s\"'\]\)]+", re.I)
 def redact_url(url):
     """Never record a person's slug: the walk record is public (CM051)."""
     return _PEOPLE_SEG.sub(r"\1<redacted>", url or "")
+
+PEOPLE_API_PATH = "/api/v1/people?sort=recency"
+
+
+def people_api_facts(status, body):
+    """The people API's answer as judge facts: {"names": [...], "total": n} or
+    {"error": why}. Pure, so --self-test covers it. A degraded or non-200
+    answer is an error (NOT MEASURED), never an empty list: an empty list
+    would read as "no organisations" and pass."""
+    if status != 200:
+        return {"error": "people API answered HTTP {}".format(status)}
+    try:
+        doc = json.loads(body)
+    except Exception as exc:
+        return {"error": "people API body is not JSON ({})".format(str(exc)[:80])}
+    if not isinstance(doc, dict) or not isinstance(doc.get("people"), list):
+        return {"error": "people API body has no people list"}
+    if doc.get("degraded"):
+        return {"error": "people API answered degraded ({})".format(str(doc.get("reason", ""))[:80])}
+    names = [(r.get("name") or "") if isinstance(r, dict) else "" for r in doc["people"]]
+    return {"names": names, "total": doc.get("total", len(names))}
+
+
+def collect_people(page, base, token, out_dir, timeout_ms=45000):
+    """People: the screen (first rows appear, a sample is judged) and the full
+    list from the people API the page itself reads. One authenticated GET over
+    the forwarded loopback port; read-only."""
+    pp = {}
+    page.wait_for_selector("[data-person-row]", timeout=timeout_ms)
+    pp["names"] = page.evaluate("""() => Array.from(
+        document.querySelectorAll('[data-person-row]')).map(
+          e => e.getAttribute('data-person-name') || '')""")
+    page.screenshot(path=os.path.join(out_dir, "people.png"))
+    try:
+        r = page.context.request.get(base + PEOPLE_API_PATH, timeout=60000,
+                                     headers={"Authorization": "Bearer " + token})
+        pp["api"] = people_api_facts(r.status, r.text())
+    except Exception as exc:
+        pp["api"] = {"error": "people API unreachable: " + _err(exc, 120)}
+    return pp
+
 
 def _err(exc, n=200):
     """An exception as it may enter the public record: Playwright quotes the
@@ -482,11 +539,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
         pp = {}
         try:
             nav("/people")
-            page.wait_for_selector("[data-person-row]", timeout=45000)
-            pp["names"] = page.evaluate("""() => Array.from(
-                document.querySelectorAll('[data-person-row]')).map(
-                  e => e.getAttribute('data-person-name') || '')""")
-            page.screenshot(path=os.path.join(out_dir, "people.png"))
+            pp = collect_people(page, base, token, out_dir)
         except Exception as exc:
             pp["error"] = _err(exc)
         facts["people"] = pp
@@ -654,7 +707,9 @@ def _good():
                      "rows": [{"kind": "meeting", "day": "2026-09-28", "title": "Lunch"},
                               {"kind": "message", "day": "2026-09-20",
                                "title": "WhatsApp with A"}] * 6},
-        "people": {"names": ["person one", "person two", "someone" + "@" + "examplemail.co.uk", "a.person" + "@" + "bigco-group.com"]},
+        "people": {"names": ["person one", "person two", "someone" + "@" + "examplemail.co.uk", "a.person" + "@" + "bigco-group.com"],
+                   "api": {"names": ["person one", "person two", "someone" + "@" + "examplemail.co.uk",
+                                     "a.person" + "@" + "bigco-group.com", "person three", "person four"]}},
         "home": {"not_me_checked": True, "not_me_card": "X", "not_me_gone_after_reload": True},
         "settings": {"tailscale_toggle": True},
         "cost": {"loaded": True},
@@ -705,6 +760,10 @@ MUTANTS = [
     ("people contains a company", lambda f: f["people"]["names"].append("acme promotions")),
     ("people contains a role address", lambda f: f["people"]["names"].append("support@example.com")),
     ("people contains a domain as a name", lambda f: f["people"]["names"].append("Examplefare.co.uk")),
+    ("people API list holds a company the screen window never rendered",
+     lambda f: f["people"]["api"]["names"].append("acme promotions")),
+    ("people API list holds a role address past the screen window",
+     lambda f: f["people"]["api"]["names"].append("noreply@example.com")),
     ("not me came back", lambda f: f["home"].update(not_me_gone_after_reload=False)),
     ("tailscale switch disagrees", lambda f: f["settings"].update(tailscale_toggle=False)),
     ("bursar did not render", lambda f: f["cost"].update(loaded=False)),
@@ -796,6 +855,31 @@ def self_test():
         print("SELF-TEST FAIL: the still-being-written arm on a rendered page must be N/A, got {}".format(row))
         return EX_FAIL
     print("  ok    still-being-written arm is N/A on a rendered page")
+    # PEOPLE API ARMS: an unread, degraded or failed people API is NOT
+    # MEASURED, never an empty list that reads as "no organisations".
+    full = "people: no organisations or automated senders in the list"
+    for label, api in [("API not read", None),
+                       ("API degraded", people_api_facts(200, json.dumps(
+                           {"people": [], "total": 0, "degraded": True, "reason": "qdrant down"}))),
+                       ("API 401", people_api_facts(401, "")),
+                       ("API not JSON", people_api_facts(200, "<html>")),
+                       ("API 0 rows while the screen has rows", people_api_facts(200, json.dumps(
+                           {"people": [], "total": 0})))]:
+        u = copy.deepcopy(_good())
+        if api is None:
+            u["people"].pop("api")
+        else:
+            u["people"]["api"] = api
+        row = [ok for n, ok, _ in judge(u) if n.startswith(full)]
+        if row != [None]:
+            print("SELF-TEST FAIL: {} must be an explicit CANNOT-RUN row, got {}".format(label, row))
+            return EX_FAIL
+        print("  ok    {} is an explicit CANNOT-RUN row".format(label))
+    got = people_api_facts(200, json.dumps({"people": [{"name": "a b"}, {"name": None}], "total": 2}))
+    if got != {"names": ["a b", ""], "total": 2}:
+        print("SELF-TEST FAIL: people_api_facts misread a good body: {}".format(got))
+        return EX_FAIL
+    print("  ok    people_api_facts reads every name from a good body")
     base = judge(_good())
     bad = [n for n, ok, _ in base if not ok]
     if bad:
