@@ -410,6 +410,11 @@ _PEOPLE_RULES_SHARED = os.path.join(
 )
 if os.path.isdir(_PEOPLE_RULES_SHARED) and _PEOPLE_RULES_SHARED not in sys.path:
     sys.path.insert(0, _PEOPLE_RULES_SHARED)
+# A repo checkout (and every test that loads this file by path) has it beside
+# this file; the installed layout removed that copy, so this is a no-op there.
+_HERE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HERE_DIR not in sys.path:
+    sys.path.append(_HERE_DIR)
 from people_rules import (  # noqa: E402
     _NAMELESS_BARE_ID_CHARS,
     _ROLE_ADDRESS_LOCAL_RE,

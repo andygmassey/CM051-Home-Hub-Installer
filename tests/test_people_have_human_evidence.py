@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor"
 sys.path.insert(0, str(VENDOR))
 sys.path.insert(0, str(VENDOR / "cm021"))
+sys.path.insert(0, str(VENDOR / "cm041" / "assistant_api"))  # people_rules.py (ical-server imports it)
 
 AT = "@"
 EX = AT + "example.com"

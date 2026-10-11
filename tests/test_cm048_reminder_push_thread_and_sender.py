@@ -105,32 +105,50 @@ def test_an_unstored_org_shaped_label_pushes_nothing():
     assert not d.eligible and d.skip_reason == "non_human_sender"
 
 
-def test_unloadable_people_rules_fail_closed(monkeypatch):
-    monkeypatch.setattr(reminders_push, "_ICAL_TRIED", True)
-    monkeypatch.setattr(reminders_push, "_ICAL_MODULE", None)
+def _rules_unloadable(monkeypatch):
+    monkeypatch.setattr(reminders_push, "_PEOPLE_RULES", None)
+    monkeypatch.setattr(reminders_push, "_PEOPLE_TRIED", False)
+    monkeypatch.setattr(reminders_push, "_people_rules_candidates", lambda: [])
+
+
+def test_unloadable_people_rules_fail_open_and_flag_the_row(monkeypatch):
+    """The org filter is a QUALITY filter: if its rules cannot load, push
+    anyway (a customer never loses all reminders) and flag the decision."""
+    _rules_unloadable(monkeypatch)
     d = _decide(("user", PHONE))
-    assert not d.eligible and d.skip_reason == "non_human_predicate_unavailable"
+    assert d.eligible, d
+    assert d.flag == "org_filter_unavailable"
+    assert d.push_title == "Jane Doe: send the synthetic draft"
 
 
-def test_import_failure_is_distinct_on_every_row_and_logged_once_per_run(tmp_path, monkeypatch, caplog):
-    """The import fails: EVERY row carries the distinct reason (not the
-    generic non_human_sender / owed_by_other / empty), and the run logs ONE
-    error line, not one per row."""
+def test_import_failure_pushes_every_row_flagged_and_logs_once_per_run(tmp_path, monkeypatch, caplog):
+    """The rules cannot load: EVERY row is pushed (pending) and flagged with
+    the distinct reason, and the run logs ONE error line, not one per row."""
     import logging
 
-    monkeypatch.setattr(reminders_push, "_ICAL_MODULE", None)
-    monkeypatch.setattr(reminders_push, "_ICAL_TRIED", False)
-    monkeypatch.setattr(reminders_push, "_ical_server_candidates", lambda: [])
+    _rules_unloadable(monkeypatch)
     db = tmp_path / "m.db"
     with caplog.at_level(logging.ERROR, logger="src.reminders_push"):
         _apply(db, ("user", PHONE), "s-1", [_todo("t1"), _todo("t2", "b"), _todo("t3", "c")])
     rows = _rows(db)
-    assert len(rows) == 3
-    assert {r[3] for r in rows} == {"non_human_predicate_unavailable"}, rows
-    assert {r[2] for r in rows} == {"skipped"}
+    # the thread already holds one open reminder, so 1 pending + 2 duplicates
+    pending = [r for r in rows if r[2] == "pending"]
+    assert len(pending) == 1 and pending[0][3] == "org_filter_unavailable", rows
     errs = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(errs) == 1, [r.getMessage() for r in errs]
-    assert "3 todo(s)" in errs[0].getMessage()
+    assert "WITHOUT the organisation filter" in errs[0].getMessage()
+
+
+def test_import_failure_does_not_block_distinct_people(tmp_path, monkeypatch):
+    _rules_unloadable(monkeypatch)
+    db = tmp_path / "m.db"
+    for n, who in enumerate((PHONE, "+15550999", "Jane Doe", "John Doe")):
+        _apply(db, ("user", who), f"s-{n}", [_todo()])
+    pend = [r for r in _rows(db) if r[2] == "pending"]
+    assert len(pend) == 4, "nobody is dropped when the filter is unavailable"
+    # a bare unresolved handle never needed the rules, so it carries no flag;
+    # every row that DID need them is flagged
+    assert sorted(str(r[3]) for r in pend) == ["None", "org_filter_unavailable", "org_filter_unavailable", "org_filter_unavailable"]
 
 
 # ---- (a) one open reminder per person / thread --------------------------

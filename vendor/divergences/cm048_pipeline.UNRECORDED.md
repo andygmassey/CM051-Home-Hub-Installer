@@ -171,25 +171,27 @@ Tests: `tests/test_cm048_reminder_title_has_no_handle.py`,
 `tests/test_cm048_reminder_push_thread_and_sender.py`,
 `tests/test_cm048_reminder_push_person_parity.py`.
 
-## The People rules load from the INSTALLED layout (CM051, 2026-10-12, walk #20 blocker)
+## The People rules load from the INSTALLED layout, and fail OPEN (CM051, 2026-10-12, walk #20 blocker)
 
-Tree `cm048_pipeline`, file `vendor/cm048_pipeline/src/reminders_push.py`:
+Tree `cm048_pipeline`, files `vendor/cm048_pipeline/src/reminders_push.py` and
+`vendor/cm048_pipeline/src/ostler_paths.py`:
 
-- `_ical_server_candidates` now builds the installed path from
-  `ostler_paths.ostler_root()` (`<ostler>/services/ical-server/ical-server.py`,
-  install.sh `ICAL_SERVER_DIR`) first. It used to derive it from
-  `Path(__file__).parents[2]`, which in the installed layout is
-  `.venv/lib/python3.X`, because install.sh `pip install`s cm048 into
-  `<ostler>/services/cm048/.venv` non-editable;
-- `_extract_people_rules` replaces importing the whole of ical-server.py
-  (impossible from cm048's venv: ostler_security, pwg_privacy,
-  identity_resolver, rapidfuzz are not there). It parses the file and
-  executes only the seven People rules and their module-level dependencies,
-  refusing any non-stdlib import in that closure, then smoke-calls each rule.
-  Nothing is copied: ical-server.py stays the single source of truth;
-- the one ERROR line per run now lists every path tried and why it failed.
+- `reminders_push` loads the People rules from the stdlib-only
+  `people_rules.py` (single source, shared with ical-server.py), laid by
+  install.sh 3.10a into `<ostler>/services/shared/`. The path comes from
+  `ostler_paths.ostler_root()`, never from `Path(__file__)`: install.sh
+  `pip install`s cm048 non-editable into `.venv/lib/python3.X/site-packages`,
+  so `__file__.parents[2]` is not the services dir;
+- `ostler_root()` now honours `$OSTLER_DIR` like install.sh's own
+  `OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"` (default unchanged);
+- FAIL OPEN: if the rules cannot load, the todo is still pushed (title uses
+  the name when one resolves), the row is flagged `org_filter_unavailable`
+  (stored in `skip_reason` on a pending/pushed row), and the run logs ONE
+  ERROR naming every path tried. The organisation filter is a quality
+  filter, not a privacy one. The `todos_reach_reminders` walk probe FAILs on
+  any such row.
 
 Tests: `tests/test_cm048_reminder_push_people_rules_installed_layout.py`
-(a temp HOME laid out as install.sh does, a fresh interpreter with only
-cm048's site-packages) and the parity test, whose oracle is now the fully
-imported real `ical-server.py` (`people_list`), not the product loader.
+(a temp tree laid out as install.sh does, a fresh interpreter with only
+cm048's site-packages; default and overridden OSTLER_DIR) and the parity test
+(oracle: the fully imported real ical-server `people_list`).

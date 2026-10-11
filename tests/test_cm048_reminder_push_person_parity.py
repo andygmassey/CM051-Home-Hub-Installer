@@ -77,9 +77,8 @@ def _listed_names(srv, monkeypatch):
 
 
 def test_push_gate_agrees_with_people_list_on_every_record(monkeypatch):
-    monkeypatch.setenv("OSTLER_ICAL_SERVER_PATH", str(SERVER))
-    monkeypatch.setattr(reminders_push, "_ICAL_TRIED", False)
-    monkeypatch.setattr(reminders_push, "_ICAL_MODULE", None)
+    monkeypatch.setattr(reminders_push, "_PEOPLE_TRIED", False)
+    monkeypatch.setattr(reminders_push, "_PEOPLE_RULES", None)
     srv = _server()
     listed = _listed_names(srv, monkeypatch)
     verdicts = {}
@@ -100,6 +99,8 @@ def test_the_predicates_are_imported_not_copied():
     src = Path(reminders_push.__file__).read_text()
     for needle in ("_is_non_human_person", "_is_organisation_name", "_is_nameless_name"):
         assert f"srv.{needle}" in src, needle
+    # and the module it calls is the SAME file ical-server.py imports from
+    assert "from people_rules import" in SERVER.read_text()
     # no local re-definition of the People list rule
     assert "def _is_non_human_person" not in src
     assert "_ORG_STRONG_RE" not in src

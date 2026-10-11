@@ -98,8 +98,11 @@ SKIP_REASON_OWNER_OTHER = "owed_by_other"
 SKIP_REASON_EMPTY_TEXT = "empty_text"
 # An organisation or automated sender (the People list's own rules say so).
 SKIP_REASON_NON_HUMAN = "non_human_sender"
-# The People rules could not be loaded: fail closed, never push unchecked.
-SKIP_REASON_UNVERIFIABLE = "non_human_predicate_unavailable"
+# The People rules could not be loaded. The organisation filter is a QUALITY
+# filter, not a privacy one, so this FAILS OPEN: the todo is pushed anyway and
+# the row is FLAGGED with this value (in `skip_reason`, on a pending/pushed
+# row) so a walk can fail on it. A customer never loses all reminders to it.
+FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
 # Another open reminder already exists for this person / thread.
 SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
 
@@ -134,6 +137,9 @@ class PushDecision:
     push_deadline: Optional[str]
     # Stable person/thread id (see ``thread_key_for``); "" when not computed.
     thread_key: str = ""
+    # Non-empty when the row is eligible but flagged (see
+    # FLAG_ORG_FILTER_UNAVAILABLE); stored in skip_reason.
+    flag: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -196,8 +202,8 @@ def _is_handle_shaped(label: str) -> bool:
     characters with at least 6 digits. Widened here because a customer
     title must never carry ANY handle: any ``@`` (an email address) and any
     phone-character-only string holding a digit (a short number) also count.
-    ical-server.py is a script, not an importable module, so the predicate
-    is mirrored, not imported.
+    The locked predicate itself lives in people_rules.py (shared with
+    ical-server); this wider handle test is local to titles.
     """
     s = (label or "").strip()
     if not s:
@@ -278,40 +284,40 @@ def _people_store_record(handle: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
-# The People list's own "is this a person" predicates, IMPORTED not copied
+# The People list's own "is this a person" rules: ONE source, people_rules.py
 # ---------------------------------------------------------------------------
 
-_ICAL_MODULE = None
-_ICAL_TRIED = False
+_PEOPLE_RULES = None
+_PEOPLE_TRIED = False
+# What the last load tried, for the one ERROR line: every path and why it did
+# not work. Empty when the rules loaded.
+_PEOPLE_TRY_LOG: list[str] = []
 
 
-def _ical_server_candidates() -> list[Path]:
-    """Where ical-server.py (the owner of the People list rules) can be.
+def _people_rules_candidates() -> list[Path]:
+    """Where people_rules.py can be.
 
-    INSTALLED layout (install.sh): ical-server is copied to
-    ``<ostler>/services/ical-server/ical-server.py`` (``ICAL_SERVER_DIR``)
-    and cm048 is ``pip install``ed (NOT editable) into
-    ``<ostler>/services/cm048/.venv``, so this module runs from
-    ``.venv/lib/python3.X/site-packages/src/`` and ``Path(__file__)`` says
-    nothing about where the services live. The installed path is therefore
-    built from ``ostler_paths.ostler_root()``, never from ``__file__``.
-    The ``__file__``-relative paths remain for a repo checkout (dev, CI).
+    INSTALLED layout (install.sh): it is laid into
+    ``<ostler>/services/shared/`` beside every consumer. cm048 is
+    ``pip install``ed (not editable) into ``.venv/lib/python3.X/site-packages``,
+    so ``Path(__file__)`` says nothing about where the services live: the
+    installed path comes from ``ostler_paths.ostler_root()`` (which honours
+    ``$OSTLER_DIR`` like install.sh does). The ``__file__``-relative path is
+    for a repo checkout (dev, CI).
     """
     import os
 
     out: list[Path] = []
-    env = os.environ.get("OSTLER_ICAL_SERVER_PATH")
+    env = os.environ.get("OSTLER_PEOPLE_RULES_PATH")
     if env:
         out.append(Path(env))
     try:
-        out.append(ostler_paths.ostler_root() / "services" / "ical-server" / "ical-server.py")
+        out.append(ostler_paths.ostler_root() / "services" / "shared" / "people_rules.py")
     except Exception:  # noqa: BLE001 -- no resolvable home
         pass
     here = Path(__file__).resolve()
     if len(here.parents) > 2:
-        services = here.parents[2]  # repo: <repo>/vendor
-        out.append(services / "cm041" / "assistant_api" / "ical-server.py")
-        out.append(services / "ical-server" / "ical-server.py")
+        out.append(here.parents[2] / "cm041" / "assistant_api" / "people_rules.py")
     seen: list[Path] = []
     for c in out:
         if c not in seen:
@@ -319,156 +325,51 @@ def _ical_server_candidates() -> list[Path]:
     return seen
 
 
-# The People list rules reminders_push needs, by name in ical-server.py.
-_PEOPLE_RULE_NAMES = (
-    "_looks_like_bare_email_or_phone",
-    "_is_nameless_name",
-    "_is_role_address_name",
-    "_is_organisation_name",
-    "_is_automated_or_service_name",
-    "_is_service_mailbox_name",
-    "_is_non_human_person",
-)
-# Imports a rule may use. Anything else in a rule's closure (ostler_security,
-# pwg_privacy, identity_resolver, ...) means the rule is not self-contained
-# and we refuse rather than guess.
-_PEOPLE_RULE_ALLOWED_IMPORTS = frozenset(
-    {"re", "os", "unicodedata", "string", "json", "math", "functools"}
-)
+def _load_people_rules():
+    """Load people_rules.py (stdlib only; the single source ical-server.py
+    also imports). Returns the module, or None.
 
-
-def _extract_people_rules(source: str, filename: str):
-    """Build a namespace holding ONLY the People list rules from the text of
-    ical-server.py, with their transitive module-level dependencies.
-
-    ical-server.py is a server: importing it pulls ostler_security,
-    pwg_privacy, identity_resolver and more, none of which exist in cm048's
-    own venv. The rules themselves are plain functions and compiled regexes,
-    so the source of truth stays ical-server.py (nothing is copied) and only
-    the definitions the rules reach are executed. Raises ``ValueError`` when
-    a rule is missing, reaches a non-stdlib import, or fails a smoke call.
+    None is NOT "is a person" or "is not": callers push WITHOUT the
+    organisation filter, flag the rows ``org_filter_unavailable`` and log one
+    ERROR per run (see ``decide_push`` / ``apply_push_status_to_todos``).
     """
-    import ast
-    import types
+    global _PEOPLE_RULES, _PEOPLE_TRIED
+    if _PEOPLE_TRIED:
+        return _PEOPLE_RULES
+    _PEOPLE_TRIED = True
+    _PEOPLE_TRY_LOG.clear()
+    import importlib.util
+    import sys
 
-    tree = ast.parse(source, filename=filename)
-    defs: dict[str, ast.stmt] = {}
-    imports: dict[str, ast.stmt] = {}
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            defs[node.name] = node
-        elif isinstance(node, ast.Assign):
-            for t in node.targets:
-                for n in ast.walk(t):
-                    if isinstance(n, ast.Name):
-                        defs[n.id] = node
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            defs[node.target.id] = node
-        elif isinstance(node, ast.Import):
-            for al in node.names:
-                imports[(al.asname or al.name).split(".")[0]] = node
-        elif isinstance(node, ast.ImportFrom):
-            for al in node.names:
-                imports[al.asname or al.name] = node
-
-    missing = [n for n in _PEOPLE_RULE_NAMES if n not in defs]
-    if missing:
-        raise ValueError("rules not found in ical-server.py: %s" % ", ".join(missing))
-
-    wanted: dict[int, ast.stmt] = {}
-    need_imports: dict[int, ast.stmt] = {}
-    queue = list(_PEOPLE_RULE_NAMES)
-    seen: set[str] = set()
-    while queue:
-        name = queue.pop()
-        if name in seen:
-            continue
-        seen.add(name)
-        if name in defs:
-            node = defs[name]
-            wanted[id(node)] = node
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.Name) and sub.id not in seen:
-                    queue.append(sub.id)
-        elif name in imports:
-            node = imports[name]
-            mods = (
-                [al.name for al in node.names]
-                if isinstance(node, ast.Import)
-                else [node.module or ""]
-            )
-            for m in mods:
-                if m.split(".")[0] not in _PEOPLE_RULE_ALLOWED_IMPORTS:
-                    raise ValueError(
-                        "a People rule reaches the non-stdlib import %r" % m
-                    )
-            need_imports[id(node)] = node
-
-    ordered = sorted(
-        list(need_imports.values()) + list(wanted.values()),
-        key=lambda n: (n.lineno, n.col_offset),
-    )
-    module = ast.Module(body=ordered, type_ignores=[])
-    ast.fix_missing_locations(module)
-    ns: dict = {"__name__": "_ostler_people_rules"}
-    exec(compile(module, filename, "exec"), ns)  # noqa: S102
-
-    # Smoke: every rule must RUN (a NameError for something the closure
-    # missed would otherwise surface per row, much later).
-    try:
-        ns["_looks_like_bare_email_or_phone"]("x")
-        ns["_is_nameless_name"]("Jane Doe")
-        ns["_is_role_address_name"]("Jane Doe")
-        ns["_is_organisation_name"]("Jane Doe")
-        ns["_is_automated_or_service_name"]("Jane Doe")
-        ns["_is_service_mailbox_name"]("Jane Doe")
-        ns["_is_non_human_person"]({}, "Jane Doe", [], [])
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError("a People rule failed its smoke call: %r" % (exc,)) from exc
-    return types.SimpleNamespace(**{n: ns[n] for n in _PEOPLE_RULE_NAMES})
-
-
-# What the last load tried, for the one ERROR line: every path and why it
-# did not work. Empty when the rules loaded.
-_ICAL_TRY_LOG: list[str] = []
-
-
-def _load_ical_server():
-    """Load the People list rules from ical-server.py (the file that owns
-    them). Returns an object exposing the rule functions, or None.
-
-    NEVER silently treated as "is a person": callers fail closed on None.
-    """
-    global _ICAL_MODULE, _ICAL_TRIED
-    if _ICAL_TRIED:
-        return _ICAL_MODULE
-    _ICAL_TRIED = True
-    _ICAL_TRY_LOG.clear()
-    for cand in _ical_server_candidates():
+    for cand in _people_rules_candidates():
         if not cand.is_file():
-            _ICAL_TRY_LOG.append("%s: no such file" % cand)
+            _PEOPLE_TRY_LOG.append("%s: no such file" % cand)
             continue
+        shared = str(cand.parent)
+        if shared not in sys.path:
+            sys.path.insert(0, shared)  # the shared dir joins the path, as for ical-server
         try:
-            _ICAL_MODULE = _extract_people_rules(cand.read_text(encoding="utf-8"), str(cand))
-            return _ICAL_MODULE
+            spec = importlib.util.spec_from_file_location("people_rules", cand)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _PEOPLE_RULES = mod
+            return mod
         except Exception as exc:  # noqa: BLE001
-            _ICAL_TRY_LOG.append("%s: %s" % (cand, exc))
-            log.warning(
-                "reminders_push: cannot load People rules from %s (%s)", cand, exc,
-            )
+            _PEOPLE_TRY_LOG.append("%s: %s" % (cand, exc))
+            log.warning("reminders_push: cannot load People rules from %s (%s)", cand, exc)
     return None
 
 
 def is_listed_as_a_person(payload: dict, name: str) -> Optional[bool]:
     """Would the Hub People list show this record as a person?
 
-    Calls the imported ical-server predicates in the order ``people_list``
+    Calls the shared people_rules predicates in the order ``people_list``
     applies them. True = a person, False = organisation / automated sender /
-    nameless, None = the rules could not be loaded (caller fails closed).
+    nameless, None = the rules could not be loaded (the caller pushes anyway, flagged).
     ``tests/test_cm048_reminder_push_person_parity.py`` pins this against
     ``people_list`` itself.
     """
-    srv = _load_ical_server()
+    srv = _load_people_rules()
     if srv is None:
         return None
     p = payload or {}
@@ -524,7 +425,7 @@ def _classify_participant(
     PERSON: a human display name safe to show. UNKNOWN: a handle that does
     not resolve (generic title, never the handle). NON_HUMAN: an organisation
     or automated sender per the People list's own rules (no push at all).
-    UNVERIFIABLE: the People rules could not be loaded (no push, fail closed).
+    UNVERIFIABLE: the People rules could not be loaded (push anyway, flagged).
     """
     if resolver is not None:
         try:
@@ -540,7 +441,7 @@ def _classify_participant(
         name = _record_name(payload)
         verdict = is_listed_as_a_person(payload, name)
         if verdict is None:
-            return KIND_UNVERIFIABLE, None
+            return KIND_UNVERIFIABLE, (name if name and not _is_handle_shaped(name) else None)
         if not verdict:
             return KIND_NON_HUMAN, None
         if name and not _is_handle_shaped(name):
@@ -552,7 +453,7 @@ def _classify_participant(
     # decide whether it reads as an organisation / automated sender.
     verdict = is_listed_as_a_person({}, label.strip())
     if verdict is None:
-        return KIND_UNVERIFIABLE, None
+        return KIND_UNVERIFIABLE, label.strip()
     if not verdict:
         return KIND_NON_HUMAN, None
     return KIND_PERSON, label.strip()
@@ -742,11 +643,7 @@ def decide_push(
     others = _other_participants(bundle.participants, user_id=user_id)
     classified = [(_classify_participant(o, name_resolver)) for o in others]
     kinds = [k for k, _ in classified]
-    if KIND_UNVERIFIABLE in kinds:
-        return PushDecision(
-            eligible=False, skip_reason=SKIP_REASON_UNVERIFIABLE,
-            push_title="", push_notes="", push_deadline=None,
-        )
+    flag = FLAG_ORG_FILTER_UNAVAILABLE if KIND_UNVERIFIABLE in kinds else ""
     # 1:1 with an organisation / automated sender, or a group that is
     # nothing but such senders: no push.
     if kinds and all(k == KIND_NON_HUMAN for k in kinds):
@@ -755,6 +652,9 @@ def decide_push(
             push_title="", push_notes="", push_deadline=None,
         )
     participant = classified[0] if len(classified) == 1 else None
+    if participant and participant[0] == KIND_UNVERIFIABLE:
+        # fail open: name the person if we have a name, else stay generic
+        participant = (KIND_PERSON, participant[1]) if participant[1] else (KIND_UNKNOWN, None)
 
     return PushDecision(
         eligible=True,
@@ -769,6 +669,7 @@ def decide_push(
         ),
         push_deadline=todo.deadline,
         thread_key=thread_key_for(bundle, user_id),
+        flag=flag,
     )
 
 
@@ -936,12 +837,13 @@ def _upsert_pending(
     if existing is None:
         conn.execute(
             "INSERT INTO reminders_map "
-            "(user_id, source_session_id, todo_id, status, push_title, push_notes, push_deadline, last_seen_at, thread_key) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(user_id, source_session_id, todo_id, status, push_title, push_notes, push_deadline, last_seen_at, thread_key, skip_reason) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id, session_id, todo_id, STATUS_PENDING,
                 decision.push_title, decision.push_notes,
                 decision.push_deadline, now, decision.thread_key or None,
+                decision.flag or None,
             ),
         )
         conn.commit()
@@ -951,11 +853,12 @@ def _upsert_pending(
     conn.execute(
         "UPDATE reminders_map SET "
         "  push_title=?, push_notes=?, push_deadline=?, last_seen_at=?, "
-        "  thread_key=COALESCE(?, thread_key), skip_reason=NULL "
+        "  thread_key=COALESCE(?, thread_key), skip_reason=? "
         "WHERE user_id=? AND source_session_id=? AND todo_id=?",
         (
             decision.push_title, decision.push_notes,
             decision.push_deadline, now, decision.thread_key or None,
+            decision.flag or None,
             user_id, session_id, todo_id,
         ),
     )
@@ -1015,9 +918,9 @@ def apply_push_status_to_todos(
 
     # A failed import of the People rules is retried once per run (a long
     # lived process must not stay broken forever on one early failure).
-    global _ICAL_TRIED
-    if _ICAL_MODULE is None:
-        _ICAL_TRIED = False
+    global _PEOPLE_TRIED
+    if _PEOPLE_RULES is None:
+        _PEOPLE_TRIED = False
     unverifiable_rows = 0
 
     try:
@@ -1047,8 +950,6 @@ def apply_push_status_to_todos(
                 summary_path=summary_path,
             )
             if not decision.eligible:
-                if decision.skip_reason == SKIP_REASON_UNVERIFIABLE:
-                    unverifiable_rows += 1
                 _upsert_skipped(
                     conn,
                     user_id=user_id,
@@ -1079,6 +980,9 @@ def apply_push_status_to_todos(
                 )
                 out.append(todo)
                 continue
+
+            if decision.flag:
+                unverifiable_rows += 1
 
             current_status = _upsert_pending(
                 conn,
@@ -1113,16 +1017,15 @@ def apply_push_status_to_todos(
                 # status as supplied.
                 out.append(todo)
         if unverifiable_rows:
-            # ONE line per run, not per row: every row above was skipped
-            # because the People list's own rules could not be imported.
+            # ONE line per run, not per row. FAIL OPEN: these todos WERE
+            # pushed, without the organisation filter, and flagged.
             log.error(
-                "reminders_push: %d todo(s) NOT pushed (skip_reason=%s): the "
-                "People list rules (ical-server.py) could not be loaded, so "
-                "organisations / automated senders cannot be told apart from "
-                "people. Failing closed. Tried: %s. Set "
-                "OSTLER_ICAL_SERVER_PATH to fix.",
-                unverifiable_rows, SKIP_REASON_UNVERIFIABLE,
-                "; ".join(_ICAL_TRY_LOG) or "(no candidate paths)",
+                "reminders_push: %d todo(s) pushed WITHOUT the organisation "
+                "filter (flag=%s): the People rules (people_rules.py) could "
+                "not be loaded, so banks and automated senders may get "
+                "reminders. Tried: %s. Set OSTLER_PEOPLE_RULES_PATH to fix.",
+                unverifiable_rows, FLAG_ORG_FILTER_UNAVAILABLE,
+                "; ".join(_PEOPLE_TRY_LOG) or "(no candidate paths)",
             )
         return tuple(out)
     finally:

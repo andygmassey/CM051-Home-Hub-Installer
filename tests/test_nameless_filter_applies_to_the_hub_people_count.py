@@ -10,7 +10,10 @@ import ast
 import pathlib
 import sys
 
-SRC = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/ical-server.py"
+ICAL = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/ical-server.py"
+# The predicate now lives in the stdlib-only people_rules.py (single source
+# shared with cm048's reminders_push); people_list stays in ical-server.py.
+SRC = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/people_rules.py"
 WANT = {"_is_nameless_name", "_NAMELESS_BARE_ID_CHARS"}
 
 try:
@@ -53,7 +56,8 @@ if f:
     for real in ("Alice Example", "Bob Example"):
         check(f"NOT nameless: {real!r}", not f(real))
 
-body = text[text.index("def people_list("):]
+ical_text = ICAL.read_text()
+body = ical_text[ical_text.index("def people_list("):]
 body = body[: body.index("\ndef ", 10)]
 check(
     "people_list calls _is_nameless_name on the display name (not just `if not name`)",

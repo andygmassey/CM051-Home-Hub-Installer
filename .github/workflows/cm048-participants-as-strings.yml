@@ -24,6 +24,10 @@ on:
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
+      - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/fixtures/people_rules_golden.json'
+      - 'vendor/cm041/assistant_api/people_rules.py'
+      - 'vendor/cm048_pipeline/src/ostler_paths.py'
       - 'tests/test_doctor_reminders_list_removed.py'
       - 'vendor/doctor/agent/reminders_runtime.py'
       - 'vendor/doctor/agent/dashboard_components.py'
@@ -47,6 +51,10 @@ on:
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
+      - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/fixtures/people_rules_golden.json'
+      - 'vendor/cm041/assistant_api/people_rules.py'
+      - 'vendor/cm048_pipeline/src/ostler_paths.py'
       - 'tests/test_doctor_reminders_list_removed.py'
       - 'vendor/doctor/agent/reminders_runtime.py'
       - 'vendor/doctor/agent/dashboard_components.py'
@@ -158,8 +166,18 @@ jobs:
         run: |
           n="$(python -m pytest tests/test_cm048_reminder_push_people_rules_installed_layout.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 3 ]; then
-            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_people_rules_installed_layout.py -v
+      - name: people_rules.py is stdlib only and behaves exactly as the rules did inside ical-server
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_people_rules_is_stdlib_only.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_rules_is_stdlib_only.py -v
