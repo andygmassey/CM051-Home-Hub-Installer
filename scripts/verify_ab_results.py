@@ -8,8 +8,10 @@ ab-results/<new DAEMON_SHA256>.tsv with no chat regressions.
   verify_ab_results.py --file <path> [--sha <hex>] check one results file
 
 The file format lives in ONE function, parse_results(). Change it there.
-The file is committed to a PUBLIC repo, so the parser is an allowlist: fixed
+The file is committed to a PUBLIC repo, so the parser is an allowlist: run_stamp and run_host lines, fixed
 header, an id column, integer columns, a final drops=<int> line, nothing else.
+The gate checks presence and arithmetic only. The file is self-reported, so it
+cannot prove the A/B ran; review checks stamp and host against the lab log.
 Tests: tests/test_ab_results_gate.sh
 """
 import os
@@ -24,6 +26,8 @@ HEADER = ["question_id", "old_pass", "new_pass", "n", "old_tools_none",
 ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 INT_RE = re.compile(r"^[0-9]{1,9}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+STAMP_RE = re.compile(r"^run_stamp=[0-9]{8}T[0-9]{6}Z$")
+HOST_RE = re.compile(r"^run_host=[a-z0-9-]{1,40}$")
 
 
 def parse_results(text):
@@ -32,9 +36,13 @@ def parse_results(text):
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
-    if len(lines) < 3:
-        return ["file needs a header, at least one row, and a drops= line"], None, None
-    if lines[0].split("\t") != HEADER:
+    if len(lines) < 5:
+        return ["file needs run_stamp, run_host, a header, at least one row, and a drops= line"], None, None
+    if not STAMP_RE.match(lines[0]):
+        errors.append("line 1 must be run_stamp=YYYYMMDDTHHMMSSZ")
+    if not HOST_RE.match(lines[1]):
+        errors.append("line 2 must be run_host=[a-z0-9-]{1,40}")
+    if lines[2].split("\t") != HEADER:
         errors.append("header must be exactly: " + " ".join(HEADER)
                       + " (extra or renamed columns are rejected)")
     m = re.fullmatch(r"drops=([0-9]{1,9})", lines[-1])
@@ -42,7 +50,7 @@ def parse_results(text):
         errors.append("last line must be drops=<int>")
     declared = int(m.group(1)) if m else None
     drops = 0
-    for i, line in enumerate(lines[1:-1], start=2):
+    for i, line in enumerate(lines[3:-1], start=4):
         cells = line.split("\t")
         if len(cells) != len(HEADER):
             errors.append("line %d: %d cells, want %d" % (i, len(cells), len(HEADER)))

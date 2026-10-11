@@ -7,6 +7,8 @@ gate="$here/scripts/verify_ab_results.py"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 fail=0
 OLD=$(printf 'a%.0s' $(seq 64)); NEW=$(printf 'b%.0s' $(seq 64)); HUB=$(printf 'c%.0s' $(seq 64))
+P="run_stamp=20261011T010203Z
+run_host=lab-mini-1"
 H="question_id	old_pass	new_pass	n	old_tools_none	new_tools_none	old_p50_ms	new_p50_ms"
 
 mk() {
@@ -24,14 +26,19 @@ run() {
 }
 
 mk nofile;    repin;                                                                                         run nofile 1
-mk good;      repin; printf '%s\nq1\t3\t3\t5\t1\t1\t900\t800\nq2\t2\t4\t5\t2\t0\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run good 0
-mk liar;      repin; printf '%s\nq1\t3\t2\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv";        run liar 1
-mk toolsrise; repin; printf '%s\nq1\t3\t3\t5\t1\t2\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv";        run toolsrise 1
-mk extracol;  repin; printf '%s\ttext\nq1\t3\t3\t5\t1\t1\t900\t800\tsecret words\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run extracol 1
-mk textcell;  repin; printf '%s\nWhat is Bob phone\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run textcell 1
-mk dropsnz;   repin; printf '%s\nq1\t3\t2\t5\t1\t1\t900\t800\ndrops=1\n' "$H" > "ab-results/$NEW.tsv";        run dropsnz 1
-mk wrongsha;  repin; printf '%s\nq1\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$OLD.tsv";        run wrongsha 1
+mk good;      repin; printf '%s\n%s\nq1\t3\t3\t5\t1\t1\t900\t800\nq2\t2\t4\t5\t2\t0\t900\t800\ndrops=0\n' "$P" "$H" > "ab-results/$NEW.tsv"; run good 0
+mk liar;      repin; printf '%s\n%s\nq1\t3\t2\t5\t1\t1\t900\t800\ndrops=0\n' "$P" "$H" > "ab-results/$NEW.tsv";        run liar 1
+mk toolsrise; repin; printf '%s\n%s\nq1\t3\t3\t5\t1\t2\t900\t800\ndrops=0\n' "$P" "$H" > "ab-results/$NEW.tsv";        run toolsrise 1
+mk extracol;  repin; printf '%s\ttext\nq1\t3\t3\t5\t1\t1\t900\t800\tsecret words\ndrops=0\n' "$P" "$H" > "ab-results/$NEW.tsv"; run extracol 1
+mk textcell;  repin; printf '%s\n%s\nWhat is Bob phone\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$P" "$H" > "ab-results/$NEW.tsv"; run textcell 1
+mk dropsnz;   repin; printf '%s\n%s\nq1\t3\t2\t5\t1\t1\t900\t800\ndrops=1\n' "$P" "$H" > "ab-results/$NEW.tsv";        run dropsnz 1
+mk wrongsha;  repin; printf '%s\n%s\nq1\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$P" "$H" > "ab-results/$OLD.tsv";        run wrongsha 1
 mk hubonly;   printf 'DAEMON_SHA256        ?= %s\nHUB_APP_SHA256       ?= %s\n' "$OLD" "$NEW" > gui/Makefile;   run hubonly 1
+mk nostamp;   repin; printf 'run_host=lab-mini-1\n%s\nq1\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run nostamp 1
+mk nohost;    repin; printf 'run_stamp=20261011T010203Z\n%s\nq1\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run nohost 1
+mk hostspace; repin; printf 'run_stamp=20261011T010203Z\nrun_host=lab mini\n%s\nq1\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run hostspace 1
+mk hostpunct; repin; printf 'run_stamp=20261011T010203Z\nrun_host=lab_mini.1\n%s\nq1\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run hostpunct 1
+mk badstamp;  repin; printf 'run_stamp=2026-10-11\nrun_host=lab-mini-1\n%s\nq1\t3\t3\t5\t1\t1\t900\t800\ndrops=0\n' "$H" > "ab-results/$NEW.tsv"; run badstamp 1
 mk skip;      echo "# comment" >> gui/Makefile;                                                               run skip 0
 if [ "$fail" = 0 ]; then echo "ALL OK"; else echo "FAILED"; fi
 exit "$fail"
