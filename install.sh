@@ -9365,9 +9365,9 @@ cat > "${OSTLER_DIR}/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
 #                               run; 0 = allow (high tier)
 #   OSTLER_LOADAVG_CEILING      per-core 1-min loadavg above which a
 #                               non-essential tick defers (tenths allowed)
-#   OSTLER_ENRICH_NUM_CTX       reduced num_ctx for ENRICHMENT summaries
-#                               ONLY (never the interactive chat); empty on
-#                               high tier (use the model default)
+#   OSTLER_ENRICH_NUM_CTX       EMPTY on every tier: enrichment must ask for
+#                               the chat window (32768) or Ollama reloads the
+#                               model each switch (tests/...tier_governor.sh)
 #   OSTLER_RAM_GB               detected RAM in whole GB (diagnostics)
 #   OSTLER_CPU_CORES            detected total cores (diagnostics)
 #   OSTLER_PERF_CORES           detected performance cores. DIAGNOSTIC ONLY:
@@ -9648,14 +9648,14 @@ ostler_resource_tier_detect() {
             OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-2}"
             OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
             OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-2.0}"
-            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-8192}"
+            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-}"
             ;;
         *)  # floor (the conservative fallback)
             OSTLER_TIER="floor"
             OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-1}"
             OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
             OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-1.5}"
-            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-4096}"
+            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-}"
             ;;
     esac
 

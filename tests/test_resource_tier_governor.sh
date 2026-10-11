@@ -175,6 +175,32 @@ grep -q '^OSTLER_TIER=floor$' <<<"$out"            || failure "OSTLER_TIER overr
 [ "$FAILED" -eq 0 ] && pass "OSTLER_TIER override pins the tier"
 
 # --------------------------------------------------------------------
+# Section 1c -- ENRICHMENT MUST ASK FOR THE SAME CONTEXT WINDOW AS CHAT.
+#
+# Ollama keys a loaded runner on (model, num_ctx). The daemon pins chat at
+# num_ctx 32768; the enrichment callers use the same model and read
+# OSTLER_ENRICH_NUM_CTX, falling back to 32768 when it is empty. Any other
+# value makes every chat/enrichment alternation unload and reload the model.
+# Walk #19 (16 GB, low tier, 8192): 94 gemma4:e2b reloads in 90 minutes and
+# two Ollama starvations. So the governor must leave it EMPTY on every tier,
+# and the case that matters most is the 16 GB machine, the hard minimum.
+# --------------------------------------------------------------------
+for spec in "8 8 4 floor" "16 10 4 low" "16 8 4 low" "24 10 4 low" "32 10 4 high" "64 16 12 high" "16 2 2 floor"; do
+    set -- $spec
+    out="$(detect_with $(( $1 * 1073741824 )) "$2" "$3")"
+    grep -q "^OSTLER_TIER=$4\$" <<<"$out" \
+        || failure "${1}GB/${2} cores should be tier $4 for this check, got: $out"
+    grep -q '^OSTLER_ENRICH_NUM_CTX=$' <<<"$out" \
+        || failure "${1}GB ($4): OSTLER_ENRICH_NUM_CTX must be EMPTY so enrichment matches the chat window and no reload happens, got: $(grep '^OSTLER_ENRICH_NUM_CTX=' <<<"$out")"
+done
+[ "$FAILED" -eq 0 ] && pass "OSTLER_ENRICH_NUM_CTX is empty on floor, low and high (one runner for chat and enrichment)"
+
+# The operator override still wins, so the knob is not removed, only defaulted.
+out="$(env PATH="$TMP/bin:$PATH" FAKE_MEMSIZE=$((16*1073741824)) FAKE_NCPU=10 FAKE_PERF=4 OSTLER_ENRICH_NUM_CTX=16384 bash "$LIB")"
+grep -q '^OSTLER_ENRICH_NUM_CTX=16384$' <<<"$out" || failure "an operator OSTLER_ENRICH_NUM_CTX must still win, got: $out"
+[ "$FAILED" -eq 0 ] && pass "operator OSTLER_ENRICH_NUM_CTX override still wins"
+
+# --------------------------------------------------------------------
 # Section 2 -- the non-essential defer decision under load.
 # --------------------------------------------------------------------
 defer_returns() {
