@@ -37,7 +37,7 @@ LIB = os.environ.get("HUB_SCREENS_LIB") or os.path.join(
     HERE, "..", "scripts", "box_walk_probes", "lib", "hub_screens.py")
 
 N, WINDOW, ORG_AT = 6700, 100, 6500
-ORG = "Acme Promotions"
+ORG = "acme promotions"
 TOKEN = "synthetic-walk-token"
 
 spec = importlib.util.spec_from_file_location("hub_screens", LIB)
