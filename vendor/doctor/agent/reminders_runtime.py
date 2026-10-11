@@ -203,7 +203,7 @@ def read_reminders_runtime() -> RemindersRuntime:
 
 def _list_id_path() -> Path:
     """``~/.ostler/reminders_list_id``: the assistant's persisted id of the
-    Ostler Reminders list (same ``$OSTLER_HOME`` rule as the mapping DB)."""
+    the Reminders list named Ostler (same ``$OSTLER_HOME`` rule as the mapping DB)."""
     base = Path(os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler")))
     return base / "reminders_list_id"
 

@@ -132,7 +132,7 @@ TOKEN_PATH = os.environ.get("OSTLER_PROBE_TOKEN_PATH", "~/.ostler/secrets/zerocl
 
 
 def read_reminders_list():
-    """The daemon's own report of the Ostler Reminders list, from
+    """The daemon's own report of the dedicated Reminders list, from
     GET /api/status (`reminders_list`). Never raises; says WHY it could not read."""
     import urllib.error
     import urllib.request
