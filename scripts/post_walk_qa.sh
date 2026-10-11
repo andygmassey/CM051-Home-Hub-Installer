@@ -288,7 +288,7 @@ fi
 # below reads it instead of running the script again after the forgets.
 OSTLER_PHASE1_VERDICTS="$(mktemp -t ostler-phase1-verdicts)"
 export OSTLER_PHASE1_VERDICTS
-OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
+OSTLER_CURRENT_WALK_LOG="$PROBE_LOG" OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
 # THE COUNTS, NOT THE RETURN CODE. run_box_walk.sh exits 0 whenever
