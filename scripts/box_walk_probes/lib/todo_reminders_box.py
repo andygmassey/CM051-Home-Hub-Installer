@@ -153,7 +153,7 @@ def read_reminders_list():
     if not isinstance(rl, dict):
         return {"read": True, "present_in_status": False}
     out = {"read": True, "present_in_status": True}
-    out.update({k: rl.get(k) for k in ("available", "measured", "present", "id_stored", "pushed_in_list", "removed")})
+    out.update({k: rl.get(k) for k in ("available", "measured", "authorization", "present", "id_stored", "pushed_in_list", "removed")})
     return out
 
 

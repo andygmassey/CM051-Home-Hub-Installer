@@ -135,6 +135,8 @@ def _judge_ostler_list(f, out, add, status):
         add(DECLARED[4], False, "GET /api/status has no reminders_list: the installed daemon predates the Ostler list (or the field was dropped)")
     elif rl.get("available") is False:
         add(DECLARED[4], None, "N/A-on-this-build: the daemon reports reminders push is not built in (available=false)")
+    elif not rl.get("measured") and rl.get("authorization") in ("not_determined", "denied", "restricted"):
+        add(DECLARED[4], None, "CANNOT-RUN (tcc): the list is unmeasured because the daemon's Reminders permission is {} (reminders_list.authorization); only a human at the console can answer the prompt or grant it".format(rl.get("authorization")))
     elif not rl.get("measured"):
         add(DECLARED[4], False, "the daemon has not measured the list yet (measured=false) after the wait budget; the watcher is not ticking")
     elif rl.get("removed"):
@@ -265,6 +267,10 @@ def self_test():
         ("a daemon with no reminders_list field", {"__drop__": True}, None, False),
         ("status endpoint unreadable", {"__unread__": True}, None, None),
         ("nothing pushed this run", {}, {"status": "pending", "waited_s": 90}, None),
+        ("unmeasured, permission not_determined", {"measured": False, "authorization": "not_determined"}, None, None),
+        ("unmeasured, permission denied", {"measured": False, "authorization": "denied"}, None, None),
+        ("unmeasured, permission GRANTED (count unreadable)", {"measured": False, "authorization": "authorized"}, None, False),
+        ("unmeasured, permission unknown", {"measured": False, "authorization": ""}, None, False),
     ):
         t = copy.deepcopy(g)
         if rl.get("__drop__"):
