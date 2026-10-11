@@ -7,7 +7,12 @@ import pathlib
 import re
 import sys
 
-SRC = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/ical-server.py"
+API = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api"
+ICAL = API / "ical-server.py"
+# The rule is DEFINED in the stdlib-only people_rules.py (single source shared
+# with cm048's reminders_push) and must be IMPORTED by ical-server.py, which
+# serves the People list.
+SRC = API / "people_rules.py"
 WANT = {"_ROLE_ADDRESS_LOCAL_RE", "_is_role_address_name"}
 
 try:
@@ -39,6 +44,35 @@ def check(label, ok):
 
 
 check("_is_role_address_name exists", f is not None)
+
+# LIVE ON THE SERVED PATH: ical-server.py must import both names from
+# people_rules (a definition nobody imports hides nothing).
+_imported = set()
+for _n in ast.walk(ast.parse(ICAL.read_text())):
+    if isinstance(_n, ast.ImportFrom) and _n.module == "people_rules":
+        _imported |= {a.name for a in _n.names}
+check("ical-server.py imports _is_role_address_name from people_rules", "_is_role_address_name" in _imported)
+check("ical-server.py imports _ROLE_ADDRESS_LOCAL_RE from people_rules", "_ROLE_ADDRESS_LOCAL_RE" in _imported)
+
+# Behavioural, when the server's own dependencies are present: the object
+# ical-server exposes is the one that hides a role address.
+try:
+    import importlib.util
+    import os
+
+    os.environ.setdefault("OSTLER_SERVICE_TOKEN", "test-only-role-address")
+    _spec = importlib.util.spec_from_file_location("_ical_role_addr", ICAL)
+    _srv = importlib.util.module_from_spec(_spec)
+    sys.path.insert(0, str(API))
+    try:
+        _spec.loader.exec_module(_srv)
+    finally:
+        sys.path.remove(str(API))
+    check("served path: ical-server's _is_role_address_name hides a role address",
+          _srv._is_role_address_name("support@example.com") is True
+          and _srv._is_role_address_name("a real name") is False)
+except ImportError as _exc:
+    print("  n/a   served-path behavioural arm needs the server's dependencies (%s); the import assertions above still run" % _exc)
 if f:
     for hidden in ("support@example.com", "promotions@shop.example", "no-reply@x.example",
                    "newsletter@x.example", "info@x.example", "team.updates@x.example"):
