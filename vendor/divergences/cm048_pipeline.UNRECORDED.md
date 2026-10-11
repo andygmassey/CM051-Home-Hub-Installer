@@ -134,3 +134,32 @@ The L2 branch of `_format_push_title` returning `base` with no deadline
 suffix. Guarded by `tests/test_cm048_reminder_title_has_no_iso_date.py` (CM051
 repo root, 4 tests, 4 fail against main), wired into
 `.github/workflows/cm048-participants-as-strings.yml`.
+
+## A reminder title never carries a raw messaging handle (CM051, 2026-10-11)
+
+Tree `cm048_pipeline`, file `vendor/cm048_pipeline/src/reminders_push.py`:
+
+- new `_is_handle_shaped`, `_handle_variants`, `_people_store_display_name`
+  and `_display_label`, plus `GENERIC_FOLLOW_UP_TITLE`;
+- `_format_push_title` (L2) names the participant only when `_display_label`
+  returns a human name, else "Follow up on a conversation"; the "@" prefix is
+  gone; multi-party uses the same generic title (was "Follow up on
+  conversation");
+- `_format_push_notes` (L0/L1) uses the same rule instead of "@<handle>";
+- `decide_push` / `_format_push_*` take an optional `name_resolver`
+  (default: a Qdrant `people` lookup on the payload's `phones` / `emails`,
+  proxy-free, 3s timeout, any failure gives None).
+
+WHY: 7 of 22 reminders pushed on a real-size walk were titled
+"Follow up with @<phone handle>", because the bundle's participant id (a
+phone / JID / email) went straight into the title. The resolver is the store
+the Hub People list reads (`ical-server.py` `people_list`: Qdrant `people`,
+`display_name` upgraded to `given_name family_name` when the stored name is
+itself an identifier). ical-server.py is a script, not importable from
+cm048, so the lookup is re-expressed against the same collection and the
+"is this a handle" predicate mirrors the locked `_is_nameless_name`
+(Ref #664), widened to any `@` or any digit-only phone shape.
+
+Not attempted against the regeneration tool: `cm048_pipeline` is pinned with
+`verify = "skip"` / `unverifiable_ack = true` (see the entry above). Recorded
+by location and shape instead. Test: `tests/test_cm048_reminder_title_has_no_handle.py`.

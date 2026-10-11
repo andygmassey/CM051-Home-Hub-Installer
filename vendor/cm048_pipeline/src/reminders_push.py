@@ -58,7 +58,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from . import ostler_paths
 
@@ -168,12 +168,145 @@ def _other_participants(
     ]
 
 
+# ---------------------------------------------------------------------------
+# Participant label -> display name (never a raw handle in a customer title)
+# ---------------------------------------------------------------------------
+
+GENERIC_FOLLOW_UP_TITLE = "Follow up on a conversation"
+
+_BARE_ID_CHARS = frozenset("0123456789+-(). ")
+
+
+def _is_handle_shaped(label: str) -> bool:
+    """True when ``label`` is a messaging handle, not a human name.
+
+    Superset of the LOCKED "non-displayable name" predicate
+    (ical-server ``_is_nameless_name`` == CM044 ``compiler/nameless.py`` ==
+    CM031 ``PersonNameFilter``, Ref #664): empty, a WhatsApp JID
+    (``@s.whatsapp.net`` / ``@lid``), or a bare identifier of phone
+    characters with at least 6 digits. Widened here because a customer
+    title must never carry ANY handle: any ``@`` (an email address) and any
+    phone-character-only string holding a digit (a short number) also count.
+    ical-server.py is a script, not an importable module, so the predicate
+    is mirrored, not imported.
+    """
+    s = (label or "").strip()
+    if not s:
+        return True
+    if "@" in s:
+        return True
+    if all(c in _BARE_ID_CHARS for c in s) and any(c.isdigit() for c in s):
+        return True
+    return False
+
+
+def _handle_variants(handle: str) -> list[str]:
+    h = handle.strip()
+    out = [h, h.lower()]
+    digits = "".join(c for c in h if c.isdigit())
+    if digits and "@" not in h:
+        out += [digits, "+" + digits]
+    seen: list[str] = []
+    for v in out:
+        if v and v not in seen:
+            seen.append(v)
+    return seen
+
+
+def _people_store_display_name(handle: str) -> Optional[str]:
+    """Resolve ``handle`` through the store the People list reads.
+
+    The Hub People list (ical-server ``people_list``) scrolls the Qdrant
+    ``people`` collection and shows ``display_name`` (upgraded to
+    ``given_name family_name`` when the stored name is itself just an
+    identifier). This does the same lookup keyed on the payload's
+    ``phones`` / ``emails`` and applies the same rule, so a reminder names
+    the person exactly as the People list does. Any failure (store down,
+    no match, match with no human name) returns None and the caller falls
+    back to the generic title.
+    """
+    import json
+    import urllib.request
+
+    import os
+
+    # Same override Settings applies (OSTLER_QDRANT_URL), read directly:
+    # load_settings() raises without a configured user_id, and a title must
+    # not depend on that.
+    base = os.environ.get("OSTLER_QDRANT_URL")
+    if not base:
+        try:
+            from .settings import load_settings
+
+            base = load_settings().qdrant_url
+        except Exception:  # noqa: BLE001 -- settings trouble must not block a title
+            base = "http://localhost:6333"
+    variants = _handle_variants(handle)
+    body = {
+        "filter": {"should": [
+            {"key": "phones", "match": {"any": variants}},
+            {"key": "emails", "match": {"any": variants}},
+        ]},
+        "limit": 5,
+        "with_payload": True,
+        "with_vector": False,
+    }
+    try:
+        req = urllib.request.Request(
+            base.rstrip("/") + "/collections/people/points/scroll",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        # No proxy: the people store is local, and an HTTP(S)_PROXY in the
+        # environment must not answer for it.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=3) as resp:
+            points = (json.loads(resp.read()).get("result") or {}).get("points") or []
+    except Exception as exc:  # noqa: BLE001
+        log.info("reminders_push: people lookup unavailable (%s)", exc)
+        return None
+    for pt in points:
+        p = pt.get("payload") or {}
+        name = (p.get("display_name") or p.get("name") or "").strip()
+        given = (p.get("given_name") or "").strip()
+        family = (p.get("family_name") or "").strip()
+        if (given or family) and _is_handle_shaped(name):
+            name = " ".join(x for x in (given, family) if x)
+        if name and not _is_handle_shaped(name):
+            return name
+    return None
+
+
+NameResolver = Callable[[str], Optional[str]]
+
+
+def _display_label(label: str, resolver: Optional[NameResolver]) -> Optional[str]:
+    """A name safe to show for one participant label, else None.
+
+    A label that is not handle-shaped is already a name and passes through.
+    A handle is resolved through the People store; if it does not resolve to
+    a human name that is itself not handle-shaped, None.
+    """
+    if not _is_handle_shaped(label):
+        return label.strip()
+    try:
+        name = (resolver or _people_store_display_name)(label)
+    except Exception as exc:  # noqa: BLE001
+        log.info("reminders_push: name resolver failed (%s)", exc)
+        return None
+    name = (name or "").strip()
+    if not name or _is_handle_shaped(name):
+        return None
+    return name
+
+
 def _format_push_title(
     todo: "Todo",
     privacy_level: str,
     *,
     bundle: "ConversationBundle",
     user_id: str,
+    name_resolver: Optional[NameResolver] = None,
 ) -> str:
     """Title for the EKReminder.
 
@@ -195,9 +328,12 @@ def _format_push_title(
     if privacy_level == "L2":
         others = _other_participants(bundle.participants, user_id=user_id)
         if len(others) == 1:
-            base = f"Follow up with @{others[0]}"
+            # The participant is often a raw handle (phone, JID, email).
+            # Show a name only if it resolves to one; never the handle.
+            who = _display_label(others[0], name_resolver)
+            base = f"Follow up with {who}" if who else GENERIC_FOLLOW_UP_TITLE
         elif others:
-            base = "Follow up on conversation"
+            base = GENERIC_FOLLOW_UP_TITLE
         else:
             # Solo / no-other-party (e.g. a meeting note where the
             # user is the only labelled participant). Don't name
@@ -217,6 +353,7 @@ def _format_push_notes(
     *,
     privacy_level: str,
     summary_path: Path,
+    name_resolver: Optional[NameResolver] = None,
 ) -> str:
     """Notes body. Short context line + a ``file://`` deep link back
     to the bundle's ``summary.md`` so a tap in Reminders.app opens
@@ -235,16 +372,12 @@ def _format_push_notes(
         # cares about. Pick the first non-user participant; if the
         # bundle is one-on-one this is unambiguous, multi-party we
         # fall back to a generic "with the group".
-        others = [
-            p for p in bundle.participants
-            if p and p.lower() not in ("user", "me", "self")
-        ]
-        if not others:
-            who = "the group"
-        elif len(others) == 1:
-            who = f"@{others[0]}"
-        else:
-            who = "the group"
+        others = _other_participants(bundle.participants, user_id="")
+        who = "the group"
+        if len(others) == 1:
+            # Same rule as the title: a name, or nothing handle-shaped.
+            named = _display_label(others[0], name_resolver)
+            who = named if named else "a contact"
         context = f"From conversation with {who} on {started}"
     file_link = f"file://{summary_path}"
     return f"{context}\n\n{file_link}"
@@ -257,6 +390,7 @@ def decide_push(
     demo_mode: bool,
     user_id: str,
     summary_path: Path,
+    name_resolver: Optional[NameResolver] = None,
 ) -> PushDecision:
     """Run the writer-side gate for one todo.
 
@@ -309,9 +443,11 @@ def decide_push(
         skip_reason=None,
         push_title=_format_push_title(
             todo, level, bundle=bundle, user_id=user_id,
+            name_resolver=name_resolver,
         ),
         push_notes=_format_push_notes(
             todo, bundle, privacy_level=level, summary_path=summary_path,
+            name_resolver=name_resolver,
         ),
         push_deadline=todo.deadline,
     )
