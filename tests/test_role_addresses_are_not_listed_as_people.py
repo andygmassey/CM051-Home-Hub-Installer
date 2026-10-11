@@ -68,9 +68,9 @@ try:
         _spec.loader.exec_module(_srv)
     finally:
         sys.path.remove(str(API))
+    _fn = getattr(_srv, "_is_role_address_name", None)
     check("served path: ical-server's _is_role_address_name hides a role address",
-          _srv._is_role_address_name("support@example.com") is True
-          and _srv._is_role_address_name("a real name") is False)
+          _fn is not None and _fn("support@example.com") is True and _fn("a real name") is False)
 except (ImportError, RuntimeError) as _exc:
     print("  n/a   served-path behavioural arm needs the server's dependencies (%s); the import assertions above still run" % _exc)
 if f:
@@ -81,7 +81,8 @@ if f:
                  "promo" + "nent.name@x.example", "a real name", "", None):
         check(f"kept: {kept!r}", not f(kept))
 
-body = text[text.index("def people_list("):]
+_ical_text = ICAL.read_text()
+body = _ical_text[_ical_text.index("def people_list("):]
 body = body[: body.index("\ndef ", 10)]
 check("people_list skips a role-address-only name", "_is_role_address_name(name)" in body)
 
