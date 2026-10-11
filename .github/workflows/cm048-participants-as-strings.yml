@@ -19,8 +19,11 @@ on:
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
     paths:
@@ -34,8 +37,11 @@ on:
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
 concurrency:
@@ -107,3 +113,23 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_title_has_no_handle.py -v
+      - name: One open reminder per person/thread; no push for organisations or automated senders
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 10 ]; then
+            echo "REFUSING: expected at least 10 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py -v
+      - name: reminders_push decides person-ness with the People list's own predicates (parity)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_push_person_parity.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_push_person_parity.py -v

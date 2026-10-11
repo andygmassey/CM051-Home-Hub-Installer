@@ -54,6 +54,7 @@ re-rendered ``todos.md`` reflects reality and the CM044 wiki
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -95,6 +96,12 @@ SKIP_REASON_L3 = "l3"
 SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
 SKIP_REASON_OWNER_OTHER = "owed_by_other"
 SKIP_REASON_EMPTY_TEXT = "empty_text"
+# An organisation or automated sender (the People list's own rules say so).
+SKIP_REASON_NON_HUMAN = "non_human_sender"
+# The People rules could not be loaded: fail closed, never push unchecked.
+SKIP_REASON_UNVERIFIABLE = "person_check_unavailable"
+# Another open reminder already exists for this person / thread.
+SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +132,8 @@ class PushDecision:
     push_title: str
     push_notes: str
     push_deadline: Optional[str]
+    # Stable person/thread id (see ``thread_key_for``); "" when not computed.
+    thread_key: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -213,22 +222,17 @@ def _handle_variants(handle: str) -> list[str]:
     return seen
 
 
-def _people_store_display_name(handle: str) -> Optional[str]:
-    """Resolve ``handle`` through the store the People list reads.
+def _people_store_record(handle: str) -> Optional[dict]:
+    """The People-store record for ``handle``, or None.
 
     The Hub People list (ical-server ``people_list``) scrolls the Qdrant
-    ``people`` collection and shows ``display_name`` (upgraded to
-    ``given_name family_name`` when the stored name is itself just an
-    identifier). This does the same lookup keyed on the payload's
-    ``phones`` / ``emails`` and applies the same rule, so a reminder names
-    the person exactly as the People list does. Any failure (store down,
-    no match, match with no human name) returns None and the caller falls
-    back to the generic title.
+    ``people`` collection. This asks the same collection for the record whose
+    payload ``phones`` / ``emails`` / ``display_name`` holds ``handle``. Any
+    failure (store down, no match) returns None.
     """
     import json
-    import urllib.request
-
     import os
+    import urllib.request
 
     # Same override Settings applies (OSTLER_QDRANT_URL), read directly:
     # load_settings() raises without a configured user_id, and a title must
@@ -246,6 +250,7 @@ def _people_store_display_name(handle: str) -> Optional[str]:
         "filter": {"should": [
             {"key": "phones", "match": {"any": variants}},
             {"key": "emails", "match": {"any": variants}},
+            {"key": "display_name", "match": {"any": variants}},
         ]},
         "limit": 5,
         "with_payload": True,
@@ -267,37 +272,220 @@ def _people_store_display_name(handle: str) -> Optional[str]:
         return None
     for pt in points:
         p = pt.get("payload") or {}
-        name = (p.get("display_name") or p.get("name") or "").strip()
-        given = (p.get("given_name") or "").strip()
-        family = (p.get("family_name") or "").strip()
-        if (given or family) and _is_handle_shaped(name):
-            name = " ".join(x for x in (given, family) if x)
-        if name and not _is_handle_shaped(name):
-            return name
+        if p:
+            return p
     return None
+
+
+# ---------------------------------------------------------------------------
+# The People list's own "is this a person" predicates, IMPORTED not copied
+# ---------------------------------------------------------------------------
+
+_ICAL_MODULE = None
+_ICAL_TRIED = False
+
+
+def _ical_server_candidates() -> list[Path]:
+    import os
+
+    here = Path(__file__).resolve()
+    out: list[Path] = []
+    env = os.environ.get("OSTLER_ICAL_SERVER_PATH")
+    if env:
+        out.append(Path(env))
+    services = here.parents[2]  # <...>/services (installed) or vendor (repo)
+    out.append(services / "ical-server" / "ical-server.py")
+    out.append(services / "cm041" / "assistant_api" / "ical-server.py")
+    return out
+
+
+def _load_ical_server():
+    """Import ical-server.py (the module that owns the People list rules).
+
+    Returns the module or None. NEVER silently treated as "is a person":
+    callers fail closed on None (see ``_record_verdict``).
+    """
+    global _ICAL_MODULE, _ICAL_TRIED
+    if _ICAL_TRIED:
+        return _ICAL_MODULE
+    _ICAL_TRIED = True
+    import importlib.util
+    import sys
+
+    for cand in _ical_server_candidates():
+        if not cand.is_file():
+            continue
+        added = str(cand.parent)
+        sys.path.insert(0, added)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "_ostler_ical_server_rules", cand
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _ICAL_MODULE = mod
+            return mod
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "reminders_push: cannot import People rules from %s (%s)",
+                cand, exc,
+            )
+        finally:
+            if added in sys.path:
+                sys.path.remove(added)
+    return None
+
+
+def is_listed_as_a_person(payload: dict, name: str) -> Optional[bool]:
+    """Would the Hub People list show this record as a person?
+
+    Calls the imported ical-server predicates in the order ``people_list``
+    applies them. True = a person, False = organisation / automated sender /
+    nameless, None = the rules could not be loaded (caller fails closed).
+    ``tests/test_cm048_reminder_push_person_parity.py`` pins this against
+    ``people_list`` itself.
+    """
+    srv = _load_ical_server()
+    if srv is None:
+        return None
+    p = payload or {}
+    given = (p.get("given_name") or "").strip()
+    family = (p.get("family_name") or "").strip()
+    nm = (name or "").strip()
+    if (given or family) and srv._looks_like_bare_email_or_phone(nm):
+        nm = " ".join(x for x in (given, family) if x)
+    if srv._is_nameless_name(nm):
+        return False
+    if srv._is_role_address_name(nm):
+        return False
+    has_card = bool((p.get("icloud_uid") or "").strip())
+    has_person_name = bool(given or family)
+    if not has_person_name and srv._is_organisation_name(nm):
+        return False
+    if not has_card and not has_person_name and (
+        srv._is_automated_or_service_name(nm) or srv._is_service_mailbox_name(nm)
+    ):
+        return False
+    if has_card and srv._is_non_human_person(p, nm) == "organisation_card":
+        return False
+    if not has_card:
+        phones = [x for x in (p.get("phones") or []) if x]
+        emails = [x for x in (p.get("emails") or []) if x]
+        if srv._is_non_human_person(p, nm, phones, emails):
+            return False
+    return True
 
 
 NameResolver = Callable[[str], Optional[str]]
 
+KIND_PERSON = "person"
+KIND_UNKNOWN = "unknown"
+KIND_NON_HUMAN = "non_human"
+KIND_UNVERIFIABLE = "unverifiable"
 
-def _display_label(label: str, resolver: Optional[NameResolver]) -> Optional[str]:
-    """A name safe to show for one participant label, else None.
 
-    A label that is not handle-shaped is already a name and passes through.
-    A handle is resolved through the People store; if it does not resolve to
-    a human name that is itself not handle-shaped, None.
-    """
-    if not _is_handle_shaped(label):
-        return label.strip()
-    try:
-        name = (resolver or _people_store_display_name)(label)
-    except Exception as exc:  # noqa: BLE001
-        log.info("reminders_push: name resolver failed (%s)", exc)
-        return None
-    name = (name or "").strip()
-    if not name or _is_handle_shaped(name):
-        return None
+def _record_name(p: dict) -> str:
+    name = (p.get("display_name") or p.get("name") or "").strip()
+    given = (p.get("given_name") or "").strip()
+    family = (p.get("family_name") or "").strip()
+    if (given or family) and _is_handle_shaped(name):
+        name = " ".join(x for x in (given, family) if x)
     return name
+
+
+def _classify_participant(
+    label: str, resolver: Optional[NameResolver]
+) -> tuple[str, Optional[str]]:
+    """(kind, display name) for one participant label.
+
+    PERSON: a human display name safe to show. UNKNOWN: a handle that does
+    not resolve (generic title, never the handle). NON_HUMAN: an organisation
+    or automated sender per the People list's own rules (no push at all).
+    UNVERIFIABLE: the People rules could not be loaded (no push, fail closed).
+    """
+    if resolver is not None:
+        try:
+            name = (resolver(label) or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            log.info("reminders_push: name resolver failed (%s)", exc)
+            name = ""
+        if name and not _is_handle_shaped(name):
+            return KIND_PERSON, name
+        return KIND_UNKNOWN, None
+    payload = _people_store_record(label)
+    if payload is not None:
+        name = _record_name(payload)
+        verdict = is_listed_as_a_person(payload, name)
+        if verdict is None:
+            return KIND_UNVERIFIABLE, None
+        if not verdict:
+            return KIND_NON_HUMAN, None
+        if name and not _is_handle_shaped(name):
+            return KIND_PERSON, name
+        return KIND_UNKNOWN, None
+    if _is_handle_shaped(label):
+        return KIND_UNKNOWN, None
+    # A name-shaped label with no store record: the People rules still
+    # decide whether it reads as an organisation / automated sender.
+    verdict = is_listed_as_a_person({}, label.strip())
+    if verdict is None:
+        return KIND_UNVERIFIABLE, None
+    if not verdict:
+        return KIND_NON_HUMAN, None
+    return KIND_PERSON, label.strip()
+
+
+# ---------------------------------------------------------------------------
+# Short commitment text for a private 1:1 title, and the stable thread key
+# ---------------------------------------------------------------------------
+
+_MAX_TITLE_TEXT = 60
+_EMAIL_RE = re.compile(r"\S+@\S+")
+_AT_HANDLE_RE = re.compile(r"(?<!\w)@\w[\w.]*")
+_PHONE_RE = re.compile(r"\+?\d[\d\s().-]{4,}\d")
+_ISO_RE = re.compile(r"\b20\d\d-\d\d-\d\d(?:[T ][\d:.]+Z?)?\b")
+
+
+def _short_text(text: str) -> str:
+    """Commitment text safe for a title: no email/phone/handle/ISO date,
+    collapsed whitespace, about 60 characters."""
+    t = text or ""
+    for rx in (_EMAIL_RE, _AT_HANDLE_RE, _ISO_RE, _PHONE_RE):
+        t = rx.sub(" ", t)
+    t = " ".join(t.split()).strip(" ,;:-")
+    if len(t) > _MAX_TITLE_TEXT:
+        cut = t[:_MAX_TITLE_TEXT].rsplit(" ", 1)[0] or t[:_MAX_TITLE_TEXT]
+        t = cut.rstrip(" ,;:-") + "..."
+    return t
+
+
+def _norm_identity(label: str) -> str:
+    s = (label or "").strip().lower()
+    if "@" in s:
+        local, _, host = s.partition("@")
+        if host in ("s.whatsapp.net", "lid") and local.isdigit():
+            return local
+        return s
+    digits = "".join(c for c in s if c.isdigit())
+    if digits and all(c in _BARE_ID_CHARS for c in s):
+        return digits
+    return s
+
+
+def thread_key_for(bundle: "ConversationBundle", user_id: str) -> str:
+    """Stable id of the person / thread a reminder is about.
+
+    Derived only from the counterpart identities, so it is identical after
+    the mapping DB is wiped or the box is reinstalled. The EventKit side
+    uses it to find an existing open reminder before creating another.
+    """
+    import hashlib
+
+    others = sorted(
+        {_norm_identity(o) for o in _other_participants(bundle.participants, user_id=user_id)}
+    )
+    basis = "|".join(others) if others else f"solo:{bundle.conversation_id}"
+    return hashlib.sha256(("ostler-thread:" + basis).encode()).hexdigest()[:16]
 
 
 def _format_push_title(
@@ -307,20 +495,22 @@ def _format_push_title(
     bundle: "ConversationBundle",
     user_id: str,
     name_resolver: Optional[NameResolver] = None,
+    participant: Optional[tuple] = None,
 ) -> str:
     """Title for the EKReminder.
 
     L0 / L1 use the raw todo text -- the user has authorised full
     detail at those levels.
 
-    L2 redacts to a neutral phrase that names the *conversation
-    partner*, not the action owner. "@owner" in the operator's brief reads
-    as the person you're following up WITH (the other party); the
-    action owner is captured by the gate (this title only renders
-    when the user or "both" owns the action, otherwise the gate
-    skipped it). For one-on-one threads the partner is unambiguous;
-    multi-party falls back to a generic phrase rather than naming
-    anyone specifically.
+    L2, private 1:1 whose partner resolves to a person: ``"<Name>: <short
+    commitment text>"`` (Andy's decision, 2026-10-11: the commitment text of
+    a 1:1 now syncs to iCloud with the reminder; truncated to about 60
+    characters with any phone / email / handle / ISO date stripped).
+    L2, 1:1 whose partner does not resolve: the generic title, never the
+    handle. L2 multi-party / solo: generic by design, no names, no text.
+
+    ``participant`` is ``(kind, name)`` from ``_classify_participant`` when
+    the caller already classified (avoids a second store lookup).
 
     Apple Restraint: no emoji prefix, no ``[Ostler]`` tag, no
     source label in the title.
@@ -328,22 +518,16 @@ def _format_push_title(
     if privacy_level == "L2":
         others = _other_participants(bundle.participants, user_id=user_id)
         if len(others) == 1:
-            # The participant is often a raw handle (phone, JID, email).
-            # Show a name only if it resolves to one; never the handle.
-            who = _display_label(others[0], name_resolver)
-            base = f"Follow up with {who}" if who else GENERIC_FOLLOW_UP_TITLE
-        elif others:
-            base = GENERIC_FOLLOW_UP_TITLE
-        else:
-            # Solo / no-other-party (e.g. a meeting note where the
-            # user is the only labelled participant). Don't name
-            # anyone; keep the title neutral.
-            base = "Follow up on commitment"
-        # The deadline is NOT part of the title. It travels in its own
-        # field (``PushDecision.push_deadline``, the reminder's due date),
-        # so appending the raw ISO date here only put "2026-10-14" in the
-        # customer's timeline and wiki digest.
-        return base
+            kind, name = participant or _classify_participant(others[0], name_resolver)
+            if kind == KIND_PERSON and name:
+                text = _short_text(todo.text or "")
+                return f"{name}: {text}" if text else f"Follow up with {name}"
+            return GENERIC_FOLLOW_UP_TITLE
+        if others:
+            return GENERIC_FOLLOW_UP_TITLE
+        # Solo / no-other-party (e.g. a meeting note where the user is the
+        # only labelled participant). Don't name anyone.
+        return "Follow up on commitment"
     return (todo.text or "").strip() or "(empty commitment)"
 
 
@@ -354,30 +538,24 @@ def _format_push_notes(
     privacy_level: str,
     summary_path: Path,
     name_resolver: Optional[NameResolver] = None,
+    participant: Optional[tuple] = None,
 ) -> str:
     """Notes body. Short context line + a ``file://`` deep link back
     to the bundle's ``summary.md`` so a tap in Reminders.app opens
-    the source. No transcript dump (Apple Restraint -- the user
-    doesn't want their conversations in their reminders body).
+    the source. No transcript dump.
 
-    L2 emits a neutral context line so the redacted title isn't
-    naked. L3 never reaches here (filtered upstream). L0 / L1 emit
-    the full context with participant labels.
+    L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
+    the partner only when they resolve to a person; never a raw handle.
     """
     started = (bundle.started_at or "")[:10] or "unknown date"
     if privacy_level == "L2":
         context = f"From a private conversation on {started}"
     else:
-        # The "with @X" line uses the participant axis the operator
-        # cares about. Pick the first non-user participant; if the
-        # bundle is one-on-one this is unambiguous, multi-party we
-        # fall back to a generic "with the group".
         others = _other_participants(bundle.participants, user_id="")
         who = "the group"
         if len(others) == 1:
-            # Same rule as the title: a name, or nothing handle-shaped.
-            named = _display_label(others[0], name_resolver)
-            who = named if named else "a contact"
+            kind, name = participant or _classify_participant(others[0], name_resolver)
+            who = name if (kind == KIND_PERSON and name) else "a contact"
         context = f"From conversation with {who} on {started}"
     file_link = f"file://{summary_path}"
     return f"{context}\n\n{file_link}"
@@ -438,18 +616,36 @@ def decide_push(
             push_deadline=None,
         )
 
+    others = _other_participants(bundle.participants, user_id=user_id)
+    classified = [(_classify_participant(o, name_resolver)) for o in others]
+    kinds = [k for k, _ in classified]
+    if KIND_UNVERIFIABLE in kinds:
+        return PushDecision(
+            eligible=False, skip_reason=SKIP_REASON_UNVERIFIABLE,
+            push_title="", push_notes="", push_deadline=None,
+        )
+    # 1:1 with an organisation / automated sender, or a group that is
+    # nothing but such senders: no push.
+    if kinds and all(k == KIND_NON_HUMAN for k in kinds):
+        return PushDecision(
+            eligible=False, skip_reason=SKIP_REASON_NON_HUMAN,
+            push_title="", push_notes="", push_deadline=None,
+        )
+    participant = classified[0] if len(classified) == 1 else None
+
     return PushDecision(
         eligible=True,
         skip_reason=None,
         push_title=_format_push_title(
             todo, level, bundle=bundle, user_id=user_id,
-            name_resolver=name_resolver,
+            name_resolver=name_resolver, participant=participant,
         ),
         push_notes=_format_push_notes(
             todo, bundle, privacy_level=level, summary_path=summary_path,
-            name_resolver=name_resolver,
+            name_resolver=name_resolver, participant=participant,
         ),
         push_deadline=todo.deadline,
+        thread_key=thread_key_for(bundle, user_id),
     )
 
 
@@ -494,8 +690,36 @@ def _open_db(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute(_SCHEMA)
+    # thread_key: stable person/thread id (additive; the assistant's
+    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
+    if "thread_key" not in cols:
+        conn.execute("ALTER TABLE reminders_map ADD COLUMN thread_key TEXT")
     conn.commit()
     return conn
+
+
+def _open_thread_exists(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    thread_key: str,
+    session_id: str,
+    todo_id: str,
+) -> bool:
+    """True when another todo already holds an open reminder for this
+    person / thread. Open = pending or pushed and not completed."""
+    if not thread_key:
+        return False
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
+    done = " AND completed_at IS NULL" if "completed_at" in cols else ""
+    row = conn.execute(
+        "SELECT 1 FROM reminders_map WHERE user_id=? AND thread_key=? "
+        "AND status IN (?, ?)" + done +
+        " AND NOT (source_session_id=? AND todo_id=?) LIMIT 1",
+        (user_id, thread_key, STATUS_PENDING, STATUS_PUSHED, session_id, todo_id),
+    ).fetchone()
+    return row is not None
 
 
 def _now_iso() -> str:
@@ -551,6 +775,13 @@ def _upsert_skipped(
     conn.commit()
 
 
+def _row_exists(conn, *, user_id, session_id, todo_id) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM reminders_map WHERE user_id=? AND source_session_id=? "
+        "AND todo_id=?", (user_id, session_id, todo_id),
+    ).fetchone() is not None
+
+
 def _upsert_pending(
     conn: sqlite3.Connection,
     *,
@@ -582,12 +813,12 @@ def _upsert_pending(
     if existing is None:
         conn.execute(
             "INSERT INTO reminders_map "
-            "(user_id, source_session_id, todo_id, status, push_title, push_notes, push_deadline, last_seen_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(user_id, source_session_id, todo_id, status, push_title, push_notes, push_deadline, last_seen_at, thread_key) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id, session_id, todo_id, STATUS_PENDING,
                 decision.push_title, decision.push_notes,
-                decision.push_deadline, now,
+                decision.push_deadline, now, decision.thread_key or None,
             ),
         )
         conn.commit()
@@ -597,11 +828,11 @@ def _upsert_pending(
     conn.execute(
         "UPDATE reminders_map SET "
         "  push_title=?, push_notes=?, push_deadline=?, last_seen_at=?, "
-        "  skip_reason=NULL "
+        "  thread_key=COALESCE(?, thread_key), skip_reason=NULL "
         "WHERE user_id=? AND source_session_id=? AND todo_id=?",
         (
             decision.push_title, decision.push_notes,
-            decision.push_deadline, now,
+            decision.push_deadline, now, decision.thread_key or None,
             user_id, session_id, todo_id,
         ),
     )
@@ -696,6 +927,24 @@ def apply_push_status_to_todos(
                 # Skipped todos retain their input status (typically
                 # "extracted"). The wiki will not show a Reminders
                 # pill on them.
+                out.append(todo)
+                continue
+
+            if _open_thread_exists(
+                conn, user_id=user_id, thread_key=decision.thread_key,
+                session_id=session_id, todo_id=todo.id,
+            ) and not _row_exists(
+                conn, user_id=user_id, session_id=session_id, todo_id=todo.id,
+            ):
+                log.info(
+                    "reminders_push: %s/%s skipped, an open reminder already "
+                    "exists for thread %s",
+                    session_id, todo.id, decision.thread_key,
+                )
+                _upsert_skipped(
+                    conn, user_id=user_id, session_id=session_id,
+                    todo_id=todo.id, reason=SKIP_REASON_DUPLICATE_THREAD,
+                )
                 out.append(todo)
                 continue
 

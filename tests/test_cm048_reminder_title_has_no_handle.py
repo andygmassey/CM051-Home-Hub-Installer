@@ -83,9 +83,9 @@ def test_email_handle_never_appears_in_title_or_notes():
     assert EMAIL not in d.push_notes
 
 
-def test_resolved_handle_gives_follow_up_with_display_name():
+def test_resolved_handle_gives_name_and_short_text():
     d = _decide(("user", PHONE), name_resolver=lambda h: "Jane Doe" if h == PHONE else None)
-    assert d.push_title == "Follow up with Jane Doe"
+    assert d.push_title == "Jane Doe: send the synthetic draft"
 
 
 def test_resolver_returning_a_handle_is_treated_as_unresolved():
@@ -107,7 +107,7 @@ def test_multi_party_is_generic_even_with_handles():
 
 
 def test_a_label_that_is_already_a_name_is_kept():
-    assert _decide(("user", "Jane Doe")).push_title == "Follow up with Jane Doe"
+    assert _decide(("user", "Jane Doe")).push_title == "Jane Doe: send the synthetic draft"
 
 
 def test_l0_notes_never_carry_a_handle():
@@ -144,7 +144,7 @@ def test_default_resolver_reads_the_people_collection(monkeypatch):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         monkeypatch.setenv("OSTLER_QDRANT_URL", f"http://127.0.0.1:{srv.server_port}")
-        assert _decide(("user", PHONE)).push_title == "Follow up with Jane Doe"
+        assert _decide(("user", PHONE)).push_title == "Jane Doe: send the synthetic draft"
         assert _decide(("user", "+15550111")).push_title == GENERIC
     finally:
         srv.shutdown()

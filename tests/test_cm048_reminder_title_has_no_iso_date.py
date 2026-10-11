@@ -57,7 +57,8 @@ def _decide(participants, deadline=DEADLINE):
 def test_l2_title_has_no_iso_date_and_due_date_carries_deadline(participants):
     d = _decide(participants)
     assert d.eligible
-    assert d.push_title.startswith("Follow up")
+    # 1:1 with a resolved name reads "<Name>: <text>"; the rest are generic.
+    assert d.push_title.startswith("Follow up") or ": send the synthetic draft" in d.push_title
     assert not ISO_DATE.search(d.push_title), d.push_title
     assert d.push_deadline == DEADLINE
 
