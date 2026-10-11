@@ -22085,6 +22085,28 @@ fi
 # the customer hitting confusing "pwg-convo: command not found"
 # errors hours after install when the first conversation arrives.
 
+# ── 3.10a Shared rules module (people_rules.py) ──────────────────
+#
+# ONE stdlib-only module holds the rules that say who is a person and who is
+# an organisation or an automated sender. Two interpreters import it: the
+# Assistant API (ical-server.py, below) and cm048's reminders_push, which
+# runs from its OWN venv (pip-installed non-editable into
+# ${OSTLER_DIR}/services/cm048/.venv, so it cannot find a sibling by path).
+# Both put ${OSTLER_DIR}/services/shared/ on sys.path. Walk #20: without a
+# path both could reach, every reminder was held back as "org filter
+# unavailable". Source: ${SCRIPT_DIR}/assistant_api/people_rules.py (the
+# bundled vendor/cm041/assistant_api/). Warn-only: cm048 fails OPEN for this
+# filter (pushes, flagged), ical-server needs it and says so below.
+_PEOPLE_RULES_SRC="${SCRIPT_DIR}/assistant_api/people_rules.py"
+_PEOPLE_RULES_DIR="${OSTLER_DIR}/services/shared"
+if [[ -f "$_PEOPLE_RULES_SRC" ]]; then
+    mkdir -p "$_PEOPLE_RULES_DIR"
+    cp "$_PEOPLE_RULES_SRC" "${_PEOPLE_RULES_DIR}/people_rules.py" \
+        || warn "could not lay people_rules.py into ${_PEOPLE_RULES_DIR}"  # i18n-exempt: developer diagnostic
+else
+    warn "people_rules.py not bundled with the installer (re-cut the DMG from a synced vendor/cm041): the Assistant API will not start, and reminders will be pushed without the organisation filter"  # i18n-exempt: vendor-sync build defect, not a customer flow
+fi
+
 progress "Setting up conversation memory" "cm048_setup"
 
 CM048_DIR="${OSTLER_DIR}/services/cm048"
@@ -25926,6 +25948,10 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
     rm -rf "$ICAL_SERVER_DIR"
     mkdir -p "$ICAL_SERVER_DIR"
     cp -R "${SCRIPT_DIR}/assistant_api/." "$ICAL_SERVER_DIR/"
+    # people_rules.py lives in ${OSTLER_DIR}/services/shared/ (3.10a), the one
+    # copy both this server and cm048 import. Remove the bundled duplicate so
+    # there is never a second, divergent copy beside the server.
+    rm -f "${ICAL_SERVER_DIR}/people_rules.py"
 
     # CM041 v1.0.9 (2026-07-15): stage the two repo-root companions as
     # SIBLINGS of the ical-server dir (the "repo root" in this layout).

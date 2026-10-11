@@ -129,7 +129,7 @@ CALENDAR_ID = re.compile(r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.
 # "organisation" on the walk #16 capture was a person matched on "ag".
 ORG_SHORT_FORM = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
 # F7d (walk #18): "<Word> Inc" is an organisation like "<Word> Ltd"; ONE rule, shared
-# with the product filter (ical-server.py _ORG_NAME_RE), pinned equal by
+# with the product filter (people_rules.py _ORG_NAME_RE), pinned equal by
 # tests/test_people_have_human_evidence.py. A final org word (bank, banking, team,
 # alumni) after at least two other words is an organisation too ("The X Team",
 # "X Y Bank"); a TWO-word "<given> Bank" stays a person (a surname).

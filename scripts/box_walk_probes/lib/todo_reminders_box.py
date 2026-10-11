@@ -263,7 +263,7 @@ def cmd_run(argv):
     if ones:
         uid1, todo1 = ones
         facts["one_to_one_push"] = _poll(uid1, token + "-1to1", todo1, wait_s)
-    facts["predicate_unavailable_rows"] = _count_reason("non_human_predicate_unavailable")
+    facts["org_filter_flagged_rows"] = _count_reason("org_filter_unavailable")
     # The list report is read AFTER the pushes so pushed_in_list includes them.
     time.sleep(2)
     facts["reminders_list"] = read_reminders_list()

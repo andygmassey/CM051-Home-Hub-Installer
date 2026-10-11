@@ -28,8 +28,17 @@ SERVER = ROOT / "vendor" / "cm041" / "assistant_api" / "ical-server.py"
 
 
 def _server():
-    mod = reminders_push._load_ical_server()
-    assert mod is not None, "People rules failed to import; see the warning above"
+    """The ORACLE: the real ical-server module, fully imported (people_list
+    and all). reminders_push itself loads only the rules, from the file."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_oracle_ical_server", SERVER)
+    mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(SERVER.parent))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(str(SERVER.parent))
     return mod
 
 
@@ -68,6 +77,8 @@ def _listed_names(srv, monkeypatch):
 
 
 def test_push_gate_agrees_with_people_list_on_every_record(monkeypatch):
+    monkeypatch.setattr(reminders_push, "_PEOPLE_TRIED", False)
+    monkeypatch.setattr(reminders_push, "_PEOPLE_RULES", None)
     srv = _server()
     listed = _listed_names(srv, monkeypatch)
     verdicts = {}
@@ -88,6 +99,8 @@ def test_the_predicates_are_imported_not_copied():
     src = Path(reminders_push.__file__).read_text()
     for needle in ("_is_non_human_person", "_is_organisation_name", "_is_nameless_name"):
         assert f"srv.{needle}" in src, needle
+    # and the module it calls is the SAME file ical-server.py imports from
+    assert "from people_rules import" in SERVER.read_text()
     # no local re-definition of the People list rule
     assert "def _is_non_human_person" not in src
     assert "_ORG_STRONG_RE" not in src

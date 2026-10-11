@@ -1049,3 +1049,27 @@ only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
 the file from 260 to 261 routes. `--check` against assistant main (which
 carries the `reminders_list` status field) reports current. The contract does
 not track the `/api/status` body, so `reminders_list` does not appear in it.
+
+## The People rules move to people_rules.py (CM051, 2026-10-12)
+
+Tree `cm041/assistant_api`, files `vendor/cm041/assistant_api/ical-server.py`
+and NEW `vendor/cm041/assistant_api/people_rules.py`.
+
+- 41 module-level definitions (the seven People rules `_looks_like_bare_email_or_phone`,
+  `_is_nameless_name`, `_is_role_address_name`, `_is_organisation_name`,
+  `_is_automated_or_service_name`, `_is_service_mailbox_name`,
+  `_is_non_human_person`, plus every regex, set and helper they reach) moved
+  VERBATIM out of ical-server.py into the stdlib-only people_rules.py;
+- ical-server.py imports them (`from people_rules import (...)`) after putting
+  `<services>/shared` (installed) and its own directory (repo) on sys.path;
+- why: cm048's reminders_push must apply the same rules from its own venv,
+  which cannot import ical-server.py. One source, two importers.
+- install.sh 3.10a lays people_rules.py into `${OSTLER_DIR}/services/shared/`
+  and the ical-server block removes the bundled duplicate. The .app and
+  tarball already bundle the whole `assistant_api/` directory, so no
+  packaging list changes.
+
+Behaviour pinned by a golden table generated from the PRE-move ical-server.py
+(`tests/fixtures/people_rules_golden.json`, `tests/test_people_rules_is_stdlib_only.py`).
+CM041 upstream needs the same split, or the next re-sync of this tree
+reverts it: that is what this record is for.

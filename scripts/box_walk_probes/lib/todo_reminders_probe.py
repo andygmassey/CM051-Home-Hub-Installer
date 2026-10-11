@@ -39,7 +39,7 @@ DECLARED = [
     "claim: the installed daemon claims the pending row within the wait budget (EventKit attempted)",
     "visible: the reminder is actually readable in Reminders.app by its own text",
     "cleanup: the reminder the probe created is deleted and verified gone (residue syncs via iCloud into the next walk)",
-    "people rules: a seeded 1:1 row is pending or pushed AND no row anywhere carries skip_reason non_human_predicate_unavailable (ical-server.py's People predicates imported on this box)",
+    "people rules: a seeded 1:1 row is pending or pushed AND no row anywhere is flagged org_filter_unavailable (people_rules.py loaded on this box)",
     "ostler list: the daemon reports reminders_list present, id_stored, not removed, and holding the pushes (read over ssh from GET /api/status, no console)",
 ]
 
@@ -143,16 +143,16 @@ def _cleanup(f, out):
 
 def _judge_people_rules(f, out, add):
     one = f.get("one_to_one") or {}
-    n_bad = f.get("predicate_unavailable_rows")
+    n_bad = f.get("org_filter_flagged_rows")
     st = (f.get("one_to_one_push") or {}).get("status")
     if not one.get("attempted") or n_bad is None:
         add(DECLARED[4], None, "NOT MEASURED: the 1:1 row was not written ({}) or the reason count was unreadable".format(one.get("error", "no detail")))
     elif n_bad > 0:
-        add(DECLARED[4], False, "{} row(s) carry skip_reason non_human_predicate_unavailable: ical-server.py's People predicates could not be imported on this box, so EVERY push is blocked (fail closed)".format(n_bad))
+        add(DECLARED[4], False, "{} row(s) are flagged org_filter_unavailable: people_rules.py could not be loaded on this box, so reminders are being pushed WITHOUT the organisation filter (fail open, but a regression: banks and automated senders can reach the customer)".format(n_bad))
     elif st in ("pending", "pushed", "permission_denied", "failed"):
         # claimed or not, the GATE passed it: it was written pending, which
         # is only possible if the predicates imported and said "person".
-        add(DECLARED[4], True, "1:1 row passed the gate (status={}); 0 rows with non_human_predicate_unavailable".format(st))
+        add(DECLARED[4], True, "1:1 row passed the gate (status={}); 0 rows flagged org_filter_unavailable".format(st))
     elif st == "skipped":
         add(DECLARED[4], False, "the 1:1 row was skipped by the gate ({}) although its counterpart is name-shaped and not an organisation".format((f.get("one_to_one_push") or {}).get("skip_reason")))
     else:
@@ -203,7 +203,7 @@ def _good():
                     "expected_title": "Follow up on conversation", "reminder": {"state": "deleted"}},
         "one_to_one": {"attempted": True, "todo_id": "def456"},
         "one_to_one_push": {"status": "pushed", "waited_s": 9},
-        "predicate_unavailable_rows": 0,
+        "org_filter_flagged_rows": 0,
         "reminders_list": {"read": True, "present_in_status": True, "available": True, "measured": True,
                            "present": True, "id_stored": True, "pushed_in_list": 2, "removed": False},
     }
@@ -311,9 +311,9 @@ def self_test():
     # people rules: import failure must FAIL (not read as generic), and a 1:1
     # row that never got written must not pass.
     for label, mut, want in (
-        ("an import failure (rows with the distinct reason)", {"predicate_unavailable_rows": 3}, False),
+        ("rules unloadable: rows pushed but flagged org_filter_unavailable", {"org_filter_flagged_rows": 3}, False),
         ("a 1:1 row skipped by the gate", {"one_to_one_push": {"status": "skipped", "skip_reason": "non_human_sender"}}, False),
-        ("an unreadable reason count", {"predicate_unavailable_rows": None}, None),
+        ("an unreadable reason count", {"org_filter_flagged_rows": None}, None),
         ("a 1:1 row that was never written", {"one_to_one": {"attempted": False, "error": "x"}}, None),
     ):
         t = copy.deepcopy(g); t.update(mut)
