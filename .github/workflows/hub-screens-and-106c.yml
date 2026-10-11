@@ -46,6 +46,7 @@ on:
       - 'scripts/box_walk_probes/probes/assistant_sends_over_whatsapp_and_email.sh'
       - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
       - 'scripts/box_walk_probes/lib/todo_reminders_box.py'
+      - 'tests/test_todo_reminders_cleanup_deletes_what_it_created.py'
       - 'scripts/box_walk_probes/probes/todos_reach_reminders.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/console_only_probes.tsv'
@@ -197,6 +198,9 @@ jobs:
           printf '%s\n' "$out"
           if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
           if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+      - name: The todo-reminders cleanup deletes what it created, or says it could not
+        if: always()
+        run: python3 tests/test_todo_reminders_cleanup_deletes_what_it_created.py
       - name: The todo-reminders box script at least compiles
         if: always()
         run: python3 -m py_compile scripts/box_walk_probes/lib/todo_reminders_box.py
