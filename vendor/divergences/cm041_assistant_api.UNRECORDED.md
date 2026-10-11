@@ -1039,3 +1039,13 @@ Tree `cm041/assistant_api`. A CM051-side graft, mirrored upstream as CM041 #214 
 ### What a future sync must preserve
 
 `CHAT_NUM_CTX` and the `_num_ctx` fallback to it. Guarded by `TestE_SummaryContextIsTheChatWindow` in `tests/test_browsing_enrich.py` (5 tests, 4 red on the old `_num_ctx`), run by `.github/workflows/browsing-summaries-and-save.yml`. Retire by landing CM041 #214 and re-pinning.
+
+## hub_contract.yaml regenerated for the Doctor reminders turn-on route (CM051, 2026-10-11)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/hub_contract.yaml`
+only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
+<ostler-assistant main>` added one route, `doctor POST
+/api/v1/reminders/turn-on` (source `vendor/doctor/agent/web_ui.py`), taking
+the file from 260 to 261 routes. `--check` against assistant main (which
+carries the `reminders_list` status field) reports current. The contract does
+not track the `/api/status` body, so `reminders_list` does not appear in it.
