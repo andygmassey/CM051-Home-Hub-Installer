@@ -1,0 +1,33 @@
+name: follow-up keys probe (read-only walk census)
+
+# ostler-assistant #509 completes a reminder when the owner follows up in its
+# thread. The walk probe followup_keys_match_chat_threads reads the daemon's
+# own census (GET /api/status -> followup) and must be able to say PASS, FAIL
+# and CANNOT-RUN, each for its own reason, while writing nothing.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/lib/followup_keys_probe.py'
+      - 'scripts/box_walk_probes/probes/followup_keys_match_chat_threads.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'tests/test_followup_keys_probe.sh'
+      - '.github/workflows/followup-keys-probe.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  followup-keys-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: PASS, FAIL and CANNOT-RUN each for its own reason, read-only, self-test goes red
+        run: /bin/bash tests/test_followup_keys_probe.sh
