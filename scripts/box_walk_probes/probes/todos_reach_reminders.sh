@@ -38,7 +38,7 @@ self_test() {
 
 run_probe() {
     box_reachable || probe_cannot_run "cannot reach the box; no commitment was ever written"
-    local remote venv_py token text facts out rc n
+    local remote venv_py token text facts forgot out rc n
     token="ostler-walk-todo-$$-$(date +%s 2>/dev/null || echo 0)"
     text="SYNTHETIC WALK PROBE ${token}: email Jane Doe about the Fictionville report by Friday"
     remote="/tmp/ostler-probe-todoreminders-$$.py"
@@ -57,21 +57,33 @@ run_probe() {
     facts="$(mktemp)"
     box_run "'${venv_py}' ${remote} run --token '${token}' --text '${text}' --wait-s '${OSTLER_TODO_PROBE_WAIT_S:-90}'" > "${facts}" 2>/dev/null
 
-    box_run "'${venv_py}' ${remote} forget --token '${token}' --text '${text}'" 2>/dev/null | sed 's/^/  forget: /'
+    forgot="$(mktemp)"
+    box_run "'${venv_py}' ${remote} forget --token '${token}' --text '${text}'" > "${forgot}" 2>/dev/null
+    sed 's/^/  forget: /' "${forgot}"
     box_run "rm -f ${remote}" >/dev/null 2>&1
 
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${facts}" 2>/dev/null \
         || { rm -f "${facts}"; probe_cannot_run "the box-side writer returned no facts"; }
+    # Fold the cleanup result into the facts so the judge reports it. An
+    # unreadable forget output is left absent and judged CANNOT-RUN, never ok.
+    python3 -c "
+import json,sys
+f=json.load(open(sys.argv[1]))
+try: f['cleanup']=json.loads(open(sys.argv[2]).read().strip().splitlines()[-1])
+except Exception: pass
+json.dump(f,open(sys.argv[1],'w'))" "${facts}" "${forgot}"
     out="$(python3 "${_HERE}/lib/todo_reminders_probe.py" judge "${facts}")"; rc=$?
-    rm -f "${facts}"
+    rm -f "${facts}" "${forgot}"
     printf '%s\n' "${out}"
     n="$(printf '%s\n' "${out}" | grep -cE '^  (ok|FAIL|CANNOT|N/A) ')"
     probe_examined "${n}" "todo-reminders assertions"
     [ "${n}" -gt 0 ] || probe_fail "the todo-reminders judge printed no assertion; a silent probe is not a pass"
     case "${rc}" in
-        0)  probe_pass "the synthetic commitment reached a pending row, the daemon claimed it, and the reminder is visible in Reminders.app" ;;
+        0)  probe_pass "the synthetic commitment reached a pending row, the daemon claimed it, and the reminder is visible in Reminders.app, and the cleanup deleted it" ;;
         78) if printf '%s\n' "${out}" | grep -q 'console grant needed'; then
                 probe_cannot_run "TCC: console grant needed. No kTCCServiceReminders row for the assistant in TCC.db, so the Reminders prompt is undecided (not denied); only a human at the console can answer it"
+            elif printf '%s\n' "${out}" | grep -q 'LEFT BEHIND, delete by hand'; then
+                probe_cannot_run "cleanup refused by TCC over ssh; the synthetic reminder was LEFT BEHIND (see the CANNOT line for its id and title); delete it at the console before the next walk"
             elif printf '%s\n' "${out}" | grep -q 'Automation permission (TCC)'; then
                 probe_cannot_run "TCC: Automation permission refused osascript's read of Reminders.app over this ssh session; only a console session can grant it (console_only_probes.tsv)"
             else
