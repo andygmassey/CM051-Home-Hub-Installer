@@ -288,7 +288,11 @@ fi
 # below reads it instead of running the script again after the forgets.
 OSTLER_PHASE1_VERDICTS="$(mktemp -t ostler-phase1-verdicts)"
 export OSTLER_PHASE1_VERDICTS
-OSTLER_CURRENT_WALK_LOG="$PROBE_LOG" OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
+# This walk's own log exists by now; the runner's previous-FAIL promotion must not
+# mistake it for an unrecorded earlier walk. (Separate line: tests anchor on the
+# OSTLER_BOX_HOST= line below at column 0.)
+export OSTLER_CURRENT_WALK_LOG="$PROBE_LOG"
+OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
 # THE COUNTS, NOT THE RETURN CODE. run_box_walk.sh exits 0 whenever
