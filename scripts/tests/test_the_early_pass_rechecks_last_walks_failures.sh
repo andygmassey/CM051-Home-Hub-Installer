@@ -32,6 +32,13 @@ SRC="${REPO}/scripts/box_walk_probes"
 command -v perl >/dev/null 2>&1 || { echo "CANNOT-RUN: perl (alarm wrapper) not found"; exit 2; }
 
 WORK="$(mktemp -d)" || { echo "CANNOT-RUN: no scratch dir"; exit 2; }
+# ISOLATION: nothing here may reach the operator's real ~/.ostler/walks. HOME is
+# a scratch dir, the store is named explicitly in every call, and the flag makes
+# record_walk.sh refuse a default-store copy. Arm F once copied a fake v9.9.9
+# record into the real store and a real walk's early pass read it as "the
+# previous walk".
+export HOME="${WORK}/home"; mkdir -p "$HOME"
+export OSTLER_UNDER_TEST=1
 trap 'rm -rf "$WORK"' EXIT
 
 PASS=0; FAIL=0
@@ -55,6 +62,7 @@ _stage() {   # $1 = name -> prints the scripts/ dir of the staged tree
     mkdir -p "$r/scripts" "$r/walks" "$r/store"
     cp -R "$SRC" "$r/scripts/box_walk_probes"
     [ -f "${REPO}/scripts/early_repeat_fail_pass.sh" ] && cp "${REPO}/scripts/early_repeat_fail_pass.sh" "$r/scripts/"
+    [ -f "${REPO}/scripts/lib_walk_store.sh" ] && cp "${REPO}/scripts/lib_walk_store.sh" "$r/scripts/"
     [ -f "${REPO}/scripts/walk_promote_scope.tsv" ] && cp "${REPO}/scripts/walk_promote_scope.tsv" "$r/scripts/"
     local pd="$r/scripts/box_walk_probes/probes"
     rm -f "$pd"/*.sh
@@ -159,14 +167,14 @@ else
     _ep "$T"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && grep -q '0 files examined' "$T/ep.txt" \
         && ok "empty walks dir: CANNOT-RUN (early) with the denominator" || bad "empty walks dir: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
-    _ep "$T" --prev-record "$T/store/v9.9.9-20260101T000000Z.tsv"
+    _ep "$T" --prev-record "$T/store/v1.0.998-20260101T000000Z.tsv"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && grep -q 'missing or unreadable' "$T/ep.txt" \
         && ok "named record absent: CANNOT-RUN (early) names the file" || bad "absent record: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
-    printf 'version\tv9.9.9\nwalked_at\t2026-01-01T00:00:00Z\n' > "$T/store/v9.9.9-20260101T000000Z.tsv"
+    printf 'version\tv1.0.998\nwalked_at\t2026-01-01T00:00:00Z\n' > "$T/store/v1.0.998-20260101T000000Z.tsv"
     _ep "$T"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && grep -q 'no verdict row' "$T/ep.txt" \
         && ok "a record with no verdict row: CANNOT-RUN (early)" || bad "no-verdict record: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
-    printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t0 of 0\n' > "$T/store/v9.9.9-20260101T000000Z.tsv"
+    printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t0 of 0\n' > "$T/store/v1.0.998-20260101T000000Z.tsv"
     _ep "$T"
     grep -q 'CANNOT-RUN (early)' "$T/ep.txt" && [ -z "$(_ran "$T")" ] \
         && ok "FAILED verdict naming no probe: CANNOT-RUN (early), not an empty pass" || bad "FAILED, no names: $(tail -n 3 "$T/ep.txt" | tr '\n' ' ')"
@@ -247,13 +255,45 @@ exit 1
 QAEOF
 chmod +x "$R/qa.sh"
 ( cd "$R" && OSTLER_POST_WALK_QA="$R/qa.sh" OSTLER_WALK_RECORD_DIR="$R/rec" OSTLER_WALK_STORE="$R/store" \
-    bash "${REPO}/scripts/record_walk.sh" --host fake.invalid --version v9.9.9 --walk-verdict 1 ) > "$R/out.txt" 2>&1
-n="$(ls "$R/store" | grep -c -E '^v9\.9\.9-[0-9]{8}T[0-9]{6}Z\.tsv$')"
-if [ "$n" -eq 1 ] && cmp -s "$R/rec/v9.9.9.tsv" "$R/store/"v9.9.9-*.tsv; then
+    bash "${REPO}/scripts/record_walk.sh" --host fake.invalid --version v1.0.998 --walk-verdict 1 ) > "$R/out.txt" 2>&1
+n="$(ls "$R/store" | grep -c -E '^v1\.0\.998-[0-9]{8}T[0-9]{6}Z\.tsv$')"
+if [ "$n" -eq 1 ] && cmp -s "$R/rec/v1.0.998.tsv" "$R/store/"v1.0.998-*.tsv; then
     ok "record_walk.sh copied the record to the store byte-for-byte"
 else
     bad "no store copy (matching files: ${n}): $(tail -n 3 "$R/out.txt" | tr '\n' ' ')"
 fi
+
+printf -- '--- F2: a fixture version is never copied into the store ---\n'
+rm -rf "$R/store" "$R/rec"; mkdir -p "$R/store" "$R/rec"
+( cd "$R" && OSTLER_POST_WALK_QA="$R/qa.sh" OSTLER_WALK_RECORD_DIR="$R/rec" OSTLER_WALK_STORE="$R/store" \
+    bash "${REPO}/scripts/record_walk.sh" --host fake.invalid --version v9.9.9 --walk-verdict 1 ) > "$R/out2.txt" 2>&1
+if [ -z "$(ls "$R/store")" ] && [ -f "$R/rec/v9.9.9.tsv" ] && grep -q 'NOT COPIED to the walk store' "$R/out2.txt" && grep -q 'not a real cut version' "$R/out2.txt"; then
+    ok "v9.9.9 is refused for the store (reason printed), the repo-side record is still written"
+else
+    bad "v9.9.9 reached the store or no reason printed: store='$(ls "$R/store")' $(tail -n 3 "$R/out2.txt" | tr '\n' ' ')"
+fi
+rm -rf "$R/rec"; mkdir -p "$R/rec"
+( cd "$R" && env -u OSTLER_WALK_STORE OSTLER_POST_WALK_QA="$R/qa.sh" OSTLER_WALK_RECORD_DIR="$R/rec" \
+    bash "${REPO}/scripts/record_walk.sh" --host fake.invalid --version v1.0.998 --walk-verdict 1 ) > "$R/out3.txt" 2>&1
+if [ ! -e "$HOME/.ostler/walks" ] && grep -q 'OSTLER_UNDER_TEST=1' "$R/out3.txt"; then
+    ok "under a test with no explicit store, even a cut version is not copied to the default store"
+else
+    bad "default-store copy under test: $(tail -n 3 "$R/out3.txt" | tr '\n' ' ')"
+fi
+
+printf -- '--- E2: the early pass skips fixture records and falls back to the next newest ---\n'
+T="$(_stage e2)"
+printf 'walked_at\t2026-10-09T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tbeta_probe\n' > "$T/store/v1.0.106-20261009T080000Z.tsv"
+printf 'version\tv9.9.9\nwalked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\talpha_probe\n' > "$T/store/v9.9.9-20261010T080000Z.tsv"
+_ep "$T"
+if [ "$(_ran "$T")" = "beta_probe" ] && grep -q 'skipped 1 record(s) with a non-cut version' "$T/ep.txt"; then
+    ok "newer fixture v9.9.9 skipped (named), the real v1.0.106 record was used"
+else bad "fixture not skipped: ran='$(_ran "$T")' $(tail -n 4 "$T/ep.txt" | tr '\n' ' ')"; fi
+rm -f "$T/store/v1.0.106-"*.tsv
+_ep "$T"
+if [ -z "$(_ran "$T")" ] && grep -q 'CANNOT-RUN (early): no valid' "$T/ep.txt" && grep -q '1 files examined, 1 skipped' "$T/ep.txt"; then
+    ok "only a fixture in the store: CANNOT-RUN (early) with the denominator, nothing ran"
+else bad "fixture-only store: ran='$(_ran "$T")' $(tail -n 4 "$T/ep.txt" | tr '\n' ' ')"; fi
 
 printf -- '--- G: the full walk moves the previous FAILs to the front, order only ---\n'
 _runner_store() {   # tree, store, extra args
@@ -297,6 +337,16 @@ else
     [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "beta_probe gamma_probe" ] && ! grep -q PROMOTION "$T/out.txt" \
         && ok "--only runs are never reordered" || bad "--only run was reordered: $(tr '\n' ' ' < "$T/ran.txt")"
 fi
+
+printf -- '--- G2: promotion skips a fixture record too ---\n'
+T="$(_stage g2)"
+ST="$T/st"; mkdir -p "$ST"
+printf 'walked_at\t2026-10-09T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tgamma_probe\n' > "$ST/v1.0.106-20261009T080000Z.tsv"
+printf 'version\tv9.9.9\nwalked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tbeta_probe\n' > "$ST/v9.9.9-20261010T080000Z.tsv"
+_runner_store "$T" "$ST"
+[ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "gamma_probe alpha_probe assistant_answers_grounded beta_probe" ] \
+    && ok "promotion used the real v1.0.106 record (gamma_probe first), not the newer v9.9.9 fixture" \
+    || bad "promotion order with a fixture present: $(tr '\n' ' ' < "$T/ran.txt")"
 
 printf -- '--- D: the full walk is unchanged and not wired to the early pass ---\n'
 T="$(_stage d)"
