@@ -3759,6 +3759,23 @@ async def api_resume_post(request: Request):
     return JSONResponse(state, status_code=200)
 
 
+@app.post("/api/v1/reminders/turn-on", response_class=JSONResponse)
+async def api_reminders_turn_on(request: Request):
+    """"Turn reminders back on" after the customer deleted Ostler's Reminders
+    list. Same guard as the credential routes: Hub-local Host AND no
+    cross-site origin. Forgets the stored list id and re-arms the parked
+    rows; the assistant's next push creates a fresh "Ostler" list.
+    """
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
+    from reminders_runtime import turn_reminders_back_on
+
+    result = turn_reminders_back_on()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 500)
+
+
 # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
 #
 # Forwards iOS-initiated CM019 paths to the local gateway over

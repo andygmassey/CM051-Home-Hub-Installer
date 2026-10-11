@@ -837,6 +837,7 @@ REMINDERS_RUNTIME_DETAIL_DENIED = (
     "refused because Reminders access is denied or has been revoked. Those "
     "reminders are not appearing until you grant access again."
 )
+REMINDERS_RUNTIME_BTN_TURN_ON = "Turn reminders back on"
 REMINDERS_RUNTIME_DETAIL_LIST_REMOVED = (
     "Ostler's Reminders list was removed; turn reminders back on? Until you do, "
     "new commitments are held and nothing is added to your Reminders."

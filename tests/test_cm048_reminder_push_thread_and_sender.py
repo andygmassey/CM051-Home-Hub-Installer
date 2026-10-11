@@ -109,7 +109,28 @@ def test_unloadable_people_rules_fail_closed(monkeypatch):
     monkeypatch.setattr(reminders_push, "_ICAL_TRIED", True)
     monkeypatch.setattr(reminders_push, "_ICAL_MODULE", None)
     d = _decide(("user", PHONE))
-    assert not d.eligible and d.skip_reason == "person_check_unavailable"
+    assert not d.eligible and d.skip_reason == "non_human_predicate_unavailable"
+
+
+def test_import_failure_is_distinct_on_every_row_and_logged_once_per_run(tmp_path, monkeypatch, caplog):
+    """The import fails: EVERY row carries the distinct reason (not the
+    generic non_human_sender / owed_by_other / empty), and the run logs ONE
+    error line, not one per row."""
+    import logging
+
+    monkeypatch.setattr(reminders_push, "_ICAL_MODULE", None)
+    monkeypatch.setattr(reminders_push, "_ICAL_TRIED", False)
+    monkeypatch.setattr(reminders_push, "_ical_server_candidates", lambda: [])
+    db = tmp_path / "m.db"
+    with caplog.at_level(logging.ERROR, logger="src.reminders_push"):
+        _apply(db, ("user", PHONE), "s-1", [_todo("t1"), _todo("t2", "b"), _todo("t3", "c")])
+    rows = _rows(db)
+    assert len(rows) == 3
+    assert {r[3] for r in rows} == {"non_human_predicate_unavailable"}, rows
+    assert {r[2] for r in rows} == {"skipped"}
+    errs = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errs) == 1, [r.getMessage() for r in errs]
+    assert "3 todo(s)" in errs[0].getMessage()
 
 
 # ---- (a) one open reminder per person / thread --------------------------

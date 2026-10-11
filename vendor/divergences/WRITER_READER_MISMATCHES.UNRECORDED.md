@@ -1117,7 +1117,7 @@ The `is_sender_id_identifier` skip in `ingest_imessage`. Guarded by `tests/test_
 
 Tree `doctor`, files `vendor/doctor/agent/reminders_runtime.py`,
 `vendor/doctor/agent/dashboard_components.py`,
-`vendor/doctor/agent/web_ui_copy.py`:
+`vendor/doctor/agent/web_ui_copy.py`, `vendor/doctor/agent/web_ui.py`:
 
 - `reminders_runtime.py`: new `STATE_LIST_REMOVED`; `read_reminders_runtime`
   returns it (with `removed_count`) when any `reminders_map` row has
@@ -1125,7 +1125,12 @@ Tree `doctor`, files `vendor/doctor/agent/reminders_runtime.py`,
 - `web_ui_copy.py`: `REMINDERS_RUNTIME_STATUS_LIST_REMOVED` and
   `REMINDERS_RUNTIME_DETAIL_LIST_REMOVED` ("Ostler's Reminders list was
   removed; turn reminders back on?");
-- `dashboard_components.py`: colour, icon and copy maps carry the new state.
+- `dashboard_components.py`: colour, icon and copy maps carry the new state, plus a
+  "Turn reminders back on" button;
+- `web_ui.py`: new `POST /api/v1/reminders/turn-on` (Hub-local Host and
+  cross-site guard, same as the credential routes) calling
+  `reminders_runtime.turn_reminders_back_on`, which forgets
+  `~/.ostler/reminders_list_id` and flips parked rows to `pending`.
 
 WHY (writer/reader vocabulary, same class as the entries above): the
 assistant (`ostler-assistant` `crates/ostler-reminders`) now writes status

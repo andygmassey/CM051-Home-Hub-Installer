@@ -99,7 +99,7 @@ SKIP_REASON_EMPTY_TEXT = "empty_text"
 # An organisation or automated sender (the People list's own rules say so).
 SKIP_REASON_NON_HUMAN = "non_human_sender"
 # The People rules could not be loaded: fail closed, never push unchecked.
-SKIP_REASON_UNVERIFIABLE = "person_check_unavailable"
+SKIP_REASON_UNVERIFIABLE = "non_human_predicate_unavailable"
 # Another open reminder already exists for this person / thread.
 SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
 
@@ -890,6 +890,13 @@ def apply_push_status_to_todos(
     if db_path is None:
         db_path = default_db_path()
 
+    # A failed import of the People rules is retried once per run (a long
+    # lived process must not stay broken forever on one early failure).
+    global _ICAL_TRIED
+    if _ICAL_MODULE is None:
+        _ICAL_TRIED = False
+    unverifiable_rows = 0
+
     try:
         conn = _open_db(db_path)
     except (sqlite3.Error, OSError) as exc:
@@ -917,6 +924,8 @@ def apply_push_status_to_todos(
                 summary_path=summary_path,
             )
             if not decision.eligible:
+                if decision.skip_reason == SKIP_REASON_UNVERIFIABLE:
+                    unverifiable_rows += 1
                 _upsert_skipped(
                     conn,
                     user_id=user_id,
@@ -980,6 +989,17 @@ def apply_push_status_to_todos(
                 # 'pending' or anything else: writer leaves the
                 # status as supplied.
                 out.append(todo)
+        if unverifiable_rows:
+            # ONE line per run, not per row: every row above was skipped
+            # because the People list's own rules could not be imported.
+            log.error(
+                "reminders_push: %d todo(s) NOT pushed (skip_reason=%s): the "
+                "People list rules (ical-server.py) could not be imported, so "
+                "organisations / automated senders cannot be told apart from "
+                "people. Failing closed. Set OSTLER_ICAL_SERVER_PATH or fix "
+                "the import error logged above.",
+                unverifiable_rows, SKIP_REASON_UNVERIFIABLE,
+            )
         return tuple(out)
     finally:
         conn.close()

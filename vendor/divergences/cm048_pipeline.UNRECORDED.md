@@ -152,7 +152,7 @@ Tree `cm048_pipeline`, file `vendor/cm048_pipeline/src/reminders_push.py`:
   `_is_automated_or_service_name`, `_is_service_mailbox_name`,
   `_is_non_human_person`) in the order `people_list` applies them. If the
   module cannot be imported the gate FAILS CLOSED (skip reason
-  `person_check_unavailable`), never "assume a person". Parity with
+  `non_human_predicate_unavailable`, one ERROR log line per run), never "assume a person". Parity with
   `people_list` is pinned by `tests/test_cm048_reminder_push_person_parity.py`;
 - dedupe: new `thread_key` column on `reminders_map` (additive ALTER; the
   assistant's REQUIRED_COLUMNS are unaffected), a stable hash of the

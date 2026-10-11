@@ -74,6 +74,89 @@ def _write(token, text):
     return out, (uid, todo_id)
 
 
+ONE_TO_ONE_TEXT = "SYNTHETIC WALK PROBE list check: email Jane Doe about the Fictionville report"
+ONE_TO_ONE_COUNTERPART = "Jane Doe"
+
+
+def _write_one_to_one(token):
+    """A private 1:1 (L2) row, written through the same shipped gate. A
+    name-shaped counterpart makes the gate call the People list's own
+    predicates (imported from ical-server.py), so a pending/pushed row here
+    PROVES that import works on this box. Returns (facts, (uid, todo_id))."""
+    out = {"attempted": False}
+    try:
+        from src.conversation_writer import ConversationBundle, ConversationSummary, Todo, make_todo_id
+        from src.reminders_push import apply_push_status_to_todos
+    except ImportError as exc:
+        out["error"] = "the shipped writer is not importable ({})".format(exc)
+        return out, None
+    uid = _user_id() or "walk-probe"
+    sid = token + "-1to1"
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    todo_id = make_todo_id(sid, "user", ONE_TO_ONE_TEXT)
+    todo = Todo(id=todo_id, text=ONE_TO_ONE_TEXT, owner="user", deadline=None, source_anchor="L2", status="extracted")
+    bundle = ConversationBundle(
+        conversation_id=sid, source_kind="channel", source_subtype="imessage",
+        source_session_id=sid, channel="im",
+        participants=("user", ONE_TO_ONE_COUNTERPART),
+        started_at=now, ended_at=now,
+        summary=ConversationSummary(overall="Synthetic walk-probe 1:1, safe to delete.", topics=()),
+        transcript="**You**: " + ONE_TO_ONE_TEXT, todos=(todo,), privacy_level="L2",
+    )
+    try:
+        apply_push_status_to_todos(
+            (todo,), bundle,
+            summary_path=Path("/tmp/ostler-walk-probe-synthetic-1to1-summary.md"),
+            demo_mode=False, user_id=uid, db_path=None,
+        )
+        out["attempted"] = True
+        out["todo_id"] = todo_id
+    except Exception as exc:
+        out["error"] = "apply_push_status_to_todos raised: {}".format(exc)[:200]
+        return out, None
+    return out, (uid, todo_id)
+
+
+def _count_reason(reason):
+    try:
+        conn = sqlite3.connect(str(_default_db_path()), timeout=5.0)
+        n = conn.execute("SELECT COUNT(*) FROM reminders_map WHERE skip_reason=?", (reason,)).fetchone()[0]
+        conn.close()
+        return n
+    except sqlite3.Error:
+        return None
+
+
+GATEWAY = os.environ.get("OSTLER_PROBE_GATEWAY", "http://127.0.0.1:8000")
+TOKEN_PATH = os.environ.get("OSTLER_PROBE_TOKEN_PATH", "~/.ostler/secrets/zeroclaw_admin_token")
+
+
+def read_reminders_list():
+    """The daemon's own report of the Ostler Reminders list, from
+    GET /api/status (`reminders_list`). Never raises; says WHY it could not read."""
+    import urllib.error
+    import urllib.request
+    try:
+        tok = open(os.path.expanduser(TOKEN_PATH), encoding="utf-8").read().strip()
+    except Exception as exc:
+        return {"read": False, "error": "token unreadable: " + type(exc).__name__}
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        req = urllib.request.Request(GATEWAY + "/api/status", headers={"Authorization": "Bearer " + tok})
+        with opener.open(req, timeout=15) as resp:
+            body = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        return {"read": False, "error": "HTTP {}".format(exc.code)}
+    except Exception as exc:
+        return {"read": False, "error": type(exc).__name__}
+    rl = body.get("reminders_list") if isinstance(body, dict) else None
+    if not isinstance(rl, dict):
+        return {"read": True, "present_in_status": False}
+    out = {"read": True, "present_in_status": True}
+    out.update({k: rl.get(k) for k in ("available", "measured", "present", "id_stored", "pushed_in_list", "removed")})
+    return out
+
+
 def _default_db_path():
     try:
         from src.reminders_push import default_db_path
@@ -175,6 +258,15 @@ def cmd_run(argv):
         facts["tcc_reminders"] = tcc_reminders_state()
         if facts["push"].get("status") == "pushed":
             facts["readback"] = _readback(text)
+    one, ones = _write_one_to_one(token)
+    facts["one_to_one"] = one
+    if ones:
+        uid1, todo1 = ones
+        facts["one_to_one_push"] = _poll(uid1, token + "-1to1", todo1, wait_s)
+    facts["predicate_unavailable_rows"] = _count_reason("non_human_predicate_unavailable")
+    # The list report is read AFTER the pushes so pushed_in_list includes them.
+    time.sleep(2)
+    facts["reminders_list"] = read_reminders_list()
     print(json.dumps(facts))
     return 0
 
@@ -198,6 +290,11 @@ def cmd_forget(argv):
             "DELETE FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
             (uid, token, todo_id),
         )
+        # the 1:1 row seeded alongside (session id token + "-1to1")
+        conn.execute(
+            "DELETE FROM reminders_map WHERE user_id=? AND source_session_id=?",
+            (uid, token + "-1to1"),
+        )
         conn.commit()
         after = conn.execute(
             "SELECT COUNT(*) FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
@@ -213,6 +310,8 @@ def cmd_forget(argv):
         script = 'tell application "Reminders" to delete (every reminder whose name is "%s")' % text.replace('\\', '\\\\').replace('"', '\\"')
         proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=20)
         result["reminder_deleted"] = (proc.returncode == 0)
+        script2 = 'tell application "Reminders" to delete (every reminder whose name contains "SYNTHETIC WALK PROBE list check")'
+        subprocess.run(["osascript", "-e", script2], capture_output=True, text=True, timeout=20)
     except Exception:
         result["reminder_deleted"] = False
     print(json.dumps(result))

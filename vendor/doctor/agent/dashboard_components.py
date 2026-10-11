@@ -1177,6 +1177,7 @@ def render_reminders_runtime(now_dt=None) -> str:
         REMINDERS_RUNTIME_DENIED_COUNT_FMT,
         REMINDERS_RUNTIME_DENIED_EXAMPLE_FMT,
         REMINDERS_RUNTIME_DENIED_SINCE_FMT,
+        REMINDERS_RUNTIME_BTN_TURN_ON,
         REMINDERS_RUNTIME_DETAIL_DENIED,
         REMINDERS_RUNTIME_DETAIL_LIST_REMOVED,
         REMINDERS_RUNTIME_DETAIL_NO_DATA,
@@ -1251,6 +1252,15 @@ def render_reminders_runtime(now_dt=None) -> str:
                     </summary>
                     <div class="status-detail">{_html_escape(REMINDERS_RUNTIME_REMEDIATION_DENIED)}</div>
                 </details>"""
+
+    if state == STATE_LIST_REMOVED:
+        # A question needs its control: one button, same-origin POST to the
+        # authed Doctor route, then reload so the tile reads the new state.
+        how_to_fix = f"""
+                <button type="button" id="remindersTurnOnBtn" style="margin-top:8px"
+                    onclick="var b=this;b.disabled=true;fetch('/api/v1/reminders/turn-on',{{method:'POST'}}).then(function(r){{return r.json();}}).then(function(){{location.reload();}}).catch(function(){{b.disabled=false;}});">
+                    {_html_escape(REMINDERS_RUNTIME_BTN_TURN_ON)}
+                </button>"""
 
     tile = f"""
         <div class="status-card">
