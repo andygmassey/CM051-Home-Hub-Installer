@@ -241,6 +241,7 @@ printf -- '--- F: record_walk.sh copies each record into the walk store ---\n'
 R="${WORK}/f"; mkdir -p "$R/rec" "$R/store"
 cat > "$R/qa.sh" <<QAEOF
 #!/bin/sh
+sleep 1   # record_walk.sh demands the record be NEWER than its start marker; CI filesystems have coarse mtimes
 printf 'version\t%s\nwalked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\n' "\$2" > "$R/rec/\$2.tsv"
 exit 1
 QAEOF
