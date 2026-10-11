@@ -2,7 +2,8 @@
 """A/B chat-regression gate for assistant (hub) re-pins.
 
 A PR that changes DAEMON_SHA256 or HUB_APP_SHA256 in gui/Makefile must carry
-ab-results/<new DAEMON_SHA256>.tsv with no chat regressions.
+ab-results/<new DAEMON_SHA256>.tsv with no chat regressions
+(rule: n=10, drop = pass fell by more than 2, or new_pass < 8, or tools_none rose by more than 2).
 
   verify_ab_results.py --base <sha> --head <sha>   gate a PR (exit 0 pass/skip, 1 fail)
   verify_ab_results.py --file <path> [--sha <hex>] check one results file
@@ -25,6 +26,12 @@ HEADER = ["question_id", "old_pass", "new_pass", "n", "old_tools_none",
           "new_tools_none", "old_p50_ms", "new_p50_ms"]
 ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 INT_RE = re.compile(r"^[0-9]{1,9}$")
+# Drop rule (Archie, 2026-10-11). n=10 runs per question; the A/B is noisy, so a
+# loss of up to NOISE passes is tolerated, but the new build must still clear
+# FLOOR passes on every question, even one the old build also failed.
+N_REQUIRED = 10
+NOISE = 2
+FLOOR = 8
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 STAMP_RE = re.compile(r"^run_stamp=[0-9]{8}T[0-9]{6}Z$")
 HOST_RE = re.compile(r"^run_host=[a-z0-9-]{1,40}$")
@@ -63,10 +70,14 @@ def parse_results(text):
             errors.append("line %d: not an integer: %s" % (i, ",".join(bad)))
             continue
         v = dict(zip(HEADER[1:], map(int, cells[1:])))
-        if v["new_pass"] < v["old_pass"] or v["new_tools_none"] > v["old_tools_none"]:
+        if v["n"] != N_REQUIRED:
+            errors.append("line %d: n must be %d, got %d" % (i, N_REQUIRED, v["n"]))
+            continue
+        if (v["new_pass"] < v["old_pass"] - NOISE or v["new_pass"] < FLOOR
+                or v["new_tools_none"] > v["old_tools_none"] + NOISE):
             drops += 1
-            errors.append("line %d: %s regressed (pass %d->%d, tools_none %d->%d)" % (
-                i, cells[0], v["old_pass"], v["new_pass"],
+            errors.append("line %d: %s dropped (pass %d->%d, floor %d, tools_none %d->%d)" % (
+                i, cells[0], v["old_pass"], v["new_pass"], FLOOR,
                 v["old_tools_none"], v["new_tools_none"]))
     return errors, drops, declared
 
@@ -94,7 +105,31 @@ def git_show(rev, path, cwd):
     return r.stdout if r.returncode == 0 else ""
 
 
+def git_out(args, cwd):
+    r = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def rerun_errors(base, head, cwd):
+    """One file per sha: modifying/deleting an existing results file needs an ab-rerun: line."""
+    changed = [l.split("\t", 1) for l in git_out(
+        ["diff", "--name-status", base, head, "--", "ab-results/"], cwd).splitlines()]
+    touched = [p for st, p in changed if st[0] in "MDR"]
+    if not touched:
+        return []
+    msgs = git_out(["log", "%s..%s" % (base, head), "--format=%B"], cwd)
+    if re.search(r"^ab-rerun: \S", msgs, re.M):
+        return []
+    return ["PR modifies existing %s without an 'ab-rerun: <reason>' line in a commit message" % p
+            for p in touched]
+
+
 def gate(base, head, cwd="."):
+    rerr = rerun_errors(base, head, cwd)
+    for e in rerr:
+        print("FAIL: " + e)
+    if rerr:
+        return 1
     old, new = pins(git_show(base, MAKEFILE, cwd)), pins(git_show(head, MAKEFILE, cwd))
     if new["DAEMON_SHA256"] is None:
         print("FAIL: cannot read DAEMON_SHA256 from %s at head" % MAKEFILE)
