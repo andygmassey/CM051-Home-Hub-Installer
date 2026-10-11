@@ -39,6 +39,8 @@ DECLARED = [
     "claim: the installed daemon claims the pending row within the wait budget (EventKit attempted)",
     "visible: the reminder is actually readable in Reminders.app by its own text",
     "cleanup: the reminder the probe created is deleted and verified gone (residue syncs via iCloud into the next walk)",
+    "people rules: a seeded 1:1 row is pending or pushed AND no row anywhere carries skip_reason non_human_predicate_unavailable (ical-server.py's People predicates imported on this box)",
+    "ostler list: the daemon reports reminders_list present, id_stored, not removed, and holding the pushes (read over ssh from GET /api/status, no console)",
 ]
 
 
@@ -104,6 +106,8 @@ def judge(f):
         add(DECLARED[2], None, "NOT MEASURED: the read-back gave no clear answer ({})".format(rb.get("error", "no detail")))
 
     _cleanup(f, out)
+    _judge_people_rules(f, out, add)
+    _judge_ostler_list(f, out, add, status)
     return _finish(out)
 
 
@@ -113,16 +117,70 @@ def _cleanup(f, out):
     if not cl:
         out.append((name, None, "CANNOT-RUN: the forget step returned nothing; a reminder may be left behind"))
         return
-    r = cl.get("reminder") or {}
-    st = r.get("state")
-    ident = cl.get("calendar_item_identifier")
-    who = "reminder id={} titled '{}...'".format(ident, cl.get("expected_title", "Follow up"))
-    if st in ("deleted", "none_to_delete"):
-        out.append((name, True, st))
-    elif st == "blocked_tcc":
-        out.append((name, None, "CANNOT-RUN: Automation permission (TCC) refused the delete over ssh; LEFT BEHIND, delete by hand at the console: {}".format(who)))
+    # Two reminders can be left behind: the solo row's and the seeded 1:1's.
+    # FAIL dominates CANNOT-RUN dominates ok, across both.
+    parts = [("solo", cl)]
+    if cl.get("one_to_one") is not None:
+        parts.append(("1:1", cl["one_to_one"]))
+    failed, blocked, ok_states = [], [], []
+    for label, part in parts:
+        r = part.get("reminder") or {}
+        st = r.get("state")
+        who = "{} reminder id={} titled '{}...'".format(label, part.get("calendar_item_identifier"), cl.get("expected_title", "Follow up"))
+        if st in ("deleted", "none_to_delete"):
+            ok_states.append(st)
+        elif st == "blocked_tcc":
+            blocked.append(who)
+        else:
+            failed.append("{} (delete failed: {})".format(who, r.get("error", "no detail")))
+    if failed:
+        out.append((name, False, "LEFT BEHIND: " + "; ".join(failed + blocked)))
+    elif blocked:
+        out.append((name, None, "CANNOT-RUN: Automation permission (TCC) refused the delete over ssh; LEFT BEHIND, delete by hand at the console: " + "; ".join(blocked)))
     else:
-        out.append((name, False, "LEFT BEHIND: delete failed ({}): {}".format(r.get("error", "no detail"), who)))
+        out.append((name, True, ", ".join(ok_states)))
+
+
+def _judge_people_rules(f, out, add):
+    one = f.get("one_to_one") or {}
+    n_bad = f.get("predicate_unavailable_rows")
+    st = (f.get("one_to_one_push") or {}).get("status")
+    if not one.get("attempted") or n_bad is None:
+        add(DECLARED[4], None, "NOT MEASURED: the 1:1 row was not written ({}) or the reason count was unreadable".format(one.get("error", "no detail")))
+    elif n_bad > 0:
+        add(DECLARED[4], False, "{} row(s) carry skip_reason non_human_predicate_unavailable: ical-server.py's People predicates could not be imported on this box, so EVERY push is blocked (fail closed)".format(n_bad))
+    elif st in ("pending", "pushed", "permission_denied", "failed"):
+        # claimed or not, the GATE passed it: it was written pending, which
+        # is only possible if the predicates imported and said "person".
+        add(DECLARED[4], True, "1:1 row passed the gate (status={}); 0 rows with non_human_predicate_unavailable".format(st))
+    elif st == "skipped":
+        add(DECLARED[4], False, "the 1:1 row was skipped by the gate ({}) although its counterpart is name-shaped and not an organisation".format((f.get("one_to_one_push") or {}).get("skip_reason")))
+    else:
+        add(DECLARED[4], None, "NOT MEASURED: no status for the 1:1 row ({!r})".format(st))
+
+
+def _judge_ostler_list(f, out, add, status):
+    rl = f.get("reminders_list") or {}
+    if not rl.get("read"):
+        add(DECLARED[5], None, "CANNOT-RUN: could not read the daemon's status ({})".format(rl.get("error", "no detail")))
+    elif not rl.get("present_in_status"):
+        add(DECLARED[5], False, "GET /api/status has no reminders_list: the installed daemon predates the Ostler list (or the field was dropped)")
+    elif rl.get("available") is False:
+        add(DECLARED[5], None, "N/A-on-this-build: the daemon reports reminders push is not built in (available=false)")
+    elif not rl.get("measured") and rl.get("authorization") in ("not_determined", "denied", "restricted"):
+        add(DECLARED[5], None, "CANNOT-RUN (tcc): the list is unmeasured because the daemon's Reminders permission is {} (reminders_list.authorization); only a human at the console can answer the prompt or grant it".format(rl.get("authorization")))
+    elif not rl.get("measured"):
+        add(DECLARED[5], False, "the daemon has not measured the list yet (measured=false) after the wait budget; the watcher is not ticking")
+    elif rl.get("removed"):
+        add(DECLARED[5], False, "the daemon reports the Ostler list REMOVED (stored id gone); pushes are paused")
+    elif status not in ("pushed",):
+        add(DECLARED[5], None, "NOT MEASURED: nothing was pushed this run (status={}), so the list may legitimately not exist yet (present={}, id_stored={})".format(status, rl.get("present"), rl.get("id_stored")))
+    elif not (rl.get("present") and rl.get("id_stored")):
+        add(DECLARED[5], False, "a reminder was pushed but the daemon reports the Ostler list present={}, id_stored={}".format(rl.get("present"), rl.get("id_stored")))
+    elif not (isinstance(rl.get("pushed_in_list"), int) and rl["pushed_in_list"] >= 1):
+        add(DECLARED[5], False, "the Ostler list exists but holds {} reminders after a push".format(rl.get("pushed_in_list")))
+    else:
+        add(DECLARED[5], True, "Ostler list present, id stored, not removed, holds {} reminder(s)".format(rl["pushed_in_list"]))
 
 
 def _finish(out):
@@ -143,6 +201,11 @@ def _good():
         "readback": {"attempted": True, "blocked_tcc": False, "found": True},
         "cleanup": {"db_deleted": True, "calendar_item_identifier": "ek-9f8e",
                     "expected_title": "Follow up on conversation", "reminder": {"state": "deleted"}},
+        "one_to_one": {"attempted": True, "todo_id": "def456"},
+        "one_to_one_push": {"status": "pushed", "waited_s": 9},
+        "predicate_unavailable_rows": 0,
+        "reminders_list": {"read": True, "present_in_status": True, "available": True, "measured": True,
+                           "present": True, "id_stored": True, "pushed_in_list": 2, "removed": False},
     }
 
 
@@ -160,10 +223,10 @@ def self_test():
     print("  ok    good fixture: every assertion passes")
 
     dry = {"write": {"attempted": False, "error": "no settings.yaml user_id"}}
-    if any(row(dry, i) != [None] for i in range(4)):
-        fails.append("a failed write should cascade CANNOT-RUN to all four: {}".format([row(dry, i) for i in range(4)]))
+    if any(row(dry, i) != [None] for i in range(6)):
+        fails.append("a failed write should cascade CANNOT-RUN to all six: {}".format([row(dry, i) for i in range(6)]))
     else:
-        print("  ok    a failed write cascades CANNOT-RUN to all four assertions, never a pass")
+        print("  ok    a failed write cascades CANNOT-RUN to all six assertions, never a pass")
 
     stuck = copy.deepcopy(g); stuck["push"] = {"status": "pending", "waited_s": 120}
     if row(stuck, 1) != [False]:
@@ -225,16 +288,74 @@ def self_test():
             fails.append("cleanup {} should be {} (d): {}".format(label, want, row(c, 3)))
         else:
             print("  ok    cleanup mutant caught: {}".format(label))
+    # the 1:1 reminder is judged too: FAIL dominates
+    for label, one, want in (
+            ("1:1 delete failed", {"calendar_item_identifier": "ek-2", "reminder": {"state": "failed", "error": "boom"}}, False),
+            ("1:1 delete refused by TCC", {"calendar_item_identifier": "ek-2", "reminder": {"state": "blocked_tcc"}}, None),
+            ("1:1 deleted", {"calendar_item_identifier": "ek-2", "reminder": {"state": "deleted"}}, True)):
+        c = copy.deepcopy(g); c["cleanup"]["one_to_one"] = one
+        if row(c, 3) != [want]:
+            fails.append("cleanup {} should be {} (d): {}".format(label, want, row(c, 3)))
+        else:
+            print("  ok    cleanup mutant caught: {}".format(label))
+    c = copy.deepcopy(g); c["cleanup"]["reminder"] = {"state": "blocked_tcc"}
+    c["cleanup"]["one_to_one"] = {"reminder": {"state": "failed", "error": "x"}}
+    if row(c, 3) != [False]:
+        fails.append("FAIL must dominate CANNOT-RUN across both reminders: {}".format(row(c, 3)))
+    else:
+        print("  ok    FAIL dominates CANNOT-RUN across the solo and 1:1 reminders")
     named = [d for n, ok, d in judge(dict(g, cleanup={"calendar_item_identifier": "ek-1", "reminder": {"state": "blocked_tcc"}})) if n == DECLARED[3]]
     if not named or "ek-1" not in named[0] or "Follow up" not in named[0]:
         fails.append("a CANNOT-RUN cleanup must name the reminder: {}".format(named))
+
+    # people rules: import failure must FAIL (not read as generic), and a 1:1
+    # row that never got written must not pass.
+    for label, mut, want in (
+        ("an import failure (rows with the distinct reason)", {"predicate_unavailable_rows": 3}, False),
+        ("a 1:1 row skipped by the gate", {"one_to_one_push": {"status": "skipped", "skip_reason": "non_human_sender"}}, False),
+        ("an unreadable reason count", {"predicate_unavailable_rows": None}, None),
+        ("a 1:1 row that was never written", {"one_to_one": {"attempted": False, "error": "x"}}, None),
+    ):
+        t = copy.deepcopy(g); t.update(mut)
+        if row(t, 4) != [want]:
+            fails.append("people rules: {} should be {}: {}".format(label, want, row(t, 4)))
+        else:
+            print("  ok    mutant caught (people rules): {}".format(label))
+
+    # ostler list
+    for label, rl, push, want in (
+        ("the list REMOVED", {"removed": True, "present": False}, None, False),
+        ("a pushed reminder but the list absent", {"present": False}, None, False),
+        ("a pushed reminder, no id stored", {"id_stored": False}, None, False),
+        ("a pushed reminder, 0 in the list", {"pushed_in_list": 0}, None, False),
+        ("a daemon with no reminders_list field", {"__drop__": True}, None, False),
+        ("status endpoint unreadable", {"__unread__": True}, None, None),
+        ("nothing pushed this run", {}, {"status": "pending", "waited_s": 90}, None),
+        ("unmeasured, permission not_determined", {"measured": False, "authorization": "not_determined"}, None, None),
+        ("unmeasured, permission denied", {"measured": False, "authorization": "denied"}, None, None),
+        ("unmeasured, permission GRANTED (count unreadable)", {"measured": False, "authorization": "authorized"}, None, False),
+        ("unmeasured, permission unknown", {"measured": False, "authorization": ""}, None, False),
+    ):
+        t = copy.deepcopy(g)
+        if rl.get("__drop__"):
+            t["reminders_list"] = {"read": True, "present_in_status": False}
+        elif rl.get("__unread__"):
+            t["reminders_list"] = {"read": False, "error": "HTTP 401"}
+        else:
+            t["reminders_list"].update(rl)
+        if push:
+            t["push"] = push
+        if row(t, 5) != [want]:
+            fails.append("ostler list: {} should be {}: {}".format(label, want, row(t, 5)))
+        else:
+            print("  ok    mutant caught (ostler list): {}".format(label))
 
     if [ok for n, ok, _ in judge({}) if n in DECLARED and ok is True]:
         fails.append("an empty collection reads as a pass")
     if fails:
         print("SELF-TEST FAIL: " + "; ".join(fails))
         return EX_FAIL
-    print("SELF-TEST PASS: good fixture passes, 8 mutants caught by their own assertion")
+    print("SELF-TEST PASS: good fixture passes, every mutant caught by their own assertion")
     return EX_PASS
 
 

@@ -825,6 +825,7 @@ REMINDERS_RUNTIME_SECTION_TITLE = "Reminders sync"
 REMINDERS_RUNTIME_STATUS_OK = "Reminders are syncing"
 REMINDERS_RUNTIME_STATUS_DENIED = "Reminders access denied"
 REMINDERS_RUNTIME_STATUS_NO_DATA = "No reminders synced yet"
+REMINDERS_RUNTIME_STATUS_LIST_REMOVED = "Ostler's Reminders list was removed"
 
 REMINDERS_RUNTIME_DETAIL_OK = (
     "Commitments Ostler captured from your conversations are reaching the "
@@ -835,6 +836,11 @@ REMINDERS_RUNTIME_DETAIL_DENIED = (
     "Ostler tried to push extracted todos to the macOS Reminders app and was "
     "refused because Reminders access is denied or has been revoked. Those "
     "reminders are not appearing until you grant access again."
+)
+REMINDERS_RUNTIME_BTN_TURN_ON = "Turn reminders back on"
+REMINDERS_RUNTIME_DETAIL_LIST_REMOVED = (
+    "Ostler's Reminders list was removed; turn reminders back on? Until you do, "
+    "new commitments are held and nothing is added to your Reminders."
 )
 REMINDERS_RUNTIME_DETAIL_NO_DATA = (
     "Ostler has not yet pushed any commitments to the macOS Reminders app, so "

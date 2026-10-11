@@ -1112,3 +1112,30 @@ Tree `ostler_fda`. NEW CM051-side behaviour. `role_addresses.py` gains `is_sende
 ### What a future sync must preserve
 
 The `is_sender_id_identifier` skip in `ingest_imessage`. Guarded by `tests/test_people_have_human_evidence.py` (`test_imessage_ingest_does_not_mint_a_person_for_a_sender_id`, red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## doctor: a state for "Ostler's Reminders list was removed" (CM051, 2026-10-11)
+
+Tree `doctor`, files `vendor/doctor/agent/reminders_runtime.py`,
+`vendor/doctor/agent/dashboard_components.py`,
+`vendor/doctor/agent/web_ui_copy.py`, `vendor/doctor/agent/web_ui.py`:
+
+- `reminders_runtime.py`: new `STATE_LIST_REMOVED`; `read_reminders_runtime`
+  returns it (with `removed_count`) when any `reminders_map` row has
+  `status='reminders_list_removed'`, checked before `permission_denied`;
+- `web_ui_copy.py`: `REMINDERS_RUNTIME_STATUS_LIST_REMOVED` and
+  `REMINDERS_RUNTIME_DETAIL_LIST_REMOVED` ("Ostler's Reminders list was
+  removed; turn reminders back on?");
+- `dashboard_components.py`: colour, icon and copy maps carry the new state, plus a
+  "Turn reminders back on" button;
+- `web_ui.py`: new `POST /api/v1/reminders/turn-on` (Hub-local Host and
+  cross-site guard, same as the credential routes) calling
+  `reminders_runtime.turn_reminders_back_on`, which forgets
+  `~/.ostler/reminders_list_id` and flips parked rows to `pending`.
+
+WHY (writer/reader vocabulary, same class as the entries above): the
+assistant (`ostler-assistant` `crates/ostler-reminders`) now writes status
+`reminders_list_removed` when the customer deletes the dedicated "Ostler"
+Reminders list and pauses pushes. Doctor's reader had no word for it and
+would have shown a healthy "Reminders are syncing". This record is
+location and shape only; `doctor.patch` is not regenerated here. Test:
+`tests/test_doctor_reminders_list_removed.py`.

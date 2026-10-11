@@ -69,6 +69,10 @@ logger = logging.getLogger(__name__)
 STATE_PERMISSION_DENIED = "permission_denied"
 STATE_OK = "ok"
 STATE_NO_DATA = "no-data"
+# The customer deleted Ostler's Reminders list; the assistant paused pushes
+# (rows carry status reminders_list_removed) and does not recreate it.
+STATE_LIST_REMOVED = "list_removed"
+_ASSISTANT_LIST_REMOVED = "reminders_list_removed"
 
 # Mirror of CM048 reminders_push.STATUS_PERMISSION_DENIED. Duplicated
 # (not imported) so Doctor carries no build-time dependency on the
@@ -141,6 +145,19 @@ def read_reminders_runtime() -> RemindersRuntime:
 
         cur.execute(
             "SELECT COUNT(*) FROM reminders_map WHERE status = ?",
+            (_ASSISTANT_LIST_REMOVED,),
+        )
+        removed_count = int(cur.fetchone()[0])
+        if removed_count:
+            return {
+                "state": STATE_LIST_REMOVED,
+                "denied_count": 0,
+                "total_rows": total_rows,
+                "removed_count": removed_count,
+            }
+
+        cur.execute(
+            "SELECT COUNT(*) FROM reminders_map WHERE status = ?",
             (_CM048_PERMISSION_DENIED,),
         )
         denied_count = int(cur.fetchone()[0])
@@ -176,6 +193,52 @@ def read_reminders_runtime() -> RemindersRuntime:
             "Could not read Reminders runtime DB %s: %s", db, exc,
         )
         return {"state": STATE_NO_DATA, "denied_count": 0, "total_rows": 0}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+
+
+def _list_id_path() -> Path:
+    """``~/.ostler/reminders_list_id``: the assistant's persisted id of the
+    the Reminders list named Ostler (same ``$OSTLER_HOME`` rule as the mapping DB)."""
+    base = Path(os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler")))
+    return base / "reminders_list_id"
+
+
+def turn_reminders_back_on() -> dict:
+    """The customer chose "turn reminders back on" after deleting Ostler's
+    Reminders list.
+
+    Forgets the stored list id (so the assistant's next push creates a fresh
+    "Ostler" list) and flips ``reminders_list_removed`` rows back to
+    ``pending``. Mirrors ``ostler_reminders::reset_list_removed`` in the
+    assistant; the two write the same two things. Never raises: returns
+    ``{"ok": bool, "rearmed": int, "error": str|None}``.
+    """
+    try:
+        _list_id_path().unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        return {"ok": False, "rearmed": 0, "error": "could not forget the list id: %s" % exc}
+    db = _db_path()
+    if not db.exists():
+        return {"ok": True, "rearmed": 0, "error": None}
+    conn: Optional[sqlite3.Connection] = None
+    try:
+        conn = sqlite3.connect(str(db), timeout=5.0)
+        cur = conn.execute(
+            "UPDATE reminders_map SET status='pending', failure_reason=NULL "
+            "WHERE status=?",
+            (_ASSISTANT_LIST_REMOVED,),
+        )
+        conn.commit()
+        return {"ok": True, "rearmed": cur.rowcount, "error": None}
+    except sqlite3.Error as exc:
+        return {"ok": False, "rearmed": 0, "error": str(exc)}
     finally:
         if conn is not None:
             try:

@@ -19,7 +19,15 @@ on:
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
+      - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_doctor_reminders_list_removed.py'
+      - 'vendor/doctor/agent/reminders_runtime.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
+      - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
     paths:
@@ -33,7 +41,15 @@ on:
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
+      - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_doctor_reminders_list_removed.py'
+      - 'vendor/doctor/agent/reminders_runtime.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
+      - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
 concurrency:
@@ -61,7 +77,7 @@ jobs:
       # test reads ingest's participant edges directly.
       - name: Install pytest and the module's runtime dependencies
         run: |
-          python -m pip install --quiet pytest httpx pyyaml phonenumbers
+          python -m pip install --quiet pytest httpx pyyaml phonenumbers fastapi
           python -m pip install --quiet ./vendor/ostler_security
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in
       # a separate step would SKIP the run below and hide the real result.
@@ -95,3 +111,43 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_title_has_no_iso_date.py -v
+      - name: A redacted reminder title never carries a raw messaging handle
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_title_has_no_handle.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_title_has_no_handle.py -v
+      - name: One open reminder per person/thread; no push for organisations or automated senders
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py -v
+      - name: reminders_push decides person-ness with the People list's own predicates (parity)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_push_person_parity.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_push_person_parity.py -v
+      - name: doctor tile for a removed reminders list
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_doctor_reminders_list_removed.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_doctor_reminders_list_removed.py -v

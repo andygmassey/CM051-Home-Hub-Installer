@@ -1409,6 +1409,29 @@
     "none"
    ],
    "body_limit_bytes": null,
+   "cross_site_refusal": true,
+   "id": "doctor POST /api/v1/reminders/turn-on",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/reminders/turn-on",
+   "ports": [
+    8089
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "error",
+    "ok",
+    "rearmed"
+   ],
+   "source": "vendor/doctor/agent/web_ui.py"
+  },
+  {
+   "auth": [
+    "none"
+   ],
+   "body_limit_bytes": null,
    "cross_site_refusal": false,
    "id": "doctor GET /api/v1/remote-access",
    "listener": "doctor",

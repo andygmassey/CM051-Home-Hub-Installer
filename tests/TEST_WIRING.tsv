@@ -167,6 +167,9 @@ test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-prod
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_participants_as_strings.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_reminder_push_person_parity.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_reminder_push_thread_and_sender.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_reminder_title_has_no_handle.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_title_has_no_iso_date.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminders_sidecar_never_reaches_the_body.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
@@ -251,6 +254,7 @@ test_doctor_probe_cap_exceeds_the_command.sh	WIRED	.github/workflows/cold-box-so
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_proxy_paths_predicate.sh	WIRED	.github/workflows/launchagent-success-verification.yml
+test_doctor_reminders_list_removed.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_doctor_repo_fallback.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_routines_are_measured_live.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml

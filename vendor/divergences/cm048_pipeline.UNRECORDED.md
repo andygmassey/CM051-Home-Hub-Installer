@@ -134,3 +134,39 @@ The L2 branch of `_format_push_title` returning `base` with no deadline
 suffix. Guarded by `tests/test_cm048_reminder_title_has_no_iso_date.py` (CM051
 repo root, 4 tests, 4 fail against main), wired into
 `.github/workflows/cm048-participants-as-strings.yml`.
+
+## A reminder never carries a raw handle, goes to an organisation, or duplicates a thread (CM051, 2026-10-11)
+
+Tree `cm048_pipeline`, file `vendor/cm048_pipeline/src/reminders_push.py`:
+
+- title: private 1:1 L2 whose partner resolves to a person is
+  "<Name>: <short text>" (about 60 chars, phone / email / handle / ISO date
+  stripped). Unresolved 1:1, multi-party and solo are generic. NEVER a
+  handle. L0/L1 titles unchanged. PRIVACY NOTE: by Andy's decision the 1:1
+  L2 commitment text now syncs to iCloud with the reminder;
+- resolution: `_people_store_record` reads the Qdrant `people` collection
+  (the store the Hub People list reads), proxy-free, 3s timeout;
+- organisations and automated senders get no push: `is_listed_as_a_person`
+  IMPORTS ical-server.py and calls its own predicates
+  (`_is_nameless_name`, `_is_role_address_name`, `_is_organisation_name`,
+  `_is_automated_or_service_name`, `_is_service_mailbox_name`,
+  `_is_non_human_person`) in the order `people_list` applies them. If the
+  module cannot be imported the gate FAILS CLOSED (skip reason
+  `non_human_predicate_unavailable`, one ERROR log line per run), never "assume a person". Parity with
+  `people_list` is pinned by `tests/test_cm048_reminder_push_person_parity.py`;
+- dedupe: new `thread_key` column on `reminders_map` (additive ALTER; the
+  assistant's REQUIRED_COLUMNS are unaffected), a stable hash of the
+  counterpart identities. A todo whose thread already has a pending or
+  pushed, not-completed row is skipped (`duplicate_thread`). The key is
+  recomputed identically after the map is wiped; the EventKit-side check is
+  the assistant repo's half.
+
+WHY: a real-size walk pushed about 65 reminders: 7 of 22 titled with a raw
+phone handle, a bank sender and an email handle treated as people, one
+person's thread repeated up to 10 times, ~40 bare "Follow up on conversation".
+
+Not attempted against the regeneration tool: `cm048_pipeline` is pinned with
+`verify = "skip"` / `unverifiable_ack = true` (see the entry above).
+Tests: `tests/test_cm048_reminder_title_has_no_handle.py`,
+`tests/test_cm048_reminder_push_thread_and_sender.py`,
+`tests/test_cm048_reminder_push_person_parity.py`.
