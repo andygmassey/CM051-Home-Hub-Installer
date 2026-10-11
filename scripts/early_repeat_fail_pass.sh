@@ -54,6 +54,8 @@ WALKS_DIR="${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}"
 PREV_RECORD=""
 RUNNER="${HERE}/box_walk_probes/run_box_walk.sh"
 BUDGET_S="${OSTLER_EARLY_PASS_BUDGET_S:-900}"
+NAMES_ONLY=0
+EXCLUDE_LOG=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -61,19 +63,31 @@ while [ $# -gt 0 ]; do
         --walks-dir)   WALKS_DIR="${2:-}"; shift 2 ;;
         --prev-record) PREV_RECORD="${2:-}"; shift 2 ;;
         --runner)      RUNNER="${2:-}"; shift 2 ;;
+        --names-only)  NAMES_ONLY=1; shift ;;
+        --exclude-log) EXCLUDE_LOG="${2:-}"; shift 2 ;;
         *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
 [ -n "$HOST" ] || { printf 'usage: --host user@box is required\n' >&2; exit 2; }
 
+# --names-only: print the previous walk's failed probe names, one per line, on
+# fd 3 and nothing else on stdout (all narration goes to stderr). Exit 0 = the
+# list is measured (possibly empty because the previous walk was clean), 78 =
+# CANNOT-RUN with the reason on stderr. run_box_walk.sh uses it to promote
+# those probes in the full walk. --exclude-log names the CURRENT walk's own log,
+# which exists by then and must not make the record look stale.
+if [ "$NAMES_ONLY" -eq 1 ]; then exec 3>&1 1>&2; fi
 say() { printf '%s\n' "$*"; }
 BAR="------------------------------------------------------------"
+if [ "$NAMES_ONLY" -eq 0 ]; then
 say "$BAR"
 say "EARLY PASS (read-only re-check of the previous walk's FAILED probes)"
 say "NOT PART OF THE WALK VERDICT. NOT RECORDED. The full walk below decides."
 say "$BAR"
+fi
 
 cannot_all() {  # $1 = reason
+    if [ "$NAMES_ONLY" -eq 1 ]; then say "CANNOT-RUN (promote): $1"; exit 78; fi
     say "CANNOT-RUN (early): $1"
     say "EARLY PASS RESULT: CANNOT-RUN, nothing was re-checked."
     say "$BAR"
@@ -109,6 +123,7 @@ esac
 NEWEST_LOG=""; NLOGS=0
 for f in "$WALKS_DIR"/*.log; do
     [ -f "$f" ] || continue
+    [ -n "$EXCLUDE_LOG" ] && [ "$f" = "$EXCLUDE_LOG" ] && continue
     NLOGS=$((NLOGS + 1))
     _b="$(basename "$f" .log)"; _st="${_b##*-}"
     case "$_st" in [0-9]*T[0-9]*Z) ;; *) continue ;; esac
@@ -138,6 +153,7 @@ for n in $NAMES; do NCOUNT=$((NCOUNT + 1)); done
 if [ "$NCOUNT" -eq 0 ]; then
     case "$VERDICT" in
         CLEAN|PASS|PASSED)
+            [ "$NAMES_ONLY" -eq 1 ] && { say "previous walk was ${VERDICT} with 0 failed probes; nothing to promote."; exit 0; }
             say "EARLY PASS RESULT: previous walk was ${VERDICT} with 0 failed probes, nothing to repeat."
             say "$BAR"; exit 0 ;;
         *)
@@ -145,6 +161,11 @@ if [ "$NCOUNT" -eq 0 ]; then
     esac
 fi
 [ "$UNNAMED" -gt 0 ] && say "CANNOT-RUN (early): ${UNNAMED} failure(s) in the previous walk are not named in its record, so they cannot be re-checked"
+
+if [ "$NAMES_ONLY" -eq 1 ]; then
+    for n in $NAMES; do printf '%s\n' "$n" >&3; done
+    exit 0
+fi
 
 # -- 2. split into runnable / not -------------------------------------------
 SEED_LIST=""

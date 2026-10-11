@@ -83,3 +83,5 @@ run_probe() {
 }
 
 probe_main "$@"
+
+# WALK_WRITES: creates a synthetic todo through the shipped writer (src.conversation_writer via lib/todo_reminders_box.py): a reminders_map.db row the installed daemon claims, which becomes a real reminder in Reminders.app; its forget step can leave the reminder behind (reminder_deleted=false, seen on walk #18)
