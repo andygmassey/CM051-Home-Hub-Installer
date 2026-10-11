@@ -141,7 +141,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_person_parity.py -v
-      - name: Doctor shows one line when the Ostler Reminders list was removed
+      - name: doctor tile for a removed reminders list
         if: always()
         run: |
           n="$(python -m pytest tests/test_doctor_reminders_list_removed.py --collect-only -q | grep -cE '::test_')" || n=0
