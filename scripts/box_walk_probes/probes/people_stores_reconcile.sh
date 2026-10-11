@@ -1400,3 +1400,5 @@ self_test() {
 }
 
 probe_main "$@"
+
+# WALK_WRITES: kickstarts the people writer LaunchAgents via launchctl (starts a sync) so the stores can be compared after it

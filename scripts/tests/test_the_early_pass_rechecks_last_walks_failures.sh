@@ -110,7 +110,7 @@ EOF
 _runner() {   # $1 tree, rest = runner args; RAN_FILE per tree
     local r="$1"; shift
     : > "${r}/ran.txt"
-    ( cd "$r/scripts/box_walk_probes" && PATH="${BIN}:${PATH}" OSTLER_BOX_HOST=fake.invalid RAN_FILE="${r}/ran.txt" \
+    ( cd "$r/scripts/box_walk_probes" && PATH="${BIN}:${PATH}" OSTLER_BOX_HOST=fake.invalid RAN_FILE="${r}/ran.txt" OSTLER_WALK_STORE="${r}/nostore" \
         perl -e 'alarm 120; exec @ARGV' bash ./run_box_walk.sh "$@" ) > "${r}/out.txt" 2>&1
     return $?
 }
@@ -253,6 +253,49 @@ if [ "$n" -eq 1 ] && cmp -s "$R/rec/v9.9.9.tsv" "$R/store/"v9.9.9-*.tsv; then
     ok "record_walk.sh copied the record to the store byte-for-byte"
 else
     bad "no store copy (matching files: ${n}): $(tail -n 3 "$R/out.txt" | tr '\n' ' ')"
+fi
+
+printf -- '--- G: the full walk moves the previous FAILs to the front, order only ---\n'
+_runner_store() {   # tree, store, extra args
+    local r="$1" st="$2"; shift 2
+    : > "${r}/ran.txt"
+    ( cd "$r/scripts/box_walk_probes" && PATH="${BIN}:${PATH}" OSTLER_BOX_HOST=fake.invalid RAN_FILE="${r}/ran.txt" OSTLER_WALK_STORE="${r}/nostore" \
+        OSTLER_WALK_STORE="$st" perl -e 'alarm 120; exec @ARGV' bash ./run_box_walk.sh "$@" ) > "${r}/out.txt" 2>&1
+}
+T="$(_stage g)"
+if [ ! -f "$T/scripts/box_walk_probes/lib/promote_order.sh" ]; then
+    bad "lib/promote_order.sh is absent"
+else
+    ST="$T/st"; mkdir -p "$ST"
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tgamma_probe\n' > "$ST/v1.0.107-20261010T080000Z.tsv"
+    _runner_store "$T" "$ST"
+    [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "gamma_probe alpha_probe assistant_answers_grounded beta_probe" ] \
+        && ok "full walk: gamma_probe (the previous FAIL) ran first, the rest in C order, none lost" \
+        || bad "full-walk order: $(tr '\n' ' ' < "$T/ran.txt")"
+    # a previous FAIL that declares WALK_WRITES keeps its place and says so
+    printf '\n# WALK_WRITES: stub writer\n' >> "$T/scripts/box_walk_probes/probes/beta_probe.sh"
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t2 of 2\nfailed_probe\tgamma_probe\nfailed_probe\tbeta_probe\n' > "$ST/v1.0.107-20261010T080000Z.tsv"
+    _runner_store "$T" "$ST"
+    [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "gamma_probe alpha_probe assistant_answers_grounded beta_probe" ] \
+        && grep -q 'PROMOTION: beta_probe not moved (writes)' "$T/out.txt" \
+        && ok "a previous FAIL that writes (beta_probe) is NOT moved and the walk says so" \
+        || bad "writer promotion: $(tr '\n' ' ' < "$T/ran.txt") / $(grep PROMOTION "$T/out.txt" | tr '\n' ' ')"
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tbeta_probe\n' > "$ST/v1.0.107-20261010T080000Z.tsv"
+    _runner_store "$T" "$ST"
+    [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "alpha_probe assistant_answers_grounded beta_probe gamma_probe" ] \
+        && ok "only a writer in the FAIL list: order is exactly the C-sorted one" || bad "writer-only list reordered: $(tr '\n' ' ' < "$T/ran.txt")"
+    printf 'walked_at\t2026-10-10T08:00:00Z\nverdict\tFAILED\nfailed_probe_names_recorded\t1 of 1\nfailed_probe\tgamma_probe\n' > "$ST/v1.0.107-20261010T080000Z.tsv"
+    : > "$ST/v1.0.107-20261011T000000Z.log"
+    _runner_store "$T" "$ST"
+    if [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "alpha_probe assistant_answers_grounded beta_probe gamma_probe" ] && grep -q 'PROMOTION: CANNOT-RUN' "$T/out.txt"; then
+        ok "a stale record: PROMOTION CANNOT-RUN, order left as C-sorted"
+    else bad "stale-record promotion: $(tr '\n' ' ' < "$T/ran.txt")"; fi
+    _runner_store "$T" "$T/empty-store"
+    grep -q 'PROMOTION: CANNOT-RUN' "$T/out.txt" && ok "no store: PROMOTION CANNOT-RUN, never silent" || bad "no store: no PROMOTION line"
+    rm -f "$ST/"*.log
+    _runner_store "$T" "$ST" --only beta_probe,gamma_probe
+    [ "$(tr '\n' ' ' < "$T/ran.txt" | sed 's/ $//')" = "beta_probe gamma_probe" ] && ! grep -q PROMOTION "$T/out.txt" \
+        && ok "--only runs are never reordered" || bad "--only run was reordered: $(tr '\n' ' ' < "$T/ran.txt")"
 fi
 
 printf -- '--- D: the full walk is unchanged and not wired to the early pass ---\n'

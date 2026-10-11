@@ -699,6 +699,38 @@ _record_verdict() {
         "$(printf '%s' "${3:-}" | tr '\n\t' '  ')" "$fixture" >> "$OSTLER_PHASE1_VERDICTS"
 }
 
+# ── PREVIOUS FAILS FIRST, in a full walk, after the seeds ──────────────────
+# So a repeat failure shows early in the probe run. ORDER ONLY: no probe is
+# added, dropped or re-run, and the verdicts are unchanged. Names come from the
+# same source as the early pass (the operator walk store, via
+# scripts/early_repeat_fail_pass.sh --names-only). If they cannot be read this
+# says CANNOT-RUN and leaves the C-sorted order alone. A writer is
+# never promoted: a probe that declares "# WALK_WRITES:" keeps its place, because
+# moving a writer changes what later probes read. OSTLER_PROMOTE_PREV_FAILS=0
+# turns this off.
+. "$HERE/lib/promote_order.sh"
+if [ -z "$ONLY" ] && [ "${OSTLER_PROMOTE_PREV_FAILS:-1}" = "1" ]; then
+    _pf_rc=0
+    _pf_names="$(bash "$HERE/../early_repeat_fail_pass.sh" --names-only --host "${OSTLER_BOX_HOST:-local}" \
+        ${OSTLER_CURRENT_WALK_LOG:+--exclude-log "$OSTLER_CURRENT_WALK_LOG"})" || _pf_rc=$?
+    if [ "$_pf_rc" -ne 0 ]; then
+        printf '  PROMOTION: CANNOT-RUN (rc=%s), probe order left as C-sorted.\n\n' "$_pf_rc"
+    elif [ -z "$_pf_names" ]; then
+        printf '  PROMOTION: the previous walk named no failed probe; probe order left as C-sorted.\n\n'
+    else
+        _pf_new="$(promote_order "$_pf_names")"
+        for _pf_w in $(promote_writers_named "$_pf_names"); do
+            printf '  PROMOTION: %s not moved (writes)\n' "$_pf_w"
+        done
+        printf '  PROMOTION: previous FAILs moved to the front (order only): %s\n' \
+            "$(printf '%s' "$_pf_names" | tr '\n' ' ')"
+        PROBES="$_pf_new"
+        printf '  probe order now:'
+        for _pf_p in $PROBES; do printf ' %s' "$(basename "$_pf_p" .sh)"; done
+        printf '\n\n'
+    fi
+fi
+
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
 
