@@ -164,6 +164,18 @@ def judge(f):
                 "NOT MEASURED: " + (os.environ.get("HUB_SCREENS_REAL_PERSON_DETAIL")
                     or "no real person was chosen (the runner exports HUB_SCREENS_REAL_PERSON; "
                        "see lib/real_person_choose.sh)"))
+        elif (rp.get("link_miss") or {}).get("classification") == "slug_format_mismatch" and not rp.get("anchor"):
+            lm = rp["link_miss"]
+            add("chat: a real person's compiled page renders with their name", None,
+                "CANNOT-RUN (harness): the reply linked the asked person's page under a slug the probe did "
+                "not expect; expected_sha8={} linked_sha8s={} heading_names_person=True (names withheld)".format(
+                    lm.get("expected_slug_sha8"), ",".join(lm.get("linked_slug_sha8s") or [])))
+        elif (rp.get("link_miss") or {}).get("classification") == "assistant_linked_wrong_person" and not rp.get("anchor"):
+            lm = rp["link_miss"]
+            add("chat: a real person's compiled page renders with their name", False,
+                "FAIL (PRODUCT) assistant_linked_wrong_person: the reply linked someone else; "
+                "expected_sha8={} linked_sha8s={} heading_names_person=False (names withheld)".format(
+                    lm.get("expected_slug_sha8"), ",".join(lm.get("linked_slug_sha8s") or [])))
         elif rp.get("error") or not rp.get("page"):
             add("chat: a real person's compiled page renders with their name", None,
                 "NOT MEASURED: anchor={} error={}".format(rp.get("anchor"), rp.get("error")))
@@ -325,6 +337,27 @@ def link_fingerprint(hrefs):
     someone else from one that linked nobody, without carrying a name."""
     slugs = sorted({(h or "").rstrip("/").rsplit("/", 1)[-1].casefold() for h in hrefs})
     return hashlib.sha256("\n".join(slugs).encode("utf-8")).hexdigest()[:8] if slugs else ""
+
+
+def _sha8(text):
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:8]
+
+
+def classify_link_miss(expected_slug, hrefs, heading_names_person):
+    """The reply linked SOMEONE but not the asked slug. Decide whose fault, from
+    evidence, with no names: sha8 of the expected slug, sha8 of each linked slug,
+    and whether the linked page's own heading names the asked person.
+
+    heading matches  -> the link WAS the asked person's page under another slug
+                        format: a HARNESS slug mismatch (CANNOT-RUN, not a fail).
+    heading differs  -> the assistant linked a different person: PRODUCT FAIL
+                        (assistant_linked_wrong_person)."""
+    slugs = sorted({(h or "").rstrip("/").rsplit("/", 1)[-1].casefold() for h in hrefs} - {""})
+    out = {"expected_slug_sha8": _sha8(expected_slug),
+           "linked_slug_sha8s": [_sha8(x) for x in slugs],
+           "linked_heading_names_person": bool(heading_names_person)}
+    out["classification"] = "slug_format_mismatch" if heading_names_person else "assistant_linked_wrong_person"
+    return out
 
 
 def person_link_selector(name):
@@ -687,6 +720,17 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     rp["person_links_fp"] = link_fingerprint(
                         page.eval_on_selector_all(ANY_PERSON_LINK, "els => els.map(e => e.getAttribute('href') || '')"))
                     rp["link_is_this_person"] = rp["anchor"]
+                    if not rp["anchor"] and rp["any_person_link"]:
+                        # Instrument, don't guess: open what WAS linked and read
+                        # its own heading against the asked person.
+                        hrefs = page.eval_on_selector_all(
+                            ANY_PERSON_LINK, "els => els.map(e => e.getAttribute('href') || '')")
+                        page.locator(ANY_PERSON_LINK).last.click()
+                        time.sleep(4)
+                        pf = _person_page_facts(page, real, public_name=False)
+                        want = (os.environ.get("HUB_SCREENS_REAL_PERSON_SLUG")
+                                or re.sub(r"[^a-z0-9]+", "-", real.casefold()).strip("-"))
+                        rp["link_miss"] = classify_link_miss(want, hrefs, pf.get("heading_names_person"))
                     if rp["anchor"]:
                         page.locator(mine).last.click()
                         time.sleep(4)
