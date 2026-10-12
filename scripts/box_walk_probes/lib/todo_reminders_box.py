@@ -74,8 +74,23 @@ def _write(token, text):
     return out, (uid, todo_id)
 
 
-ONE_TO_ONE_TEXT = "SYNTHETIC WALK PROBE list check: email Jane Doe about the Fictionville report"
-ONE_TO_ONE_COUNTERPART = "Jane Doe"
+ONE_TO_ONE_COUNTERPART = "Jane Doe"  # the OLD fixed counterpart; kept only as the stale-leftover fixture's name
+
+
+def one_to_one_counterpart(token):
+    """A counterpart that is new every walk. The product dedupes on the
+    counterpart (thread_key), and a previous walk's reminder survives (TCC blocks
+    deletion over ssh) and syncs back via iCloud, so a FIXED counterpart makes the
+    new row a correct duplicate_thread skip. Name-shaped (letters only, three
+    capitalised words), synthetic, no digits."""
+    import hashlib
+    h = hashlib.sha256(("walk-1to1:" + str(token)).encode()).hexdigest()[:8]
+    suffix = "".join(chr(ord("a") + int(c, 16) % 26) for c in h).capitalize()
+    return "Jane Doe " + suffix
+
+
+def one_to_one_text(counterpart):
+    return "SYNTHETIC WALK PROBE list check: email {} about the Fictionville report".format(counterpart)
 
 
 def _write_one_to_one(token):
@@ -93,15 +108,18 @@ def _write_one_to_one(token):
     uid = _user_id() or "walk-probe"
     sid = token + "-1to1"
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    todo_id = make_todo_id(sid, "user", ONE_TO_ONE_TEXT)
-    todo = Todo(id=todo_id, text=ONE_TO_ONE_TEXT, owner="user", deadline=None, source_anchor="L2", status="extracted")
+    counterpart = one_to_one_counterpart(token)
+    text = one_to_one_text(counterpart)
+    out["counterpart"] = counterpart
+    todo_id = make_todo_id(sid, "user", text)
+    todo = Todo(id=todo_id, text=text, owner="user", deadline=None, source_anchor="L2", status="extracted")
     bundle = ConversationBundle(
         conversation_id=sid, source_kind="channel", source_subtype="imessage",
         source_session_id=sid, channel="im",
-        participants=("user", ONE_TO_ONE_COUNTERPART),
+        participants=("user", counterpart),
         started_at=now, ended_at=now,
         summary=ConversationSummary(overall="Synthetic walk-probe 1:1, safe to delete.", topics=()),
-        transcript="**You**: " + ONE_TO_ONE_TEXT, todos=(todo,), privacy_level="L2",
+        transcript="**You**: " + text, todos=(todo,), privacy_level="L2",
     )
     try:
         apply_push_status_to_todos(

@@ -715,6 +715,7 @@ test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_timeline_dates_are_event_dates_with_offset.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-timeout-honesty.yml
 test_todo_reminders_cleanup_deletes_what_it_created.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
