@@ -379,7 +379,7 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
         return None
     cid = fp.card_id("signal", "reply_debt")
     created = _ledger_created(ledger, cid, now)
-    shown = [n for n in (names or []) if n][:2]
+    shown = [fp.person_label(x, fp.UNKNOWN_CONTACT) for x in (names or []) if x][:2]
     if count == 1:
         title = _STRINGS["reply_debt_title_one"]
     else:
@@ -406,6 +406,7 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
 
 def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
                     privacy: str = "L2"):
+    name = fp.person_label(name)
     if not name:
         return None
     # Upper bound (CM051 walk #5; fp.GONE_QUIET_IGNORE_AFTER_MONTHS's own
@@ -450,6 +451,7 @@ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
 
 def birthday_card(name: str, days_until: int, now: datetime, ledger=None,
                   privacy: str = "L2"):
+    name = fp.person_label(name)
     if not name or days_until is None:
         return None
     du = int(days_until)
@@ -485,6 +487,7 @@ def commitment_card(what: str, days_until: int, who, now: datetime, ledger=None,
     if days_until is None:
         return None
     du = int(days_until)
+    who = fp.person_label(who, fp.UNKNOWN_CONTACT) if who else None
     key = f"commitment::{who or ''}::{what}"
     cid = fp.card_id("signal", key)
     created = _ledger_created(ledger, cid, now)

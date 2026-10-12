@@ -364,13 +364,67 @@ def pro_locked_card(now: datetime) -> dict:
 _HANDLE_CATEGORIES = frozenset({"instagram_creator"})
 
 
+import re as _re_text
+
+_ROLE_TAG = _re_text.compile(
+    r"\s*\((?:user|owner|you|other_name|user_name|other(?::[\w-]+)?)\)", _re_text.I)
+_PLACEHOLDER = _re_text.compile(r"\{[a-z][a-z0-9_]*\}")
+_ISO_STAMP = _re_text.compile(
+    r"\b(20\d\d)-([01]\d)-([0-3]\d)(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?)?(?!\d)")
+_PHONE_SHAPE = _re_text.compile(r"^\+?[\d\s().\-\u00a0]{6,}$")
+_EMAIL_SHAPE = _re_text.compile(r"^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$")
+_SNAKE_KEY = _re_text.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+           "Oct", "Nov", "Dec")
+
+
+def _human_iso(m) -> str:
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if not 1 <= mo <= 12:
+        return m.group(0)
+    return "%d %s %d" % (d, _MONTHS[mo - 1], y)
+
+
+def clean_card_text(text) -> str:
+    """Customer-safe free text: role tags and template placeholders removed,
+    ISO dates/timestamps written as '30 Sep 2026'. Idempotent."""
+    out = _ROLE_TAG.sub("", str(text or ""))
+    out = _PLACEHOLDER.sub("", out)
+    out = _ISO_STAMP.sub(_human_iso, out)
+    return _re_text.sub(r"[ \t]{2,}", " ", out).strip()
+
+
+UNKNOWN_CONTACT = "an unknown contact"
+
+
+def person_label(name, fallback=None):
+    """The one display-name gate for card text. Returns a name a customer
+    would recognise, or None when there is none to show: a bare phone number,
+    an email address, an @handle, a snake_case key, or nothing but tags. An @handle is shown
+    only for creator/social interests (see display_subject), never for a
+    person. ``fallback`` is returned instead of None (UNKNOWN_CONTACT)."""
+    n = clean_card_text(name)
+    if not n or not any(ch.isalpha() for ch in n):
+        return fallback
+    if _PHONE_SHAPE.match(n) or _EMAIL_SHAPE.match(n) or "@" in n:
+        return fallback
+    if _SNAKE_KEY.match(n):
+        return fallback
+    return n
+
+
 def display_subject(it: dict) -> str:
     """The label a customer sees for an interest: a handle-kind interest is
-    shown as ``@handle``; every other subject is unchanged."""
+    shown as ``@handle``; a snake_case key is spoken as words; free text is
+    cleaned of tags, placeholders and ISO dates."""
     subject = it.get("subject") or ""
     if ((it.get("category") or "").lower() in _HANDLE_CATEGORIES
             and subject and not subject.startswith("@") and " " not in subject):
         return "@" + subject
+    subject = clean_card_text(subject)
+    if _SNAKE_KEY.match(subject):
+        subject = subject.replace("_", " ")
+        subject = subject[:1].upper() + subject[1:]
     return subject
 
 
@@ -385,7 +439,7 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
         1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
     # CM051 #2534: one evidence line per card, not two joined with " - ".
     ev_list = it.get("evidence") or []
-    evidence = ev_list[0] if ev_list else None
+    evidence = clean_card_text(ev_list[0]) if ev_list else None
     card = _make_card(
         "interest", it["id"],
         title=display_subject(it),
@@ -826,6 +880,8 @@ def is_cardable_interest(it: dict) -> bool:
     subject = (it.get("subject") or "").strip()
     if not subject or subject.startswith("#"):
         return False
+    if not any(ch.isalpha() for ch in subject) or _EMAIL_SHAPE.match(subject):
+        return False  # a bare number or address is not a thing to be into
     low = subject.lower()
     if any(stem in low for stem in _SENSITIVE_STEMS):
         return False
