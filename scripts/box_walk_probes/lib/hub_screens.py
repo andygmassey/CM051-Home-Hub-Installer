@@ -160,7 +160,9 @@ def judge(f):
         rp = pl.get("real_person")
         if not rp:
             add("chat: a real person's compiled page renders with their name", None,
-                "NOT MEASURED: set HUB_SCREENS_REAL_PERSON to a person with a compiled page")
+                "NOT MEASURED: " + (os.environ.get("HUB_SCREENS_REAL_PERSON_DETAIL")
+                    or "no real person was chosen (the runner exports HUB_SCREENS_REAL_PERSON; "
+                       "see lib/real_person_choose.sh)"))
         elif rp.get("error") or not rp.get("page"):
             add("chat: a real person's compiled page renders with their name", None,
                 "NOT MEASURED: anchor={} error={}".format(rp.get("anchor"), rp.get("error")))
@@ -287,6 +289,18 @@ def collect_people(page, base, token, out_dir, timeout_ms=45000):
     except Exception as exc:
         pp["api"] = {"error": "people API unreachable: " + _err(exc, 120)}
     return pp
+
+
+def _scrub_name(text, name):
+    """Remove a real person's name (any case) and their slug from text bound for
+    the walk record."""
+    if not name:
+        return text
+    slug = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
+    for pat in (re.escape(name), re.escape(slug)):
+        if pat:
+            text = re.sub(pat, "<withheld>", text, flags=re.IGNORECASE)
+    return text
 
 
 def _err(exc, n=200):
@@ -652,9 +666,10 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                         page.locator(mine).last.click()
                         time.sleep(4)
                         rp["page"] = _person_page_facts(page, real, public_name=False)
-                        page.screenshot(path=os.path.join(out_dir, "person-real.png"))
+                        # NO screenshot: the page shows a real person's name, and the
+                        # walk record is public (CM051). Facts only, name withheld.
                 except Exception as exc:
-                    rp["error"] = _err(exc).replace(real, "<withheld>")
+                    rp["error"] = _scrub_name(_err(exc), real)
                 pl["real_person"] = rp
         facts["person_link"] = pl
 

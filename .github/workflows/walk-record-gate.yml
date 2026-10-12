@@ -68,6 +68,9 @@ on:
       - 'scripts/tests/test_run_box_walk_records_phase1_verdicts.sh'
       - 'scripts/tests/test_read_only_walk_never_writes.sh'
       - 'scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh'
+      - 'scripts/tests/test_full_walk_chooses_the_real_person.sh'
+      - 'scripts/box_walk_probes/lib/real_person_choose.sh'
+      - 'scripts/box_walk_probes/lib/real_person_pick.py'
       - 'scripts/early_repeat_fail_pass.sh'
       - 'scripts/lib_walk_store.sh'
       - 'scripts/record_walk.sh'
@@ -718,6 +721,10 @@ jobs:
       - name: A full walk hands the screens probe write mode (DMG #22)
         if: always()
         run: /bin/bash scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh
+
+      - name: A full walk chooses a real person for the screens probe, env only, name never logged (DMG #23)
+        if: always()
+        run: /bin/bash scripts/tests/test_full_walk_chooses_the_real_person.sh
 
       - name: The early pass re-checks the last walk's failures read-only, and --only takes a list
         # ttywalk's early repeat-failure pass: informational, read-only, never in
