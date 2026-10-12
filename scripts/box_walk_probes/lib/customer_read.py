@@ -867,9 +867,17 @@ def judge(f, declared=None):
         add(DECLARED[30], None, "NOT MEASURED: the wiki nav was not read")
     else:
         unread = sorted(set(links) - set(crawl))
-        add(DECLARED[29], bool(links) and not unread,
-            "{} of {} nav-linked pages read{}".format(len(set(links) & set(crawl)), len(set(links)),
-                                                     "; unread: " + ", ".join(unread[:6]) if unread else ""))
+        why = (f.get("wiki") or {}).get("crawl_failures") or {}
+        prod = [u for u in unread if str(why.get(u, "")).startswith("HTTP ") or
+                (u in why and why[u] not in HARNESS_REASONS)]
+        shown = ", ".join("{}: {}".format(u, why.get(u, "no reason recorded")) for u in unread[:8])
+        detail = "{} of {} nav-linked pages read{}".format(len(set(links) & set(crawl)), len(set(links)),
+                                                         "; unread: " + shown if unread else "")
+        if prod:
+            detail += "; PRODUCT finding (page answered badly): " + ", ".join(prod[:8])
+        # a harness-only shortfall (timeout, budget) is CANNOT-RUN, never a pass and never a product FAIL
+        harness_only = bool(unread) and not prod and all(why.get(u) in HARNESS_REASONS for u in unread)
+        add(DECLARED[29], None if harness_only else (bool(links) and not unread), detail)
         mono = {k: v.get("mono_dates") or 0 for k, v in crawl.items()}
         for k, v in wiki.items():
             if v and v.get("mono_dates"):
@@ -977,6 +985,22 @@ WIDTH_JS = r"""() => {
   });
   return out;
 }"""
+
+
+HARNESS_REASONS = ("timeout", "budget exhausted")
+
+
+def _crawl_budget_s(n_pages, per_page_s=45, floor_s=60, cap_s=1800):
+    """Whole-crawl budget: per-page budget x nav page count, capped."""
+    return min(cap_s, floor_s + per_page_s * max(0, n_pages))
+
+
+def _read_failure(exc=None, status=None):
+    """Why a nav page was not read: 'HTTP <code>', 'timeout', or the exception class."""
+    if exc is None:
+        return "HTTP {}".format(status) if status is not None and status >= 400 else None
+    name = type(exc).__name__
+    return "timeout" if "Timeout" in name else name
 
 
 def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
@@ -1240,18 +1264,29 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                         rels.append(rel)
                 f["wiki"]["nav_links"] = rels
                 crawl = {}
+                fails = {}
+                deadline = time.time() + _crawl_budget_s(len(rels))
                 for rel in rels:
+                    if time.time() > deadline:
+                        fails[rel or "(front)"] = "budget exhausted"
+                        continue
                     try:
-                        fr.goto(wbase + rel, wait_until="load", timeout=60000)
+                        resp = fr.goto(wbase + rel, wait_until="load", timeout=45000)
+                        bad = _read_failure(status=resp.status if resp else None)
+                        if bad:
+                            fails[rel or "(front)"] = bad
+                            continue
                         fr.page.wait_for_timeout(1200)
                         crawl[rel or "(front)"] = {
                             "text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
                             "mono_dates": fr.evaluate(MONO_DATES_JS),
                             "customer_titles": fr.evaluate(CUSTOMER_TITLES_JS) or []}
                     except Exception as exc:
+                        fails[rel or "(front)"] = _read_failure(exc=exc)
                         f["wiki"].setdefault("errors", []).append("crawl {}: {}".format(rel, str(exc)[:120]))
                 f["wiki"]["nav_links"] = [r or "(front)" for r in rels]
                 f["wiki"]["crawl"] = crawl
+                f["wiki"]["crawl_failures"] = fails
             except Exception as exc:
                 f["wiki"].setdefault("errors", []).append("crawl: {}".format(str(exc)[:160]))
         browser.close()
@@ -1882,6 +1917,26 @@ def self_test():
         missed.append("a declared but silent assertion is not caught")
     else:
         print("  ok    a declared assertion that prints no row FAILS")
+    # unread-page reasons (DMG #24): a timeout is a harness reason, an HTTP 4xx/5xx is a product finding
+    def _crawl_row(fails):
+        g = copy.deepcopy(_good())
+        g["wiki"]["nav_links"] = g["wiki"]["nav_links"] + sorted(fails)
+        g["wiki"]["crawl_failures"] = fails
+        return [(ok, d) for n, ok, d in judge(g) if n == DECLARED[29]][0]
+    t_ok, t_d = _crawl_row({"Trends/": "timeout"})
+    h_ok, h_d = _crawl_row({"Years/": "HTTP 500"})
+    if "Trends/: timeout" not in t_d or t_ok is not None:
+        missed.append("a timed-out nav page does not print its reason as a harness reason: {} {}".format(t_ok, t_d))
+    else:
+        print("  ok    a nav page that timed out prints 'timeout' (harness, not FAIL)")
+    if "Years/: HTTP 500" not in h_d or h_ok is not False or "PRODUCT" not in h_d:
+        missed.append("an HTTP 500 nav page is not a product FAIL naming the page: {} {}".format(h_ok, h_d))
+    else:
+        print("  ok    a nav page answering 500 prints 'HTTP 500' and FAILs as product")
+    if _crawl_budget_s(36) <= _crawl_budget_s(3) or _crawl_budget_s(10000) > 1800:
+        missed.append("crawl budget does not scale with page count under a cap")
+    else:
+        print("  ok    crawl budget scales with nav pages, capped")
     if missed:
         print("SELF-TEST FAIL: not caught: " + "; ".join(missed))
         return EX_FAIL
