@@ -25,6 +25,7 @@ Usage:
 Exit codes: 0 pass, 1 fail, 78 CANNOT-RUN (no browser / page never loaded).
 """
 import json
+import hashlib
 import os
 import re
 import sys
@@ -307,6 +308,23 @@ def _err(exc, n=200):
     """An exception as it may enter the public record: Playwright quotes the
     frame URL, and a person page URL carries the person's slug."""
     return redact_url(str(exc))[:n]
+
+
+def slug_link_selector(slug):
+    """Like person_link_selector, from a slug the runner took from the people API
+    (which can carry a disambiguation suffix a name cannot reproduce)."""
+    slug = re.sub(r"[^a-z0-9-]+", "", (slug or "").casefold()).strip("-")
+    return 'main a[href*="/People/{0}/"], main a[href*="/people/{0}/"]'.format(slug) if slug else None
+
+
+ANY_PERSON_LINK = 'main a[href*="/People/"], main a[href*="/people/"]'
+
+
+def link_fingerprint(hrefs):
+    """sha256[:8] of the sorted person-link slugs: tells a reply that linked
+    someone else from one that linked nobody, without carrying a name."""
+    slugs = sorted({(h or "").rstrip("/").rsplit("/", 1)[-1].casefold() for h in hrefs})
+    return hashlib.sha256("\n".join(slugs).encode("utf-8")).hexdigest()[:8] if slugs else ""
 
 
 def person_link_selector(name):
@@ -647,11 +665,13 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 # there is no chat box: go back to chat first (candidate 6 timed
                 # out here, and the arm silently read as NOT MEASURED).
                 rp = {"checked": True}
-                mine = person_link_selector(real)
+                mine = (slug_link_selector(os.environ.get("HUB_SCREENS_REAL_PERSON_SLUG"))
+                        or person_link_selector(real))
                 try:
                     nav("/chat")
                     _wait_chat_idle(page)
                     before = page.locator(mine).count()
+                    any_before = page.locator(ANY_PERSON_LINK).count()
                     box = page.wait_for_selector("textarea", timeout=30000)
                     box.fill("Who is {}? Include a link to their wiki page.".format(real))
                     box.press("Enter")
@@ -661,6 +681,11 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     # Only a link to THIS person's page counts, never the
                     # newest link in the chat.
                     rp["anchor"] = page.locator(mine).count() > before
+                    # Product miss vs harness miss: did the reply link ANYONE?
+                    # Hashed, no names.
+                    rp["any_person_link"] = page.locator(ANY_PERSON_LINK).count() > any_before
+                    rp["person_links_fp"] = link_fingerprint(
+                        page.eval_on_selector_all(ANY_PERSON_LINK, "els => els.map(e => e.getAttribute('href') || '')"))
                     rp["link_is_this_person"] = rp["anchor"]
                     if rp["anchor"]:
                         page.locator(mine).last.click()

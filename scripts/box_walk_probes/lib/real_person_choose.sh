@@ -52,6 +52,8 @@ _rpc_fp() {  # sha256(name)[:8], from stdin-free arg via python so no name is on
 }
 
 real_person_choose() {
+    # The slug is set here, from the people API, never by an operator's shell.
+    unset HUB_SCREENS_REAL_PERSON_SLUG
     export HUB_SCREENS_REAL_PERSON_STATE="cannot-run" HUB_SCREENS_REAL_PERSON_DETAIL=""
     if [ -n "${HUB_SCREENS_REAL_PERSON:-}" ]; then
         HUB_SCREENS_REAL_PERSON_STATE="operator"
@@ -60,7 +62,7 @@ real_person_choose() {
         export HUB_SCREENS_REAL_PERSON HUB_SCREENS_REAL_PERSON_STATE HUB_SCREENS_REAL_PERSON_DETAIL
         return 0
     fi
-    local d budget step t0 now out state name depth seeds rc examined prc perr
+    local d budget step t0 now out state name depth slug seeds rc examined prc perr
     d="$(mktemp -d)" || { HUB_SCREENS_REAL_PERSON_DETAIL="no temp dir"; export HUB_SCREENS_REAL_PERSON_DETAIL; return 0; }
     chmod 700 "$d"
     budget="${OSTLER_REAL_PERSON_BUDGET_S:-600}"; step="${OSTLER_REAL_PERSON_STEP_S:-30}"
@@ -88,11 +90,13 @@ real_person_choose() {
         if [ "$rc" -eq 0 ] && [ "$state" = "chosen" ]; then
             name="$(printf '%s\n' "$out" | sed -n 's/^NAME //p')"
             depth="$(printf '%s\n' "$out" | sed -n 's/^DEPTH //p')"
+            slug="$(printf '%s\n' "$out" | sed -n 's/^SLUG //p')"
             rm -rf "$d"
             HUB_SCREENS_REAL_PERSON="$name"
+            HUB_SCREENS_REAL_PERSON_SLUG="$slug"
             HUB_SCREENS_REAL_PERSON_STATE="chosen"
             HUB_SCREENS_REAL_PERSON_DETAIL="chosen from: ${examined}"
-            export HUB_SCREENS_REAL_PERSON HUB_SCREENS_REAL_PERSON_STATE HUB_SCREENS_REAL_PERSON_DETAIL
+            export HUB_SCREENS_REAL_PERSON HUB_SCREENS_REAL_PERSON_SLUG HUB_SCREENS_REAL_PERSON_STATE HUB_SCREENS_REAL_PERSON_DETAIL
             printf '  real person: chosen id=%s page_path_depth=%s (name withheld); examined %s\n' "$(_rpc_fp "$name")" "$depth" "$examined"
             return 0
         fi
@@ -101,7 +105,7 @@ real_person_choose() {
         sleep "$step"
     done
     rm -rf "$d"
-    unset HUB_SCREENS_REAL_PERSON
+    unset HUB_SCREENS_REAL_PERSON HUB_SCREENS_REAL_PERSON_SLUG
     HUB_SCREENS_REAL_PERSON_DETAIL="no real person with a compiled page after ${budget}s; examined ${examined:-nothing}"
     export HUB_SCREENS_REAL_PERSON_STATE HUB_SCREENS_REAL_PERSON_DETAIL
     printf '  real person: CANNOT-RUN, %s\n' "$HUB_SCREENS_REAL_PERSON_DETAIL"

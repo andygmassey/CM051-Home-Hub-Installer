@@ -49,6 +49,7 @@ _stage() {
 [ "\${1:-}" = "--self-test" ] && exit 1
 printf '%s' "\${HUB_SCREENS_REAL_PERSON:-unset}" > "${t}/seen_person"
 printf '%s' "\${HUB_SCREENS_REAL_PERSON_STATE:-unset}" > "${t}/seen_state"
+printf '%s' "\${HUB_SCREENS_REAL_PERSON_SLUG:-unset}" > "${t}/seen_slug"
 printf '%s' "\${HUB_SCREENS_REAL_PERSON_DETAIL:-unset}" > "${t}/seen_detail"
 printf '%s' "\${OSTLER_SCREENS_ALLOW_WRITE:-unset}" > "${t}/seen_write"
 echo "VERDICT: PASS -- stub"
@@ -72,6 +73,7 @@ _f() { cat "$1/$2" 2>/dev/null || printf 'NEVER-RAN'; }
 t="$(_stage full)"; _run "$t" "${WORK}/pages.txt" 0
 [ "$(_f "$t" seen_write)" = "1" ] && ok "arm 0a full run: OSTLER_SCREENS_ALLOW_WRITE=1" || bad "arm 0a: write saw '$(_f "$t" seen_write)'"
 [ "$(_f "$t" seen_person)" = "$STAND_IN" ] && ok "arm 0b full run: probe was handed the one valid real person (not org, synthetic cast, owner, or page-less)" || bad "arm 0b: probe saw a person value of length $(_f "$t" seen_person | wc -c), want the stand-in"
+[ "$(_f "$t" seen_slug)" = "$SLUG" ] && ok "arm 0d the API slug reaches the probe by env" || bad "arm 0d: slug saw '$(_f "$t" seen_slug)'"
 [ "$(_f "$t" seen_state)" = "chosen" ] && ok "arm 0c full run: state chosen" || bad "arm 0c: state '$(_f "$t" seen_state)'"
 if /usr/bin/grep -qiE "robbie|wang|${SLUG}" "$t/out.txt"; then bad "arm 1 PRIVACY: the stand-in name or slug is in the walk log"; else ok "arm 1 PRIVACY: neither the name nor its slug is in the walk log"; fi
 if /usr/bin/grep -qE 'real person: chosen id=[0-9a-f]{8} page_path_depth=1 ' "$t/out.txt"; then ok "arm 1b the log carries sha256[:8] and page path depth only"; else bad "arm 1b: no fingerprint line"; fi

@@ -321,12 +321,37 @@ def hydration_ready(d):
     return all(by_key.get(k) == "done" for k in DIGEST_PHASES), detail
 
 
-def hydration():
-    try:
-        d = _http("http://127.0.0.1:8089/api/v1/hydration/status", timeout=10)
-        return hydration_ready(d)
-    except Exception as exc:
-        return False, "unreadable ({})".format(str(exc)[:60])
+HYDRATION_URL = "http://127.0.0.1:8089/api/v1/hydration/status"
+
+
+def hydration(fetch=None, sleep=None, clock=None, budget_s=30, backoff_s=2):
+    """(ready, detail). Retries a 5xx inside budget_s (walk #24: one transient
+    502, 200 in 0.4s a moment later, read as CANNOT-RUN). A non-5xx error, or the
+    budget running out, is reported as before. The detail records the attempts
+    and the final status, so a retried pass is visible in the record."""
+    import time
+    import urllib.error
+    fetch = fetch or (lambda: _http(HYDRATION_URL, timeout=10))
+    sleep = sleep or time.sleep
+    clock = clock or time.time
+    t0, attempts, statuses = clock(), 0, []
+    while True:
+        attempts += 1
+        try:
+            d = fetch()
+            ready, detail = hydration_ready(d)
+            statuses.append("200")
+            return ready, "{}; attempts={} statuses={}".format(detail, attempts, ",".join(statuses))
+        except urllib.error.HTTPError as exc:
+            statuses.append(str(exc.code))
+            if 500 <= exc.code < 600 and clock() - t0 + backoff_s < budget_s:
+                sleep(backoff_s)
+                continue
+            why = "5xx persisted past the {}s budget".format(budget_s) if exc.code >= 500 else "non-5xx"
+            return False, "unreadable (HTTP {}; {}; attempts={} statuses={})".format(
+                exc.code, why, attempts, ",".join(statuses))
+        except Exception as exc:
+            return False, "unreadable ({}; attempts={})".format(str(exc)[:60], attempts)
 
 
 def ask_chat(question, seed_org, deadline_s=300):
