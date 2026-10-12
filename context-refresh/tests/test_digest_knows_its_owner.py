@@ -58,6 +58,13 @@ NEIGHBOUR_PLACE = "Sam Patel is based in Lyonville."
 _PHONE_DIGITS = "".join(["5550", "1990", "00"])  # composed: no phone literal in source
 CONTACT_PHONE_FACT = f"+{_PHONE_DIGITS} has a son"
 OWNER_END_FACT = "Liz Doe is the sister of Jane Doe"
+# #25: UNTAGGED legacy facts about OTHER people (walk #24 shapes), cast names.
+UNTAGGED_OTHERS = (
+    "Sam Patel met Robbie Wang, Lizzie Li, Wei Zhang at a party",
+    "Sam Patel mentioned Robbie Wang got a job",
+    "Sam Patel has a son",
+)
+UNTAGGED_OWNER_DAUGHTER = "Jane Doe has a daughter Lizzie Li"
 
 # Strings that must NEVER reach the digest (L3, or not a person).
 FORBIDDEN = (
@@ -154,7 +161,8 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     add(af, "createdAt", _lit(stamp(-1)))
 
     ufact("u1", "Lives in Fictionville", "location", "general")
-    ufact("u2", "Has a sister called Liz Doe", "relationship", "family")
+    ufact("u2", "Has a sister called Liz Doe", "relationship", "family",
+          about=f"urn:ostler:user/{OWNER_ID}")
     ufact("u3", "L3 SECRET FAMILY FACT", "relationship", "family", level="L3")
     if neighbour_place:
         # F12: the CM048 writer's real shape. The owner's own place carries
@@ -172,6 +180,11 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
         # A relationship fact linking the owner to that contact: owner is one end.
         ufact("u7", OWNER_END_FACT, "relationship", "family",
               about="urn:ostler:person/liz_doe")
+
+    if contact_family:
+        for i, t in enumerate(UNTAGGED_OTHERS):
+            ufact(f"x{i}", t, "relationship", "family")          # no urn:ostler:about
+        ufact("x9", UNTAGGED_OWNER_DAUGHTER, "relationship", "family")
 
     # People the owner interacts with.
     def person(pid, name, org=None, level="L2"):
@@ -623,7 +636,7 @@ def test_family_a_contacts_fact_and_its_phone_are_absent(env):
 def test_family_owner_relations_survive(env):
     _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_famc")
     fam = _about_family(digest)
-    assert "Has a sister called Liz Doe" in fam      # owner-subject / legacy untagged
+    assert "Has a sister called Liz Doe" in fam      # tagged to the owner
     assert OWNER_END_FACT in fam                      # owner is one end of the relation
 
 
@@ -632,3 +645,20 @@ def test_family_location_bucket_unchanged(env):
     places = _about_places(digest)
     assert "Works from Harbourtown on Fridays" in places and "Lives in Fictionville" in places
     assert NEIGHBOUR_PLACE not in places
+
+
+def test_family_untagged_facts_about_other_people_are_dropped(env):
+    """#25 RED on the #2833 generator: untagged legacy facts about OTHER people
+    (walk #24 shapes) still sat on the owner's family line."""
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam25")
+    fam = _about_family(digest)
+    for t in UNTAGGED_OTHERS:
+        assert t not in fam, f"untagged other-people fact on the owner's family line: {t!r}"
+    assert "Sam Patel" not in fam
+
+
+def test_family_untagged_owner_relation_with_owner_as_subject_stays(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam25c")
+    fam = _about_family(digest)
+    assert UNTAGGED_OWNER_DAUGHTER in fam
+    assert "Has a sister called Liz Doe" in fam and OWNER_END_FACT in fam

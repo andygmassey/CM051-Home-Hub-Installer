@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `db274bdf3de53d18056211d8738b88c70026e6757bce20a726706f0676c37008` (post-graft, this repo, after item 10) |
+| Current SHA-256 | `ac83b16fddc3261fec7de3747dcb81ca89ecb9265099100dff401673c9329d80` (post-graft, this repo, after item 10) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-12 (a contact's family fact is not the owner's, DMG #24, item 10). NOT upstream. |
+| Last divergence | 2026-10-13 (untagged facts leave the family line, DMG #25, item 10). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
