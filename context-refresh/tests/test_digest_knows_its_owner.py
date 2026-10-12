@@ -55,6 +55,9 @@ OWNER_ID = "jane"
 OWNER_NAME = "Jane Doe"
 OWNER_EMAIL = "jane@example.com"
 NEIGHBOUR_PLACE = "Sam Patel is based in Lyonville."
+_PHONE_DIGITS = "".join(["5550", "1990", "00"])  # composed: no phone literal in source
+CONTACT_PHONE_FACT = f"+{_PHONE_DIGITS} has a son"
+OWNER_END_FACT = "Liz Doe is the sister of Jane Doe"
 
 # Strings that must NEVER reach the digest (L3, or not a person).
 FORBIDDEN = (
@@ -77,7 +80,8 @@ def _lit(v) -> ox.Literal:
 
 def _seed_store(*, mecard_org: str | None = "ExampleCo",
                 linkedin_current: str | None = None,
-                neighbour_place: bool = False) -> ox.Store:
+                neighbour_place: bool = False,
+                contact_family: bool = False) -> ox.Store:
     store = ox.Store()
     dg = ox.DefaultGraph()
     rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
@@ -160,6 +164,14 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
               about=f"urn:ostler:user/{OWNER_ID}")
         ufact("u5", NEIGHBOUR_PLACE, "location", "general",
               about="urn:ostler:person/sam_patel")
+
+    if contact_family:
+        # A fact ABOUT a contact (their person URN), phone handle as subject.
+        ufact("u6", CONTACT_PHONE_FACT, "relationship", "family",
+              about="urn:ostler:person/sam_patel")
+        # A relationship fact linking the owner to that contact: owner is one end.
+        ufact("u7", OWNER_END_FACT, "relationship", "family",
+              about="urn:ostler:person/liz_doe")
 
     # People the owner interacts with.
     def person(pid, name, org=None, level="L2"):
@@ -578,3 +590,45 @@ def test_f12_control_the_owners_own_places_still_render(env):
     # Control: the owner's own places, tagged and legacy-untagged, still show.
     assert "Works from Harbourtown on Fridays" in places
     assert "Lives in Fictionville" in places
+
+
+# ── A contact's family fact is not the owner's family ────────────────────────
+#
+# DMG #23 walk: "Family and close people: <raw phone> has a son". A fact ABOUT a
+# contact (about = their person URN) sat on the owner's family line, with a raw
+# phone handle as its subject.
+
+def _about_family(digest: str) -> str:
+    about = _section(digest, "About you")
+    return "\n".join(ln for ln in about.splitlines() if ln.startswith("- Family and close people:"))
+
+
+def test_family_control_the_seed_holds_the_contact_fact():
+    store = _seed_store(contact_family=True)
+    texts = {r["t"].value for r in store.query(
+        "SELECT ?t WHERE { GRAPH ?g { ?f <urn:ostler:type> \"relationship\" ; "
+        "<urn:ostler:text> ?t ; <urn:ostler:userId> ?u } }")}
+    assert CONTACT_PHONE_FACT in texts and OWNER_END_FACT in texts
+
+
+def test_family_a_contacts_fact_and_its_phone_are_absent(env):
+    """RED on main before this fix, green with it."""
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam")
+    fam = _about_family(digest)
+    print(f"\n[FAMILY] {fam}")
+    assert "has a son" not in fam, f"a contact's fact is on the owner's family line: {fam}"
+    assert _PHONE_DIGITS not in digest
+
+
+def test_family_owner_relations_survive(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_famc")
+    fam = _about_family(digest)
+    assert "Has a sister called Liz Doe" in fam      # owner-subject / legacy untagged
+    assert OWNER_END_FACT in fam                      # owner is one end of the relation
+
+
+def test_family_location_bucket_unchanged(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True, neighbour_place=True), name="gen_famp")
+    places = _about_places(digest)
+    assert "Works from Harbourtown on Fridays" in places and "Lives in Fictionville" in places
+    assert NEIGHBOUR_PLACE not in places
