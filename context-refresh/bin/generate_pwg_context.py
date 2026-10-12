@@ -920,12 +920,13 @@ def _about_you_section() -> list[str]:
             if not text:
                 continue
             if row.get("t") != "location":
-                # DMG #23: "<raw phone> has a son" was a fact ABOUT a contact on
-                # the owner's family line. Keep a family/relationship fact only
-                # when it is about the owner (or legacy-untagged), or when the
-                # owner is one end of the relation (their name is in the text).
+                # DMG #23/#25: the owner's family line keeps a fact ONLY when it
+                # is about the owner (urn:ostler:about == the owner), or it is a
+                # kinship fact with the owner as an explicit end (subject or
+                # object). Untagged legacy facts are NOT kept: they were facts
+                # about other people ("<A> met <B> at a party", "<A> has a son").
                 # A raw phone handle never prints, whoever it is about.
-                if about and about != owner_about and not (owner_name and owner_name in text.lower()):
+                if about != owner_about and not _owner_is_kin_end(text, owner_name):
                     continue
                 if _PHONE_RUN.search(text):
                     continue
@@ -945,6 +946,26 @@ def _about_you_section() -> list[str]:
 # compiler/frontpage.py _PHONE_SHAPE), as a run inside text. This script ships
 # standalone, without the vendored compiler, so it cannot import person_label.
 _PHONE_RUN = re.compile(r"\+?\d[\d\s().\-\u00a0]{5,}\d")
+
+
+_KIN = (r"son|daughter|child|children|kid|kids|wife|husband|partner|spouse|fianc[eé]e?|"
+        r"sister|brother|sibling|mother|father|mum|mom|dad|parent|parents|grandmother|"
+        r"grandfather|grandson|granddaughter|niece|nephew|aunt|uncle|cousin|stepson|stepdaughter")
+
+
+def _owner_is_kin_end(text: str, owner_name: str) -> bool:
+    """True when ``text`` is a kinship fact with the owner as its subject
+    ("<Owner> has a daughter <Y>") or its object ("<Y> is the sister of
+    <Owner>", "<Owner>'s son"). Other people's facts that merely mention the
+    owner, or that have no kinship word, are not."""
+    if not owner_name:
+        return False
+    t, o = text.lower(), re.escape(owner_name)
+    kin = re.search(r"\b(?:%s)\b" % _KIN, t)
+    if not kin:
+        return False
+    return bool(re.match(r"%s\b" % o, t) or re.search(r"\bof\s+%s\b" % o, t)
+                or re.search(r"%s['\u2019]s\b" % o, t))
 
 
 def _meetings_section() -> list[str]:
