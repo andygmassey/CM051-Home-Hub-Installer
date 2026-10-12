@@ -488,6 +488,7 @@ test_ostler_home_is_owner_only_on_every_path.sh	WIRED	.github/workflows/secrets-
 test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_ostler_import_exit_code_separates_misses_from_failures.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_ostler_import_owner_name_and_exit_code.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_owner_digest_hydration_retries_5xx.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
@@ -545,6 +546,7 @@ test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows
 test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_real_person_pick_richest.py	WIRED	.github/workflows/walk-record-gate.yml
+test_real_person_slug_from_api.py	WIRED	.github/workflows/walk-record-gate.yml
 test_reclassify_subject_names_is_wired.sh	WIRED	.github/workflows/reclassify-subject-names-wired.yml
 test_reconcile_splits_our_fixtures_from_the_products.py	WIRED	.github/workflows/walk-record-gate.yml
 test_recording_consent_fields_have_a_producer_and_a_consumer.py	WIRED	.github/workflows/consent-contract.yml

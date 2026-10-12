@@ -118,11 +118,14 @@ def pick(people_body, pages_listing, owner_first, seed_names):
             c["rejected_synthetic"] += 1; continue
         if owner and name.split()[0].casefold() == owner:
             c["rejected_owner"] += 1; continue
-        slug = slugify(name)
+        # The API row's own slug first: at thousands of people a real slug can
+        # carry a disambiguation suffix that slugify(name) cannot reproduce.
+        api_slug = str((r.get("slug") if isinstance(r, dict) else "") or "").strip().casefold()
+        slug = api_slug if api_slug and api_slug in pages else slugify(name)
         if slug not in pages:
             c["rejected_no_page"] += 1; continue
         c["candidates"] += 1
-        cands.append((name, pages[slug], richness(r), sizes.get(slug, 0)))
+        cands.append((name, pages[slug], richness(r), sizes.get(slug, 0), slug))
     # The API is already sorted by recency. Among the top-recency candidates take
     # those carrying >= _RICH_MIN of role/email/phone/linkedin; the largest
     # compiled page wins, ties keep recency. None rich: the first candidate, as before.
@@ -130,7 +133,7 @@ def pick(people_body, pages_listing, owner_first, seed_names):
     pool = rich or cands[:1]
     for x in pool:
         if chosen is None or x[3] > best_size:
-            chosen, best_size = (x[0], x[1]), x[3]
+            chosen, best_size = (x[0], x[1], x[4]), x[3]
     return chosen, c
 
 
@@ -191,6 +194,7 @@ def main(argv):
     if ch:
         print("NAME " + ch[0])
         print("DEPTH {}".format(ch[1]))
+        print("SLUG {}".format(ch[2]))
     return 0
 
 
