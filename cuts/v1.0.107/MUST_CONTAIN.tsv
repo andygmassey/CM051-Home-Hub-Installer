@@ -389,3 +389,8 @@ Walk screens never land in the repo	CM051	577d1740	no	walk_screens_dir_outside_r
 walk-screens/ is gitignored	CM051	577d1740	no	walk_screens_gitignored	TBD	CM051 #2827
 Console-only register: app_signature_survives_first_run	CM051	99cdbd5b	no	console_only_app_signature_survives_first_run	TBD	CM051 #2830
 Console-only register: assistant_sends_over_whatsapp_and_email	CM051	99cdbd5b	no	console_only_assistant_sends_whatsapp_email	TBD	CM051 #2830
+# 2026-10-13 (ORM, candidate #24): CM051-only on the #23 pins (hub-v0.5.15 644b6137, wiki v0.1.52 d6ba3a01). #2833 #2836 (#2834 #2835) #2832. cut.env CM051=7842b798.
+Context digest: a contact family fact is not the owner, no raw phone	CM051	3904a222	no	context_digest_family_fact_is_owners_and_no_raw_phone	TBD	CM051 #2833
+Console-only register: pair_state_agreement	CM051	00a6b53b	no	console_only_pair_state_agreement	TBD	CM051 #2836
+Walk customer_read says why a page was unread	CM051	00a6b53b	no	walk_customer_read_says_why_unread	TBD	CM051 #2836
+Walk chooser prefers a rich recent person	CM051	7842b798	no	walk_chooser_prefers_rich_recent_person	TBD	CM051 #2832
