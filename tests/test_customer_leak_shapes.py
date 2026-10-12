@@ -131,9 +131,9 @@ def test_body_scaffolding_scrubbed_and_real_content_kept():
 
 
 def test_resolved_participant_handle_becomes_their_name():
-    parts = [{"id": PHONE, "display": "Sam Poe", "role": "other"}]
+    parts = [{"id": PHONE, "display": "Jane Doe", "role": "other"}]
     out = ev.scrub_scaffolding("Texted " + PHONE + " today", parts)
-    assert out == "Texted Sam Poe today", out
+    assert out == "Texted Jane Doe today", out
 
 
 # ---- offline render + CM051's own judge -----------------------------------

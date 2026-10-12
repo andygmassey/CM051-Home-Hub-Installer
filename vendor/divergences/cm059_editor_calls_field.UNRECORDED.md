@@ -36,7 +36,7 @@ and regenerate this tree's real divergence patch once a source checkout is
 available in-session. Not done here under the deadline; tracked, not
 silently dropped.
 
-## Shape sweep: person_label and clean_card_text (2026-10-12)
+## Shape sweep: person_label and clean_card_text (2026-10-12), tree cm059_editor
 
 `compiler/frontpage.py` gains `clean_card_text` and `person_label` (+
 `UNKNOWN_CONTACT`); `display_subject` speaks a snake_case key as words;

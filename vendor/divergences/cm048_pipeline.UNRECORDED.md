@@ -213,7 +213,7 @@ number or address resolved through `metadata.participants` display, else
 "an unknown contact". Not in the patch (source has advanced past the pin).
 Test: `tests/test_cm048_participants_line_display_names_only.py`.
 
-## Body scaffolding scrub (shape sweep 2026-10-12)
+## Body scaffolding scrub (shape sweep 2026-10-12), tree cm048_pipeline
 
 `enrichment_validation.scrub_scaffolding` runs inside
 `sanitise_participants_section` (so processor.py is untouched). It strips
