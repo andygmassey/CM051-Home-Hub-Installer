@@ -353,6 +353,7 @@ test_hub_interest_card_shows_a_handle_as_at_handle.py	WIRED	.github/workflows/hu
 test_hub_payload_seed_refuses_a_wrong_interpreter.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_hub_screens_calls_summing.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_hub_screens_people_judges_every_row.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_hub_screens_real_person_name_never_printed.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_browsing_skip_is_corroborated_at_the_store.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_counters_survive_a_failed_producer.sh	WIRED	.github/workflows/hydrate-sentinel.yml
@@ -876,6 +877,7 @@ scripts/tests/test_egress_declared_host_resolution.sh	WIRED	.github/workflows/in
 scripts/tests/test_egress_probe_attribution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 scripts/tests/test_email_channel_toml.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 scripts/tests/test_enforce_ledger_write.sh	WIRED	.github/workflows/enforce-ledger-write.yml
+scripts/tests/test_full_walk_chooses_the_real_person.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_grep_in_source_at_sha_names_files.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_grounded_probe_asserts_the_fact.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -915,6 +917,5 @@ scripts/tests/test_verify_commit_parity_gate.sh	WIRED	.github/workflows/cut-gate
 scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
+scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
-scripts/tests/test_full_walk_chooses_the_real_person.sh	WIRED	.github/workflows/walk-record-gate.yml
-test_hub_screens_real_person_name_never_printed.py	WIRED	.github/workflows/hub-screens-and-106c.yml

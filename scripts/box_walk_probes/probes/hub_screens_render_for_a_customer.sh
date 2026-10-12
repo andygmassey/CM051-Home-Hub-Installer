@@ -12,7 +12,7 @@
 # every stylesheet the in-app wiki loads must arrive as text/css, the theme
 # header must be painted and the body font must not be the browser default.
 # The wiki screenshot is saved into the walk record (OSTLER_WALK_SCREENS_DIR,
-# else ./walk-screens/<timestamp>) as the visual evidence.
+# else walk_screens_dir in lib/probe.sh, OUTSIDE the repo) as the visual evidence.
 #
 # Runs on the WALK DRIVER: forwards the box's Hub (127.0.0.1:8000) over ssh and
 # drives headless Chromium (Playwright) at it with the box's own admin token.
@@ -47,7 +47,7 @@ run_probe() {
     [ -x "${_PY}" ] || probe_cannot_run "no Playwright python at ${_PY} (set OSTLER_SCREENS_PYTHON; see scripts/box_walk_probes/README.md)"
 
     local out tokfile port fwd_pid ts_state rc
-    out="${OSTLER_WALK_SCREENS_DIR:-$PWD/walk-screens/$(date -u +%Y%m%dT%H%M%SZ)}"
+    out="$(walk_screens_dir)"
     mkdir -p "${out}" || probe_cannot_run "cannot create ${out}"
     tokfile="$(mktemp)"
     trap 'rm -f "${tokfile}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT
