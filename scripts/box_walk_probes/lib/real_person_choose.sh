@@ -51,7 +51,7 @@ real_person_choose() {
     while :; do
         # The token is read and used ON THE BOX; it never reaches this shell.
         _rpc_box 'curl -s --noproxy "*" --max-time 60 -H "Authorization: Bearer $(cat $HOME/.ostler/secrets/zeroclaw_admin_token)" "http://127.0.0.1:8000/api/v1/people?sort=recency"' > "$d/people" || : > "$d/people"
-        _rpc_box 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; docker exec ostler-wiki-site sh -c "cd /docs/docs/People 2>/dev/null && find . -name \"*.md\""' > "$d/pages" || : > "$d/pages"
+        _rpc_box 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; docker exec ostler-wiki-site sh -c "cd /docs/docs/People 2>/dev/null && find . -name \"*.md\" -exec wc -c {} +"' > "$d/pages" || : > "$d/pages"
         _rpc_box 'sed -n "s/^[[:space:]]*user_first_name[[:space:]]*=[[:space:]]*\"\(.*\)\"/\1/p" $HOME/.ostler/assistant-config/config.toml | head -n 1' > "$d/owner" || : > "$d/owner"
         out="$(/usr/bin/python3 "$_rpc_dir/real_person_pick.py" --people "$d/people" --pages "$d/pages" --owner "$d/owner" --seed "$d/seed")"
         rc=$?
