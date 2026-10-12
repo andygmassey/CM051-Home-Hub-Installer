@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `0dad9b187fb4975c85ebb0bdbb8ca10bb9fe6b3dd3f84d11212bcab1c08bb627` (post-graft, this repo, after item 9) |
+| Current SHA-256 | `db274bdf3de53d18056211d8738b88c70026e6757bce20a726706f0676c37008` (post-graft, this repo, after item 10) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-10 (a contact's place is not the owner's, cut #17 F12, item 9). NOT upstream. |
+| Last divergence | 2026-10-12 (a contact's family fact is not the owner's, DMG #24, item 10). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -166,6 +166,17 @@ the kind of blanket claim that goes stale one item at a time:
    "what do you know about me". Location facts whose `urn:ostler:about` is set
    and is not `urn:ostler:user/<USER_ID>` are now skipped. Pinned by the
    `test_f12_*` tests in `tests/test_digest_knows_its_owner.py`.
+
+10. **A contact's family fact is not the owner's** (2026-10-12, DMG #24). NOT
+   upstream. Item 9 filtered the location bucket only; the family/relationship
+   bucket kept any subject, so "<raw phone> has a son" (a fact ABOUT a contact)
+   printed on the owner's "Family and close people" line. Now a family fact is
+   kept only when `urn:ostler:about` is the owner (or absent, legacy), or the
+   owner's name is in the text (owner is one end of the relation); any fact
+   carrying a raw phone-shaped run is dropped. `_PHONE_RUN` mirrors the shared
+   `person_label` phone gate (vendor/cm059_editor/compiler/frontpage.py); it is
+   restated here because this script ships standalone and cannot import the
+   compiler. Pinned by `test_family_*` in `tests/test_digest_knows_its_owner.py`.
 
 ## Why vendored rather than shipped in the assistant release
 

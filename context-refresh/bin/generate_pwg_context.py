@@ -136,6 +136,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -908,6 +909,7 @@ def _about_you_section() -> list[str]:
         # about somebody else is not the owner's place. (Family and close
         # people are other people by definition, so that bucket keeps them.)
         owner_about = f"urn:ostler:user/{uid}".lower()
+        owner_name = (identity.get("name") or "").strip().lower()
         for row in fact_rows:
             if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
                 continue
@@ -917,6 +919,16 @@ def _about_you_section() -> list[str]:
             text = " ".join((row.get("text") or "").split())
             if not text:
                 continue
+            if row.get("t") != "location":
+                # DMG #23: "<raw phone> has a son" was a fact ABOUT a contact on
+                # the owner's family line. Keep a family/relationship fact only
+                # when it is about the owner (or legacy-untagged), or when the
+                # owner is one end of the relation (their name is in the text).
+                # A raw phone handle never prints, whoever it is about.
+                if about and about != owner_about and not (owner_name and owner_name in text.lower()):
+                    continue
+                if _PHONE_RUN.search(text):
+                    continue
             if len(text) > 110:
                 text = text[:107].rstrip() + "..."
             bucket = places if row.get("t") == "location" else family
@@ -927,6 +939,12 @@ def _about_you_section() -> list[str]:
         if family:
             lines.append(f"- Family and close people: {'; '.join(family)}")
     return lines
+
+
+# Same shape the shared person_label gate rejects (vendor/cm059_editor
+# compiler/frontpage.py _PHONE_SHAPE), as a run inside text. This script ships
+# standalone, without the vendored compiler, so it cannot import person_label.
+_PHONE_RUN = re.compile(r"\+?\d[\d\s().\-\u00a0]{5,}\d")
 
 
 def _meetings_section() -> list[str]:
