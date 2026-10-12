@@ -18,6 +18,7 @@ on:
       - 'tests/test_cm048_participants_as_strings.py'
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
+      - 'tests/test_cm048_participants_line_display_names_only.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
@@ -45,6 +46,7 @@ on:
       - 'tests/test_cm048_participants_as_strings.py'
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
+      - 'tests/test_cm048_participants_line_display_names_only.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
@@ -101,6 +103,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_participants_as_strings.py -v
+      - name: The participants roster is display names only (walk #23)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_participants_line_display_names_only.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_participants_line_display_names_only.py -v
       - name: The reminders_candidates sidecar never reaches the conversation body (walk #13)
         if: always()
         run: |

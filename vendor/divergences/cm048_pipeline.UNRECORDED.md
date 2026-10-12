@@ -198,3 +198,17 @@ Tests: `tests/test_cm048_reminder_push_people_rules_installed_layout.py`
 (a temp tree laid out as install.sh does, a fresh interpreter with only
 cm048's site-packages; default and overridden OSTLER_DIR) and the parity test
 (oracle: the fully imported real ical-server `people_list`).
+
+## Participants roster: display names only (walk #23)
+
+`vendor/cm048_pipeline/src/enrichment_validation.py` gains
+`sanitise_participants_section`, called in `src/processor.py` at both enrich
+paths just before `strip_reminders_sidecar`. The prompts show the model
+`{user_name} (user)` / `{other_name} (...)` as a roster shape; the model copied
+the tags and an unresolved participant's display is its raw number, so the wiki
+(which renders the summary verbatim; CM044 adds no tags) showed
+"Owner (user) (user) +<number> (other_name) (new acquaintance, ...".
+The roster bullets are now de-duplicated display names: owner as "You", a
+number or address resolved through `metadata.participants` display, else
+"an unknown contact". Not in the patch (source has advanced past the pin).
+Test: `tests/test_cm048_participants_line_display_names_only.py`.
