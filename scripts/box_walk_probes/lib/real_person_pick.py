@@ -33,11 +33,28 @@ def slugify(name):
     return re.sub(r"[^a-z0-9]+", "-", (name or "").casefold()).strip("-")
 
 
+def compiled_sizes(listing):
+    """slug -> bytes, from `wc -c` style lines ("<bytes> ./x.md"); 0 for a bare path."""
+    out = {}
+    for line in listing.splitlines():
+        m = re.match(r"^\s*(\d+)\s+(.*\.md)\s*$", line)
+        size, path = (int(m.group(1)), m.group(2)) if m else (0, line.strip())
+        if not path.endswith(".md"):
+            continue
+        parts = path.lstrip("./")[:-3].split("/")
+        if parts[-1] == "index":
+            parts = parts[:-1]
+        if parts:
+            out[parts[-1].casefold()] = max(size, out.get(parts[-1].casefold(), 0))
+    return out
+
+
 def compiled_slugs(listing):
     """slug -> path depth, from relative .md paths under People/. `x.md` and
     `x/index.md` are the page for x; the section index itself is not a person."""
     out = {}
     for line in listing.splitlines():
+        line = re.sub(r"^\s*\d+\s+(?=\S.*\.md\s*$)", "", line)
         p = line.strip().lstrip("./")
         if not p.endswith(".md"):
             continue
@@ -62,6 +79,19 @@ def is_synthetic(name, seed_names):
     return False
 
 
+_RICH_KEYS = ("role", "email", "phone", "linkedin")
+_RICH_MIN = 2
+_TOP_N = 10
+
+
+def richness(row):
+    """How many of role/email/phone/linkedin the people API row carries. The API
+    has no numeric count field, so this is what 'the graph knows them' looks like."""
+    if not isinstance(row, dict):
+        return 0
+    return sum(1 for k in _RICH_KEYS if str(row.get(k) or "").strip())
+
+
 def pick(people_body, pages_listing, owner_first, seed_names):
     c = dict(people=0, compiled_pages=0, candidates=0, rejected_org=0,
              rejected_synthetic=0, rejected_owner=0, rejected_no_page=0, rejected_shape=0)
@@ -71,10 +101,13 @@ def pick(people_body, pages_listing, owner_first, seed_names):
     except Exception:
         rows = []
     pages = compiled_slugs(pages_listing)
+    sizes = compiled_sizes(pages_listing)
     c["people"], c["compiled_pages"] = len(rows), len(pages)
     owner = (owner_first or "").strip().casefold()
     seeds = {s.strip().casefold() for s in seed_names if s.strip()}
     chosen = None
+    best_size = -1
+    cands = []
     for r in rows:
         name = ((r.get("name") if isinstance(r, dict) else "") or "").strip()
         if not name or "@" in name or len(name.split()) < 2 or "\n" in name:
@@ -89,8 +122,15 @@ def pick(people_body, pages_listing, owner_first, seed_names):
         if slug not in pages:
             c["rejected_no_page"] += 1; continue
         c["candidates"] += 1
-        if chosen is None:
-            chosen = (name, pages[slug])
+        cands.append((name, pages[slug], richness(r), sizes.get(slug, 0)))
+    # The API is already sorted by recency. Among the top-recency candidates take
+    # those carrying >= _RICH_MIN of role/email/phone/linkedin; the largest
+    # compiled page wins, ties keep recency. None rich: the first candidate, as before.
+    rich = [x for x in cands[:_TOP_N] if x[2] >= _RICH_MIN]
+    pool = rich or cands[:1]
+    for x in pool:
+        if chosen is None or x[3] > best_size:
+            chosen, best_size = (x[0], x[1]), x[3]
     return chosen, c
 
 

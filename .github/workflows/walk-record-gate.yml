@@ -69,6 +69,7 @@ on:
       - 'scripts/tests/test_read_only_walk_never_writes.sh'
       - 'scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh'
       - 'scripts/tests/test_full_walk_chooses_the_real_person.sh'
+      - 'tests/test_real_person_pick_richest.py'
       - 'scripts/tests/test_walk_screens_never_land_in_the_repo.sh'
       - 'scripts/box_walk_probes/lib/real_person_choose.sh'
       - 'scripts/box_walk_probes/lib/real_person_pick.py'
@@ -728,6 +729,9 @@ jobs:
       - name: A full walk chooses a real person for the screens probe, env only, name never logged (DMG #23)
         if: always()
         run: /bin/bash scripts/tests/test_full_walk_chooses_the_real_person.sh
+      - name: The real-person chooser prefers the richest candidate (DMG #24)
+        if: always()
+        run: python3 tests/test_real_person_pick_richest.py
 
       - name: Screens evidence never lands in the public repo checkout (DMG #23)
         if: always()

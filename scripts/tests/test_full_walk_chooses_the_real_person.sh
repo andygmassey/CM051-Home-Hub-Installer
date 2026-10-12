@@ -33,9 +33,9 @@ SSHD="${WORK}/sshbin"; mkdir -p "$SSHD"
 cat > "${SSHD}/ssh" <<'EOS'
 #!/bin/sh
 case "$*" in
-  *"people?sort"*)     cat "$RP_PEOPLE" ;;
-  *"docker exec"*)     cat "$RP_PAGES" ;;
-  *"user_first_name"*) printf 'Tommy\n' ;;
+  *"people?sort"*)     [ "${RP_FAIL:-}" = people ] && { echo "boom-people" >&2; exit 7; }; cat "$RP_PEOPLE" ;;
+  *"docker exec"*)     [ "${RP_FAIL:-}" = pages ] && { echo "boom-pages" >&2; exit 7; }; cat "$RP_PAGES" ;;
+  *"user_first_name"*) [ "${RP_FAIL:-}" = owner ] && { echo "boom-owner" >&2; exit 7; }; printf 'Tommy\n' ;;
   *)                   printf ABSENT ;;
 esac
 EOS
@@ -83,6 +83,16 @@ t="$(_stage none)"; _run "$t" "${WORK}/pages_empty.txt" 0
 [ "$(_f "$t" seen_state)" = "cannot-run" ] && ok "arm 2b state is cannot-run, never chosen" || bad "arm 2b: state '$(_f "$t" seen_state)'"
 _f "$t" seen_detail | /usr/bin/grep -q "compiled_pages=0" && ok "arm 2c the reason names the count examined" || bad "arm 2c: detail lacks compiled_pages=0"
 if /usr/bin/grep -qiE "robbie|wang|lizzie" "$t/out.txt"; then bad "arm 2d PRIVACY: a person name is in the cannot-run log"; else ok "arm 2d no person name in the cannot-run log"; fi
+
+for which in people pages owner; do
+    t="$(_stage "fail_$which")"
+    ( cd "$t" && PATH="${SSHD}:${PATH}" OSTLER_BOX_HOST=fake.invalid RP_FAIL="$which" RP_PEOPLE="${WORK}/people.json" RP_PAGES="${WORK}/pages.txt" \
+        OSTLER_REAL_PERSON_BUDGET_S=0 OSTLER_REAL_PERSON_STEP_S=1 \
+        perl -e 'alarm 120; exec @ARGV' bash ./run_box_walk.sh ) > "$t/out.txt" 2>&1
+    [ "$(_f "$t" seen_state)" = "cannot-run" ] && [ "$(_f "$t" seen_person)" = "unset" ] && ok "arm 3 $which read fails: cannot-run, no person handed over" || bad "arm 3 $which: state '$(_f "$t" seen_state)' person-set=$([ "$(_f "$t" seen_person)" = unset ] && echo no || echo YES)"
+    _f "$t" seen_detail | /usr/bin/grep -q "${which} read failed rc=7: boom-${which}" && ok "arm 3 $which: the detail names the rc and the error" || bad "arm 3 $which: detail lacks the error"
+    _f "$t" seen_detail | /usr/bin/grep -q "compiled_pages=0" && bad "arm 3 $which: reported as 0 compiled pages" || ok "arm 3 $which: not misreported as 0 compiled pages"
+done
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
