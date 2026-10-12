@@ -19,6 +19,7 @@
 # "Not me" persistence WRITES a correction, so it runs only when
 # OSTLER_SCREENS_ALLOW_WRITE=1 (walk boxes); on a customer's box it is skipped
 # and named as skipped.
+# WALK_WRITES: with OSTLER_SCREENS_ALLOW_WRITE=1 seeds a synthetic person through the product's write route and posts a Not me correction; forgets the person afterwards
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
 
