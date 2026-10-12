@@ -347,6 +347,7 @@ test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_hub_chat_carries_the_chat_tool_set.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_hub_contract_generator.py	WIRED	.github/workflows/hub-contract.yml
+test_hub_interest_card_shows_a_handle_as_at_handle.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_hub_payload_seed_refuses_a_wrong_interpreter.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_hub_screens_calls_summing.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_hub_screens_people_judges_every_row.py	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -715,6 +716,7 @@ test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_timeline_dates_are_event_dates_with_offset.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-timeout-honesty.yml
 test_todo_reminders_cleanup_deletes_what_it_created.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -872,6 +874,7 @@ scripts/tests/test_egress_declared_host_resolution.sh	WIRED	.github/workflows/in
 scripts/tests/test_egress_probe_attribution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 scripts/tests/test_email_channel_toml.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 scripts/tests/test_enforce_ledger_write.sh	WIRED	.github/workflows/enforce-ledger-write.yml
+scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_grep_in_source_at_sha_names_files.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_grounded_probe_asserts_the_fact.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_grounded_probe_grades_the_answer.sh	WIRED	.github/workflows/walk-record-gate.yml

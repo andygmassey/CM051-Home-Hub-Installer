@@ -25,6 +25,7 @@ on:
       - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
+      - 'tests/test_hub_interest_card_shows_a_handle_as_at_handle.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
       - 'scripts/box_walk_probes/fixtures/owner_digest/**'
       - 'scripts/box_walk_probes/lib/owner_employer_seed.sh'
@@ -48,6 +49,7 @@ on:
       - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
       - 'scripts/box_walk_probes/lib/todo_reminders_box.py'
       - 'tests/test_todo_reminders_cleanup_deletes_what_it_created.py'
+      - 'tests/test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py'
       - 'scripts/box_walk_probes/probes/todos_reach_reminders.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/console_only_probes.tsv'
@@ -135,6 +137,9 @@ jobs:
         # vendored copy, not upstream CM059 -- the two disagreed.
         if: always()
         run: python3 tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
+      - name: The Hub interest card shows a handle as @handle, and the judge accepts only that
+        if: always()
+        run: python3 tests/test_hub_interest_card_shows_a_handle_as_at_handle.py
       - name: The owner-digest judge catches every mutant (v1.0.107 #10)
         if: always()
         run: python3 scripts/box_walk_probes/lib/owner_digest.py --self-test
@@ -209,6 +214,9 @@ jobs:
       - name: The todo-reminders cleanup deletes what it created, or says it could not
         if: always()
         run: python3 tests/test_todo_reminders_cleanup_deletes_what_it_created.py
+      - name: The seeded 1:1 counterpart is new each walk, so a leftover reminder cannot dedupe it
+        if: always()
+        run: python3 tests/test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py
       - name: The todo-reminders box script at least compiles
         if: always()
         run: python3 -m py_compile scripts/box_walk_probes/lib/todo_reminders_box.py

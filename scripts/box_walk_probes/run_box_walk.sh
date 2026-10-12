@@ -275,6 +275,18 @@ if [ "$READ_ONLY" -eq 0 ] && [ "$ALLOW_WRITES" -ne 1 ]; then
     fi
 fi
 
+# WRITE MODE FOR hub_screens_render_for_a_customer IS THE RUNNER'S DECISION.
+# Nothing exported OSTLER_SCREENS_ALLOW_WRITE, so the probe's chat person-link
+# check (which needs write mode to seed its own person) was NOT MEASURED unless
+# the operator happened to export it. A run that may write hands it 1; a
+# read-only run hands 0 and never trusts an inherited 1.
+if [ "$READ_ONLY" -eq 0 ]; then
+    OSTLER_SCREENS_ALLOW_WRITE=1
+else
+    OSTLER_SCREENS_ALLOW_WRITE=0
+fi
+export OSTLER_SCREENS_ALLOW_WRITE
+
 # -------------------------------------------------------------------------
 # PHASE 1 -- negative controls. Try to make every probe fail.
 # -------------------------------------------------------------------------
