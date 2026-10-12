@@ -371,3 +371,7 @@ Walk scope: the follow-up keys probe is blocking	CM051	60869cc7	no	walk_followup
 People rules in one shared module	CM051	355bc076	no	people_rules_shared_module	TBD	CM051 355bc076
 Walk hub_screens judges People rows from the API	CM051	ad1a9d26	no	walk_hub_screens_people_from_api	TBD	CM051 ad1a9d26
 Walk store refuses writes from tests	CM051	2eb320fe	no	walk_store_tests_cannot_write_real_walks	TBD	CM051 2eb320fe
+# 2026-10-12 (ORM, candidate #22): CM051-only, hub stays hub-v0.5.14 (7d5a3fe8). Batch #2822 (7fc72749): #2819 #2820 #2821. cut.env CM051=7fc72749.
+Walk todos probe seeds a unique counterpart	CM051	7fc72749	no	walk_todos_unique_counterpart	TBD	CM051 #2819 (#2822)
+Hub interest card for a handle is labelled with the handle	CM051	7fc72749	no	hub_interest_handle_card_labelled	TBD	CM051 #2820 (#2822)
+Full walk gives the screens probe write mode	CM051	7fc72749	no	walk_full_run_screens_write_mode	TBD	CM051 #2821 (#2822)
