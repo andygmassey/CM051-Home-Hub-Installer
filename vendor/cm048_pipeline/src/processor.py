@@ -802,7 +802,7 @@ def _step_enrich_inner(
         rendered = enrichment_validation.sanitise_participants_section(
             rendered,
             normalise_participants(metadata.get("participants")),
-            settings.user_display_name,
+            getattr(settings, "user_display_name", "") or "",
         )
         rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
         if _sidecars:
@@ -920,7 +920,7 @@ def _step_enrich_inner(
         rendered = enrichment_validation.sanitise_participants_section(
             rendered,
             normalise_participants(metadata.get("participants")),
-            settings.user_display_name,
+            getattr(settings, "user_display_name", "") or "",
         )
         rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
         if _sidecars:
