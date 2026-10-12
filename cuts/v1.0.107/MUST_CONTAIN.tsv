@@ -394,3 +394,7 @@ Context digest: a contact family fact is not the owner, no raw phone	CM051	3904a
 Console-only register: pair_state_agreement	CM051	00a6b53b	no	console_only_pair_state_agreement	TBD	CM051 #2836
 Walk customer_read says why a page was unread	CM051	00a6b53b	no	walk_customer_read_says_why_unread	TBD	CM051 #2836
 Walk chooser prefers a rich recent person	CM051	7842b798	no	walk_chooser_prefers_rich_recent_person	TBD	CM051 #2832
+# 2026-10-13 (ORM, candidate #25): CM051-only on the #23 pins (hub-v0.5.15 644b6137, wiki v0.1.52 d6ba3a01). #2840, #2843 (#2841 #2842). cut.env CM051=25ecc4ff.
+Context digest: family bucket only when the owner is the kin end	CM051	25ecc4ff	no	context_digest_family_bucket_owner_is_kin_end	TBD	CM051 #2843
+Walk screens probe classifies a real-person link miss	CM051	25ecc4ff	no	walk_screens_classifies_real_person_link_miss	TBD	CM051 #2843
+Walk screens probe uses the API slug	CM051	47c849a9	no	walk_screens_uses_api_slug	TBD	CM051 #2840
