@@ -41,7 +41,7 @@ def test_one_attribute_is_not_rich_so_first_candidate_is_kept():
 
 
 def test_rich_row_without_a_page_is_rejected():
-    rows = [row("Nopage Person", role="a", email="b"), row("Robbie Wang")]
+    rows = [row("nopage person", role="a", email="b"), row("Robbie Wang")]
     assert pick(rows, PAGES)[0] == "Robbie Wang"
 
 
@@ -58,3 +58,12 @@ def test_a_total_line_per_batch_is_never_a_page():
     assert "total" not in rpp.compiled_slugs(pages)
     rows = [row("Wei Zhang", role="a", email="b"), row("Lizzie Li", role="a", email="b")]
     assert pick(rows, pages)[0] == "Lizzie Li"
+
+
+if __name__ == "__main__":  # the CI runner has no pytest: run every test_* directly
+    _n = 0
+    for _k, _v in sorted(globals().items()):
+        if _k.startswith("test_") and callable(_v):
+            _v()
+            _n += 1
+    print(f"{_n} passed")

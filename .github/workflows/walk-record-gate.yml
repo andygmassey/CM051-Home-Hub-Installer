@@ -731,7 +731,7 @@ jobs:
         run: /bin/bash scripts/tests/test_full_walk_chooses_the_real_person.sh
       - name: The real-person chooser prefers the richest candidate (DMG #24)
         if: always()
-        run: python3 -m pytest -q tests/test_real_person_pick_richest.py
+        run: python3 tests/test_real_person_pick_richest.py
 
       - name: Screens evidence never lands in the public repo checkout (DMG #23)
         if: always()
