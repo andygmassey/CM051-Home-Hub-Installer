@@ -168,6 +168,13 @@ EXEMPT: dict[str, str] = {
         "it anyway. It IS invoked, through its permanent.yaml row, and "
         "post_walk_qa.sh runs the manifest verifier alongside the walk, so its "
         "result does reach the QA output under the manifest section.",
+    "lib/real_person_choose.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it before "
+        "the phase-2 loop and calls real_person_choose right before "
+        "hub_screens_render_for_a_customer, only to export "
+        "HUB_SCREENS_REAL_PERSON (env only, name never logged). It makes no "
+        "measurement and has no PROBE_NAME or verdict; its invocation is "
+        "pinned by scripts/tests/test_full_walk_chooses_the_real_person.sh.",
     "lib/promote_order.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it just "
         "before the phase-2 loop and calls promote_order, which only REORDERS "
