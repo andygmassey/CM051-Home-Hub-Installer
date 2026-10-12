@@ -36,6 +36,17 @@ _rpc_box_raw() {  # like _rpc_box, but stderr reaches the caller
     fi
 }
 
+_rpc_read() {  # name dir cmd: stdout to dir/name; on failure sets _RPC_FAIL (rc + first stderr bytes) and returns 1
+    local n="$1" dd="$2" rc e
+    _rpc_box_raw "$3" > "$dd/$n" 2> "$dd/$n.err"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+        e="$(head -c 200 "$dd/$n.err" | tr '\n' ' ')"
+        _RPC_FAIL="${n} read failed rc=${rc}: ${e:-no stderr}"
+        return 1
+    fi
+    return 0
+}
+
 _rpc_fp() {  # sha256(name)[:8], from stdin-free arg via python so no name is on a command line
     HUB_RPC_N="$1" /usr/bin/python3 -c 'import hashlib,os;print(hashlib.sha256(os.environ["HUB_RPC_N"].encode()).hexdigest()[:8])'
 }
@@ -58,19 +69,18 @@ real_person_choose() {
     printf '%s\n' "${OSTLER_GATE_KNOWN_PERSON:-}" > "$d/seed"
     examined="nothing read yet"
     while :; do
-        # The token is read and used ON THE BOX; it never reaches this shell.
-        _rpc_box 'curl -s --noproxy "*" --max-time 60 -H "Authorization: Bearer $(cat $HOME/.ostler/secrets/zeroclaw_admin_token)" "http://127.0.0.1:8000/api/v1/people?sort=recency"' > "$d/people" || : > "$d/people"
-        # No manufactured empty input: a failed listing is CANNOT-RUN naming the error.
-        _rpc_box_raw 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; docker exec ostler-wiki-site sh -c "cd /docs/docs/People && find . -name \"*.md\" -exec wc -c {} +"' > "$d/pages" 2> "$d/pages.err"
-        prc=$?
-        if [ "$prc" -ne 0 ]; then
-            perr="$(head -c 200 "$d/pages.err" | tr '\n' ' ')"
-            examined="wiki listing failed rc=${prc}: ${perr:-no stderr}"
+        # No manufactured empty input: a failed read is retried within budget, then
+        # CANNOT-RUN naming the error. The token is read and used ON THE BOX; it
+        # never reaches this shell.
+        _rpc_read people "$d" 'curl -sS --fail --noproxy "*" --max-time 60 -H "Authorization: Bearer $(cat $HOME/.ostler/secrets/zeroclaw_admin_token)" "http://127.0.0.1:8000/api/v1/people?sort=recency"' \
+          && _rpc_read pages "$d" 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; docker exec ostler-wiki-site sh -c "cd /docs/docs/People && find . -name \"*.md\" -exec wc -c {} +"' \
+          && _rpc_read owner "$d" 'sed -n "s/^[[:space:]]*user_first_name[[:space:]]*=[[:space:]]*\"\(.*\)\"/\1/p" $HOME/.ostler/assistant-config/config.toml | head -n 1'
+        if [ $? -ne 0 ]; then
+            examined="$_RPC_FAIL"
             now="$(date +%s)"
             [ $((now - t0)) -ge "$budget" ] && break
             sleep "$step"; continue
         fi
-        _rpc_box 'sed -n "s/^[[:space:]]*user_first_name[[:space:]]*=[[:space:]]*\"\(.*\)\"/\1/p" $HOME/.ostler/assistant-config/config.toml | head -n 1' > "$d/owner" || : > "$d/owner"
         out="$(/usr/bin/python3 "$_rpc_dir/real_person_pick.py" --people "$d/people" --pages "$d/pages" --owner "$d/owner" --seed "$d/seed")"
         rc=$?
         state="$(printf '%s\n' "$out" | sed -n 's/^STATE //p')"
