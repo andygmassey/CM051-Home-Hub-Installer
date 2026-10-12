@@ -47,3 +47,14 @@ def test_rich_row_without_a_page_is_rejected():
 
 def test_bare_path_listing_still_parses():
     assert pick([row("Robbie Wang")], "index.md\nrobbie-wang.md\n")[0] == "Robbie Wang"
+
+
+def test_a_total_line_per_batch_is_never_a_page():
+    # find -exec wc -c {} + prints one "total" per batch; two batches here.
+    pages = ("10 ./index.md\n300 ./robbie-wang.md\n99999 total\n"
+             "2500 ./lizzie-li.md\n900 ./wei-zhang.md\n123456 total\n")
+    sizes = rpp.compiled_sizes(pages)
+    assert "total" not in sizes and max(sizes.values()) == 2500
+    assert "total" not in rpp.compiled_slugs(pages)
+    rows = [row("Wei Zhang", role="a", email="b"), row("Lizzie Li", role="a", email="b")]
+    assert pick(rows, pages)[0] == "Lizzie Li"

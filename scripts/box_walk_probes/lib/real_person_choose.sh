@@ -27,6 +27,15 @@ _rpc_box() {
     fi
 }
 
+_rpc_box_raw() {  # like _rpc_box, but stderr reaches the caller
+    if [ -n "${OSTLER_BOX_HOST:-}" ]; then
+        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o BatchMode=yes \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$OSTLER_BOX_HOST" "$1"
+    else
+        bash -lc "$1"
+    fi
+}
+
 _rpc_fp() {  # sha256(name)[:8], from stdin-free arg via python so no name is on a command line
     HUB_RPC_N="$1" /usr/bin/python3 -c 'import hashlib,os;print(hashlib.sha256(os.environ["HUB_RPC_N"].encode()).hexdigest()[:8])'
 }
@@ -40,7 +49,7 @@ real_person_choose() {
         export HUB_SCREENS_REAL_PERSON HUB_SCREENS_REAL_PERSON_STATE HUB_SCREENS_REAL_PERSON_DETAIL
         return 0
     fi
-    local d budget step t0 now out state name depth seeds rc examined
+    local d budget step t0 now out state name depth seeds rc examined prc perr
     d="$(mktemp -d)" || { HUB_SCREENS_REAL_PERSON_DETAIL="no temp dir"; export HUB_SCREENS_REAL_PERSON_DETAIL; return 0; }
     chmod 700 "$d"
     budget="${OSTLER_REAL_PERSON_BUDGET_S:-600}"; step="${OSTLER_REAL_PERSON_STEP_S:-30}"
@@ -51,7 +60,16 @@ real_person_choose() {
     while :; do
         # The token is read and used ON THE BOX; it never reaches this shell.
         _rpc_box 'curl -s --noproxy "*" --max-time 60 -H "Authorization: Bearer $(cat $HOME/.ostler/secrets/zeroclaw_admin_token)" "http://127.0.0.1:8000/api/v1/people?sort=recency"' > "$d/people" || : > "$d/people"
-        _rpc_box 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; docker exec ostler-wiki-site sh -c "cd /docs/docs/People 2>/dev/null && find . -name \"*.md\" -exec wc -c {} +"' > "$d/pages" || : > "$d/pages"
+        # No manufactured empty input: a failed listing is CANNOT-RUN naming the error.
+        _rpc_box_raw 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; docker exec ostler-wiki-site sh -c "cd /docs/docs/People && find . -name \"*.md\" -exec wc -c {} +"' > "$d/pages" 2> "$d/pages.err"
+        prc=$?
+        if [ "$prc" -ne 0 ]; then
+            perr="$(head -c 200 "$d/pages.err" | tr '\n' ' ')"
+            examined="wiki listing failed rc=${prc}: ${perr:-no stderr}"
+            now="$(date +%s)"
+            [ $((now - t0)) -ge "$budget" ] && break
+            sleep "$step"; continue
+        fi
         _rpc_box 'sed -n "s/^[[:space:]]*user_first_name[[:space:]]*=[[:space:]]*\"\(.*\)\"/\1/p" $HOME/.ostler/assistant-config/config.toml | head -n 1' > "$d/owner" || : > "$d/owner"
         out="$(/usr/bin/python3 "$_rpc_dir/real_person_pick.py" --people "$d/people" --pages "$d/pages" --owner "$d/owner" --seed "$d/seed")"
         rc=$?
