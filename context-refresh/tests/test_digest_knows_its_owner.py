@@ -63,6 +63,7 @@ UNTAGGED_OTHERS = (
     "Sam Patel met Robbie Wang, Lizzie Li, Wei Zhang at a party",
     "Sam Patel mentioned Robbie Wang got a job",
     "Sam Patel has a son",
+    "Jane Doe met Sam Patel at a party",        # owner is the subject but it is not kinship
 )
 UNTAGGED_OWNER_DAUGHTER = "Jane Doe has a daughter Lizzie Li"
 

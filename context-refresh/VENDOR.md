@@ -177,6 +177,10 @@ the kind of blanket claim that goes stale one item at a time:
    `person_label` phone gate (vendor/cm059_editor/compiler/frontpage.py); it is
    restated here because this script ships standalone and cannot import the
    compiler. Pinned by `test_family_*` in `tests/test_digest_knows_its_owner.py`.
+    **#25 tightening (2026-10-13):** untagged legacy facts are no longer kept
+    (walk #24: "<A> met <B> at a party", "<A> has a son", about other people).
+    Kept only when `about` is the owner, or a kinship fact has the owner as
+    subject or object (`_owner_is_kin_end`). The location rule is unchanged.
 
 ## Why vendored rather than shipped in the assistant release
 
