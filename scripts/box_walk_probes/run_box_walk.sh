@@ -591,6 +591,9 @@ fi
 # on is a named CANNOT-RUN or a named FINDING. No forget: the compile is the
 # product's own.
 . "$HERE/lib/wiki_summaries_wait.sh"
+# The real person for hub_screens_render_for_a_customer is the runner's choice
+# (DMG #23); sourced here, called late, right before that probe.
+. "$HERE/lib/real_person_choose.sh"
 if [ "$READ_ONLY" -eq 0 ]; then
 wiki_summaries_wait || true
 else
@@ -772,6 +775,12 @@ for p in $PROBES; do
     # which is why the arms added in test_the_walk_waits_for_converge.sh drive
     # THIS block rather than converge_wait().
     #
+    # The screens probe's "a real person's compiled page renders" assertion needs a
+    # real person WITH a compiled page, and pages exist only once the wiki has
+    # compiled, so the choice is made here, late, with a wait. Env only; the name
+    # is never printed (real_person_choose.sh logs sha256(name)[:8] and depth).
+    case "$b" in hub_screens_render_for_a_customer*) real_person_choose ;; esac
+
     # ── THE WIKI PRODUCER GETS A SECOND WAIT, RIGHT BEFORE THE PROBE THAT NEEDS IT ──
     #
     # usage_journal_producers requires cm044_wiki_compiler to have written, and

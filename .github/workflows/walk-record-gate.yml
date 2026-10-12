@@ -68,6 +68,10 @@ on:
       - 'scripts/tests/test_run_box_walk_records_phase1_verdicts.sh'
       - 'scripts/tests/test_read_only_walk_never_writes.sh'
       - 'scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh'
+      - 'scripts/tests/test_full_walk_chooses_the_real_person.sh'
+      - 'scripts/tests/test_walk_screens_never_land_in_the_repo.sh'
+      - 'scripts/box_walk_probes/lib/real_person_choose.sh'
+      - 'scripts/box_walk_probes/lib/real_person_pick.py'
       - 'tests/test_console_only_register_names_real_probes.py'
       - 'scripts/box_walk_probes/console_only_probes.tsv'
       - 'scripts/early_repeat_fail_pass.sh'
@@ -720,6 +724,14 @@ jobs:
       - name: A full walk hands the screens probe write mode (DMG #22)
         if: always()
         run: /bin/bash scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh
+
+      - name: A full walk chooses a real person for the screens probe, env only, name never logged (DMG #23)
+        if: always()
+        run: /bin/bash scripts/tests/test_full_walk_chooses_the_real_person.sh
+
+      - name: Screens evidence never lands in the public repo checkout (DMG #23)
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_screens_never_land_in_the_repo.sh
 
       - name: The console-only register parses and names real probes
         if: always()
