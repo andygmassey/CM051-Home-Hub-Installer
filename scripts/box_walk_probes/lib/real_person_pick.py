@@ -62,6 +62,24 @@ def is_synthetic(name, seed_names):
     return False
 
 
+_COUNT_KEYS = ("fact_count", "facts_count", "n_facts", "facts", "interaction_count",
+               "message_count", "mention_count")
+
+
+def richness(row):
+    """How much the graph knows about this person: the largest numeric count the
+    people API row carries (a list counts by length). 0 when it carries none, so
+    rows without counts keep the API's recency order."""
+    best = 0
+    for k in _COUNT_KEYS:
+        v = row.get(k) if isinstance(row, dict) else None
+        if isinstance(v, (list, tuple)):
+            v = len(v)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > best:
+            best = v
+    return best
+
+
 def pick(people_body, pages_listing, owner_first, seed_names):
     c = dict(people=0, compiled_pages=0, candidates=0, rejected_org=0,
              rejected_synthetic=0, rejected_owner=0, rejected_no_page=0, rejected_shape=0)
@@ -75,6 +93,7 @@ def pick(people_body, pages_listing, owner_first, seed_names):
     owner = (owner_first or "").strip().casefold()
     seeds = {s.strip().casefold() for s in seed_names if s.strip()}
     chosen = None
+    best_score = 0
     for r in rows:
         name = ((r.get("name") if isinstance(r, dict) else "") or "").strip()
         if not name or "@" in name or len(name.split()) < 2 or "\n" in name:
@@ -89,8 +108,11 @@ def pick(people_body, pages_listing, owner_first, seed_names):
         if slug not in pages:
             c["rejected_no_page"] += 1; continue
         c["candidates"] += 1
-        if chosen is None:
-            chosen = (name, pages[slug])
+        # Richest wins so the assistant can resolve them; strictly greater, so a
+        # tie keeps the earlier (more recent) row.
+        r_score = richness(r)
+        if chosen is None or r_score > best_score:
+            chosen, best_score = (name, pages[slug]), r_score
     return chosen, c
 
 
