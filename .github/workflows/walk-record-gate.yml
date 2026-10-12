@@ -72,6 +72,8 @@ on:
       - 'scripts/tests/test_walk_screens_never_land_in_the_repo.sh'
       - 'scripts/box_walk_probes/lib/real_person_choose.sh'
       - 'scripts/box_walk_probes/lib/real_person_pick.py'
+      - 'tests/test_console_only_register_names_real_probes.py'
+      - 'scripts/box_walk_probes/console_only_probes.tsv'
       - 'scripts/early_repeat_fail_pass.sh'
       - 'scripts/lib_walk_store.sh'
       - 'scripts/record_walk.sh'
@@ -730,6 +732,10 @@ jobs:
       - name: Screens evidence never lands in the public repo checkout (DMG #23)
         if: always()
         run: /bin/bash scripts/tests/test_walk_screens_never_land_in_the_repo.sh
+
+      - name: The console-only register parses and names real probes
+        if: always()
+        run: python3 tests/test_console_only_register_names_real_probes.py
 
       - name: The early pass re-checks the last walk's failures read-only, and --only takes a list
         # ttywalk's early repeat-failure pass: informational, read-only, never in
