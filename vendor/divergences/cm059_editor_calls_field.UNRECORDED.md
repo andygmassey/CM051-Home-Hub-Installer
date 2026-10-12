@@ -35,3 +35,13 @@ Forward-port to `andygmassey/CM059-Ostler-Editor`'s own `usage_journal.py`
 and regenerate this tree's real divergence patch once a source checkout is
 available in-session. Not done here under the deadline; tracked, not
 silently dropped.
+
+## Shape sweep: person_label and clean_card_text (2026-10-12)
+
+`compiler/frontpage.py` gains `clean_card_text` and `person_label` (+
+`UNKNOWN_CONTACT`); `display_subject` speaks a snake_case key as words;
+`is_cardable_interest` refuses a bare number/address; `signals.py` routes
+reply-debt, gone-quiet, birthday and commitment names through `person_label`
+(gone-quiet and birthday are suppressed when there is no showable name);
+`render_frontpage.py` footer date is human and three em dashes in fixed copy
+are gone. Test: `tests/test_customer_leak_shapes.py`.

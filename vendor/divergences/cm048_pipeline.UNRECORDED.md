@@ -212,3 +212,15 @@ The roster bullets are now de-duplicated display names: owner as "You", a
 number or address resolved through `metadata.participants` display, else
 "an unknown contact". Not in the patch (source has advanced past the pin).
 Test: `tests/test_cm048_participants_line_display_names_only.py`.
+
+## Body scaffolding scrub (shape sweep 2026-10-12)
+
+`enrichment_validation.scrub_scaffolding` runs inside
+`sanitise_participants_section` (so processor.py is untouched). It strips
+Ostler's own copied role tags (exact "(user)", "(other)", "(other_name)",
+"(user_name)", "(other:<slug>)") from the whole enrichment body, and replaces a
+participant's raw number/address, only when it equals a metadata participant
+identifier, with that participant's resolved display name or "an unknown
+contact". Other numbers/addresses and other parentheticals are left alone.
+Not in the patch (source has advanced past the pin).
+Test: `tests/test_customer_leak_shapes.py`.

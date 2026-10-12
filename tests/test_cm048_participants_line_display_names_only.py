@@ -59,9 +59,11 @@ def test_resolved_name_replaces_handle_and_email_is_unknown():
         "Bob", "an unknown contact"]
 
 
-def test_no_participants_section_is_untouched():
-    t = "## Summary\n\nText (user) here\n"
-    assert ev.sanitise_participants_section(t, PARTS, OWNER) == t
+def test_no_participants_section_keeps_its_content():
+    # Superseded by the 2026-10-12 shape sweep: Ostler's own copied role tag is
+    # stripped from the body, every other word is left alone.
+    t = "## Summary\n\nText (user) here (see note)\n"
+    assert ev.sanitise_participants_section(t, PARTS, OWNER) == "## Summary\n\nText here (see note)\n"
 
 
 def test_both_enrich_paths_call_it():

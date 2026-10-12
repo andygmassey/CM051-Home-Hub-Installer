@@ -469,10 +469,39 @@ def _is_handle(name: str) -> bool:
     )
 
 
+_ROLE_TAG_ANYWHERE = re.compile(
+    r"[ \t]*\((?:user|other|other_name|user_name|other:[\w-]+)\)", re.I
+)
+
+
+def scrub_scaffolding(text: str, participants: list[dict] | None) -> str:
+    """Body-wide: role tags the model copied from the prompt shape, and the
+    raw number/address of a participant with no resolved name. Deterministic;
+    only exact copied tags and exact known handle strings are touched."""
+    text = _ROLE_TAG_ANYWHERE.sub("", text)
+    for p in participants or []:
+        display = str(p.get("display") or "").strip()
+        label = display if display and not _is_handle(display) else _UNKNOWN_CONTACT
+        for key in ("display", "id"):
+            raw = str(p.get(key) or "").strip()
+            if raw and _is_handle(raw) and len(raw) >= 6:
+                text = text.replace(raw, label)
+    return text
+
+
 def sanitise_participants_section(
     text: str, participants: list[dict] | None, user_name: str = ""
 ) -> str:
-    """Rewrite the `### Participants` bullets as de-duplicated display names."""
+    """Rewrite the `### Participants` bullets as de-duplicated display names,
+    then scrub copied role tags and raw handles from the rest of the body."""
+    return scrub_scaffolding(
+        _sanitise_participants_roster(text, participants, user_name), participants
+    )
+
+
+def _sanitise_participants_roster(
+    text: str, participants: list[dict] | None, user_name: str = ""
+) -> str:
     participants = participants or []
     owner_names = {user_name.strip().lower()} - {""}
     resolved: dict[str, str] = {}
