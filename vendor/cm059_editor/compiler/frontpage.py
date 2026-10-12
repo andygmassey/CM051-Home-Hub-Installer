@@ -357,6 +357,23 @@ def pro_locked_card(now: datetime) -> dict:
     )
 
 
+# Interest categories whose subject is an account handle stored WITHOUT its "@"
+# (the Instagram parser keeps the bare username, often snake_case:
+# category "instagram_creator"). Shown raw it reads as an internal key
+# ("Private / some_account"); a customer reads "@some_account".
+_HANDLE_CATEGORIES = frozenset({"instagram_creator"})
+
+
+def display_subject(it: dict) -> str:
+    """The label a customer sees for an interest: a handle-kind interest is
+    shown as ``@handle``; every other subject is unchanged."""
+    subject = it.get("subject") or ""
+    if ((it.get("category") or "").lower() in _HANDLE_CATEGORIES
+            and subject and not subject.startswith("@") and " " not in subject):
+        return "@" + subject
+    return subject
+
+
 def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     """Phase C card: one inferred interest, with its evidence and the rate/
     correct affordances. Priority is the interest's own score mapped into the
@@ -371,7 +388,7 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     evidence = ev_list[0] if ev_list else None
     card = _make_card(
         "interest", it["id"],
-        title=it["subject"],
+        title=display_subject(it),
         body=("Something to avoid" if it.get("polarity") == "dislike"
               else "One of the things Ostler reckons you're into."),
         now=now, domain=it.get("domain"),
@@ -484,7 +501,7 @@ def exploration_card(it: dict, now: datetime, ledger=None) -> dict:
     created = fe or now
     card = _make_card(
         "interest", key,
-        title=it["subject"],
+        title=display_subject(it),
         body=("A hunch, based on what Ostler already knows you're into - "
               "say if it lands."),
         now=now, domain=it.get("domain"),
