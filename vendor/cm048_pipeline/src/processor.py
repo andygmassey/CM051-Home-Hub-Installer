@@ -788,6 +788,11 @@ def _step_enrich_inner(
             expected_headings=expected_headings,
             settings=settings,
         )
+        rendered = enrichment_validation.sanitise_participants_section(
+            rendered,
+            normalise_participants(metadata.get("participants")),
+            getattr(settings, "user_display_name", "") or "",
+        )
         # v1018-D014c: last stop before the customer's wiki page. A
         # placeholder the model copied out of the prompt template must not
         # reach disk. Stripped, not retried -- see the helper's docstring.
@@ -799,11 +804,6 @@ def _step_enrich_inner(
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
             )
-        rendered = enrichment_validation.sanitise_participants_section(
-            rendered,
-            normalise_participants(metadata.get("participants")),
-            getattr(settings, "user_display_name", "") or "",
-        )
         rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
         if _sidecars:
             logger.warning(
@@ -906,6 +906,11 @@ def _step_enrich_inner(
             expected_headings=expected_headings,
             settings=settings,
         )
+        rendered = enrichment_validation.sanitise_participants_section(
+            rendered,
+            normalise_participants(metadata.get("participants")),
+            getattr(settings, "user_display_name", "") or "",
+        )
         # v1018-D014c: last stop before the customer's wiki page. A
         # placeholder the model copied out of the prompt template must not
         # reach disk. Stripped, not retried -- see the helper's docstring.
@@ -917,11 +922,6 @@ def _step_enrich_inner(
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
             )
-        rendered = enrichment_validation.sanitise_participants_section(
-            rendered,
-            normalise_participants(metadata.get("participants")),
-            getattr(settings, "user_display_name", "") or "",
-        )
         rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
         if _sidecars:
             logger.warning(
