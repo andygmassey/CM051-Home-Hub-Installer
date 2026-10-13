@@ -60,9 +60,11 @@
 #                                        defect against ostler-assistant #404,
 #                                        NOT a spec question.
 #   failures BEYOND the opening turn  -> the capability ceiling nobody has yet
-#                                        observed. That is a SPEC DECISION for
-#                                        Andy, not a daemon fix, and this probe
-#                                        says so rather than guessing.
+#                                        observed. 16 GB Macs are supported
+#                                        (Andy's decision), so this never
+#                                        suggests a machine floor: it is a
+#                                        grounding defect to bisect, not a
+#                                        daemon fix by assumption.
 #
 # ── WHAT IS RECORDED PER OPENING, all of which the frame stream already
 #    carries and the walk record has until now dropped ────────────────────────
@@ -842,7 +844,7 @@ run_probe() {
         FAIL-COLD-START)
             probe_fail "${_no_tool}/${_done} openings called NO tool on ${MODEL_TAG} at ${RAM_GB:-unread}GB. Every failure is at the opening and none is beyond it, which is the cold-start shape: the handover did not take. This is a DEFECT AGAINST ostler-assistant #404, not a question about the model's capability." ;;
         *)
-            probe_fail "${_done} openings on ${MODEL_TAG} at ${RAM_GB:-unread}GB: grounded=${_grounded} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact}. Failures occur BEYOND the no-tool-call shape, which is the capability ceiling nobody has observed before. That is a SPEC DECISION about the minimum supported machine, for Andy, and NOT a daemon fix." ;;
+            probe_fail "${_done} openings on ${MODEL_TAG} at ${RAM_GB:-unread}GB: grounded=${_grounded} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact}. Failures occur BEYOND the no-tool-call shape, which is the capability ceiling nobody has observed before. 16 GB Macs are supported (Andy's decision): this is NOT a case for a machine floor. It is a grounding defect to bisect (model, prompt, tool wiring), and NOT a daemon fix by assumption." ;;
     esac
 }
 

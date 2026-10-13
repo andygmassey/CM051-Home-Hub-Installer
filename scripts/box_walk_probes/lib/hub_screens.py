@@ -178,6 +178,11 @@ def judge(f):
                 "expected_sha8={} linked_sha8s={} heading_names_person=False (names withheld); {}".format(
                     lm.get("expected_slug_sha8"), ",".join(lm.get("linked_slug_sha8s") or []),
                     fmt_miss_inputs(rp["miss_inputs"]) if rp.get("miss_inputs") else ""))
+        elif (rp.get("wait") or {}).get("state") == "timeout" and not rp.get("anchor"):
+            wt = rp["wait"]
+            add("chat: a real person's compiled page renders with their name", None,
+                "CANNOT-RUN (harness): no reply within the budget; " + fmt_wait(wt["budget"], wt)
+                + (" " + fmt_miss_inputs(rp["miss_inputs"]) if rp.get("miss_inputs") else ""))
         elif rp.get("error") or not rp.get("page"):
             add("chat: a real person's compiled page renders with their name", None,
                 "NOT MEASURED: anchor={} error={} {}".format(
@@ -364,7 +369,49 @@ def classify_link_miss(expected_slug, hrefs, heading_names_person):
     return out
 
 
-WAIT_S = 240
+WAIT_S = 240          # the FLOOR of the chat wait; the budget scales up from measured turns
+WAIT_CAP_S = 600      # hard cap: a reply that never arrives cannot hang the walk
+WAIT_K = 3.0
+
+
+def chat_wait_budget(turn_secs, k=WAIT_K, floor=WAIT_S, cap=WAIT_CAP_S):
+    """Budget for one chat turn, sized from this walk's own earlier turns:
+    clamp(max(floor, k * p90), cap). p90 is nearest-rank. With no earlier turn
+    it is the floor. Returns the budget AND its inputs, so the walk can print both."""
+    xs = sorted(float(x) for x in turn_secs if x is not None and float(x) > 0)
+    p90 = xs[min(len(xs) - 1, max(0, int(-(-0.9 * len(xs) // 1)) - 1))] if xs else None
+    raw = max(floor, k * p90) if p90 is not None else floor
+    return {"budget_s": round(min(raw, cap), 1), "p90_s": None if p90 is None else round(p90, 1),
+            "turns": len(xs), "k": k, "floor_s": floor, "cap_s": cap, "capped": raw > cap}
+
+
+def frame_is_done(payload):
+    """True for the chat socket's done frame ({"type": "done"}), the same frame
+    lib/assistant_chat.py ws_chat ends a turn on."""
+    try:
+        if isinstance(payload, (bytes, bytearray)):
+            payload = payload.decode("utf-8", "replace")
+        return json.loads(payload).get("type") == "done"
+    except Exception:
+        return False
+
+
+def wait_for_reply(is_done, budget_s, clock=time.time, sleep=time.sleep, poll_s=3):
+    """Poll until is_done() or the budget runs out. Returns state done|timeout
+    and the actual elapsed seconds (never a bare timeout)."""
+    t0 = clock()
+    while True:
+        if is_done():
+            return {"state": "done", "elapsed_s": round(clock() - t0, 1)}
+        if clock() - t0 >= budget_s:
+            return {"state": "timeout", "elapsed_s": round(clock() - t0, 1)}
+        sleep(poll_s)
+
+
+def fmt_wait(b, w):
+    return ("wait budget={}s (p90 of {} earlier turn(s)={}s x k={}, floor {}s, cap {}s, capped={}) "
+            "state={} elapsed={}s").format(b["budget_s"], b["turns"], b["p90_s"], b["k"], b["floor_s"],
+                                           b["cap_s"], b["capped"], w["state"], w["elapsed_s"])
 
 
 def miss_inputs(expected_slug, hrefs, new_links, reply_len, elapsed_s, wait_s=WAIT_S):
@@ -397,7 +444,7 @@ def person_link_selector(name):
     return 'main a[href*="/People/{0}/"], main a[href*="/people/{0}/"]'.format(slug) if slug else None
 
 
-def _wait_chat_idle(page, max_s=240, stable_s=10):
+def _wait_chat_idle(page, max_s=WAIT_CAP_S, stable_s=10):
     """Until the chat transcript stops growing: a reply still streaming, or a
     queued ask, must not be read as the answer to the next one."""
     t0, last, since = time.time(), -1, time.time()
@@ -517,6 +564,12 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
         ctx.add_init_script(
             "try { localStorage.setItem('zeroclaw_token', %s); } catch (e) {}" % json.dumps(token))
         page = ctx.new_page()
+        done_count = [0]   # chat socket done frames seen so far
+
+        def _on_ws(ws):
+            ws.on("framereceived", lambda payload: done_count.__setitem__(0, done_count[0] + (1 if frame_is_done(payload) else 0)))
+        page.on("websocket", _on_ws)
+        turn_secs = []     # elapsed of this walk's completed chat turns
         if os.environ.get("HUB_SCREENS_RED_CONTROL") == "strip-wiki-session":
             # RED CONTROL: reproduce v1.0.105. There the wiki's stylesheets and
             # scripts were fetched from /wiki/... with no credential. Rewrite every
@@ -687,20 +740,23 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     box = page.wait_for_selector("textarea", timeout=30000)
                     box.fill("Who is {}? Include a link to their wiki page.".format(who))
                     box.press("Enter")
-                    got, replied, t0 = False, False, time.time()
-                    while time.time() - t0 < 240:
-                        if page.locator(sel).count() > before:
-                            got = replied = True
-                            break
-                        if len(page.inner_text("main")) > before_text + len(who) + 80:
-                            replied = True
-                        time.sleep(3)
+                    got, replied = False, False
+                    done0 = done_count[0]
+                    bud = chat_wait_budget(turn_secs)
+                    w = wait_for_reply(lambda: page.locator(sel).count() > before or done_count[0] > done0,
+                                       bud["budget_s"])
+                    if w["state"] == "done":
+                        turn_secs.append(w["elapsed_s"])
+                    replied = (w["state"] == "done"
+                               or len(page.inner_text("main")) > before_text + len(who) + 80)
+                    got = page.locator(sel).count() > before
                     if replied and not got:
                         time.sleep(5)
                         got = page.locator(sel).count() > before
+                    print("  seed ask: " + fmt_wait(bud, w))
                     asks.append({"replied": replied, "anchor": got,
                                  "status": ("got" if got else "replied-no-link" if replied else "timed-out"),
-                                 "elapsed_s": round(time.time() - t0, 1)})
+                                 "elapsed_s": w["elapsed_s"], "wait": fmt_wait(bud, w)})
                 pl["asks"] = asks
                 _wait_chat_idle(page)
                 pl["link_is_this_person"] = page.locator(own).count() > 0
@@ -736,11 +792,16 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     box = page.wait_for_selector("textarea", timeout=30000)
                     box.fill("Who is {}? Include a link to their wiki page.".format(real))
                     box.press("Enter")
-                    t0 = time.time()
                     rtext0 = len(page.inner_text("main"))
-                    while time.time() - t0 < WAIT_S and page.locator(mine).count() <= before:
-                        time.sleep(3)
-                    elapsed = time.time() - t0
+                    done1 = done_count[0]
+                    bud = chat_wait_budget(turn_secs)
+                    w = wait_for_reply(lambda: page.locator(mine).count() > before or done_count[0] > done1,
+                                       bud["budget_s"])
+                    if w["state"] == "done" and page.locator(mine).count() <= before:
+                        time.sleep(5)   # the link can land just after the done frame
+                    elapsed = w["elapsed_s"]
+                    rp["wait"] = {"state": w["state"], "elapsed_s": elapsed, "budget": bud}
+                    print("  real-person ask: " + fmt_wait(bud, w))
                     # Only a link to THIS person's page counts, never the
                     # newest link in the chat.
                     rp["anchor"] = page.locator(mine).count() > before
@@ -755,7 +816,8 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                             or re.sub(r"[^a-z0-9]+", "-", real.casefold()).strip("-"))
                     # Recorded BEFORE any click, so an error later cannot lose it.
                     rp["miss_inputs"] = miss_inputs(want, hrefs, new_links,
-                                                    max(0, len(page.inner_text("main")) - rtext0), elapsed)
+                                                    max(0, len(page.inner_text("main")) - rtext0), elapsed,
+                                                    wait_s=bud["budget_s"])
                     print("  real-person ask: anchor={} {}".format(rp["anchor"], fmt_miss_inputs(rp["miss_inputs"])))
                     rp["link_is_this_person"] = rp["anchor"]
                     if not rp["anchor"] and rp["any_person_link"]:
