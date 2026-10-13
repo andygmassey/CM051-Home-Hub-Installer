@@ -152,6 +152,13 @@ def test_repair_leaves_two_human_names_and_healthy_survivors_alone():
         assert _names(st, KEEP) == [keep]
 
 
+def test_a_nameless_survivor_is_left_to_the_existing_copy_step():
+    from identity_resolver.canonical_name import upward_name
+    assert upward_name([], ["Jane Doe"]) is None            # not this rule's job
+    assert _via_resolver([], ["Jane Doe"])[0] == ["Jane Doe"]   # the existing copy step still names it
+    assert _via_resolver([], ["Jane Doe"])[1] == []             # and no upward rename was claimed
+
+
 # -- the walk assertion: the probe's own SPARQL, extracted and run on a real engine --
 
 def _probe_queries():
