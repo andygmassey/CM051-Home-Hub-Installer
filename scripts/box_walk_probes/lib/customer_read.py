@@ -868,15 +868,21 @@ def judge(f, declared=None):
     else:
         unread = sorted(set(links) - set(crawl))
         why = (f.get("wiki") or {}).get("crawl_failures") or {}
-        prod = [u for u in unread if str(why.get(u, "")).startswith("HTTP ") or
-                (u in why and why[u] not in HARNESS_REASONS)]
+        # Only an HTTP 4xx/5xx answer is a product finding. A Playwright exception
+        # (TargetClosedError, timeout, ...) says the harness could not look.
+        prod = [u for u in unread if str(why.get(u, "")).startswith("HTTP ")]
         shown = ", ".join("{}: {}".format(u, why.get(u, "no reason recorded")) for u in unread[:8])
         detail = "{} of {} nav-linked pages read{}".format(len(set(links) & set(crawl)), len(set(links)),
                                                          "; unread: " + shown if unread else "")
+        ro = (f.get("wiki") or {}).get("reopens") or 0
+        rr = (f.get("wiki") or {}).get("reopen_reasons") or {}
+        detail += "; reopened {}".format(ro) + (
+            " (" + ", ".join("{}: {}, {}".format(k, r, "recovered" if k in crawl else "not recovered")
+                             for k, r in sorted(rr.items())) + ")" if rr else "")
         if prod:
             detail += "; PRODUCT finding (page answered badly): " + ", ".join(prod[:8])
         # a harness-only shortfall (timeout, budget) is CANNOT-RUN, never a pass and never a product FAIL
-        harness_only = bool(unread) and not prod and all(why.get(u) in HARNESS_REASONS for u in unread)
+        harness_only = bool(unread) and not prod and all(u in why for u in unread)
         add(DECLARED[29], None if harness_only else (bool(links) and not unread), detail)
         mono = {k: v.get("mono_dates") or 0 for k, v in crawl.items()}
         for k, v in wiki.items():
@@ -1001,6 +1007,45 @@ def _read_failure(exc=None, status=None):
         return "HTTP {}".format(status) if status is not None and status >= 400 else None
     name = type(exc).__name__
     return "timeout" if "Timeout" in name else name
+
+
+def crawl_nav(rels, read_page, reopen, budget_s, log=None, reopens=None):
+    """Read every nav page. read_page(rel) -> (http_status, data) or raises.
+    A closed browser target (WebKit dying under load, #27) is reopened and the
+    page retried once, so the LAST pages are still crawled. Returns (read, why_not)."""
+    log = log or (lambda m: sys.stderr.write(m + "\n"))
+    t0 = time.time()
+    read, why = {}, {}
+    for rel in rels:
+        key = rel or "(front)"
+        if time.time() - t0 > budget_s:
+            why[key] = "budget exhausted"
+            continue
+        for attempt in (1, 2):
+            try:
+                status, data = read_page(rel)
+                bad = _read_failure(status=status)
+                if bad:
+                    why[key] = bad
+                else:
+                    read[key] = data
+                break
+            except Exception as exc:
+                reason = _read_failure(exc=exc)
+                log("crawl {}: {} after {:.0f}s of {:.0f}s budget (attempt {})".format(
+                    key, reason, time.time() - t0, budget_s, attempt))
+                if attempt == 1 and "Closed" in type(exc).__name__:
+                    if reopens is not None:
+                        reopens.append([key, reason])
+                    try:
+                        reopen()
+                    except Exception as exc2:
+                        why[key] = _read_failure(exc=exc2)
+                        break
+                    continue
+                why[key] = reason
+                break
+    return read, why
 
 
 def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
@@ -1263,27 +1308,29 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     if rel is not None and rel not in rels:
                         rels.append(rel)
                 f["wiki"]["nav_links"] = rels
-                crawl = {}
-                fails = {}
-                deadline = time.time() + _crawl_budget_s(len(rels))
-                for rel in rels:
-                    if time.time() > deadline:
-                        fails[rel or "(front)"] = "budget exhausted"
-                        continue
-                    try:
-                        resp = fr.goto(wbase + rel, wait_until="load", timeout=45000)
-                        bad = _read_failure(status=resp.status if resp else None)
-                        if bad:
-                            fails[rel or "(front)"] = bad
-                            continue
-                        fr.page.wait_for_timeout(1200)
-                        crawl[rel or "(front)"] = {
-                            "text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
-                            "mono_dates": fr.evaluate(MONO_DATES_JS),
-                            "customer_titles": fr.evaluate(CUSTOMER_TITLES_JS) or []}
-                    except Exception as exc:
-                        fails[rel or "(front)"] = _read_failure(exc=exc)
-                        f["wiki"].setdefault("errors", []).append("crawl {}: {}".format(rel, str(exc)[:120]))
+                cur = {"fr": fr}
+
+                def _read(rel):
+                    g = cur["fr"]
+                    resp = g.goto(wbase + rel, wait_until="load", timeout=45000)
+                    st = resp.status if resp else None
+                    if st is not None and st >= 400:
+                        return st, None
+                    g.page.wait_for_timeout(1200)
+                    return st, {
+                        "text": g.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
+                        "mono_dates": g.evaluate(MONO_DATES_JS),
+                        "customer_titles": g.evaluate(CUSTOMER_TITLES_JS) or []}
+
+                def _reopen():
+                    # the old page/frame is gone; the context (and its session) is not
+                    np = ctx.new_page()
+                    np.set_viewport_size({"width": 1440 - 240, "height": 944})
+                    cur["fr"] = np.main_frame
+                reopens = []
+                crawl, fails = crawl_nav(rels, _read, _reopen, _crawl_budget_s(len(rels)), reopens=reopens)
+                f["wiki"]["reopens"] = len(reopens)
+                f["wiki"]["reopen_reasons"] = {k: r for k, r in reopens}
                 f["wiki"]["nav_links"] = [r or "(front)" for r in rels]
                 f["wiki"]["crawl"] = crawl
                 f["wiki"]["crawl_failures"] = fails
@@ -1933,10 +1980,55 @@ def self_test():
         missed.append("an HTTP 500 nav page is not a product FAIL naming the page: {} {}".format(h_ok, h_d))
     else:
         print("  ok    a nav page answering 500 prints 'HTTP 500' and FAILs as product")
+    z = _crawl_row({})[1]
+    g1 = copy.deepcopy(_good())
+    g1["wiki"]["reopens"] = 1
+    g1["wiki"]["reopen_reasons"] = {"System/Declining/": "TargetClosedError"}
+    o1 = [d for n, ok, d in judge(g1) if n == DECLARED[29]][0]
+    if "reopened 0" not in z or "reopened 1 (System/Declining/: TargetClosedError, recovered)" not in o1:
+        missed.append("the nav detail line does not carry the reopen count: {!r} {!r}".format(z, o1))
+    else:
+        print("  ok    the nav-coverage detail prints 'reopened 0' and 'reopened 1 (page: reason, recovered)'")
     if _crawl_budget_s(36) <= _crawl_budget_s(3) or _crawl_budget_s(10000) > 1800:
         missed.append("crawl budget does not scale with page count under a cap")
     else:
         print("  ok    crawl budget scales with nav pages, capped")
+    # #27: a closed browser target mid-crawl is a harness event, never a product finding,
+    # and the remaining nav pages must still be crawled (reopen + retry once).
+    class TargetClosedError(Exception):
+        pass
+    rels3 = ["A/", "Years/", "search/", "stats/"]
+    def _page(rel):
+        return 200, {"text": rel}
+    state = {"closed": False, "reopens": 0}
+    def _reader(rel):
+        if rel == "Years/" and not state["closed"]:
+            state["closed"] = True
+            raise TargetClosedError("Page.goto: Target page, context or browser has been closed")
+        return _page(rel)
+    def _reopen():
+        state["reopens"] += 1
+    c_ok, c_fail = crawl_nav(rels3, _reader, _reopen, 60, log=lambda *_: None)
+    if sorted(c_ok) != sorted(rels3) or c_fail or state["reopens"] != 1:
+        missed.append("a mid-crawl TargetClosedError is not recovered: read {} failed {} reopens {}".format(sorted(c_ok), c_fail, state["reopens"]))
+    else:
+        print("  ok    a context closed mid-crawl is reopened once and every nav page is still read")
+    def _dead(rel):
+        raise TargetClosedError("closed")
+    d_ok, d_fail = crawl_nav(["Years/"], _dead, lambda: None, 60, log=lambda *_: None)
+    g = copy.deepcopy(_good())
+    g["wiki"]["nav_links"] = g["wiki"]["nav_links"] + ["Years/"]
+    g["wiki"]["crawl_failures"] = d_fail
+    r = [(ok, d) for n, ok, d in judge(g) if n == DECLARED[29]][0]
+    if d_fail != {"Years/": "TargetClosedError"} or r[0] is not None or "PRODUCT" in r[1]:
+        missed.append("a persistent TargetClosedError is not CANNOT-RUN with its reason: {} {}".format(d_fail, r))
+    else:
+        print("  ok    a persistent TargetClosedError is CANNOT-RUN with the reason, not PRODUCT")
+    b_ok, b_fail = crawl_nav(["A/", "B/"], _page, lambda: None, -1, log=lambda *_: None)
+    if b_fail != {"A/": "budget exhausted", "B/": "budget exhausted"} or b_ok:
+        missed.append("an exhausted budget is not reported per page: {}".format(b_fail))
+    else:
+        print("  ok    an exhausted budget names every skipped page")
     if missed:
         print("SELF-TEST FAIL: not caught: " + "; ".join(missed))
         return EX_FAIL
