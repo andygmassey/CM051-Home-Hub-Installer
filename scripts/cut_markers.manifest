@@ -207,5 +207,7 @@ assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|fn person_found_in
 assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|"\{\}: \{\}, \{\}\."|oa #516 the found-person line is the neutral "Name: title, organisation." (hub-v0.5.14). 0 at hub-v0.5.13 and at 694d9cc6.
 assistant_tag_grep|web/src/pages/People.tsx|PEOPLE_FIRST_WINDOW|oa #514 the People page mounts a bounded window, not all rows (Ostler DMG #21; hub-v0.5.14). 0 at hub-v0.5.13.
 assistant_tag_grep|web/src/lib/customerText.ts|export function sanitiseCustomerText|oa #517 the Hub web scrubs customer-visible leaks at the render edge (role tags, placeholders, internal tags) (hub-v0.5.15, 644b6137). 0 at hub-v0.5.14 (7d5a3fe8).
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|fn without_unfound_person_links|oa #518 the reply never links a near match as the person asked about (walk #27; hub-v0.5.16, 5aed1b05). 0 at hub-v0.5.15 (644b6137).
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn journals_own_calls|oa #519 every daemon call to Ollama is journaled once, from the provider (walk #27 Bursar; hub-v0.5.16, 5aed1b05). 0 at hub-v0.5.15 (644b6137).
 # --- v1.0.107 wiki v0.1.52 (CM044 d6ba3a01, #321). The line below reads 0 in the v0.1.51 compiler image (e57dff40) and 1 in v0.1.52 (e6bc1460).
 wiki_image_grep|wiki-compiler:/app/compiler/customer_edge.py|^def display_name\(|CM044 #321 customer text goes through display_name and sanitise_customer_text at the render edge ("Participants: user" renders as "You"). 0 -> 1.
