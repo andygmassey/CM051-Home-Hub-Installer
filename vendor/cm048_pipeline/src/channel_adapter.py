@@ -259,7 +259,24 @@ def _imessage_adapter(
         transcript=transcript or "",
         todos=_build_todos(conversation_id, extraction),
         extra_metadata=extra,
+        participant_handles=_counterpart_handles(metadata),
     )
+
+
+def _counterpart_handles(metadata: dict) -> tuple[str, ...]:
+    """The non-owner participants' raw handles, from the threader's
+    participant dicts (``handle`` / ``jid``; role ``user`` is the owner and
+    is skipped). Empty when the source supplied none."""
+    out: list[str] = []
+    for entry in metadata.get("participants") or []:
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("role") or "").strip().lower() == "user":
+            continue
+        handle = (entry.get("handle") or entry.get("jid") or "").strip()
+        if handle:
+            out.append(handle)
+    return tuple(out)
 
 
 # ---------------------------------------------------------------------------

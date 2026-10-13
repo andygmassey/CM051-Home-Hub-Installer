@@ -126,8 +126,9 @@ def judge(f):
         asks = pl.get("asks") or []
         if not asks or not all(a.get("replied") for a in asks):
             add("chat: every one of 3 replies carries an in-app person link", None,
-                "NOT MEASURED: {} of {} asks got a reply".format(
-                    sum(1 for a in asks if a.get("replied")), len(asks) or 3))
+                "NOT MEASURED: {} of {} asks got a reply; per ask: {}".format(
+                    sum(1 for a in asks if a.get("replied")), len(asks) or 3,
+                    "; ".join("{} {}s".format(a.get("status", "?"), a.get("elapsed_s", "?")) for a in asks) or "none recorded"))
         else:
             add("chat: every one of 3 replies carries an in-app person link",
                 all(a.get("anchor") for a in asks),
@@ -174,11 +175,14 @@ def judge(f):
             lm = rp["link_miss"]
             add("chat: a real person's compiled page renders with their name", False,
                 "FAIL (PRODUCT) assistant_linked_wrong_person: the reply linked someone else; "
-                "expected_sha8={} linked_sha8s={} heading_names_person=False (names withheld)".format(
-                    lm.get("expected_slug_sha8"), ",".join(lm.get("linked_slug_sha8s") or [])))
+                "expected_sha8={} linked_sha8s={} heading_names_person=False (names withheld); {}".format(
+                    lm.get("expected_slug_sha8"), ",".join(lm.get("linked_slug_sha8s") or []),
+                    fmt_miss_inputs(rp["miss_inputs"]) if rp.get("miss_inputs") else ""))
         elif rp.get("error") or not rp.get("page"):
             add("chat: a real person's compiled page renders with their name", None,
-                "NOT MEASURED: anchor={} error={}".format(rp.get("anchor"), rp.get("error")))
+                "NOT MEASURED: anchor={} error={} {}".format(
+                    rp.get("anchor"), rp.get("error"),
+                    fmt_miss_inputs(rp["miss_inputs"]) if rp.get("miss_inputs") else "miss_inputs=not recorded"))
         else:
             rpg = rp["page"]
             add("chat: a real person's compiled page renders with their name",
@@ -358,6 +362,28 @@ def classify_link_miss(expected_slug, hrefs, heading_names_person):
            "linked_heading_names_person": bool(heading_names_person)}
     out["classification"] = "slug_format_mismatch" if heading_names_person else "assistant_linked_wrong_person"
     return out
+
+
+WAIT_S = 240
+
+
+def miss_inputs(expected_slug, hrefs, new_links, reply_len, elapsed_s, wait_s=WAIT_S):
+    """Everything needed to tell a load timeout from a product non-answer from a
+    slug mismatch, with no names: hashes, counts, lengths, seconds."""
+    slugs = sorted({(h or "").rstrip("/").rsplit("/", 1)[-1].casefold() for h in hrefs} - {""})
+    return {"any_person_link": new_links > 0, "new_person_links": int(new_links),
+            "expected_slug_sha8": _sha8(expected_slug),
+            "linked_slug_sha8s": [_sha8(x) for x in slugs],
+            "reply_len": int(reply_len), "elapsed_s": round(float(elapsed_s), 1),
+            "wait_s": wait_s, "timed_out": float(elapsed_s) >= wait_s - 3}
+
+
+def fmt_miss_inputs(m):
+    return ("any_person_link={} new_person_links={} expected_sha8={} linked_sha8s={} "
+            "reply_len={} elapsed={}s of {}s timed_out={} (names withheld)").format(
+        m.get("any_person_link"), m.get("new_person_links"), m.get("expected_slug_sha8"),
+        ",".join(m.get("linked_slug_sha8s") or []) or "-", m.get("reply_len"),
+        m.get("elapsed_s"), m.get("wait_s"), m.get("timed_out"))
 
 
 def person_link_selector(name):
@@ -672,7 +698,9 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     if replied and not got:
                         time.sleep(5)
                         got = page.locator(sel).count() > before
-                    asks.append({"replied": replied, "anchor": got})
+                    asks.append({"replied": replied, "anchor": got,
+                                 "status": ("got" if got else "replied-no-link" if replied else "timed-out"),
+                                 "elapsed_s": round(time.time() - t0, 1)})
                 pl["asks"] = asks
                 _wait_chat_idle(page)
                 pl["link_is_this_person"] = page.locator(own).count() > 0
@@ -709,27 +737,33 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     box.fill("Who is {}? Include a link to their wiki page.".format(real))
                     box.press("Enter")
                     t0 = time.time()
-                    while time.time() - t0 < 240 and page.locator(mine).count() <= before:
+                    rtext0 = len(page.inner_text("main"))
+                    while time.time() - t0 < WAIT_S and page.locator(mine).count() <= before:
                         time.sleep(3)
+                    elapsed = time.time() - t0
                     # Only a link to THIS person's page counts, never the
                     # newest link in the chat.
                     rp["anchor"] = page.locator(mine).count() > before
                     # Product miss vs harness miss: did the reply link ANYONE?
                     # Hashed, no names.
-                    rp["any_person_link"] = page.locator(ANY_PERSON_LINK).count() > any_before
-                    rp["person_links_fp"] = link_fingerprint(
-                        page.eval_on_selector_all(ANY_PERSON_LINK, "els => els.map(e => e.getAttribute('href') || '')"))
+                    new_links = max(0, page.locator(ANY_PERSON_LINK).count() - any_before)
+                    rp["any_person_link"] = new_links > 0
+                    hrefs = page.eval_on_selector_all(
+                        ANY_PERSON_LINK, "els => els.map(e => e.getAttribute('href') || '')")
+                    rp["person_links_fp"] = link_fingerprint(hrefs)
+                    want = (os.environ.get("HUB_SCREENS_REAL_PERSON_SLUG")
+                            or re.sub(r"[^a-z0-9]+", "-", real.casefold()).strip("-"))
+                    # Recorded BEFORE any click, so an error later cannot lose it.
+                    rp["miss_inputs"] = miss_inputs(want, hrefs, new_links,
+                                                    max(0, len(page.inner_text("main")) - rtext0), elapsed)
+                    print("  real-person ask: anchor={} {}".format(rp["anchor"], fmt_miss_inputs(rp["miss_inputs"])))
                     rp["link_is_this_person"] = rp["anchor"]
                     if not rp["anchor"] and rp["any_person_link"]:
                         # Instrument, don't guess: open what WAS linked and read
                         # its own heading against the asked person.
-                        hrefs = page.eval_on_selector_all(
-                            ANY_PERSON_LINK, "els => els.map(e => e.getAttribute('href') || '')")
                         page.locator(ANY_PERSON_LINK).last.click()
                         time.sleep(4)
                         pf = _person_page_facts(page, real, public_name=False)
-                        want = (os.environ.get("HUB_SCREENS_REAL_PERSON_SLUG")
-                                or re.sub(r"[^a-z0-9]+", "-", real.casefold()).strip("-"))
                         rp["link_miss"] = classify_link_miss(want, hrefs, pf.get("heading_names_person"))
                     if rp["anchor"]:
                         page.locator(mine).last.click()

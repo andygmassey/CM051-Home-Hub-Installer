@@ -177,6 +177,7 @@ test_cm048_reminder_title_has_no_iso_date.py	WIRED	.github/workflows/cm048-parti
 test_cm048_reminders_sidecar_never_reaches_the_body.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_thread_key_matches_the_daemon.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-not-phone.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -546,6 +547,7 @@ test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows
 test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_real_person_link_miss_classified.py	WIRED	.github/workflows/walk-record-gate.yml
+test_real_person_miss_inputs_are_printed.py	WIRED	.github/workflows/walk-record-gate.yml
 test_real_person_pick_richest.py	WIRED	.github/workflows/walk-record-gate.yml
 test_real_person_slug_from_api.py	WIRED	.github/workflows/walk-record-gate.yml
 test_reclassify_subject_names_is_wired.sh	WIRED	.github/workflows/reclassify-subject-names-wired.yml

@@ -507,31 +507,62 @@ def _short_text(text: str) -> str:
     return t
 
 
+_ASCII_DIGITS = frozenset("0123456789")
+
+
 def _norm_identity(label: str) -> str:
+    """Byte-for-byte twin of ostler-assistant's ``norm_identity``
+    (crates/ostler-reminders/src/followup.rs). ASCII digits only, as Rust's
+    ``is_ascii_digit``; pinned by tests/test_cm048_thread_key_matches_the_daemon.py."""
     s = (label or "").strip().lower()
     if "@" in s:
         local, _, host = s.partition("@")
-        if host in ("s.whatsapp.net", "lid") and local.isdigit():
+        if host in ("s.whatsapp.net", "lid") and local and all(c in _ASCII_DIGITS for c in local):
             return local
         return s
-    digits = "".join(c for c in s if c.isdigit())
+    digits = "".join(c for c in s if c in _ASCII_DIGITS)
     if digits and all(c in _BARE_ID_CHARS for c in s):
         return digits
     return s
 
 
+# An iMessage 1:1 chat guid: "<service>;-;<handle>" (a group is ";+;chat...").
+_ONE_TO_ONE_GUID_RE = re.compile(r"^[^;]+;-;(.+)$")
+
+
+def _thread_handles(bundle: "ConversationBundle") -> list[str]:
+    """The counterpart HANDLES the assistant daemon hashes from chat.db's
+    chat_handle_join: the bundle's ``participant_handles`` (owner already
+    excluded), else the handle inside a 1:1 chat guid. Empty when neither is
+    known."""
+    handles = [h for h in (getattr(bundle, "participant_handles", ()) or ()) if h and h.strip()]
+    if handles:
+        return handles
+    m = _ONE_TO_ONE_GUID_RE.match((bundle.source_session_id or "").strip())
+    return [m.group(1)] if m and m.group(1).strip() else []
+
+
 def thread_key_for(bundle: "ConversationBundle", user_id: str) -> str:
     """Stable id of the person / thread a reminder is about.
 
-    Derived only from the counterpart identities, so it is identical after
-    the mapping DB is wiped or the box is reinstalled. The EventKit side
-    uses it to find an existing open reminder before creating another.
+    Built from the counterparts' HANDLES whenever they are known, exactly as
+    the assistant daemon builds it from chat.db (``thread_key_for_identities``),
+    so "mark done when the owner follows up" can match the thread. Walk #25
+    found 0 of 6 keys matching because this used participant labels (display
+    names). Labels remain the fallback only when no handle is known (not an
+    iMessage thread). Derived only from identities, so it survives a wiped map
+    or a reinstall. The EventKit side also uses it for one-open-reminder-per-
+    thread dedupe.
     """
     import hashlib
 
-    others = sorted(
-        {_norm_identity(o) for o in _other_participants(bundle.participants, user_id=user_id)}
-    )
+    handles = _thread_handles(bundle)
+    if handles:
+        others = sorted({_norm_identity(h) for h in handles})
+    else:
+        others = sorted(
+            {_norm_identity(o) for o in _other_participants(bundle.participants, user_id=user_id)}
+        )
     basis = "|".join(others) if others else f"solo:{bundle.conversation_id}"
     return hashlib.sha256(("ostler-thread:" + basis).encode()).hexdigest()[:16]
 

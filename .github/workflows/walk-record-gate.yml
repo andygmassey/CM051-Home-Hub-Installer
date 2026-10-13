@@ -71,6 +71,7 @@ on:
       - 'scripts/tests/test_full_walk_chooses_the_real_person.sh'
       - 'tests/test_real_person_pick_richest.py'
       - 'tests/test_real_person_slug_from_api.py'
+      - 'tests/test_real_person_miss_inputs_are_printed.py'
       - 'tests/test_real_person_link_miss_classified.py'
       - 'tests/test_owner_digest_hydration_retries_5xx.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
@@ -739,6 +740,9 @@ jobs:
       - name: The API slug reaches the screens probe; link fingerprint is hash-only (DMG #24)
         if: always()
         run: python3 tests/test_real_person_slug_from_api.py
+      - name: anchor=False prints the classifier inputs; each ask reports status and elapsed (DMG #25)
+        if: always()
+        run: python3 tests/test_real_person_miss_inputs_are_printed.py
       - name: A reply that linked someone else is classified harness vs product from evidence (DMG #25)
         if: always()
         run: python3 tests/test_real_person_link_miss_classified.py
