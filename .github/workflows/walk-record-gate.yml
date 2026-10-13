@@ -71,6 +71,8 @@ on:
       - 'scripts/tests/test_full_walk_chooses_the_real_person.sh'
       - 'tests/test_real_person_pick_richest.py'
       - 'tests/test_real_person_slug_from_api.py'
+      - 'tests/test_merge_survivor_takes_highest_name_tier.py'
+      - 'vendor/cm041/identity_resolver/**'
       - 'tests/test_chat_wait_is_sized_from_measured_turns.py'
       - 'tests/test_real_person_miss_inputs_are_printed.py'
       - 'tests/test_real_person_link_miss_classified.py'
@@ -741,6 +743,11 @@ jobs:
       - name: The API slug reaches the screens probe; link fingerprint is hash-only (DMG #24)
         if: always()
         run: python3 tests/test_real_person_slug_from_api.py
+      - name: A merge survivor takes the highest-tier name; the walk assertion counts phone-named survivors (DMG #27)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pyoxigraph httpx phonenumbers rapidfuzz qdrant-client
+          python3 tests/test_merge_survivor_takes_highest_name_tier.py
       - name: The chat wait is a budget from measured turns, ends on done, capped (DMG #26)
         if: always()
         run: python3 tests/test_chat_wait_is_sized_from_measured_turns.py

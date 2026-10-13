@@ -914,11 +914,18 @@ def _about_you_section() -> list[str]:
             if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
                 continue
             about = (row.get("about") or "").strip().lower()
-            if row.get("t") == "location" and about and about != owner_about:
-                continue
             text = " ".join((row.get("text") or "").split())
             if not text:
                 continue
+            if row.get("t") == "location":
+                # F12 + #27: a place is the owner's only when it is about the
+                # owner, or (legacy, untagged) the owner is its explicit
+                # subject. An untagged "<contact> lives in <city>" is dropped.
+                if about != owner_about and not (
+                        not about and owner_name and text.lower().startswith(owner_name)):
+                    continue
+                if _PHONE_RUN.search(text):
+                    continue
             if row.get("t") != "location":
                 # DMG #23/#25: the owner's family line keeps a fact ONLY when it
                 # is about the owner (urn:ostler:about == the owner), or it is a

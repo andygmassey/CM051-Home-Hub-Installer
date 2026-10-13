@@ -11,7 +11,7 @@ import httpx
 
 from contact_syncer.relationship_labels import is_relationship_label
 
-from .canonical_name import choose_canonical_display_name, prefer_real_given_name
+from .canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
 from .compartment import (
     UserCompartment,
     assert_default_graph_isolated,
@@ -585,6 +585,12 @@ class IdentityResolver:
                 f"}}"
             )
 
+        # 4b. NAME TIERS (DMG #27): the survivor's displayName takes the highest
+        #     tier among the merged nodes (human > email > phone). Step 4 only
+        #     copies where keep has none, so a placeholder survivor kept its
+        #     placeholder. Equal tiers change nothing.
+        self.rename_survivor_upward(keep_uri, discard_uri)
+
         # 5. Mark discard as merged
         self._sparql_update(
             f"INSERT DATA {{ "
@@ -646,6 +652,26 @@ class IdentityResolver:
         self.canonicalise_display_name(keep_uri)
 
         logger.info("Merged %s into %s", discard_uri, keep_uri)
+
+    def _display_names(self, person_uri: str) -> list:
+        res = self._sparql_query(
+            f"SELECT ?n WHERE {{ <{person_uri}> <{PWG}displayName> ?n }}")
+        return [b["n"]["value"] for b in res.get("results", {}).get("bindings", []) if b.get("n")]
+
+    def rename_survivor_upward(self, keep_uri: str, discard_uri: str) -> Optional[str]:
+        """Give the survivor the discard's name when that name is a higher tier
+        (human > email > phone). Returns the new name, or None when unchanged."""
+        new = upward_name(self._display_names(keep_uri), self._display_names(discard_uri))
+        if not new:
+            return None
+        self._sparql_update(
+            f"DELETE {{ <{keep_uri}> <{PWG}displayName> ?old }} "
+            f"WHERE {{ <{keep_uri}> <{PWG}displayName> ?old }} ; "
+            f'INSERT DATA {{ <{keep_uri}> <{PWG}displayName> "{_escape(new)}" }}'
+        )
+        self._sync_qdrant_display_name(keep_uri, new)
+        logger.info("Survivor %s renamed upward to %r", keep_uri, new)
+        return new
 
     def _sync_qdrant_display_name(self, person_uri: str, display_name: str) -> None:
         """Push a just-canonicalised name into the Qdrant `people` point for

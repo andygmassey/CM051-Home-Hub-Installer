@@ -87,6 +87,9 @@ def test_resolver_merge_persons_records_the_discard(log):
     from identity_resolver.resolver import IdentityResolver
     r = IdentityResolver.__new__(IdentityResolver)
     r._sparql_update = lambda q: None
+    # merge_persons now READS both nodes' names (name-tier rule); a resolver built
+    # with __new__ has no compartment, so the read is stubbed like the write.
+    r._sparql_query = lambda q: {"results": {"bindings": []}}
     r.canonicalise_display_name = lambda uri: None
     r.merge_persons(KEEP, DISCARD)
     assert _has(log, DISCARD, "identity_resolver.merge_persons")
