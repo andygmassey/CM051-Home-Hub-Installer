@@ -93,7 +93,7 @@ CASES = (
     ("human beats phone", [PHONE], ["Jane Doe"], "Jane Doe"),
     ("email beats phone", [PHONE], [EMAIL], EMAIL),
     ("human beats email", [EMAIL], ["Jane Doe"], "Jane Doe"),
-    ("two humans: the survivor keeps its own name (existing rule)", ["Jane Doe"], ["Janet Doe"], "Jane Doe"),
+    ("two humans: the survivor keeps its own name (existing rule)", ["Jane Doe"], ["Sam Patel"], "Jane Doe"),
     ("a human survivor is never replaced by a phone", ["Jane Doe"], [PHONE], "Jane Doe"),
     ("phone vs phone: unchanged", [PHONE], ["+1 555 0100 02"], PHONE),
 )
@@ -108,7 +108,7 @@ def test_resolver_path_survivor_takes_the_highest_tier():
 def test_resolver_path_syncs_the_renamed_survivor_to_the_hub_store():
     _, synced = _via_resolver([PHONE], ["Jane Doe"])
     assert synced == [(KEEP, "Jane Doe")]
-    assert _via_resolver(["Jane Doe"], ["Janet Doe"])[1] == []      # existing rule: no rename, no sync
+    assert _via_resolver(["Jane Doe"], ["Sam Patel"])[1] == []      # existing rule: no rename, no sync
 
 
 def test_batch_path_survivor_takes_the_highest_tier():
@@ -116,7 +116,7 @@ def test_batch_path_survivor_takes_the_highest_tier():
         got, renamed = _via_batch(keep, disc)
         assert got == [want], (label, got)
     assert _via_batch([PHONE], ["Jane Doe"])[1] == "Jane Doe"
-    assert _via_batch(["Jane Doe"], ["Janet Doe"])[1] is None
+    assert _via_batch(["Jane Doe"], ["Sam Patel"])[1] is None
 
 
 def _already_merged(survivor_name, source_name):
@@ -145,7 +145,7 @@ def test_repair_dry_run_changes_nothing_and_reports_the_count():
 
 
 def test_repair_leaves_two_human_names_and_healthy_survivors_alone():
-    for keep, src in (("Jane Doe", "Janet Doe"), ("Jane Doe", PHONE)):
+    for keep, src in (("Jane Doe", "Sam Patel"), ("Jane Doe", PHONE)):
         st = _already_merged(keep, src)
         _patch_batch(st)
         assert rmc.rename_survivors_upward("o", "q", "people", apply=True)[1] == 0
@@ -182,7 +182,7 @@ def _count(st, q):
 def test_walk_assertion_counts_phone_and_email_named_survivors():
     bad_q, den_q = _probe_queries()
     for survivor, expect in ((PHONE, 1), (EMAIL, 1), ("Jane Doe", 0)):
-        st = _already_merged(survivor, "Jane Doe" if survivor != "Jane Doe" else "Janet Doe")
+        st = _already_merged(survivor, "Jane Doe" if survivor != "Jane Doe" else "Sam Patel")
         assert (_count(st, bad_q), _count(st, den_q)) == (expect, 1), survivor
     st = _already_merged(PHONE, EMAIL)                        # no human name merged in: not this defect
     assert _count(st, bad_q) == 0
