@@ -234,9 +234,17 @@ _frames_file = os.environ.get("OSTLER_GROUNDED_FRAMES")
 if _frames_file:
     _fx = open(_frames_file, "rb").read().split(b"\n")
     _fx = [l for l in _fx if l.strip()]
+    # Sentinel lines drive the END paths without a socket: "!eof" is the
+    # server closing TCP, "!budget" is the server silent to the budget,
+    # "!clientfault" is the client's own failure.
+    class _FixtureBudget(Exception): pass
     def frame():
         if not _fx: return 8, b""
-        return 1, _fx.pop(0)
+        line = _fx.pop(0)
+        if line == b"!eof": raise EOFError
+        if line == b"!budget": raise _FixtureBudget()
+        if line == b"!clientfault": raise OSError("fixture client fault")
+        return 1, line
     def send(p): pass
 else:
   try:
@@ -307,14 +315,38 @@ _t_first = None
 _t_last = None
 _tok = 0
 text = ""
+# HOW THE TURN ENDED, recorded for every opening (walk #26 opening 8: no done
+# frame was graded and nothing said why). One of:
+#   done | server_error | server_closed | budget_expired      (the server's side)
+#   client_exception:<Type> | client_timeout                 (the client's side)
+# printed once as "FRAME end <how> last=<frame type> elapsed_s=<s> budget_s=<s>".
+_t0 = time.time()
+_end = None
+_last = "none"
 while time.time() < deadline:
     try: op, pay = frame()
-    except Exception: print("FRAME timeout"); break
-    if op == 8: print("FRAME close"); break
+    except EOFError:
+        _end = "server_closed"; print("FRAME timeout"); break
+    except Exception as _e:
+        if _frames_file and type(_e).__name__ == "_FixtureBudget":
+            _end = "budget_expired"
+        elif isinstance(_e, socket.timeout):
+            _end = "budget_expired" if time.time() >= deadline - 1 else "client_timeout"
+        else:
+            _end = "client_exception:%s" % type(_e).__name__
+        print("FRAME timeout"); break
+    if op == 8: _end = "server_closed"; print("FRAME close"); break
     if op != 1: continue
     try: ev = json.loads(pay)
     except Exception: print("FRAME unparseable"); continue
     t = ev.get("type", "?")
+    _last = t
+    if t == "done": _end = "done"
+    if t == "error":
+        _end = "server_error"
+        # The CODE only, never the message: it can quote the user's turn.
+        _code = str(ev.get("code") or ev.get("error_code") or "uncoded")
+        print("FRAME error_code %s" % re.sub(r"[^A-Za-z0-9_.-]", "_", _code)[:40])
     if t == "tool_call":
         print("FRAME tool_call %s" % ev.get("name", "?"))
         # WHO decided the call (ostler-assistant #428): "model", or "daemon_prefetch"
@@ -441,6 +473,9 @@ while time.time() < deadline:
             print("FRAME reply_fact_phrase %s" % ("YES" if carries_phrase(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)
         if t in ("done", "error"): break
+if _end is None:
+    _end = "budget_expired"
+print("FRAME end %s last=%s elapsed_s=%.1f budget_s=%.0f" % (_end, _last, time.time() - _t0, deadline_s))
 PYEOF
 }
 
