@@ -1,0 +1,20 @@
+name: branch-hygiene
+# Fails if a merged-PR head lingers >24h, or a branch has no PR and is >7 days old.
+# Archive instead of leaving a branch: tag archive/<date>/<branch>, then delete the branch.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/branch_hygiene_gate.py --self-test
+      - run: python3 scripts/branch_hygiene_gate.py --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
