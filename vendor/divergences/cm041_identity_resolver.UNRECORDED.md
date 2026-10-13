@@ -104,3 +104,30 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## Second graft (DMG #27, 2026-10-13): a merge must not lose the human name
+
+NOT UPSTREAM yet; CM041 needs the same change. A census on a candidate box found
+150 of 787 merges putting a named person into a survivor whose displayName was a
+phone (145) or an email (5): the name-tier rule (phone < email < human) was not
+applied when naming the survivor.
+
+Files, all under `vendor/cm041/identity_resolver/`:
+
+1. `canonical_name.py`: `name_tier`, `upward_name` (appended; nothing existing touched).
+2. `resolver.py`: `rename_survivor_upward` (+ `_display_names`), called as step 4b
+   of `merge_persons`, before the discard is marked merged.
+3. `batch_resolver.py`: `_rename_survivor_upward_oxigraph`, called as step 5b of
+   `_merge_oxigraph` (which now returns the new name); `_set_qdrant_display_name`
+   syncs the Hub's People list (it reads Qdrant); the call site uses it.
+4. `repair_merge_consistency.py`: `misnamed_survivors` / `rename_survivors_upward`,
+   run on every repair pass (idempotent), so EXISTING merges are renamed on upgrade.
+
+Rule: the survivor takes the discard's best name only when it is a HIGHER tier than
+anything the survivor carries; two human names keep the existing rule; a survivor
+with no name is left to the existing copy step. NOT done here (v1.0.108): following
+`mergedInto` to a differently-named survivor on lookup (may be an over-merge), and
+the wiki compiler emitting pages for retired-only people (CM044).
+
+Guarded by `tests/test_merge_survivor_takes_highest_name_tier.py` and the walk
+assertion in `scripts/box_walk_probes/probes/no_person_holds_two_contact_cards.sh`.

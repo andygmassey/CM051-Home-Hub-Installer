@@ -41,7 +41,7 @@ from identity_resolver.normalise import (
     normalise_phone,
 )
 from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
-from identity_resolver.canonical_name import choose_canonical_display_name, prefer_real_given_name
+from identity_resolver.canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
 
 logger = logging.getLogger(__name__)
 
@@ -1190,8 +1190,10 @@ def _canonical_keys_conflict(
 
 def _merge_oxigraph(
     url: str, client: httpx.Client, keep_uri: str, discard_uri: str,
-) -> None:
-    """Merge discard_uri into keep_uri in Oxigraph."""
+) -> Optional[str]:
+    """Merge discard_uri into keep_uri in Oxigraph. Returns the survivor's new
+    name when the name-tier rule renamed it upward (so the caller can sync
+    Qdrant), else None."""
     now = datetime.now(timezone.utc).isoformat()
 
     # 1. Move identifiers
@@ -1238,6 +1240,11 @@ def _merge_oxigraph(
             f"}}"
         )
 
+    # 5b. NAME TIERS (DMG #27): the survivor takes the highest-tier displayName
+    #     among the merged nodes (human > email > phone). Step 5 only copies
+    #     where keep has none. Equal tiers change nothing.
+    renamed = _rename_survivor_upward_oxigraph(url, client, keep_uri, discard_uri)
+
     # 6. Mark discard as merged
     _sparql_update(url, client,
         f"INSERT DATA {{ "
@@ -1269,6 +1276,31 @@ def _merge_oxigraph(
     _canonicalise_display_name_oxigraph(url, client, keep_uri)
 
     logger.info("Oxigraph merge: %s → %s", discard_uri, keep_uri)
+    return renamed
+
+
+def _display_names_oxigraph(url: str, client: httpx.Client, person_uri: str) -> list:
+    rows = _sparql_query(url, client,
+        f"SELECT ?n WHERE {{ <{person_uri}> <{PWG}displayName> ?n }}")
+    return [r["n"] for r in rows if r.get("n")]
+
+
+def _rename_survivor_upward_oxigraph(
+    url: str, client: httpx.Client, keep_uri: str, discard_uri: str,
+) -> Optional[str]:
+    """Mirror of ``IdentityResolver.rename_survivor_upward`` for the batch path.
+    Returns the new name (so the caller can sync Qdrant), or None."""
+    new = upward_name(_display_names_oxigraph(url, client, keep_uri),
+                      _display_names_oxigraph(url, client, discard_uri))
+    if not new:
+        return None
+    _sparql_update(url, client,
+        f"DELETE {{ <{keep_uri}> <{PWG}displayName> ?old }} "
+        f"WHERE {{ <{keep_uri}> <{PWG}displayName> ?old }} ; "
+        f'INSERT DATA {{ <{keep_uri}> <{PWG}displayName> "{_escape(new)}" }}'
+    )
+    logger.info("Survivor %s renamed upward to %r", keep_uri, new)
+    return new
 
 
 def _canonicalise_display_name_oxigraph(
@@ -1312,6 +1344,27 @@ def _canonicalise_display_name_oxigraph(
         person_uri, canonical, len(candidates),
     )
     return canonical
+
+
+def _set_qdrant_display_name(
+    qdrant_url: str, collection: str, person_uri: str, display_name: str,
+) -> bool:
+    """Push a survivor's (upward-renamed) name into its Qdrant point: the Hub's
+    People list reads Qdrant. False when it could not be done or there is no
+    point; never raises (the graph side is already correct)."""
+    try:
+        from qdrant_client import QdrantClient
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+        client = QdrantClient(url=qdrant_url, timeout=10)
+        if not client.retrieve(collection_name=collection, ids=[point_id], with_payload=False):
+            return False
+        client.set_payload(collection_name=collection,
+                           payload={"display_name": display_name, "name": display_name},
+                           points=[point_id])
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Qdrant display-name sync failed for %s: %s", person_uri, exc)
+        return False
 
 
 def _merge_qdrant(
@@ -1982,7 +2035,7 @@ class BatchResolver:
                 action.keep_name, action.keep_uri,
                 action.strategy, action.confidence,
             )
-            _merge_oxigraph(
+            _renamed = _merge_oxigraph(
                 self.oxigraph_url, self._client,
                 action.keep_uri, action.discard_uri,
             )
@@ -1990,6 +2043,9 @@ class BatchResolver:
                 self.qdrant_url, self.qdrant_collection,
                 action.keep_uri, action.discard_uri,
             )
+            if _renamed:
+                _set_qdrant_display_name(self.qdrant_url, self.qdrant_collection,
+                                         action.keep_uri, _renamed)
             # executed stays True: the GRAPH merge above really did happen and
             # is not undone by a vector-side failure. What must not happen is
             # that failure passing silently -- an unreconciled merge is a
