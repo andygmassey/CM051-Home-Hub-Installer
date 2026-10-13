@@ -89,6 +89,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../lib/probe.sh"
 
 PROBE_NAME="assistant_grounds_the_opening_turn"
+# This checkout's root, resolved once from this file's own path: kept frames
+# must never land inside it (CM051 is PUBLIC).
+_AGOT_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd -P)"
 PROBE_QUESTION="does this box ground the FIRST turn of a fresh session, ten times over, on the model it is actually running?"
 OPENINGS="${OSTLER_OPENING_TURNS:-10}"
 MIN_OPENINGS=10
@@ -190,9 +193,17 @@ _frames_file = os.environ.get("OSTLER_GROUNDED_FRAMES")
 if _frames_file:
     _fx = open(_frames_file, "rb").read().split(b"\n")
     _fx = [l for l in _fx if l.strip()]
+    # Sentinel lines drive the END paths without a socket: "!eof" is the
+    # server closing TCP, "!budget" is the server silent to the budget,
+    # "!clientfault" is the client's own failure.
+    class _FixtureBudget(Exception): pass
     def frame():
         if not _fx: return 8, b""
-        return 1, _fx.pop(0)
+        line = _fx.pop(0)
+        if line == b"!eof": raise EOFError
+        if line == b"!budget": raise _FixtureBudget()
+        if line == b"!clientfault": raise OSError("fixture client fault")
+        return 1, line
     def send(p): pass
 else:
   try:
@@ -263,14 +274,38 @@ _t_first = None
 _t_last = None
 _tok = 0
 text = ""
+# HOW THE TURN ENDED, recorded for every opening (walk #26 opening 8: no done
+# frame was graded and nothing said why). One of:
+#   done | server_error | server_closed | budget_expired      (the server's side)
+#   client_exception:<Type> | client_timeout                 (the client's side)
+# printed once as "FRAME end <how> last=<frame type> elapsed_s=<s> budget_s=<s>".
+_t0 = time.time()
+_end = None
+_last = "none"
 while time.time() < deadline:
     try: op, pay = frame()
-    except Exception: print("FRAME timeout"); break
-    if op == 8: print("FRAME close"); break
+    except EOFError:
+        _end = "server_closed"; print("FRAME timeout"); break
+    except Exception as _e:
+        if _frames_file and type(_e).__name__ == "_FixtureBudget":
+            _end = "budget_expired"
+        elif isinstance(_e, socket.timeout):
+            _end = "budget_expired" if time.time() >= deadline - 1 else "client_timeout"
+        else:
+            _end = "client_exception:%s" % type(_e).__name__
+        print("FRAME timeout"); break
+    if op == 8: _end = "server_closed"; print("FRAME close"); break
     if op != 1: continue
     try: ev = json.loads(pay)
     except Exception: print("FRAME unparseable"); continue
     t = ev.get("type", "?")
+    _last = t
+    if t == "done": _end = "done"
+    if t == "error":
+        _end = "server_error"
+        # The CODE only, never the message: it can quote the user's turn.
+        _code = str(ev.get("code") or ev.get("error_code") or "uncoded")
+        print("FRAME error_code %s" % re.sub(r"[^A-Za-z0-9_.-]", "_", _code)[:40])
     if t == "tool_call":
         print("FRAME tool_call %s" % ev.get("name", "?"))
         # WHO decided the call (ostler-assistant #428): "model", or "daemon_prefetch"
@@ -397,6 +432,9 @@ while time.time() < deadline:
             print("FRAME reply_fact_phrase %s" % ("YES" if carries_phrase(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)
         if t in ("done", "error"): break
+if _end is None:
+    _end = "budget_expired"
+print("FRAME end %s last=%s elapsed_s=%.1f budget_s=%.0f" % (_end, _last, time.time() - _t0, deadline_s))
 PYEOF
 }
 
@@ -491,6 +529,19 @@ _read_ram_gb() {
 # separately so the model's own tool-calling stays visible.
 _classify_opening() {
     _co_f="$1"
+    # NO DONE FRAME: the reply never reached the grader, so no reply verdict
+    # exists. Who ended the turn decides the word (Archie, walk #26):
+    #   the SERVER (silent to the budget, closed the socket, or sent an error
+    #   frame) -> gateway_no_done, a PRODUCT FAIL: the customer sees no answer;
+    #   the CLIENT (its own exception or timeout, or no end line at all)
+    #   -> client_no_done, CANNOT-RUN, which still blocks a PASS.
+    if [ "$(grep -c '^FRAME done$' "$_co_f")" -eq 0 ]; then
+        _co_end="$(sed -n 's/^FRAME end \([^ ]*\).*/\1/p' "$_co_f" | head -1)"
+        case "$_co_end" in
+            budget_expired|server_closed|server_error) printf 'gateway_no_done'; return ;;
+            *) printf 'client_no_done'; return ;;
+        esac
+    fi
     _co_tool="$(grep -E '^FRAME tool_call ' "$_co_f" | grep -cE 'pwg_')"
     _co_toolfact="$(grep -c '^FRAME tool_fact YES' "$_co_f")"
     _co_replyfact="$(grep -c '^FRAME reply_fact YES' "$_co_f")"
@@ -528,6 +579,30 @@ _classify_client_run() {
     printf 'unreadable'
 }
 
+# _keep_opening_frames <raw> <i> <verdict> -> the path written, or nothing.
+# Keeps ONLY the frame lines (types, tool names, YES/NO, the end line), the
+# PROBE_FATAL reason and any exception TYPE, never prose: the client never
+# prints the answer, and a traceback message can quote a path or a name. The
+# directory is the walk's evidence dir, NEVER inside this checkout (CM051 is
+# PUBLIC); a path that resolves inside the repo is refused.
+_keep_opening_frames() {
+    _kf_dir="$(dirname "$(walk_screens_dir)")/opening_turn"
+    # Refuse BEFORE creating anything: resolve the nearest existing ancestor
+    # and compare it with this checkout's root.
+    _kf_probe="$_kf_dir"
+    while [ ! -d "$_kf_probe" ] && [ "$_kf_probe" != "/" ] && [ "$_kf_probe" != "." ]; do
+        _kf_probe="$(dirname "$_kf_probe")"
+    done
+    _kf_real="$(cd "$_kf_probe" 2>/dev/null && pwd -P)" || return 0
+    case "$_kf_real/" in "${_AGOT_REPO}/"*) return 0 ;; esac
+    mkdir -p "$_kf_dir" 2>/dev/null || return 0
+    _kf_out="${_kf_dir}/opening_$(printf '%02d' "$2")_${3}.frames"
+    { grep -E '^(FRAME |PROBE_FATAL )' "$1"
+      grep -oE '^[A-Za-z_]*(Error|Exception):' "$1" | sed 's/:$//; s/^/EXCEPTION /'
+    } > "$_kf_out" 2>/dev/null || return 0
+    printf '%s' "$_kf_out"
+}
+
 # _read_the_battery <done> <grounded> <no_tool> <tool_no_fact> <reply_no_fact> <min>
 #   -> CANNOT-RUN-DENOMINATOR | PASS | FAIL-COLD-START | FAIL-CEILING
 #
@@ -537,8 +612,15 @@ _classify_client_run() {
 # built around.
 _read_the_battery() {
     _rb_d="$1"; _rb_g="$2"; _rb_nt="$3"; _rb_tnf="$4"; _rb_rnf="$5"; _rb_min="$6"
+    _rb_gnd="${7:-0}"; _rb_cnd="${8:-0}"
     if [ "$_rb_d" -lt "$_rb_min" ]; then printf 'CANNOT-RUN-DENOMINATOR'; return; fi
     if [ "$_rb_g" -eq "$_rb_d" ]; then printf 'PASS'; return; fi
+    # A done frame the server never sent is a customer-visible failure.
+    if [ "$_rb_gnd" -gt 0 ]; then printf 'FAIL-GATEWAY-NO-DONE'; return; fi
+    # Only client-side losses, nothing else wrong: not a pass, and not a verdict.
+    if [ "$_rb_cnd" -gt 0 ] && [ "$((_rb_nt + _rb_tnf + _rb_rnf))" -eq 0 ]; then
+        printf 'CANNOT-RUN-CLIENT-NO-DONE'; return
+    fi
     if [ "$_rb_nt" -gt 0 ] && [ "$((_rb_tnf + _rb_rnf))" -eq 0 ]; then printf 'FAIL-COLD-START'; return; fi
     printf 'FAIL-CEILING'
 }
@@ -701,6 +783,7 @@ run_probe() {
 
     # ── THE BATTERY: N fresh sessions, the seeded question FIRST in each ─────
     _grounded=0; _no_tool=0; _tool_no_fact=0; _reply_no_fact=0; _done=0
+    _gateway_no_done=0; _client_no_done=0; _kept_dir=""
     _model_called=0; _daemon_prefetched=0
     _client_fault=0; _client_refused=0; _silent=0; _unreadable=0
     _first_fault=""; _first_refusal=""; _sessions_announced=0
@@ -798,7 +881,22 @@ run_probe() {
         esac
 
         _verdict="$(_classify_opening "$_raw")"
+        # Every opening says how it ended, so the next walk can tell a lost
+        # frame from an error from a client fault (walk #26 could not).
+        _endline="$(sed -n 's/^FRAME end //p' "$_raw" | head -1)"
+        _errcode="$(sed -n 's/^FRAME error_code //p' "$_raw" | head -1)"
+        probe_note "opening ${_i}: end=${_endline:-NOT-REPORTED (the client printed no end line)}${_errcode:+ error_code=${_errcode}}"
+        if [ "$_verdict" != "grounded" ]; then
+            _kept="$(_keep_opening_frames "$_raw" "$_i" "$_verdict")"
+            [ -n "$_kept" ] && { _kept_dir="${_kept%/*}"; probe_note "opening ${_i}: frames kept at ${_kept}"; }
+        fi
         case "$_verdict" in
+            gateway_no_done)
+                _gateway_no_done=$((_gateway_no_done + 1))
+                probe_note "opening ${_i}: gateway_no_done         the SERVER ended the turn with no done frame (${_endline:-?}). PRODUCT: the customer saw no answer." ;;
+            client_no_done)
+                _client_no_done=$((_client_no_done + 1))
+                probe_note "opening ${_i}: client_no_done          the CLIENT ended first (${_endline:-no end line}). CANNOT-RUN for this opening; it still blocks a PASS." ;;
             no_tool_call)
                 _no_tool=$((_no_tool + 1))
                 probe_note "opening ${_i}: no_tool_call            tool=-            tool_fact=no  reply_fact=$( [ "$_replyfact" -gt 0 ] && echo yes || echo no )" ;;
@@ -829,10 +927,14 @@ run_probe() {
     # verdict must not be able to emit one by falling over.
     probe_note "memory carried between openings: ${_carried_total} entr(y/ies) about the seed person were removed before openings 2..${OPENINGS}"
     probe_examined "$_done" "opening turns completed on ${MODEL_TAG} (of ${OPENINGS} attempted)"
-    probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} model_called=${_model_called} daemon_prefetched=${_daemon_prefetched} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} client_fault=${_client_fault} client_refused=${_client_refused} silent=${_silent} unreadable=${_unreadable}"
+    probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} model_called=${_model_called} daemon_prefetched=${_daemon_prefetched} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} gateway_no_done=${_gateway_no_done} client_no_done=${_client_no_done} client_fault=${_client_fault} client_refused=${_client_refused} silent=${_silent} unreadable=${_unreadable}"
 
     # ── THE READING ─────────────────────────────────────────────────────────
-    case "$(_read_the_battery "$_done" "$_grounded" "$_no_tool" "$_tool_no_fact" "$_reply_no_fact" "$MIN_OPENINGS")" in
+    case "$(_read_the_battery "$_done" "$_grounded" "$_no_tool" "$_tool_no_fact" "$_reply_no_fact" "$MIN_OPENINGS" "$_gateway_no_done" "$_client_no_done")" in
+        FAIL-GATEWAY-NO-DONE)
+            probe_fail "${_gateway_no_done}/${_done} openings on ${MODEL_TAG} ended with NO done frame from the gateway (the server went silent to the budget, closed the socket, or sent an error frame; each opening's end line is above). The customer sees no answer: PRODUCT. grounded=${_grounded} fact_missing_in_reply=${_reply_no_fact} client_no_done=${_client_no_done}.${_kept_dir:+ Frames kept in ${_kept_dir}.}" ;;
+        CANNOT-RUN-CLIENT-NO-DONE)
+            probe_cannot_run "${_client_no_done}/${_done} openings ended on the CLIENT's side before a done frame (each end line is above), and every other opening grounded. Those turns were never graded, so this is not a PASS and not a product verdict.${_kept_dir:+ Frames kept in ${_kept_dir}.}" ;;
         CANNOT-RUN-DENOMINATOR)
             # THE EXCLUDED OPENINGS ARE NAMED BY SHAPE. A denominator that fell
             # short for four different reasons must not report one of them.
@@ -894,6 +996,47 @@ self_test() {
     _arm "classify_opening/daemon prefetch, answer used it"  "$(_classify_opening "$_d/o_prefetch_used")"    grounded
     _arm "classify_opening/daemon prefetch, answer ignored"  "$(_classify_opening "$_d/o_prefetch_ignored")" fact_missing_in_reply
     _arm "classify_opening/non-pwg tool is not grounded" "$(_classify_opening "$_d/o_offgraph")" no_tool_call
+    # Walk #26 opening 8: the tool held the fact and NO done frame was graded.
+    # The reply never reached the grader, so this is not fact_missing_in_reply.
+    printf 'FRAME tool_call pwg_people\nFRAME tool_origin pwg_people daemon_prefetch\nFRAME tool_fact YES\nFRAME timeout\nFRAME end budget_expired last=tool_result elapsed_s=420.0 budget_s=420\n' > "$_d/o_gw_silent"
+    printf 'FRAME tool_call pwg_people\nFRAME tool_fact YES\nFRAME close\nFRAME end server_closed last=chunk elapsed_s=12.0 budget_s=420\n' > "$_d/o_gw_closed"
+    printf 'FRAME tool_call pwg_people\nFRAME tool_fact YES\nFRAME error\nFRAME error_code provider_failed\nFRAME end server_error last=error elapsed_s=9.0 budget_s=420\n' > "$_d/o_gw_error"
+    printf 'FRAME tool_call pwg_people\nFRAME tool_fact YES\nFRAME timeout\nFRAME end client_exception:OSError last=tool_result elapsed_s=3.0 budget_s=420\n' > "$_d/o_cl_fault"
+    printf 'FRAME tool_call pwg_people\nFRAME tool_fact YES\n' > "$_d/o_cl_cut"
+    _arm "classify_opening/no done, server silent to the budget" "$(_classify_opening "$_d/o_gw_silent")" gateway_no_done
+    _arm "classify_opening/no done, server closed the socket"    "$(_classify_opening "$_d/o_gw_closed")" gateway_no_done
+    _arm "classify_opening/no done, server sent an error frame"  "$(_classify_opening "$_d/o_gw_error")"  gateway_no_done
+    _arm "classify_opening/no done, the client faulted first"    "$(_classify_opening "$_d/o_cl_fault")"  client_no_done
+    _arm "classify_opening/no done, the client never reported an end" "$(_classify_opening "$_d/o_cl_cut")" client_no_done
+
+    # ── THE CLIENT'S OWN END ACCOUNTING, driven end to end in fixture mode
+    #    (OSTLER_GROUNDED_FRAMES, no socket): the client prints how the turn
+    #    ended and the classifier reads it. Local python3 only; no box.
+    _ws_client_py > "$_d/client.py"; printf 'selftest\n' > "$_d/tok"
+    _client_arm() { # _client_arm <label> <want> <jsonl lines...>
+        _ca_l="$1"; _ca_w="$2"; shift 2
+        printf '%s\n' "$@" > "$_d/fx.jsonl"
+        OSTLER_GROUNDED_FRAMES="$_d/fx.jsonl" python3 "$_d/client.py" 1 "$_d/tok" q 30 "cable engineer at example.com" > "$_d/fx.out" 2>&1
+        _arm "client end/${_ca_l}" "$(_classify_opening "$_d/fx.out")" "$_ca_w"
+    }
+    _ca_tc='{"type":"tool_call","name":"pwg_people"}'
+    _ca_tr='{"type":"tool_result","name":"pwg_people","output":"Jane Doe, cable engineer at example.com"}'
+    _client_arm "done, fact carried"        grounded        "$_ca_tc" "$_ca_tr" '{"type":"done","full_response":"Jane Doe is a cable engineer at example.com."}'
+    _client_arm "stream stops, no done"     gateway_no_done "$_ca_tc" "$_ca_tr"
+    _client_arm "server closed the TCP stream" gateway_no_done "$_ca_tc" '!eof'
+    _client_arm "server silent to budget"   gateway_no_done "$_ca_tc" '!budget'
+    _client_arm "server error frame"        gateway_no_done "$_ca_tc" '{"type":"error","code":"provider_failed"}'
+    _client_arm "client's own exception"    client_no_done  "$_ca_tc" '!clientfault'
+
+    # ── _keep_opening_frames: the walk's evidence dir, never this checkout,
+    #    and only frame lines plus an exception TYPE (never its message).
+    printf 'FRAME end server_closed last=chunk elapsed_s=1.0 budget_s=420\nOSError: /private/path/of/someone\n' > "$_d/kraw"
+    _kf_got="$(OSTLER_BOX_WALK_EVIDENCE_DIR="$_d/ev" _keep_opening_frames "$_d/kraw" 8 gateway_no_done)"
+    _arm "keep frames/written outside the repo" "$( [ -s "$_kf_got" ] && echo written || echo missing )" written
+    _kf_leak="$(grep -c 'private/path' "$_kf_got")"
+    _arm "keep frames/the exception message is dropped" "$_kf_leak" 0
+    _kf_in="${_AGOT_REPO}/.selftest-opening-frames-$$"
+    _arm "keep frames/refused inside the repo" "$(OSTLER_BOX_WALK_EVIDENCE_DIR="$_kf_in" _keep_opening_frames "$_d/kraw" 8 x; [ -e "$_kf_in" ] && echo created)" ""
 
     # ── _classify_client_run. ARM 2 IS THE ORIGINAL CRASHING INPUT: the exact
     #    traceback the old bare `python3 -` invocation produced on every
@@ -918,6 +1061,9 @@ self_test() {
     _arm "read_the_battery/one opening, no tool" "$(_read_the_battery 10 9 1 0 0 10)"  FAIL-COLD-START
     _arm "read_the_battery/a failure beyond the opening" "$(_read_the_battery 10 8 1 1 0 10)" FAIL-CEILING
     _arm "read_the_battery/fact held and not used" "$(_read_the_battery 10 9 0 0 1 10)" FAIL-CEILING
+    _arm "read_the_battery/the gateway sent no done"     "$(_read_the_battery 10 9 0 0 0 10 1 0)" FAIL-GATEWAY-NO-DONE
+    _arm "read_the_battery/the client lost a done only"  "$(_read_the_battery 10 9 0 0 0 10 0 1)" CANNOT-RUN-CLIENT-NO-DONE
+    _arm "read_the_battery/client loss beside a real fail is still FAIL" "$(_read_the_battery 10 8 0 0 1 10 0 1)" FAIL-CEILING
 
     # The memory reader. The first arm is the shape every walk before v1.0.102
     # candidate 5 actually got: a 404 from a route the daemon does not serve.
@@ -931,7 +1077,7 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} of ${_n} arms returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to tell PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
     fi
-    probe_examined "$_n" "self-test arms, counted as they ran (5 opening classifications, 5 client-output shapes including the IndexError that used to be reported as transport, 6 readings including a zero denominator, 5 memory-reader answers including the 404 every earlier walk got)"
+    probe_examined "$_n" "self-test arms, counted as they ran (10 opening classifications including 5 with no done frame, 6 client end-to-end runs in fixture mode, 3 frame-keeping arms, 5 client-output shapes including the IndexError that used to be reported as transport, 9 readings including a zero denominator and both no-done readings, 5 memory-reader answers including the 404 every earlier walk got)"
     probe_fail "negative control behaved on all ${_n} arms: a turn with no pwg_ tool FAILs, a non-pwg tool does not count as grounded, the client's own traceback reads client_fault and NOT transport, an empty client output is the only shape called silent, and 0 of 0 refuses instead of passing"
 }
 
