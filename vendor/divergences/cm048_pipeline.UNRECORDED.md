@@ -224,3 +224,30 @@ identifier, with that participant's resolved display name or "an unknown
 contact". Other numbers/addresses and other parentheticals are left alone.
 Not in the patch (source has advanced past the pin).
 Test: `tests/test_customer_leak_shapes.py`.
+
+## Reminder thread_key from counterpart HANDLES, matching the assistant daemon (walk #25, 2026-10-13)
+
+Tree `cm048_pipeline`:
+
+- `src/conversation_writer.py`: `ConversationBundle.participant_handles`
+  (tuple, default empty; never rendered into an artefact).
+- `src/channel_adapter.py`: the iMessage adapter fills it from the
+  threader's participant dicts (`handle` / `jid`, role `user` skipped) via
+  new `_counterpart_handles`.
+- `src/reminders_push.py`: `thread_key_for` hashes the handles (else the
+  handle inside a 1:1 chat guid `<service>;-;<handle>`, else the labels as
+  before); `_norm_identity` uses ASCII digits only.
+
+WHY: ostler-assistant's follow-up sweep (`thread_key_for_identities`,
+crates/ostler-reminders/src/followup.rs) hashes chat.db's counterpart
+handles. CM048 hashed slugged display names, so walk #25's
+`followup_keys_match_chat_threads` found 0 of 6 keyed rows matching any
+thread and "mark done when the owner follows up" could never fire.
+
+### What a future sync must preserve
+
+The three edits above, byte-identical normalisation to the Rust
+`norm_identity`, and the reference vectors in
+`tests/test_cm048_thread_key_matches_the_daemon.py` (computed from oa
+644b6137; the regeneration command is in that file's docstring).
+Upstream CM048 needs the same change.
