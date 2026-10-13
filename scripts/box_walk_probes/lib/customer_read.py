@@ -740,7 +740,9 @@ def judge(f, declared=None):
     if not oc:
         add(DECLARED[22], None if oc is None else NA, "NOT MEASURED: no Ollama call count" if oc is None else "Ollama logged no calls in the window")
     else:
-        add(DECLARED[22], (jr or 0) >= 0.95 * oc,
+        # TWO-SIDED: an over-count (a call journaled twice, or journaled with
+        # no Ollama line behind it) fails exactly like an under-count.
+        add(DECLARED[22], abs((jr or 0) - oc) <= 0.05 * oc,
             "{} recorded vs {} Ollama calls in {} min ({}%)".format(jr, oc, bx.get("window_min"), int(100 * (jr or 0) / oc)))
 
     # ---- walk #5 additions (all details are COUNTS or product copy; no person names) ----
@@ -1691,6 +1693,22 @@ def self_test():
     # dedicated fixtures, not folded into the MUTANTS list above, because a
     # mutant's whole contract is "must be caught"; the first of these two
     # must NOT be.
+    # The Bursar arm is TWO-SIDED (Archie, walk #27): an over-count is as
+    # wrong as an under-count (a call journaled twice, or journaled with no
+    # matching Ollama line). |recorded - ollama| <= 5% of ollama.
+    want22 = DECLARED[22]
+    for label, journal, must in (("100% recorded", 1000, True), ("95% recorded", 950, True),
+                                 ("105% recorded", 1050, True), ("94% recorded", 940, False),
+                                 ("110% recorded", 1100, False)):
+        fb = copy.deepcopy(_good())
+        fb["box"]["ollama_calls"] = 1000
+        fb["box"]["journal_calls"] = journal
+        got22 = [ok for n, ok, _ in judge(fb) if n == want22]
+        if got22 != [must]:
+            missed.append("Bursar {} of 1000 Ollama calls read {!r}, want [{}]".format(label, got22, must))
+        else:
+            print("  ok    Bursar {} of Ollama's calls {}".format(label, "PASSES" if must else "FAILS"))
+
     want13 = DECLARED[13]
 
     shared_landline = copy.deepcopy(_good())
