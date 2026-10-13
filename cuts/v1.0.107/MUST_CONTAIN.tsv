@@ -398,3 +398,7 @@ Walk chooser prefers a rich recent person	CM051	7842b798	no	walk_chooser_prefers
 Context digest: family bucket only when the owner is the kin end	CM051	25ecc4ff	no	context_digest_family_bucket_owner_is_kin_end	TBD	CM051 #2843
 Walk screens probe classifies a real-person link miss	CM051	25ecc4ff	no	walk_screens_classifies_real_person_link_miss	TBD	CM051 #2843
 Walk screens probe uses the API slug	CM051	47c849a9	no	walk_screens_uses_api_slug	TBD	CM051 #2840
+# 2026-10-13 (ORM, candidate #26): CM051-only on the #23 pins (hub-v0.5.15 644b6137, wiki v0.1.52 d6ba3a01). #2848 (#2847 #2846). cut.env CM051=8f8db9da.
+CM048 thread_key from handles (reminders_push)	CM051	8f8db9da	no	cm048_thread_key_from_handles	TBD	CM051 #2848
+CM048 bundle carries participant handles (channel_adapter)	CM051	8f8db9da	no	cm048_bundle_carries_participant_handles	TBD	CM051 #2848
+Walk screens probe prints miss inputs	CM051	8f8db9da	no	walk_screens_prints_miss_inputs	TBD	CM051 #2848
