@@ -55,6 +55,10 @@ OWNER_ID = "jane"
 OWNER_NAME = "Jane Doe"
 OWNER_EMAIL = "jane@example.com"
 NEIGHBOUR_PLACE = "Sam Patel is based in Lyonville."
+# #27: UNTAGGED legacy location facts. A contact's must go; the owner as explicit subject stays.
+UNTAGGED_CONTACT_PLACES = ("Lizzie Li lives in Harborview", "Is based in Robbieton")
+UNTAGGED_OWNER_PLACE = "Jane Doe lives in Seaford"
+PLACE_WITH_PHONE = "Office line " + "".join(["5550", "1991", "11"]) + " in Seaford"   # owner-tagged, but a raw phone never prints
 _PHONE_DIGITS = "".join(["5550", "1990", "00"])  # composed: no phone literal in source
 CONTACT_PHONE_FACT = f"+{_PHONE_DIGITS} has a son"
 OWNER_END_FACT = "Liz Doe is the sister of Jane Doe"
@@ -89,7 +93,9 @@ def _lit(v) -> ox.Literal:
 def _seed_store(*, mecard_org: str | None = "ExampleCo",
                 linkedin_current: str | None = None,
                 neighbour_place: bool = False,
-                contact_family: bool = False) -> ox.Store:
+                contact_family: bool = False,
+                untagged_places: bool = False,
+                phone_place: bool = False) -> ox.Store:
     store = ox.Store()
     dg = ox.DefaultGraph()
     rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
@@ -161,7 +167,8 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     add(af, "belongsToUser", owner)
     add(af, "createdAt", _lit(stamp(-1)))
 
-    ufact("u1", "Lives in Fictionville", "location", "general")
+    ufact("u1", "Lives in Fictionville", "location", "general",
+          about=f"urn:ostler:user/{OWNER_ID}")
     ufact("u2", "Has a sister called Liz Doe", "relationship", "family",
           about=f"urn:ostler:user/{OWNER_ID}")
     ufact("u3", "L3 SECRET FAMILY FACT", "relationship", "family", level="L3")
@@ -186,6 +193,13 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
         for i, t in enumerate(UNTAGGED_OTHERS):
             ufact(f"x{i}", t, "relationship", "family")          # no urn:ostler:about
         ufact("x9", UNTAGGED_OWNER_DAUGHTER, "relationship", "family")
+
+    if phone_place:
+        ufact("y8", PLACE_WITH_PHONE, "location", "general", about=f"urn:ostler:user/{OWNER_ID}")
+    if untagged_places:
+        for i, t in enumerate(UNTAGGED_CONTACT_PLACES):
+            ufact(f"y{i}", t, "location", "general")                 # no urn:ostler:about
+        ufact("y9", UNTAGGED_OWNER_PLACE, "location", "general")
 
     # People the owner interacts with.
     def person(pid, name, org=None, level="L2"):
@@ -663,3 +677,28 @@ def test_family_untagged_owner_relation_with_owner_as_subject_stays(env):
     fam = _about_family(digest)
     assert UNTAGGED_OWNER_DAUGHTER in fam
     assert "Has a sister called Liz Doe" in fam and OWNER_END_FACT in fam
+
+
+# ── #27: untagged location facts leave the Places line ───────────────────────
+
+def test_places_untagged_contact_locations_are_dropped(env):
+    """RED on the #2841 generator: the Places bucket kept untagged location facts."""
+    _, digest = _build(env, _SCRIPT, _seed_store(untagged_places=True), name="gen_pl27")
+    places = _about_places(digest)
+    for t in UNTAGGED_CONTACT_PLACES:
+        assert t not in places, f"untagged location fact on the owner's Places line: {t!r}"
+
+
+def test_places_owner_tagged_and_owner_subject_stay(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(untagged_places=True, neighbour_place=True), name="gen_pl27c")
+    places = _about_places(digest)
+    assert "Lives in Fictionville" in places            # tagged to the owner
+    assert "Works from Harbourtown on Fridays" in places
+    assert UNTAGGED_OWNER_PLACE in places               # owner is the explicit subject
+    assert NEIGHBOUR_PLACE not in places
+
+
+def test_places_a_raw_phone_never_prints(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(phone_place=True), name="gen_pl27p")
+    assert "55501991" not in digest
+    assert "Lives in Fictionville" in _about_places(digest)      # the control: places do render here
