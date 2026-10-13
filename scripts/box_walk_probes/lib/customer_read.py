@@ -874,6 +874,11 @@ def judge(f, declared=None):
         shown = ", ".join("{}: {}".format(u, why.get(u, "no reason recorded")) for u in unread[:8])
         detail = "{} of {} nav-linked pages read{}".format(len(set(links) & set(crawl)), len(set(links)),
                                                          "; unread: " + shown if unread else "")
+        ro = (f.get("wiki") or {}).get("reopens") or 0
+        rr = (f.get("wiki") or {}).get("reopen_reasons") or {}
+        detail += "; reopened {}".format(ro) + (
+            " (" + ", ".join("{}: {}, {}".format(k, r, "recovered" if k in crawl else "not recovered")
+                             for k, r in sorted(rr.items())) + ")" if rr else "")
         if prod:
             detail += "; PRODUCT finding (page answered badly): " + ", ".join(prod[:8])
         # a harness-only shortfall (timeout, budget) is CANNOT-RUN, never a pass and never a product FAIL
@@ -1004,7 +1009,7 @@ def _read_failure(exc=None, status=None):
     return "timeout" if "Timeout" in name else name
 
 
-def crawl_nav(rels, read_page, reopen, budget_s, log=None):
+def crawl_nav(rels, read_page, reopen, budget_s, log=None, reopens=None):
     """Read every nav page. read_page(rel) -> (http_status, data) or raises.
     A closed browser target (WebKit dying under load, #27) is reopened and the
     page retried once, so the LAST pages are still crawled. Returns (read, why_not)."""
@@ -1030,6 +1035,8 @@ def crawl_nav(rels, read_page, reopen, budget_s, log=None):
                 log("crawl {}: {} after {:.0f}s of {:.0f}s budget (attempt {})".format(
                     key, reason, time.time() - t0, budget_s, attempt))
                 if attempt == 1 and "Closed" in type(exc).__name__:
+                    if reopens is not None:
+                        reopens.append([key, reason])
                     try:
                         reopen()
                     except Exception as exc2:
@@ -1320,7 +1327,10 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     np = ctx.new_page()
                     np.set_viewport_size({"width": 1440 - 240, "height": 944})
                     cur["fr"] = np.main_frame
-                crawl, fails = crawl_nav(rels, _read, _reopen, _crawl_budget_s(len(rels)))
+                reopens = []
+                crawl, fails = crawl_nav(rels, _read, _reopen, _crawl_budget_s(len(rels)), reopens=reopens)
+                f["wiki"]["reopens"] = len(reopens)
+                f["wiki"]["reopen_reasons"] = {k: r for k, r in reopens}
                 f["wiki"]["nav_links"] = [r or "(front)" for r in rels]
                 f["wiki"]["crawl"] = crawl
                 f["wiki"]["crawl_failures"] = fails
@@ -1970,6 +1980,15 @@ def self_test():
         missed.append("an HTTP 500 nav page is not a product FAIL naming the page: {} {}".format(h_ok, h_d))
     else:
         print("  ok    a nav page answering 500 prints 'HTTP 500' and FAILs as product")
+    z = _crawl_row({})[1]
+    g1 = copy.deepcopy(_good())
+    g1["wiki"]["reopens"] = 1
+    g1["wiki"]["reopen_reasons"] = {"System/Declining/": "TargetClosedError"}
+    o1 = [d for n, ok, d in judge(g1) if n == DECLARED[29]][0]
+    if "reopened 0" not in z or "reopened 1 (System/Declining/: TargetClosedError, recovered)" not in o1:
+        missed.append("the nav detail line does not carry the reopen count: {!r} {!r}".format(z, o1))
+    else:
+        print("  ok    the nav-coverage detail prints 'reopened 0' and 'reopened 1 (page: reason, recovered)'")
     if _crawl_budget_s(36) <= _crawl_budget_s(3) or _crawl_budget_s(10000) > 1800:
         missed.append("crawl budget does not scale with page count under a cap")
     else:
