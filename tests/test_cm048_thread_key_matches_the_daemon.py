@@ -65,14 +65,14 @@ RUST_VECTORS = [
     (["852" + "55500001" + AT + "s.whatsapp.net"], "a02f1f5fffde6fd2"),
     ([ph("0002"), ph("0003"), ph("0001")], "0b571067bd9f7170"),
     ([ph("0001"), ph("0001")], "a02f1f5fffde6fd2"),
-    (["Robin Example"], "2a5ac7eb412aa469"),
+    (["Jane Doe"], "f3226695156e6318"),
     (["  " + ph("0004") + "  "], "e6a5a51180a50e5f"),
 ]
 
 ROBIN = ph("0001")
 CASEY = EMAIL
 OWNER_SELF = ph("0099")
-NAMES = {ROBIN: "Robin Example", CASEY: "Casey Sample"}
+NAMES = {ROBIN: "Jane Doe", CASEY: "John Doe"}
 
 
 def _bundle(handles=(), sid="s-1", participants=("user",)):
@@ -96,7 +96,7 @@ def _bundle_via_the_shipped_threader(chat_id, handles, is_group):
                     is_from_me=False, chat_id=chat_id, has_attachment=False, service="iMessage")]
     session = Session(conversation_id="conv-synthetic-1", chat_id=chat_id, messages=msgs,
                       is_group=is_group, participant_handles=list(handles))
-    metadata = build_metadata(session, user_display_name="Owner Example",
+    metadata = build_metadata(session, user_display_name="Mary Doe",
                               name_for_handle=lambda h: NAMES.get(h, ""))
     classification = Classification.from_dict({
         "setting": "personal", "shape": "1:1", "stakes": "low", "confidence": 0.9,
@@ -141,7 +141,7 @@ def test_the_owner_is_excluded():
                     chat_id="any;-;" + ROBIN, has_attachment=False, service="iMessage")]
     session = Session(conversation_id="conv-synthetic-2", chat_id="any;-;" + ROBIN,
                       messages=msgs, is_group=False, participant_handles=[ROBIN])
-    metadata = build_metadata(session, user_display_name="Owner Example",
+    metadata = build_metadata(session, user_display_name="Mary Doe",
                               name_for_handle=lambda h: NAMES.get(h, ""))
     metadata["participants"][0]["handle"] = OWNER_SELF
     classification = Classification.from_dict({
@@ -157,14 +157,14 @@ def test_the_owner_is_excluded():
 def test_a_one_to_one_guid_alone_still_keys_by_its_handle():
     """A bundle with no participant handles (an older producer) falls back to
     the handle inside a 1:1 chat guid, never to the labels."""
-    b = _bundle(sid="any;-;" + ROBIN, participants=("user", "robin-example"))
+    b = _bundle(sid="any;-;" + ROBIN, participants=("user", "jane-doe"))
     assert thread_key_for(b, "user") == "a02f1f5fffde6fd2"
 
 
 def test_with_no_handle_known_the_label_fallback_is_unchanged():
-    b = _bundle(sid="any;+;chat900001", participants=("user", "robin-example"))
+    b = _bundle(sid="any;+;chat900001", participants=("user", "jane-doe"))
     import hashlib
-    want = hashlib.sha256(b"ostler-thread:robin-example").hexdigest()[:16]
+    want = hashlib.sha256(b"ostler-thread:jane-doe").hexdigest()[:16]
     assert thread_key_for(b, "user") == want
 
 
@@ -182,7 +182,7 @@ def test_handles_are_not_rendered_into_the_bundle_artefacts():
     ("852" + "55500001" + AT + "lid", "852" + "55500001"),
     ("abc" + AT + "s.whatsapp.net", "abc" + AT + "s.whatsapp.net"),
     ("١٢٣", "١٢٣"),  # non-ASCII digits are NOT digits (Rust is_ascii_digit)
-    ("Robin Example", "robin example"),
+    ("Jane Doe", "jane doe"),
     # Rust trims before anything else: whitespace around an email goes.
     ("  " + EMAIL_MIXED + " ", EMAIL),
     # A JID local part of non-ASCII digits is NOT a phone (is_ascii_digit).
