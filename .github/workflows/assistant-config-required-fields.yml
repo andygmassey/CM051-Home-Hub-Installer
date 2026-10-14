@@ -75,6 +75,7 @@ jobs:
       - name: Assert every table install.sh emits carries the fields the daemon requires
         run: bash tests/test_assistant_config_required_fields.sh
       - name: The shipped [gateway] states require_pairing and a pair rate limit (red team DMG #27 F4-4)
+        if: always()
         run: bash tests/test_gateway_pairing_is_explicit.sh
 
       # Same surface as the step above -- the config.toml install.sh emits --
