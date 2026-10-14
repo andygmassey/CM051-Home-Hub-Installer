@@ -150,6 +150,9 @@ def extract_history(
     db_path: Optional[Path] = None,
     since_days: int = 365,
     min_visits: int = 1,
+    *,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
 ) -> list[HistoryEntry]:
     """Extract browsing history entries from Chrome.
 
@@ -162,6 +165,10 @@ def extract_history(
             at the extract_all.py layer.
         min_visits: Drop URLs whose ``urls.visit_count`` is below
             this threshold. Default 1 to match Safari.
+        since: Absolute lower bound (exclusive); overrides since_days.
+            Used by the full-history catch-up (catchup_browser.py).
+        until: Absolute upper bound (exclusive). None = no upper bound,
+            the install-time behaviour, unchanged.
 
     Returns:
         List of HistoryEntry, most-recent visit first.
@@ -184,7 +191,15 @@ def extract_history(
     # visits.visit_time monotonicity.
     now_unix = datetime.now(timezone.utc).timestamp()
     cutoff_unix = now_unix - (since_days * 86400)
+    if since is not None:
+        cutoff_unix = since.timestamp()
     cutoff_chrome = int((cutoff_unix + CHROME_EPOCH_OFFSET) * 1_000_000)
+    upper_sql, params = "", [cutoff_chrome, min_visits]
+    if until is not None:
+        upper_sql = "\n                  AND v.visit_time < ?"
+        params = [cutoff_chrome,
+                  int((until.timestamp() + CHROME_EPOCH_OFFSET) * 1_000_000),
+                  min_visits]
 
     with _copy_history_db(db_path) as tmp_path:
         try:
@@ -210,11 +225,11 @@ def extract_history(
                     v.from_visit
                 FROM urls u
                 JOIN visits v ON v.url = u.id
-                WHERE v.visit_time > ?
+                WHERE v.visit_time > ?""" + upper_sql + """
                   AND u.visit_count >= ?
                 ORDER BY v.visit_time DESC
                 """,
-                (cutoff_chrome, min_visits),
+                tuple(params),
             ).fetchall()
         except sqlite3.OperationalError as exc:
             logger.error("Failed to query Chrome history: %s", exc)
@@ -256,6 +271,33 @@ def extract_history(
 
     logger.info("Extracted %d history entries from Chrome", len(entries))
     return entries
+
+
+def oldest_visit(db_path: Optional[Path] = None) -> Optional[datetime]:
+    """The oldest visit in Chrome's History, or None when it holds none.
+
+    Read from a copy, like extract_history (Chrome locks the live file).
+    Raises FileNotFoundError when Chrome's History is absent and
+    PermissionError when Full Disk Access is missing."""
+    db_path = Path(db_path) if db_path else DEFAULT_HISTORY_PATH
+    if not db_path.exists():
+        raise FileNotFoundError(f"Chrome history not found at {db_path}")
+    with _copy_history_db(db_path) as tmp_path:
+        try:
+            conn = sqlite3.connect(f"file:{tmp_path}?mode=ro", uri=True)
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "authorization denied" in msg or "permission" in msg:
+                raise PermissionError("Cannot read Chrome history: Full Disk Access") from exc
+            raise
+        try:
+            row = conn.execute(
+                "SELECT MIN(visit_time) FROM visits WHERE visit_time > 0").fetchone()
+        finally:
+            conn.close()
+    if not row or row[0] is None:
+        return None
+    return _convert_timestamp(row[0])
 
 
 def top_domains(
