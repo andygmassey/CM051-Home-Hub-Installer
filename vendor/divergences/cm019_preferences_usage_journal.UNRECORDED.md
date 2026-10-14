@@ -251,3 +251,17 @@ Test: `tests/test_music_services_score_on_one_scale.py`.
 `tests/test_pref_noise_source_cap.py` (updated: all rows kept, head first).
 
 **Upstream status:** not ported; owed to personal-world-graph `services/ingest`.
+
+## Walk #28 -- cm019_preferences enrich CLI consent backstop (extended in place)
+
+- vendored file: `vendor/cm019_preferences/services/enrich/src/cli.py`
+- edit: `require_public_lookup_consent()` plus its two readers
+  (`consent_env_file()`, `public_lookups_decision()`), defined under
+  `DEFAULT_USER_ID`, called in `enrich` before the non-dry-run branch and at the
+  top of `parallel`. Reads `OSTLER_CONSENT_ENRICHMENT_DECISION` from
+  `~/.ostler/config/.env`; only "accepted" proceeds.
+- why no patch: same reason as above, this row's `divergence_patch` is
+  deliberately empty and turning it on would take on the whole reconciliation
+  gap. Upstream has no consent gate, so the edit is owed upstream as well.
+- detail: `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`, "Walk #28".
+- proven by execution: `tests/test_enrichment_honours_a_decline.sh` (arm C).
