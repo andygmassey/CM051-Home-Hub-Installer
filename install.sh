@@ -11407,7 +11407,14 @@ PRESET=${PRESET:-recommended}
 # not read it unless they picked Everything or ticked it by hand: on the
 # v1.0.102 walk a default install ingested 0 of 1,298 photo events. Faces stay
 # out of every preset (photos_faces is the Art. 9 opt-in, tickable only).
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata"
+# CM051 walk #27 (Andy, 2026-10-14): "we MUST have Apple Music data in there,
+# and as complete as possible", without telling the customer to tick a
+# setting. apple_music is now read by the signed ostler-music-library helper
+# (iTunesLibrary, "Media & Apple Music" permission, pre-warmed with the other
+# permissions), not only from the optional XML export, so it is in the
+# default preset. A refused permission or an empty library is fail-open:
+# zero tracks, no prompt here, no abort.
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata,apple_music"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -11495,24 +11502,12 @@ case "$PRESET" in
             _ask_source "chrome_history"   "Chrome history            " N
         fi
         _ask_source "photos_metadata"  "Photos events (no faces)  " Y
-        # vendor/ostler_fda/apple_music.py has a complete extractor but is
-        # DELIBERATELY not offered here, in RECOMMENDED, or in EVERYTHING.
-        # Every other source above reads a live, TCC-gated database the FDA
-        # consent grant unlocks directly. apple_music is structurally
-        # different: the modern Music app's live store is an undocumented
-        # opaque CoreData bundle the extractor will not touch, so it reads
-        # only ~/Music/iTunes/iTunes Music Library.xml, a file that exists
-        # ONLY if the customer has separately run a manual export from the
-        # Music app's file menu (the "export library" action). A checkbox
-        # here would grant no new access and would silently produce zero
-        # rows for the near-totality of customers who have never run that
-        # export -- the same "ticked the box, got nothing" trap
-        # tests/test_status_ok_with_zero_payload_is_not_ok.sh exists to
-        # catch on the CONSUMPTION side. Offering it needs a real UI
-        # affordance (a file picker + instructions for the manual export),
-        # not a same-shaped toggle, so it stays unreachable-by-design here
-        # rather than reachable-but-broken. Revisit if a customer-visible
-        # "point me at your exported library" flow is ever built.
+        # apple_music used to be withheld here because it could read only
+        # the Music app's optional XML export. It now reads the live library
+        # through the bundled ostler-music-library helper (CM051 walk #27),
+        # so it is offered and on by default; a refused permission or an
+        # empty library yields zero tracks, never an error.
+        _ask_source "apple_music"      "Apple Music library       " Y
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
@@ -18867,8 +18862,18 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
     : "${OSTLER_MAIL_BACKFILL_DAYS:=1825}"
 
+    # CM051 walk #27: the signed Apple Music helper sits beside install.sh in
+    # the installer's Resources (gui/project.yml bundles it like
+    # ostler-mecard). Passed only when it is there and executable; absent, the
+    # extractor reads the XML export or nothing, exactly as before.
+    _OSTLER_MUSIC_HELPER=""
+    if [[ -x "${SCRIPT_DIR:-}/ostler-music-library" ]]; then
+        _OSTLER_MUSIC_HELPER="${SCRIPT_DIR}/ostler-music-library"
+    fi
+
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
+                 OSTLER_MUSIC_LIBRARY_HELPER="${_OSTLER_MUSIC_HELPER}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
                  OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS:-}" \
                  OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
@@ -18911,6 +18916,22 @@ print(json.dumps(summary, default=str))
         info "$MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL"
         info "$MSG_INFO_AND_RE_RUN_OSTLER_FDA"
     fi
+
+    # CM051 walk #27: stage the Apple Music library export into the
+    # preferences drop-zone, which 3.12b hands to ostler-import (CM019
+    # ingest-dir). Upserts by a source-keyed id, so it only ADDS preferences
+    # with source apple_music and touches no existing row. Absent export
+    # (permission refused, empty library, source not chosen) = nothing staged.
+    _AM_EXPORT="${OSTLER_DIR}/imports/fda/ostler_apple_music_library.json"
+    if [[ -s "$_AM_EXPORT" ]]; then
+        if mkdir -p "${OSTLER_DIR}/imports/preferences/apple_music" \
+           && cp -f "$_AM_EXPORT" "${OSTLER_DIR}/imports/preferences/apple_music/"; then
+            info "Apple Music library staged for your preferences."  # i18n-exempt
+        else
+            warn "Could not stage the Apple Music library for preferences; continuing."  # i18n-exempt
+        fi
+    fi
+    unset _AM_EXPORT
 
     # #259: Apple Mail no-content guidance. The apple_mail extractor
     # arm now reports status "empty_no_content" when Mail is in the
