@@ -29,6 +29,15 @@ already treats a leading robot emoji as the assistant's. The invisible
 `ASSISTANT_SEND_MARKER` is appended at send time by ostler-assistant (separate
 PR) so a customer who empties the visible prefix is still covered.
 
+## The rule (revised in review, same PR)
+
+`is_assistant_send(text, from_owner)`: the invisible marker counts in any
+direction; the robot-emoji prefix counts only on a row the owner's own
+account sent (iMessage `is_from_me=1` or the inbound copy in the owner's
+self-chat; WhatsApp `ZISFROMME=1`; email From the owner's address, passed as
+`read_messages(user_address=...)`). A contact's message that opens with the
+same emoji is kept.
+
 ## Why there is no patch
 
 `scripts/regenerate_divergence_patch.sh <tree>` was run (dry) on 2026-10-14

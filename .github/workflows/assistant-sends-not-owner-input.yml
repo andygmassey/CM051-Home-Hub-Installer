@@ -54,7 +54,7 @@ jobs:
           import sys
           p = sys.argv[1]
           s = open(p).read()
-          old = "    return text.lstrip().startswith(ASSISTANT_SEND_PREFIX)"
+          old = "    return from_owner and text.lstrip().startswith(ASSISTANT_SEND_PREFIX)"
           assert s.count(old) == 1, "mutant did not apply to " + p
           s = s.replace(old, '    return ASSISTANT_SEND_PREFIX in text or text.startswith("Good morning")')
           open(p, "w").write(s)
