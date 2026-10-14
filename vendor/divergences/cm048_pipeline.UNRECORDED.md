@@ -261,6 +261,8 @@ Tree `cm048_pipeline`, file `src/processor.py`:
   `_owner_turns_only` and `_extraction_transcript`, plus `import re`;
 - `_step_facts` passes the raw transcript through `_extraction_transcript`
   before building the 05 prompt;
+- `_step_enrich` passes its transcript through `_extraction_transcript`
+  before chunking and building the 02 prompts;
 - `_step_bundle` passes `_extraction_transcript(transcript, metadata)` to
   `bundle_extractor.extract`. The `transcript` handed to
   `channel_adapter.make_bundle` (the rendered transcript artefact) is
@@ -280,8 +282,10 @@ SHARED INPUT, DECIDED: the bundle's summary, topics and todos come from ONE
 LLM call on one input, so for gateway all three read the owner's turns only.
 Chosen over leaving the bundle unfiltered because its topics are written into
 the graph (`topic_writer`) where the assistant's topics tool reads them back,
-which is the same defect class. NOT CHANGED: step 02 enrichment still reads
-the full transcript and seeds the bundle's topic discovery.
+which is the same defect class. `_step_enrich` (step 02) reads the same
+filtered transcript (Archie, #2865 review): its Action items table becomes the
+`outstanding_todos` sidecar and its text seeds the step 09 topics, so an
+unfiltered enrichment would carry an assistant guess into both.
 
 Not attempted against the regeneration tool: this tree is `verify = "skip"`,
 see the first section. Guarded by

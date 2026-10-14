@@ -715,6 +715,11 @@ def _step_enrich(
             metadata["conversation_id"],
             _budget,
         )
+    # Gateway: the enrichment is an extraction step too. Its Action items
+    # table becomes the outstanding_todos sidecar and its text seeds the
+    # step 09 topics, so it reads the owner's turns only. The raw
+    # transcript on disk (00_raw_transcript.md) is not touched.
+    transcript = _extraction_transcript(transcript, metadata)
     try:
         _step_enrich_inner(
             client, transcript, metadata, classification, settings, dry_run,

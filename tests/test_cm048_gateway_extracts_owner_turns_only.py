@@ -40,10 +40,10 @@ from src import processor  # noqa: E402
 from src.schemas import Classification  # noqa: E402
 from src.settings import Settings, ensure_directories  # noqa: E402
 
-OWNER_EMAIL = "rowan.vale@example.invalid"
+OWNER_EMAIL = "jane.doe@example.invalid"
 
 # What the owner says. Both must still be extracted.
-OWNER_CLAIM = "I play cello in the Harbourside Orchestra"
+OWNER_CLAIM = "I play cello in the riverside town orchestra"
 OWNER_TODO = "renew the allotment permit by Friday"
 
 # What only the assistant says. None of it may be extracted.
@@ -51,7 +51,7 @@ ASSISTANT_GUESS = "you keep a pet tortoise called Brimble"
 ASSISTANT_TODO = "book the piano tuner"
 # A bold "Label:" INSIDE an assistant reply. It is not a speaker, so it
 # must not end the assistant turn and let this line back in.
-ASSISTANT_BOLD_TRAP = "you were born in Port Sable"
+ASSISTANT_BOLD_TRAP = "you were born in riverside town"
 
 ALL_CLAIMS = (OWNER_CLAIM, ASSISTANT_GUESS, ASSISTANT_BOLD_TRAP)
 ALL_TODOS = (OWNER_TODO, ASSISTANT_TODO)
@@ -115,7 +115,7 @@ def gateway(tmp_path, monkeypatch):
 def settings(tmp_path: Path) -> Settings:
     s = Settings(
         user_id="test-user",
-        user_display_name="Rowan Vale",
+        user_display_name="Jane Doe",
         processing_state_dir=tmp_path / "processing",
         output_conversations_dir=tmp_path / "conversations",
         coach_db_path=tmp_path / "coach" / "observations.db",
@@ -138,6 +138,31 @@ def _transcript_section(prompt: str) -> str:
     return prompt.split("--- TRANSCRIPT ---", 1)[1]
 
 
+ENRICH_SLUG = "social_casual"
+
+
+def _fake_enrichment(seen: str) -> str:
+    """A well-formed enrichment whose Key topics and Action items table
+    carry every known synthetic sentence present in ``seen``."""
+    from src import enrichment_validation, prompts
+
+    name = prompts.enrichment_prompt_name_for(ENRICH_SLUG)
+    present = [c for c in ALL_CLAIMS + ALL_TODOS if c in seen]
+    out = ["---", "type: synthetic", "---", ""]
+    for h in enrichment_validation.expected_headings_for(name):
+        out.append(f"## {h}")
+        out.append("")
+        if h.lower() == "action items":
+            out += ["| Owner | Action | Deadline |", "|---|---|---|"]
+            out += [f"| Sam Smith | {c} | |" for c in present]
+        elif h.lower() == "key topics":
+            out += [f"- {c}" for c in present]
+        else:
+            out.append("_Nothing to report._")
+        out.append("")
+    return "\n".join(out)
+
+
 class FakeLLM:
     """Deterministic stand-in for OllamaClient at the step boundary."""
 
@@ -155,13 +180,22 @@ class FakeLLM:
         ]
         return SimpleNamespace(parsed_json={"facts": facts})
 
-    def generate(self, *, model, prompt, **_kw):
+    def generate(self, model=None, prompt=None, **_kw):
         self.prompts.append(prompt)
+        if "--- ENRICHMENT (for topic seeding) ---" not in prompt:
+            # Step 02 enrichment (or its heading retry).
+            seen = prompt.split("--- TRANSCRIPT ---", 1)[-1]
+            return SimpleNamespace(raw_response=_fake_enrichment(seen))
+        # Step 09 bundle. Topics are seeded from the enrichment AND the
+        # transcript, so the fake reads the whole body after the
+        # enrichment marker; todos read the transcript section.
+        body = prompt.split("--- ENRICHMENT (for topic seeding) ---", 1)[1]
         seen = _transcript_section(prompt)
         todos = [{"text": t, "owner": "user"} for t in ALL_TODOS if t in seen]
+        points = [c for c in ALL_CLAIMS if c in body] or ["p"]
         return SimpleNamespace(raw_response=json.dumps({
             "overall_summary": "Synthetic summary.",
-            "topics": [{"name": "Synthetic", "points": ["p"]}],
+            "topics": [{"name": "Synthetic", "points": points}],
             "todos": todos,
         }))
 
@@ -272,3 +306,51 @@ def test_a_configured_assistant_name_is_dropped_too(monkeypatch):
          f"**Marlowe:** I think {ASSISTANT_GUESS}.\n\n")
     kept = processor._extraction_transcript(t, {"source": "gateway"})
     assert OWNER_CLAIM in kept and ASSISTANT_GUESS not in kept
+
+
+def test_assistant_claim_reaches_neither_enrichment_todos_nor_bundle_topics(
+    settings, gateway, monkeypatch
+):
+    """Archie, #2865 review: step 02 enrichment is filtered too.
+
+    Real gateway metadata has participants=[], and the outstanding_todos
+    sidecar is empty for a conversation with no non-user participant
+    whatever the table says, so a sidecar check on that metadata could
+    only ever say "no". One synthetic participant is added here so the
+    sidecar CAN carry a row, and the table rows are asserted directly too.
+    """
+    from src import outstanding_todos
+
+    transcript, metadata = gateway
+    metadata = dict(metadata, participants=[
+        {"id": "person:sam_smith", "display": "Sam Smith", "role": "other"},
+    ])
+    d = _state_dir(settings, transcript, metadata)
+    c = Classification.from_dict({
+        **_classification().to_dict(), "suggested_type_slug": ENRICH_SLUG,
+    })
+    llm = FakeLLM()
+    processor._step_enrich(llm, transcript, metadata, c, settings, False)
+
+    enrichment = (d / "02_enrichment.md").read_text()
+    rows = [r.get("action") or "" for r in
+            outstanding_todos.parse_action_items_table(enrichment)]
+    sidecar = (d / "outstanding_todos.json").read_text()
+    # Positive control: the owner's todo DID reach the table and sidecar,
+    # so an empty answer below is not a dead pipe.
+    assert OWNER_TODO in rows, rows
+    assert OWNER_TODO in sidecar
+    assert ASSISTANT_GUESS not in rows, rows
+    assert ASSISTANT_TODO not in rows, rows
+    assert ASSISTANT_GUESS not in sidecar
+    assert ASSISTANT_TODO not in sidecar
+
+    _todos, _prompt, handed = _run_bundle(settings, transcript, metadata, monkeypatch)
+    bundle = json.loads((d / "09_bundle.json").read_text())
+    points = [p for t in bundle["topics"] for p in t["points"]]
+    assert OWNER_CLAIM in points, points  # positive control
+    assert ASSISTANT_GUESS not in points, points
+    assert ASSISTANT_BOLD_TRAP not in points, points
+    # Raw and rendered transcripts unchanged.
+    assert (d / "00_raw_transcript.md").read_text() == transcript
+    assert handed["transcript"] == transcript
