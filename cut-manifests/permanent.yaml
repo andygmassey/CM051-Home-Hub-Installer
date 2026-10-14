@@ -1312,6 +1312,16 @@ entries:
       kind: box_walk_probe
       probe: "pair_endpoints_refuse_off_window"
 
+  - id: box-walk-companion-listener-refuses-unauthenticated
+    title: from the LAN, the companion listener on 8443 refuses a request with no or a made-up bearer, and the shipped config states pairing and its rate limit
+    incident: >-
+      Red team DMG #27 F4-4. The companion listener binds 0.0.0.0:8443 and
+      the shipped [gateway] config never stated require_pairing or a pair rate
+      limit. Asserted from the walk driver against the box. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "companion_listener_refuses_unauthenticated"
+
   # ADVISORY (scripts/walk_promote_scope.tsv, chat_latency_baseline row): a
   # baseline measurement, not an install check. Declared here because every
   # probe on disk must be invoked by the cut; the promote scope decides it

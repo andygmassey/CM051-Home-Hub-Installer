@@ -16443,6 +16443,17 @@ TOMLPREAMBLE
     # above BEFORE this block truncated the file. Never write the admin token
     # unconditionally here -- that unpairs every device on upgrade.
     echo "paired_tokens = [${_paired_tokens_toml}]"
+    # RED TEAM DMG #27 F4-4: the companion listener binds 0.0.0.0:8443 (below),
+    # reachable from the whole LAN, and whether pairing was required and the
+    # pair attempts rate-limited rested on the binary's defaults, which the
+    # shipped config never stated. State both: an upgrade to a binary whose
+    # default changed must not open the listener silently. Proved on a box by
+    # the walk probe companion_listener_refuses_unauthenticated.
+    echo "require_pairing = true"
+    _ostler_pair_rl="${OSTLER_PAIR_RATE_LIMIT_PER_MINUTE:-10}"
+    [[ "$_ostler_pair_rl" =~ ^[1-9][0-9]*$ ]] || _ostler_pair_rl=10
+    echo "pair_rate_limit_per_minute = ${_ostler_pair_rl}"
+    unset _ostler_pair_rl
 
     # v1.0.13: phone pairing ENABLED by default. Prior comment
     # (v1.0.10 DEFERRED) is superseded -- the two preconditions have
