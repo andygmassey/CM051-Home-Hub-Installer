@@ -1139,3 +1139,13 @@ Reminders list and pauses pushes. Doctor's reader had no word for it and
 would have shown a healthy "Reminders are syncing". This record is
 location and shape only; `doctor.patch` is not regenerated here. Test:
 `tests/test_doctor_reminders_list_removed.py`.
+
+## A merged person is never re-created by the next ingest (DMG #27, shape sweep S2)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. New `_StoreUnavailable`, `_resolve_merged` (follows `pwg:mergedInto` to the live survivor, at most 16 hops, cycle-safe), `_live_person`. `_person_exists` now answers True for a `pwg:mergedInto` tombstone as well as any typed node, and RAISES `_StoreUnavailable` on a store error (it answered False). `_identifier_exists` answers True on a store error (fail closed). `ingest_imessage`, `ingest_whatsapp`, `ingest_calendar`, `ingest_mail_contacts` and `ingest_photos_people` resolve their URI (or the identifier holder) to the live survivor before creating or writing, and SKIP the person on a store error (iMessage and WhatsApp now report `people_lookup_failed`; calendar and mail no longer create on a failed identifier lookup). `ingest_photo_events` points `photoAttendee` at the survivor. `_load_people_from_oxigraph` and `_current_person_uris` exclude nodes carrying `pwg:mergedInto`, so the people index stops indexing, and prunes, merged-away nodes.
+
+WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) could not see it, so the next tick re-minted the merged person on its uuid5 URI. Measured on the DMG #27 walk box: 145 merged nodes typed Person again (138 WhatsApp, 6 iMessage) and 144 duplicate Qdrant people points. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).

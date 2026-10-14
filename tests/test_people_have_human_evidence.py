@@ -251,6 +251,9 @@ def test_imessage_ingest_does_not_mint_a_person_for_a_sender_id(tmp_path, monkey
     writes = []
     monkeypatch.setattr(pwg_ingest, "_sparql_update", lambda q: writes.append(q))
     monkeypatch.setattr(pwg_ingest, "_person_exists", lambda uri: False)
+    # No store here: the writers now follow pwg:mergedInto first and fail
+    # CLOSED when the store cannot be read (DMG #27 S2), so stub that read too.
+    monkeypatch.setattr(pwg_ingest, "_resolve_merged", lambda uri: uri)
     monkeypatch.setattr(pwg_ingest, "_upsert_display_name", lambda *a, **k: None)
     monkeypatch.setattr(pwg_ingest, "_update_last_contact", lambda *a, **k: None)
     monkeypatch.setattr(pwg_ingest, "_is_forgotten", lambda *a, **k: False)

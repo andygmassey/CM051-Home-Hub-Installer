@@ -1315,14 +1315,16 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 _update_last_contact(uri, last_msg, "whatsapp")
 
     logger.info(
-        "WhatsApp: %d people created, %d enriched (t1=%d, t2_intimate=%d, t2_active=%d, t3_skipped=%d)",
-        people_created, people_enriched,
+        "WhatsApp: %d people created, %d enriched, %d skipped (store unreadable) "
+        "(t1=%d, t2_intimate=%d, t2_active=%d, t3_skipped=%d)",
+        people_created, people_enriched, lookup_failed,
         tier_t1, tier_t2_intimate, tier_t2_active, tier_t3_skipped,
     )
     return {
         "status": "ok",
         "people_created": people_created,
         "people_enriched": people_enriched,
+        "people_lookup_failed": lookup_failed,
         "tier_t1_dm_chats": tier_t1,
         "tier_t2_intimate_chats": tier_t2_intimate,
         "tier_t2_active_chats": tier_t2_active,
@@ -1380,10 +1382,17 @@ def ingest_calendar(fda_dir: Path) -> dict:
             # customer already had in Contacts became a second record.
             found = _person_uri_by_identifier_value(attendee)
             if found is _LOOKUP_FAILED:
+                # FAIL CLOSED (DMG #27 S2): a store that cannot be asked must
+                # not mint a person. Counted, and retried on the next run.
                 lookup_failed += 1
-                found = None
+                continue
             person_id = _person_id_from_identifier(attendee)
-            uri = found or _person_uri(person_id)
+            # The holder may be a merged-away node: write onto its survivor.
+            try:
+                uri, exists = _live_person(found or _person_uri(person_id))
+            except _StoreUnavailable:
+                lookup_failed += 1
+                continue
             attendee_uris.append(uri)
 
             if uri not in people_seen:
@@ -1391,7 +1400,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
 
                 if found:
                     people_matched += 1
-                elif not _person_exists(uri):
+                elif not exists:
                     triples = [
                         f"<{uri}> a pwg:Person",
                         f'<{uri}> pwg:contactType "person"',
@@ -1536,8 +1545,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
         uri = _person_uri(person_id)
         if _is_forgotten("", uri, name):
             continue
+        try:
+            uri, exists = _live_person(uri)
+        except _StoreUnavailable:
+            continue
 
-        if not _person_exists(uri):
+        if not exists:
             photo_count = person.get("photo_count", 0)
             first_seen = person.get("first_seen", "")
             last_seen = person.get("last_seen", "")
@@ -1674,9 +1687,14 @@ def ingest_photo_events(fda_dir: Path) -> dict:
         if faces_opted_in:
             for name in event.get("people") or []:
                 if isinstance(name, str) and name.strip():
+                    face_uri = _photo_face_person_uri(name.strip())
+                    try:
+                        # A merged face person: point at the live survivor.
+                        face_uri = _resolve_merged(face_uri)
+                    except _StoreUnavailable:
+                        pass  # an edge, not a new node; the tombstone still resolves
                     triples.append(
-                        f"<{uri}> pwg:photoAttendee "
-                        f"<{_photo_face_person_uri(name.strip())}>"
+                        f"<{uri}> pwg:photoAttendee <{face_uri}>"
                     )
 
         _sparql_update(
@@ -1759,14 +1777,19 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # cannot see.
         found = _person_uri_by_identifier_value(email)
         if found is _LOOKUP_FAILED:
+            # FAIL CLOSED (DMG #27 S2): counted, retried on the next run.
             lookup_failed += 1
-            found = None
+            continue
         person_id = _person_id_from_identifier(email)
-        uri = found or _person_uri(person_id)
+        try:
+            uri, exists = _live_person(found or _person_uri(person_id))
+        except _StoreUnavailable:
+            lookup_failed += 1
+            continue
 
         if found:
             people_matched += 1
-        elif not _person_exists(uri):
+        elif not exists:
             triples = [
                 f"<{uri}> a pwg:Person",
                 f'<{uri}> pwg:contactType "person"',
@@ -2862,6 +2885,9 @@ def _load_people_from_oxigraph() -> list[dict]:
         "?givenName ?familyName ?createdAt WHERE {\n"
         "  ?uri a pwg:Person ;\n"
         "       pwg:displayName ?displayName .\n"
+        # DMG #27 S2: a merged-away node is not a person to index, even
+        # when an old ingest typed it Person again. Its points are pruned.
+        "  FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }\n"
         "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
         "  OPTIONAL { ?uri pwg:organization ?org }\n"
         "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
@@ -3069,7 +3095,9 @@ def _current_person_uris() -> Optional[set]:
         rows = _sparql_query(
             "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "SELECT DISTINCT ?uri WHERE { ?uri a pwg:Person ; "
-            "pwg:displayName ?n . }"
+            "pwg:displayName ?n . "
+            # DMG #27 S2: so a merged-away node's vector is pruned.
+            "FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged } }"
         )
     except Exception:
         return None
