@@ -37,6 +37,16 @@
 # report splits the score in two (SCORE-CONTEXT-ONLY, SCORE-NEEDS-RETRIEVAL) so
 # a gain from seeding is never read as a product gain.
 #
+# THE DIGEST. After seeding, CONTEXT.md is produced by the PRODUCT's own generator
+# (generate_pwg_context.py, the context-refresh LaunchAgent's script, shipped at
+# ~/.ostler/bin) run against the seeded stores, so the assistant answers from
+# exactly what a customer's gets. Each question is then tagged context-only or
+# needs-retrieval at run time by whether its facts appear in THAT file. Only if
+# the generator cannot run is the persona trimmed to the product's caps, and the
+# output says which path was taken: "context: product generator ..." or
+# "context: FALLBACK trim, reason ...". The CONTEXT.md swap restores the real
+# file either way.
+#
 # ORDER. The seed adds a synthetic person and facts, so this probe declares
 # itself a writer (below) and run_box_walk.sh runs it LAST, after every probe
 # that counts or reads people.
@@ -80,6 +90,8 @@ PULL_DEST="${OSTLER_OWNER_SCORE_EVIDENCE_PULL:-$HOME/walkdriver/evidence}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 REMOTE_EVIDENCE="\$HOME/.ostler/state/owner-score-evidence/walk-${STAMP}"
 _SEEDED=0
+_CTX_INSTALLED=0
+_CTX_SOURCE="context: persona digest (graph not seeded)"
 _SEED_RC=""
 _PURGE_RC=0
 _PURGE_LINE=""
@@ -181,7 +193,8 @@ run_probe() {
 
     # Ship the instrument over stdin (box_run's ssh has no -n, so stdin is the transport).
     tar czf - -C "$SRC_DIR" grading.py grading_legacy.py owner_score.py questions_visible.jsonl questions_heldout.jsonl \
-        CHECKSUM.lock CONTEXT.persona.md context_swap.sh seed_persona.py persona.json 2>/dev/null \
+        CHECKSUM.lock CONTEXT.persona.md context_swap.sh seed_persona.py persona.json \
+        -C "$SRC_DIR/../../context-refresh/bin" generate_pwg_context.py 2>/dev/null \
         | box_run "mkdir -p ${REMOTE_DIR} && tar xzf - -C ${REMOTE_DIR}" >/dev/null 2>&1 \
         || probe_cannot_run "could not stage the owner-score instrument on the box"
 
@@ -223,17 +236,33 @@ run_probe() {
         _SEED_RC="$(printf '%s\n' "$_so" | sed -n 's/^SEED_RC=//p' | tail -1)"
         if [ "$_SEED_RC" != "0" ]; then
             probe_note "SEED FAILED: the graph and conversation store were NOT seeded; the score below is CONTEXT.md only"
+        else
+            # the product's generator, on the seeded stores, into CONTEXT.md
+            _go="$(box_run "cd ${REMOTE_DIR} && python3 -I seed_persona.py generate-context --out ${REMOTE_DIR}/CONTEXT.generated.md; echo GEN_RC=\$?" 2>&1)"
+            _CTX_SOURCE="$(printf '%s\n' "$_go" | grep -E '^(context:|CANNOT-RUN)' | head -1)"
+            [ -n "$_CTX_SOURCE" ] || _CTX_SOURCE="context: unknown (generate-context printed nothing)"
+            printf '  %s\n' "$_CTX_SOURCE"
+            if [ "$(printf '%s\n' "$_go" | sed -n 's/^GEN_RC=//p' | tail -1)" = "0" ] \
+               && [ "$(box_run "bash ${REMOTE_DIR}/context_swap.sh install \"${WORKSPACE}\" ${REMOTE_DIR}/CONTEXT.generated.md" 2>&1)" = "INSTALLED" ]; then
+                _CTX_INSTALLED=1
+            else
+                probe_note "could not install the generated CONTEXT.md; the score below is answered from the persona digest"
+                _CTX_SOURCE="context: persona digest (generated digest not installed: ${_CTX_SOURCE})"
+            fi
         fi
     fi
     _limit_arg=""
     [ "$LIMIT" != "0" ] && _limit_arg="--limit ${LIMIT}"
 
+    _CTX_SRC_Q="$(printf '%s' "$_CTX_SOURCE" | tr -d "'")"
     _tmp="$(mktemp)"
-    box_run "cd ${REMOTE_DIR} && python3 -I owner_score.py ${_qarg} --set ${SET} ${_limit_arg} --evidence-dir \"${REMOTE_EVIDENCE}\" --target ${TARGET} --timeout ${CHAT_TIMEOUT} --token-path '${TOKEN_PATH}' 2>/dev/null; echo RC=\$?" > "$_tmp" 2>&1
+    box_run "cd ${REMOTE_DIR} && python3 -I owner_score.py ${_qarg} --set ${SET} ${_limit_arg} --evidence-dir \"${REMOTE_EVIDENCE}\" --context-source '${_CTX_SRC_Q}' --target ${TARGET} --timeout ${CHAT_TIMEOUT} --token-path '${TOKEN_PATH}' 2>/dev/null; echo RC=\$?" > "$_tmp" 2>&1
 
     if [ -z "$CUSTOM_Q" ]; then
         # The LaunchAgent that regenerates CONTEXT.md can overwrite the persona mid-run.
-        box_run "grep -q '${PERSONA_MARKER}' \"${WORKSPACE}/CONTEXT.md\"" >/dev/null 2>&1 \
+        if [ "$_CTX_INSTALLED" -eq 1 ]; then _still="bash ${REMOTE_DIR}/context_swap.sh verify \"${WORKSPACE}\""
+        else _still="grep -q '${PERSONA_MARKER}' \"${WORKSPACE}/CONTEXT.md\""; fi
+        box_run "${_still}" >/dev/null 2>&1 \
             || { _restore_context; probe_cannot_run "the persona digest was overwritten at ${WORKSPACE}/CONTEXT.md during the run (the context LaunchAgent), so the score would not measure the persona"; }
     fi
 

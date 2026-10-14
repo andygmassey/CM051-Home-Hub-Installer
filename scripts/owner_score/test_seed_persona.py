@@ -28,6 +28,7 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import seed_persona as sp  # noqa: E402
+import grading as sp_grading  # noqa: E402
 
 TOKEN = "oxi-test-token"
 UID = "u-test-1"
@@ -159,9 +160,12 @@ class SeedAndPurge(unittest.TestCase):
     def test_what_was_seeded_is_the_shape_the_readers_look_for(self):
         self.assertEqual(self.run_cmd("seed").returncode, 0)
         q = ('SELECT (COUNT(*) AS ?n) WHERE { GRAPH <urn:ostler:user/%s> { ?f a <urn:ostler:Fact> ; '
-             '<urn:ostler:text> ?t ; <urn:ostler:about> ?p } ?p a <%sPerson> ; <%sdisplayName> "Sam Ross" . '
-             'FILTER(CONTAINS(?t, "best friend")) }' % (UID, sp.NS, sp.NS))
-        self.assertEqual(self.n(q), 1)    # a lookup by NAME reaches the relation, via the person node
+             '<urn:ostler:text> ?t ; <urn:ostler:about> <urn:ostler:person/sam-ross> } '
+             'FILTER(CONTAINS(?t, "best friend")) }' % UID)
+        self.assertEqual(self.n(q), 1)    # the CM048 shape: about = urn:ostler:person/<slug>
+        qo = ('SELECT (COUNT(*) AS ?n) WHERE { GRAPH <urn:ostler:user/%s> { ?f <urn:ostler:about> <urn:ostler:user/%s> } }'
+              % (UID, UID))
+        self.assertGreater(self.n(qo), 40)   # the owner's own facts: about = urn:ostler:user/<id>
         qd = 'SELECT (COUNT(*) AS ?n) WHERE { ?p a <%sPerson> ; <%sdisplayName> "Jane Smith" }' % (sp.NS, sp.NS)
         self.assertEqual(self.n(qd), 1)
         for f in self.folders():
@@ -220,6 +224,63 @@ class SeedAndPurge(unittest.TestCase):
         self.assertEqual(got["Last Friday Bob confir"], "2026-10-02")   # '... booked for 20 October' is the subject
         self.assertEqual(got["On Tuesday 6 October, "], "2026-10-06")
         self.assertEqual(got["Jane and Tom chose the"], "2026-10-07")   # 'yesterday' against as_of 2026-10-08
+
+    # ---- CONTEXT.md from the PRODUCT's generator, on the seeded store -------------------
+    GEN = os.path.join(HERE, "..", "..", "context-refresh", "bin", "generate_pwg_context.py")
+
+    def gen_ctx(self, *extra, expect_rc=0):
+        out = os.path.join(self.tmp, "CONTEXT.generated.md")
+        self.env.update(OSTLER_DIR=os.path.join(self.tmp, ".ostler"), OSTLER_ICAL_BASE_URL="http://127.0.0.1:9")
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "seed_persona.py"), "generate-context",
+                            "--store", "http://127.0.0.1:%d" % self.srv.server_port, "--token-path", self.tok,
+                            "--user-id", UID, "--conversations-root", self.root, "--out", out, *extra],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(r.returncode, expect_rc, r.stdout + r.stderr)
+        return r.stdout, (open(out).read() if os.path.exists(out) else None)
+
+    def test_the_products_generator_runs_on_the_seeded_store_and_questions_split_two_ways(self):
+        import test_owner_score as to
+        self.assertTrue(os.path.exists(self.GEN), "the shipped generator is in the repo")
+        self.assertEqual(self.run_cmd("seed").returncode, 0)
+        out, digest = self.gen_ctx("--generator", self.GEN)
+        self.assertIn("context: product generator", out)
+        self.assertNotIn("FALLBACK", out)
+        self.assertTrue(digest and len(digest) > 200, "generated CONTEXT.md is non-empty")
+        self.assertIn("- Name: Jane Smith", digest)
+        parts = {q["id"]: sp_grading.classify_part(q, digest) for q in to.ALL}
+        n_ret = sum(v == "retrieval" for v in parts.values())
+        n_ctx = sum(v == "context" for v in parts.values())
+        print("\n  generated digest: %d chars; %d questions context-only, %d need retrieval" % (len(digest), n_ctx, n_ret))
+        self.assertGreaterEqual(n_ret, 1)
+        self.assertGreaterEqual(n_ctx, 1)
+        # a fact the generator DID surface is tagged context; one it did not is retrieval
+        self.assertEqual(parts["tastes-10"], "context")   # absent: nothing to retrieve
+        self.assertEqual(parts["work-04"], "retrieval")   # 'March 2023' is a work-history fact the digest does not carry
+        # and the digest is not the hand-written persona file
+        self.assertNotEqual(digest, open(os.path.join(HERE, "CONTEXT.persona.md")).read())
+
+    def test_the_fallback_is_announced_with_its_reason_when_there_is_no_generator(self):
+        self.assertEqual(self.run_cmd("seed").returncode, 0)
+        self.env["HOME"] = self.tmp   # no ~/.ostler/bin copy
+        out, digest = self.gen_ctx("--generator", os.path.join(self.tmp, "nope.py"))
+        self.assertTrue(out.startswith("context: FALLBACK trim, reason no generate_pwg_context.py found"), out)
+        self.assertNotIn("product generator", out)
+        self.assertIn("## People", digest)
+        self.assertNotIn("## Work", digest)   # trimmed to the product's sections
+
+    def test_the_fallback_is_announced_when_the_generator_runs_and_fails(self):
+        self.assertEqual(self.run_cmd("seed").returncode, 0)
+        bad = os.path.join(self.tmp, "bad_generator.py")
+        open(bad, "w").write("import sys\nsys.stderr.write('boom: store said no\\n')\nsys.exit(2)\n")
+        out, digest = self.gen_ctx("--generator", bad)
+        self.assertTrue(out.startswith("context: FALLBACK trim, reason generator exit 2, digest empty"), out)
+        self.assertIn("boom: store said no", out)
+        self.assertTrue(digest)
+
+    def test_generate_context_refuses_when_nothing_is_seeded(self):
+        out, digest = self.gen_ctx("--generator", self.GEN, expect_rc=78)
+        self.assertIn("nothing is seeded", out)
+        self.assertIsNone(digest)
 
     def test_every_seeded_subject_is_inside_the_namespace(self):
         g = pyoxigraph.Store()

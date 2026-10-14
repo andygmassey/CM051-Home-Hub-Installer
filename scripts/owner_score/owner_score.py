@@ -348,6 +348,8 @@ def main(argv=None):
     ap.add_argument("--evidence-dir", help="where replies and tool traces are kept (default: a new directory under "
                     "~/.ostler/state/owner-score-evidence/ on a live run; with --answers nothing is written unless this is given). "
                     "Refused inside a git checkout.")
+    ap.add_argument("--context-source", help="one line saying how CONTEXT.md was made (printed and kept in the evidence), "
+                    "e.g. 'context: product generator ...' or 'context: FALLBACK trim, reason ...'")
     ap.add_argument("--context-file", help="the CONTEXT.md the run is answered from, used to tag each question as answerable "
                     "from it alone or needing retrieval (default: the box's workspace CONTEXT.md, else the shipped digest)")
     ap.add_argument("--target", type=float, default=TARGET)
@@ -427,6 +429,8 @@ def main(argv=None):
         except OSError:
             continue
     parts = {q["id"]: grading.classify_part(q, ctx_text) for q in questions}
+    if a.context_source:
+        print("CONTEXT-SOURCE  %s" % a.context_source.replace("\n", " ")[:300])
 
     evidence_dir = a.evidence_dir or (None if a.answers else default_evidence_dir())
     if evidence_dir and inside_git_checkout(evidence_dir):
@@ -472,7 +476,7 @@ def main(argv=None):
         ps = part_summary(questions, per_q, parts)
         write_evidence(evidence_dir, records, withheld,
                        {"checksum": combined, "set": "custom" if a.questions else a.set,
-                        "asked": len(questions), "context_source": parts_source,
+                        "asked": len(questions), "context_source": parts_source, "context_made_by": a.context_source,
                         "score": overall, "parts": {k: {"n": v[1], "score": (v[0] / v[1] if v[1] else None)}
                                                     for k, v in ps.items()},
                         "written": datetime.now(timezone.utc).isoformat()})

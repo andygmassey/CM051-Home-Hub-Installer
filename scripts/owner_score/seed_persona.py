@@ -5,6 +5,15 @@ store, under a namespace that can be purged exactly.  Runs ON THE BOX.
     seed_persona.py seed  [--user-id U] [--store URL] [--conversations-root DIR]
     seed_persona.py count [same]
     seed_persona.py purge [same]
+    seed_persona.py generate-context --out FILE   run the PRODUCT's generator on the seeded store
+
+generate-context is how CONTEXT.md is made for a run: the shipped
+generate_pwg_context.py (the context-refresh LaunchAgent's own script,
+~/.ostler/bin/) is run against the seeded stores into a scratch workspace, so
+the digest is exactly what a customer's assistant gets. Only when it cannot
+run does it write a persona trimmed to the product's caps, and the line it
+prints says which: "context: product generator ..." or "context: FALLBACK
+trim, reason ...".
 
 WHY. Until now the persona reached the assistant only through CONTEXT.md, so
 the 80 questions never exercised pwg_people / pwg_knowledge_search. This puts
@@ -29,7 +38,7 @@ purge deletes subjects with that prefix (default graph and every named graph)
 and the marked folders, and nothing else. count prints the numbers that prove
 it: before seed, after seed, after purge, with the rest of the store unchanged.
 
-SAFETY. It refuses (exit 10) unless the box is declared synthetic: the
+SAFETY. seed refuses (exit 10) unless the box is declared synthetic: the
 workspace CONTEXT.md carries the persona marker (context_swap.sh only puts it
 there on a box it has proven synthetic) or ~/.ostler/state/synthetic-box
 exists. purge never needs that: removing our own namespace is always allowed.
@@ -83,6 +92,13 @@ def slugify(name):
 
 def person_iri(name):
     return PREFIX + "person_" + slugify(name)
+
+
+def about_iri(name, owner, user_id):
+    """What urn:ostler:about holds, in the CM048 writer's own shape: urn:ostler:user/<id>
+    for the owner, urn:ostler:person/<slug> for anyone else. The product's context
+    generator keeps an owner fact only when about == the owner's urn:ostler:user/<id>."""
+    return "urn:ostler:user/%s" % user_id.lower() if name == owner else "urn:ostler:person/" + slugify(name)
 
 
 def load_persona(path=None):
@@ -167,7 +183,7 @@ def build_plan(persona, user_id):
                 '<urn:ostler:userId> "%s" ; <urn:ostler:domain> "%s" ; <urn:ostler:type> "%s" ; '
                 '<urn:ostler:privacyLevel> "L1" ; <urn:ostler:seedBatch> "%s" ; '
                 '<urn:ostler:observedAt> "%s"^^<%s> .'
-                % (iri, esc(text), person_iri(who), esc(user_id), dom, dom, BATCH,
+                % (iri, esc(text), about_iri(who, owner, user_id), esc(user_id), dom, dom, BATCH,
                    persona["as_of"] + "T09:00:00Z", XSD_DT))
     # triples = one per predicate-object pair
     expected = sum(t.count(" ; ") + 1 for t in default_triples + named_triples)
@@ -308,6 +324,75 @@ def purge_conversations(root):
     return n
 
 
+# ------------------------------------------------------- the CONTEXT.md digest --
+# The product's own caps (context-refresh/bin/generate_pwg_context.py MAX_PEOPLE,
+# MAX_MEETINGS, MAX_PREFERENCES). Used ONLY by the fallback.
+FALLBACK_CAPS = (("People", 6), ("Upcoming events", 5), ("Tastes", 8))
+
+
+def find_generator(explicit=None):
+    here = os.path.dirname(os.path.abspath(__file__))
+    for c in (explicit, os.environ.get("OSTLER_CONTEXT_GENERATOR"),
+              os.path.expanduser("~/.ostler/bin/generate_pwg_context.py"),
+              os.path.join(here, "generate_pwg_context.py")):
+        if c and os.path.isfile(os.path.expanduser(c)):
+            return os.path.expanduser(c)
+    return None
+
+
+def fallback_digest(persona):
+    """Trim the persona to the sections and caps the product's generator uses. Only
+    ever used when the generator cannot run against the seed; announced when it is."""
+    out = ["# Personal Context", "",
+           "%s. Facts as of %s." % (MARKER, persona["as_of"]), ""]
+    for title, cap in FALLBACK_CAPS:
+        out.append("## " + title)
+        out.extend("- " + l for l in persona["sections"].get(title, [])[:cap])
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def generate_context(a, uid, token):
+    """Run the product's generator against the seeded store into a scratch
+    workspace and write the result to a.out. -> (source line, path taken)."""
+    import subprocess
+    persona = load_persona(a.persona)
+    gen = find_generator(a.generator)
+    reason = None
+    body = ""
+    if not gen:
+        reason = "no generate_pwg_context.py found (looked at --generator, $OSTLER_CONTEXT_GENERATOR, ~/.ostler/bin)"
+    else:
+        import tempfile
+        ws = tempfile.mkdtemp(prefix="owner-score-ctx-")
+        env = dict(os.environ, ZEROCLAW_WORKSPACE_DIR=ws, USER_ID=uid, USER_NAME=persona["owner"],
+                   OXIGRAPH_URL=a.store, OSTLER_OXIGRAPH_TOKEN=token, PYTHONDONTWRITEBYTECODE="1",
+                   no_proxy="127.0.0.1,localhost", NO_PROXY="127.0.0.1,localhost")
+        env.pop("USER_EMAIL", None)   # the persona is not the box's owner
+        try:
+            venv = os.path.expanduser("~/.ostler/.venv/bin/python3")   # the tick wrapper prefers it
+            r = subprocess.run([venv if os.path.exists(venv) else sys.executable, "-I", gen], env=env, capture_output=True, text=True, timeout=180)
+            rc = r.returncode
+            try:
+                body = open(os.path.join(ws, "CONTEXT.md"), encoding="utf-8").read()
+            except OSError:
+                body = ""
+            if rc in (0, 3) and body.strip():
+                with open(a.out, "w", encoding="utf-8") as f:
+                    f.write(body)
+                shutil.rmtree(ws, True)
+                return ("context: product generator (%s, exit %d%s, %d chars)"
+                        % (gen, rc, " DEGRADED: some sources did not answer" if rc == 3 else "", len(body)), "generator")
+            reason = "generator exit %d, digest %s (%s)" % (rc, "empty" if not body.strip() else "present",
+                                                            (r.stderr.strip().splitlines() or ["no stderr"])[-1][:160])
+        except (OSError, subprocess.TimeoutExpired) as e:
+            reason = "generator could not run: %s" % type(e).__name__
+        shutil.rmtree(ws, True)
+    with open(a.out, "w", encoding="utf-8") as f:
+        f.write(fallback_digest(persona))
+    return "context: FALLBACK trim, reason %s" % reason, "fallback"
+
+
 # ------------------------------------------------------------------- main --
 def resolve_token(a):
     tok = (os.environ.get("OXIGRAPH_TOKEN") or "").strip()
@@ -349,7 +434,9 @@ def line(**kw):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="seed_persona")
-    ap.add_argument("cmd", choices=("seed", "count", "purge"))
+    ap.add_argument("cmd", choices=("seed", "count", "purge", "generate-context"))
+    ap.add_argument("--generator", help="path to generate_pwg_context.py (default: the shipped ~/.ostler/bin copy)")
+    ap.add_argument("--out", help="generate-context: where to write the digest")
     ap.add_argument("--store", default=os.environ.get("OSTLER_OXIGRAPH_BASE", "http://127.0.0.1:7878"))
     ap.add_argument("--token-path", default="~/.ostler/secrets/oxigraph_token")
     ap.add_argument("--user-id")
@@ -386,6 +473,21 @@ def main(argv=None):
             print("SEEDED triples=%d expected=%d people=%d facts=%d conversations=%d %s"
                   % (got, plan["expected_triples"], plan["n_people"], plan["n_facts"], n_conv, "OK" if ok else "MISMATCH"))
             return EX_OK if ok else EX_COUNT
+        if a.cmd == "generate-context":
+            if not a.out:
+                print("usage: generate-context needs --out")
+                return 2
+            uid = resolve_user_id(a)
+            if not uid:
+                print("CANNOT-RUN: no USER_ID, so the generator cannot find the owner's graph")
+                return EX_CANNOT
+            c = store.counts()
+            if not (c["seeded_default"] or c["seeded_named"]):
+                print("CANNOT-RUN: nothing is seeded, so a digest generated now would not be of the persona")
+                return EX_CANNOT
+            ctx_line, _path = generate_context(a, uid, store.token)
+            print(ctx_line)
+            return EX_OK
         if a.cmd == "count":
             print("COUNT now " + line(**store.counts(), conversation_folders=len(conversation_folders(root))))
             return EX_OK
