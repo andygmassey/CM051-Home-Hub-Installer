@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
     paths:
+      - 'vendor/cm019_preferences/services/ingest/src/tail_queue.py'
+      - 'vendor/cm019_preferences/services/ingest/src/cli.py'
+      - 'install.sh'
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
       - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/**'
@@ -16,6 +19,9 @@ on:
       - '.github/workflows/owner-data-never-capped.yml'
   pull_request:
     paths:
+      - 'vendor/cm019_preferences/services/ingest/src/tail_queue.py'
+      - 'vendor/cm019_preferences/services/ingest/src/cli.py'
+      - 'install.sh'
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
       - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/**'
@@ -44,8 +50,8 @@ jobs:
           n="$(python -m pytest tests/test_owner_data_is_never_capped_at_storage.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 11 ]; then
-            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 17 ]; then
+            echo "REFUSING: expected at least 17 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_owner_data_is_never_capped_at_storage.py -v -rs

@@ -189,6 +189,14 @@ Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
   keywords `(15)`), `parsers/pinterest.py` (followees `[:50]`): every item
   above the existing evidence floor is yielded, no top-N. The floors (e.g. 10
   messages for a channel) are unchanged.
+- `tail_queue.py` (NEW) + `pipeline.py` `_queue_tail` (called right after
+  `cap_by_source` on both aggregation paths) + `cli.py` `ingest-tail` (NEW):
+  when the caller sets `OSTLER_PREFS_FOREGROUND_PER_SOURCE` and
+  `OSTLER_PREFS_TAIL_QUEUE` (install.sh does, for the install import only),
+  the first N ranked rows per source are stored now and the rest are queued
+  as JSONL (ids and created_at preserved) for `ingest-tail`, run by
+  `ostler-scan-exports` (com.ostler.export-scan). Resumable per-file
+  checkpoint, idempotent rewrites; an unwritable queue stores everything now.
 - Callers unchanged: `pipeline.py` `ingest_file_with_aggregation` and
   `_ingest_directory_with_aggregation` (both call `cap_by_source`).
 

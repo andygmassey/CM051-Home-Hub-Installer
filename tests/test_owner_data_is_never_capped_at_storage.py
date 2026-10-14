@@ -127,12 +127,138 @@ def test_no_shipped_cap_remains():
 @pytest.mark.skipif(os.environ.get("OSTLER_MEASURE_50K") != "1",
                     reason="measurement run, set OSTLER_MEASURE_50K=1")
 def test_measure_50000(tmp_path, monkeypatch):
-    _write_history(tmp_path, 50000)
-    pipe, res, _, secs = _ingest(tmp_path, monkeypatch)
+    _write_history(tmp_path / "in", 50000)
+    pipe, res, _, secs = _ingest(tmp_path / "in", monkeypatch)
     n = len(pipe.qdrant.points)
     print(f"\nMEASURE items=50000 stored={n} ingest_s={secs:.2f} "
           f"payload_bytes={pipe.qdrant.payload_bytes} triples_bytes={pipe.oxigraph.triples_bytes}")
     assert n == 50000
+
+
+@pytest.mark.skipif(os.environ.get("OSTLER_MEASURE_INSTALL") != "1",
+                    reason="measurement run, set OSTLER_MEASURE_INSTALL=1")
+def test_measure_install_path_50000(tmp_path, monkeypatch):
+    """The INSTALL path on a 50,000-row source, embedding modelled at 1 ms per
+    text. Same harness runs on origin/main (built-in 5000 cap; the env vars
+    are ignored there) and on this branch (foreground 5000 + queued tail)."""
+    _write_history(tmp_path / "in", 50000)
+    monkeypatch.setenv("OSTLER_PREFS_FOREGROUND_PER_SOURCE", "5000")
+    monkeypatch.setenv("OSTLER_PREFS_TAIL_QUEUE", str(tmp_path / "queue"))
+
+    def slow_embed(texts):
+        time.sleep(0.001 * len(texts))
+        return [[0.0] * 4 for _ in texts]
+    monkeypatch.setattr(pl.vectorizer, "embed_batch", slow_embed)
+    pipe = pl.IngestPipeline()
+    pipe.qdrant, pipe.oxigraph = _Qdrant(), _Oxigraph()
+    t0 = time.perf_counter()
+    asyncio.run(pipe.ingest_directory(tmp_path / "in", user_id="fixture"))
+    secs = time.perf_counter() - t0
+    q = sum(1 for _ in (tmp_path / "queue").glob("*.jsonl")) if (tmp_path / "queue").exists() else 0
+    print(f"\nINSTALL items=50000 foreground_stored={len(pipe.qdrant.points)} queue_files={q} wall_s={secs:.2f}")
+
+
+# ── Archie's condition: foreground bounded, tail drained in the background ──
+
+def _foreground(tmp_path, monkeypatch, n=12000):
+    src = tmp_path / "in"
+    _write_history(src, n)
+    q = tmp_path / "queue"
+    monkeypatch.setenv("OSTLER_PREFS_FOREGROUND_PER_SOURCE", "5000")
+    monkeypatch.setenv("OSTLER_PREFS_TAIL_QUEUE", str(q))
+    pipe, res, order, _ = _ingest(src, monkeypatch)
+    return pipe, res, order, q
+
+
+def test_foreground_stores_the_same_top_5000_and_queues_the_rest(tmp_path, monkeypatch):
+    from services.ingest.src import tail_queue
+    pipe, res, order, q = _foreground(tmp_path, monkeypatch)
+    assert len(pipe.qdrant.points) == 5000 and res["total_queued"] == 7000
+    assert tail_queue.pending(q) == 7000
+    # the same 5000, in the same order, the old cap kept
+    monkeypatch.delenv("OSTLER_PREFS_FOREGROUND_PER_SOURCE")
+    _, _, capped, _ = _ingest(tmp_path / "in", monkeypatch, cap=5000)
+    assert order == capped
+
+
+def test_after_the_drain_the_store_holds_every_row(tmp_path, monkeypatch):
+    from services.ingest.src import tail_queue
+    pipe, _, _, q = _foreground(tmp_path, monkeypatch)
+    out = asyncio.run(tail_queue.drain(pipe, q, budget_seconds=600))
+    print(f"drain={out} stored={len(pipe.qdrant.points)}")
+    assert out["written"] == 7000 and out["remaining"] == 0
+    assert len(pipe.qdrant.points) == 12000
+    assert not list(q.glob("*"))
+
+
+def test_a_queue_that_cannot_be_written_stores_everything_now(tmp_path, monkeypatch):
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x")
+    _write_history(tmp_path / "in", 6000)
+    monkeypatch.setenv("OSTLER_PREFS_FOREGROUND_PER_SOURCE", "5000")
+    monkeypatch.setenv("OSTLER_PREFS_TAIL_QUEUE", str(blocker / "queue"))
+    pipe, res, _, _ = _ingest(tmp_path / "in", monkeypatch)
+    assert len(pipe.qdrant.points) == 6000 and res["total_queued"] == 0
+
+
+_CHILD = r"""
+import asyncio, json, sys, time
+sys.path.insert(0, sys.argv[1])
+from services.ingest.src import pipeline as pl, tail_queue
+from pathlib import Path
+log = open(sys.argv[3], "a", buffering=1)
+class Q:
+    async def upsert_vectors(self, vectors, payloads, ids):
+        for i, p in zip(ids, payloads):
+            log.write(f"{i}\t{p['created_at']}\n")
+        return True
+class O:
+    async def insert_triples(self, ttl, graph=None):
+        return True
+def emb(texts):
+    time.sleep(0.02)
+    return [[0.0] * 4 for _ in texts]
+pl.vectorizer.embed_batch = emb
+p = pl.IngestPipeline(); p.qdrant, p.oxigraph = Q(), O()
+print(json.dumps(asyncio.run(tail_queue.drain(p, Path(sys.argv[2]), budget_seconds=600))))
+"""
+
+
+def test_the_drain_survives_a_kill_mid_tail_with_no_duplicates(tmp_path, monkeypatch):
+    import signal
+    import subprocess
+    from services.ingest.src import tail_queue
+    _, _, _, q = _foreground(tmp_path, monkeypatch)
+    rows = [json.loads(l) for f in q.glob("*.jsonl") for l in f.read_text().splitlines()[1:]]
+    want = {r["id"]: r["created_at"] for r in rows}
+    assert len(want) == 7000
+    child, log = tmp_path / "child.py", tmp_path / "upserts.log"
+    child.write_text(_CHILD)
+    argv = [sys.executable, str(child), str(ROOT / "vendor" / "cm019_preferences"), str(q), str(log)]
+
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    deadline = time.time() + 60
+    while time.time() < deadline and (not log.exists() or log.read_text().count("\n") < 1000):
+        time.sleep(0.05)
+    proc.send_signal(signal.SIGKILL)
+    proc.wait(timeout=10)
+    killed_at = log.read_text().count("\n")
+    left = tail_queue.pending(q)
+    print(f"killed after {killed_at} upserts, {left} pending")
+    assert proc.returncode == -signal.SIGKILL and 0 < left < 7000
+
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-2000:]
+    lines = [l.split("\t") for l in log.read_text().splitlines()]
+    seen = {}
+    for i, created in lines:
+        assert want[i] == created, "a rewritten row changed (not idempotent)"
+        seen[i] = seen.get(i, 0) + 1
+    rewrites = sum(n - 1 for n in seen.values())
+    print(f"after restart: {len(seen)} distinct ids, {len(lines)} upserts, {rewrites} idempotent rewrite(s)")
+    assert set(seen) == set(want)
+    assert rewrites <= 32          # at most the one batch in flight at the kill
+    assert tail_queue.pending(q) == 0 and not list(q.glob("*.jsonl"))
 
 
 def test_apple_music_records_keep_every_artist_and_genre():
@@ -218,3 +344,16 @@ def test_no_preference_parser_keeps_only_a_top_n():
         if hits:
             found[p.name] = hits
     assert not found, f"top-N preference caps: {found}"
+
+
+def test_install_wires_the_foreground_bound_and_the_drain():
+    """install.sh sets the bound on the install-time import ONLY, and the
+    default-on export-scan agent drains the queue before looking for exports."""
+    sh = (ROOT / "install.sh").read_text()
+    imp = sh.index('"$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}"')
+    assert 'OSTLER_PREFS_FOREGROUND_PER_SOURCE="${OSTLER_PREFS_FOREGROUND_PER_SOURCE:-5000}"' in sh[imp - 400:imp]
+    assert 'OSTLER_PREFS_TAIL_QUEUE="${OSTLER_DIR}/state/prefs-tail"' in sh[imp - 400:imp]
+    scan = sh[sh.index("cat > \"${OSTLER_DIR}/bin/ostler-scan-exports\" <<'SCANEOF'"):sh.index("\nSCANEOF\n")]
+    drain_at = scan.index("services.ingest.src.cli ingest-tail")
+    assert drain_at < scan.index("FOUND=()"), "the drain must run before the new-export early exits"
+    assert sh.count("OSTLER_PREFS_FOREGROUND_PER_SOURCE=") == 1, "the bound is for the install import only"

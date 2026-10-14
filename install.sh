@@ -23034,7 +23034,16 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     _import_log="${OSTLER_DIAG_DIR}/import.log"
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
-    if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
+    # CM051 #28: the install import is the FOREGROUND. Store the first 5000
+    # preferences per source now (same ranking as the old cap, so the same top
+    # items are there when install finishes) and queue the rest for the
+    # background drain (com.ostler.export-scan -> ostler-scan-exports ->
+    # ingest-tail; RunAtLoad, so it starts as soon as it is bootstrapped later
+    # in this install, then every 4 h until the queue is empty). Nothing is
+    # dropped.
+    if OSTLER_PREFS_FOREGROUND_PER_SOURCE="${OSTLER_PREFS_FOREGROUND_PER_SOURCE:-5000}" \
+       OSTLER_PREFS_TAIL_QUEUE="${OSTLER_DIR}/state/prefs-tail" \
+       "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
         --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
         | tee "$_import_log" | while IFS= read -r line; do echo "  $line"; done; then
         ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
@@ -23837,6 +23846,28 @@ _notify() {
     _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
         osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
 }
+
+# ── CM051 #28: drain the preference TAIL the install queued ────────────────
+# The install import stores the first 5000 preferences per source in the
+# foreground and queues the rest (OSTLER_PREFS_TAIL_QUEUE). This agent
+# (com.ostler.export-scan, RunAtLoad + every 4 h, ON by default) is the
+# existing recurring preference importer, so it is the drain: it writes the
+# queue in bounded, resumable, idempotent slices BEFORE looking for new
+# exports, and runs whether or not a new export is found. The enrichment
+# agent is not used for this because it is OFF by default
+# (OSTLER_ENRICH_AGENT_ENABLED). Counts only in the log.
+_PREFS_TAIL_QUEUE="${OSTLER_PREFS_TAIL_QUEUE:-${OSTLER_DIR}/state/prefs-tail}"
+_CM019_DIR="${OSTLER_DIR}/services/cm019"
+if ls "$_PREFS_TAIL_QUEUE"/*.jsonl >/dev/null 2>&1 && [[ -x "${_CM019_DIR}/.venv/bin/python" ]]; then
+    mkdir -p "${OSTLER_DIR}/logs"
+    _tail_budget="${OSTLER_PREFS_TAIL_BUDGET_SECONDS:-1800}"
+    ( cd "$_CM019_DIR" && export QDRANT_COLLECTION=preferences && \
+        _ostler_run_with_deadline "$(( _tail_budget + 300 ))" \
+        "${_CM019_DIR}/.venv/bin/python" -m services.ingest.src.cli ingest-tail \
+            --queue "$_PREFS_TAIL_QUEUE" --budget-seconds "$_tail_budget" ) \
+        >>"${OSTLER_DIR}/logs/prefs-tail.log" 2>>"${OSTLER_DIR}/logs/prefs-tail.err"
+    printf '[%s] prefs-tail rc=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$?" >>"${OSTLER_DIR}/logs/prefs-tail.log"
+fi
 
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
 # names (for a friendly notification). Order people-graph first, then
