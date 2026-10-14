@@ -159,7 +159,7 @@ def test_evidence_under_two_speakers_is_left_alone():
 
 
 def test_an_unknown_speaker_label_is_left_alone():
-    transcript = f"**Somebody Else** (t): {BOB_LINE}\n"
+    transcript = f"**Tom Brown** (t): {BOB_LINE}\n"
     facts = [_fact("Jane's father has a retirement party", BOB_LINE)]
     reattribute(facts, transcript, {"participants": PARTICIPANTS})
     assert facts[0]["subject"] == "user"
