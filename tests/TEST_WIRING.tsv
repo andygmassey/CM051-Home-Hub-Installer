@@ -941,3 +941,4 @@ scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-mani
 test_walk_unpairs_its_synthetic_companion.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_scale_fixture_forget.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_interest_card_says_what_and_where.py	WIRED	.github/workflows/hub-screens-and-106c.yml

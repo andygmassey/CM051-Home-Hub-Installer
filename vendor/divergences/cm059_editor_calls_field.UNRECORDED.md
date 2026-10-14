@@ -45,3 +45,21 @@ reply-debt, gone-quiet, birthday and commitment names through `person_label`
 (gone-quiet and birthday are suppressed when there is no showable name);
 `render_frontpage.py` footer date is human and three em dashes in fixed copy
 are gone. Test: `tests/test_customer_leak_shapes.py`.
+
+## Interest cards say where the interest came from (CM051, 2026-10-14)
+
+Tree `cm059_editor`, file `vendor/cm059_editor/compiler/frontpage.py`.
+`scripts/regenerate_divergence_patch.sh cm059_editor --write` with
+`CM059=~/Developer/CM059-Ostler-Editor` REFUSED (exit 1): the source has
+advanced past the pin (6cc9d83), so this is recorded here.
+
+- NEW `_SOURCE_NAMES`, `_SOCIAL_SOURCES`, `_source_name`, `_join_names` and
+  `interest_provenance(it, now)` above `interest_card`;
+- `interest_card` body: `interest_provenance(it, now)` replaces the fixed
+  "One of the things Ostler reckons you're into." (dislikes unchanged).
+
+The sentence is built from the card's own `sources` and `last_seen` ("Followed
+on X, last seen in 2019.", "From your Apple Music and Spotify listening.", "On
+your LinkedIn profile.", "You told Ostler about this."). Pinned by
+`tests/test_interest_card_says_what_and_where.py`. CM059 upstream needs the
+same change, or the next re-pin reverts it.

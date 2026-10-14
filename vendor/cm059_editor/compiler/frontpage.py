@@ -428,6 +428,63 @@ def display_subject(it: dict) -> str:
     return subject
 
 
+# The interest card's body says WHERE an interest came from, from the card's
+# own `sources` and `last_seen`, instead of one sentence on every card ("One of
+# the things Ostler reckons you're into."). Source keys measured on a walk box:
+# apple, twitter, linkedin, spotify, apple_tv, whatsapp, foursquare, uber, you.
+_SOURCE_NAMES = {
+    "apple": "Apple", "apple_music": "Apple Music", "apple_tv": "Apple TV",
+    "spotify": "Spotify", "twitter": "X", "x": "X", "instagram": "Instagram",
+    "facebook": "Facebook", "linkedin": "LinkedIn", "youtube": "YouTube",
+    "whatsapp": "WhatsApp", "foursquare": "Foursquare", "uber": "Uber",
+    "google": "Google", "netflix": "Netflix", "pinterest": "Pinterest",
+    "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon",
+}
+_SOCIAL_SOURCES = {"twitter", "x", "instagram", "facebook", "tiktok", "youtube", "reddit", "pinterest"}
+
+
+def _source_name(key: str, category: str) -> str:
+    k = (key or "").strip().lower()
+    if k == "apple" and category == "music":
+        return "Apple Music"
+    return _SOURCE_NAMES.get(k) or k.replace("_", " ").strip().title()
+
+
+def _join_names(names: list) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def interest_provenance(it: dict, now: datetime) -> str:
+    """One plain sentence: what kind of signal this is and where it came from."""
+    category = (it.get("category") or "").lower()
+    keys = [s for s in (it.get("sources") or []) if isinstance(s, str) and s.strip()]
+    if any(k.lower() == "you" for k in keys):
+        return "You told Ostler about this."
+    keys = keys[:3]
+    if not keys:
+        line = "Picked up from your own data"
+    else:
+        names = list(dict.fromkeys(_source_name(k, category) for k in keys))
+        where = _join_names(names)
+        low = {k.lower() for k in keys}
+        if low == {"linkedin"}:
+            line = "On your LinkedIn profile"
+        elif category == "music":
+            line = f"From your {where} listening"
+        elif low <= _SOCIAL_SOURCES and category in ("interest", "creator", "social", "account", ""):
+            line = f"Followed on {where}"
+        elif category in ("movie", "tv", "film"):
+            line = f"Watched on {where}"
+        elif category == "place":
+            line = f"From your {where} check-ins"
+        else:
+            line = f"From your {where} data"
+    year = str(it.get("last_seen") or "")[:4]
+    if year.isdigit() and int(year) < now.year:
+        line += f", last seen in {year}"
+    return line + "."
+
+
 def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     """Phase C card: one inferred interest, with its evidence and the rate/
     correct affordances. Priority is the interest's own score mapped into the
@@ -444,7 +501,7 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
         "interest", it["id"],
         title=display_subject(it),
         body=("Something to avoid" if it.get("polarity") == "dislike"
-              else "One of the things Ostler reckons you're into."),
+              else interest_provenance(it, now)),
         now=now, domain=it.get("domain"),
         priority=base,
         action={"label": "Spot on", "kind": "strengthen"},
