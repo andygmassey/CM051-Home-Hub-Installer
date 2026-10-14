@@ -1218,3 +1218,12 @@ WHY: install-time `status=ok` plus a refused tick made the panel read "Up to dat
 ### What a future sync must preserve
 
 The `cannot_run` branch in `read_source_status`, the refusal-aware merge in `_read_source_activity`, and the exit-75 card. Guarded by `tests/test_fda_refusal_is_not_fresh.sh` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `doctor/` and re-pinning.
+## A refusal is classified by errno and sqlite code, not by one message (CM051 G1 follow-up, sweep V26) -- `ostler_fda`
+
+Tree `ostler_fda`. NEW vendor-only `vendor/ostler_fda/tcc_refusal.py` (`is_fda_refusal`, registered in `vendor/VENDOR_ONLY.tsv`). The connect-time `except sqlite3.OperationalError` in `apple_mail.py`, `apple_notes.py`, `calendar.py`, `imessage.py` (2 sites), `photos_metadata.py` (2 sites), `reminders.py` and `safari_history.py` now raise PermissionError when `is_fda_refusal(e, <db path>)`, in place of the literal `"authorization denied"` test. `chrome_history.py` and `whatsapp_history.py` add the same check ahead of their existing text test. `extract_all.py`: every per-source catch-all now goes through `_failure_status(e)`, which reports `no_fda` for an escaped refusal.
+
+WHY: a refused open() reaches Python as SQLITE_CANTOPEN "unable to open database file" (code 14), which the literal test missed, so a refusal was reported as `error` and #2908 could not record `cannot_run`. Measured with a chmod-000 fixture: every reader above raised OperationalError, and Calendar returned normally (an empty result). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`tcc_refusal.py`, the eleven `is_fda_refusal` call sites, and `_failure_status`. Guarded by `tests/test_fda_refusal_surfaces.py` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.

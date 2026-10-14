@@ -103,6 +103,22 @@ def _env_days(name: str, default: int) -> int:
         return default
 
 
+def _failure_status(e: BaseException, error: Optional[str] = None) -> dict:
+    """The summary row for a source whose extract raised.
+
+    A refusal that a reader did not convert to PermissionError (a query-time
+    SQLITE_AUTH, an EPERM from a helper) is still a refusal: report it as
+    no_fda so the fda tick records cannot_run and the Doctor asks for the
+    grant, instead of a generic error (CM051 G1, sweep V26). Without a path
+    SQLITE_CANTOPEN is never read as a refusal here; the readers decide that,
+    because only they know whether the file exists.
+    """
+    from .tcc_refusal import is_fda_refusal
+    if is_fda_refusal(e):
+        return {"status": "no_fda", "error": error if error is not None else str(e)}
+    return {"status": "error", "error": error if error is not None else str(e)}
+
+
 def run_all(
     output_dir: Optional[Path] = None,
     enabled_sources: Optional[Iterable[str]] = None,
@@ -169,7 +185,7 @@ def run_all(
             summary["sources"]["safari_history"] = {"status": "not_found"}
             logger.info("[skip] Safari History: database not found")
         except Exception as e:
-            summary["sources"]["safari_history"] = {"status": "error", "error": str(e)}
+            summary["sources"]["safari_history"] = _failure_status(e)
             logger.warning("[warn] Safari History: %s", e)
     else:
         summary["sources"]["safari_history"] = {"status": "disabled_by_user"}
@@ -212,7 +228,7 @@ def run_all(
             summary["sources"]["chrome_history"] = {"status": "not_found"}
             logger.info("[skip] Chrome History: Chrome not installed")
         except Exception as e:
-            summary["sources"]["chrome_history"] = {"status": "error", "error": str(e)}
+            summary["sources"]["chrome_history"] = _failure_status(e)
             logger.warning("[warn] Chrome History: %s", e)
     else:
         summary["sources"]["chrome_history"] = {"status": "disabled_by_user"}
@@ -242,7 +258,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["safari_bookmarks"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["safari_bookmarks"] = {"status": "error", "error": str(e)}
+            summary["sources"]["safari_bookmarks"] = _failure_status(e)
             logger.warning("[warn] Safari Bookmarks: %s", e)
     else:
         summary["sources"]["safari_bookmarks"] = {"status": "disabled_by_user"}
@@ -291,7 +307,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["imessage"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["imessage"] = {"status": "error", "error": str(e)}
+            summary["sources"]["imessage"] = _failure_status(e)
             logger.warning("[warn] iMessage: %s", e)
     else:
         summary["sources"]["imessage"] = {"status": "disabled_by_user"}
@@ -348,7 +364,7 @@ def run_all(
             summary["sources"]["whatsapp_history"] = {"status": "not_found"}
             logger.info("[skip] WhatsApp: ChatStorage.sqlite not found (install WhatsApp Desktop)")
         except Exception as e:
-            summary["sources"]["whatsapp_history"] = {"status": "error", "error": str(e)}
+            summary["sources"]["whatsapp_history"] = _failure_status(e)
             logger.warning("[warn] WhatsApp: %s", e)
     else:
         summary["sources"]["whatsapp_history"] = {"status": "disabled_by_user"}
@@ -433,7 +449,7 @@ def run_all(
             summary["sources"]["facebook_messenger"] = {"status": "not_found"}
             logger.info("[skip] Facebook Messenger: %s", e)
         except Exception as e:
-            summary["sources"]["facebook_messenger"] = {"status": "error", "error": str(e)}
+            summary["sources"]["facebook_messenger"] = _failure_status(e)
             logger.warning("[warn] Facebook Messenger: %s", e)
     else:
         summary["sources"]["facebook_messenger"] = {"status": "disabled_by_user"}
@@ -462,7 +478,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["apple_notes"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["apple_notes"] = {"status": "error", "error": str(e)}
+            summary["sources"]["apple_notes"] = _failure_status(e)
             logger.warning("[warn] Apple Notes: %s", e)
     else:
         summary["sources"]["apple_notes"] = {"status": "disabled_by_user"}
@@ -522,7 +538,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["photos"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["photos"] = {"status": "error", "error": str(e)}
+            summary["sources"]["photos"] = _failure_status(e)
             logger.warning("[warn] Photos: %s", e)
     else:
         summary["sources"]["photos"] = {"status": "disabled_by_user"}
@@ -630,10 +646,8 @@ def run_all(
             # install.sh roll-up grep for ^\[ok\] / ^\[skip\] counts it.
             # Pre-fix, generic exceptions emitted [warn] which the grep
             # skipped over -- a third silent-fail axis on Calendar.
-            summary["sources"]["calendar"] = {
-                "status": "error",
-                "error": "%s: %s" % (type(e).__name__, str(e)[:120]),
-            }
+            summary["sources"]["calendar"] = _failure_status(
+                e, "%s: %s" % (type(e).__name__, str(e)[:120]))
             logger.info("[skip] Calendar: %s: %s", type(e).__name__, str(e)[:120])
     else:
         # CX-109 (DMG #48l): emit [skip] for the disabled-by-user branch
@@ -670,7 +684,7 @@ def run_all(
             summary["sources"]["reminders"] = {"status": "not_found"}
             logger.info("[skip] Reminders: database not found")
         except Exception as e:
-            summary["sources"]["reminders"] = {"status": "error", "error": str(e)}
+            summary["sources"]["reminders"] = _failure_status(e)
             logger.warning("[warn] Reminders: %s", e)
     else:
         summary["sources"]["reminders"] = {"status": "disabled_by_user"}
@@ -727,7 +741,7 @@ def run_all(
             summary["sources"]["apple_music"] = {"status": "not_found"}
             logger.info("[skip] Apple Music: library XML not found")
         except Exception as e:
-            summary["sources"]["apple_music"] = {"status": "error", "error": str(e)}
+            summary["sources"]["apple_music"] = _failure_status(e)
             logger.warning("[warn] Apple Music: %s", e)
     else:
         summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
@@ -824,7 +838,7 @@ def run_all(
             summary["sources"]["google_takeout"] = {"status": "not_found", "error": str(e)}
             logger.info("[skip] Google Takeout: %s", e)
         except Exception as e:
-            summary["sources"]["google_takeout"] = {"status": "error", "error": str(e)}
+            summary["sources"]["google_takeout"] = _failure_status(e)
             logger.warning("[warn] Google Takeout: %s", e)
     else:
         summary["sources"]["google_takeout"] = {"status": "disabled_by_user"}
@@ -896,7 +910,7 @@ def run_all(
             summary["sources"]["apple_mail"] = {"status": "not_found"}
             logger.info("[skip] Apple Mail: not configured on this Mac")
         except Exception as e:
-            summary["sources"]["apple_mail"] = {"status": "error", "error": str(e)}
+            summary["sources"]["apple_mail"] = _failure_status(e)
             logger.warning("[warn] Apple Mail: %s", e)
     else:
         summary["sources"]["apple_mail"] = {"status": "disabled_by_user"}

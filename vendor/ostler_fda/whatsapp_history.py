@@ -84,6 +84,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -222,7 +224,7 @@ def _open_readonly(db_path: Path) -> sqlite3.Connection:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as exc:
         msg = str(exc).lower()
-        if "authorization denied" in msg or "permission" in msg:
+        if is_fda_refusal(exc, db_path) or "authorization denied" in msg or "permission" in msg:
             raise PermissionError(
                 "Cannot read WhatsApp history. Grant Full Disk Access "
                 "(System Settings > Privacy & Security > Full Disk Access)."

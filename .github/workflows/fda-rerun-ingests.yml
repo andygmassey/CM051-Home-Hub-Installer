@@ -53,6 +53,8 @@ on:
       - 'tests/test_fda_rerun_ingests.sh'
       - 'tests/test_notes_are_opened_and_refreshed.sh'
       - 'tests/test_fda_refusal_is_not_fresh.sh'
+      - 'tests/test_fda_refusal_surfaces.py'
+      - 'vendor/ostler_fda/**'
       - 'vendor/doctor/agent/web_ui.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/diagnostic_copy.py'
@@ -103,6 +105,12 @@ jobs:
       - name: A refused read is never reported as fresh
         if: always()
         run: bash tests/test_fda_refusal_is_not_fresh.sh
+
+      # Sweep V26: every refusal surface (EPERM, SQLITE_AUTH, SQLITE_PERM,
+      # SQLITE_CANTOPEN on a file that exists) reaches the summary as no_fda.
+      - name: Every shape a macOS refusal takes is reported as no_fda
+        if: always()
+        run: python3 tests/test_fda_refusal_surfaces.py
 
   # SEPARATE JOB, deliberately. See the header.
   predicate-self-test:

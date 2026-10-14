@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 import time as _time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -227,7 +229,7 @@ def extract_events(
     try:
         conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, resolved):
             # RAISE (do not return []) so the extract_all orchestrator's
             # PermissionError -> no_fda branch fires and the customer gets a
             # Doctor "grant Full Disk Access" card. Returning [] here made a
