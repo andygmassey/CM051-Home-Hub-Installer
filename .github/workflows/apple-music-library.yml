@@ -1,0 +1,55 @@
+# CM051 walk #27: Apple Music must reach the Hub without the Music app's
+# "Share Library XML" setting. Drives the shipped ostler_fda reader against
+# fake helpers (including the permission-refused answer measured on Mini16),
+# the shipped extract_all arm, and the shipped CM019 parser + pipeline with
+# recording fake stores (additive-only writes). Synthetic data only.
+name: apple-music-library
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/apple_music.py'
+      - 'vendor/ostler_fda/extract_all.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple_music_library.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/__init__.py'
+      - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'vendor/cm019_preferences/services/ingest/src/filters.py'
+      - 'tests/test_apple_music_library_reader.py'
+      - '.github/workflows/apple-music-library.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/apple_music.py'
+      - 'vendor/ostler_fda/extract_all.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple_music_library.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/__init__.py'
+      - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'vendor/cm019_preferences/services/ingest/src/filters.py'
+      - 'tests/test_apple_music_library_reader.py'
+      - '.github/workflows/apple-music-library.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  apple-music-library:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest and the vendored CM019 ingest dependencies
+        run: python -m pip install --quiet pytest -r vendor/cm019_preferences/requirements.txt
+      - name: Native reader fails open, keeps every field, and lands additively
+        run: |
+          n="$(python -m pytest tests/test_apple_music_library_reader.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 20 ]; then
+            echo "REFUSING: expected at least 20 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_apple_music_library_reader.py -v -rs
