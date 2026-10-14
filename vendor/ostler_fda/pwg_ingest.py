@@ -36,6 +36,7 @@ from . import forget_tombstone
 from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
 from .role_addresses import is_sender_id_identifier
+from .owner_addresses import load_owner_addresses, is_owner_address
 from .identifier_quality import observe as _observe_identifier
 from .usage_journal import record_usage as _record_usage
 from .usage_journal import tokens_from_ollama as _tokens_from_ollama
@@ -732,6 +733,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
     conversations = json.loads(conversations_file.read_text())
     people_created = 0
     people_enriched = 0
+    owner_addrs = load_owner_addresses(fda_dir)
 
     for convo in conversations:
         participants = convo.get("participants", [])
@@ -756,6 +758,10 @@ def ingest_imessage(fda_dir: Path) -> dict:
             # observe() also applies the STRUCTURAL rule: the moment this
             # identifier presents as a second distinct person it is refused
             # from then on, whatever it is called and in whatever language.
+            # DMG #27: the owner's own address (me card, Mail account, Sent
+            # From, sole-To of delivered non-list mail) is not a Person.
+            if is_owner_address(participant, owner_addrs):
+                continue
             if _observe_identifier(participant, convo_name):
                 logger.debug("skipping role address %s", participant)
                 continue
@@ -1073,6 +1079,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
     people_created = 0
     people_enriched = 0
     tier_t1 = 0
+    owner_addrs = load_owner_addresses(fda_dir)
     tier_t2_intimate = 0
     tier_t2_active = 0
     tier_t3_skipped = 0
@@ -1120,6 +1127,10 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             # right call -- it consults what OTHER sources have already learned
             # about this identifier, so a channel exposed by mail is refused
             # here too.
+            # DMG #27: the owner's own address (me card, Mail account, Sent
+            # From, sole-To of delivered non-list mail) is not a Person.
+            if is_owner_address(participant, owner_addrs):
+                continue
             if _observe_identifier(participant, ""):
                 logger.debug("skipping role address %s", participant)
                 continue
@@ -1276,6 +1287,8 @@ def ingest_calendar(fda_dir: Path) -> dict:
     people_created = 0
     people_matched = 0
     lookup_failed = 0
+    owner_addrs = load_owner_addresses(fda_dir)
+    owner_skipped = 0
 
     for event in events:
         attendees = event.get("attendees", [])
@@ -1292,6 +1305,11 @@ def ingest_calendar(fda_dir: Path) -> dict:
             # calendar attendee who shared it into ONE node (#659). An invite
             # carries no attendee display name, so this contributes nothing to
             # the structural rule -- but it still honours it.
+            # DMG #27: the owner's own address (me card, Mail account, Sent
+            # From, sole-To of delivered non-list mail) is not a Person.
+            if is_owner_address(attendee, owner_addrs):
+                owner_skipped += 1
+                continue
             if _observe_identifier(attendee, ""):
                 logger.debug("skipping role address %s", attendee)
                 continue
@@ -1431,6 +1449,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
         "events_processed": events_processed,
         "unique_attendees": len(people_seen),
         "meetings_created": meetings_created,
+        "owner_addresses_skipped": owner_skipped,
         "people_created": people_created,
         "people_matched": people_matched,
         "people_lookup_failed": lookup_failed,
@@ -1664,6 +1683,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     people_created = 0
     people_matched = 0
     lookup_failed = 0
+    owner_addrs = load_owner_addresses(fda_dir)
+    owner_skipped = 0
 
     for email, count in contacts.items():
         if not email or count < 3:
@@ -1674,6 +1695,11 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # email correspondent who shared it into ONE node (#659). The frequency
         # map is address->count with no names, so this consults the learned set
         # rather than adding to it.
+        # DMG #27: the owner's own address (me card, Mail account, Sent
+        # From, sole-To of delivered non-list mail) is not a Person.
+        if is_owner_address(email, owner_addrs):
+            owner_skipped += 1
+            continue
         if _observe_identifier(email, ""):
             logger.debug("skipping role address %s", email)
             continue
@@ -1741,6 +1767,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         "people_created": people_created,
         "people_matched": people_matched,
         "people_lookup_failed": lookup_failed,
+        "owner_addresses_skipped": owner_skipped,
     }
 
 
