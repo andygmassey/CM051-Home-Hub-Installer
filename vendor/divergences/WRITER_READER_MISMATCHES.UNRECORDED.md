@@ -1139,3 +1139,17 @@ Reminders list and pauses pushes. Doctor's reader had no word for it and
 would have shown a healthy "Reminders are syncing". This record is
 location and shape only; `doctor.patch` is not regenerated here. Test:
 `tests/test_doctor_reminders_list_removed.py`.
+
+## The owner's own addresses never become People (DMG #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/owner_addresses.py` (NEW FILE): computes the owner's exact addresses from (1) the Contacts me card (`ZABCDRECORD.ZME` -> `ZABCDEMAILADDRESS`, every AddressBook source), (2) Mail accounts (`Accounts4.sqlite` `ZACCOUNT.ZUSERNAME`), (3) From addresses of messages in a Sent mailbox, (4) the sole To recipient of non-list INBOX mail (`list_id_hash` and `unsubscribe_type` both zero) from at least two distinct non-owner senders, all from the Mail Envelope Index. Never a domain. Read-only (`immutable=1`). Writes `owner_addresses.json` into the FDA output dir; `load_owner_addresses` / `is_owner_address` read it.
+- `vendor/ostler_fda/extract_all.py`: `run_all` calls `owner_addresses.collect` just before the summary is saved (counts only into `summary["owner_addresses"]`; never fatal).
+- `vendor/ostler_fda/pwg_ingest.py`: imports `load_owner_addresses, is_owner_address`; `ingest_imessage`, `ingest_whatsapp`, `ingest_calendar` and `ingest_mail_contacts` load the set once and `continue` past an owner address immediately before the existing `_observe_identifier` skip; calendar and mail return `owner_addresses_skipped`.
+
+WHY: measured read-only on the DMG #27 walk box, 15 `calendar_fda` Person nodes held an address on the owner's own domain (the owner attends their own invites). Delivered-To is NOT INSTRUMENTED (the Envelope Index does not store it). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`owner_addresses.py`, the `collect` call in `run_all`, and the four `is_owner_address` skips. Guarded by `tests/test_owner_addresses_are_not_people.py` (wired in `.github/workflows/privacy-spine.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
