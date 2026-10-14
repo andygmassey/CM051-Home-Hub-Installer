@@ -343,6 +343,11 @@ class Batch:
     next_cursor: Any
     oldest_at: Optional[str] = None   # oldest moment this batch covers, ISO UTC
     exhausted: bool = False           # nothing older exists after this batch
+    # Nothing more to do THIS tick, but not finished: a mirror of a walk that
+    # another agent performs (Apple Mail bodies, email-ingest) reports where
+    # that walk has reached and steps aside until the next tick. Exempt from
+    # the no-progress guard, which would otherwise call it complete.
+    pause: bool = False
 
 
 class Adapter:
@@ -411,8 +416,10 @@ def run(
                 if why:
                     stop = "busy:" + why
                     break
-                cursor = wm.cursor if wm.has_cursor else a.start_cursor()
                 try:
+                    # start_cursor is inside the guard too: an adapter that
+                    # cannot even find its edge must not end the whole tick.
+                    cursor = wm.cursor if wm.has_cursor else a.start_cursor()
                     batch = a.next_batch(cursor, max(1, int(a.batch_size or DEFAULT_BATCH_SIZE)))
                 except Exception as exc:  # noqa: BLE001 - one source never stops the others
                     logger.warning("catch-up %s: reading the next batch failed (%s)",
@@ -459,7 +466,7 @@ def run(
                         break
                     continue
 
-                no_progress = (not batch.items and not batch.exhausted
+                no_progress = (not batch.items and not batch.exhausted and not batch.pause
                                and wm.has_cursor and batch.next_cursor == wm.cursor)
                 wm.cursor = batch.next_cursor
                 wm.oldest_at = _older(wm.oldest_at, batch.oldest_at)
@@ -471,6 +478,8 @@ def run(
                     wm.complete = True
                     wm.completed_at = _now_iso()
                     st["reason"] = "complete"
+                    active.remove(a)
+                elif batch.pause:
                     active.remove(a)
                 wm.save()
     finally:

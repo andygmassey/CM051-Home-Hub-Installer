@@ -48,8 +48,8 @@ jobs:
         run: |
           n="$(python -m pytest tests/test_catchup_core.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 14 ]; then
-            echo "REFUSING: expected at least 14 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 16 ]; then
+            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_catchup_core.py -v -rs -s
