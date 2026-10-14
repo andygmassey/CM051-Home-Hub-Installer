@@ -125,10 +125,13 @@ class WalkUnpair(unittest.TestCase):
         text = RUNNER.read_text()
         base = text.index("companion_walk_baseline ||")
         seed = text.index("conversation_capture_seed_apply ||")
-        loop = text.index("companion_walk_unpair ||")
-        forget = text.index("conversation_capture_seed_forget ||")
         self.assertLess(base, seed, "the baseline must be taken before the first pairing seed")
-        self.assertGreater(loop, forget, "the unpair must run after the measurements and forgets")
+        # The unpair runs inside walk_cleanup (normal end and the abort trap,
+        # tests/test_walk_cleanup_runs_on_abort.sh), after the seed forgets.
+        cleanup = text[text.index("walk_cleanup() {"):text.index("_walk_exit_trap() {")]
+        self.assertIn("companion_walk_unpair", cleanup)
+        self.assertGreater(cleanup.index("companion_walk_unpair"),
+                           cleanup.index("conversation_capture_seed_forget"))
 
 
 if __name__ == "__main__":
