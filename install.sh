@@ -3427,7 +3427,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:8482, :15497) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18425 / :18603 / :18760 / :19102 path. There the
+    # :18436 / :18614 / :18771 / :19113 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -16382,6 +16382,17 @@ TOMLPREAMBLE
     # above BEFORE this block truncated the file. Never write the admin token
     # unconditionally here -- that unpairs every device on upgrade.
     echo "paired_tokens = [${_paired_tokens_toml}]"
+    # RED TEAM DMG #27 F4-4: the companion listener binds 0.0.0.0:8443 (below),
+    # reachable from the whole LAN, and whether pairing was required and the
+    # pair attempts rate-limited rested on the binary's defaults, which the
+    # shipped config never stated. State both: an upgrade to a binary whose
+    # default changed must not open the listener silently. Proved on a box by
+    # the walk probe companion_listener_refuses_unauthenticated.
+    echo "require_pairing = true"
+    _ostler_pair_rl="${OSTLER_PAIR_RATE_LIMIT_PER_MINUTE:-10}"
+    [[ "$_ostler_pair_rl" =~ ^[1-9][0-9]*$ ]] || _ostler_pair_rl=10
+    echo "pair_rate_limit_per_minute = ${_ostler_pair_rl}"
+    unset _ostler_pair_rl
 
     # v1.0.13: phone pairing ENABLED by default. Prior comment
     # (v1.0.10 DEFERRED) is superseded -- the two preconditions have

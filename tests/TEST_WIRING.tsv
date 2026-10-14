@@ -930,3 +930,4 @@ scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrap
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
+test_gateway_pairing_is_explicit.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
