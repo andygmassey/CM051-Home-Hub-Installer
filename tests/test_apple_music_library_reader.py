@@ -193,6 +193,23 @@ def test_extract_all_arm_writes_the_export(tmp_path, monkeypatch):
     assert (out / apple_music.PREFERENCE_EXPORT_NAME).is_file()
 
 
+def test_a_later_denied_run_keeps_what_the_install_read(tmp_path, monkeypatch):
+    """The launchd re-run has no Media & Apple Music grant. It must not
+    erase the install's export or report the library as empty."""
+    from ostler_fda import extract_all
+    out = tmp_path / "fda"
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(tmp_path, OK_PAYLOAD)))
+    extract_all.run_all(out, enabled_sources={"apple_music"})
+    before = (out / apple_music.PREFERENCE_EXPORT_NAME).read_bytes()
+    denied_dir = tmp_path / "denied"
+    denied_dir.mkdir()
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(denied_dir, DENIED_PAYLOAD)))
+    am = extract_all.run_all(out, enabled_sources={"apple_music"})["sources"]["apple_music"]
+    assert (out / apple_music.PREFERENCE_EXPORT_NAME).read_bytes() == before
+    assert am["total_tracks"] == 4 and am["reader"] == "previous_export"
+    assert am["native_status"] == "unavailable"
+
+
 def test_extract_all_arm_is_ok_and_empty_when_denied(tmp_path, monkeypatch):
     from ostler_fda import extract_all
     monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(tmp_path, DENIED_PAYLOAD)))

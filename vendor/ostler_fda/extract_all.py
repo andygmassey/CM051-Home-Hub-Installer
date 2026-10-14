@@ -684,7 +684,7 @@ def run_all(
         try:
             from .apple_music import (
                 extract_library, library_stats, to_records,
-                write_preference_export,
+                write_preference_export, previous_export_track_count,
             )
             # Native helper first (OSTLER_MUSIC_LIBRARY_HELPER, the
             # "Media & Apple Music" permission), XML export as fallback.
@@ -700,6 +700,15 @@ def run_all(
             write_preference_export(library, output_dir)
 
             stats = library_stats(library)
+            # A later run with no Media & Apple Music grant (the launchd
+            # re-run) keeps what the install read: write_preference_export
+            # only writes when there are tracks, and the summary says the
+            # tracks came from that earlier read, not from this one.
+            if not library.tracks:
+                prev = previous_export_track_count(output_dir)
+                if prev:
+                    stats["total_tracks"] = prev
+                    stats["reader"] = "previous_export"
             summary["sources"]["apple_music"] = {
                 "status": "ok",
                 **stats,

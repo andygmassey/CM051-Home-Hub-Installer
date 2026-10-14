@@ -658,6 +658,24 @@ def write_preference_export(library: MusicLibrary, output_dir: Path) -> Optional
     return out
 
 
+def previous_export_track_count(output_dir: Path) -> Optional[int]:
+    """Tracks in an export a previous run left in ``output_dir``, or None.
+
+    The install reads the library natively, as a descendant of the
+    installer, which holds the "Media & Apple Music" grant. The recurring
+    FDA re-run is a launchd job with no such grant, so its native read is
+    refused (fail-open, and deliberately never a new prompt). That run must
+    not report the library as gone, or erase what the install read.
+    """
+    path = output_dir / PREFERENCE_EXPORT_NAME
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    tracks = data.get("tracks") if isinstance(data, dict) else None
+    return len(tracks) if isinstance(tracks, list) and tracks else None
+
+
 def library_stats(library: MusicLibrary) -> dict:
     """Privacy-safe summary for the install summary screen.
 
