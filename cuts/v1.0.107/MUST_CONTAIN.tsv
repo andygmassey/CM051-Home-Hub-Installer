@@ -47,8 +47,8 @@ fix(install): qdrant, valkey and nginx pulled from our GHCR mirror at the same d
 fix(install): ~/.ostler locked to 0700 on every path	CM051	ce79dd6b	no	ostler_home_locked_to_0700	capability_matrix.sh gate	CM051 #2407
 fix(install): the assistant's command sandbox pinned to Seatbelt	CM051	ce79dd6b	no	sandbox_pinned_to_seatbelt	capability_matrix.sh gate	CM051 #2409
 fix(photos): photo events carry a city-level place name so Photos here fills	CM051	ce9053e9	no	photo_events_carry_a_place_name	capability_matrix.sh gate	CM051 #2415
-fix(email): an email-only correspondent gets a provisional name, and names only move up	CM051	82e9bf0508	no	email_only_people_get_a_provisional_name	capability_matrix.sh gate	CM051 #2361
-fix(photos): Photos events are read on a default install; faces still never are	CM051	82e9bf0508	no	photos_events_in_the_default_preset	capability_matrix.sh gate	CM051 #2364
+fix(email): an email-only correspondent gets a provisional name, and names only move up [re-cited in #28 from 82e9bf0508: #2867 (batch #2897) appended apple_music to the RECOMMENDED line, so the old exact line is gone while its content is a prefix of the new one]	CM051	d0c9f235	no	email_only_people_get_a_provisional_name	capability_matrix.sh gate	CM051 #2361
+fix(photos): Photos events are read on a default install; faces still never are [re-cited in #28 from 82e9bf0508: #2867 (batch #2897) appended apple_music to the RECOMMENDED line, so the old exact line is gone while its content is a prefix of the new one]	CM051	d0c9f235	no	photos_events_in_the_default_preset	capability_matrix.sh gate	CM051 #2364
 fix(photos): 1,298 photo events were extracted and read by nothing	CM051	095b8af76b	no	photo_events_reach_the_graph	capability_matrix.sh gate	CM051 #2348
 fix(email-ingest): the Apple Mail checkpoint lives under ~/.ostler so a reinstall reads email	CM051	3d94eb4d10	no	email_checkpoint_under_dot_ostler_install	capability_matrix.sh gate	CM051 #2347
 fix(warm-up): one rule for Notes, Mail, Messages and the other Apple apps we read	CM051	80a531b0ab	no	apple_apps_warmed_by_one_rule	capability_matrix.sh gate	CM051 #2351
