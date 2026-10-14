@@ -10,7 +10,60 @@ scripts/owner_score.sh                      60 visible questions, prints SCORE /
 scripts/owner_score.sh --limit 8            stratified sample (this is what the walk probe runs)
 scripts/owner_score.sh --set all --enforce  the release gate: all 80, exit 1 under 70%
 scripts/owner_score.sh --questions mine.jsonl   the owner's real questions, locked on first use
+python3 -I scripts/owner_score/compare_graders.py --evidence-dir DIR   one run graded by the OLD and the NEW grader
+python3 -I scripts/owner_score/seed_persona.py seed|count|purge        persona into the graph and conversation store (on the box)
 ```
+
+## Replies and tool traces (evidence), and what stdout carries
+
+Every live run keeps each reply VERBATIM and the tool calls behind it (tool name,
+arguments, size of each result; never the result text) in an evidence directory
+on the box: `~/.ostler/state/owner-score-evidence/<utc>/` (0700, files 0600),
+`replies.jsonl` for the visible set and `replies_heldout.jsonl` for the held-back
+set (the tuning loop must never read the second). The walk probe copies the
+directory to `~/walkdriver/evidence` on the operator's machine. It can carry real
+graph content, so it is walk evidence: never into a repo or a PR, and the runner
+refuses an evidence directory inside a git checkout. stdout (which lands in walk
+records) stays scores and ids only; `--print-replies` prints visible replies to
+the terminal, and `--no-verbatim` is accepted and ignored. `EVIDENCE` in the
+output names the directory, never its contents.
+
+## The score in two parts
+
+Each question is tagged `context` (every fact it needs is in the CONTEXT.md the
+assistant is answering from: the model only has to read) or `retrieval` (at least
+one is not, so the graph or the conversation store has to supply it), by
+`grading.classify_part` against the box's CONTEXT.md at run time. `absent`
+questions are `context`. The report prints `SCORE-CONTEXT-ONLY` and
+`SCORE-NEEDS-RETRIEVAL` after PER-CATEGORY, and `--out` carries
+`per_question_part`. With the persona digest injected, every fact is in context,
+so today the retrieval part is `n/a (0 questions)`: a seeding gain cannot show up
+there until a run answers from a CONTEXT.md that lacks the fact. That is stated,
+not hidden.
+
+## Seeding the persona (seed_persona.py)
+
+Writes the persona into the graph and the conversation store under one removable
+namespace: every subject IRI starts `https://schema.ostler.ai/ontology#ownerscoreseed_`
+(people as `pwg:Person` in the default graph, facts as `urn:ostler:Fact` in the
+owner's `urn:ostler:user/<USER_ID>` graph, the shapes the product writes and its
+readers scope to), and conversations are folders marked `owner_score_seed: true`
+under `~/Documents/Ostler/Conversations/<date>/`. `purge` deletes that prefix in
+every graph and the marked folders, nothing else; `count` and the seed/purge
+output print before/after counts, and the store total returns to its starting
+value. It refuses on a box not declared synthetic (persona CONTEXT.md in place or
+`~/.ostler/state/synthetic-box`). NOT PROVEN until a walk: that the product's own
+retrieval tools return these rows. The walk probe seeds after the CONTEXT.md swap,
+purges before returning (a failed purge is a FAIL), and runs LAST in the walk.
+
+## Grader revision 2
+
+`grading_legacy.py` is revision 1, byte for byte. `grading.py` revision 2 adds
+(a) date ranges, for the two questions marked `date_range` (events-04, events-07),
+and (b) extra refusal phrases for `absent` questions only: `i don't see`,
+`i do not see`, `no mention`, `not mentioned`, `nothing in`, `didn't find`,
+`did not find`. Both make the test easier; the lock covers both graders and
+`compare_graders.py` reports any run both ways.
 
 ## What it asks, and how
 
@@ -56,7 +109,7 @@ against shotgun answers.
 ## The check is immutable to the tuning loop
 
 `CHECKSUM.lock` holds the sha256 of `questions_visible.jsonl`,
-`questions_heldout.jsonl`, `grading.py` and the runner `owner_score.py`. Every run
+`questions_heldout.jsonl`, `grading.py`, `grading_legacy.py` and the runner `owner_score.py`. Every run
 prints `CHECK  built-in sha256 <hex>` and the runner's own sha256 and refuses (exit 3, no score) if it differs
 from the lock. A custom questions file is locked on first use in
 `<file>.lock` and verified on every later run. A deliberate change is
@@ -118,9 +171,9 @@ Real data stays out of this repo: keep that file outside the checkout.
 
 ## Not done (TODO)
 
-- Seeding the persona into the graph. Today the persona reaches the assistant
-  only through `CONTEXT.md`; the OS003 seed oracle (`gates/seed/load_seed.py`,
-  see `box_walk_probes/lib/grounding_seed.sh`) writes one person and one fact.
-  A full persona seed would exercise the `pwg_*` tools too.
+- Proof that the seeded rows are what `pwg_people` / `pwg_knowledge_search`
+  return on a live box (seed_persona.py is proven against the Oxigraph engine,
+  not against the product's tools). The first run with `--evidence-dir` traces
+  will show it.
 - A first run on a real installed Hub. Everything here is validated against a
   loopback stand-in for the gateway, not against a live model.

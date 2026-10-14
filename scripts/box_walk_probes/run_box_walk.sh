@@ -787,6 +787,18 @@ if [ -z "$ONLY" ] && [ "${OSTLER_PROMOTE_PREV_FAILS:-1}" = "1" ]; then
     fi
 fi
 
+# THE OWNER-KNOWLEDGE SCORE RUNS LAST. It seeds a synthetic persona into the
+# graph and the conversation store (and purges it before it returns), so any
+# probe that counts or reads people after it would be measuring the seed.
+# Applied after promotion on purpose: the probe declares WALK_WRITES, so
+# promotion never moves it, and this puts it behind the p..z probes that the C
+# sort would otherwise run after it. tests/test_owner_score_instrument_is_valid.sh
+# asserts the order.
+PROBES="$(pin_last owner_knowledge_score)"
+# The probe seeds only on a walk that may write: --only implies --read-only, and
+# the probe reads this to leave the graph alone.
+export OSTLER_WALK_READ_ONLY="$READ_ONLY"
+
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
 
