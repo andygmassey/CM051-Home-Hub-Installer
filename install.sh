@@ -39142,8 +39142,8 @@ if [[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/k
         echo "     Encryption:    passphrase-wrapped DEK"
         echo -e "     ${RED}${BOLD}Recovery:      UNAVAILABLE -- see the warning above.${NC}"
         echo "                    Your passphrase still works and nothing is"
-        echo "                    locked today. Contact support to have a"
-        echo "                    recovery key minted and shown to you."
+        echo "                    locked today. Email support@ostler.ai and"
+        echo "                    we will tell you what can be done."
     else
         # Minted here and NOT handed over. Do not dress this as a feature.
         echo "     Encryption:    passphrase-wrapped DEK"

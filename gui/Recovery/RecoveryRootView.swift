@@ -51,7 +51,7 @@ struct RecoveryRootView: View {
         case .toolMissing, .couldNotStart:
             return "Ostler's recovery tool couldn't be found on this Mac. "
                 + "If you've just installed Ostler, try again in a minute. "
-                + "If this keeps happening, contact support."
+                + "If this keeps happening, email support@ostler.ai."
         }
     }
 }

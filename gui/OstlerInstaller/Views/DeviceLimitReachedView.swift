@@ -5,7 +5,7 @@
 // slots. The view is a hard stop -- the install does not proceed.
 //
 // Two affordances:
-//   - "Email hello@ostler.ai" opens a mailto: that includes the licence
+//   - "Email support@ostler.ai" opens a mailto: that includes the licence
 //     id in the subject so the support reply can resolve quickly.
 //     The dedicated reset-devices web flow is a v1.5 surface (see
 //     CM050 Phase 2.4); a mailto is the v1 placeholder.
@@ -146,7 +146,7 @@ struct DeviceLimitReachedView: View {
     private func openSupportMailto() {
         var components = URLComponents()
         components.scheme = "mailto"
-        components.path = "hello@ostler.ai"
+        components.path = "support@ostler.ai"
         components.queryItems = [
             URLQueryItem(
                 name: "subject",
