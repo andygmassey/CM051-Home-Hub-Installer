@@ -1140,6 +1140,15 @@ would have shown a healthy "Reminders are syncing". This record is
 location and shape only; `doctor.patch` is not regenerated here. Test:
 `tests/test_doctor_reminders_list_removed.py`.
 
+## 2026-10-14: `ostler_fda` `imessage.py` drops the assistant's own sends
+
+`imessage.py` gains `ASSISTANT_SEND_PREFIX`, `ASSISTANT_SEND_MARKER` and
+`is_assistant_send()`; `extract_messages` skips rows it matches. The
+`whatsapp_source` and `email_source` readers import this predicate. Full
+record, the reason, and the regeneration outcome:
+`ASSISTANT_OWN_SENDS.UNRECORDED.md`. Test:
+`tests/test_assistant_sends_are_not_owner_input.py`.
+
 ## The owner's own addresses never become People (DMG #27)
 
 Tree `ostler_fda`. NEW CM051-side behaviour, three files:

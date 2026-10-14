@@ -455,7 +455,8 @@ def process_email(
     privacy_map = _load_privacy_map(contacts_path)
     name_for_address = _name_resolver(contacts)
 
-    messages = read_messages(mail_dir=mail_dir, since_days=since_days)
+    messages = read_messages(mail_dir=mail_dir, since_days=since_days,
+                             user_address=user_address)
     threads = thread_messages(messages, min_thread_messages=min_thread_messages)
 
     scanned = dispatched = skipped = failed = 0
