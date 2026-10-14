@@ -170,3 +170,20 @@ red over a fully successful import. Tests:
 Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
 
 **Upstream status:** not ported; owed to personal-world-graph `services/enrich`.
+
+## No per-source storage cap (CM051 #28, Andy 2026-10-14: "Need everything.")
+
+**File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
+- `PreferenceFilter.MAX_PREFS_PER_SOURCE`: 5000 -> `None` (no cap).
+- `cap_by_source()`: with no cap, every source is still RANKED (category
+  priority, strength, frequency) and returned WHOLE, empty trim log. An integer
+  restores the old trimming (operator override only; nothing ships one).
+- Callers unchanged: `pipeline.py` `ingest_file_with_aggregation` and
+  `_ingest_directory_with_aggregation` (both call `cap_by_source`).
+
+**Why:** 5000 per source was a storage cap on the owner's data. Mini16,
+2026-10-14 (read-only scroll of `preferences`, 40,320 points): `netflix` 5000,
+`apple` 5000, `csv` 5001. Tests: `tests/test_owner_data_is_never_capped_at_storage.py`,
+`tests/test_pref_noise_source_cap.py` (updated: all rows kept, head first).
+
+**Upstream status:** not ported; owed to personal-world-graph `services/ingest`.
