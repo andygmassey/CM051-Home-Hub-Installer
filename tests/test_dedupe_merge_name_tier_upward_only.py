@@ -161,6 +161,17 @@ def main():
     R(st).merge_persons(A, C)
     check(names(st, A) == [HUMAN], f"after the full sequence the survivor is [{HUMAN!r}] (got {names(st, A)})")
 
+    print("8. a kinship label is never the displayName, and never deleted: it becomes an alternateName")
+    st = sweep({A: {"names": ["Mum"], "phone": ["+1555010008"], "provisional": True},
+                B: {"names": [HUMAN], "phone": ["+1555010008"]}})
+    check(names(st, A) == [HUMAN], f"survivor displayName == [{HUMAN!r}] (got {names(st, A)})")
+    check("Mum" in names(st, A, "alternateName"),
+          f"the kinship label survives as an alternateName (got {names(st, A, 'alternateName')})")
+    st = sweep({A: {"names": [HUMAN], "phone": ["+1555010009"]},
+                B: {"names": ["Dad"], "phone": ["+1555010009"]}})
+    check(names(st, A) == [HUMAN] and "Dad" in names(st, A, "alternateName"),
+          "a kinship label on the duplicate is kept too, and does not displace the human name")
+
     print(f"\n{len(FAILS)} failed")
     return 1 if FAILS else 0
 

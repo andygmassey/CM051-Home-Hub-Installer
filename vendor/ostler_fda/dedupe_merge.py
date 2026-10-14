@@ -243,8 +243,11 @@ def _merge_pair(canonical: str, dupe: str) -> None:
 # best name only when it is a HIGHER tier than anything the survivor already
 # carries. Equal tiers keep the survivor's own name. A losing name is DEMOTED
 # to alternateName (still useful for matching), never deleted -- the same
-# convention as repair_placeholder_names. A kinship word is the one exception:
-# it is never a name and is dropped, again matching that module.
+# convention as repair_placeholder_names. A kinship word ("Mum", "Dad") is
+# never ELECTED: it cannot be the displayName. It is still demoted to
+# alternateName like any losing name, because deleting it is data loss on
+# exactly the family nodes this protects, and "who is Mum" then has nothing to
+# match (Archie, #2866 review).
 
 
 def _display_names(uri: str) -> List[str]:
@@ -272,17 +275,19 @@ def _tier_fn():
 
 
 def choose_survivor_name(keep_names: List[str], dupe_names: List[str]):
-    """Pure decision. Returns (winner, demote, drop) or None when there is no
-    name to choose. ``winner`` is the survivor's single displayName."""
+    """Pure decision. Returns (winner, demote, is_human) or None when there is
+    no name to choose. ``winner`` is the survivor's single displayName and is
+    never a kinship word; every other name, kinship words included, is in
+    ``demote`` (written as alternateName). Nothing is deleted."""
     keep = [n for n in dict.fromkeys(keep_names) if n and n.strip()]
     dupe = [n for n in dict.fromkeys(dupe_names) if n and n.strip() and n not in keep]
     every = keep + dupe
     if not every:
         return None
     tier, tier_name, tier_placeholder = _tier_fn()
-    drop = [n for n in every if tier(n) < tier_placeholder]       # kinship words
-    keep_ok = [n for n in keep if n not in drop]
-    dupe_ok = [n for n in dupe if n not in drop]
+    kinship = [n for n in every if tier(n) < tier_placeholder]   # never elected
+    keep_ok = [n for n in keep if n not in kinship]
+    dupe_ok = [n for n in dupe if n not in kinship]
     if not keep_ok and not dupe_ok:
         return None                       # only kinship words: leave untouched
     best_keep = max((tier(n) for n in keep_ok), default=-1)
@@ -294,15 +299,15 @@ def choose_survivor_name(keep_names: List[str], dupe_names: List[str]):
         # first in a stable order; this writer never reorders two human names.
         top = sorted(keep_ok, key=lambda n: (-tier(n), n))
         winner = top[0]
-    demote = [n for n in keep_ok + dupe_ok if n != winner]
-    return winner, demote, drop, tier(winner) >= tier_name
+    demote = [n for n in keep_ok + dupe_ok if n != winner] + kinship
+    return winner, demote, tier(winner) >= tier_name
 
 
 def _elect_survivor_name(canonical: str, keep_names: List[str], dupe_names: List[str]) -> None:
     decided = choose_survivor_name(keep_names, dupe_names)
     if decided is None:
         return
-    winner, demote, drop, is_human = decided
+    winner, demote, is_human = decided
     inserts = [f'<{canonical}> <{PWG}displayName> "{_escape(winner)}" .']
     inserts += [f'<{canonical}> <{PWG}alternateName> "{_escape(d)}" .' for d in demote]
     _sparql_update(
@@ -318,8 +323,6 @@ def _elect_survivor_name(canonical: str, keep_names: List[str], dupe_names: List
             f"DELETE {{ <{canonical}> <{PWG}displayNameProvisional> ?f }} "
             f"WHERE {{ <{canonical}> <{PWG}displayNameProvisional> ?f }}"
         )
-    if drop:
-        logger.info("dedupe_merge: dropped %d kinship label(s) on %s", len(drop), canonical)
 
 
 def run(dry_run: bool = False) -> Dict[str, int]:
