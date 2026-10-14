@@ -32640,6 +32640,38 @@ else
 fi
 unset _hydrate_contacts_accounts
 
+# Owner node ----------------------------------------------------------
+#
+# pwg:isOwner had a writer (contact_syncer/owner_node.py) and NO caller: on
+# the walk #27 box it had 0 triples. Its readers were all running blind:
+#   lib/ostler-confirm-identity.py   finds the owner by user_<id> or isOwner;
+#                                    with neither it returns before proposing
+#                                    anything, so "is this you?" never fires
+#   context-refresh generate_pwg_context.py _owner_uris   isOwner arm
+#   ical-server.py _load_people_list_self_uris   says outright the anchor is
+#                                    "unconfirmed as ever minted"
+# Minted here, after the contacts sync, from the name and id this installer
+# already asked for. Idempotent, and it never overwrites a name the node
+# already has. The batch identity resolver leaves isOwner nodes alone (an
+# exact-name match against the owner's own contact card would otherwise
+# fold the anchor into it), so this cannot be merged away on the next pass.
+# Non-fatal: a failure is logged and the install carries on, because every
+# reader above already degrades without it.
+if [[ -x "$_HYDRATE_PIPELINE_PY" && -n "${USER_ID:-}" && -n "${USER_NAME:-}" ]]; then
+    if ( cd "$PIPELINE_DIR" && "$_HYDRATE_PIPELINE_PY" -m contact_syncer.owner_node \
+            --user-id "$USER_ID" --display-name "$USER_NAME" \
+            --graph-endpoint "$_HYDRATE_OXIGRAPH" ) \
+            >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>&1; then
+        printf 'owner_node minted=true\n' >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
+    else
+        printf 'owner_node minted=false rc=%s\n' "$?" >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
+    fi
+else
+    printf 'owner_node minted=false reason=%s\n' \
+        "$([[ -x "$_HYDRATE_PIPELINE_PY" ]] && echo no_user_id_or_name || echo pipeline_venv_missing)" \
+        >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
+fi
+
 # Calendar hydration -----------------------------------------------
 #
 # CX-101 (DMG #48j, 2026-05-29): SWITCHED FROM meeting_syncer ->
