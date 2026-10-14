@@ -230,6 +230,8 @@ def extract_photo_events(
     db_path: Optional[Path] = None,
     since_days: int = 365,
     with_people_only: bool = True,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
 ) -> list[PhotoEvent]:
     """Extract photo events for timeline integration.
 
@@ -237,6 +239,11 @@ def extract_photo_events(
         db_path: Path to Photos.sqlite.
         since_days: Only extract from last N days.
         with_people_only: Only include photos that have recognised faces.
+        since: absolute lower bound (exclusive); overrides ``since_days``.
+            Used by the background catch-up (catchup_photos.py) to read one
+            window at a time. None keeps the original behaviour exactly.
+        until: absolute upper bound (inclusive). None means no upper bound,
+            which is the original behaviour.
 
     Returns:
         List of PhotoEvent objects for timeline display.
@@ -257,9 +264,18 @@ def extract_photo_events(
 
     conn.row_factory = sqlite3.Row
 
-    cutoff_mac = (
-        datetime.now(timezone.utc).timestamp() - (since_days * 86400)
-    ) - MAC_EPOCH_OFFSET
+    if since is not None:
+        cutoff_mac = since.timestamp() - MAC_EPOCH_OFFSET
+    else:
+        cutoff_mac = (
+            datetime.now(timezone.utc).timestamp() - (since_days * 86400)
+        ) - MAC_EPOCH_OFFSET
+    # Optional upper bound, appended to each schema's WHERE. Empty (and no
+    # extra parameter) when ``until`` is None, so the default queries are
+    # byte-identical to the pre-catch-up ones.
+    upper_sql = " AND a.ZDATECREATED <= ?" if until is not None else ""
+    params = (cutoff_mac,) if until is None else (
+        cutoff_mac, until.timestamp() - MAC_EPOCH_OFFSET)
 
     # Schema probe identical to extract_people: macOS 26+ FK names
     # first (ZASSETFORFACE / ZPERSONFORFACE), then macOS 14-15
@@ -283,11 +299,11 @@ def extract_photo_events(
             LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSONFORFACE
             WHERE a.ZDATECREATED > ?
               AND a.ZTRASHEDSTATE = 0
-        """
+        """ + upper_sql
         if with_people_only:
             query += " AND p.ZFULLNAME IS NOT NULL"
         query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
-        rows = conn.execute(query, (cutoff_mac,)).fetchall()
+        rows = conn.execute(query, params).fetchall()
     except sqlite3.OperationalError as e:
         logger.debug("macOS 26+ photo events schema failed: %s", e)
 
@@ -306,11 +322,11 @@ def extract_photo_events(
                 LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
                 WHERE a.ZDATECREATED > ?
                   AND a.ZTRASHEDSTATE = 0
-            """
+            """ + upper_sql
             if with_people_only:
                 query += " AND p.ZFULLNAME IS NOT NULL"
             query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
-            rows = conn.execute(query, (cutoff_mac,)).fetchall()
+            rows = conn.execute(query, params).fetchall()
         except sqlite3.OperationalError as e:
             logger.debug("macOS 14-15 photo events schema failed: %s", e)
 
@@ -329,11 +345,11 @@ def extract_photo_events(
                 LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
                 WHERE a.ZDATECREATED > ?
                   AND a.ZTRASHEDSTATE = 0
-            """
+            """ + upper_sql
             if with_people_only:
                 query += " AND p.ZDISPLAYNAME IS NOT NULL"
             query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
-            rows = conn.execute(query, (cutoff_mac,)).fetchall()
+            rows = conn.execute(query, params).fetchall()
         except sqlite3.OperationalError as e:
             logger.error("Photo events schema not recognised: %s", e)
             conn.close()
@@ -362,3 +378,36 @@ def extract_photo_events(
 
     logger.info("Extracted %d photo events", len(events))
     return events
+
+
+def oldest_asset_date(db_path: Optional[Path] = None) -> Optional[datetime]:
+    """Capture time of the oldest non-trashed asset, or None for an empty
+    library. Same schema order as extract_photo_events (ZASSET, then the
+    legacy ZGENERICASSET). Raises like extract_photo_events when the
+    database is missing or Full Disk Access is not granted."""
+    db_path = db_path or DEFAULT_PHOTOS_PATH
+    if not db_path.exists():
+        raise FileNotFoundError(f"Photos database not found at {db_path}")
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError as e:
+        if "authorization denied" in str(e).lower():
+            raise PermissionError(
+                "Cannot read Photos metadata. Grant Full Disk Access."
+            ) from e
+        raise
+    try:
+        for table in ("ZASSET", "ZGENERICASSET"):
+            try:
+                row = conn.execute(
+                    f"SELECT MIN(ZDATECREATED) FROM {table} "
+                    "WHERE ZTRASHEDSTATE = 0 AND ZDATECREATED IS NOT NULL"
+                ).fetchone()
+            except sqlite3.OperationalError:
+                continue
+            if row and row[0] is not None:
+                return datetime.fromtimestamp(row[0] + MAC_EPOCH_OFFSET, tz=timezone.utc)
+            return None
+        return None
+    finally:
+        conn.close()

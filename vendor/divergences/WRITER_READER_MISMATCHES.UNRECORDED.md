@@ -1212,3 +1212,15 @@ Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, a
 ### What a future sync must preserve
 
 The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).
+## Photos older than the first year are walked by the catch-up (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, two files:
+
+- `vendor/ostler_fda/photos_metadata.py`: `extract_photo_events` gains optional absolute `since` / `until` bounds (both default None, and with both None the three schema queries and their parameters are byte-identical to before); new `oldest_asset_date`.
+- `vendor/ostler_fda/catchup_photos.py` (NEW FILE): the `photos` adapter for `lib/ostler_catchup.py`. 30-day windows backwards from now - 365 d to the oldest non-trashed asset, extracted with extract_all's faces rule and written through the shipped `pwg_ingest.ingest_photo_events` (uuid5-keyed PhotoEvents). Runs only when the install recorded a Photos result (`state/hydrate/photos.done`) and never when `OSTLER_FDA_SOURCES` omits photos_metadata.
+
+WHY: extract_all reads Photos with `since_days=365` and nothing read further back. Measured on a 6,500-asset, 7-year fixture: the install path covers 929 of 6,500.
+
+### What a future sync must preserve
+
+The `since` / `until` parameters, `oldest_asset_date`, and `catchup_photos.py`. Guarded by `tests/test_catchup_photos_ai.py` (red on origin/main, wired in `.github/workflows/catchup-photos-ai.yml`). Registered by install.sh as `bin/catchup.d/30-photos.sh`.
