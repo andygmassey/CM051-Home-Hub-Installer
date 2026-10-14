@@ -178,6 +178,12 @@ Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
 - `cap_by_source()`: with no cap, every source is still RANKED (category
   priority, strength, frequency) and returned WHOLE, empty trim log. An integer
   restores the old trimming (operator override only; nothing ships one).
+- `is_non_preference_shape(subject, category=None)`: `category` in the new
+  `_STRUCTURED_TITLE_CATEGORIES` (`music`) skips the prose gates (more than
+  `_MAX_PREFERENCE_WORDS` = 12 words, and the boilerplate phrases); the
+  Re:/Fwd:, email-address and URL checks still apply. `is_low_value` passes
+  `pref.category`. A classical work's "Composer - Symphony No. 9 ..." title
+  ran past 12 words and was dropped as prose.
 - Callers unchanged: `pipeline.py` `ingest_file_with_aggregation` and
   `_ingest_directory_with_aggregation` (both call `cap_by_source`).
 

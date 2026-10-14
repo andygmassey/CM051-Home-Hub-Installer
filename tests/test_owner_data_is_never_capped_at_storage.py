@@ -149,3 +149,23 @@ def test_apple_music_records_keep_every_artist_and_genre():
     # still ranked: the most-played artist leads
     artists = [r for r in recs if r["type"] == "music_artist"]
     assert artists[0]["total_plays"] == max(a["total_plays"] for a in artists)
+
+
+@pytest.mark.parametrize("title", [
+    "composer-k1 - Symphony No. 9 in D minor, Op. 125: IV. Presto - Allegro assai - Allegro moderato",
+    "band-k2 - Click Here",
+    "band-k3 - Your Order",
+])
+def test_a_long_or_odd_music_title_is_kept(title):
+    from services.ingest.src.parsers.base import ParsedPreference
+    f = PreferenceFilter()
+    assert not f.is_low_value(ParsedPreference(subject=title, category="music", source="apple_music"))
+
+
+def test_the_prose_gate_still_drops_prose_outside_music():
+    from services.ingest.src.parsers.base import ParsedPreference
+    f = PreferenceFilter()
+    prose = "I had the pleasure of working with them for many years on a great many projects"
+    assert f.is_low_value(ParsedPreference(subject=prose, category="recommendation", source="linkedin"))
+    # the artifact checks still apply to music
+    assert f.is_low_value(ParsedPreference(subject="band - https://example.invalid/x", category="music", source="s"))

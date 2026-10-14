@@ -286,13 +286,22 @@ class PreferenceFilter:
         # Source-agnostic belt-and-braces gate added in v1.0.11: this is the
         # single chokepoint every parser's output passes through, so it stops
         # the junk regardless of which upstream produced it.
-        if self.is_non_preference_shape(subject):
+        if self.is_non_preference_shape(subject, category=pref.category):
             self.stats["filtered_non_preference"] += 1
             return True
 
         return False
 
-    def is_non_preference_shape(self, subject: str) -> bool:
+    # Categories whose subject is a structured title from a player library or
+    # play history ("Artist - Title"), never free text. The prose gates (word
+    # count, boilerplate phrases) dropped real tracks: a classical work runs
+    # past 12 words ("Composer - Symphony No. 9 in D minor, Op. 125: IV. ..."),
+    # and a song can be called "Click Here" or "Your Order". CM051 #28: the
+    # owner's whole library is kept. The artifact checks (Re:/Fwd:, an email
+    # address, a URL) still apply.
+    _STRUCTURED_TITLE_CATEGORIES = frozenset({"music"})
+
+    def is_non_preference_shape(self, subject: str, category=None) -> bool:
         """Return True if ``subject`` is a shape that is never a genuine taste.
 
         Rejects email subject-line artifacts (``Re:`` / ``Fwd:`` prefixes,
@@ -321,6 +330,9 @@ class PreferenceFilter:
             return True
         if self._URL_RE.search(text):
             return True
+
+        if (category or "").strip().lower() in self._STRUCTURED_TITLE_CATEGORIES:
+            return False
 
         # Transactional / notification boilerplate.
         for marker in self._TRANSACTIONAL_MARKERS:
