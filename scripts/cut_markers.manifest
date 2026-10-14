@@ -211,3 +211,7 @@ assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|fn without_unfound
 assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn journals_own_calls|oa #519 every daemon call to Ollama is journaled once, from the provider (walk #27 Bursar; hub-v0.5.16, 5aed1b05). 0 at hub-v0.5.15 (644b6137).
 # --- v1.0.107 wiki v0.1.52 (CM044 d6ba3a01, #321). The line below reads 0 in the v0.1.51 compiler image (e57dff40) and 1 in v0.1.52 (e6bc1460).
 wiki_image_grep|wiki-compiler:/app/compiler/customer_edge.py|^def display_name\(|CM044 #321 customer text goes through display_name and sanitise_customer_text at the render edge ("Participants: user" renders as "You"). 0 -> 1.
+# --- v1.0.107 #28 wiki v0.1.53 (CM044 a6a7107c, #324-#336). Each line below reads 0 in the v0.1.52 image (compiler e6bc1460 / site bfeec0e3) and 1 in v0.1.53 (compiler e17730bf / site d87ca823).
+wiki_image_grep|wiki-compiler:/app/compiler/pages/topic_pages.py|^def _deep_dive_tabs\(|CM044 #333 a topic deep dive is Overview with section tabs under the title. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/local_time.py|^def apply_owner_timezone\(|CM044 #327 data freshness shows owner-local times. 0 -> 1.
+wiki_image_grep|wiki-site:/docs/overrides/javascripts/local_time.js|lang === "en"\) \? "en-GB"|CM044 #336 bare English dates render British day-month. 0 -> 1.
