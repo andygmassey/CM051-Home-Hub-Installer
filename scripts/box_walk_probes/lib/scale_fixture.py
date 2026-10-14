@@ -304,6 +304,112 @@ def seed_neighbour(home, store="http://127.0.0.1:7878", wait_s=600):
     return "failed-digest-not-rewritten"
 
 
+# The fixture's TAGS, one per collection. Every seeded point carries its tag
+# and no customer point can: the reminder text ends with this exact sentence,
+# and every note chunk's guid starts with this prefix (both set by _reminders
+# and _notes above). Measured on macmini16-walk 2026-10-14: 9000 of 11154
+# reminders_knowledge points and 18000 of 18971 apple_notes_knowledge chunks.
+FIXTURE_TAGS = {
+    "reminders_knowledge": ("content_contains", "for the walk scale fixture."),
+    "apple_notes_knowledge": ("guid_prefix", "fixture-note-"),
+}
+
+
+def is_fixture_point(collection, payload):
+    kind, value = FIXTURE_TAGS[collection]
+    payload = payload or {}
+    if kind == "content_contains":
+        return value in str(payload.get("content") or "")
+    return any(str(payload.get(k) or "").startswith(value) for k in ("evernote_guid", "note_id"))
+
+
+def _qdrant_headers(home):
+    import re as _re
+    hdrs = {"Content-Type": "application/json"}
+    try:
+        for line in open(os.path.join(home, ".ostler", "secrets", "store-curl.conf")):
+            m = _re.match(r'\s*header\s*=\s*"?([^:"]+):\s*([^"]*)"?\s*$', line)
+            if m:
+                hdrs[m.group(1).strip()] = m.group(2).strip()
+    except OSError:
+        pass
+    return hdrs
+
+
+def _post(url, body, headers, opener=None):
+    import urllib.request
+    opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    req = urllib.request.Request(url, json.dumps(body).encode(), headers, method="POST")
+    with opener.open(req, timeout=120) as r:
+        return json.loads(r.read().decode() or "{}")
+
+
+def forget(qdrant, home, post=None):
+    """Delete every fixture-tagged point, then count again. -> {collection: counts}."""
+    post = post or (lambda url, body: _post(url, body, _qdrant_headers(home)))
+    out = {}
+    for col in FIXTURE_TAGS:
+        ids, offset, seen = [], None, 0
+        try:
+            while True:
+                body = {"limit": 1000, "with_payload": ["content", "evernote_guid", "note_id"],
+                        "with_vector": False}
+                if offset is not None:
+                    body["offset"] = offset
+                res = post("%s/collections/%s/points/scroll" % (qdrant, col), body)["result"]
+                for pt in res.get("points") or []:
+                    seen += 1
+                    if is_fixture_point(col, pt.get("payload")):
+                        ids.append(pt["id"])
+                offset = res.get("next_page_offset")
+                if offset is None:
+                    break
+            for i in range(0, len(ids), 500):
+                post("%s/collections/%s/points/delete?wait=true" % (qdrant, col), {"points": ids[i:i + 500]})
+            left = 0
+            offset = None
+            while True:
+                body = {"limit": 1000, "with_payload": ["content", "evernote_guid", "note_id"],
+                        "with_vector": False}
+                if offset is not None:
+                    body["offset"] = offset
+                res = post("%s/collections/%s/points/scroll" % (qdrant, col), body)["result"]
+                left += sum(1 for pt in res.get("points") or [] if is_fixture_point(col, pt.get("payload")))
+                offset = res.get("next_page_offset")
+                if offset is None:
+                    break
+            out[col] = {"examined": seen, "tagged": len(ids), "left": left}
+        except Exception as exc:
+            out[col] = {"error": type(exc).__name__}
+    return out
+
+
+def neighbour_forget_update():
+    """The SPARQL UPDATE that removes what seed-neighbour wrote."""
+    return ("DELETE WHERE { GRAPH ?g { <%s> ?p ?o } } ;\n"
+            "DELETE WHERE { <%s> ?p ?o }" % (NEIGHBOUR_FACT, NEIGHBOUR_URI))
+
+
+def forget_neighbour(home, store="http://127.0.0.1:7878"):
+    import urllib.request
+    tok = os.environ.get("OXIGRAPH_TOKEN") or ""
+    if not tok:
+        try:
+            tok = open(os.path.join(home, ".ostler", "secrets", "oxigraph_token")).read().strip()
+        except OSError:
+            tok = ""
+    headers = {"Content-Type": "application/sparql-update"}
+    if tok:
+        headers["Authorization"] = "Bearer " + tok
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        opener.open(urllib.request.Request(store + "/update", data=neighbour_forget_update().encode(),
+                                           headers=headers, method="POST"), timeout=30).read()
+        return "forgotten"
+    except Exception as e:
+        return "failed-%s" % type(e).__name__
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -321,7 +427,15 @@ def main(argv=None):
     r.add_argument("--home", default=os.path.expanduser("~"))
     nbp = sub.add_parser("seed-neighbour")
     nbp.add_argument("--home", default=os.path.expanduser("~"))
+    fg = sub.add_parser("forget")
+    fg.add_argument("--qdrant", default=os.environ.get("QDRANT_URL", "http://localhost:6333"))
+    fg.add_argument("--home", default=os.path.expanduser("~"))
     a = ap.parse_args(argv)
+    if a.cmd == "forget":
+        res = {"points": forget(a.qdrant.rstrip("/"), a.home), "neighbour": forget_neighbour(a.home)}
+        print(json.dumps(res))
+        ok = all(v.get("left") == 0 for v in res["points"].values()) and res["neighbour"] == "forgotten"
+        return 0 if ok else 1
     if a.cmd == "seed-neighbour":
         state = seed_neighbour(a.home)
         print(state)
