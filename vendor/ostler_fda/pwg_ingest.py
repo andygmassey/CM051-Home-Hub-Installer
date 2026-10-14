@@ -37,6 +37,7 @@ from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
 from .role_addresses import is_sender_id_identifier
 from .owner_addresses import load_owner_addresses, is_owner_address
+from . import machine_senders as _machine_senders
 from .identifier_quality import observe as _observe_identifier
 from .usage_journal import record_usage as _record_usage
 from .usage_journal import tokens_from_ollama as _tokens_from_ollama
@@ -535,16 +536,22 @@ def _embed_text(text: str) -> list[float]:
     return embs[0]
 
 
-def _person_id_from_identifier(identifier: str) -> str:
+def _person_id_from_identifier(identifier: str, *, correspondent: bool = False) -> str:
     """Generate a stable person ID from a phone number or email.
 
     A role address (see :func:`is_role_identifier`) is NOT an identity, so it
     must never be the key -- callers should skip creating a person at all.
     This function raises rather than silently returning a colliding ID,
     because the silent version is exactly what merged nine people into one.
+
+    ``correspondent=True`` is the ONE exception (DMG #27): the owner has
+    exchanged mail with this address in a thread, so a human answers it (a
+    sole trader's "info@"). It is keyed like any other address. Only
+    ``ingest_mail_contacts`` passes it, and only for an address that
+    ``machine_senders`` recorded as a correspondent.
     """
     clean = identifier.strip().lower()
-    if is_role_identifier(clean):
+    if is_role_identifier(clean) and not correspondent:
         raise ValueError(
             f"refusing to key a person on the role address {clean!r}: "
             "it is a sender, not a person, and keying on it merges everyone "
@@ -1289,6 +1296,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
     lookup_failed = 0
     owner_addrs = load_owner_addresses(fda_dir)
     owner_skipped = 0
+    machine_skipped = 0
 
     for event in events:
         attendees = event.get("attendees", [])
@@ -1309,6 +1317,11 @@ def ingest_calendar(fda_dir: Path) -> dict:
             # From, sole-To of delivered non-list mail) is not a Person.
             if is_owner_address(attendee, owner_addrs):
                 owner_skipped += 1
+                continue
+            # DMG #27: a calendar SYSTEM address (shared calendar, room,
+            # iCloud invitation sender) or a no-reply sender is not a Person.
+            if _machine_senders.noreply_reason(attendee):
+                machine_skipped += 1
                 continue
             if _observe_identifier(attendee, ""):
                 logger.debug("skipping role address %s", attendee)
@@ -1450,6 +1463,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
         "unique_attendees": len(people_seen),
         "meetings_created": meetings_created,
         "owner_addresses_skipped": owner_skipped,
+        "machine_senders_skipped": machine_skipped,
         "people_created": people_created,
         "people_matched": people_matched,
         "people_lookup_failed": lookup_failed,
@@ -1685,6 +1699,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     lookup_failed = 0
     owner_addrs = load_owner_addresses(fda_dir)
     owner_skipped = 0
+    machine, correspondents = _machine_senders.load(fda_dir)
+    machine_skipped = 0
 
     for email, count in contacts.items():
         if not email or count < 3:
@@ -1700,7 +1716,15 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         if is_owner_address(email, owner_addrs):
             owner_skipped += 1
             continue
-        if _observe_identifier(email, ""):
+        # DMG #27: a machine sender (no-reply address, calendar system or
+        # notification domain, or every message a list mail) is not a Person.
+        if email.strip().lower() in machine or _machine_senders.noreply_reason(email):
+            machine_skipped += 1
+            continue
+        # A person the owner has corresponded with is kept even when the
+        # address reads as a role ("info@" for a sole trader): the role rule
+        # is a guess about the address, the reply is evidence about the human.
+        if email.strip().lower() not in correspondents and _observe_identifier(email, ""):
             logger.debug("skipping role address %s", email)
             continue
         if _is_forgotten(email):
@@ -1713,7 +1737,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         if found is _LOOKUP_FAILED:
             lookup_failed += 1
             found = None
-        person_id = _person_id_from_identifier(email)
+        person_id = _person_id_from_identifier(
+            email, correspondent=email.strip().lower() in correspondents)
         uri = found or _person_uri(person_id)
 
         if found:
@@ -1768,6 +1793,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         "people_matched": people_matched,
         "people_lookup_failed": lookup_failed,
         "owner_addresses_skipped": owner_skipped,
+        "machine_senders_skipped": machine_skipped,
     }
 
 

@@ -836,6 +836,11 @@ def run_all(
             (output_dir / "apple_mail_contacts.json").write_text(
                 json.dumps(contacts, indent=2, default=str)
             )
+            # DMG #27: which senders are machines (no-reply, calendar system,
+            # notification domain, all-list mail) and which are people the
+            # owner corresponded with. Counts only in the summary.
+            from .machine_senders import collect as _collect_machine_senders
+            summary["machine_senders"] = _collect_machine_senders(output_dir)
 
             # #259: when Apple Mail is configured but the local store
             # holds no messages in the window, do not pretend success.

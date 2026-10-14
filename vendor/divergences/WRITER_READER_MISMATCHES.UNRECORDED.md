@@ -1163,3 +1163,16 @@ The name read before the move and the `_elect_survivor_name` call in `_merge_pai
 ## Apple Music records keep every artist and genre (CM051 #28)
 
 Tree `ostler_fda`. `apple_music.to_records` called `top_artists(limit=200)` and `top_genres(limit=100)`, so `apple_music.json` held at most 200 artists and 100 genres of the owner's library. Both now pass `limit=None` (ranking unchanged; `top_artists`/`top_genres` accept `Optional[int]`, and `[:None]` keeps all). Display callers (`library_stats`, top 10) are unchanged. Guarded by `tests/test_owner_data_is_never_capped_at_storage.py::test_apple_music_records_keep_every_artist_and_genre`. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+## Machine senders are not People; a human who replied is (DMG #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/machine_senders.py` (NEW FILE): `noreply_reason` (no-reply / mailer-daemon / bounces / notifications / calendar-notification local parts; calendar-system domains such as shared Google calendars and the iCloud invitation sender; a notification first-label domain), `header_reason` (List-Id, List-Unsubscribe, Auto-Submitted other than "no", Precedence bulk/list/junk), `mail_evidence` over the Mail Envelope Index (per-sender message and list-flag counts from `list_id_hash` / `unsubscribe_type`; correspondents = To/Cc of Sent mail plus senders of non-list mail in a conversation holding a Sent message), `classify`, `collect` (writes `machine_senders.json`), `load`.
+- `vendor/ostler_fda/extract_all.py`: the Apple Mail block calls `machine_senders.collect` after writing `apple_mail_contacts.json` (counts only into `summary["machine_senders"]`).
+- `vendor/ostler_fda/pwg_ingest.py`: imports `machine_senders`; `ingest_calendar` skips an attendee with a `noreply_reason`; `ingest_mail_contacts` skips a machine sender, and lets a recorded CORRESPONDENT past the role-address skip; `_person_id_from_identifier` gains keyword `correspondent=False`, which only that call sets. Both return `machine_senders_skipped`.
+
+WHY: measured read-only on the DMG #27 walk box, `calendar_fda` minted People for calendar-system addresses and `apple_mail_fda` for a notification subdomain. Auto-Submitted and Precedence are NOT INSTRUMENTED on the Envelope Index path (the index does not store them). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`machine_senders.py`, the `collect` call, the two ingest skips, the correspondent pass-through and the `correspondent` keyword. Guarded by `tests/test_machine_senders_are_not_people.py` (wired in `.github/workflows/privacy-spine.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
