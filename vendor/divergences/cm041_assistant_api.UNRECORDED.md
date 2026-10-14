@@ -1102,3 +1102,24 @@ Review round 1: the SPARQL LIMIT is 50 ROWS and the cap of 5 applies to
 PEOPLE after the dedupe, so one survivor's merged-away names cannot crowd the
 asked-for person out (`test_retired_names_do_not_crowd_out_the_target`: red
 on the 5-row cap, green after).
+## The automatic conversation retry waits for a quiet machine (CM051, 2026-10-14, walk #27)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`
+(and its test `tests/test_failed_conversation_auto_retry.py`).
+`scripts/regenerate_divergence_patch.sh cm041/assistant_api --write` with
+`CM041=~/Developer/CM041-People-Graph` REFUSED (exit 1, PII-shaped content on
+the patch, pattern `+1[[...`), so this edit is recorded here.
+
+- NEW constant `CONVERSATION_RETRY_MAX_LOAD_PER_CORE = 0.75`, after
+  `CONVERSATION_RETRY_TIMEOUT_SECONDS`;
+- NEW `_conversation_retry_busy_reason()` before `_conversation_retry_sweep`:
+  "processing" while any first dispatch is in `_CONVERSATIONS_IN_FLIGHT`,
+  "load" when the 1-minute load average per core is over the constant;
+- `_conversation_retry_sweep` gains a `busy` count and returns before
+  selecting anything when the machine is busy, so no attempt and no sidecar
+  is spent.
+
+Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
+in one busy hour; a retry run in that hour joins the same model queue.
+CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
+extends), or the next re-sync of this tree reverts it.
