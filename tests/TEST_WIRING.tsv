@@ -204,6 +204,7 @@ test_console_only_register_names_real_probes.py	WIRED	.github/workflows/walk-rec
 test_contact_card_prefill.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contact_email_coverage_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contact_resync_scheduled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_contacts_and_reminders_are_reread.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_contacts_diff_answers_fast_at_scale.py	WIRED	.github/workflows/contacts-diff-fast.yml
 test_container_engine_liveness_and_recovery.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_container_runtime_guard_tests_the_engine_not_the_client.sh	WIRED	.github/workflows/container-runtime-guard.yml

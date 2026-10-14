@@ -1205,3 +1205,15 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+## Contacts has its own recurring reader; fda-rerun no longer claims it (G3, TCC sweep 2026-10-15) -- `doctor`
+
+Tree `doctor`, two files. NEW CM051-side behaviour, paired with `install.sh`: `bin/ostler-contact-resync` is now a permanent reader, scheduled on every install, that writes `state/source_activity/contacts.tsv`. The ostler-fda tick now re-embeds Reminders and writes `state/source_activity/reminders.tsv`.
+
+- `vendor/doctor/agent/routine_status.py`, `_ROUTINES`: new row `("com.ostler.contact-resync", "Contacts", "contact-resync")`; the fda-rerun row reads "Calendar, Notes, Photos, Reminders, Safari" (it never read contacts).
+- `vendor/doctor/agent/diagnostic_rules.py`, `_SCHEDULED_AGENTS`: the fda-rerun feeds string drops "contacts" and gains "reminders".
+
+WHY: Contacts showed "Up to date" from fda-rerun's health while nothing read the address book after install. The HR015 twin is OWED; `vendor/divergences/doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The contact-resync routine row and the corrected feed strings. Guarded by `tests/test_contacts_and_reminders_are_reread.sh` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `doctor/` and re-pinning.

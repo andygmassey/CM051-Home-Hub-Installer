@@ -52,6 +52,9 @@ on:
       - 'scripts/lib/strip_comments.sh'
       - 'tests/test_fda_rerun_ingests.sh'
       - 'tests/test_notes_are_opened_and_refreshed.sh'
+      - 'tests/test_contacts_and_reminders_are_reread.sh'
+      - 'vendor/doctor/agent/routine_status.py'
+      - 'vendor/doctor/agent/web_ui.py'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/fda-rerun-ingests.yml'
   push:
@@ -90,6 +93,13 @@ jobs:
       - name: An empty Notes store is opened, and the rerun catches up
         if: always()
         run: bash tests/test_notes_are_opened_and_refreshed.sh
+
+      # G2 + G3 (TCC sweep 2026-10-15): Contacts and Reminders are re-read
+      # after install, and every outcome (ok, cannot_run, error) is recorded
+      # where the Doctor reads it.
+      - name: Contacts and Reminders are re-read, and refusals are not fresh
+        if: always()
+        run: bash tests/test_contacts_and_reminders_are_reread.sh
 
   # SEPARATE JOB, deliberately. See the header.
   predicate-self-test:
