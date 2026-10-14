@@ -1160,3 +1160,10 @@ Tree `ostler_fda`, file `vendor/ostler_fda/dedupe_merge.py`. NEW CM051-side beha
 ### What a future sync must preserve
 
 The name read before the move and the `_elect_survivor_name` call in `_merge_pair`. Guarded by `tests/test_dedupe_merge_name_tier_upward_only.py` (red on origin/main, wired in `.github/workflows/dedupe-merge-rule-2.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## Apple Music: native library reader, XML kept as fallback (CM051, walk #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour in `apple_music.py` and the `apple_music` arm of `extract_all.py`. `extract_library()` now tries the signed `ostler-music-library` helper first (Apple's iTunesLibrary framework, "Media & Apple Music" permission), located only through `OSTLER_MUSIC_LIBRARY_HELPER`, and falls back to the existing XML reader. With no helper located the behaviour is the old XML-only path. New: `read_native_library`, `library_from_helper_json`, `to_preference_export`, `write_preference_export`, `MusicLibrary.reader/native_status/native_detail`, `Track.added/skip_count/disliked` (defaulted, so existing `Track(...)` calls are unchanged), `Playlist.smart`, CLI `--helper`. `extract_all` writes `ostler_apple_music_library.json` beside `apple_music.json` when there are tracks, and its summary carries `reader` and `native_status`. A later run whose native read is refused (the launchd re-run holds no Media & Apple Music grant and must never prompt) keeps the earlier export and reports its track count with `reader: previous_export` (`previous_export_track_count`). Every helper failure (refused permission, empty library, crash, garbage, hang past `OSTLER_MUSIC_LIBRARY_HELPER_TIMEOUT`, default 180 s) returns an empty library, never an exception. The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`read_native_library` before the XML read in `extract_library`, and the export write in the `apple_music` arm. Guarded by `tests/test_apple_music_library_reader.py` (21 tests, all red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
