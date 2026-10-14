@@ -25,8 +25,8 @@ FORGETS="grounding_seed_forget preference_seed_forget conversation_seed_forget u
 # lines) and then marks the cleanup done; the two lists must match.
 NORMAL="$(awk '/^grounding_seed_forget \|\| true$/{f=1} f{print} /^WALK_CLEANUP_DONE=1$/{exit}' "$RUNNER")"
 missing=""
-for f in $FORGETS; do printf '%s\n' "$NORMAL" | grep -q "^${f} || true$" || missing="$missing $f"; done
-if [ -n "$NORMAL" ] && [ -z "$missing" ] && printf '%s\n' "$NORMAL" | grep -qx 'WALK_CLEANUP_DONE=1'; then
+for f in $FORGETS; do grep -q "^${f} || true$" <<< "$NORMAL" || missing="$missing $f"; done
+if [ -n "$NORMAL" ] && [ -z "$missing" ] && grep -qx 'WALK_CLEANUP_DONE=1' <<< "$NORMAL"; then
     ok "the normal end runs the same forgets as the trap, then marks the cleanup done"
 else
     bad "the normal end and the trap differ (missing on the normal path:${missing:- none}, or no WALK_CLEANUP_DONE=1)"

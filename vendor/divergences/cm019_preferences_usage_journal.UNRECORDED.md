@@ -196,26 +196,6 @@ filter weighs play_count. Last played is the LATEST event (`_later`), not the
 first row. Play Activity drops plays under 30 s (`MUSIC_MIN_PLAY_MS`, Spotify's
 rule); Daily Tracks counts plays, not skips, and drops a track with 0 plays.
 Test: `tests/test_music_services_score_on_one_scale.py`.
-<<<<<<< HEAD
-## Apple Music library parser (CM051, walk #27, 2026-10-14)
-
-**Files:**
-- `vendor/cm019_preferences/services/ingest/src/parsers/apple_music_library.py` (NEW):
-  `AppleMusicLibraryParser`, source `apple_music`, claims only the exact file
-  name `ostler_apple_music_library.json` written by `ostler_fda.apple_music`.
-  One `music` preference per library track, subject `Artist - Title`, base
-  strength from the SAME constants `parsers/spotify.py` uses for the same
-  evidence (dislike -0.45, star map, loved 0.40, user playlist 0.30, played or
-  in library 0.10). Play count, skips, last played and date added ride in
-  `extra` / `observed_at`.
-- `parsers/__init__.py`: imports and exports it.
-- `pipeline.py`: imports it and lists it FIRST in `self.parsers` (exact-name
-  match, so it cannot shadow another parser).
-
-**Why:** the owner's Apple Music listening never reached the preference store;
-every music preference came from Spotify. Test:
-`tests/test_apple_music_library_reader.py` (parser scale, registry order, and
-an additive-only ingest against recording fake stores).
 ## No per-source storage cap (CM051 #28, Andy 2026-10-14: "Need everything.")
 
 **File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
@@ -249,7 +229,5 @@ an additive-only ingest against recording fake stores).
 2026-10-14 (read-only scroll of `preferences`, 40,320 points): `netflix` 5000,
 `apple` 5000, `csv` 5001. Tests: `tests/test_owner_data_is_never_capped_at_storage.py`,
 `tests/test_pref_noise_source_cap.py` (updated: all rows kept, head first).
-=======
->>>>>>> parent of d3365b0c (squash #2867 (union on registers))
 
 **Upstream status:** not ported; owed to personal-world-graph `services/ingest`.

@@ -23868,8 +23868,12 @@ if ls "$_PREFS_TAIL_QUEUE"/*.jsonl >/dev/null 2>&1 && [[ -x "${_CM019_DIR}/.venv
         _ostler_run_with_deadline "$(( _tail_budget + 300 ))" \
         "${_CM019_DIR}/.venv/bin/python" -m services.ingest.src.cli ingest-tail \
             --queue "$_PREFS_TAIL_QUEUE" --budget-seconds "$_tail_budget" ) \
-        >>"${OSTLER_DIR}/logs/prefs-tail.log" 2>>"${OSTLER_DIR}/logs/prefs-tail.err"
-    printf '[%s] prefs-tail rc=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$?" >>"${OSTLER_DIR}/logs/prefs-tail.log"
+        >>"${OSTLER_DIR}/logs/prefs-tail.log" 2>>"${OSTLER_DIR}/logs/prefs-tail.err" \
+        && _tail_rc=0 || _tail_rc=$?
+    # The rc is captured on the command itself: "$?" inside printf would read
+    # the exit of the $(date) substitution, not the tail run's.
+    printf '[%s] prefs-tail rc=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$_tail_rc" >>"${OSTLER_DIR}/logs/prefs-tail.log"
+    unset _tail_rc
 fi
 
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
