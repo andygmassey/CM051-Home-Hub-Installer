@@ -5282,20 +5282,19 @@ def person_context(name):
     # last_contact is the MAX of the four per-source predicates, computed
     # in Python after the query so each source remains independently
     # OPTIONAL (a missing source must not exclude the row).
-    persons = _sparql_select(
+    persons = _sparql_select((
         'PREFIX pwg: <{ns}>\n'
         'SELECT ?person ?name ?matched ?org ?title ?rel ?howMet ?notes ?bday ?priv\n'
         '       ?mergedInto\n'
         '       ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
-        '  {{ ?person a pwg:Person ; pwg:displayName ?matched .\n'
-        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}"))) }}\n'
-        '  UNION\n'
-        '  {{ ?r pwg:displayName ?matched .\n'
-        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}")))\n'
-        '     ?r pwg:mergedInto+ ?person .\n'
-        '     ?person a pwg:Person .\n'
-        '     FILTER NOT EXISTS {{ ?person a pwg:RetiredPerson }}\n'
-        '     FILTER NOT EXISTS {{ ?person pwg:mergedInto ?further }} }}\n'
+        # Merge-aware, through the shared resolver fragment: a name on the
+        # survivor OR on any node merged into it (zero or more hops) finds
+        # the live terminus only. The first form of this (#2864) had a plain
+        # `?person a pwg:Person` arm that also returned the 145 merged
+        # duplicates an FDA rerun re-typed as Person (walk #27).
+        '  ?node pwg:displayName ?matched .\n'
+        '  FILTER(CONTAINS(LCASE(?matched), LCASE("{q}")))\n'
+        + _LIVE_TERMINUS_SPARQL.replace("{", "{{").replace("}", "}}") +
         '  OPTIONAL {{ ?person pwg:displayName ?name }}\n'
         '  OPTIONAL {{ ?person pwg:organization ?org }}\n'
         '  OPTIONAL {{ ?person pwg:jobTitle ?title }}\n'
@@ -5309,7 +5308,7 @@ def person_context(name):
         '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
         '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
         '  OPTIONAL {{ ?person pwg:privacyLevel ?priv }}\n'
-        '}} LIMIT 50'.format(ns=PWG_NS, q=esc)
+        '}} LIMIT 50').format(ns=PWG_NS, q=esc)
     )
     if not persons:
         return {"query": name, "found": False,

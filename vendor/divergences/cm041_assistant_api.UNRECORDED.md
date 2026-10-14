@@ -1110,7 +1110,7 @@ Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
 - New helpers beside `person_context`: `_LIVE_TERMINUS_SPARQL`,
   `_merge_aware_name_rows`, `_rank_name_rows`, `_resolve_person_by_slug`,
   `_resolve_person_by_exact_name`, `_merged_cluster`.
-- Callers moved onto them: `person_enrichment`, `person_timeline`,
+- Callers moved onto them: `person_context` (its UNION replaced by the shared fragment; the plain `a pwg:Person` arm also returned merged duplicates), `person_enrichment`, `person_timeline`,
   `api_people_forget` (now erases the survivor and every node merged into it,
   tombstones the whole cluster's identifiers, deletes Qdrant points for the
   cluster, and reports `nodes_erased`), `_resolve_person_uri_by_name`

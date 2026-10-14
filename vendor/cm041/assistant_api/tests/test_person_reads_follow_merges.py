@@ -126,6 +126,16 @@ class PersonViewAndTimeline(_Base):
         self.assertEqual(code, 404)
 
 
+class ChatPersonContext(_Base):
+    def test_the_resurrected_duplicate_is_not_a_second_match(self):
+        # "Jane Doe" is the survivor's name AND the merged duplicate's name.
+        out = server.person_context("Jane Doe")
+        self.assertTrue(out.get("found"), out)
+        uris = [m["person_uri"] for m in out.get("matches", [])] or \
+            [out.get("person", {}).get("person_uri")]
+        self.assertEqual(uris, [B + "survivor"], out)
+
+
 class MemoryAssert(_Base):
     def test_a_fact_about_a_merged_name_lands_on_the_survivor(self):
         for name in ("Jane Doe", "Jane Smith", "Jo Doe"):
