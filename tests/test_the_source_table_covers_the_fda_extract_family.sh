@@ -353,7 +353,8 @@ want = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
         "_routine_evidence", "_routine_run_count",
         # #2562-C round 2: see test_source_status_prefers_a_live_routine_
         # over_a_stale_sentinel.sh for why both of these exist.
-        "_best_routine_count", "_settling_progress_total"}
+        "_best_routine_count", "_settling_progress_total",
+        "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase"}
 for node in tree.body:
     if isinstance(node, ast.FunctionDef) and node.name in want:
         exec(compile(ast.Module([node], []), "<f>", "exec"), ns)

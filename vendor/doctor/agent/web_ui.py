@@ -1419,6 +1419,7 @@ def render_source_status() -> str:
             f'{html.escape(_LABEL.get(st, st))}</span></td>'
             f'<td style="text-align:right">{count}</td>'
             f'<td>{html.escape(str(when)) if when else "never"}</td>'
+            f'<td>{html.escape(_catchup_phrase(r.get("catchup")))}</td>'
             f'<td class="muted">{html.escape(str(r.get("kind", "")))}</td>'
             '</tr>'
         )
@@ -1430,6 +1431,7 @@ def render_source_status() -> str:
         '<table class="src-table" style="width:100%;border-collapse:collapse">'
         '<thead><tr><th align="left">Source</th><th align="left">Status</th>'
         '<th align="right">Items</th><th align="left">Last read</th>'
+        '<th align="left">History</th>'
         '<th align="left">Kind</th></tr></thead><tbody>'
         + "".join(body) + "</tbody></table></div>"
     )
@@ -3056,7 +3058,8 @@ def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
 
 
 def read_source_status(hydrate_dir: Path | None = None,
-                       activity_dir: Path | None = None) -> list:
+                       activity_dir: Path | None = None,
+                       catchup_dir: Path | None = None) -> list:
     """One typed row per canonical source, read from the .done sentinels.
 
     EVERY canonical source appears: one that never ran is reported as
@@ -3228,7 +3231,86 @@ def read_source_status(hydrate_dir: Path | None = None,
             if row["status"] in ("no_data", "not_run", "unreadable"):
                 row["status"] = "ok"
                 row["detail"] = "the store holds %d" % count
+
+    # ── v1.0.108: how far back each source has been read ─────────────────
+    # The background catch-up (lib/ostler_catchup.py) walks every source
+    # backwards past the install window and writes one watermark per source
+    # under state/catchup/. None when it has never run for this row: an
+    # absent record is not invented into a state.
+    try:
+        catchup = _read_catchup_by_row(catchup_dir)
+    except Exception:  # noqa: BLE001 - a broken record never fails the panel
+        catchup = {}
+    for row in rows:
+        row["catchup"] = catchup.get(row["source"])
     return rows
+
+
+def _catchup_state_dir() -> Path:
+    """``${OSTLER_DIR}/state/catchup``, where lib/ostler_catchup.py writes."""
+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+    root = Path(base) if base else Path.home() / ".ostler"
+    return root / "state" / "catchup"
+
+
+def _read_catchup_by_row(directory: Path | None = None) -> dict:
+    """Catch-up progress per Doctor row, aggregated over its sources.
+
+    Several catch-up sources can report under one row (Safari and Chrome are
+    both "browsing"). A row is complete only when every one of them is; while
+    any is still walking, the row shows the LEAST advanced one, because "back
+    to 2019" must not be claimed while another source is still in 2024.
+
+    Each value: {"state": "complete" | "catching_up" | "waiting",
+                 "back_to": ISO date or None, "sources": n}.
+    """
+    d = directory if directory is not None else _catchup_state_dir()
+    by_row: dict = {}
+    try:
+        files = sorted(d.glob("*.json"))
+    except OSError:
+        return {}
+    for f in files:
+        try:
+            w = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(w, dict) or w.get("schema") != 1 or not w.get("source"):
+            continue
+        by_row.setdefault(w.get("doctor_row") or w["source"], []).append(w)
+    out = {}
+    for row, ws in by_row.items():
+        open_ = [w for w in ws if not w.get("complete")]
+        if not open_:
+            out[row] = {"state": "complete", "back_to": None, "sources": len(ws)}
+            continue
+        dated = [w.get("oldest_at") for w in open_ if w.get("oldest_at")]
+        # The least advanced is the LATEST "back to" date; one that has not
+        # read anything yet has no date at all, which outranks every date.
+        back_to = None if len(dated) < len(open_) else max(dated)
+        waiting = all(str((w.get("last_tick") or {}).get("reason", "")).startswith("busy")
+                      for w in open_)
+        out[row] = {"state": "waiting" if waiting else "catching_up",
+                    "back_to": back_to, "sources": len(ws)}
+    return out
+
+
+_CATCHUP_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+                   "August", "September", "October", "November", "December")
+
+
+def _catchup_phrase(c: dict | None) -> str:
+    """The History cell. Plain words, no em dashes, British spelling."""
+    if not c:
+        return ""
+    if c.get("state") == "complete":
+        return "All of your history is read"
+    if c.get("state") == "waiting":
+        return "Catching up, waiting for a quiet moment"
+    back = str(c.get("back_to") or "")
+    if len(back) >= 7 and back[:4].isdigit() and back[5:7].isdigit() and 1 <= int(back[5:7]) <= 12:
+        return "Catching up, back to %s %s" % (_CATCHUP_MONTHS[int(back[5:7]) - 1], back[:4])
+    return "Catching up, starting"
 
 
 @app.get("/api/v1/sources", response_class=JSONResponse)

@@ -1205,3 +1205,10 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+## Doctor shows full-history catch-up progress per source (v1.0.108)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, and like the rest of the source-status panel it has never existed upstream. `read_source_status` gains a `catchup_dir` parameter and sets `row["catchup"]` from the watermarks `lib/ostler_catchup.py` writes under `state/catchup/` (new `_catchup_state_dir`, `_read_catchup_by_row`: a row is complete only when every catch-up source mapped to it is; otherwise the least advanced "back to" date wins). `render_source_status` gains a History column via `_catchup_phrase` ("Catching up, back to March 2021", "Catching up, waiting for a quiet moment", "All of your history is read", blank when catch-up never ran for that row).
+
+### What a future sync must preserve
+
+The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).

@@ -67,7 +67,8 @@ tree = ast.parse(src)
 wanted = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
           "_parse_source_sentinel", "read_source_status", "render_source_status",
           "_routine_evidence", "_routine_run_count", "_best_routine_count",
-          "_settling_progress_total"}
+          "_settling_progress_total",
+          "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase"}
 ns = {"Path": pathlib.Path, "os": os, "json": json, "html": html}
 for node in tree.body:
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
