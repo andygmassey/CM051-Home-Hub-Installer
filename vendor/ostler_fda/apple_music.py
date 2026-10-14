@@ -28,8 +28,8 @@ custom installs and tests.
 
 NATIVE READER (CM051, Andy 2026-10-14, walk #27)
 ------------------------------------------------
-The XML above exists ONLY when the owner has ticked "Share Library XML
-with other applications" in the Music app. Almost nobody has, so on the
+The XML above exists ONLY when the owner has ticked the Music app's
+option to share its library XML with other applications. Almost nobody has, so on the
 walk box this module read 0 tracks while the owner's real listening sat
 in ``Music Library.musiclibrary``. The primary reader is now the signed
 ``ostler-music-library`` helper bundled in the installer (Apple's public

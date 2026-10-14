@@ -423,7 +423,7 @@ targets:
         # CM051 walk #27 (2026-10-14): a signed native helper that reads the
         # owner's Music app library through Apple's iTunesLibrary framework
         # (ITLibrary), so Apple Music reaches the Hub without the Music app's
-        # optional "Share Library XML" setting. Built and bundled EXACTLY as
+        # optional setting that shares its library XML. Built and bundled EXACTLY as
         # ostler-mecard is above: universal from $ARCHS, its own
         # NSAppleMusicUsageDescription embedded via -sectcreate, left
         # UNSIGNED here and signed by gui/Makefile sign-python-bundle with

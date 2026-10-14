@@ -5,8 +5,8 @@
 // vendor/ostler_fda/apple_music.py read ONLY
 //     ~/Music/iTunes/iTunes Music Library.xml
 // which the modern Music app writes only when the owner has ticked
-// "Share Library XML with other applications" in Music > Settings >
-// Advanced. Almost nobody has. The walk box held only
+// the option to share the library XML with other applications in the
+// Music app's advanced settings. Almost nobody has. The walk box held only
 // ~/Music/Music/Music Library.musiclibrary, so the reader saw 0 tracks
 // and the Hub's music taste came entirely from Spotify for an owner who
 // mostly uses Apple Music.

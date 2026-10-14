@@ -4,7 +4,7 @@ open, and lands in the preference store additively. (CM051, walk #27)
 
 THE DEFECT. vendor/ostler_fda/apple_music.py read ONLY
 ~/Music/iTunes/iTunes Music Library.xml, which the Music app writes only when
-"Share Library XML with other applications" is ticked. The walk box had only
+the Music app's option to share its library XML with other applications is ticked. The walk box had only
 Music Library.musiclibrary, so the reader saw 0 tracks and every music
 preference came from Spotify for an owner who mostly uses Apple Music.
 
@@ -38,21 +38,21 @@ from ostler_fda import apple_music  # noqa: E402
 # ── synthetic fixture library ──────────────────────────────────────────────
 # Neutral, obviously synthetic labels. No real artist, title or person.
 FIXTURE_TRACKS = [
-    {"id": "A1", "title": "Fixture Song One", "artist": "Fixture Band", "album": "Fixture Album",
+    {"id": "A1", "title": "fixture-song-one", "artist": "fixture-band", "album": "fixture-album",
      "genre": "Ambient", "play_count": 42, "skip_count": 1, "rating": 100, "loved": True,
      "last_played": "2026-10-01T08:00:00Z", "added": "2024-01-01T00:00:00Z", "kind": "song"},
-    {"id": "A2", "title": "Fixture Song Two", "artist": "Fixture Band", "album": "Fixture Album",
+    {"id": "A2", "title": "fixture-song-two", "artist": "fixture-band", "album": "fixture-album",
      "genre": "Ambient", "play_count": 3, "skip_count": 0, "rating": 0,
      "last_played": "2025-06-01T08:00:00Z", "added": "2024-01-01T00:00:00Z", "kind": "song"},
-    {"id": "A3", "title": "Sample Tune Three", "artist": "Sample Ensemble", "genre": "Jazz",
+    {"id": "A3", "title": "sample-tune-three", "artist": "sample-ensemble", "genre": "Jazz",
      "play_count": 0, "skip_count": 0, "rating": 20, "disliked": True,
      "added": "2023-05-05T00:00:00Z", "kind": "song"},
-    {"id": "A4", "title": "Sample Tune Four", "artist": "Sample Ensemble", "genre": "Jazz",
+    {"id": "A4", "title": "sample-tune-four", "artist": "sample-ensemble", "genre": "Jazz",
      "play_count": 0, "skip_count": 0, "rating": 0, "added": "2026-09-09T00:00:00Z", "kind": "song"},
 ]
 FIXTURE_PLAYLISTS = [
-    {"name": "Fixture Mix", "smart": False, "track_ids": ["A2"]},
-    {"name": "Top Rule List", "smart": True, "track_ids": ["A1"]},
+    {"name": "fixture-mix", "smart": False, "track_ids": ["A2"]},
+    {"name": "top-rule-list", "smart": True, "track_ids": ["A1"]},
 ]
 
 
@@ -97,11 +97,11 @@ def test_permission_denied_falls_back_to_the_xml_export(tmp_path, monkeypatch):
     import plistlib
     xml = tmp_path / "lib.xml"
     xml.write_bytes(plistlib.dumps({"Tracks": {"7": {
-        "Track ID": 7, "Name": "Xml Fixture Song", "Artist": "Fixture Band",
+        "Track ID": 7, "Name": "xml-fixture-song", "Artist": "fixture-band",
         "Play Count": 2, "Kind": "MPEG audio file"}}, "Playlists": []}))
     monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_XML", str(xml))
     lib = apple_music.extract_library(helper=_json_helper(tmp_path, DENIED_PAYLOAD))
-    assert [t.name for t in lib.tracks] == ["Xml Fixture Song"]
+    assert [t.name for t in lib.tracks] == ["xml-fixture-song"]
     assert lib.reader == "xml" and lib.native_status == "unavailable"
 
 
@@ -158,13 +158,13 @@ def test_native_read_keeps_every_field(tmp_path):
     assert one.added.year == 2024 and one.skip_count == 1
     three = next(t for t in lib.tracks if t.track_id == "A3")
     assert three.disliked is True
-    assert {p.name: p.smart for p in lib.playlists} == {"Fixture Mix": False, "Top Rule List": True}
+    assert {p.name: p.smart for p in lib.playlists} == {"fixture-mix": False, "top-rule-list": True}
 
 
 def test_native_wins_over_a_present_xml(tmp_path, monkeypatch):
     import plistlib
     xml = tmp_path / "lib.xml"
-    xml.write_bytes(plistlib.dumps({"Tracks": {"9": {"Track ID": 9, "Name": "Xml Only"}}}))
+    xml.write_bytes(plistlib.dumps({"Tracks": {"9": {"Track ID": 9, "Name": "xml-only"}}}))
     monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_XML", str(xml))
     lib = apple_music.extract_library(helper=_json_helper(tmp_path, OK_PAYLOAD))
     assert lib.reader == "native" and len(lib.tracks) == 4
@@ -241,16 +241,16 @@ def test_parser_scores_with_the_spotify_constants(tmp_path):
     prefs = {p.extra["track"]: p for p in _parse(_export(tmp_path))}
     assert len(prefs) == 4
     # loved + 5 stars: the strongest positive wins (5 stars = 0.55, Spotify's map)
-    assert prefs["Fixture Song One"].strength == 0.55
+    assert prefs["fixture-song-one"].strength == 0.55
     # in a playlist they made = 0.30 (Spotify playlist track)
-    assert prefs["Fixture Song Two"].strength == 0.30
+    assert prefs["fixture-song-two"].strength == 0.30
     # explicit dislike wins over everything = -0.45 (Spotify 1-star)
-    assert prefs["Sample Tune Three"].strength == -0.45
-    assert prefs["Sample Tune Three"].preference_type == "Dislike"
+    assert prefs["sample-tune-three"].strength == -0.45
+    assert prefs["sample-tune-three"].preference_type == "Dislike"
     # in the library, never played = 0.10 (Spotify passive play)
-    assert prefs["Sample Tune Four"].strength == 0.10
-    p1 = prefs["Fixture Song One"]
-    assert p1.subject == "Fixture Band - Fixture Song One" and p1.category == "music"
+    assert prefs["sample-tune-four"].strength == 0.10
+    p1 = prefs["fixture-song-one"]
+    assert p1.subject == "fixture-band - fixture-song-one" and p1.category == "music"
     assert p1.source == "apple_music" and p1.extra["play_count"] == 42
     assert p1.observed_at.isoformat() == "2026-10-01T08:00:00+00:00"
 
@@ -301,12 +301,12 @@ class _FakeOxigraph:
 def test_ingest_is_additive_only(tmp_path, monkeypatch):
     from services.ingest.src import pipeline as pl
     seed = {
-        "spotify-pref-1": {"source": "spotify", "subject": "Fixture Band - Fixture Song One",
+        "spotify-pref-1": {"source": "spotify", "subject": "fixture-band - fixture-song-one",
                            "strength": 0.3, "category": "music"},
-        "spotify-pref-2": {"source": "spotify", "subject": "Other Fixture - Track", "strength": 0.2,
+        "spotify-pref-2": {"source": "spotify", "subject": "other-fixture - Track", "strength": 0.2,
                            "category": "music"},
         "person-row-1": {"source": "contacts", "subject": "person:fixture-1"},
-        "email-pref-1": {"source": "email", "subject": "Fixture Newsletter", "strength": 0.4},
+        "email-pref-1": {"source": "email", "subject": "fixture-newsletter", "strength": 0.4},
     }
     before = json.loads(json.dumps(seed))
     pipe = pl.IngestPipeline()

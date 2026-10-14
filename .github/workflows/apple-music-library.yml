@@ -1,5 +1,5 @@
 # CM051 walk #27: Apple Music must reach the Hub without the Music app's
-# "Share Library XML" setting. Drives the shipped ostler_fda reader against
+# "share library XML" option. Drives the shipped ostler_fda reader against
 # fake helpers (including the permission-refused answer measured on Mini16),
 # the shipped extract_all arm, and the shipped CM019 parser + pipeline with
 # recording fake stores (additive-only writes). Synthetic data only.
