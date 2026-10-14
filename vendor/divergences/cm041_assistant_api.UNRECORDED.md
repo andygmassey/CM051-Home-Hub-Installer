@@ -1123,6 +1123,27 @@ Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
 - No patch: same refusal as the entries above (the pin cannot be regenerated
   without folding in unrelated work). Upstream mirror owed in CM041.
 - Test: `vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py`.
+## Filter and group before the cap, never after it (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- `api_browsing_search`: reads every page of `safari_history` (only the
+  fields the filter and the item need) before the keyword filter, instead of
+  5 pages of 1000 in point-id order. `_BROWSING_SCAN_MAX_PAGES` (200) is a
+  runaway guard; reaching it adds `truncated` and `scanned` to the response.
+- `people_recent`: one row per attendee (`MAX(?date)` grouped by person,
+  merged nodes excluded) with no row cap; the screens run over people and
+  `limit` caps the people that pass. Was `LIMIT limit*3` over meeting x
+  attendee rows.
+- `people_stale`: pages every stale point (`_STALE_SCAN_MAX_PAGES`) instead
+  of the first max(limit*5, limit+20) in id order; the recheck queries are
+  batched by 500.
+- `_timeline_conversations`: reads the whole `conversations` collection
+  instead of stopping at limit*4 points.
+- Why: walk #27, about 43% of 8714 browsing visits unfindable, and "who did I
+  meet recently" returning one person in a busy week.
+- No patch: same refusal as the entries above. Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_filter_before_limit.py`.
 
 ## The automatic conversation retry waits for a quiet machine (CM051, 2026-10-14, walk #27)
 

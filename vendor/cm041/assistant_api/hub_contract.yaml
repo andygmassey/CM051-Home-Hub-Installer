@@ -281,7 +281,9 @@
     "count",
     "degraded",
     "reason",
-    "results"
+    "results",
+    "scanned",
+    "truncated"
    ],
    "source": "install.sh"
   },
@@ -4726,7 +4728,9 @@
     "count",
     "degraded",
     "reason",
-    "results"
+    "results",
+    "scanned",
+    "truncated"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
