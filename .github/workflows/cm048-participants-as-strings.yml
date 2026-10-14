@@ -17,6 +17,8 @@ on:
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
       - 'tests/test_cm048_gateway_extracts_owner_turns_only.py'
+      - 'tests/test_cm048_third_party_facts_keep_their_subject.py'
+      - 'vendor/cm048_pipeline/src/attribution.py'
       - 'vendor/cm052_ai_conversations/src/cm052/wire.py'
       - 'vendor/cm052_ai_conversations/src/cm052/adapters/zeroclaw_sessions.py'
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
@@ -52,6 +54,8 @@ on:
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
       - 'tests/test_cm048_gateway_extracts_owner_turns_only.py'
+      - 'tests/test_cm048_third_party_facts_keep_their_subject.py'
+      - 'vendor/cm048_pipeline/src/attribution.py'
       - 'vendor/cm052_ai_conversations/src/cm052/wire.py'
       - 'vendor/cm052_ai_conversations/src/cm052/adapters/zeroclaw_sessions.py'
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
@@ -227,3 +231,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_gateway_extracts_owner_turns_only.py -v
+      - name: A fact about another person's family is theirs, not the owner's (DMG #27)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_third_party_facts_keep_their_subject.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_third_party_facts_keep_their_subject.py -v

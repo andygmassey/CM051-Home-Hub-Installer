@@ -147,3 +147,28 @@ Tree `cm041/identity_resolver`, file `batch_resolver.py`, function
   `lib/ostler-confirm-identity.py`, behind the owner's confirmation.
 - No patch: same refusal as the entries above. Upstream mirror owed in CM041.
 - Test: `tests/test_owner_node_is_minted_and_read.py`.
+
+## An identical name is a "Same person?" suggestion, never an automatic merge (DMG #27 item 4)
+
+File `vendor/cm041/identity_resolver/batch_resolver.py`. `import re` added.
+`PersonRecord` gains `organizations` and `contact_card_uids` (sets, default
+empty), filled by `_fetch_all_persons` from every `pwg:organization` row and
+every `icloud_contact_uid` identifier. New `DEFAULT_CONFIG`
+`same_name_suggest_confidence` (0.6: above `review_threshold`, below
+`auto_merge_threshold`). New helpers `_ORG_SUFFIXES`, `_org_tokens`,
+`employers_overlap`, `_has_employer` placed before
+`detect_exact_name_matches`, whose pair loop now: skips a pair whose
+employers are both present and disjoint unless both are Contacts cards (a
+common name at different employers stays apart; it used to auto-merge at 0.9
+when neither held an identifier); emits a `same_name_suggest` match (review
+only) for that card pair and for two different cards with overlapping or
+absent employers; otherwise unchanged. `has_hard_conflict` still vetoes first.
+
+WHY: one real contact split across three nodes (identical full name,
+different employer cards, no shared phone or email). Archie's ruling: no
+automatic merge, a suggestion the owner confirms through the existing
+duplicates review (`needs_review`, `duplicates.yaml` decisions).
+
+Guarded by `tests/test_same_name_is_a_suggestion_not_a_merge.py`, wired in
+`.github/workflows/walk-defect-e-duplicate-evidence-guard.yml`. Upstream CM041
+mirror OWED; no re-vendor.
