@@ -114,8 +114,20 @@ for a in "${ANSWERS[@]}"; do
 done
 
 # ── C: the vendored enrich CLI backstop, network guarded ─────────────────
-"$PY" -c "import sys; sys.path.insert(0, '${CM019_SRC}'); import services.enrich.src.cli" 2>"$WORK/imp.err" \
-    || cannot "the vendored enrich CLI is not importable by ${PY}: $(tail -1 "$WORK/imp.err") (pip install -r vendor/cm019_preferences/requirements.txt)"
+#
+# THE SCRATCH HOME MUST NOT HIDE THE DEPENDENCIES. Arm C runs under HOME=<a
+# scratch home>, and on the CI runner `pip install` lands in the USER site,
+# which Python derives from HOME. The first CI run of this test died in all
+# four C arms on "No module named pydantic_settings" while the import check
+# (run under the REAL home) passed, and that read as four guard FAILs. So the
+# interpreter keeps its ORIGINAL user base, the way a venv keeps its packages,
+# and the import check runs in the C arms' exact environment. A missing
+# dependency is CANNOT-RUN (exit 2), never a guard verdict.
+PY_USERBASE="$("$PY" -c 'import site; print(site.getuserbase())' 2>/dev/null)"
+mkdir -p "$WORK/importcheck-home"
+( cd "$CM019_SRC" && HOME="$WORK/importcheck-home" PYTHONUSERBASE="$PY_USERBASE" \
+    "$PY" -c "import services.enrich.src.cli" ) 2>"$WORK/imp.err" \
+    || cannot "the vendored enrich CLI is not importable by ${PY} in arm C's environment: $(tail -1 "$WORK/imp.err") (pip install -r vendor/cm019_preferences/requirements.txt)"
 
 mkdir -p "$WORK/guard"
 cat > "$WORK/guard/sitecustomize.py" <<'PYEOF'
@@ -139,10 +151,13 @@ for a in "${ANSWERS[@]}"; do
     # Proxy variables are cleared so the guard sees the real destination,
     # not a local proxy that would answer for every host.
     ( cd "$CM019_SRC" && unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy && \
-        HOME="$h" NET_GUARD_LOG="$h/net.log" PYTHONPATH="$WORK/guard" \
+        HOME="$h" PYTHONUSERBASE="$PY_USERBASE" NET_GUARD_LOG="$h/net.log" PYTHONPATH="$WORK/guard" \
         OSTLER_CONSENT_ENRICHMENT_DECISION=accepted QDRANT_COLLECTION=preferences \
         "$PY" -m services.enrich.src.cli enrich --all --budget-seconds 5 --limit 5 -u jane ) >"$h/out" 2>&1
     rc=$?
+    if grep -qE '(ModuleNotFoundError|ImportError)' "$h/out"; then
+        cannot "arm C, answer=$a: the enrich CLI could not import its dependencies, so the guard measured nothing: $(grep -E '(ModuleNotFoundError|ImportError)' "$h/out" | tail -1)"
+    fi
     n="$(wc -l < "$h/net.log" | tr -d ' ')"
     case "$a" in
         accepted)
