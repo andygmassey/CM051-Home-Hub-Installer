@@ -69,10 +69,10 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("fn", [im_reader.is_assistant_send, fda_imessage.is_assistant_send])
+@pytest.mark.parametrize("module", [im_reader, fda_imessage], ids=["imessage_source", "ostler_fda"])
 @pytest.mark.parametrize("text,expected", CASES)
-def test_every_copy_of_the_rule_agrees(fn, text, expected):
-    assert fn(text) is expected
+def test_every_copy_of_the_rule_agrees(module, text, expected):
+    assert module.is_assistant_send(text) is expected
 
 
 def test_the_copies_share_their_constants():
