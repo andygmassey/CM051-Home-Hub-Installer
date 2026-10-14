@@ -170,3 +170,31 @@ red over a fully successful import. Tests:
 Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
 
 **Upstream status:** not ported; owed to personal-world-graph `services/enrich`.
+
+## One scale for every music service: plays and recency (CM051, walk #27, 2026-10-14)
+
+**File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
+- `is_duplicate()` (aggregation mode): a row adds `_observation_weight(pref)`
+  to its key's frequency instead of 1, and the kept row takes the LATEST
+  `observed_at` of its duplicates (`_with_latest_observation`).
+- `_observation_weight()` (NEW): `extra["play_count"]` when it is an integer
+  above 1, else 1 (never 0, never negative, bool rejected).
+- `_with_latest_observation()` (NEW): keeps the most recent observation.
+
+**Why:** frequency counted rows, so a per-play history (Spotify) outscored a
+per-track library with the same plays (Apple Music: 42 plays scored frequency
+1), and time decay used the first row seen, so file order changed a score.
+Rows without a play count (email, likes, per-play histories) are unchanged.
+
+**File:** `vendor/cm019_preferences/services/ingest/src/parsers/apple.py`
+(the privacy.apple.com export): `_parse_track_play_history`,
+`_parse_play_activity` and `_parse_daily_tracks` now emit Spotify's
+passive-play base strength (`MUSIC_PASSIVE_PLAY_STRENGTH` 0.10) with the play
+count in `extra["play_count"]`, instead of count-encoded strengths
+(0.5 + n x 0.03..0.05, capped 0.75..0.8) that would double count once the
+filter weighs play_count. Last played is the LATEST event (`_later`), not the
+first row. Play Activity drops plays under 30 s (`MUSIC_MIN_PLAY_MS`, Spotify's
+rule); Daily Tracks counts plays, not skips, and drops a track with 0 plays.
+Test: `tests/test_music_services_score_on_one_scale.py`.
+
+**Upstream status:** not ported; owed to personal-world-graph `services/ingest`.
