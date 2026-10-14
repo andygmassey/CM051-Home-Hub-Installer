@@ -1205,3 +1205,19 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+
+---
+
+## doctor: live Time Machine exclusion rule (walk #28, sweep I1)
+
+`vendor/doctor/agent/diagnostic_rules.py` gains `_tm_isexcluded()` and
+`check_time_machine_exclusion()` (registered last in `ALL_RULES`);
+`vendor/doctor/agent/diagnostic_copy.py` gains the `TM_*` copy. The rule asks
+`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Documents/Ostler`
+and `~/.colima` (each only if it exists): "[Excluded]" is silent, "[Included]"
+is a warning naming the folder ("Ostler's secrets folder is NOT excluded from
+Time Machine" for `~/.ostler`), anything else is an info "could not check",
+never a pass. Not applicable off macOS when tmutil is absent. The installer
+half is in install.sh `_ostler_harden_at_rest`. `doctor.patch` is NOT
+regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
+`tests/test_time_machine_exclusion_is_measured.sh` (vendor-integrity.yml).
