@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from collections import defaultdict
@@ -58,6 +59,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "review_threshold": 0.5,
     # Detection weights
     "exact_name_confidence": 0.9,
+    # DMG #27: a "Same person?" suggestion. Above review_threshold so it is
+    # offered, below auto_merge_threshold so it is NEVER merged automatically.
+    "same_name_suggest_confidence": 0.6,
     "email_match_confidence": 1.0,
     # Shared LinkedIn profile URL is an exact identifier (RULE 1): always merge.
     "linkedin_url_match_confidence": 1.0,
@@ -141,6 +145,10 @@ class PersonRecord:
     email_domains: Set[str] = field(default_factory=set)
     linkedin_urls: Set[str] = field(default_factory=set)
     triple_count: int = 0
+    # Every employer the node carries (``organization`` keeps the first one
+    # for the existing callers) and every Contacts card behind it.
+    organizations: Set[str] = field(default_factory=set)
+    contact_card_uids: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -275,6 +283,30 @@ def has_hard_conflict(
     return None
 
 
+_ORG_SUFFIXES = frozenset({
+    "ltd", "limited", "inc", "incorporated", "llc", "llp", "plc", "gmbh",
+    "co", "corp", "corporation", "company", "group", "the",
+})
+
+
+def _org_tokens(org: str) -> frozenset:
+    words = re.sub(r"[^\w\s]", " ", (org or "").lower()).split()
+    return frozenset(w for w in words if w not in _ORG_SUFFIXES)
+
+
+def employers_overlap(a: PersonRecord, b: PersonRecord) -> bool:
+    """True when the two records share an employer. Compared on the words of
+    the organisation name without legal suffixes, so "ACME Ltd" and "Acme" are
+    one employer; a one-sided word subset counts ("Acme" vs "Acme Labs")."""
+    orgs_a = [t for t in (_org_tokens(o) for o in (a.organizations or {a.organization})) if t]
+    orgs_b = [t for t in (_org_tokens(o) for o in (b.organizations or {b.organization})) if t]
+    return any(x <= y or y <= x for x in orgs_a for y in orgs_b)
+
+
+def _has_employer(p: PersonRecord) -> bool:
+    return any(_org_tokens(o) for o in (p.organizations or {p.organization}))
+
+
 def detect_exact_name_matches(
     persons: Dict[str, PersonRecord], config: Dict[str, Any]
 ) -> List[DuplicateMatch]:
@@ -283,6 +315,27 @@ def detect_exact_name_matches(
     Hard-conflict veto applies (spec §3b): two records with an identical name
     but a conflicting verified identifier are different people (the two real
     John Smiths), so they are never matched.
+
+    SAME NAME, DMG #27 (Archie ruling: SUGGEST only, no automatic merge). One
+    real contact was split across three nodes: identical full name, different
+    employer cards, no shared phone or email. Two outcomes are added, and both
+    only ever reduce merging:
+
+    - both records name an employer and the employers do NOT overlap: two
+      people with a common name at different employers. They stay apart (this
+      used to auto-merge at 0.9 when neither held an identifier), UNLESS every
+      record is a card in the owner's own Contacts, which is the split-contact
+      shape: then it is a "Same person?" suggestion for the owner to confirm.
+    - two different Contacts cards with an identical name and overlapping (or
+      absent) employers: a "Same person?" suggestion. RULE 2 forbids merging
+      two cards automatically; previously the pair was planned as an auto-merge
+      and refused at execution.
+
+    A suggestion is a ``same_name_suggest`` match at
+    ``same_name_suggest_confidence``, which is above the review threshold and
+    below the auto-merge threshold: it lands in ``needs_review`` and is never
+    merged without the owner. A conflicting phone, email domain or LinkedIn
+    URL still vetoes everything.
     """
     by_name: Dict[str, List[str]] = defaultdict(list)
     for uri, p in persons.items():
@@ -301,6 +354,32 @@ def detect_exact_name_matches(
                 # Hard-conflict veto: different LinkedIn / phone / corporate
                 # email = different people, even with identical names.
                 if has_hard_conflict(a, b, config):
+                    continue
+                both_cards = bool(a.contact_card_uids) and bool(b.contact_card_uids)
+                disjoint_employers = (
+                    _has_employer(a) and _has_employer(b) and not employers_overlap(a, b)
+                )
+                if disjoint_employers and not both_cards:
+                    continue  # a common name at different employers: stay apart
+                if disjoint_employers or (
+                    both_cards and a.contact_card_uids != b.contact_card_uids
+                ):
+                    why = ("all cards from your Contacts" if disjoint_employers
+                           else "employers overlap" if (_has_employer(a) and _has_employer(b))
+                           else "both cards from your Contacts")
+                    matches.append(DuplicateMatch(
+                        uri_a=uris[i],
+                        name_a=a.display_name,
+                        uri_b=uris[j],
+                        name_b=b.display_name,
+                        confidence=config["same_name_suggest_confidence"],
+                        strategy="same_name_suggest",
+                        details=(
+                            f"Same person? Identical full name, {why}, no "
+                            "conflicting phone, email or LinkedIn. Not merged "
+                            "until you confirm."
+                        ),
+                    ))
                     continue
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
@@ -1054,8 +1133,12 @@ def _fetch_all_persons(
                 job_title=row.get("title", ""),
             )
         p = persons[uri]
+        if row.get("org"):
+            p.organizations.add(row["org"])
         id_type = row.get("idType", "")
         id_value = row.get("idValue", "")
+        if id_type == "icloud_contact_uid" and id_value:
+            p.contact_card_uids.add(id_value)
         if id_type == "phone" and id_value:
             p.phones.add(normalise_phone(id_value, country_code))
         elif id_type == "email" and id_value:
