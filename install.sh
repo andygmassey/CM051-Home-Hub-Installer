@@ -28195,11 +28195,12 @@ except Exception:
 # empty read means "not yet". A marker older than 6 h is an aborted install's
 # leftover (the marker's own lifetime) and does not count.
 _hydrating() {
-    local m="${OSTLER_DIR}/state/install-in-progress" now mt
+    local m="${OSTLER_DIR}/state/install-in-progress"
     [ -f "$m" ] || return 1
-    now="$(date +%s)"
-    mt="$(/usr/bin/stat -f %m "$m" 2>/dev/null || echo 0)"
-    [ $((now - mt)) -lt 21600 ]
+    # Fresh = modified in the last 6 h (360 min). find -mmin is the same on
+    # BSD and GNU; /usr/bin/stat -f %m is BSD-only and read every marker as
+    # stale on the Linux test runner.
+    [ -n "$(find "$m" -mmin -360 -print 2>/dev/null)" ]
 }
 
 _read_counter() {

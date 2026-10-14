@@ -21,7 +21,7 @@ declare -F companion_unpair_box_snippet >/dev/null || . "${_CU_HERE}/companion_p
 
 _cu_box() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
-        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o BatchMode=yes "$OSTLER_BOX_HOST" "$1"
+        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o BatchMode=yes "$OSTLER_BOX_HOST" "$1"
     else
         bash -lc "$1"
     fi

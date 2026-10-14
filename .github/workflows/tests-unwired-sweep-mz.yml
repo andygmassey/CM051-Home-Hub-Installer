@@ -56,9 +56,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: The wiki compile gets the owner's IANA zone; an unreadable zone is said, not guessed
+        if: always()
         run: bash tests/test_wiki_compile_gets_owner_tz.sh
 
       - name: ostler-import hands the owner name to the people graph; unknown format is not a failure
+        if: always()
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
 
       - name: install.sh structural + helper regression tests (m..z batch)
