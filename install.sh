@@ -2156,7 +2156,7 @@ _ostler_licence_refuse() {
     echo "  DMG does that step for you: drop the licence on its licence" >&2     # i18n-exempt
     echo "  screen and it writes the file itself." >&2                           # i18n-exempt
     echo "" >&2
-    echo "  Bought Ostler and still seeing this? Email support@ostler.ai." >&2   # i18n-exempt
+    echo "  Bought Ostler and still seeing this? Email hello@ostler.ai." >&2   # i18n-exempt
     echo "" >&2
     fail_with_code "ERR-02-LICENCE-REQUIRED" "Licence check failed: ${_reason}"  # i18n-exempt
 }
@@ -25745,7 +25745,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <key>DOCTOR_PORT</key>
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
-        <string>support@ostler.ai</string>
+        <string>hello@ostler.ai</string>
         <!-- B3 (#180): the browser-extension credential. The Doctor accepts
              it for POST /api/safari/ingest on loopback ONLY. See
              _is_extension_credential in agent/proxy.py, which also refuses

@@ -79,13 +79,13 @@ final class EmailSupportMailtoTest: XCTestCase {
     }
 
     /// The URL must start with the mailto: scheme and target the
-    /// support@ostler.ai address (mirrors the hyperlink the customer
+    /// hello@ostler.ai address (mirrors the hyperlink the customer
     /// sees in the body paragraph). If a future brand-rename PR
     /// changes one but not the other, this test fires.
     func testMailtoURLTargetsSupportAddress() throws {
         let urlString = SupportMailtoBuilder.makeMailtoURLString()
-        XCTAssertTrue(urlString.hasPrefix("mailto:support@ostler.ai?"),
-            "mailto: URL must start with 'mailto:support@ostler.ai?' so the customer's mail client opens addressed to support. Got: \(urlString)")
+        XCTAssertTrue(urlString.hasPrefix("mailto:hello@ostler.ai?"),
+            "mailto: URL must start with 'mailto:hello@ostler.ai?' so the customer's mail client opens addressed to support. Got: \(urlString)")
     }
 
     // MARK: - Body contract (the catalogue-keyed substrings)

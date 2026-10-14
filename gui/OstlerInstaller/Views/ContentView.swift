@@ -199,7 +199,7 @@ struct ContentView: View {
                     // (2026-05-23) replaces the previous read-only
                     // LogDrawerView with InstallFailedBodyView: the
                     // rich apology + next-step copy + hyperlinked
-                    // support@ostler.ai + Email-support + Copy-log
+                    // hello@ostler.ai + Email-support + Copy-log
                     // actions. Pre-CX-14 the right pane was just the
                     // log scrollback with no contextual copy; Studio
                     // retest #6 found customers reading the log and
@@ -252,7 +252,7 @@ struct ContentView: View {
 /// no exit-code duplicate). The rich apology + next-step copy +
 /// action buttons live in `InstallFailedBodyView` in the right
 /// pane, where the customer is already looking when the install
-/// fails. The hyperlinked support@ostler.ai inline in the body
+/// fails. The hyperlinked hello@ostler.ai inline in the body
 /// removes the need for a separate "Email support" label.
 ///
 /// We deliberately DROP "Try again": terminating the app and
@@ -312,7 +312,7 @@ private struct InstallFailedBannerView: View {
 ///   - body_heading ("The installer hit a fatal error and stopped")
 ///     -- translates the previous "code 1" exit-code shorthand into
 ///     a single human sentence
-///   - body paragraph with hyperlinked `support@ostler.ai` inline
+///   - body paragraph with hyperlinked `hello@ostler.ai` inline
 ///     via AttributedString (.link attribute + Oxblood foreground +
 ///     underline, matching the consent-install body link styling)
 ///   - LogDrawerView (read-only buffer view) so the customer can
@@ -338,7 +338,7 @@ private struct InstallFailedBodyView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             // AttributedString with an inline .link run on the
-            // support@ostler.ai label. SwiftUI renders .link as a
+            // hello@ostler.ai label. SwiftUI renders .link as a
             // tappable run that opens via NSWorkspace by default;
             // we add an explicit Oxblood + underline to match the
             // consent-install terms-link styling in
@@ -393,7 +393,7 @@ private struct InstallFailedBodyView: View {
     }
 
     /// Builds the body paragraph as an AttributedString with the
-    /// support@ostler.ai label rendered as an inline .link run.
+    /// hello@ostler.ai label rendered as an inline .link run.
     /// Mirrors `OnboardingQuestionView.consentInstallBody()`'s
     /// pattern so the visual styling is consistent across the app.
     private func supportBodyAttributed() -> AttributedString {
@@ -493,7 +493,7 @@ private struct InstallFailedBodyView: View {
     }
 }
 
-/// PII redactor for install logs destined for support@ostler.ai.
+/// PII redactor for install logs destined for hello@ostler.ai.
 /// Masks the categories most likely to leak personal data:
 ///   - email addresses → ⟨email⟩
 ///   - phone numbers (E.164 + common Western formats) → ⟨phone⟩
@@ -628,7 +628,7 @@ enum SupportMailtoBuilder {
     /// The mailto: recipient. Kept in sync with
     /// install_failed_banner.body_support_email_url in ViewCopy.json
     /// (the hyperlink rendered in the body paragraph).
-    static let recipient: String = "support@ostler.ai"
+    static let recipient: String = "hello@ostler.ai"
 
     /// Assembles the body text from the three ViewCopy catalogue keys.
     /// Layout (top to bottom):

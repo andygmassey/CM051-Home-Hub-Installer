@@ -2143,9 +2143,9 @@ final class InstallerCoordinator: ObservableObject {
             // abort can surface as exit 0 through pipeline / wrapper
             // masking). CX-126.
             if exitCode == 0 {
-                return .failure(message: "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
+                return .failure(message: "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact hello@ostler.ai.")
             }
-            return .failure(message: "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
+            return .failure(message: "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact hello@ostler.ai.")
         case .fail, .error:
             // install.sh already told us it failed. Honour it.
             return .confirmedFailure
@@ -2160,7 +2160,7 @@ final class InstallerCoordinator: ObservableObject {
                 }
                 return .confirmedSuccess
             }
-            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
+            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact hello@ostler.ai.")
         case .ok:
             // CX-454: a success marker is only trustworthy if the OS
             // exit code agrees. A `DONE status=ok` followed by a
@@ -2177,7 +2177,7 @@ final class InstallerCoordinator: ObservableObject {
                 }
                 return .confirmedSuccess
             }
-            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
+            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact hello@ostler.ai.")
         }
     }
 

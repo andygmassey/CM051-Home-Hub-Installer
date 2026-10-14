@@ -1,7 +1,7 @@
 // LogRedactorTests.swift
 //
 // Synthetic-fixture coverage of every category the LogRedactor
-// masks before an install log reaches support@ostler.ai via the
+// masks before an install log reaches hello@ostler.ai via the
 // failure-banner "Email support" button or "Copy redacted log"
 // button.
 //

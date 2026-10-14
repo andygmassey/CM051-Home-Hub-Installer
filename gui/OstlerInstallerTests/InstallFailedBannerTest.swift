@@ -3,7 +3,7 @@
 // CX-14 Section E2 regression tests. The pre-CX-14 banner crammed
 // heading + subtitle + four buttons into a single horizontal strip;
 // E2 split it into a minimal top banner (title only) + rich body
-// pane (apology + hyperlinked support@ostler.ai + actions).
+// pane (apology + hyperlinked hello@ostler.ai + actions).
 //
 // Per locked memory `feedback_silent_bail_regression_test_shape`:
 // for every silent-fail axis the test must walk the assembled
@@ -14,7 +14,7 @@
 //   - the "Try again" button label re-appearing (we explicitly
 //     dropped it; if a future PR adds it back without consensus
 //     this test fires)
-//   - the hyperlink label drifting away from support@ostler.ai
+//   - the hyperlink label drifting away from hello@ostler.ai
 //     (so a partial brand-rename leaves a dead link)
 //   - the body-paragraph prefix/suffix and the label getting
 //     reordered such that the customer reads "...email to get help..."
@@ -119,7 +119,7 @@ final class InstallFailedBannerTest: XCTestCase {
 
     // MARK: - Hyperlink contract
 
-    /// The body paragraph hyperlinks support@ostler.ai inline via
+    /// The body paragraph hyperlinks hello@ostler.ai inline via
     /// AttributedString.link. Three keys must exist + must match:
     ///   body_paragraph_prefix
     ///   body_support_email_label  (must contain @ostler.ai)
@@ -146,17 +146,17 @@ final class InstallFailedBannerTest: XCTestCase {
         }
 
         // Label is the human-readable address that renders inline.
-        // Must be the support@ostler.ai address (matches the
+        // Must be the hello@ostler.ai address (matches the
         // mailto URL).
-        XCTAssertEqual(label, "support@ostler.ai",
-            "install_failed_banner.body_support_email_label must be exactly 'support@ostler.ai' so the hyperlink label matches the mailto target. Got: \(label)")
+        XCTAssertEqual(label, "hello@ostler.ai",
+            "install_failed_banner.body_support_email_label must be exactly 'hello@ostler.ai' so the hyperlink label matches the mailto target. Got: \(label)")
 
         // URL is the tappable target. Must be a mailto: URL pointing
         // at the same address as the label.
         XCTAssertTrue(urlString.hasPrefix("mailto:"),
             "install_failed_banner.body_support_email_url must be a mailto: URL. Got: \(urlString)")
-        XCTAssertTrue(urlString.contains("support@ostler.ai"),
-            "install_failed_banner.body_support_email_url must target support@ostler.ai (the label the customer sees). Got: \(urlString)")
+        XCTAssertTrue(urlString.contains("hello@ostler.ai"),
+            "install_failed_banner.body_support_email_url must target hello@ostler.ai (the label the customer sees). Got: \(urlString)")
         XCTAssertNotNil(URL(string: urlString),
             "install_failed_banner.body_support_email_url must parse as a URL. Got: \(urlString)")
 

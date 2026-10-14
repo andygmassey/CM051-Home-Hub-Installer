@@ -1,0 +1,25 @@
+name: no-support-address
+on:
+  pull_request:
+    paths:
+      - 'gui/**'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'vendor/doctor/agent/**'
+      - 'scripts/verify_no_support_address.sh'
+      - 'scripts/tests/test_no_support_address.sh'
+      - '.github/workflows/no-support-address.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Controls
+        run: bash scripts/tests/test_no_support_address.sh
+      - name: Gate
+        run: bash scripts/verify_no_support_address.sh
