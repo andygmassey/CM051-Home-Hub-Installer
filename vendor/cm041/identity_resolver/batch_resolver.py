@@ -297,7 +297,7 @@ def _org_tokens(org: str) -> frozenset:
 def employers_overlap(a: PersonRecord, b: PersonRecord) -> bool:
     """True when the two records share an employer. Compared on the words of
     the organisation name without legal suffixes, so "ACME Ltd" and "Acme" are
-    one employer; a one-sided word subset counts ("Acme" vs "Acme Labs")."""
+    one employer; a one-sided word subset counts ("Acme" vs "Acme Corp")."""
     orgs_a = [t for t in (_org_tokens(o) for o in (a.organizations or {a.organization})) if t]
     orgs_b = [t for t in (_org_tokens(o) for o in (b.organizations or {b.organization})) if t]
     return any(x <= y or y <= x for x in orgs_a for y in orgs_b)
