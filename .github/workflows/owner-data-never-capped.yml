@@ -9,6 +9,7 @@ on:
     paths:
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
       - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/**'
       - 'tests/test_owner_data_is_never_capped_at_storage.py'
       - 'tests/test_pref_noise_source_cap.py'
       - 'vendor/ostler_fda/apple_music.py'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
       - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/**'
       - 'tests/test_owner_data_is_never_capped_at_storage.py'
       - 'tests/test_pref_noise_source_cap.py'
       - 'vendor/ostler_fda/apple_music.py'
@@ -42,8 +44,8 @@ jobs:
           n="$(python -m pytest tests/test_owner_data_is_never_capped_at_storage.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 9 ]; then
-            echo "REFUSING: expected at least 9 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_owner_data_is_never_capped_at_storage.py -v -rs

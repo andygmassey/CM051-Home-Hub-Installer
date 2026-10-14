@@ -169,3 +169,52 @@ def test_the_prose_gate_still_drops_prose_outside_music():
     assert f.is_low_value(ParsedPreference(subject=prose, category="recommendation", source="linkedin"))
     # the artifact checks still apply to music
     assert f.is_low_value(ParsedPreference(subject="band - https://example.invalid/x", category="music", source="s"))
+
+
+# ── no parser keeps only a top-N of what it yields as preferences ─────────
+import ast  # noqa: E402
+
+PARSERS = ROOT / "vendor/cm019_preferences/services/ingest/src/parsers"
+
+
+def _top_n_yield_loops(src: str):
+    """(line, shape) for every `for` loop that YIELDS ParsedPreference while
+    iterating `x.most_common(<int>)` or `x[:<int>]`: a top-N storage cap."""
+    hits = []
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, (ast.For, ast.AsyncFor)):
+            continue
+        it = node.iter
+        capped = (
+            (isinstance(it, ast.Call) and isinstance(it.func, ast.Attribute)
+             and it.func.attr == "most_common" and it.args
+             and isinstance(it.args[0], ast.Constant))
+            or (isinstance(it, ast.Subscript) and isinstance(it.slice, ast.Slice)
+                and it.slice.lower is None and isinstance(it.slice.upper, ast.Constant))
+        )
+        if not capped:
+            continue
+        yields = any(
+            isinstance(n, (ast.Yield,)) and isinstance(n.value, ast.Call)
+            and getattr(n.value.func, "id", "") == "ParsedPreference"
+            for b in node.body for n in ast.walk(b))
+        if yields:
+            hits.append((node.lineno, ast.unparse(it)))
+    return hits
+
+
+def test_the_top_n_detector_fires_on_both_shapes():
+    bad = ("def f(c, xs):\n"
+           "    for k, n in c.most_common(20):\n        yield ParsedPreference(subject=k)\n"
+           "    for x in xs[:50]:\n        yield ParsedPreference(subject=x)\n"
+           "    for k, n in c.most_common():\n        yield ParsedPreference(subject=k)\n")
+    assert [s for _, s in _top_n_yield_loops(bad)] == ["c.most_common(20)", "xs[:50]"]
+
+
+def test_no_preference_parser_keeps_only_a_top_n():
+    found = {}
+    for p in sorted(PARSERS.glob("*.py")):
+        hits = _top_n_yield_loops(p.read_text())
+        if hits:
+            found[p.name] = hits
+    assert not found, f"top-N preference caps: {found}"

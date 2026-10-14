@@ -184,6 +184,11 @@ Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
   Re:/Fwd:, email-address and URL checks still apply. `is_low_value` passes
   `pref.category`. A classical work's "Composer - Symphony No. 9 ..." title
   ran past 12 words and was dropped as prose.
+- `parsers/discord.py` (channels `most_common(20)`, games `(15)`, link
+  domains `(10)`), `parsers/whatsapp.py` (contacts `(20)` and `(10)`, topic
+  keywords `(15)`), `parsers/pinterest.py` (followees `[:50]`): every item
+  above the existing evidence floor is yielded, no top-N. The floors (e.g. 10
+  messages for a channel) are unchanged.
 - Callers unchanged: `pipeline.py` `ingest_file_with_aggregation` and
   `_ingest_directory_with_aggregation` (both call `cap_by_source`).
 
