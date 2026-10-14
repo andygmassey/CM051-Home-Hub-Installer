@@ -1253,6 +1253,17 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "morning_brief_catches_me_up"
+  - id: box-walk-scheduled-brief-reaches-messages
+    title: every ok morning brief and evening wrap run either reached chat.db or was withheld on purpose, and the daemon never logs DELIVERED for a message that never arrived
+    incident: >-
+      Walk #27. cron_runs said ok for the 01:00Z brief and chat.db held
+      nothing near it; ok is also written for a withheld or (best_effort)
+      failed delivery, so brief delivery was not instrumented. Joins each run
+      to the daemon's delivery= line and an assistant-marked chat.db row.
+      ADVISORY for its first cut (walk_promote_scope.tsv).
+    proof:
+      kind: box_walk_probe
+      probe: "scheduled_brief_reaches_messages"
   - id: box-walk-qdrant-has-fd-headroom-and-writes-land
     title: ostler-qdrant runs with nofile >= 65535 and under half of it open, and every hydrate step with input wrote, by its own counts
     incident: >-
