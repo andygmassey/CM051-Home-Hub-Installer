@@ -22,6 +22,7 @@ import struct
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import grading            # noqa: E402
+import grading_legacy      # noqa: E402
 import owner_score as os_  # noqa: E402
 import persona_digest     # noqa: E402
 
@@ -253,6 +254,149 @@ class HeldBackSetStaysHeldBack(unittest.TestCase):
         self.assertNotIn("held back", out)   # visible ids are not held-back ids
 
 
+class GraderRevision2(unittest.TestCase):
+    """Date ranges, absent-only refusal wording, the frozen legacy grader, and the part tag.
+    Each assertion here was RED against grading.py at origin/main (revision 1)."""
+
+    def q(self, qid):
+        return next(x for x in ALL if x["id"] == qid)
+
+    # -- (a) date ranges ------------------------------------------------------
+    def test_a_natural_range_names_both_endpoints_for_the_two_known_questions(self):
+        for qid, ans in (("events-04", "24-31 October"), ("events-04", "From the 24th to the 31st of October."),
+                         ("events-04", "October 24 - 31"), ("events-04", "24 Oct to 31 Oct"),
+                         ("events-07", "Falmouth, 4-5 November"), ("events-07", "In Falmouth from 4 to 5 Nov.")):
+            self.assertEqual(grading.grade(self.q(qid), ans)[0], 1.0, (qid, ans))
+
+    def test_the_old_grader_refused_those_ranges(self):
+        self.assertEqual(grading_legacy.grade(self.q("events-04"), "24-31 October")[0], 0.0)
+        self.assertEqual(grading_legacy.grade(self.q("events-07"), "Falmouth, 4-5 November")[0], 0.0)
+
+    def test_a_wrong_range_is_still_wrong(self):
+        for ans in ("25-31 October", "24-30 October", "It starts on 24 October.", "1-3 November"):
+            self.assertEqual(grading.grade(self.q("events-04"), ans)[0], 0.0, ans)
+        self.assertEqual(grading.grade(self.q("events-07"), "Truro, 4-5 November")[0], 0.0)
+        self.assertEqual(grading.grade(self.q("events-07"), "Falmouth, 6-7 November")[0], 0.0)
+
+    def test_a_range_is_only_accepted_where_the_question_opts_in(self):
+        no_opt = {"id": "x", "category": "events", "kind": "fact", "question": "?",
+                  "require": [["24 october"], ["31 october"]]}
+        self.assertEqual(grading.grade(no_opt, "24-31 October")[0], 0.0)
+        self.assertEqual(grading.grade(dict(no_opt, date_range=True), "24-31 October")[0], 1.0)
+        self.assertEqual([x["id"] for x in ALL if x.get("date_range")], ["events-04", "events-07"])
+
+    # -- (b) refusal wording, absent only ---------------------------------------
+    NEW_PHRASES = ("I don't see that in your notes.", "I do not see anything about it.", "There is no mention of it.",
+                   "It is not mentioned anywhere.", "There is nothing in your records on that.",
+                   "I didn't find anything on it.", "I did not find anything on it.")
+
+    def test_every_absent_question_accepts_each_new_phrase(self):
+        absent = [x for x in ALL if x["kind"] == "absent"]
+        self.assertGreaterEqual(len(absent), 8)
+        for x in absent:
+            for ph in self.NEW_PHRASES:
+                self.assertEqual(grading.grade(x, ph)[0], 1.0, (x["id"], ph))
+                self.assertEqual(grading_legacy.grade(x, ph)[0], 0.0, (x["id"], ph))
+
+    def test_a_non_absent_question_never_accepts_a_refusal(self):
+        facts = [x for x in ALL if x["kind"] != "absent"]
+        self.assertEqual(len(facts), len(ALL) - sum(x["kind"] == "absent" for x in ALL))
+        for x in facts:
+            for ph in self.NEW_PHRASES + ("I don't know.", "I don't have that.", "I have no record of it."):
+                self.assertEqual(grading.grade(x, ph)[0], 0.0, (x["id"], ph))
+                self.assertFalse(grading.is_refusal(grading.normalise(ph), x["kind"]))
+
+    def test_a_widened_refusal_that_fabricates_or_names_a_trap_still_fails(self):
+        x = self.q("tastes-10")
+        self.assertEqual(grading.grade(x, "I don't see a favourite, but I think it was Alien (1979).")[0], 0.0)
+        self.assertEqual(grading.grade(self.q("conversations-10"), "No mention, but he said he would accept it.")[0], 0.0)
+
+    def test_the_widening_is_exactly_the_listed_phrases(self):
+        self.assertEqual(grading.ABSENT_ONLY_REFUSAL_MARKERS,
+                         ("i don't see", "i do not see", "no mention", "not mentioned", "nothing in",
+                          "didn't find", "did not find"))
+
+    # -- the frozen OLD grader ------------------------------------------------------
+    def test_legacy_grader_is_byte_for_byte_revision_one(self):
+        h = __import__("hashlib").sha256(open(os.path.join(HERE, "grading_legacy.py"), "rb").read()).hexdigest()
+        self.assertEqual(h, "06e4363692dd1aa6b2dbd31ce1d7cddd0f4a0d484fe11273b5050de355bbe5aa")
+
+    def test_gold_scores_100_under_both_graders(self):
+        self.assertEqual(grading_legacy.score_set(ALL, GOLD)[0], 1.0)
+        self.assertEqual(grading.score_set(ALL, GOLD)[0], 1.0)
+
+    # -- the part tag -----------------------------------------------------------------
+    def test_part_is_read_from_the_context_that_was_injected(self):
+        full = open(os.path.join(HERE, "CONTEXT.persona.md")).read()
+        w = self.q("work-01")
+        self.assertEqual(grading.classify_part(w, full), "context")
+        self.assertEqual(grading.classify_part(w, "# Personal Context\n- nothing useful\n"), "retrieval")
+        self.assertEqual(grading.classify_part(self.q("tastes-10"), ""), "context")   # absent: nothing to retrieve
+        every = {x["id"]: grading.classify_part(x, full) for x in ALL}
+        self.assertEqual(set(every.values()), {"context"})   # the persona digest holds every fact
+
+    def test_part_split_is_reported_and_a_context_without_the_work_section_moves_work_to_retrieval(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        full = open(os.path.join(HERE, "CONTEXT.persona.md")).read()
+        no_work = full.split("## Work")[0] + "## Family" + full.split("## Family", 1)[1]
+        ctx = os.path.join(tmp, "CONTEXT.md")
+        open(ctx, "w").write(no_work)
+        gold = os.path.join(tmp, "g.json")
+        with open(gold, "w") as gold_f:
+            json.dump({k: v for k, v in GOLD.items() if not k.startswith("work-")}, gold_f)
+        out = subprocess.run([sys.executable, "-I", os.path.join(HERE, "owner_score.py"), "--answers", gold,
+                              "--set", "all", "--context-file", ctx], capture_output=True, text=True).stdout
+        moved = [x["id"] for x in ALL if grading.classify_part(x, no_work) == "retrieval"]
+        self.assertTrue(any(i.startswith("work-") for i in moved), moved)
+        answered = sum(not i.startswith("work-") for i in moved)   # work-* replies were left out
+        self.assertIn("SCORE-NEEDS-RETRIEVAL  %.1f%%  (%d questions; need the graph" % (answered / len(moved) * 100, len(moved)), out)
+        self.assertIn("(%d questions; answerable from CONTEXT.md alone" % (80 - len(moved)), out)
+        self.assertRegex(out, r"(?m)^SCORE  87\.5%")
+
+
+class SideBySide(unittest.TestCase):
+    def _run(self, answers, *extra):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        f = os.path.join(d, "a.json")
+        json.dump(answers, open(f, "w"))
+        return subprocess.run([sys.executable, "-I", os.path.join(HERE, "compare_graders.py"), "--answers", f, *extra],
+                              capture_output=True, text=True)
+
+    def test_one_run_is_reported_both_ways(self):
+        a = dict(GOLD)
+        a["events-04"] = "24-31 October"
+        a["events-07"] = "Falmouth, 4-5 November"
+        a["tastes-10"] = "I don't see a favourite film in your notes."
+        r = self._run(a)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OLD GRADER (revision 1)  96.2%  (80 questions)", r.stdout)
+        self.assertIn("NEW GRADER (revision 2)  100.0%  (80 questions)", r.stdout)
+        self.assertIn("MOVED 3", r.stdout)
+        self.assertNotIn("UNEXPECTED", r.stdout)
+        for forbidden in ("24-31 October", "Falmouth, 4-5", "favourite film in your notes"):
+            self.assertNotIn(forbidden, r.stdout)   # ids and scores only; never a reply
+
+    def test_a_grader_edit_the_lock_does_not_cover_is_refused_on_both_sides(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        o = os.path.join(d, "o")
+        shutil.copytree(HERE, o, ignore=shutil.ignore_patterns("__pycache__"))
+        open(os.path.join(o, "grading_legacy.py"), "a").write("# softer\n")
+        f = os.path.join(d, "a.json")
+        json.dump(GOLD, open(f, "w"))
+        r = subprocess.run([sys.executable, "-I", os.path.join(o, "compare_graders.py"), "--answers", f],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 3)
+        self.assertNotIn("OLD GRADER", r.stdout)
+
+    def test_no_replies_is_cannot_run_not_a_zero(self):
+        r = self._run({"nope-01": "x"})
+        self.assertEqual(r.returncode, 78)
+        self.assertNotIn("GRADER (revision", r.stdout)
+
+
 class FakeGateway(threading.Thread):
     """A loopback /ws/chat that enforces the bearer token like the real gateway
     (ostler-assistant crates/zeroclaw-gateway/src/ws.rs handle_ws_chat) and
@@ -263,6 +407,7 @@ class FakeGateway(threading.Thread):
         super().__init__(daemon=True)
         self.token, self.table, self.asked = token, table, []
         self.on_ask = None   # optional callback(question) fired when a question arrives
+        self.tools = {}      # question -> [(tool name, args, output text)] emitted before done
         self.srv = socket.socket()
         self.srv.bind(("127.0.0.1", 0))
         self.srv.listen(5)
@@ -307,6 +452,9 @@ class FakeGateway(threading.Thread):
                 if self.on_ask:
                     self.on_ask(q)
                 ans = self.table.get(q, "")
+                for name, args, out in self.tools.get(q, []):
+                    self._send(c, {"type": "tool_call", "name": name, "args": args, "origin": "agent"})
+                    self._send(c, {"type": "tool_result", "name": name, "output": out, "origin": "agent"})
                 self._send(c, {"type": "chunk", "content": "draft "})
                 self._send(c, {"type": "chunk_reset"})
                 self._send(c, {"type": "done", "full_response": ans})
@@ -335,7 +483,10 @@ class RunsOverTheRealChatShape(unittest.TestCase):
     def _run(self, g, *args, token_path=None):
         return subprocess.run([sys.executable, "-I", os.path.join(HERE, "owner_score.py"),
                                "--gateway", "http://127.0.0.1:%d" % g.port,
-                               "--token-path", token_path or self.tok, "--timeout", "10", *args],
+                               "--token-path", token_path or self.tok, "--timeout", "10",
+                               *(args if "--evidence-dir" in args else
+                                 ("--evidence-dir", os.path.join(self.tmp, "ev%d" % len(os.listdir(self.tmp))))
+                                 + tuple(args))],
                               capture_output=True, text=True)
 
     def test_gold_over_the_wire_scores_100_and_uses_full_response_not_the_draft(self):
@@ -373,6 +524,67 @@ class RunsOverTheRealChatShape(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
         self.assertIn("not loopback", r.stdout)
+
+    # ---- (1) verbatim plus tool traces -----------------------------------------
+    def _traced_gateway(self):
+        q0 = next(q for q in VIS if q["category"] == "work")
+        q1 = next(q for q in VIS if q["category"] == "family")
+        g = self._gw({q0["question"]: q0["gold"], q1["question"]: "a distinctive reply with no facts"})
+        g.tools = {q0["question"]: [("pwg_people", {"name": "Sam Ross"}, "x" * 321),
+                                    ("pwg_knowledge_search", {"query": "SECRET-ARG"}, "RESULT-TEXT-MUST-NOT-BE-KEPT")]}
+        return g, q0, q1
+
+    def test_replies_and_tool_traces_are_kept_by_default_and_stdout_has_neither(self):
+        g, q0, q1 = self._traced_gateway()
+        ev = os.path.join(self.tmp, "evidence")
+        r = self._run(g, "--limit", "2", "--evidence-dir", ev)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        rows = [json.loads(l) for l in open(os.path.join(ev, "replies.jsonl"))]
+        by = {x["id"]: x for x in rows}
+        self.assertEqual(by[q0["id"]]["reply"], q0["gold"])                # verbatim
+        self.assertEqual(by[q1["id"]]["reply"], "a distinctive reply with no facts")
+        t = by[q0["id"]]["trace"]
+        self.assertEqual([x["name"] for x in t["tools"]], ["pwg_people", "pwg_knowledge_search"])
+        self.assertEqual(t["tools"][0]["args"], {"name": "Sam Ross"})
+        self.assertEqual([x["result_chars"] for x in t["tools"]], [321, len("RESULT-TEXT-MUST-NOT-BE-KEPT")])
+        self.assertEqual(t["end"], "done")
+        self.assertNotIn("RESULT-TEXT-MUST-NOT-BE-KEPT", open(os.path.join(ev, "replies.jsonl")).read())
+        self.assertEqual(by[q1["id"]]["trace"]["tools"], [])
+        self.assertNotIn("distinctive reply", r.stdout)                    # stdout: scores and ids only
+        self.assertNotIn("SECRET-ARG", r.stdout)
+        self.assertIn("EVIDENCE  2 replies", r.stdout)
+        self.assertEqual(oct(os.stat(ev).st_mode & 0o777), "0o700")
+        self.assertEqual(oct(os.stat(os.path.join(ev, "replies.jsonl")).st_mode & 0o777), "0o600")
+
+    def test_print_replies_is_the_opt_in_and_no_verbatim_is_still_accepted(self):
+        g, q0, q1 = self._traced_gateway()
+        r = self._run(g, "--limit", "2", "--print-replies")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("distinctive reply", r.stdout)
+        r2 = self._run(g, "--limit", "2", "--no-verbatim")
+        self.assertEqual(r2.returncode, 0)
+        self.assertNotIn("distinctive reply", r2.stdout)
+
+    def test_evidence_inside_a_git_checkout_is_refused_and_nothing_is_asked(self):
+        g, q0, q1 = self._traced_gateway()
+        repo = os.path.join(self.tmp, "repo")
+        os.makedirs(os.path.join(repo, ".git"))
+        r = self._run(g, "--limit", "2", "--evidence-dir", os.path.join(repo, "deep", "evidence"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("inside a git checkout", r.stdout)
+        self.assertEqual(g.asked, [])
+        self.assertFalse(os.path.exists(os.path.join(repo, "deep")))
+
+    def test_held_back_replies_go_to_their_own_file_and_never_to_stdout(self):
+        g = self._gw({q["question"]: q["gold"] for q in ALL})
+        ev = os.path.join(self.tmp, "ev-all")
+        r = self._run(g, "--set", "all", "--evidence-dir", ev)
+        self.assertIn("SCORE  100.0%", r.stdout)
+        vis = {json.loads(l)["id"] for l in open(os.path.join(ev, "replies.jsonl"))}
+        held = {json.loads(l)["id"] for l in open(os.path.join(ev, "replies_heldout.jsonl"))}
+        self.assertEqual((vis, held), ({q["id"] for q in VIS}, {q["id"] for q in HELD}))
+        for q in HELD:
+            self.assertNotIn(q["gold"], r.stdout)
 
     def test_limit_samples_every_category(self):
         g = self._gw({})

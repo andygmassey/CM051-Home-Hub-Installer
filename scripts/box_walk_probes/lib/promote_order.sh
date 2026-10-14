@@ -49,3 +49,19 @@ promote_order() {
     done
     printf '%s\n' "${front# }${rest}" | sed 's/  */ /g; s/^ //; s/ $//'
 }
+
+# pin_last "<name>" -> reads $PROBES (space-separated probe paths) and prints the
+# same paths with the named probe moved to the END, if it is present. Nothing is
+# added or dropped. Used for owner_knowledge_score: it seeds a synthetic persona
+# into the people graph and conversation store, so every probe that counts or
+# reads people must have run BEFORE it, whatever the previous walk's FAILs
+# promoted. A writer is never promoted (probe_writes), so this only ever has to
+# undo the C-sort, where "o" would put it ahead of the p..z probes.
+pin_last() {
+    local want="$1" p b rest="" last=""
+    for p in $PROBES; do
+        b="$(basename "$p" .sh)"
+        if [ "$b" = "$want" ]; then last="$p"; else rest="$rest $p"; fi
+    done
+    printf '%s\n' "${rest# }${last:+ $last}" | sed 's/  */ /g; s/^ //; s/ $//'
+}

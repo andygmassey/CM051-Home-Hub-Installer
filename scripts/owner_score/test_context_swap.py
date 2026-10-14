@@ -43,7 +43,8 @@ class Box:
 
     def env(self, **kw):
         e = dict(os.environ, HOME=self.home, OSTLER_PROBE_GATEWAY="http://127.0.0.1:%d" % self.gw.port,
-                 OSTLER_OWNER_SCORE_LIMIT="8", OSTLER_GATE_KNOWN_PERSON=SEED_PERSON)
+                 OSTLER_OWNER_SCORE_LIMIT="8", OSTLER_GATE_KNOWN_PERSON=SEED_PERSON,
+                 OSTLER_OWNER_SCORE_SEED="0")   # this file tests the CONTEXT.md swap; the graph seed has test_seed_persona.py
         e.pop("OSTLER_BOX_HOST", None)
         e.update(kw)
         return e
