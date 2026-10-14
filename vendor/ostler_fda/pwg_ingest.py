@@ -732,6 +732,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
     conversations = json.loads(conversations_file.read_text())
     people_created = 0
     people_enriched = 0
+    lookup_failed = 0
 
     for convo in conversations:
         participants = convo.get("participants", [])
@@ -764,8 +765,14 @@ def ingest_imessage(fda_dir: Path) -> dict:
             if _is_forgotten(participant, uri):
                 continue
 
-            # Check if person already exists in Oxigraph
-            exists = _person_exists(uri)
+            # Check if person already exists in Oxigraph. A merged URI
+            # resolves to its live survivor (DMG #27 S2); a store error skips
+            # this participant rather than minting a duplicate.
+            try:
+                uri, exists = _live_person(uri)
+            except _StoreUnavailable:
+                lookup_failed += 1
+                continue
 
             if not exists:
                 # Create a minimal person node
@@ -834,26 +841,85 @@ def ingest_imessage(fda_dir: Path) -> dict:
                 _update_last_contact(uri, last_msg, "imessage")
 
     logger.info(
-        "iMessage: %d people created, %d enriched",
-        people_created, people_enriched,
+        "iMessage: %d people created, %d enriched, %d skipped (store unreadable)",
+        people_created, people_enriched, lookup_failed,
     )
     return {
         "status": "ok",
         "people_created": people_created,
         "people_enriched": people_enriched,
+        "people_lookup_failed": lookup_failed,
     }
 
 
+class _StoreUnavailable(Exception):
+    """The graph could not be asked. A writer must then write NOTHING for
+    this person: "could not look" answered as "does not exist" is how a
+    store outage mints a duplicate."""
+
+
+# ── A merged person is never re-created (DMG #27, shape sweep S2) ──────
+#
+# dedupe_merge leaves an UNTYPED tombstone (`<dupe> pwg:mergedInto <keep>`)
+# and the identity_resolver paths leave a `pwg:RetiredPerson`. Every writer
+# here mints its URI as uuid5(identifier), so the next hourly iMessage or
+# WhatsApp ingest computed the SAME URI as the merged-away node, asked
+# `_person_exists` (`<uri> a ?t`), got no type back from the tombstone, and
+# re-created `a pwg:Person` + name + phone on it. Measured on the walk box:
+# 145 merged nodes typed Person again (138 WhatsApp, 6 iMessage), each a
+# duplicate person on every surface, and 144 duplicate Qdrant people points.
+# It also answered False on ANY store error, so an outage minted duplicates.
+#
+# Now: every writer first follows `pwg:mergedInto` to the live survivor and
+# writes there; a node carrying `pwg:mergedInto` counts as existing; and a
+# store error raises `_StoreUnavailable` so the caller skips the person.
+
+_MAX_MERGE_HOPS = 16
+
+
+def _resolve_merged(uri: str) -> str:
+    """The live survivor for ``uri``: follow ``pwg:mergedInto`` until a node
+    that carries none. ``uri`` itself when it was never merged. Raises
+    ``_StoreUnavailable`` when the graph cannot be read."""
+    seen = {uri}
+    cur = uri
+    for _ in range(_MAX_MERGE_HOPS):
+        try:
+            rows = _sparql_query(
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+                f"SELECT ?t WHERE {{ <{cur}> pwg:mergedInto ?t }} LIMIT 1"
+            )
+        except Exception as exc:  # noqa: BLE001 -- converted, never swallowed
+            raise _StoreUnavailable(type(exc).__name__) from exc
+        nxt = ((rows[0].get("t") or {}).get("value") if rows else None) or None
+        if not nxt or nxt in seen:
+            return cur
+        seen.add(nxt)
+        cur = nxt
+    return cur
+
+
 def _person_exists(uri: str) -> bool:
-    """Check if a person URI exists in Oxigraph."""
+    """True when ``uri`` is a node in Oxigraph: typed with anything, OR a
+    merge tombstone (``pwg:mergedInto``), which is a person that exists
+    elsewhere and must never be minted again. Raises ``_StoreUnavailable``
+    when the graph cannot be read (it used to answer False)."""
     try:
         result = _sparql_query(
             "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
-            f"SELECT ?t WHERE {{ <{uri}> a ?t }} LIMIT 1"
+            f"SELECT ?t WHERE {{ {{ <{uri}> a ?t }} UNION "
+            f"{{ <{uri}> pwg:mergedInto ?t }} }} LIMIT 1"
         )
-        return len(result) > 0
-    except Exception:
-        return False
+    except Exception as exc:  # noqa: BLE001
+        raise _StoreUnavailable(type(exc).__name__) from exc
+    return len(result) > 0
+
+
+def _live_person(uri: str):
+    """(live_uri, exists) for a writer about to create or enrich ``uri``.
+    Raises ``_StoreUnavailable``."""
+    live = _resolve_merged(uri)
+    return live, _person_exists(live)
 
 
 def _identifier_exists(id_uri: str) -> bool:
@@ -865,7 +931,8 @@ def _identifier_exists(id_uri: str) -> bool:
         )
         return len(result) > 0
     except Exception:
-        return False
+        # Fail closed: "could not look" must not write a second identifier.
+        return True
 
 
 # Per-source last-contact predicates (CM041 schema/people.ttl). FDA
@@ -1072,6 +1139,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
     chats = json.loads(chats_file.read_text())
     people_created = 0
     people_enriched = 0
+    lookup_failed = 0
     tier_t1 = 0
     tier_t2_intimate = 0
     tier_t2_active = 0
@@ -1127,7 +1195,13 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             uri = _person_uri(person_id)
             if _is_forgotten(participant, uri):
                 continue
-            exists = _person_exists(uri)
+            # DMG #27 S2: write onto the live survivor of a merged URI; a
+            # store error skips this participant rather than minting one.
+            try:
+                uri, exists = _live_person(uri)
+            except _StoreUnavailable:
+                lookup_failed += 1
+                continue
 
             # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is an
             # E.164 number. Present it as a `+`-prefixed phone so the
