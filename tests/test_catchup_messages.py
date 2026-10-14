@@ -435,9 +435,47 @@ def test_runners_are_registered_after_each_feed(tmp_path):
     src = (REPO / "install.sh").read_text()
     for feed, name, spec in (("imessage", "60-imessage", "services.imessage_source.catchup:adapters"),
                              ("whatsapp", "62-whatsapp", "whatsapp_source.catchup:adapters")):
-        call = src.find(f"_install_conversation_feed {feed} ")
+        call = src.find("    _install_conversation_feed %s " % feed)
         assert call != -1
-        reg = src.find(f"_ostler_catchup_register {name} ")
+        reg = src.find("_ostler_catchup_register_feed %s %s %s" % (feed, name, spec))
         assert reg != -1, f"no catch-up runner registered for {feed}: its history is never walked"
-        assert reg > call, f"{name} is registered before its feed's venv exists"
-        assert spec in src[reg:reg + 600], f"{name} does not point at {spec}"
+        assert 0 < reg - call < 200, f"{name} is not registered straight after its feed installs"
+
+
+def _extract_fn(src, name):
+    start = src.index("%s() {\n" % name)
+    end = src.index("\n}\n", start)
+    return src[start:end + 3]
+
+
+def test_the_registered_runner_carries_the_feeds_environment(tmp_path):
+    """Drive the shipped helper: the runner gets the feed's venv, package
+    path, pwg-convo, display name and user id, and the model slot."""
+    src = (REPO / "install.sh").read_text()
+    script = tmp_path / "reg.sh"
+    stage = tmp_path / "ostler"
+    venv = stage / "services" / "imessage-source" / ".venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python3").write_text("#!/bin/sh\n")
+    (venv / "python3").chmod(0o755)
+    script.write_text(
+        _extract_fn(src, "_ostler_catchup_register") + "\n"
+        + _extract_fn(src, "_ostler_catchup_register_feed") + "\n"
+        + 'warn() { echo "WARN $*"; }\n'
+        + f'OSTLER_DIR="{stage}"; OSTLER_FINAL_DIR="{stage}"; CM048_VENV="{tmp_path}/cm048"\n'
+        + 'USER_NAME="Jane Doe"; USER_ID="u-1"\n'
+        + "_ostler_catchup_register_feed imessage 60-imessage services.imessage_source.catchup:adapters\n"
+        + "_ostler_catchup_register_feed whatsapp 62-whatsapp whatsapp_source.catchup:adapters\n")
+    r = subprocess.run(["/bin/bash", str(script)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    runner = stage / "bin" / "catchup.d" / "60-imessage.sh"
+    assert runner.is_file(), "no runner written for an installed feed"
+    body = runner.read_text()
+    for want in (f"{stage}/services/imessage-source/.venv/bin/python3",
+                 f"PYTHONPATH={stage}/lib:{stage}/services/imessage-source",
+                 "PWG_CONVO_CMD=pwg-convo", "OSTLER_USER_ID=u-1",
+                 "services.imessage_source.catchup:adapters", "ostler_slot_acquire"):
+        assert want in body.replace("\\ ", " "), f"runner lacks {want!r}"
+    assert "Jane" in body
+    assert not (stage / "bin" / "catchup.d" / "62-whatsapp.sh").exists(), \
+        "a runner was written for a feed whose venv does not exist"
