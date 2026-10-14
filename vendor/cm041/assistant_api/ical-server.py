@@ -2463,6 +2463,11 @@ CONVERSATION_RETRY_MAX_ATTEMPTS = 8
 CONVERSATION_RETRY_SWEEP_SECONDS = 300
 CONVERSATION_RETRY_MAX_PER_SWEEP = 3
 CONVERSATION_RETRY_TIMEOUT_SECONDS = 900
+# Walk #27: 29 conversations timed out in one busy hour. A retry started
+# while new conversations are still being processed, or while the machine is
+# loaded, joins the same queue for the model and times out again, spending an
+# attempt. So a sweep only runs when the machine is quiet.
+CONVERSATION_RETRY_MAX_LOAD_PER_CORE = 0.75
 CONVERSATION_RETRY_GAVE_UP_MESSAGE = (
     "couldn't process, will retry on the next update"
 )
@@ -2667,6 +2672,24 @@ def _retry_one_conversation(state_dir, runner=None, now=None):
     return "gave_up" if side["gave_up"] else "failed"
 
 
+def _conversation_retry_busy_reason():
+    """Why the machine is too busy for a retry now, or None when quiet.
+
+    Two signals: a first dispatch still running in this process (the busy
+    hour itself, visible even when the model runs on the GPU and the CPU looks
+    idle), and the one-minute load average per core."""
+    with _CONVERSATIONS_IN_FLIGHT_LOCK:
+        if _CONVERSATIONS_IN_FLIGHT:
+            return "processing"
+    try:
+        load1 = os.getloadavg()[0]
+    except (AttributeError, OSError):
+        return None
+    if load1 / max(os.cpu_count() or 1, 1) > CONVERSATION_RETRY_MAX_LOAD_PER_CORE:
+        return "load"
+    return None
+
+
 def _conversation_retry_sweep(now=None, runner=None, limit=None):
     """One pass: retry every failed conversation whose backoff has elapsed.
 
@@ -2675,11 +2698,15 @@ def _conversation_retry_sweep(now=None, runner=None, limit=None):
     now = now or datetime.now(timezone.utc)
     limit = CONVERSATION_RETRY_MAX_PER_SWEEP if limit is None else limit
     counts = {"checked": 0, "due": 0, "recovered": 0, "failed": 0,
-              "gave_up": 0, "skipped": 0}
+              "gave_up": 0, "skipped": 0, "busy": 0}
     if not _CONVERSATION_RETRY_LOCK.acquire(blocking=False):
         counts["skipped"] = -1
         return counts
     try:
+        if _conversation_retry_busy_reason():
+            # Nothing is spent: no attempt, no sidecar. The next tick looks again.
+            counts["busy"] = 1
+            return counts
         if not PROCESSING_DIR.exists():
             return counts
         due = []
