@@ -896,6 +896,19 @@ def run_all(
     else:
         summary["sources"]["apple_mail"] = {"status": "disabled_by_user"}
 
+    # ── Owner's own addresses (DMG #27) ────────────────────────────
+    # Written on every run so ingest never mints the owner's own address
+    # (me card, Mail account, Sent From, sole-To of delivered non-list mail)
+    # as a Person. Counts only in the summary; never fatal.
+    try:
+        from .owner_addresses import collect as _collect_owner_addresses
+        summary["owner_addresses"] = _collect_owner_addresses(
+            output_dir, use_mail="apple_mail" in sources,
+        )
+    except Exception as e:  # noqa: BLE001
+        summary["owner_addresses"] = {"status": "error", "error": type(e).__name__}
+        logger.warning("[warn] Owner addresses: %s", type(e).__name__)
+
     # ── Save summary ────────────────────────────────────────────────
     (output_dir / "extraction_summary.json").write_text(
         json.dumps(summary, indent=2, default=str)

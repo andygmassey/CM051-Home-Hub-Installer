@@ -293,3 +293,26 @@ see the first section. Guarded by
 `.github/workflows/cm048-participants-as-strings.yml`. Upstream: no CM048 PR
 opened with this graft (the gate does not require one); an upstream mirror is
 owed before this tree is re-pinned, or a re-pin deletes the fix.
+
+## A fact about another person's family is theirs, not the owner's (DMG #27)
+
+NEW FILE `vendor/cm048_pipeline/src/attribution.py` (`speaker_turns`,
+`speaker_of`, `reattribute`); `vendor/cm048_pipeline/src/processor.py` imports
+it and `_step_facts` calls `attribution.reattribute(facts, raw_transcript,
+metadata)` straight after `_fix_speaker_subjects`.
+
+WHY: the walk's assistant summarised another person's family event as the
+owner's own parent's. The local model labels a first-person line ("my dad's
+...") `subject: "user"` whoever wrote it. The post-check moves a
+`subject: "user"` fact to `other:<id>` only when its evidence is found in
+exactly one known non-owner participant's turns and is first person without
+second person, or when the owner's own line names another participant's
+relative ("Bob's mum"); the owner's name in the fact text is replaced by the
+person concerned's. Everything ambiguous is left as the model produced it.
+Turns are read from the producers' shapes (iMessage `**Name** (ts): body`,
+WhatsApp `**Name** (ts):` + body lines, gateway `**label:** body`).
+
+Guarded by `tests/test_cm048_third_party_facts_keep_their_subject.py`, wired
+into `.github/workflows/cm048-participants-as-strings.yml`. Upstream: no CM048
+PR opened; an upstream mirror is owed before this tree is re-pinned, or a
+re-pin deletes the fix.

@@ -19784,7 +19784,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:bfeec0e3e673dc107548ddd26f7432b57b9e741a9b7ebb00fe3b994fdc14c9f7
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:5dcbcb8fffe3c4b7064fb38034e1540aed8c6f39da889ac943babdf3ba62fe25
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19828,7 +19828,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:e6bc14607fa02c9c89ea759d3105d10b71dd2948e142934706387dc4361b29f5
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:2265d9e1b731f661d9dc4fe11622db3a0d38da961768a0fb66c9fed481acd380
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -20005,6 +20005,9 @@ services:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
       - WIKI_OUTPUT_DIR=/wiki
+      # Owner's IANA zone, exported by wiki-recompile-tick.sh / the install-time
+      # compile. Empty -> the compiler labels its times UTC.
+      - OSTLER_TZ=${OSTLER_TZ:-}
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian
@@ -23056,7 +23059,16 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     _import_log="${OSTLER_DIAG_DIR}/import.log"
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
-    if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
+    # CM051 #28: the install import is the FOREGROUND. Store the first 5000
+    # preferences per source now (same ranking as the old cap, so the same top
+    # items are there when install finishes) and queue the rest for the
+    # background drain (com.ostler.export-scan -> ostler-scan-exports ->
+    # ingest-tail; RunAtLoad, so it starts as soon as it is bootstrapped later
+    # in this install, then every 4 h until the queue is empty). Nothing is
+    # dropped.
+    if OSTLER_PREFS_FOREGROUND_PER_SOURCE="${OSTLER_PREFS_FOREGROUND_PER_SOURCE:-5000}" \
+       OSTLER_PREFS_TAIL_QUEUE="${OSTLER_DIR}/state/prefs-tail" \
+       "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
         --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
         | tee "$_import_log" | while IFS= read -r line; do echo "  $line"; done; then
         ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
@@ -23859,6 +23871,32 @@ _notify() {
     _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
         osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
 }
+
+# ── CM051 #28: drain the preference TAIL the install queued ────────────────
+# The install import stores the first 5000 preferences per source in the
+# foreground and queues the rest (OSTLER_PREFS_TAIL_QUEUE). This agent
+# (com.ostler.export-scan, RunAtLoad + every 4 h, ON by default) is the
+# existing recurring preference importer, so it is the drain: it writes the
+# queue in bounded, resumable, idempotent slices BEFORE looking for new
+# exports, and runs whether or not a new export is found. The enrichment
+# agent is not used for this because it is OFF by default
+# (OSTLER_ENRICH_AGENT_ENABLED). Counts only in the log.
+_PREFS_TAIL_QUEUE="${OSTLER_PREFS_TAIL_QUEUE:-${OSTLER_DIR}/state/prefs-tail}"
+_CM019_DIR="${OSTLER_DIR}/services/cm019"
+if ls "$_PREFS_TAIL_QUEUE"/*.jsonl >/dev/null 2>&1 && [[ -x "${_CM019_DIR}/.venv/bin/python" ]]; then
+    mkdir -p "${OSTLER_DIR}/logs"
+    _tail_budget="${OSTLER_PREFS_TAIL_BUDGET_SECONDS:-1800}"
+    ( cd "$_CM019_DIR" && export QDRANT_COLLECTION=preferences && \
+        _ostler_run_with_deadline "$(( _tail_budget + 300 ))" \
+        "${_CM019_DIR}/.venv/bin/python" -m services.ingest.src.cli ingest-tail \
+            --queue "$_PREFS_TAIL_QUEUE" --budget-seconds "$_tail_budget" ) \
+        >>"${OSTLER_DIR}/logs/prefs-tail.log" 2>>"${OSTLER_DIR}/logs/prefs-tail.err" \
+        && _tail_rc=0 || _tail_rc=$?
+    # The rc is captured on the command itself: "$?" inside printf would read
+    # the exit of the $(date) substitution, not the tail run's.
+    printf '[%s] prefs-tail rc=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$_tail_rc" >>"${OSTLER_DIR}/logs/prefs-tail.log"
+    unset _tail_rc
+fi
 
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
 # names (for a friendly notification). Order people-graph first, then
@@ -28153,6 +28191,22 @@ except Exception:
 ' 2>/dev/null || printf 'CANNOT-READ'
 }
 
+# HYDRATING: the install that will fill the stores is still running. Walk #27:
+# this agent read the preferences collection as 0 points twice at 20:22Z and
+# 20:27Z, called it GENUINELY EMPTY and removed itself; the 40,315 points
+# landed before the install finished at 21:01Z, and the profile then waited
+# for the next hourly tick. While the install-in-progress marker exists, an
+# empty read means "not yet". A marker older than 6 h is an aborted install's
+# leftover (the marker's own lifetime) and does not count.
+_hydrating() {
+    local m="${OSTLER_DIR}/state/install-in-progress"
+    [ -f "$m" ] || return 1
+    # Fresh = modified in the last 6 h (360 min). find -mmin is the same on
+    # BSD and GNU; /usr/bin/stat -f %m is BSD-only and read every marker as
+    # stale on the Linux test runner.
+    [ -n "$(find "$m" -mmin -360 -print 2>/dev/null)" ]
+}
+
 _read_counter() {
     local f="$1" v=0
     [ -f "$f" ] && v="$(cat "$f" 2>/dev/null || echo 0)"
@@ -28166,6 +28220,11 @@ _read_counter() {
 tries="$(_read_counter "$TRIES_FILE")"
 tries=$((tries + 1))
 printf '%s' "$tries" >"$TRIES_FILE"
+if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ] && _hydrating; then
+    # The bound counts ticks after the install, not ticks spent waiting for it.
+    printf '%s' "$EDITOR_CATCHUP_MAX_TRIES" >"$TRIES_FILE"
+    tries="$EDITOR_CATCHUP_MAX_TRIES"
+fi
 if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ]; then
     log "catch-up gave up after ${EDITOR_CATCHUP_MAX_TRIES} ticks with the interest profile still empty; removing agent (the hourly Front Page refresh continues)"
     remove_self
@@ -28223,6 +28282,11 @@ case "$upstream" in
         exit 0
         ;;
     0)
+        if _hydrating; then
+            printf '0' >"$EMPTY_FILE"
+            log "HYDRATING (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): the preferences collection answered with 0 points while the install is still running, which means not yet, not nothing. Waiting."
+            exit 0
+        fi
         empties="$(_read_counter "$EMPTY_FILE")"
         empties=$((empties + 1))
         printf '%s' "$empties" >"$EMPTY_FILE"
@@ -36759,6 +36823,13 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             # edited: a BLOCKING acquire, because a yield here means no
             # summaries at all, and reclaim on a DEAD PID rather than a time
             # threshold, because a real compile legitimately runs for hours.
+            # Owner-local wiki times (CM044 compiler/local_time.py): the IANA zone
+            # from the /etc/localtime symlink. Unreadable -> empty, and the wiki
+            # then labels its times UTC. (No single quotes: this is a bash -c block.)
+            _tzl="$(readlink /etc/localtime 2>/dev/null || true)"
+            OSTLER_TZ="${_tzl#*zoneinfo/}"
+            [ "$OSTLER_TZ" = "$_tzl" ] && OSTLER_TZ=""
+            export OSTLER_TZ
             _slot_lib_active=0
             if [ -r "$_lib" ]; then
                 # shellcheck source=/dev/null
@@ -39197,8 +39268,8 @@ if [[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/k
         echo "     Encryption:    passphrase-wrapped DEK"
         echo -e "     ${RED}${BOLD}Recovery:      UNAVAILABLE -- see the warning above.${NC}"
         echo "                    Your passphrase still works and nothing is"
-        echo "                    locked today. Contact support to have a"
-        echo "                    recovery key minted and shown to you."
+        echo "                    locked today. Email hello@ostler.ai and"
+        echo "                    we will tell you what can be done."
     else
         # Minted here and NOT handed over. Do not dress this as a feature.
         echo "     Encryption:    passphrase-wrapped DEK"

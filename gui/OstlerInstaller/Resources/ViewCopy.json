@@ -71,7 +71,7 @@
     "body_paragraph_prefix": "We are sorry for the interruption. The full installer output is below so you can see what happened. To get help, email ",
     "body_support_email_label": "support@ostler.ai",
     "body_support_email_url": "mailto:support@ostler.ai",
-    "body_paragraph_suffix": " (the Email support button below opens your mail app with a redacted log already attached), or copy the log yourself with the buttons below and paste it into a reply.",
+    "body_paragraph_suffix": " (the Email support button below opens your mail app and copies a redacted log to your clipboard, so you can paste it into the message), or copy the log yourself with the buttons below.",
     "copy_log_button": "Copy log",
     "copy_log_button_copied": "Copied",
     "copy_redacted_log_button": "Copy redacted log",
