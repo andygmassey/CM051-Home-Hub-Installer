@@ -286,5 +286,6 @@ the full transcript and seeds the bundle's topic discovery.
 Not attempted against the regeneration tool: this tree is `verify = "skip"`,
 see the first section. Guarded by
 `tests/test_cm048_gateway_extracts_owner_turns_only.py`, wired into
-`.github/workflows/cm048-participants-as-strings.yml`. Upstream: the CM048 PR
-mirroring this change; retire by landing it and re-pinning.
+`.github/workflows/cm048-participants-as-strings.yml`. Upstream: no CM048 PR
+opened with this graft (the gate does not require one); an upstream mirror is
+owed before this tree is re-pinned, or a re-pin deletes the fix.
