@@ -303,7 +303,7 @@ class DiscordParser(BaseParser):
 
         # Yield activity preferences for active channels
         total_messages = sum(channel_activity.values())
-        for channel_id, count in channel_activity.most_common(20):
+        for channel_id, count in channel_activity.most_common():
             if count < 10:  # Minimum activity threshold
                 continue
 
@@ -331,7 +331,7 @@ class DiscordParser(BaseParser):
             )
 
         # Yield gaming preferences
-        for game, count in activity_games.most_common(15):
+        for game, count in activity_games.most_common():
             if count < 2:  # Minimum threshold
                 continue
 
@@ -456,7 +456,7 @@ class DiscordParser(BaseParser):
                 link_domains[domain] += 1
 
         # Yield preferences for frequently shared domains
-        for domain, count in link_domains.most_common(10):
+        for domain, count in link_domains.most_common():
             if count < 3:
                 continue
 

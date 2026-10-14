@@ -557,7 +557,7 @@ class WhatsAppParser(BaseParser):
         logger.info(f"Analyzed {len(messages)} WhatsApp messages")
 
         # Yield contact preferences (frequent contacts)
-        for contact, count in contact_counts.most_common(20):
+        for contact, count in contact_counts.most_common():
             if count < 5:  # Minimum message threshold
                 continue
 
@@ -578,7 +578,7 @@ class WhatsAppParser(BaseParser):
             )
 
         # Yield topic preferences from keywords
-        for keyword, count in topic_keywords.most_common(15):
+        for keyword, count in topic_keywords.most_common():
             if count < 10:  # Minimum occurrence threshold
                 continue
 
@@ -688,7 +688,7 @@ class WhatsAppParser(BaseParser):
             )
 
         # Yield contact preferences
-        for contact, count in contact_counts.most_common(10):
+        for contact, count in contact_counts.most_common():
             if count < 5:
                 continue
 

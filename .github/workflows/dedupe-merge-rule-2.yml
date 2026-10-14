@@ -31,6 +31,8 @@ on:
     paths:
       - 'vendor/ostler_fda/dedupe_merge.py'
       - 'tests/test_dedupe_merge_enforces_rule_2.py'
+      - 'tests/test_dedupe_merge_name_tier_upward_only.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
       - '.github/workflows/dedupe-merge-rule-2.yml'
   push:
     branches: [main]
@@ -63,3 +65,13 @@ jobs:
       # two cards can arrive through a bridging node sharing nothing directly.
       - name: dedupe_merge must veto on canonical keys, and still do RULE 1
         run: python3 tests/test_dedupe_merge_enforces_rule_2.py
+
+      # DMG #27 KNOWN-ISSUE 1. The sweep moves every triple of the duplicate,
+      # displayName included, and used to leave the survivor holding a phone
+      # or email next to a human name. Real SPARQL (pyoxigraph), synthetic
+      # graph: the survivor ends with ONE name, chosen upward only.
+      - name: dedupe_merge leaves one displayName, chosen upward only (phone < email < human)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pyoxigraph httpx phonenumbers rapidfuzz qdrant-client nameparser
+          python3 tests/test_dedupe_merge_name_tier_upward_only.py

@@ -46,6 +46,11 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/companion_unpair.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it and calls "
+        "companion_walk_baseline before the pairing probes and "
+        "companion_walk_unpair after every measurement, so the walk leaves no "
+        "synthetic companion paired. It has no PROBE_NAME and no verdict.",
     "lib/scale_fixture_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it after "
         "usage_seed and calls scale_fixture_apply, which replays the synthetic "
