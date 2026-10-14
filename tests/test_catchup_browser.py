@@ -141,8 +141,11 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(pwg_ingest, "_ollama_embed_batch", lambda texts: [[0.1, 0.2, 0.3] for _ in texts])
     monkeypatch.setattr(pwg_ingest, "_qdrant_ensure_collection", lambda *a, **k: None)
     monkeypatch.setattr(pwg_ingest, "_qdrant_upsert_points", sink.upsert)
-    import ostler_catchup
-    importlib.reload(ostler_catchup)
+    try:
+        import ostler_catchup
+        importlib.reload(ostler_catchup)
+    except ImportError:
+        pass   # origin/main: no core; the install-only measurement still runs
     return pwg_ingest, sink
 
 
