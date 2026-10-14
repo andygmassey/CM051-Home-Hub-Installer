@@ -257,3 +257,10 @@ holding one export imported twice (`runs=[30, 30]`); a re-import with same-named
 competitor nodes put 30 of 30 friends on a second node (`fb_nodes=60 friends=30`).
 GREEN with these changes: `runs=[30]`, `fb_nodes=30 friends=30`. A sync that drops
 either change turns that test red.
+
+## 2026-10-14: `cm041/contact_syncer` `instagram_social.py` `_username_to_display_name`
+
+Location only: a bare handle (no separator) now returns `"@" + handle`
+instead of the handle itself, so a handle is never stored as a person's name
+(walk #27 shape sweep S9 row 3). Same edit in the shipped `contact_syncer/`
+copy. Hand-grafted; the tree is `regenerate_forbidden`.
