@@ -1153,3 +1153,10 @@ WHY: measured read-only on the DMG #27 walk box, 15 `calendar_fda` Person nodes 
 ### What a future sync must preserve
 
 `owner_addresses.py`, the `collect` call in `run_all`, and the four `is_owner_address` skips. Guarded by `tests/test_owner_addresses_are_not_people.py` (wired in `.github/workflows/privacy-spine.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## dedupe_merge: a merge survivor keeps one displayName, chosen upward only (DMG #27 KNOWN-ISSUE 1)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/dedupe_merge.py`. NEW CM051-side behaviour. `_merge_pair` reads the survivor's and the duplicate's `pwg:displayName` values BEFORE the outbound move, then (after the move, before the tombstone) calls the new `_elect_survivor_name`: the survivor ends with ONE `displayName`, the duplicate's best name winning only when it is a HIGHER tier than the survivor's own (phone < email < human, ranked by `pwg_ingest._display_name_tier`, imported lazily, never copied); every losing name becomes `pwg:alternateName`; a kinship word is never elected and is also kept as `pwg:alternateName` (never deleted); `displayNameProvisional` is cleared when the winner is a human name. New helpers appended after `_merge_pair`: `_display_names`, `_escape`, `_tier_fn`, `choose_survivor_name`, `_elect_survivor_name`. WHY: the outbound move carried the duplicate's displayName onto the survivor, which then held a phone or email beside a human name (measured read-only on the walk box: 257 such survivors, every one with an undated `mergedInto`, which only this writer leaves). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The name read before the move and the `_elect_survivor_name` call in `_merge_pair`. Guarded by `tests/test_dedupe_merge_name_tier_upward_only.py` (red on origin/main, wired in `.github/workflows/dedupe-merge-rule-2.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
