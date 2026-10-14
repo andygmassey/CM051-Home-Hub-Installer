@@ -4,7 +4,12 @@ name: branch-hygiene
 on:
   schedule:
     - cron: '17 6 * * *'
+  # PR runs only when the gate itself changes: on every PR it would turn the
+  # CI Required Gate red for repo-wide state the PR did not cause.
   pull_request:
+    paths:
+      - .github/workflows/branch-hygiene.yml
+      - scripts/branch_hygiene_gate.py
   workflow_dispatch:
 permissions:
   contents: read
