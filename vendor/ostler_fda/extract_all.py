@@ -682,21 +682,42 @@ def run_all(
     # present, so "not_found" surfaces as ok-with-zero-tracks.
     if "apple_music" in sources:
         try:
-            from .apple_music import extract_library, library_stats, to_records
+            from .apple_music import (
+                extract_library, library_stats, to_records,
+                write_preference_export, previous_export_track_count,
+            )
+            # Native helper first (OSTLER_MUSIC_LIBRARY_HELPER, the
+            # "Media & Apple Music" permission), XML export as fallback.
+            # Never raises for a refused permission or an empty library.
             library = extract_library()
 
             (output_dir / "apple_music.json").write_text(
                 json.dumps(to_records(library), indent=2, default=str)
             )
+            # Per-track evidence for the CM019 preference importer. Written
+            # only when there are tracks; install.sh stages it into the
+            # preferences drop-zone.
+            write_preference_export(library, output_dir)
 
             stats = library_stats(library)
+            # A later run with no Media & Apple Music grant (the launchd
+            # re-run) keeps what the install read: write_preference_export
+            # only writes when there are tracks, and the summary says the
+            # tracks came from that earlier read, not from this one.
+            if not library.tracks:
+                prev = previous_export_track_count(output_dir)
+                if prev:
+                    stats["total_tracks"] = prev
+                    stats["reader"] = "previous_export"
             summary["sources"]["apple_music"] = {
                 "status": "ok",
                 **stats,
             }
             logger.info(
-                "[ok] Apple Music: %d tracks, %d artists, %d playlists",
+                "[ok] Apple Music: %d tracks, %d artists, %d playlists "
+                "(reader %s, native %s)",
                 stats["total_tracks"], stats["distinct_artists"], stats["total_playlists"],
+                stats["reader"], stats["native_status"],
             )
 
         except PermissionError:
@@ -836,6 +857,11 @@ def run_all(
             (output_dir / "apple_mail_contacts.json").write_text(
                 json.dumps(contacts, indent=2, default=str)
             )
+            # DMG #27: which senders are machines (no-reply, calendar system,
+            # notification domain, all-list mail) and which are people the
+            # owner corresponded with. Counts only in the summary.
+            from .machine_senders import collect as _collect_machine_senders
+            summary["machine_senders"] = _collect_machine_senders(output_dir)
 
             # #259: when Apple Mail is configured but the local store
             # holds no messages in the window, do not pretend success.

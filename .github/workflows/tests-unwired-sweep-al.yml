@@ -129,9 +129,12 @@ jobs:
       # reasoning as the W003 step in sweep-macos below: the new-tests-wired
       # gate needs the test's path and an execution verb on one line, which a
       # loop body cannot give it.
-      - name: The manual Homebrew tarball install targets a branch that still exists
+      - name: The manual Homebrew tarball install targets a pinned release tag
         if: always()
         run: bash tests/test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh
+      - name: The Homebrew bootstrap is pinned and sha256-verified (red team DMG #27 F3-1)
+        if: always()
+        run: bash tests/test_homebrew_bootstrap_is_pinned.sh
 
       # INDIVIDUAL STEP for the same reason as the one above (#2520): chat
       # history survived a box_pristine reset AND a reinstall because it

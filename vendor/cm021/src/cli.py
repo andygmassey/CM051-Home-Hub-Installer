@@ -583,6 +583,38 @@ def _backup_person(endpoint: str, person_iri: str, reason: str) -> int:
     return len(rows)
 
 
+def _live_person_iri(endpoint: str, person_iri: str, max_hops: int = 16) -> str:
+    """The live survivor for ``person_iri``: follow ``pwg:mergedInto`` until a
+    node that carries none (DMG #27, shape sweep S2).
+
+    ``_build_upsert`` writes ``rdf:type pwg:Person`` onto the IRI it is given.
+    The IRI is minted from the address, so after a merge the next hourly tick
+    computed the merged-away node's IRI and typed it Person again: a merged
+    person re-created on every tick. A store error RAISES, and the caller's
+    per-message ``except`` then records it and writes nothing (fail closed).
+    """
+    import httpx
+    seen = {person_iri}
+    cur = person_iri
+    for _ in range(max_hops):
+        response = httpx.post(
+            endpoint.rstrip("/") + "/query",
+            content=(f"PREFIX pwg: <{PWG_NS}>\n"
+                     f"SELECT ?t WHERE {{ <{cur}> pwg:mergedInto ?t }} LIMIT 1"),
+            headers={"Content-Type": "application/sparql-query",
+                     "Accept": "application/sparql-results+json"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        rows = response.json().get("results", {}).get("bindings", [])
+        nxt = rows[0]["t"]["value"] if rows else None
+        if not nxt or nxt in seen:
+            return cur
+        seen.add(nxt)
+        cur = nxt
+    return cur
+
+
 def _sparql_select(endpoint: str, query: str, timeout: float = 10.0) -> list:
     """(p, o) pairs from a SELECT, over the same httpx transport as updates
     (so the store-auth shim in the service venv applies to both)."""
@@ -833,7 +865,7 @@ def cmd_mbox(args: argparse.Namespace) -> int:
                     result["names_refused_subject_shaped"] += 1
                     raw_name = ""
                 query = _build_upsert(
-                    person_iri=_safe_person_iri(addr),
+                    person_iri=_live_person_iri(args.graph_endpoint, _safe_person_iri(addr)),
                     email=addr,
                     name=raw_name,
                     last_contact_iso=last_contact_iso,

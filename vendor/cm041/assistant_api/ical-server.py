@@ -2960,13 +2960,14 @@ def api_people_forget(slug):
     # Look up the person URI by recomputing _wiki_slug(displayName) and
     # filtering to the exact match. We don't store slug in the graph
     # directly; it's derived from displayName by the wiki compiler.
+    #
+    # Merge-aware (walk #27): the slug resolves to the LIVE survivor, and the
+    # erasure covers every node merged into it. Erasing only the node whose
+    # name happened to match left the survivor (or the retired nodes, with
+    # their names, emails and identifiers) behind.
     try:
-        candidates = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?person ?name WHERE {{\n'
-            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-            '}}'.format(ns=PWG_NS)
-        )
+        person_uri, forget_name = _resolve_person_by_slug(slug)
+        cluster = _merged_cluster(person_uri) if person_uri else []
     except Exception as exc:
         return {
             "forgotten": False,
@@ -2975,12 +2976,6 @@ def api_people_forget(slug):
             "degraded": True,
             "reason": f"oxigraph_lookup_failed: {exc}",
         }, 503
-
-    person_uri = None
-    for cand in candidates:
-        if _wiki_slug(cand.get("name", "")) == slug:
-            person_uri = cand["person"]
-            break
 
     if person_uri is None:
         # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
@@ -3072,18 +3067,21 @@ def api_people_forget(slug):
     tombstone_written = False
     try:
         from identity_resolver import forget_tombstone
-        id_rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
-            '?id pwg:identifierValue ?v }}'.format(
-                ns=PWG_NS, uri=person_uri.replace("\\", "\\\\").replace(">", "%3E"))
-        )
+        # Identifiers from the whole cluster: a retired node's phone or
+        # email must be tombstoned too, or a syncer mints the person again.
+        id_values = []
+        for node in cluster:
+            id_rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
+                '?id pwg:identifierValue ?v }}'.format(
+                    ns=PWG_NS, uri=node.replace("\\", "\\\\").replace(">", "%3E"))
+            )
+            id_values.extend(r.get("v", "") for r in id_rows)
         tombstone_written = forget_tombstone.record(
             person_uri,
-            [r.get("v", "") for r in id_rows],
-            display_name=next(
-                (c.get("name", "") for c in candidates if c.get("person") == person_uri), ""
-            ),
+            id_values,
+            display_name=forget_name,
         )
     except Exception as exc:  # never block the erasure on the tombstone
         degraded_reasons.append(f"tombstone_failed: {exc}")
@@ -3108,20 +3106,23 @@ def api_people_forget(slug):
     # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
     # span -- so a forget removes everything any Ostler surface could
     # still show, without deleting out of another user's compartment.
-    _audit_person_removal(person_uri, "assistant_api.forget_person", "user_forget")
-    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
-    try:
-        _sparql_update(sparql_update)
+    ox_failed = False
+    for node in cluster:
+        _audit_person_removal(node, "assistant_api.forget_person", "user_forget")
+        try:
+            _sparql_update(_forget_person_update(node, _USER_GRAPH_URIS))
+        except Exception as exc:
+            ox_failed = True
+            degraded_reasons.append(f"oxigraph_update_failed: {exc}")
+    if not ox_failed:
         stores_purged.append("oxigraph")
-    except Exception as exc:
-        degraded_reasons.append(f"oxigraph_update_failed: {exc}")
 
     # Qdrant: delete every point in `people` whose payload.person_uri
     # matches. `wait=true` so the response reflects the actual purge.
     qdrant_body = json.dumps({
         "filter": {
             "must": [
-                {"key": "person_uri", "match": {"value": person_uri}}
+                {"key": "person_uri", "match": {"any": cluster}}
             ]
         }
     }).encode()
@@ -3146,6 +3147,7 @@ def api_people_forget(slug):
         "wiki_recompile_queued": queued,
         "stores_purged": stores_purged,
         "tombstone_written": tombstone_written,
+        "nodes_erased": len(cluster),
     }
     if degraded_reasons:
         response["degraded"] = True
@@ -3181,15 +3183,20 @@ def _upload_mod():
 def _speaker_directory_rows():
     """Every Person displayName on the graph, as [{"name": ...}]. Degrades to
     an empty list (attendee-only matching) when Oxigraph is unreachable."""
+    # Merge-aware (walk #27): every name of a LIVE person, including names a
+    # merge retired, each once. The merged duplicates no longer add copies.
     try:
-        rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?name WHERE {{ ?p a pwg:Person ; pwg:displayName ?name }}'
-            .format(ns=PWG_NS)
-        )
+        rows = _merge_aware_name_rows()
     except Exception:
         return []
-    return [{"name": r["name"]} for r in rows if r.get("name")]
+    seen = set()
+    out = []
+    for r in _rank_name_rows(rows):
+        n = r.get("name")
+        if n and n not in seen:
+            seen.add(n)
+            out.append({"name": n})
+    return out
 
 
 def _speaker_operator_names():
@@ -3637,15 +3644,9 @@ def _resolve_person_uri_by_name(name):
     people_search scoring, so any residual tie here is between identical
     display names and either node is an acceptable attach point.
     """
-    rows = _sparql_select(
-        'PREFIX pwg: <{ns}>\n'
-        'SELECT ?person WHERE {{\n'
-        '  ?person a pwg:Person ; pwg:displayName "{name}" .\n'
-        '}} LIMIT 1'.format(ns=PWG_NS, name=_sparql_escape_literal(name))
-    )
-    if rows:
-        return rows[0].get("person")
-    return None
+    # Merge-aware (walk #27): a fact must land on the LIVE survivor, never
+    # on a merged duplicate where it would vanish from the person's page.
+    return _resolve_person_by_exact_name(name)
 
 
 # Near-miss field aliases the assistant's ``remember_fact`` tool (and the
@@ -5204,26 +5205,123 @@ def api_memory_correct(fact_id: str, payload: dict):
     return {"ok": True, "id": fact_id, "action": action}, 200
 
 
+# ── ONE merge-aware person resolver ───────────────────────────────────
+#
+# A contact merge leaves the losing nodes behind with pwg:mergedInto
+# <survivor>: typed pwg:RetiredPerson, untyped tombstones, and (walk #27,
+# Mini16) 145 nodes an FDA rerun re-typed back to pwg:Person while they still
+# carry mergedInto. Every reader that matched `?p a pwg:Person ;
+# pwg:displayName` picked one of those up: the person view and timeline could
+# open the dead duplicate, forget could erase it and leave the survivor,
+# memory/assert could file a fact on it, and birthdays listed a survivor once
+# per name. person_context (#2864) already walked the chain; this is that walk,
+# factored out so every reader uses the same one.
+#
+# THE RULE: any node's displayName counts as a name of the LIVE TERMINUS of
+# its mergedInto chain (zero or more hops), and only a live terminus is ever
+# returned: a pwg:Person that is not pwg:RetiredPerson and is not itself
+# merged into anything. The chain follows identity_resolver/retirement.py
+# resolve_to_live_person, which walks merges of merges.
+_LIVE_TERMINUS_SPARQL = (
+    '  ?node pwg:mergedInto* ?person .\n'
+    '  ?person a pwg:Person .\n'
+    '  FILTER NOT EXISTS { ?person a pwg:RetiredPerson }\n'
+    '  FILTER NOT EXISTS { ?person pwg:mergedInto ?further }\n'
+)
+
+
+def _merge_aware_name_rows(name=None):
+    """Rows of {person, name, node} with ``person`` always a live terminus.
+
+    ``name`` given: only rows whose displayName equals it exactly.
+    Raises on a store failure; callers own their degraded answer.
+    """
+    name_filter = ""
+    if name is not None:
+        name_filter = '  FILTER(?name = "{}")\n'.format(_sparql_escape_literal(name))
+    rows = _sparql_select(
+        'PREFIX pwg: <' + PWG_NS + '>\n'
+        'SELECT DISTINCT ?person ?name ?node WHERE {\n'
+        '  ?node pwg:displayName ?name .\n'
+        + name_filter
+        + _LIVE_TERMINUS_SPARQL
+        + '}'
+    )
+    return rows
+
+
+def _rank_name_rows(rows):
+    """Deterministic order: the terminus's own name first, then aliases.
+
+    Ties broken on (person, name) so the same graph always answers the same.
+    """
+    return sorted(
+        rows,
+        key=lambda r: (r.get("node") != r.get("person"),
+                       r.get("person", ""), r.get("name", "")),
+    )
+
+
+def _resolve_person_by_slug(slug):
+    """(person_uri, name) for the live person a wiki slug names, else (None, "").
+
+    The slug may come from the survivor's own displayName or from any name
+    merged into it. An own-name match wins over an alias match. Raises on a
+    store failure.
+    """
+    hits = [r for r in _merge_aware_name_rows() if _wiki_slug(r.get("name", "")) == slug]
+    if not hits:
+        return None, ""
+    best = _rank_name_rows(hits)[0]
+    return best["person"], best.get("name", "")
+
+
+def _resolve_person_by_exact_name(name):
+    """Live person URI whose displayName, or a merged-in node's, equals ``name``."""
+    rows = _merge_aware_name_rows(name)
+    if not rows:
+        return None
+    return _rank_name_rows(rows)[0]["person"]
+
+
+def _merged_cluster(person_uri):
+    """``person_uri`` plus every node merged into it, along the whole chain.
+
+    Forget uses this: erasing the survivor alone would leave the retired
+    nodes' names, emails and identifiers behind. Raises on a store failure.
+    """
+    esc = person_uri.replace("\\", "\\\\").replace(">", "%3E")
+    rows = _sparql_select(
+        'PREFIX pwg: <' + PWG_NS + '>\n'
+        'SELECT DISTINCT ?n WHERE { ?n pwg:mergedInto+ <' + esc + '> }'
+    )
+    out = [person_uri]
+    for r in rows:
+        n = r.get("n")
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
 def person_context(name):
     """Gather everything known about a person by name."""
     esc = name.replace("\\", "\\\\").replace('"', '\\"')
     # last_contact is the MAX of the four per-source predicates, computed
     # in Python after the query so each source remains independently
     # OPTIONAL (a missing source must not exclude the row).
-    persons = _sparql_select(
+    persons = _sparql_select((
         'PREFIX pwg: <{ns}>\n'
         'SELECT ?person ?name ?matched ?org ?title ?rel ?howMet ?notes ?bday ?priv\n'
         '       ?mergedInto\n'
         '       ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
-        '  {{ ?person a pwg:Person ; pwg:displayName ?matched .\n'
-        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}"))) }}\n'
-        '  UNION\n'
-        '  {{ ?r pwg:displayName ?matched .\n'
-        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}")))\n'
-        '     ?r pwg:mergedInto+ ?person .\n'
-        '     ?person a pwg:Person .\n'
-        '     FILTER NOT EXISTS {{ ?person a pwg:RetiredPerson }}\n'
-        '     FILTER NOT EXISTS {{ ?person pwg:mergedInto ?further }} }}\n'
+        # Merge-aware, through the shared resolver fragment: a name on the
+        # survivor OR on any node merged into it (zero or more hops) finds
+        # the live terminus only. The first form of this (#2864) had a plain
+        # `?person a pwg:Person` arm that also returned the 145 merged
+        # duplicates an FDA rerun re-typed as Person (walk #27).
+        '  ?node pwg:displayName ?matched .\n'
+        '  FILTER(CONTAINS(LCASE(?matched), LCASE("{q}")))\n'
+        + _LIVE_TERMINUS_SPARQL.replace("{", "{{").replace("}", "}}") +
         '  OPTIONAL {{ ?person pwg:displayName ?name }}\n'
         '  OPTIONAL {{ ?person pwg:organization ?org }}\n'
         '  OPTIONAL {{ ?person pwg:jobTitle ?title }}\n'
@@ -5237,7 +5335,7 @@ def person_context(name):
         '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
         '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
         '  OPTIONAL {{ ?person pwg:privacyLevel ?priv }}\n'
-        '}} LIMIT 50'.format(ns=PWG_NS, q=esc)
+        '}} LIMIT 50').format(ns=PWG_NS, q=esc)
     )
     if not persons:
         return {"query": name, "found": False,
@@ -5586,13 +5684,10 @@ def person_enrichment(slug):
     # Resolve slug -> person URI by recomputing _wiki_slug(displayName).
     # Slug is not stored in the graph directly; it is derived from the
     # display name by the wiki compiler (see api_people_forget).
+    # Merge-aware: a slug from a merged-away name opens the live survivor,
+    # never the dead duplicate (see _resolve_person_by_slug).
     try:
-        candidates = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?person ?name WHERE {{\n'
-            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-            '}}'.format(ns=PWG_NS)
-        )
+        person_uri, pname = _resolve_person_by_slug(slug)
     except Exception as exc:
         return {
             "found": False,
@@ -5600,15 +5695,6 @@ def person_enrichment(slug):
             "reason": f"oxigraph_lookup_failed: {exc}",
             "error": str(exc),
         }, 503
-
-    person_uri = None
-    pname = ""
-    for cand in candidates:
-        cand_name = cand.get("name", "")
-        if _wiki_slug(cand_name) == slug:
-            person_uri = cand["person"]
-            pname = cand_name
-            break
 
     if person_uri is None:
         return {
@@ -5986,13 +6072,10 @@ def person_timeline(slug, limit=50, days=None):
     # This is the load-bearing query: if it fails we cannot identify the
     # person at all, so degrade the whole request (503) rather than return
     # a misleading empty timeline.
+    # Merge-aware: a slug from a merged-away name opens the live survivor,
+    # never the dead duplicate (see _resolve_person_by_slug).
     try:
-        candidates = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?person ?name WHERE {{\n'
-            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-            '}}'.format(ns=PWG_NS)
-        )
+        person_uri, pname = _resolve_person_by_slug(slug)
     except Exception as exc:
         return {
             "found": False,
@@ -6000,15 +6083,6 @@ def person_timeline(slug, limit=50, days=None):
             "reason": f"oxigraph_lookup_failed: {exc}",
             "error": str(exc),
         }, 503
-
-    person_uri = None
-    pname = ""
-    for cand in candidates:
-        cand_name = cand.get("name", "")
-        if _wiki_slug(cand_name) == slug:
-            person_uri = cand["person"]
-            pname = cand_name
-            break
 
     if person_uri is None:
         return {
@@ -6259,13 +6333,10 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "error": "Invalid 'about' slug. Expected lowercase ASCII "
                          "letters, digits, hyphens (max 80 chars).",
             }, 400
+        # Merge-aware (walk #27): resolve to the live survivor, and match a
+        # decision filed against ANY node merged into it.
         try:
-            candidates = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?person ?name WHERE {{\n'
-                '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-                '}}'.format(ns=PWG_NS)
-            )
+            about_uri, _ = _resolve_person_by_slug(about)
         except Exception as exc:
             return {
                 "decisions": [],
@@ -6273,17 +6344,14 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}",
             }, 503
-        for cand in candidates:
-            if _wiki_slug(cand.get("name", "")) == about:
-                about_uri = cand["person"]
-                break
         if about_uri is None:
             return {"decisions": [], "count": 0}, 200
 
     # One query for the decision attributes; decisionAbout is collected in
     # a second pass so a multi-attendee decision is not row-multiplied here.
     about_clause = (
-        '  ?d pwg:decisionAbout <{uri}> .\n'.format(uri=about_uri)
+        '  ?d pwg:decisionAbout ?aboutNode .\n'
+        '  ?aboutNode pwg:mergedInto* <{uri}> .\n'.format(uri=about_uri)
         if about_uri else ''
     )
     try:
@@ -7210,6 +7278,10 @@ def people_list(sort=None, ceiling=10000):
     return {"people": people, "total": len(people)}
 
 
+# Runaway guard for the stale-people scan (pages of 1000). Not a sample.
+_STALE_SCAN_MAX_PAGES = 50
+
+
 def people_stale(months=3, limit=5):
     """Find contacts not spoken to in N months, reconciled against the graph.
 
@@ -7241,10 +7313,6 @@ def people_stale(months=3, limit=5):
     import time
     cutoff_ts = int(time.time()) - (months * 30 * 86400)
     cutoff_date = datetime.utcfromtimestamp(cutoff_ts).strftime("%Y-%m-%d")
-    # Over-fetch: the graph recheck below can drop candidates Qdrant thought
-    # were stale, so asking Qdrant for exactly `limit` would under-fill the
-    # list the moment any single drop happens.
-    fetch_limit = max(limit * 5, limit + 20)
     try:
         body = {
             "filter": {
@@ -7264,18 +7332,32 @@ def people_stale(months=3, limit=5):
                      "match": {"any": ["person", "unclassified"]}},
                 ]
             },
-            "limit": fetch_limit,
+            "limit": 1000,
             "with_payload": True,
             "with_vector": False,
         }
-        data = json.dumps(body).encode()
-        req = urllib.request.Request(
-            QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
-            data=data,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read())
+        # EVERY stale point, then screen and sort (walk #27, shape S5). This
+        # used to take the first max(limit*5, limit+20) matches in point-id order
+        # and sort those, so the list was 25 arbitrary stale people, not the
+        # most stale ones. The Qdrant filter above is the narrowing; paging
+        # reads all of what it admits. _STALE_SCAN_MAX_PAGES is a runaway
+        # guard (pages of 1000), not a sample.
+        all_points, next_offset = [], None
+        for _page in range(_STALE_SCAN_MAX_PAGES):
+            if next_offset is not None:
+                body["offset"] = next_offset
+            req = urllib.request.Request(
+                QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                page_res = json.loads(resp.read()).get("result", {}) or {}
+            all_points.extend(page_res.get("points", []) or [])
+            next_offset = page_res.get("next_page_offset")
+            if next_offset is None:
+                break
+        result = {"result": {"points": all_points}}
     except Exception as exc:
         return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
 
@@ -7372,16 +7454,20 @@ def people_stale(months=3, limit=5):
     if unresolved:
         try:
             names = sorted({c["name"] for c in unresolved})
-            name_values = " ".join(
-                f'"{_sparql_escape_literal(n)}"' for n in names
-            )
-            name_rows = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?name ?person WHERE {{\n'
-                '  VALUES ?name {{ {values} }}\n'
-                '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-                '}}'.format(ns=PWG_NS, values=name_values)
-            )
+            name_rows = []
+            # Batched: every stale point is read now, not 25, so one VALUES
+            # list could hold thousands of names.
+            for i in range(0, len(names), 500):
+                name_values = " ".join(
+                    f'"{_sparql_escape_literal(n)}"' for n in names[i:i + 500]
+                )
+                name_rows.extend(_sparql_select(
+                    'PREFIX pwg: <{ns}>\n'
+                    'SELECT ?name ?person WHERE {{\n'
+                    '  VALUES ?name {{ {values} }}\n'
+                    '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+                    '}}'.format(ns=PWG_NS, values=name_values)
+                ))
         except Exception as exc:
             # FAIL CLOSED (CM051 #2521): can't identify these candidates in
             # the graph at all, so none of this batch can be trusted.
@@ -7408,17 +7494,19 @@ def people_stale(months=3, limit=5):
     graph_max_by_uri = {}
     if uris:
         try:
-            values = " ".join(f"<{u}>" for u in uris)
-            rows = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?person ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
-                '  VALUES ?person {{ {values} }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactCalendar ?lcCalendar }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactWhatsApp ?lcWhatsApp }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactEmail ?lcEmail }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactIMessage ?lcIMessage }}\n'
-                '}}'.format(ns=PWG_NS, values=values)
-            )
+            rows = []
+            for i in range(0, len(uris), 500):  # batched, as above
+                values = " ".join(f"<{u}>" for u in uris[i:i + 500])
+                rows.extend(_sparql_select(
+                    'PREFIX pwg: <{ns}>\n'
+                    'SELECT ?person ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
+                    '  VALUES ?person {{ {values} }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactCalendar ?lcCalendar }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactWhatsApp ?lcWhatsApp }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactEmail ?lcEmail }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactIMessage ?lcIMessage }}\n'
+                    '}}'.format(ns=PWG_NS, values=values)
+                ))
         except Exception as exc:
             # FAIL CLOSED (CM051 #2521). Qdrant's last_contact_ts has
             # already been shown wrong in the direction that announces
@@ -7467,18 +7555,29 @@ def people_recent(days=7, limit=5):
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     try:
+        # GROUP BY PERSON BEFORE ANY CAP. This used to take
+        # `ORDER BY DESC(?date) LIMIT limit*3` over meeting x attendee ROWS and
+        # only then drop the owner (an attendee of nearly every meeting),
+        # service senders and repeat names, so one busy week left fewer than
+        # `limit` people, or one. Now: one row per attendee with their latest
+        # meeting in the window, newest first, no row cap; the Python screens
+        # below run over people, and the cap applies to the people that pass.
+        # A node merged into another is not a person of its own (walk #27).
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?p ?name ?summary ?date ?location WHERE {{\n'
-            '  ?m a pwg:Meeting ; pwg:meetingAttendee ?p ;\n'
-            '     pwg:meetingDate ?date .\n'
+            '  {{ SELECT ?p (MAX(?d) AS ?date) WHERE {{\n'
+            '      ?m0 a pwg:Meeting ; pwg:meetingAttendee ?p ;\n'
+            '          pwg:meetingDate ?d .\n'
+            '      FILTER(?d >= "{cutoff}")\n'
+            '      FILTER NOT EXISTS {{ ?p pwg:mergedInto ?merged }}\n'
+            '      FILTER NOT EXISTS {{ ?p a pwg:RetiredPerson }}\n'
+            '  }} GROUP BY ?p }}\n'
             '  ?p pwg:displayName ?name .\n'
+            '  ?m a pwg:Meeting ; pwg:meetingAttendee ?p ; pwg:meetingDate ?date .\n'
             '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  FILTER(?date >= "{cutoff}")\n'
-            '}} ORDER BY DESC(?date) LIMIT {limit}'.format(
-                ns=PWG_NS, cutoff=cutoff, limit=limit * 3
-            )
+            '}} ORDER BY DESC(?date) ?p ?name'.format(ns=PWG_NS, cutoff=cutoff)
         )
     except Exception as exc:
         return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
@@ -7494,11 +7593,14 @@ def people_recent(days=7, limit=5):
     carded_uris = _load_carded_uris(r.get("p") for r in rows)
 
     seen = set()
+    seen_uris = set()
     contacts = []
     for r in rows:
         name = r.get("name", "")
         uri = r.get("p") or ""
-        if not name or name in seen:
+        # One entry per PERSON: several names or several same-day meetings
+        # give one person several rows; the first that passes the screens wins.
+        if not name or name in seen or (uri and uri in seen_uris):
             continue
         if _is_nameless_name(name):
             continue
@@ -7515,6 +7617,8 @@ def people_recent(days=7, limit=5):
         ):
             continue
         seen.add(name)
+        if uri:
+            seen_uris.add(uri)
         contacts.append({
             "name": name,
             "slug": _wiki_slug(name),
@@ -7534,14 +7638,40 @@ def people_birthdays(days=7):
     today = datetime.now()
     results = []
     try:
+        # Merge-aware (walk #27): one row set per LIVE person. A merged-away
+        # node's birthday and names count for its survivor; the duplicate
+        # itself is never listed. Birthday preferred from the survivor.
         rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?p ?name ?bday WHERE {{\n'
-            '  ?p a pwg:Person ; pwg:displayName ?name ; pwg:birthday ?bday .\n'
-            '}}'.format(ns=PWG_NS)
+            'PREFIX pwg: <' + PWG_NS + '>\n'
+            'SELECT DISTINCT ?p ?name ?bday ?bnode WHERE {\n'
+            '  ?bnode pwg:birthday ?bday .\n'
+            '  ?bnode pwg:mergedInto* ?p .\n'
+            '  ?p a pwg:Person ; pwg:displayName ?name .\n'
+            '  FILTER NOT EXISTS { ?p a pwg:RetiredPerson }\n'
+            '  FILTER NOT EXISTS { ?p pwg:mergedInto ?further }\n'
+            '}'
         )
     except Exception as exc:
         return {"people": [], "degraded": True, "reason": str(exc), "error": str(exc)}
+
+    # ONE row per person URI. This used to dedupe by NAME at the very end,
+    # which listed a person with two displayNames twice (48 on Mini16) and
+    # collapsed two different people who share a name into one. Pick per
+    # URI: the survivor's own birthday over a merged node's, and a human
+    # name over a bare handle, then a stable order.
+    def _pick_rank(r):
+        n = r.get("name", "")
+        return (
+            r.get("bnode") != r.get("p"),
+            _is_nameless_name(n) or _looks_like_bare_email_or_phone(n),
+            n,
+            r.get("bday", ""),
+        )
+
+    per_uri = {}
+    for r in sorted(rows, key=_pick_rank):
+        per_uri.setdefault(r.get("p") or "", r)
+    rows = [r for u, r in per_uri.items() if u]
 
     # Walk #6 candidate #10 (Archie): a SECOND, complementary layer on top
     # of _is_not_a_person_to_suggest / _is_service_sender below -- see the
@@ -7591,6 +7721,7 @@ def people_birthdays(days=7):
             if 0 <= days_until <= days:
                 results.append({
                     "name": name,
+                    "person_uri": uri,
                     "slug": _wiki_slug(name),
                     "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
                     "birthday": f"{month:02d}-{day:02d}",
@@ -7599,15 +7730,10 @@ def people_birthdays(days=7):
         except (ValueError, TypeError):
             continue
 
-    results.sort(key=lambda r: r["days_until"])
-    # Dedup by name (multiple Oxigraph nodes for same person)
-    seen = set()
-    deduped = []
-    for r in results:
-        if r["name"] not in seen:
-            seen.add(r["name"])
-            deduped.append(r)
-    return {"people": deduped}
+    # Already one entry per live person URI (see above), so no name dedupe:
+    # two different people who share a name are two birthdays.
+    results.sort(key=lambda r: (r["days_until"], r["name"]))
+    return {"people": results}
 
 
 
@@ -7929,7 +8055,12 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
     rows, points, next_offset = [], [], None
     page = 256
     try:
-        while len(points) < max(1, limit) * 4:
+        # Read the WHOLE collection, then date-filter and sort (walk #27,
+        # shape S5). This used to stop once it held limit*4 points in
+        # point-id order, so a small `limit` dated the Timeline from an
+        # arbitrary slice of conversations. The page count is a runaway
+        # guard only (256 x 400 = 102,400 conversations).
+        for _page in range(400):
             body = {
                 "limit": page,
                 "with_payload": True,
@@ -9080,6 +9211,15 @@ def _browsing_item(payload):
     }
 
 
+# Runaway guard for the browsing keyword scan (pages of 1000). Not a sample:
+# reaching it is reported in the response. 200 pages = 200,000 visits.
+_BROWSING_SCAN_MAX_PAGES = 200
+_BROWSING_SCAN_FIELDS = (
+    "url", "title", "domain", "timestamp", "visit_date", "summary", "tags",
+    "entities", "summary_status", "source", "device", "knowledge_id",
+)
+
+
 def api_browsing_search(q="", days=0, limit=10):
     """GET /api/v1/browsing/search?q=&days=&limit= -- what the assistant
     reads to answer "what did I read about X". Returns the visit with its
@@ -9094,10 +9234,26 @@ def api_browsing_search(q="", days=0, limit=10):
     if days and int(days) > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
 
+    # SCAN THE WHOLE COLLECTION, THEN FILTER. This used to stop after 5 pages
+    # of 1000, in point-id order, and filter afterwards: on the walk #27 box
+    # (safari_history 8714 points) about 43% of browsing history could never
+    # be found by keyword, whatever was asked. Point ids are hashes, so the
+    # missing 43% was an arbitrary slice, not the oldest.
+    #
+    # Why not a Qdrant payload filter: the keyword test is a case-insensitive
+    # substring over title, domain, summary, tags and entities, and Qdrant's
+    # `match.text` without a full-text index is an exact, case-sensitive
+    # substring. Creating that index is a write to the customer's collection.
+    # So the scan stays, but it reads every page and only the fields the
+    # filter needs. _BROWSING_SCAN_MAX_PAGES is a runaway guard, not a
+    # sample size: if it is ever reached the response says so
+    # (truncated + scanned) instead of silently answering from part of it.
     points = []
     offset = None
-    for _ in range(5):  # at most 5000 entries scanned
-        body = {"limit": 1000, "with_payload": True, "with_vector": False}
+    truncated = False
+    for page in range(_BROWSING_SCAN_MAX_PAGES):
+        body = {"limit": 1000, "with_payload": list(_BROWSING_SCAN_FIELDS),
+                "with_vector": False}
         if offset is not None:
             body["offset"] = offset
         try:
@@ -9110,6 +9266,8 @@ def api_browsing_search(q="", days=0, limit=10):
         offset = r.get("next_page_offset")
         if offset is None:
             break
+    else:
+        truncated = offset is not None
 
     scored = {}
     for pt in points:
@@ -9152,7 +9310,11 @@ def api_browsing_search(q="", days=0, limit=10):
         results.append(_browsing_item(pl))
         if len(results) >= limit:
             break
-    return {"results": results, "count": len(results)}, 200
+    out = {"results": results, "count": len(results)}
+    if truncated:
+        out["truncated"] = True
+        out["scanned"] = len(points)
+    return out, 200
 
 
 # ── Hub health helpers ───────────────────────────────────────────────

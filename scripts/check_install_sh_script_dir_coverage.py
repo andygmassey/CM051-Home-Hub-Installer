@@ -96,6 +96,13 @@ EXCEPTIONS: dict[str, str] = {
 # gate is robust to comment / whitespace drift in the postBuildScript body.
 # The keys here are the canonical "leaf" names install.sh probes for.
 COVERAGE_NEEDLES: dict[str, list[str]] = {
+    # CM051 walk #27: install.sh passes ${SCRIPT_DIR}/ostler-music-library to
+    # the FDA extractor as OSTLER_MUSIC_LIBRARY_HELPER. gui/project.yml
+    # compiles it from this source into Resources (the "Compile + bundle
+    # ostler-music-library helper" postBuildScript). Removing that build
+    # phase must go red here rather than ship an install that silently
+    # falls back to the XML export.
+    "ostler-music-library": ['${SRCROOT}/ostler-music-library/main.swift'],
     "ostler_security": ["vendor/ostler_security"],
     "legal": ["vendor/legal"],
     "ostler_fda": ["vendor/ostler_fda"],

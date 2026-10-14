@@ -1100,6 +1100,14 @@ def _fetch_all_persons(
             ?person a pwg:Person ;
                     pwg:displayName ?name .
             FILTER NOT EXISTS {{ ?person pwg:mergedInto ?merged }}
+            # The owner anchor (pwg:user_<id>, pwg:isOwner true) is never an
+            # auto-merge candidate. It carries the owner's name and nothing
+            # else, so exact_name (0.9, over the 0.8 auto threshold) would
+            # pair it with the owner's own contact card -- or a namesake --
+            # and pick_canonical keeps the side with more triples. Relating
+            # fragments to the owner is lib/ostler-confirm-identity.py's job,
+            # with the owner's confirmation (walk #27).
+            FILTER NOT EXISTS {{ ?person pwg:isOwner true }}
             FILTER NOT EXISTS {{
                 ?person pwg:contactType ?ct .
                 FILTER(LCASE(STR(?ct)) IN (

@@ -494,6 +494,7 @@
 				4E98769DBA62B4C9868A0711 /* Bundle python-build-standalone Python 3.11 into Resources */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
 				40897EECA8735C710F8CED09 /* Compile + bundle ostler-mecard helper into Resources */,
+				3146D75A193DB53782542056 /* Compile + bundle ostler-music-library helper into Resources */,
 				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
 				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
 				F54BDEF84C009CE505BC7F56 /* Bundle whatsapp_source conversation feed into Resources */,
@@ -762,6 +763,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# install.sh probes ${SCRIPT_DIR}/context-refresh/INSTALL_SNIPPET.sh\n# to install the context-refresh LaunchAgent (#608). It runs\n# generate_pwg_context.py to write ~/.ostler/assistant-config/\n# CONTEXT.md -- the personal-graph digest the daemon injects\n# into every system prompt so the assistant answers personal\n# questions from the graph instead of as a generic LLM.\n# Without this bundle the GUI install falls through to the\n# elif reuse branch (only true on re-install) or skips, and\n# the assistant ships disconnected from the graph (the #608\n# launch blocker). Mirrors the wiki-recompile bundle above.\n#\n# Source-of-truth: CM051 repo root /context-refresh/.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../context-refresh\"\nif [ ! -d \"${SRC}\" ] || [ ! -f \"${SRC}/INSTALL_SNIPPET.sh\" ]; then\n  echo \"ERROR: context-refresh/ not found at ${SRC} (need INSTALL_SNIPPET.sh)\" >&2\n  echo \"       CM051 repo root must contain context-refresh/INSTALL_SNIPPET.sh.\" >&2\n  exit 1\nfi\necho \"Bundling context-refresh from ${SRC} into Resources/context-refresh/\"\nmkdir -p \"${DEST}/context-refresh\"\ncp -R \"${SRC}/\"* \"${DEST}/context-refresh/\"\n/usr/bin/xattr -cr \"${DEST}/context-refresh\" || true\nchmod 755 \"${DEST}/context-refresh/INSTALL_SNIPPET.sh\"\n";
+		};
+		3146D75A193DB53782542056 /* Compile + bundle ostler-music-library helper into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/ostler-music-library/main.swift",
+				"$(SRCROOT)/ostler-music-library/Info.plist",
+			);
+			name = "Compile + bundle ostler-music-library helper into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-music-library",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/ostler-music-library/main.swift\"\nPLIST=\"${SRCROOT}/ostler-music-library/Info.plist\"\nif [ ! -f \"${SRC}\" ] || [ ! -f \"${PLIST}\" ]; then\n  echo \"ERROR: ostler-music-library source or Info.plist missing under ${SRCROOT}/ostler-music-library\" >&2\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nDEPLOY=\"${MACOSX_DEPLOYMENT_TARGET:-14.0}\"\nSLICES=()\nfor arch in ${ARCHS}; do\n  slice=\"${DERIVED_FILE_DIR}/ostler-music-library-${arch}\"\n  echo \"Compiling ostler-music-library slice: ${arch} (macos ${DEPLOY})\"\n  xcrun swiftc -O \\\n    -target \"${arch}-apple-macos${DEPLOY}\" \\\n    -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker \"${PLIST}\" \\\n    \"${SRC}\" -o \"${slice}\"\n  SLICES+=(\"${slice}\")\ndone\nxcrun lipo -create \"${SLICES[@]}\" -output \"${DEST}/ostler-music-library\"\nchmod 755 \"${DEST}/ostler-music-library\"\n/usr/bin/xattr -cr \"${DEST}/ostler-music-library\" || true\necho \"Bundled ostler-music-library: $(xcrun lipo -archs \"${DEST}/ostler-music-library\")\"\n";
 		};
 		37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */ = {
 			isa = PBXShellScriptBuildPhase;

@@ -19,6 +19,8 @@ on:
       - 'scripts/box_walk_probes/lib/assistant_chat.py'
       - 'scripts/box_walk_probes/lib/pair_offwindow.py'
       - 'scripts/box_walk_probes/probes/pair_endpoints_refuse_off_window.sh'
+      - 'scripts/box_walk_probes/lib/companion_auth.py'
+      - 'scripts/box_walk_probes/probes/companion_listener_refuses_unauthenticated.sh'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
       - 'scripts/box_walk_probes/probes/qdrant_has_fd_headroom_and_writes_land.sh'
       - 'scripts/box_walk_probes/probes/assistant_self_description_is_clean.sh'

@@ -2763,6 +2763,9 @@ _FDA_EXTRACT_KINDS = {
     # leg skipped on the FDA reader's sentinel and reminders_knowledge was
     # never created, while the panel had no row that could have shown it.
     "reminders_knowledge": "operation",
+    # Apple Music library (CM051 walk #27): chosen in the picker like the
+    # two above, so its row appears only once install.sh records it.
+    "apple_music": "source",
 }
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
