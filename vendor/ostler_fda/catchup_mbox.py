@@ -309,6 +309,16 @@ def _read_message(fh, start: int, stop: int):
     return email.message_from_bytes(body)
 
 
+def _slice_messages() -> int:
+    """Messages parsed per index item (OSTLER_CATCHUP_MBOX_SLICE). Smaller
+    means a kill repeats less work and the watermark moves more often."""
+    raw = os.environ.get("OSTLER_CATCHUP_MBOX_SLICE", "").strip()
+    try:
+        return max(1, int(raw)) if raw else INDEX_SLICE_MESSAGES
+    except ValueError:
+        return INDEX_SLICE_MESSAGES
+
+
 # ── the adapter ─────────────────────────────────────────────────────────────
 
 class MailboxAdapter:
@@ -356,10 +366,9 @@ class MailboxAdapter:
         cursor = cursor or self.start_cursor()
         phase = cursor.get("phase")
         if phase == "index":
-            offs, nxt, eof = scan_boundaries(self.path, int(cursor["off"]),
-                                             INDEX_SLICE_MESSAGES * max(1, limit))
-            items = [("index", offs[i:i + INDEX_SLICE_MESSAGES])
-                     for i in range(0, len(offs), INDEX_SLICE_MESSAGES)]
+            per = _slice_messages()
+            offs, nxt, eof = scan_boundaries(self.path, int(cursor["off"]), per * max(1, limit))
+            items = [("index", offs[i:i + per]) for i in range(0, len(offs), per)]
             nc = {"phase": "contacts", "after": ""} if eof else {"phase": "index", "off": nxt}
             return oc.Batch(items=items, next_cursor=nc, oldest_at=None, exhausted=False)
         db = self.db()
