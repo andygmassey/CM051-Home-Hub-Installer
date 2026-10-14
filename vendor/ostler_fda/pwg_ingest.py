@@ -1774,6 +1774,12 @@ def ingest_photos(fda_dir: Path) -> dict:
 
 # ── Apple Mail contact ingestion ──────────────────────────────────
 
+# A correspondent becomes a Person at this many messages. Named so the
+# full-history catch-up (catchup_mail.py) qualifies an address at exactly
+# the point this ingest would accept it, rather than carrying its own 3.
+MAIL_CONTACT_MIN_COUNT = 3
+
+
 def ingest_mail_contacts(fda_dir: Path) -> dict:
     """Ingest frequent email contacts into the people graph.
 
@@ -1795,7 +1801,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     machine_skipped = 0
 
     for email, count in contacts.items():
-        if not email or count < 3:
+        if not email or count < MAIL_CONTACT_MIN_COUNT:
             # Skip very infrequent senders
             continue
 
