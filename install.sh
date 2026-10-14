@@ -28131,6 +28131,21 @@ except Exception:
 ' 2>/dev/null || printf 'CANNOT-READ'
 }
 
+# HYDRATING: the install that will fill the stores is still running. Walk #27:
+# this agent read the preferences collection as 0 points twice at 20:22Z and
+# 20:27Z, called it GENUINELY EMPTY and removed itself; the 40,315 points
+# landed before the install finished at 21:01Z, and the profile then waited
+# for the next hourly tick. While the install-in-progress marker exists, an
+# empty read means "not yet". A marker older than 6 h is an aborted install's
+# leftover (the marker's own lifetime) and does not count.
+_hydrating() {
+    local m="${OSTLER_DIR}/state/install-in-progress" now mt
+    [ -f "$m" ] || return 1
+    now="$(date +%s)"
+    mt="$(/usr/bin/stat -f %m "$m" 2>/dev/null || echo 0)"
+    [ $((now - mt)) -lt 21600 ]
+}
+
 _read_counter() {
     local f="$1" v=0
     [ -f "$f" ] && v="$(cat "$f" 2>/dev/null || echo 0)"
@@ -28144,6 +28159,11 @@ _read_counter() {
 tries="$(_read_counter "$TRIES_FILE")"
 tries=$((tries + 1))
 printf '%s' "$tries" >"$TRIES_FILE"
+if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ] && _hydrating; then
+    # The bound counts ticks after the install, not ticks spent waiting for it.
+    printf '%s' "$EDITOR_CATCHUP_MAX_TRIES" >"$TRIES_FILE"
+    tries="$EDITOR_CATCHUP_MAX_TRIES"
+fi
 if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ]; then
     log "catch-up gave up after ${EDITOR_CATCHUP_MAX_TRIES} ticks with the interest profile still empty; removing agent (the hourly Front Page refresh continues)"
     remove_self
@@ -28201,6 +28221,11 @@ case "$upstream" in
         exit 0
         ;;
     0)
+        if _hydrating; then
+            printf '0' >"$EMPTY_FILE"
+            log "HYDRATING (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): the preferences collection answered with 0 points while the install is still running, which means not yet, not nothing. Waiting."
+            exit 0
+        fi
         empties="$(_read_counter "$EMPTY_FILE")"
         empties=$((empties + 1))
         printf '%s' "$empties" >"$EMPTY_FILE"
