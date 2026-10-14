@@ -5185,11 +5185,19 @@ def person_context(name):
     # OPTIONAL (a missing source must not exclude the row).
     persons = _sparql_select(
         'PREFIX pwg: <{ns}>\n'
-        'SELECT ?person ?name ?org ?title ?rel ?howMet ?notes ?bday ?priv\n'
+        'SELECT ?person ?name ?matched ?org ?title ?rel ?howMet ?notes ?bday ?priv\n'
         '       ?mergedInto\n'
         '       ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
-        '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-        '  FILTER(CONTAINS(LCASE(?name), LCASE("{q}")))\n'
+        '  {{ ?person a pwg:Person ; pwg:displayName ?matched .\n'
+        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}"))) }}\n'
+        '  UNION\n'
+        '  {{ ?r pwg:displayName ?matched .\n'
+        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}")))\n'
+        '     ?r pwg:mergedInto+ ?person .\n'
+        '     ?person a pwg:Person .\n'
+        '     FILTER NOT EXISTS {{ ?person a pwg:RetiredPerson }}\n'
+        '     FILTER NOT EXISTS {{ ?person pwg:mergedInto ?further }} }}\n'
+        '  OPTIONAL {{ ?person pwg:displayName ?name }}\n'
         '  OPTIONAL {{ ?person pwg:organization ?org }}\n'
         '  OPTIONAL {{ ?person pwg:jobTitle ?title }}\n'
         '  OPTIONAL {{ ?person pwg:relationship ?rel }}\n'
@@ -5208,6 +5216,30 @@ def person_context(name):
         return {"query": name, "found": False,
                 "message": "No person found matching '{}'.".format(name)}
 
+    # Merged-name search (v1.0.107, Mini16 #27). A contact merge retires the
+    # human-named nodes (pwg:RetiredPerson + pwg:mergedInto <survivor>) and
+    # the survivor can be left holding only a phone or email as its
+    # displayName. The UNION above matches the asked name on the survivor OR
+    # on any node merged into it, along the whole mergedInto chain (merges of
+    # merges exist: identity_resolver/retirement.py resolve_to_live_person
+    # walks up to 16 hops), and only ever returns the chain's live terminus.
+    # One row per survivor: the union and the multi-valued OPTIONALs can
+    # bind the same ?person more than once. When the survivor's own name is
+    # only an identifier, the HUMAN name that matched becomes the entry name.
+    by_uri = {}
+    for row in persons:
+        uri = row["person"]
+        keep = by_uri.get(uri)
+        if keep is None:
+            by_uri[uri] = keep = dict(row)
+        matched = row.get("matched", "")
+        own = keep.get("name", "")
+        if ((not own or _looks_like_bare_email_or_phone(own))
+                and matched and not _looks_like_bare_email_or_phone(matched)):
+            keep["display_name_on_record"] = keep.get("name", "")
+            keep["name"] = matched
+    persons = list(by_uri.values())
+
     results = []
     # F2 (Archie re-review): captured once so a MULTI-match on the operator's
     # own name can surface the deterministically-resolved current employer at
@@ -5217,11 +5249,14 @@ def person_context(name):
     for person in persons:
         uri = person["person"]
         pname = person.get("name", "")
+        # The wiki page is keyed by the name ON RECORD, so a survivor shown
+        # by its merged human name still links to the page that exists.
+        page_name = person.get("display_name_on_record") or pname
         entry = {
             "name": pname,
-            "slug": _wiki_slug(pname),
+            "slug": _wiki_slug(page_name),
             "person_uri": uri,
-            "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(pname)}/",
+            "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(page_name)}/",
         }
         # API surface is British English and matches the iOS Codable
         # expectations (see CM031 docs/API_CONTRACT.md). Per #ARCH-01:

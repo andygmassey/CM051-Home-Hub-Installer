@@ -1073,3 +1073,28 @@ Behaviour pinned by a golden table generated from the PRE-move ical-server.py
 (`tests/fixtures/people_rules_golden.json`, `tests/test_people_rules_is_stdlib_only.py`).
 CM041 upstream needs the same split, or the next re-sync of this tree
 reverts it: that is what this record is for.
+
+## /people/context finds a person by a merged-away human name (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+function `person_context`, and nothing else in the tree.
+
+- v1.0.107 F&F blocker, measured on the Mini16 #27 box: a contact merge types
+  the human-named nodes `pwg:RetiredPerson` + `pwg:mergedInto <survivor>`, and
+  the live survivor can keep only a phone or email as `pwg:displayName`. The
+  lookup matched `?person a pwg:Person ; pwg:displayName` only, so the
+  assistant's `pwg_people` tool got `found: false` for that person's name.
+- The name now matches on the survivor OR on any node merged into it along
+  the whole `pwg:mergedInto+` chain (merges of merges exist; see
+  `identity_resolver/retirement.py::resolve_to_live_person`), returning only a
+  live, non-retired terminus. Rows are collapsed to one per survivor.
+- When the survivor's own name is empty or only an identifier
+  (`people_rules._looks_like_bare_email_or_phone`, reused, not a second
+  detector), the matched human name becomes the entry `name`; `slug` and
+  `wiki_url` stay keyed to the name on record so the link still resolves.
+- NOT done here: renaming the survivor in the graph (v1.0.108).
+
+Pinned by `tests/test_person_context_finds_merged_names.py` (real pyoxigraph
+engine, cast names): 6 pass on the graft, 3 fail on the pre-graft
+ical-server.py, and the two-hop test fails on a one-hop mutant. CM041 upstream
+needs the same change, or the next re-sync of this tree reverts it.
