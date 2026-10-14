@@ -387,18 +387,28 @@ class PreferenceFilter:
                 # First time seeing this subject from any source
                 self._subject_sources[normalized_subject] = {pref.source}
 
-            # Now check for same-source duplicates
+            # Now check for same-source duplicates.
+            #
+            # ONE SCALE FOR EVERY SERVICE (CM051 walk #27). A row counts for
+            # the plays it stands for, not for 1: Spotify writes one row per
+            # play, Apple Music's library writes one row per track carrying
+            # its play count. Counting rows made 42 Spotify plays worth
+            # frequency 42 and 42 Apple Music plays worth 1, so whichever
+            # service exports per-play events won regardless of what the
+            # owner actually listens to. See _observation_weight.
+            weight = self._observation_weight(pref)
             if key in self._aggregated:
                 # Increment count for existing preference (same source)
                 existing_pref, count = self._aggregated[key]
-                self._aggregated[key] = (existing_pref, count + 1)
+                existing_pref = self._with_latest_observation(existing_pref, pref)
+                self._aggregated[key] = (existing_pref, count + weight)
                 self.stats["aggregated_count"] += 1
                 # Mark as modified since frequency increased
                 self._modified_keys.add(key)
                 return True
             else:
                 # First time seeing this preference from this source
-                self._aggregated[key] = (pref, 1)
+                self._aggregated[key] = (pref, weight)
                 # New preference is also considered modified
                 self._modified_keys.add(key)
                 return False
@@ -408,6 +418,50 @@ class PreferenceFilter:
                 return True
             self._seen_keys.add(key)
             return False
+
+    @staticmethod
+    def _observation_weight(pref: ParsedPreference) -> int:
+        """How many observations one parsed row stands for.
+
+        A row that declares ``extra["play_count"]`` (a library row: one track,
+        N plays) counts N; anything else counts 1, which is unchanged for
+        every source that writes one row per event (Spotify plays, emails,
+        likes). A play count of 0 still counts 1: the row itself is evidence
+        (the track is in the library), exactly as a Spotify saved track with
+        no plays is one row. Garbage counts 1, never 0 and never negative.
+        """
+        extra = pref.extra if isinstance(pref.extra, dict) else {}
+        raw = extra.get("play_count")
+        if isinstance(raw, bool):
+            return 1
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            return 1
+        return n if n > 1 else 1
+
+    @staticmethod
+    def _with_latest_observation(
+        kept: ParsedPreference, seen: ParsedPreference
+    ) -> ParsedPreference:
+        """Keep the MOST RECENT observed_at across duplicates.
+
+        Recency feeds time decay, so it must be the last time the owner
+        played the thing. The kept row used to be whichever row came FIRST,
+        so a streaming history read oldest-first decayed every track to its
+        first play: the same listening scored differently by file order.
+        """
+        from datetime import timezone
+
+        def aware(dt):
+            if dt is None:
+                return None
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+        a, b = aware(kept.observed_at), aware(seen.observed_at)
+        if b is not None and (a is None or b > a):
+            return replace(kept, observed_at=seen.observed_at)
+        return kept
 
     def get_aggregated_preferences(self, modified_only: bool = False) -> List[ParsedPreference]:
         """

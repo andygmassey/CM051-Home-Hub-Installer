@@ -170,3 +170,21 @@ red over a fully successful import. Tests:
 Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
 
 **Upstream status:** not ported; owed to personal-world-graph `services/enrich`.
+
+## One scale for every music service: plays and recency (CM051, walk #27, 2026-10-14)
+
+**File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
+- `is_duplicate()` (aggregation mode): a row adds `_observation_weight(pref)`
+  to its key's frequency instead of 1, and the kept row takes the LATEST
+  `observed_at` of its duplicates (`_with_latest_observation`).
+- `_observation_weight()` (NEW): `extra["play_count"]` when it is an integer
+  above 1, else 1 (never 0, never negative, bool rejected).
+- `_with_latest_observation()` (NEW): keeps the most recent observation.
+
+**Why:** frequency counted rows, so a per-play history (Spotify) outscored a
+per-track library with the same plays (Apple Music: 42 plays scored frequency
+1), and time decay used the first row seen, so file order changed a score.
+Rows without a play count (email, likes, per-play histories) are unchanged.
+Test: `tests/test_music_services_score_on_one_scale.py`.
+
+**Upstream status:** not ported; owed to personal-world-graph `services/ingest`.
