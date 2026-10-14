@@ -46,6 +46,7 @@ jobs:
       - name: Assistant sends never reach extraction; owner notes always do
         run: python -m pytest tests/test_assistant_sends_are_not_owner_input.py -v
       - name: Mutation, a prose-matching rule must drop the owner's look-alike note (must go RED)
+        if: always()
         run: |
           set -u
           for f in vendor/imessage_source/reader.py vendor/ostler_fda/imessage.py; do
