@@ -25,6 +25,7 @@ on:
       - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
+      - 'tests/test_interest_card_says_what_and_where.py'
       - 'tests/test_hub_interest_card_shows_a_handle_as_at_handle.py'
       - 'tests/test_hub_screens_real_person_name_never_printed.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
@@ -39,6 +40,12 @@ on:
       - 'scripts/box_walk_probes/lib/conversation_capture_seed.sh'
       - 'scripts/box_walk_probes/lib/companion_pair.py'
       - 'scripts/box_walk_probes/lib/companion_pair.sh'
+      - 'scripts/box_walk_probes/lib/companion_unpair.sh'
+      - 'tests/test_walk_unpairs_its_synthetic_companion.py'
+      - 'tests/test_walk_cleanup_runs_on_abort.sh'
+      - 'tests/test_scale_fixture_forget.py'
+      - 'scripts/box_walk_probes/lib/scale_fixture.py'
+      - 'scripts/box_walk_probes/lib/scale_fixture_seed.sh'
       - 'scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh'
       - 'scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh'
       - 'tests/test_the_walk_seeds_the_conversation_capture.sh'
@@ -138,6 +145,9 @@ jobs:
         # vendored copy, not upstream CM059 -- the two disagreed.
         if: always()
         run: python3 tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
+      - name: Interest cards say where the interest came from (front page copy)
+        if: always()
+        run: python3 tests/test_interest_card_says_what_and_where.py
       - name: A real person's name never reaches the screens probe's output or record (DMG #23)
         if: always()
         run: python3 tests/test_hub_screens_real_person_name_never_printed.py
@@ -168,6 +178,15 @@ jobs:
         run: |
           python3 -m pip install --quiet cryptography
           python3 scripts/box_walk_probes/lib/companion_pair.py --self-test
+      - name: The walk unpairs its synthetic companion (walk #27 item 5a, Doctor read Paired)
+        if: always()
+        run: python3 tests/test_walk_unpairs_its_synthetic_companion.py
+      - name: Every walk forget and the unpair run from a trap, also on abort (shape sweep S7c)
+        if: always()
+        run: bash tests/test_walk_cleanup_runs_on_abort.sh
+      - name: The scale fixture is tagged and forgotten (shape sweep S7a)
+        if: always()
+        run: python3 tests/test_scale_fixture_forget.py
       # The two pairing tests (non-answer, reader-before-mutator) are NOT run
       # here. They run in walk-record-gate.yml, whose checkout is fetch-depth 0:
       # the non-answer test's negative control reads the pre-fix tree 5532772b,
