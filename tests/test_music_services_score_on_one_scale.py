@@ -113,3 +113,54 @@ def test_rows_without_a_play_count_are_unchanged():
                              source="email") for _ in range(4)]
     out = _strengths(rows)[("email", "Fixture Newsletter")]
     assert out.extra["frequency"] == 4
+
+
+# ── the Apple privacy export (privacy.apple.com) on the same scale ────────
+
+def _apple_export_prefs(tmp_path, rows, name="Apple Music Play Activity.csv"):
+    import asyncio
+    import csv
+    from services.ingest.src.parsers.apple import AppleParser
+    path = tmp_path / name
+    with open(path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    p = AppleParser()
+    assert p.can_parse(path)
+
+    async def go():
+        return [x async for x in p.parse(path, default_compartment=2)]
+    return asyncio.run(go())
+
+
+def _activity_rows(song, plays, last, ms=200000, step_days=3):
+    # newest FIRST, the opposite order to the Spotify fixture
+    return [{"Song Name": song, "Album Name": "Fixture Album",
+             "Event Timestamp": (last - timedelta(days=step_days * i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "Event Type": "PLAY_END", "Play Duration Milliseconds": str(ms)}
+            for i in range(plays)]
+
+
+def test_apple_play_activity_export_scores_like_spotify(tmp_path):
+    last = (NOW - timedelta(days=10)).replace(microsecond=0)
+    rows = _activity_rows("Export Song", 42, last) + _activity_rows("Export Song", 5, last, ms=12000)
+    prefs = _apple_export_prefs(tmp_path, rows)
+    assert len(prefs) == 1 and prefs[0].extra["play_count"] == 42      # 5 plays under 30 s dropped
+    assert prefs[0].strength == 0.10                                    # Spotify's passive-play base
+    assert prefs[0].observed_at == last                                 # the LATEST play
+    out = _strengths(_play_rows("spotify", "Fixture Band - Song", 42, last) + prefs)
+    s = out[("spotify", "Fixture Band - Song")]
+    a = next(v for (src, _), v in out.items() if src == "apple")
+    print(f"spotify strength={s.strength:.4f}; apple export strength={a.strength:.4f}")
+    assert a.extra["frequency"] == 42
+    assert a.strength == pytest.approx(s.strength)
+
+
+def test_apple_daily_tracks_count_plays_not_skips(tmp_path):
+    rows = [{"Track Description": "Fixture Band - Daily Song", "Play Count": "3", "Skip Count": "9",
+             "Date Played": d} for d in ("20260101", "20260301", "20260201")]
+    prefs = _apple_export_prefs(tmp_path, rows, name="Apple Music - Play History Daily Tracks.csv")
+    assert len(prefs) == 1
+    assert prefs[0].extra["play_count"] == 9 and prefs[0].strength == 0.10
+    assert prefs[0].observed_at.strftime("%Y%m%d") == "20260301"

@@ -8,11 +8,13 @@ on:
     branches: [main]
     paths:
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
       - 'tests/test_music_services_score_on_one_scale.py'
       - '.github/workflows/music-scoring-one-scale.yml'
   pull_request:
     paths:
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
       - 'tests/test_music_services_score_on_one_scale.py'
       - '.github/workflows/music-scoring-one-scale.yml'
 
@@ -36,8 +38,8 @@ jobs:
           n="$(python -m pytest tests/test_music_services_score_on_one_scale.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 17 ]; then
-            echo "REFUSING: expected at least 17 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 19 ]; then
+            echo "REFUSING: expected at least 19 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_music_services_score_on_one_scale.py -v -rs
