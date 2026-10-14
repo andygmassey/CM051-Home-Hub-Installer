@@ -45,6 +45,23 @@ MAC_EPOCH_OFFSET = 978307200
 DEFAULT_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 
 
+# The assistant's own sends are not the owner's words. The brief and wrap go
+# out from the owner's Apple ID, so chat.db marks them is_from_me=1. Same rule
+# and same constants as imessage_source/reader.py (see the note there);
+# tests/test_assistant_sends_are_not_owner_input.py holds the copies in step.
+ASSISTANT_SEND_PREFIX = "\U0001F916"  # robot face, the identity prefix
+ASSISTANT_SEND_MARKER = "\u2063\u2064\u2063"  # invisible sep, plus, sep
+
+
+def is_assistant_send(text: Optional[str]) -> bool:
+    """True when ``text`` was written by the Ostler assistant, not a person."""
+    if not text:
+        return False
+    if ASSISTANT_SEND_MARKER in text:
+        return True
+    return text.lstrip().startswith(ASSISTANT_SEND_PREFIX)
+
+
 @dataclass
 class Conversation:
     """A conversation thread (individual or group)."""
@@ -316,6 +333,8 @@ def extract_messages(
     messages = []
     for row in rows:
         if row["date"] is None:
+            continue
+        if is_assistant_send(row["text"]):
             continue
 
         messages.append(Message(

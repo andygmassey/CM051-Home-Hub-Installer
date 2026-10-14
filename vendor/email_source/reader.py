@@ -273,6 +273,9 @@ def read_messages(
         PermissionError: if the Mail tree exists but FDA is denied.
     """
     from ostler_fda.apple_mail_mbox import discover_emlx_files, parse_emlx
+    from ostler_fda.imessage import is_assistant_send
+
+    dropped_assistant = 0
 
     mail_dir = mail_dir or _default_mail_dir()
     now = now or datetime.now(tz=timezone.utc)
@@ -304,11 +307,20 @@ def read_messages(
         message = _parse_one(parsed.rfc822_bytes, emlx_path)
         if message is None:
             continue
+        # The assistant's own sends are not the owner's words: an email the
+        # assistant sent lands in the owner's mailbox (Sent, or the inbox
+        # when addressed to the owner). Same rule as the iMessage reader,
+        # defined once in ostler_fda.imessage.
+        if is_assistant_send(message.body):
+            dropped_assistant += 1
+            continue
         # parse_emlx already resolved received_at (Date header or mtime);
         # prefer the body-parsed Date but fall back so ordering holds.
         if message.timestamp is None:
             message.timestamp = parsed.received_at
         out.append(message)
 
+    if dropped_assistant:
+        logger.info("Dropped %d assistant-sent email(s)", dropped_assistant)
     logger.info("Read %d email messages from %s", len(out), mail_dir)
     return out

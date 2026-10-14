@@ -48,6 +48,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+# The assistant's own sends are not the owner's words: a brief or reply the
+# assistant sends through the owner's linked WhatsApp account is stored with
+# ZISFROMME=1. One rule, defined once in ostler_fda.imessage (this reader
+# already imports ostler_fda).
+from ostler_fda.imessage import is_assistant_send
 from ostler_fda.whatsapp_history import (
     DEFAULT_CHAT_DB,
     TIER_T3_SKIP,
@@ -161,6 +166,8 @@ def _read_bodies_for_chat(
     for row in rows:
         text = (row["ZTEXT"] or "").strip()
         if not text:
+            continue
+        if is_assistant_send(text):
             continue
         is_from_me = bool(row["ZISFROMME"])
         author = row["ZFROMJID"]
