@@ -2960,13 +2960,14 @@ def api_people_forget(slug):
     # Look up the person URI by recomputing _wiki_slug(displayName) and
     # filtering to the exact match. We don't store slug in the graph
     # directly; it's derived from displayName by the wiki compiler.
+    #
+    # Merge-aware (walk #27): the slug resolves to the LIVE survivor, and the
+    # erasure covers every node merged into it. Erasing only the node whose
+    # name happened to match left the survivor (or the retired nodes, with
+    # their names, emails and identifiers) behind.
     try:
-        candidates = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?person ?name WHERE {{\n'
-            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-            '}}'.format(ns=PWG_NS)
-        )
+        person_uri, forget_name = _resolve_person_by_slug(slug)
+        cluster = _merged_cluster(person_uri) if person_uri else []
     except Exception as exc:
         return {
             "forgotten": False,
@@ -2975,12 +2976,6 @@ def api_people_forget(slug):
             "degraded": True,
             "reason": f"oxigraph_lookup_failed: {exc}",
         }, 503
-
-    person_uri = None
-    for cand in candidates:
-        if _wiki_slug(cand.get("name", "")) == slug:
-            person_uri = cand["person"]
-            break
 
     if person_uri is None:
         # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
@@ -3072,18 +3067,21 @@ def api_people_forget(slug):
     tombstone_written = False
     try:
         from identity_resolver import forget_tombstone
-        id_rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
-            '?id pwg:identifierValue ?v }}'.format(
-                ns=PWG_NS, uri=person_uri.replace("\\", "\\\\").replace(">", "%3E"))
-        )
+        # Identifiers from the whole cluster: a retired node's phone or
+        # email must be tombstoned too, or a syncer mints the person again.
+        id_values = []
+        for node in cluster:
+            id_rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
+                '?id pwg:identifierValue ?v }}'.format(
+                    ns=PWG_NS, uri=node.replace("\\", "\\\\").replace(">", "%3E"))
+            )
+            id_values.extend(r.get("v", "") for r in id_rows)
         tombstone_written = forget_tombstone.record(
             person_uri,
-            [r.get("v", "") for r in id_rows],
-            display_name=next(
-                (c.get("name", "") for c in candidates if c.get("person") == person_uri), ""
-            ),
+            id_values,
+            display_name=forget_name,
         )
     except Exception as exc:  # never block the erasure on the tombstone
         degraded_reasons.append(f"tombstone_failed: {exc}")
@@ -3108,20 +3106,23 @@ def api_people_forget(slug):
     # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
     # span -- so a forget removes everything any Ostler surface could
     # still show, without deleting out of another user's compartment.
-    _audit_person_removal(person_uri, "assistant_api.forget_person", "user_forget")
-    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
-    try:
-        _sparql_update(sparql_update)
+    ox_failed = False
+    for node in cluster:
+        _audit_person_removal(node, "assistant_api.forget_person", "user_forget")
+        try:
+            _sparql_update(_forget_person_update(node, _USER_GRAPH_URIS))
+        except Exception as exc:
+            ox_failed = True
+            degraded_reasons.append(f"oxigraph_update_failed: {exc}")
+    if not ox_failed:
         stores_purged.append("oxigraph")
-    except Exception as exc:
-        degraded_reasons.append(f"oxigraph_update_failed: {exc}")
 
     # Qdrant: delete every point in `people` whose payload.person_uri
     # matches. `wait=true` so the response reflects the actual purge.
     qdrant_body = json.dumps({
         "filter": {
             "must": [
-                {"key": "person_uri", "match": {"value": person_uri}}
+                {"key": "person_uri", "match": {"any": cluster}}
             ]
         }
     }).encode()
@@ -3146,6 +3147,7 @@ def api_people_forget(slug):
         "wiki_recompile_queued": queued,
         "stores_purged": stores_purged,
         "tombstone_written": tombstone_written,
+        "nodes_erased": len(cluster),
     }
     if degraded_reasons:
         response["degraded"] = True
@@ -3181,15 +3183,20 @@ def _upload_mod():
 def _speaker_directory_rows():
     """Every Person displayName on the graph, as [{"name": ...}]. Degrades to
     an empty list (attendee-only matching) when Oxigraph is unreachable."""
+    # Merge-aware (walk #27): every name of a LIVE person, including names a
+    # merge retired, each once. The merged duplicates no longer add copies.
     try:
-        rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?name WHERE {{ ?p a pwg:Person ; pwg:displayName ?name }}'
-            .format(ns=PWG_NS)
-        )
+        rows = _merge_aware_name_rows()
     except Exception:
         return []
-    return [{"name": r["name"]} for r in rows if r.get("name")]
+    seen = set()
+    out = []
+    for r in _rank_name_rows(rows):
+        n = r.get("name")
+        if n and n not in seen:
+            seen.add(n)
+            out.append({"name": n})
+    return out
 
 
 def _speaker_operator_names():
@@ -3637,15 +3644,9 @@ def _resolve_person_uri_by_name(name):
     people_search scoring, so any residual tie here is between identical
     display names and either node is an acceptable attach point.
     """
-    rows = _sparql_select(
-        'PREFIX pwg: <{ns}>\n'
-        'SELECT ?person WHERE {{\n'
-        '  ?person a pwg:Person ; pwg:displayName "{name}" .\n'
-        '}} LIMIT 1'.format(ns=PWG_NS, name=_sparql_escape_literal(name))
-    )
-    if rows:
-        return rows[0].get("person")
-    return None
+    # Merge-aware (walk #27): a fact must land on the LIVE survivor, never
+    # on a merged duplicate where it would vanish from the person's page.
+    return _resolve_person_by_exact_name(name)
 
 
 # Near-miss field aliases the assistant's ``remember_fact`` tool (and the
@@ -5204,26 +5205,123 @@ def api_memory_correct(fact_id: str, payload: dict):
     return {"ok": True, "id": fact_id, "action": action}, 200
 
 
+# ── ONE merge-aware person resolver ───────────────────────────────────
+#
+# A contact merge leaves the losing nodes behind with pwg:mergedInto
+# <survivor>: typed pwg:RetiredPerson, untyped tombstones, and (walk #27,
+# Mini16) 145 nodes an FDA rerun re-typed back to pwg:Person while they still
+# carry mergedInto. Every reader that matched `?p a pwg:Person ;
+# pwg:displayName` picked one of those up: the person view and timeline could
+# open the dead duplicate, forget could erase it and leave the survivor,
+# memory/assert could file a fact on it, and birthdays listed a survivor once
+# per name. person_context (#2864) already walked the chain; this is that walk,
+# factored out so every reader uses the same one.
+#
+# THE RULE: any node's displayName counts as a name of the LIVE TERMINUS of
+# its mergedInto chain (zero or more hops), and only a live terminus is ever
+# returned: a pwg:Person that is not pwg:RetiredPerson and is not itself
+# merged into anything. The chain follows identity_resolver/retirement.py
+# resolve_to_live_person, which walks merges of merges.
+_LIVE_TERMINUS_SPARQL = (
+    '  ?node pwg:mergedInto* ?person .\n'
+    '  ?person a pwg:Person .\n'
+    '  FILTER NOT EXISTS { ?person a pwg:RetiredPerson }\n'
+    '  FILTER NOT EXISTS { ?person pwg:mergedInto ?further }\n'
+)
+
+
+def _merge_aware_name_rows(name=None):
+    """Rows of {person, name, node} with ``person`` always a live terminus.
+
+    ``name`` given: only rows whose displayName equals it exactly.
+    Raises on a store failure; callers own their degraded answer.
+    """
+    name_filter = ""
+    if name is not None:
+        name_filter = '  FILTER(?name = "{}")\n'.format(_sparql_escape_literal(name))
+    rows = _sparql_select(
+        'PREFIX pwg: <' + PWG_NS + '>\n'
+        'SELECT DISTINCT ?person ?name ?node WHERE {\n'
+        '  ?node pwg:displayName ?name .\n'
+        + name_filter
+        + _LIVE_TERMINUS_SPARQL
+        + '}'
+    )
+    return rows
+
+
+def _rank_name_rows(rows):
+    """Deterministic order: the terminus's own name first, then aliases.
+
+    Ties broken on (person, name) so the same graph always answers the same.
+    """
+    return sorted(
+        rows,
+        key=lambda r: (r.get("node") != r.get("person"),
+                       r.get("person", ""), r.get("name", "")),
+    )
+
+
+def _resolve_person_by_slug(slug):
+    """(person_uri, name) for the live person a wiki slug names, else (None, "").
+
+    The slug may come from the survivor's own displayName or from any name
+    merged into it. An own-name match wins over an alias match. Raises on a
+    store failure.
+    """
+    hits = [r for r in _merge_aware_name_rows() if _wiki_slug(r.get("name", "")) == slug]
+    if not hits:
+        return None, ""
+    best = _rank_name_rows(hits)[0]
+    return best["person"], best.get("name", "")
+
+
+def _resolve_person_by_exact_name(name):
+    """Live person URI whose displayName, or a merged-in node's, equals ``name``."""
+    rows = _merge_aware_name_rows(name)
+    if not rows:
+        return None
+    return _rank_name_rows(rows)[0]["person"]
+
+
+def _merged_cluster(person_uri):
+    """``person_uri`` plus every node merged into it, along the whole chain.
+
+    Forget uses this: erasing the survivor alone would leave the retired
+    nodes' names, emails and identifiers behind. Raises on a store failure.
+    """
+    esc = person_uri.replace("\\", "\\\\").replace(">", "%3E")
+    rows = _sparql_select(
+        'PREFIX pwg: <' + PWG_NS + '>\n'
+        'SELECT DISTINCT ?n WHERE { ?n pwg:mergedInto+ <' + esc + '> }'
+    )
+    out = [person_uri]
+    for r in rows:
+        n = r.get("n")
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
 def person_context(name):
     """Gather everything known about a person by name."""
     esc = name.replace("\\", "\\\\").replace('"', '\\"')
     # last_contact is the MAX of the four per-source predicates, computed
     # in Python after the query so each source remains independently
     # OPTIONAL (a missing source must not exclude the row).
-    persons = _sparql_select(
+    persons = _sparql_select((
         'PREFIX pwg: <{ns}>\n'
         'SELECT ?person ?name ?matched ?org ?title ?rel ?howMet ?notes ?bday ?priv\n'
         '       ?mergedInto\n'
         '       ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
-        '  {{ ?person a pwg:Person ; pwg:displayName ?matched .\n'
-        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}"))) }}\n'
-        '  UNION\n'
-        '  {{ ?r pwg:displayName ?matched .\n'
-        '     FILTER(CONTAINS(LCASE(?matched), LCASE("{q}")))\n'
-        '     ?r pwg:mergedInto+ ?person .\n'
-        '     ?person a pwg:Person .\n'
-        '     FILTER NOT EXISTS {{ ?person a pwg:RetiredPerson }}\n'
-        '     FILTER NOT EXISTS {{ ?person pwg:mergedInto ?further }} }}\n'
+        # Merge-aware, through the shared resolver fragment: a name on the
+        # survivor OR on any node merged into it (zero or more hops) finds
+        # the live terminus only. The first form of this (#2864) had a plain
+        # `?person a pwg:Person` arm that also returned the 145 merged
+        # duplicates an FDA rerun re-typed as Person (walk #27).
+        '  ?node pwg:displayName ?matched .\n'
+        '  FILTER(CONTAINS(LCASE(?matched), LCASE("{q}")))\n'
+        + _LIVE_TERMINUS_SPARQL.replace("{", "{{").replace("}", "}}") +
         '  OPTIONAL {{ ?person pwg:displayName ?name }}\n'
         '  OPTIONAL {{ ?person pwg:organization ?org }}\n'
         '  OPTIONAL {{ ?person pwg:jobTitle ?title }}\n'
@@ -5237,7 +5335,7 @@ def person_context(name):
         '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
         '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
         '  OPTIONAL {{ ?person pwg:privacyLevel ?priv }}\n'
-        '}} LIMIT 50'.format(ns=PWG_NS, q=esc)
+        '}} LIMIT 50').format(ns=PWG_NS, q=esc)
     )
     if not persons:
         return {"query": name, "found": False,
@@ -5586,13 +5684,10 @@ def person_enrichment(slug):
     # Resolve slug -> person URI by recomputing _wiki_slug(displayName).
     # Slug is not stored in the graph directly; it is derived from the
     # display name by the wiki compiler (see api_people_forget).
+    # Merge-aware: a slug from a merged-away name opens the live survivor,
+    # never the dead duplicate (see _resolve_person_by_slug).
     try:
-        candidates = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?person ?name WHERE {{\n'
-            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-            '}}'.format(ns=PWG_NS)
-        )
+        person_uri, pname = _resolve_person_by_slug(slug)
     except Exception as exc:
         return {
             "found": False,
@@ -5600,15 +5695,6 @@ def person_enrichment(slug):
             "reason": f"oxigraph_lookup_failed: {exc}",
             "error": str(exc),
         }, 503
-
-    person_uri = None
-    pname = ""
-    for cand in candidates:
-        cand_name = cand.get("name", "")
-        if _wiki_slug(cand_name) == slug:
-            person_uri = cand["person"]
-            pname = cand_name
-            break
 
     if person_uri is None:
         return {
@@ -5986,13 +6072,10 @@ def person_timeline(slug, limit=50, days=None):
     # This is the load-bearing query: if it fails we cannot identify the
     # person at all, so degrade the whole request (503) rather than return
     # a misleading empty timeline.
+    # Merge-aware: a slug from a merged-away name opens the live survivor,
+    # never the dead duplicate (see _resolve_person_by_slug).
     try:
-        candidates = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?person ?name WHERE {{\n'
-            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-            '}}'.format(ns=PWG_NS)
-        )
+        person_uri, pname = _resolve_person_by_slug(slug)
     except Exception as exc:
         return {
             "found": False,
@@ -6000,15 +6083,6 @@ def person_timeline(slug, limit=50, days=None):
             "reason": f"oxigraph_lookup_failed: {exc}",
             "error": str(exc),
         }, 503
-
-    person_uri = None
-    pname = ""
-    for cand in candidates:
-        cand_name = cand.get("name", "")
-        if _wiki_slug(cand_name) == slug:
-            person_uri = cand["person"]
-            pname = cand_name
-            break
 
     if person_uri is None:
         return {
@@ -6259,13 +6333,10 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "error": "Invalid 'about' slug. Expected lowercase ASCII "
                          "letters, digits, hyphens (max 80 chars).",
             }, 400
+        # Merge-aware (walk #27): resolve to the live survivor, and match a
+        # decision filed against ANY node merged into it.
         try:
-            candidates = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?person ?name WHERE {{\n'
-                '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-                '}}'.format(ns=PWG_NS)
-            )
+            about_uri, _ = _resolve_person_by_slug(about)
         except Exception as exc:
             return {
                 "decisions": [],
@@ -6273,17 +6344,14 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}",
             }, 503
-        for cand in candidates:
-            if _wiki_slug(cand.get("name", "")) == about:
-                about_uri = cand["person"]
-                break
         if about_uri is None:
             return {"decisions": [], "count": 0}, 200
 
     # One query for the decision attributes; decisionAbout is collected in
     # a second pass so a multi-attendee decision is not row-multiplied here.
     about_clause = (
-        '  ?d pwg:decisionAbout <{uri}> .\n'.format(uri=about_uri)
+        '  ?d pwg:decisionAbout ?aboutNode .\n'
+        '  ?aboutNode pwg:mergedInto* <{uri}> .\n'.format(uri=about_uri)
         if about_uri else ''
     )
     try:
@@ -7534,14 +7602,40 @@ def people_birthdays(days=7):
     today = datetime.now()
     results = []
     try:
+        # Merge-aware (walk #27): one row set per LIVE person. A merged-away
+        # node's birthday and names count for its survivor; the duplicate
+        # itself is never listed. Birthday preferred from the survivor.
         rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?p ?name ?bday WHERE {{\n'
-            '  ?p a pwg:Person ; pwg:displayName ?name ; pwg:birthday ?bday .\n'
-            '}}'.format(ns=PWG_NS)
+            'PREFIX pwg: <' + PWG_NS + '>\n'
+            'SELECT DISTINCT ?p ?name ?bday ?bnode WHERE {\n'
+            '  ?bnode pwg:birthday ?bday .\n'
+            '  ?bnode pwg:mergedInto* ?p .\n'
+            '  ?p a pwg:Person ; pwg:displayName ?name .\n'
+            '  FILTER NOT EXISTS { ?p a pwg:RetiredPerson }\n'
+            '  FILTER NOT EXISTS { ?p pwg:mergedInto ?further }\n'
+            '}'
         )
     except Exception as exc:
         return {"people": [], "degraded": True, "reason": str(exc), "error": str(exc)}
+
+    # ONE row per person URI. This used to dedupe by NAME at the very end,
+    # which listed a person with two displayNames twice (48 on Mini16) and
+    # collapsed two different people who share a name into one. Pick per
+    # URI: the survivor's own birthday over a merged node's, and a human
+    # name over a bare handle, then a stable order.
+    def _pick_rank(r):
+        n = r.get("name", "")
+        return (
+            r.get("bnode") != r.get("p"),
+            _is_nameless_name(n) or _looks_like_bare_email_or_phone(n),
+            n,
+            r.get("bday", ""),
+        )
+
+    per_uri = {}
+    for r in sorted(rows, key=_pick_rank):
+        per_uri.setdefault(r.get("p") or "", r)
+    rows = [r for u, r in per_uri.items() if u]
 
     # Walk #6 candidate #10 (Archie): a SECOND, complementary layer on top
     # of _is_not_a_person_to_suggest / _is_service_sender below -- see the
@@ -7591,6 +7685,7 @@ def people_birthdays(days=7):
             if 0 <= days_until <= days:
                 results.append({
                     "name": name,
+                    "person_uri": uri,
                     "slug": _wiki_slug(name),
                     "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
                     "birthday": f"{month:02d}-{day:02d}",
@@ -7599,15 +7694,10 @@ def people_birthdays(days=7):
         except (ValueError, TypeError):
             continue
 
-    results.sort(key=lambda r: r["days_until"])
-    # Dedup by name (multiple Oxigraph nodes for same person)
-    seen = set()
-    deduped = []
-    for r in results:
-        if r["name"] not in seen:
-            seen.add(r["name"])
-            deduped.append(r)
-    return {"people": deduped}
+    # Already one entry per live person URI (see above), so no name dedupe:
+    # two different people who share a name are two birthdays.
+    results.sort(key=lambda r: (r["days_until"], r["name"]))
+    return {"people": results}
 
 
 
