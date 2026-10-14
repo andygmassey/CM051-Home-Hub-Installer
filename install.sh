@@ -31121,7 +31121,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
 
 # ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
 #
@@ -31164,7 +31164,7 @@ OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts
 # OSTLER_SENTINEL_SOURCES above, and that every right-hand row RENDERS in the
 # real vendored panel. A source added to the picker and to nothing else is
 # caught by the first of those, which is the durable half of #1587.
-OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders"
+OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders apple_music:apple_music"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -31530,6 +31530,12 @@ _hydrate_fda_decision() {
             # rather than inventing a count.
             printf 'error\t'
             ;;
+        media_library_not_granted)
+            # Apple Music (CM051 walk #27): the Music framework refused the
+            # read. Media & Apple Music was not granted, or the Music app is
+            # unavailable. "Could not look" is not "looked and found none".
+            printf 'cannot_run\tmedia_library_not_granted'
+            ;;
         no_extract_summary|no_python_to_read_extract_summary|absent_from_extract_summary)
             # Not extractor verdicts: these are the caller saying it could not
             # obtain one. Passed through this same door so there is exactly one
@@ -31585,6 +31591,19 @@ _hydrate_fda_record_reminders() {
     esac
 }
 
+_hydrate_fda_record_apple_music() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            apple_music "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    apple_music "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run apple_music "$_a" ;;
+        error)      _hydrate_sentinel_record_error      apple_music 1 "" ;;
+        *)          : ;;
+    esac
+}
+
 _hydrate_record_fda_extract() {
     local summary="${1:-${OSTLER_DIR}/imports/fda/extraction_summary.json}"
     local py="${2:-${OSTLER_PYTHON:-python3}}"
@@ -31597,6 +31616,7 @@ _hydrate_record_fda_extract() {
     if [[ ! -x "$py" ]] && ! command -v "$py" >/dev/null 2>&1; then
         _hydrate_fda_record_photos    "no_python_to_read_extract_summary"
         _hydrate_fda_record_reminders "no_python_to_read_extract_summary"
+        _hydrate_fda_record_apple_music "no_python_to_read_extract_summary"
         return 0
     fi
     if [[ ! -f "$summary" ]]; then
@@ -31605,6 +31625,7 @@ _hydrate_record_fda_extract() {
         # that is CANNOT-RUN. It is emphatically not zero items.
         _hydrate_fda_record_photos    "no_extract_summary"
         _hydrate_fda_record_reminders "no_extract_summary"
+        _hydrate_fda_record_apple_music "no_extract_summary"
         return 0
     fi
 
@@ -31633,6 +31654,8 @@ import json, os, sys
 WANT = {
     "photos":    ("photos",    ("recognised_people", "photo_events")),
     "reminders": ("reminders", ("pending", "completed", "total_reminders")),
+    # Apple Music (CM051 walk #27): the count is the tracks the reader saw.
+    "apple_music": ("apple_music", ("total_playlists", "total_tracks")),
     }
 try:
     doc = json.loads(open(os.environ["OSTLER_FDA_SUMMARY"],
@@ -31649,6 +31672,11 @@ for key in sorted(WANT):
     if not isinstance(rec, dict):
         continue         # absent from the summary: caller records CANNOT-RUN
     status = str(rec.get("status", "")).strip() or "unrecognised"
+    # Apple Music reports ok with 0 tracks when it could not read: say why,
+    # never a measured zero. A previous_export read is a real count.
+    if key == "apple_music" and status == "ok" and not rec.get("total_tracks"):
+        native = str(rec.get("native_status", ""))
+        status = "media_library_not_granted" if native == "unavailable" else "not_found"
     payload = ""
     if status == "ok":
         parts = []
@@ -31669,6 +31697,7 @@ FDASUMEOF
         case "$_name" in
             photos)    _hydrate_fda_record_photos    "$_status" "$_payload" ;;
             reminders) _hydrate_fda_record_reminders "$_status" "$_payload" ;;
+            apple_music) _hydrate_fda_record_apple_music "$_status" "$_payload" ;;
             *)         : ;;
         esac
     done <<< "$_parsed"
@@ -31681,6 +31710,10 @@ FDASUMEOF
     case "$_seen" in
         *" reminders "*) : ;;
         *) _hydrate_fda_record_reminders "absent_from_extract_summary" ;;
+    esac
+    case "$_seen" in
+        *" apple_music "*) : ;;
+        *) _hydrate_fda_record_apple_music "absent_from_extract_summary" ;;
     esac
     return 0
 }

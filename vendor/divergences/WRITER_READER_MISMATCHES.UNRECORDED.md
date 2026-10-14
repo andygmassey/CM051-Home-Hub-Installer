@@ -1147,3 +1147,7 @@ Tree `ostler_fda`. NEW CM051-side behaviour in `apple_music.py` and the `apple_m
 ### What a future sync must preserve
 
 `read_native_library` before the XML read in `extract_library`, and the export write in the `apple_music` arm. Guarded by `tests/test_apple_music_library_reader.py` (21 tests, all red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## doctor: an Apple Music row in the source table (CM051 walk #27)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`: `_FDA_EXTRACT_KINDS` gains `"apple_music": "source"`, so the "Where your data came from" table shows an apple music row once install.sh records one. Writer side, in install.sh: `apple_music` in `OSTLER_SENTINEL_SOURCES`, `apple_music:apple_music` in `OSTLER_FDA_SOURCE_ROWS`, `_hydrate_fda_record_apple_music` fed by `_hydrate_record_fda_extract` (`total_tracks` is the count; a 0-track read is recorded as `cannot_run media_library_not_granted` when the Music framework refused, or `no_data` when there was nothing to read, never a measured zero). Same conditional-row shape as `photos` and `reminders`. Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (red on this branch before the row) and `tests/test_source_status_canonical_matches_recorders.sh`. `doctor.patch` is NOT regenerated.
