@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import asdict
@@ -1461,6 +1462,107 @@ user_name: {settings.user_display_name}
     write_json(out_path, result.parsed_json)
 
 
+# ── Gateway transcripts: extraction reads the OWNER's turns only ───
+#
+# CM051 v1.0.107 F&F blocker (Mini16 #27). A gateway conversation
+# (metadata source "gateway", provenance source_kind "zeroclaw_gateway",
+# conversation ids zg-*) is the owner chatting with their OWN assistant.
+# Fact extraction read the whole transcript, so the assistant's replies,
+# guesses and test-persona answers included, were extracted as facts with
+# subject=user and the assistant then repeated them back as knowledge.
+# Measured on the box: 66 gateway facts, 45 subject=user, 15 located only
+# in Assistant turns, 0 of those in User turns.
+#
+# The turn structure is the producer's, not a guess at prose: CM052
+# wire.render_transcript writes one "**<label>:** <content>" header per
+# message, where <label> is CM052_USER_EMAIL for role=user,
+# CM052_ASSISTANT_NAME (default "Assistant") for role=assistant, and
+# role.capitalize() for anything else. A message's continuation lines
+# carry no header. Only headers whose label is one of those speakers open
+# a new turn, so a bold "**Note:**" inside an assistant reply cannot end
+# the assistant turn and smuggle its text back in.
+
+_TURN_HEADER = re.compile(r"^\*\*(?P<label>[^*\n]+?):\*\*(?=\s|$)")
+_NON_OWNER_ROLE_LABELS = frozenset({"system", "tool"})
+
+
+def _is_gateway_conversation(metadata: dict) -> bool:
+    if str(metadata.get("source") or "").strip().lower() == "gateway":
+        return True
+    prov = metadata.get("provenance")
+    if isinstance(prov, dict):
+        if str(prov.get("source_kind") or "") == "zeroclaw_gateway":
+            return True
+        if str(prov.get("source_subtype") or "").strip().lower() == "gateway":
+            return True
+    return False
+
+
+def _gateway_assistant_labels() -> set[str]:
+    labels = {"assistant"}
+    configured = (os.environ.get("CM052_ASSISTANT_NAME") or "").strip()
+    if configured:
+        labels.add(configured.lower())
+    return labels
+
+
+def _owner_turns_only(transcript: str) -> str:
+    """Return ``transcript`` with every non-owner turn removed.
+
+    Kept: any preamble before the first turn header (the frontmatter)
+    and the owner's turns. Dropped: assistant turns and system/tool
+    turns. The owner label is CM052_USER_EMAIL when it is set and heads a
+    turn; otherwise the first header label that is not the assistant or a
+    reserved role (the gateway opens a session on an owner message). With
+    no owner label at all, no turns are kept: fail closed, extract nothing.
+    """
+    lines = transcript.splitlines(keepends=True)
+    assistant = _gateway_assistant_labels()
+    headers = [
+        m.group("label").strip()
+        for m in (_TURN_HEADER.match(line) for line in lines)
+        if m
+    ]
+    owner = (os.environ.get("CM052_USER_EMAIL") or "").strip()
+    if not owner or owner not in headers:
+        owner = next(
+            (
+                h for h in headers
+                if h.lower() not in assistant
+                and h.lower() not in _NON_OWNER_ROLE_LABELS
+            ),
+            "",
+        )
+    speakers = assistant | _NON_OWNER_ROLE_LABELS
+    if owner:
+        speakers = speakers | {owner.lower()}
+
+    kept: list[str] = []
+    current: str | None = None  # None = preamble, before any turn
+    dropped = 0
+    for line in lines:
+        m = _TURN_HEADER.match(line)
+        if m and m.group("label").strip().lower() in speakers:
+            current = m.group("label").strip()
+            if current != owner:
+                dropped += 1
+        if current is None or (owner and current == owner):
+            kept.append(line)
+    logger.info(
+        "gateway transcript: kept owner turns only, dropped %d non-owner turn(s)",
+        dropped,
+    )
+    return "".join(kept)
+
+
+def _extraction_transcript(transcript: str, metadata: dict) -> str:
+    """The transcript an EXTRACTION step reads. Unchanged for every
+    source except gateway, where only the owner's turns are kept."""
+    if _is_gateway_conversation(metadata):
+        return _owner_turns_only(transcript)
+    return transcript
+
+
 # ── Step 05: fact extraction ────────────────────────────────────────
 
 
@@ -1480,6 +1582,8 @@ def _step_facts(
     # lacks the specific dialogue turns and speaker attributions the
     # model needs to produce evidenced facts.
     raw_transcript = (state_dir / "00_raw_transcript.md").read_text()
+    # Gateway: the assistant's own turns are not evidence about the owner.
+    raw_transcript = _extraction_transcript(raw_transcript, metadata)
     template = prompts.load_prompt("05_fact_extraction")
 
     if dry_run:
@@ -2104,9 +2208,13 @@ def _step_bundle(
         )
         write_json(bundle_json_path, extraction.to_dict())
     else:
+        # Summary, topics and todos come from ONE call on one input, so
+        # for a gateway conversation all three read the owner's turns
+        # only (see _extraction_transcript). The rendered transcript
+        # artefact below still gets the full ``transcript``.
         extraction = _bundle_extractor.extract(
             client,
-            transcript=transcript,
+            transcript=_extraction_transcript(transcript, metadata),
             enrichment_md=enrichment_md,
             channel=str(metadata.get("channel") or "spoken"),
             model=settings.ollama_enrich_model,
