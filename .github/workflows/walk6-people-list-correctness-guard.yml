@@ -174,11 +174,11 @@ jobs:
       - name: Person view, timeline, forget, memory/assert, decisions, speakers and birthdays follow merges (walk #27)
         if: always()
         run: |
-          T=vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
-          n="$(python -m pytest "$T" --collect-only -q | grep -cE '::test_')" || n=0
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 11 ]; then
             echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest "$T" -v
+          python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py -v
