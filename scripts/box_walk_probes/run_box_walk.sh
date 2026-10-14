@@ -468,6 +468,13 @@ fi
 # this seed had put a conversation through the device-facing door. Gated on
 # READ_ONLY like every writer: it mints a device bearer and POSTs two
 # synthetic transcripts.
+# Walk #27 item 5a: record the walk start and whether a passkey existed
+# BEFORE anything pairs, so the cleanup after the probes revokes only the
+# walk's own synthetic companion (lib/companion_unpair.sh).
+. "$HERE/lib/companion_unpair.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+companion_walk_baseline || true
+fi
 . "$HERE/lib/conversation_capture_seed.sh"
 if [ "$READ_ONLY" -eq 0 ]; then
     # Flush left: see the grounding seed's comment above this same shape.
@@ -896,6 +903,9 @@ conversation_seed_forget || true
 usage_seed_forget || true
 owner_employer_seed_forget || true
 conversation_capture_seed_forget || true
+if [ "$READ_ONLY" -eq 0 ]; then
+companion_walk_unpair || true
+fi
 
 # But post_walk_qa.sh replays probes against this box AFTER this script exits
 # (the cut manifest's runtime proofs), and the compiled wiki still counts the

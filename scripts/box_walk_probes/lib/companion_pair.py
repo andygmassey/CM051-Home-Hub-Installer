@@ -44,6 +44,14 @@ CLI:
   companion_pair.py legacy --admin-base URL --gateway URL --admin-token-path P
       the OLD flow (6-digit code -> POST /pair), kept only so a red/green run
       can show the old flow is refused and the new one is not.
+  companion_pair.py unpair --since EPOCH [--remove-passkey 1] [--passkey-path P]
+      walk cleanup (item 5a, walk #27: Doctor read "Paired" after a walk).
+      Pairs once more for a bearer, revokes through DELETE /api/devices/{id}
+      every device paired at or after EPOCH (the walk's own, including this
+      one), removes the passkey file only when --remove-passkey 1 (the walk
+      found none), then reads /health. One JSON line:
+      {"ok", "revoked", "left_since", "passkey_removed", "companion_paired",
+       "paired", "detail"}.
   companion_pair.py --self-test
 """
 from __future__ import annotations
@@ -53,6 +61,8 @@ import hashlib
 import hmac
 import json
 import os
+import re
+from datetime import datetime, timezone
 import ssl
 import struct
 import sys
@@ -287,6 +297,89 @@ def legacy(admin_base, gateway, admin_token_path):
     return _result(bool(tok), "legacy-pair", rc, body[:160], tok)
 
 
+DEFAULT_PASSKEY_PATH = "~/.ostler/assistant-config/workspace/security/passkey.json"
+
+
+def _epoch(stamp):
+    """Epoch seconds from the gateway's RFC 3339 paired_at, or None."""
+    try:
+        text = str(stamp).strip().replace("Z", "+00:00")
+        text = re.sub(r"(\.\d{6})\d+", r"\1", text)  # chrono may emit nanoseconds
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except Exception:
+        return None
+
+
+def walk_devices(devices, since_epoch):
+    """The ids of devices the walk paired: paired_at at or after the walk start.
+    A device whose paired_at cannot be read is NOT the walk's (never revoke
+    what we cannot date)."""
+    out = []
+    for d in devices or []:
+        t = _epoch((d or {}).get("paired_at"))
+        if t is not None and t >= float(since_epoch) and d.get("id"):
+            out.append(d["id"])
+    return out
+
+
+def unpair(admin_base, gateway, admin_token_path, since_epoch, remove_passkey=False,
+           passkey_path=DEFAULT_PASSKEY_PATH, bearer=None):
+    res = {"ok": False, "revoked": 0, "left_since": None, "passkey_removed": False,
+           "companion_paired": None, "paired": None, "detail": ""}
+    if float(since_epoch or 0) <= 0:
+        res["detail"] = "no walk start recorded; refusing to revoke (it would revoke every device)"
+        return res
+    if not bearer:
+        p = pair(admin_base, gateway, admin_token_path)
+        bearer = p.get("device_token")
+        if not bearer:
+            res["detail"] = "could not pair for a cleanup bearer: {} {}".format(p.get("stage"), p.get("detail"))
+            return res
+    auth = {"Authorization": "Bearer " + bearer}
+    base = admin_base.rstrip("/")
+    try:
+        rc, body = _http("GET", base + "/api/devices", headers=auth)
+        devices = json.loads(body).get("devices") if rc == 200 else None
+    except Exception as exc:
+        rc, devices = None, None
+        res["detail"] = "GET /api/devices failed ({})".format(str(exc)[:80])
+    if devices is None:
+        res["detail"] = res["detail"] or "GET /api/devices answered http {}".format(rc)
+        return res
+    ids = walk_devices(devices, since_epoch)
+    for dev_id in ids:
+        try:
+            drc, _ = _http("DELETE", base + "/api/devices/" + dev_id, headers=auth)
+        except Exception:
+            drc = None
+        if drc == 200:
+            res["revoked"] += 1
+    if remove_passkey:
+        path = os.path.expanduser(passkey_path)
+        try:
+            os.remove(path)
+            res["passkey_removed"] = True
+        except FileNotFoundError:
+            res["passkey_removed"] = True
+        except OSError as exc:
+            res["detail"] = "passkey not removed ({})".format(type(exc).__name__)
+    try:
+        hrc, hbody = _http("GET", base + "/health")
+        h = json.loads(hbody) if hrc == 200 else {}
+        res["companion_paired"] = h.get("companion_paired")
+        res["paired"] = h.get("paired")
+    except Exception:
+        pass
+    res["left_since"] = len(ids) - res["revoked"]
+    res["ok"] = res["left_since"] == 0 and (not remove_passkey or res["passkey_removed"])
+    if not res["detail"]:
+        res["detail"] = "revoked {} of {} walk device(s)".format(res["revoked"], len(ids))
+    return res
+
+
 def find_python(candidates=None):
     """First interpreter that can import `cryptography`, or None."""
     import subprocess
@@ -354,6 +447,15 @@ def self_test():
 def main(argv):
     if argv[:1] == ["--self-test"]:
         return self_test()
+    if argv[:1] == ["unpair"]:
+        a = dict(zip(argv[1::2], argv[2::2]))
+        print(json.dumps(unpair(a.get("--admin-base", "http://127.0.0.1:8000"),
+                                a.get("--gateway", "https://127.0.0.1:8443"),
+                                a.get("--admin-token-path", "~/.ostler/secrets/zeroclaw_admin_token"),
+                                float(a.get("--since", "0")),
+                                remove_passkey=a.get("--remove-passkey") == "1",
+                                passkey_path=a.get("--passkey-path", DEFAULT_PASSKEY_PATH))))
+        return 0
     if argv[:1] in (["pair"], ["legacy"]):
         a = dict(zip(argv[1::2], argv[2::2]))
         args = (a.get("--admin-base", "http://127.0.0.1:8000"),
