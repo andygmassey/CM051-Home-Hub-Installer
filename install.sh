@@ -23041,6 +23041,28 @@ fi
 
 chmod +x "$IMPORT_SCRIPT"
 
+# ── v1.0.108 catch-up: every Takeout part, every mailbox, all of it ─────────
+# The install reads ONE mailbox (the first takeout-*.zip, its first .mbox
+# member) and stops at five years, 250,000 messages and 20,000 threads. This
+# runner (ostler_fda.catchup_mbox) finds every part and every mailbox at each
+# tick, finishes every mailbox the importer read, and sends only what was not
+# sent. Same interpreter and module path as the universal-import leg above.
+# slot=1: threads go through pwg-convo to the model. The confirmed Takeout's
+# zip is passed only when the customer said yes at 9.4, so its sibling parts
+# are found; a declined Takeout is never read from Desktop or Documents.
+if declare -F _ostler_catchup_register >/dev/null 2>&1; then
+    _ct_env=("OSTLER_USER_EMAIL=${USER_EMAIL:-}")
+    if [[ -n "${OSTLER_TAKEOUT_PATH:-}" ]]; then
+        _ct_env+=("OSTLER_TAKEOUT_PATH=${OSTLER_TAKEOUT_PATH}" "OSTLER_TAKEOUT_ZIP_PATH=${TAKEOUT_ZIP_PATH:-}")
+    fi
+    _ostler_catchup_register 70-takeout \
+        "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/services/email-ingest/.venv/bin/python" \
+        "ostler_fda.catchup_mbox:adapters" 1 \
+        "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/fda-module" "${_ct_env[@]}" \
+        || warn "catch-up runner for Takeout mailboxes not written; older Gmail history will not be read in the background."  # i18n-exempt
+    unset _ct_env
+fi
+
 # ── 3.12b Install-time import (shared fan-out) ──────────────────
 #
 # Relocated from phase 3.11: the install-time import now runs through
