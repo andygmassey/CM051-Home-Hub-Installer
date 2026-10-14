@@ -812,6 +812,7 @@ test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-f
 test_whatsapp_keepalive_repairs_and_reports.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_wiki_baseline_background.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_wiki_compile_gets_owner_tz.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_compile_has_a_page_count_oracle.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
 test_wiki_compiler_gets_the_qdrant_key.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_wiki_compose_paths.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
