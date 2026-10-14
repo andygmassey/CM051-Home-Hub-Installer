@@ -1,4 +1,4 @@
-"""Forget Person says "done" only when the person is actually gone.
+"""The forget endpoint says "done" only when the person is actually gone.
 
 Status-honesty sweep 2026-10-15, rows V17 and V22 (walk #28 grading,
 privacy). Three ways the erasure promise was broken in the reporting:
