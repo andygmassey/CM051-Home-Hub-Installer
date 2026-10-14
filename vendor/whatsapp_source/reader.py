@@ -167,9 +167,11 @@ def _read_bodies_for_chat(
         text = (row["ZTEXT"] or "").strip()
         if not text:
             continue
-        if is_assistant_send(text):
-            continue
         is_from_me = bool(row["ZISFROMME"])
+        # Prefix rule on the owner's own sends only; a contact's message
+        # opening with the same emoji is kept.
+        if is_assistant_send(text, from_owner=is_from_me):
+            continue
         author = row["ZFROMJID"]
         if not _is_real_participant_jid(author):
             author = None
