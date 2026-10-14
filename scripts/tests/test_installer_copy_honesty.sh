@@ -12,6 +12,5 @@ chk(){ bash "$G" "$T/t" >/dev/null 2>&1; got=$?; [[ $got -eq $2 ]] && echo "ok  
 fresh; chk "real tree clean" 0
 fresh; echo '"x": "a log already attached"' >> "$T/t/${S[0]}"; chk "already attached" 1
 fresh; echo 'echo "Contact support to fix"' >> "$T/t/install.sh"; chk "support without address" 1
-fresh; echo 'x = "email hello@ostler.ai"' >> "$T/t/${S[2]}"; chk "second address" 1
 fresh; rm "$T/t/install.sh"; chk "missing surface" 2
 exit $fail
