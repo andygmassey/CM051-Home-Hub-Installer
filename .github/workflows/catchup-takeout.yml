@@ -39,8 +39,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install pytest and the vendored ostler_fda dependencies
-        run: python -m pip install --quiet pytest -e vendor/ostler_fda
+      - name: Install pytest (the suite imports vendor/ostler_fda from the tree)
+        run: python -m pip install --quiet pytest
       - name: every Takeout part and every mailbox, read once, kill-safe
         run: |
           n="$(python -m pytest tests/test_catchup_takeout.py --collect-only -q | grep -cE '::test_')" || n=0

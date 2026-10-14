@@ -167,7 +167,10 @@ def _load_modules(monkeypatch, home: Path):
             sys.path.insert(0, p)
     for m in [m for m in sys.modules if m.startswith("ostler_fda") or m == "ostler_catchup"]:
         del sys.modules[m]
-    import ostler_catchup as oc
+    try:
+        import ostler_catchup as oc
+    except ImportError:
+        oc = None     # origin/main: no catch-up core; the install path still runs
     import ostler_fda.universal_import as ui
     return oc, ui
 
@@ -256,8 +259,9 @@ def test_install_plus_catchup_reads_every_thread_once(takeout, tmp_path, monkeyp
 
     # ── catch-up ──
     try:
+        assert oc is not None
         from ostler_fda import catchup_mbox
-    except ImportError:
+    except (ImportError, AssertionError):
         pytest.fail(f"no catch-up for mailboxes: the install's {len(install_keys & all_keys)} of "
                     f"{len(all_keys)} threads is all there will ever be")
     adapters = catchup_mbox.adapters()
