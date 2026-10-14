@@ -594,6 +594,7 @@ test_same_name_is_a_suggestion_not_a_merge.py	WIRED	.github/workflows/walk-defec
 test_scale_fixture_forget.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_scale_gate_probes.sh	WIRED	.github/workflows/scale-gate-probes.yml
 test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-failure-is-loud.yml
+test_scheduled_brief_probe.sh	WIRED	.github/workflows/scheduled-brief-delivery-probe.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
 test_sensitive_artefacts_guard_fires.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
