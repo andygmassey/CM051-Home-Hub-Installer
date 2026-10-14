@@ -32,6 +32,64 @@ from .enricher import EnrichmentService, EnrichmentStats
 # OSTLER_USER_ID env var or the explicit --user-id/-u option.
 DEFAULT_USER_ID = os.environ.get("OSTLER_USER_ID", "default_user")
 
+
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES (CM051 walk #28, privacy).
+#
+# Setup asks consent_enrichment (default no) and writes the answer to
+# ~/.ostler/config/.env as OSTLER_CONSENT_ENRICHMENT_DECISION. The callers in
+# install.sh (ostler-import, the enrich tick) check it first; this is the
+# backstop, so that a caller which forgets the check still sends nothing. It
+# reads the FILE, never the inherited environment, because a variable left in
+# a caller's shell is not the customer's recorded answer. Missing file,
+# unreadable file, missing key, empty value, or anything but "accepted" is NO.
+CONSENT_KEY = "OSTLER_CONSENT_ENRICHMENT_DECISION"
+
+
+def consent_env_file() -> str:
+    base = os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler")
+    return os.path.join(base, "config", ".env")
+
+
+def public_lookups_decision() -> str:
+    """Return "accepted", "declined" or "unknown" (could not read an answer)."""
+    try:
+        with open(consent_env_file(), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return "unknown"
+    value = None
+    for line in lines:
+        if line.startswith(CONSENT_KEY + "="):
+            value = line.split("=", 1)[1].strip().strip('"').strip("'")
+    if value in ("accepted", "declined"):
+        return value
+    return "unknown"
+
+
+def require_public_lookup_consent() -> None:
+    """Exit before any network client is built unless the answer is yes.
+
+    Declined exits 0: the customer's choice is honoured, nothing failed.
+    Unknown exits 3: nothing was sent, but the answer could not be read, and
+    that must not look like a clean run.
+    """
+    decision = public_lookups_decision()
+    if decision == "accepted":
+        return
+    if decision == "declined":
+        click.echo(
+            "Public look-ups are off (you said no during setup). Nothing was "
+            "sent to Wikidata, MusicBrainz, Open Library or any bookmarked link.",
+            err=True,
+        )
+        raise SystemExit(0)
+    click.echo(
+        f"Public look-ups not run: no recorded answer could be read from "
+        f"{consent_env_file()}, so it is treated as no. Nothing was sent.",
+        err=True,
+    )
+    raise SystemExit(3)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -491,6 +549,10 @@ def enrich(
     if not categories_to_process or categories_to_process == [None]:
         click.echo("Nothing to enrich: no category has a usable client.", err=True)
         return
+
+    # A dry run reads the local stores only and calls no external API.
+    if not dry_run:
+        require_public_lookup_consent()
 
     if dry_run:
         asyncio.run(_dry_run(
@@ -1048,6 +1110,8 @@ def parallel(
     """
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    require_public_lookup_consent()
 
     asyncio.run(_run_parallel(
         user_id=user_id,

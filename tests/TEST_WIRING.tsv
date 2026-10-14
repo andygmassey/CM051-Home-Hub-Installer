@@ -293,6 +293,7 @@ test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/wor
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
+test_enrichment_honours_a_decline.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
