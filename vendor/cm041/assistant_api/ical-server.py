@@ -7183,6 +7183,10 @@ def people_list(sort=None, ceiling=10000):
     return {"people": people, "total": len(people)}
 
 
+# Runaway guard for the stale-people scan (pages of 1000). Not a sample.
+_STALE_SCAN_MAX_PAGES = 50
+
+
 def people_stale(months=3, limit=5):
     """Find contacts not spoken to in N months, reconciled against the graph.
 
@@ -7214,10 +7218,6 @@ def people_stale(months=3, limit=5):
     import time
     cutoff_ts = int(time.time()) - (months * 30 * 86400)
     cutoff_date = datetime.utcfromtimestamp(cutoff_ts).strftime("%Y-%m-%d")
-    # Over-fetch: the graph recheck below can drop candidates Qdrant thought
-    # were stale, so asking Qdrant for exactly `limit` would under-fill the
-    # list the moment any single drop happens.
-    fetch_limit = max(limit * 5, limit + 20)
     try:
         body = {
             "filter": {
@@ -7237,18 +7237,32 @@ def people_stale(months=3, limit=5):
                      "match": {"any": ["person", "unclassified"]}},
                 ]
             },
-            "limit": fetch_limit,
+            "limit": 1000,
             "with_payload": True,
             "with_vector": False,
         }
-        data = json.dumps(body).encode()
-        req = urllib.request.Request(
-            QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
-            data=data,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read())
+        # EVERY stale point, then screen and sort (walk #27, shape S5). This
+        # used to take the first max(limit*5, limit+20) matches in point-id order
+        # and sort those, so the list was 25 arbitrary stale people, not the
+        # most stale ones. The Qdrant filter above is the narrowing; paging
+        # reads all of what it admits. _STALE_SCAN_MAX_PAGES is a runaway
+        # guard (pages of 1000), not a sample.
+        all_points, next_offset = [], None
+        for _page in range(_STALE_SCAN_MAX_PAGES):
+            if next_offset is not None:
+                body["offset"] = next_offset
+            req = urllib.request.Request(
+                QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                page_res = json.loads(resp.read()).get("result", {}) or {}
+            all_points.extend(page_res.get("points", []) or [])
+            next_offset = page_res.get("next_page_offset")
+            if next_offset is None:
+                break
+        result = {"result": {"points": all_points}}
     except Exception as exc:
         return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
 
@@ -7345,16 +7359,20 @@ def people_stale(months=3, limit=5):
     if unresolved:
         try:
             names = sorted({c["name"] for c in unresolved})
-            name_values = " ".join(
-                f'"{_sparql_escape_literal(n)}"' for n in names
-            )
-            name_rows = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?name ?person WHERE {{\n'
-                '  VALUES ?name {{ {values} }}\n'
-                '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-                '}}'.format(ns=PWG_NS, values=name_values)
-            )
+            name_rows = []
+            # Batched: every stale point is read now, not 25, so one VALUES
+            # list could hold thousands of names.
+            for i in range(0, len(names), 500):
+                name_values = " ".join(
+                    f'"{_sparql_escape_literal(n)}"' for n in names[i:i + 500]
+                )
+                name_rows.extend(_sparql_select(
+                    'PREFIX pwg: <{ns}>\n'
+                    'SELECT ?name ?person WHERE {{\n'
+                    '  VALUES ?name {{ {values} }}\n'
+                    '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+                    '}}'.format(ns=PWG_NS, values=name_values)
+                ))
         except Exception as exc:
             # FAIL CLOSED (CM051 #2521): can't identify these candidates in
             # the graph at all, so none of this batch can be trusted.
@@ -7381,17 +7399,19 @@ def people_stale(months=3, limit=5):
     graph_max_by_uri = {}
     if uris:
         try:
-            values = " ".join(f"<{u}>" for u in uris)
-            rows = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?person ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
-                '  VALUES ?person {{ {values} }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactCalendar ?lcCalendar }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactWhatsApp ?lcWhatsApp }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactEmail ?lcEmail }}\n'
-                '  OPTIONAL {{ ?person pwg:lastContactIMessage ?lcIMessage }}\n'
-                '}}'.format(ns=PWG_NS, values=values)
-            )
+            rows = []
+            for i in range(0, len(uris), 500):  # batched, as above
+                values = " ".join(f"<{u}>" for u in uris[i:i + 500])
+                rows.extend(_sparql_select(
+                    'PREFIX pwg: <{ns}>\n'
+                    'SELECT ?person ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
+                    '  VALUES ?person {{ {values} }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactCalendar ?lcCalendar }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactWhatsApp ?lcWhatsApp }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactEmail ?lcEmail }}\n'
+                    '  OPTIONAL {{ ?person pwg:lastContactIMessage ?lcIMessage }}\n'
+                    '}}'.format(ns=PWG_NS, values=values)
+                ))
         except Exception as exc:
             # FAIL CLOSED (CM051 #2521). Qdrant's last_contact_ts has
             # already been shown wrong in the direction that announces
@@ -7440,18 +7460,29 @@ def people_recent(days=7, limit=5):
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     try:
+        # GROUP BY PERSON BEFORE ANY CAP. This used to take
+        # `ORDER BY DESC(?date) LIMIT limit*3` over meeting x attendee ROWS and
+        # only then drop the owner (an attendee of nearly every meeting),
+        # service senders and repeat names, so one busy week left fewer than
+        # `limit` people, or one. Now: one row per attendee with their latest
+        # meeting in the window, newest first, no row cap; the Python screens
+        # below run over people, and the cap applies to the people that pass.
+        # A node merged into another is not a person of its own (walk #27).
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?p ?name ?summary ?date ?location WHERE {{\n'
-            '  ?m a pwg:Meeting ; pwg:meetingAttendee ?p ;\n'
-            '     pwg:meetingDate ?date .\n'
+            '  {{ SELECT ?p (MAX(?d) AS ?date) WHERE {{\n'
+            '      ?m0 a pwg:Meeting ; pwg:meetingAttendee ?p ;\n'
+            '          pwg:meetingDate ?d .\n'
+            '      FILTER(?d >= "{cutoff}")\n'
+            '      FILTER NOT EXISTS {{ ?p pwg:mergedInto ?merged }}\n'
+            '      FILTER NOT EXISTS {{ ?p a pwg:RetiredPerson }}\n'
+            '  }} GROUP BY ?p }}\n'
             '  ?p pwg:displayName ?name .\n'
+            '  ?m a pwg:Meeting ; pwg:meetingAttendee ?p ; pwg:meetingDate ?date .\n'
             '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  FILTER(?date >= "{cutoff}")\n'
-            '}} ORDER BY DESC(?date) LIMIT {limit}'.format(
-                ns=PWG_NS, cutoff=cutoff, limit=limit * 3
-            )
+            '}} ORDER BY DESC(?date) ?p ?name'.format(ns=PWG_NS, cutoff=cutoff)
         )
     except Exception as exc:
         return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
@@ -7467,11 +7498,14 @@ def people_recent(days=7, limit=5):
     carded_uris = _load_carded_uris(r.get("p") for r in rows)
 
     seen = set()
+    seen_uris = set()
     contacts = []
     for r in rows:
         name = r.get("name", "")
         uri = r.get("p") or ""
-        if not name or name in seen:
+        # One entry per PERSON: several names or several same-day meetings
+        # give one person several rows; the first that passes the screens wins.
+        if not name or name in seen or (uri and uri in seen_uris):
             continue
         if _is_nameless_name(name):
             continue
@@ -7488,6 +7522,8 @@ def people_recent(days=7, limit=5):
         ):
             continue
         seen.add(name)
+        if uri:
+            seen_uris.add(uri)
         contacts.append({
             "name": name,
             "slug": _wiki_slug(name),
@@ -7902,7 +7938,12 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
     rows, points, next_offset = [], [], None
     page = 256
     try:
-        while len(points) < max(1, limit) * 4:
+        # Read the WHOLE collection, then date-filter and sort (walk #27,
+        # shape S5). This used to stop once it held limit*4 points in
+        # point-id order, so a small `limit` dated the Timeline from an
+        # arbitrary slice of conversations. The page count is a runaway
+        # guard only (256 x 400 = 102,400 conversations).
+        for _page in range(400):
             body = {
                 "limit": page,
                 "with_payload": True,
@@ -9053,6 +9094,15 @@ def _browsing_item(payload):
     }
 
 
+# Runaway guard for the browsing keyword scan (pages of 1000). Not a sample:
+# reaching it is reported in the response. 200 pages = 200,000 visits.
+_BROWSING_SCAN_MAX_PAGES = 200
+_BROWSING_SCAN_FIELDS = (
+    "url", "title", "domain", "timestamp", "visit_date", "summary", "tags",
+    "entities", "summary_status", "source", "device", "knowledge_id",
+)
+
+
 def api_browsing_search(q="", days=0, limit=10):
     """GET /api/v1/browsing/search?q=&days=&limit= -- what the assistant
     reads to answer "what did I read about X". Returns the visit with its
@@ -9067,10 +9117,26 @@ def api_browsing_search(q="", days=0, limit=10):
     if days and int(days) > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
 
+    # SCAN THE WHOLE COLLECTION, THEN FILTER. This used to stop after 5 pages
+    # of 1000, in point-id order, and filter afterwards: on the walk #27 box
+    # (safari_history 8714 points) about 43% of browsing history could never
+    # be found by keyword, whatever was asked. Point ids are hashes, so the
+    # missing 43% was an arbitrary slice, not the oldest.
+    #
+    # Why not a Qdrant payload filter: the keyword test is a case-insensitive
+    # substring over title, domain, summary, tags and entities, and Qdrant's
+    # `match.text` without a full-text index is an exact, case-sensitive
+    # substring. Creating that index is a write to the customer's collection.
+    # So the scan stays, but it reads every page and only the fields the
+    # filter needs. _BROWSING_SCAN_MAX_PAGES is a runaway guard, not a
+    # sample size: if it is ever reached the response says so
+    # (truncated + scanned) instead of silently answering from part of it.
     points = []
     offset = None
-    for _ in range(5):  # at most 5000 entries scanned
-        body = {"limit": 1000, "with_payload": True, "with_vector": False}
+    truncated = False
+    for page in range(_BROWSING_SCAN_MAX_PAGES):
+        body = {"limit": 1000, "with_payload": list(_BROWSING_SCAN_FIELDS),
+                "with_vector": False}
         if offset is not None:
             body["offset"] = offset
         try:
@@ -9083,6 +9149,8 @@ def api_browsing_search(q="", days=0, limit=10):
         offset = r.get("next_page_offset")
         if offset is None:
             break
+    else:
+        truncated = offset is not None
 
     scored = {}
     for pt in points:
@@ -9125,7 +9193,11 @@ def api_browsing_search(q="", days=0, limit=10):
         results.append(_browsing_item(pl))
         if len(results) >= limit:
             break
-    return {"results": results, "count": len(results)}, 200
+    out = {"results": results, "count": len(results)}
+    if truncated:
+        out["truncated"] = True
+        out["scanned"] = len(points)
+    return out, 200
 
 
 # ── Hub health helpers ───────────────────────────────────────────────

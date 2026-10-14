@@ -1,0 +1,49 @@
+name: filter-before-limit
+
+# Walk #27, shape S5: ical-server.py read a capped page and filtered after it.
+# Browsing search scanned 5000 of 8714 visits; people_recent capped meeting x
+# attendee rows before dropping the owner; people_stale sorted 25 arbitrary
+# stale people; the Timeline's conversation leg stopped at limit*4 points.
+# The test runs the real queries against a paging fake Qdrant and a real
+# pyoxigraph engine, with fixtures larger than every old cap.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_filter_before_limit.py'
+      - 'tests/_fake_oxigraph.py'
+      - '.github/workflows/filter-before-limit.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_filter_before_limit.py'
+      - 'tests/_fake_oxigraph.py'
+      - '.github/workflows/filter-before-limit.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  filter-before-limit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest and pyoxigraph
+        run: python -m pip install --quiet pytest pyoxigraph
+      - name: Every scan reads the whole set before it filters, and groups before it caps
+        run: |
+          T=vendor/cm041/assistant_api/tests/test_filter_before_limit.py
+          n="$(python -m pytest "$T" --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest "$T" -v
