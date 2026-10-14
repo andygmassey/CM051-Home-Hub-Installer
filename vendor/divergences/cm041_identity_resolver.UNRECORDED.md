@@ -131,3 +131,19 @@ the wiki compiler emitting pages for retired-only people (CM044).
 
 Guarded by `tests/test_merge_survivor_takes_highest_name_tier.py` and the walk
 assertion in `scripts/box_walk_probes/probes/no_person_holds_two_contact_cards.sh`.
+
+## The owner anchor is never an auto-merge candidate (CM051, 2026-10-14)
+
+Tree `cm041/identity_resolver`, file `batch_resolver.py`, function
+`_fetch_all_persons`: one added `FILTER NOT EXISTS { ?person pwg:isOwner true }`.
+
+- Why: install.sh now mints the owner anchor (`pwg:user_<id>`, `pwg:isOwner
+  true`, the owner's name and nothing else) through
+  `contact_syncer/owner_node.py`, which had no call site (walk #27: 0 isOwner
+  triples). exact_name scores 0.9, over the 0.8 auto-merge threshold, so the
+  next batch pass would pair the anchor with the owner's own contact card (or
+  a namesake) and `pick_canonical` could keep the card and tombstone the
+  anchor. Relating fragments to the owner stays with
+  `lib/ostler-confirm-identity.py`, behind the owner's confirmation.
+- No patch: same refusal as the entries above. Upstream mirror owed in CM041.
+- Test: `tests/test_owner_node_is_minted_and_read.py`.
