@@ -1212,3 +1212,15 @@ Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, a
 ### What a future sync must preserve
 
 The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).
+## Browser history catch-up walks Safari and Chrome back past the install window (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/safari_history.py`, `vendor/ostler_fda/chrome_history.py`: `extract_history` gains keyword-only `since` / `until` absolute bounds (with neither, the SQL and its parameters are exactly the install-time query), and each module gains `oldest_visit()`.
+- `vendor/ostler_fda/catchup_browser.py` (NEW FILE): `SafariAdapter` / `ChromeAdapter` for `lib/ostler_catchup.py` (doctor_row `browsing`), 30-day windows from now minus OSTLER_SAFARI_BACKFILL_DAYS / OSTLER_BROWSER_BACKFILL_DAYS back to the oldest visit, through `to_timeline_entries` and `pwg_ingest.ingest_browser_history`; a window is done only when `sent == total`. `adapters()` honours OSTLER_FDA_SOURCES and leaves Chrome out when it is not installed.
+
+WHY: install.sh reads 1825 days of browsing and nothing ever read further back.
+
+### What a future sync must preserve
+
+The two keyword bounds, `oldest_visit`, and `catchup_browser.py`. Guarded by `tests/test_catchup_browser.py` (red on origin/main, wired in `.github/workflows/catchup-browser.yml`).
