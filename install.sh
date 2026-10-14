@@ -3384,11 +3384,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8427) captures the path BY
+    # _ostler_write_store_curl_config (defined :8428) captures the path BY
     # VALUE and never re-reads it:
-    #     :8428   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8473   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8482 and :15492, both of which run
+    #     :8429   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8474   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8483 and :15493, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
     # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
@@ -3406,13 +3406,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16272, where the note reads
+    # WhatsApp Web session path did it again at :16273, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16289 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16290 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3421,13 +3421,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5936 against a definition at :8427. Top-level
+    # writer's own definition: :5936 against a definition at :8428. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8482, :15492) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8483, :15493) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18420 / :18598 / :18755 / :19123 path. There the
+    # :18421 / :18599 / :18756 / :19124 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -6002,7 +6002,7 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      sign-in, never mid-install.)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=15
+PERMISSIONS_TOTAL=16
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -6030,6 +6030,7 @@ echo -e "        ${BOLD}(assistant)${NC}                     reading the app dat
 echo -e "    13. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
 echo -e "    14. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo -e "    15. ${BOLD}Reminders (assistant)${NC}           The assistant asks for itself, at the very end of the install"
+echo -e "    16. ${BOLD}Apple Music${NC}                     Play counts, loved songs + playlists (asked now, upfront)"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
