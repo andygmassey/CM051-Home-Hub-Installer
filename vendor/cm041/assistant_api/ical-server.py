@@ -5210,7 +5210,7 @@ def person_context(name):
         '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
         '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
         '  OPTIONAL {{ ?person pwg:privacyLevel ?priv }}\n'
-        '}} LIMIT 5'.format(ns=PWG_NS, q=esc)
+        '}} LIMIT 50'.format(ns=PWG_NS, q=esc)
     )
     if not persons:
         return {"query": name, "found": False,
@@ -5238,7 +5238,11 @@ def person_context(name):
                 and matched and not _looks_like_bare_email_or_phone(matched)):
             keep["display_name_on_record"] = keep.get("name", "")
             keep["name"] = matched
-    persons = list(by_uri.values())
+    # The cap of 5 is on PEOPLE, after the dedupe. The SPARQL LIMIT above is
+    # on ROWS, and the UNION adds one row per merged-away name (plus one per
+    # extra value of each OPTIONAL), so 5 rows could be one person's aliases
+    # and crowd the asked-for person out.
+    persons = list(by_uri.values())[:5]
 
     results = []
     # F2 (Archie re-review): captured once so a MULTI-match on the operator's

@@ -1095,6 +1095,10 @@ function `person_context`, and nothing else in the tree.
 - NOT done here: renaming the survivor in the graph (v1.0.108).
 
 Pinned by `tests/test_person_context_finds_merged_names.py` (real pyoxigraph
-engine, cast names): 6 pass on the graft, 3 fail on the pre-graft
+engine, cast names): 7 pass on the graft, 4 fail on the pre-graft
 ical-server.py, and the two-hop test fails on a one-hop mutant. CM041 upstream
 needs the same change, or the next re-sync of this tree reverts it.
+Review round 1: the SPARQL LIMIT is 50 ROWS and the cap of 5 applies to
+PEOPLE after the dedupe, so one survivor's merged-away names cannot crowd the
+asked-for person out (`test_retired_names_do_not_crowd_out_the_target`: red
+on the 5-row cap, green after).
