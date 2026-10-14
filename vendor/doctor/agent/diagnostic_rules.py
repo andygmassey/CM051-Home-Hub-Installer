@@ -2407,7 +2407,7 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
 
 
 def _tm_isexcluded(path: str) -> "tuple[str, str]":
-    """Ask Time Machine about one path, LIVE.
+    """Query tmutil about one path, LIVE.
 
     Returns ("excluded" | "included" | "cannot", detail). Measured output on
     macOS 26: "[Excluded]  <p>", "[Included]  <p>", "[UNKNOWN]   <p>", all
