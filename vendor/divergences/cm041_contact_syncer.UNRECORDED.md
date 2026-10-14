@@ -258,7 +258,7 @@ competitor nodes put 30 of 30 friends on a second node (`fb_nodes=60 friends=30`
 GREEN with these changes: `runs=[30]`, `fb_nodes=30 friends=30`. A sync that drops
 either change turns that test red.
 
-## 2026-10-14: `instagram_social.py` `_username_to_display_name`
+## 2026-10-14: `cm041/contact_syncer` `instagram_social.py` `_username_to_display_name`
 
 Location only: a bare handle (no separator) now returns `"@" + handle`
 instead of the handle itself, so a handle is never stored as a person's name
