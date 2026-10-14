@@ -53,26 +53,35 @@ OWNER_MID_ROBOT = f"Remind me to return the {ROBOT} kit to the library"
 ASSISTANT_TEXTS = [BRIEF, WRAP_NO_PREFIX]
 OWNER_TEXTS = [OWNER_BRIEF_LOOKALIKE, OWNER_MID_ROBOT]
 
+# A CONTACT whose message happens to open with the same emoji. A person, so
+# kept. Only the owner's own account carries the assistant's prefixed sends.
+FRIEND = "+15550100002"
+CONTACT_ROBOT = f"{ROBOT} lol that film was terrible, see you Friday"
+
 
 # ---------------------------------------------------------------------------
 # One predicate, four copies: hold them to one table.
 # ---------------------------------------------------------------------------
 
 CASES = [
-    (BRIEF, True),
-    (WRAP_NO_PREFIX, True),
-    ("   " + BRIEF, True),
-    (OWNER_BRIEF_LOOKALIKE, False),
-    (OWNER_MID_ROBOT, False),
-    ("", False),
-    (None, False),
+    # text, sent from the owner's account, expected
+    (BRIEF, True, True),
+    ("   " + BRIEF, True, True),
+    (WRAP_NO_PREFIX, True, True),
+    (WRAP_NO_PREFIX, False, True),     # the marker counts in any direction
+    (CONTACT_ROBOT, False, False),     # a contact's emoji-led message is kept
+    (BRIEF, False, False),             # the prefix alone, inbound: kept
+    (OWNER_BRIEF_LOOKALIKE, True, False),
+    (OWNER_MID_ROBOT, True, False),
+    ("", True, False),
+    (None, True, False),
 ]
 
 
 @pytest.mark.parametrize("module", [im_reader, fda_imessage], ids=["imessage_source", "ostler_fda"])
-@pytest.mark.parametrize("text,expected", CASES)
-def test_every_copy_of_the_rule_agrees(module, text, expected):
-    assert module.is_assistant_send(text) is expected
+@pytest.mark.parametrize("text,from_owner,expected", CASES)
+def test_every_copy_of_the_rule_agrees(module, text, from_owner, expected):
+    assert module.is_assistant_send(text, from_owner=from_owner) is expected
 
 
 def test_the_copies_share_their_constants():
@@ -115,6 +124,13 @@ def _build_chat_db(path: Path) -> None:
         ("P:" + OWNER, OWNER),
     )
     conn.execute("INSERT INTO chat_handle_join VALUES (1, 1)")
+    # A second chat, with a contact, received on the owner's account.
+    conn.execute("INSERT INTO handle VALUES (2, ?)", (FRIEND,))
+    conn.execute(
+        "INSERT INTO chat VALUES (2, 'iMessage;-;friend', NULL, 45, ?, ?)",
+        ("P:" + OWNER, FRIEND),
+    )
+    conn.execute("INSERT INTO chat_handle_join VALUES (2, 2)")
     base = datetime.now(timezone.utc) - timedelta(hours=2)
     rows = [
         # The assistant's sends: the outgoing copy (is_from_me=1) and the
@@ -133,6 +149,15 @@ def _build_chat_db(path: Path) -> None:
             (i, text, from_me, _mac_ns(base + timedelta(minutes=i)), handle),
         )
         conn.execute("INSERT INTO chat_message_join VALUES (1, ?)", (i,))
+    # The contact's emoji-led message, plus a reply, in the friend chat.
+    for j, (text, from_me, handle) in enumerate(
+        [(CONTACT_ROBOT, 0, 2), ("Friday works", 1, None)], start=100
+    ):
+        conn.execute(
+            "INSERT INTO message VALUES (?, ?, ?, ?, 0, 'iMessage', ?)",
+            (j, text, from_me, _mac_ns(base + timedelta(minutes=j)), handle),
+        )
+        conn.execute("INSERT INTO chat_message_join VALUES (2, ?)", (j,))
     conn.commit()
     conn.close()
 
@@ -169,14 +194,18 @@ def test_imessage_bundle_carries_no_assistant_text_and_keeps_the_owners(
     # (b) the owner's own notes still do, including the brief look-alike.
     for text in OWNER_TEXTS:
         assert text in everything, "an owner-typed note was dropped"
+    # (c) a contact's message that opens with the emoji is a person's words.
+    assert CONTACT_ROBOT in everything, "a contact's emoji-led message was dropped"
 
 
 def test_a_chat_of_only_assistant_sends_dispatches_nothing(tmp_path, monkeypatch):
     p = tmp_path / "chat.db"
     _build_chat_db(p)
     conn = sqlite3.connect(p)
-    conn.execute("DELETE FROM message WHERE ROWID IN (5, 6)")
-    conn.execute("DELETE FROM chat_message_join WHERE message_id IN (5, 6)")
+    # Leave only the assistant's sends: drop the owner's notes and the
+    # contact chat.
+    conn.execute("DELETE FROM message WHERE ROWID IN (5, 6, 100, 101)")
+    conn.execute("DELETE FROM chat_message_join WHERE message_id IN (5, 6, 100, 101)")
     conn.commit()
     conn.close()
     calls = []
@@ -196,6 +225,8 @@ def test_a_chat_of_only_assistant_sends_dispatches_nothing(tmp_path, monkeypatch
 def test_ostler_fda_imessage_reader_drops_the_same_rows(chat_db):
     texts = [m.text for m in fda_imessage.extract_messages("iMessage;-;self", db_path=chat_db)]
     assert texts == OWNER_TEXTS
+    friend = [m.text for m in fda_imessage.extract_messages("iMessage;-;friend", db_path=chat_db)]
+    assert CONTACT_ROBOT in friend, "a contact's emoji-led message was dropped"
 
 
 # ---------------------------------------------------------------------------
@@ -210,23 +241,25 @@ def test_whatsapp_reader_drops_assistant_sends_and_keeps_the_owners():
         " ZFROMJID TEXT, ZISFROMME INTEGER, ZMESSAGEDATE REAL, ZTEXT TEXT)"
     )
     for i, (text, from_me) in enumerate(
-        [(BRIEF, 1), (WRAP_NO_PREFIX, 1), (OWNER_BRIEF_LOOKALIKE, 1), (OWNER_MID_ROBOT, 1)]
+        [(BRIEF, 1), (WRAP_NO_PREFIX, 1), (OWNER_BRIEF_LOOKALIKE, 1), (OWNER_MID_ROBOT, 1),
+         (CONTACT_ROBOT, 0)]
     ):
         conn.execute(
             "INSERT INTO ZWAMESSAGE VALUES (1, ?, NULL, ?, ?, ?)",
             (wa_reader.MESSAGE_TYPE_TEXT, from_me, 800000000.0 + i, text),
         )
     got = wa_reader._read_bodies_for_chat(conn, 1, cutoff_mac_ts=None, max_messages=None)
-    assert [u.text for u in got] == OWNER_TEXTS
+    assert [u.text for u in got] == OWNER_TEXTS + [CONTACT_ROBOT]
 
 
 # ---------------------------------------------------------------------------
 # Email: an assistant email lands in the owner's own mailbox.
 # ---------------------------------------------------------------------------
 
-def _emlx(mail_dir: Path, name: str, body: str, dt: datetime) -> None:
+def _emlx(mail_dir: Path, name: str, body: str, dt: datetime,
+          sender: str = "owner@example.test") -> None:
     headers = [
-        "From: Owner <owner@example.test>",
+        f"From: Sender <{sender}>",
         "To: <owner@example.test>",
         "Subject: Today",
         f"Date: {format_datetime(dt)}",
@@ -245,5 +278,8 @@ def test_email_reader_drops_assistant_sends_and_keeps_the_owners(tmp_path):
     now = datetime.now(timezone.utc)
     for i, body in enumerate(ASSISTANT_TEXTS + OWNER_TEXTS):
         _emlx(tmp_path, f"m{i}", body, now - timedelta(hours=1, minutes=i))
-    got = email_reader.read_messages(mail_dir=tmp_path, since_days=0, now=now)
-    assert sorted(m.body for m in got) == sorted(OWNER_TEXTS)
+    _emlx(tmp_path, "contact", CONTACT_ROBOT, now - timedelta(hours=2),
+          sender="friend@example.test")
+    got = email_reader.read_messages(mail_dir=tmp_path, since_days=0, now=now,
+                                     user_address="owner@example.test")
+    assert sorted(m.body for m in got) == sorted(OWNER_TEXTS + [CONTACT_ROBOT])
