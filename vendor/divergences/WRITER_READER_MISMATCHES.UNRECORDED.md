@@ -1148,6 +1148,17 @@ location and shape only; `doctor.patch` is not regenerated here. Test:
 record, the reason, and the regeneration outcome:
 `ASSISTANT_OWN_SENDS.UNRECORDED.md`. Test:
 `tests/test_assistant_sends_are_not_owner_input.py`.
+## Apple Music: native library reader, XML kept as fallback (CM051, walk #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour in `apple_music.py` and the `apple_music` arm of `extract_all.py`. `extract_library()` now tries the signed `ostler-music-library` helper first (Apple's iTunesLibrary framework, "Media & Apple Music" permission), located only through `OSTLER_MUSIC_LIBRARY_HELPER`, and falls back to the existing XML reader. With no helper located the behaviour is the old XML-only path. New: `read_native_library`, `library_from_helper_json`, `to_preference_export`, `write_preference_export`, `MusicLibrary.reader/native_status/native_detail`, `Track.added/skip_count/disliked` (defaulted, so existing `Track(...)` calls are unchanged), `Playlist.smart`, CLI `--helper`. `extract_all` writes `ostler_apple_music_library.json` beside `apple_music.json` when there are tracks, and its summary carries `reader` and `native_status`. A later run whose native read is refused (the launchd re-run holds no Media & Apple Music grant and must never prompt) keeps the earlier export and reports its track count with `reader: previous_export` (`previous_export_track_count`). Every helper failure (refused permission, empty library, crash, garbage, hang past `OSTLER_MUSIC_LIBRARY_HELPER_TIMEOUT`, default 180 s) returns an empty library, never an exception. The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`read_native_library` before the XML read in `extract_library`, and the export write in the `apple_music` arm. Guarded by `tests/test_apple_music_library_reader.py` (21 tests, all red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## doctor: an Apple Music row in the source table (CM051 walk #27)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`: `_FDA_EXTRACT_KINDS` gains `"apple_music": "source"`, so the "Where your data came from" table shows an apple music row once install.sh records one. Writer side, in install.sh: `apple_music` in `OSTLER_SENTINEL_SOURCES`, `apple_music:apple_music` in `OSTLER_FDA_SOURCE_ROWS`, `_hydrate_fda_record_apple_music` fed by `_hydrate_record_fda_extract` (`total_tracks` is the count; a 0-track read is recorded as `cannot_run media_library_not_granted` when the Music framework refused, or `no_data` when there was nothing to read, never a measured zero). Same conditional-row shape as `photos` and `reminders`. Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (red on this branch before the row) and `tests/test_source_status_canonical_matches_recorders.sh`. `doctor.patch` is NOT regenerated.
 
 ## The owner's own addresses never become People (DMG #27)
 

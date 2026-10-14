@@ -467,6 +467,10 @@ def build_fixtures(root: Path) -> dict:
     f["FoursquareParser"] = write_file(
         root, "foursquare-export/venueRatings.json",
         FOURSQUARE_MEMBERS["venueRatings.json"])
+    # CM051 walk #27: the Hub's own Music library export (ostler_fda.apple_music).
+    f["AppleMusicLibraryParser"] = write_file(
+        root, "preferences/apple_music/ostler_apple_music_library.json",
+        '{"schema": 1, "source": "apple_music_library", "tracks": []}')
     f["AppleTVParser"] = write_file(
         root, "Apple Media Services information/Apple TV Bookmarks.csv",
         "Title,Bookmark Position\nSynthetic Film,120\n")
@@ -559,6 +563,7 @@ POSITIVE_CONTROLS = [
     ("WhoopParser", "WhoopParser", "a Whoop export ZIP"),
     ("FoursquareParser", "FoursquareParser", "a Foursquare venueRatings.json"),
     ("FoursquareParser", "foursquare_zip", "4sq-export.zip"),
+    ("AppleMusicLibraryParser", "AppleMusicLibraryParser", "the Hub's ostler_apple_music_library.json"),
     ("AppleTVParser", "AppleTVParser", "Apple TV Bookmarks.csv"),
     ("NetflixParser", "NetflixParser", "a Netflix report ZIP"),
     ("NetflixParser", "NetflixParser_ratings", "Netflix Ratings.csv"),

@@ -56,6 +56,7 @@ targets:
         NSHighResolutionCapable: true
         NSPrincipalClass: NSApplication
         LSApplicationCategoryType: public.app-category.utilities
+        NSAppleMusicUsageDescription: "Ostler reads your Music library (play counts, loved songs and playlists) so the Hub knows the music you actually listen to. Your library never leaves this Mac."
         NSAppleEventsUsageDescription: "Ostler uses System Events to show the administrator password prompt and to open the right macOS permission settings during installation. It does not read your documents."
         NSCalendarsFullAccessUsageDescription: "Ostler reads your calendar so the Hub can surface what is on next, prepare meeting briefs, and link people to events on the wiki. Events never leave this Mac."
         NSContactsUsageDescription: "Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac."
@@ -418,6 +419,49 @@ targets:
           - $(SRCROOT)/ostler-mecard/Info.plist
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-mecard
+      - name: Compile + bundle ostler-music-library helper into Resources
+        # CM051 walk #27 (2026-10-14): a signed native helper that reads the
+        # owner's Music app library through Apple's iTunesLibrary framework
+        # (ITLibrary), so Apple Music reaches the Hub without the Music app's
+        # optional setting that shares its library XML. Built and bundled EXACTLY as
+        # ostler-mecard is above: universal from $ARCHS, its own
+        # NSAppleMusicUsageDescription embedded via -sectcreate, left
+        # UNSIGNED here and signed by gui/Makefile sign-python-bundle with
+        # the installer's existing entitlements file (nothing added). The
+        # read is gated by the "Media & Apple Music" permission, which the
+        # installer pre-warms (PermissionsPrewarmer, .music). install.sh
+        # passes ${SCRIPT_DIR}/ostler-music-library to the FDA extractor as
+        # OSTLER_MUSIC_LIBRARY_HELPER; every helper failure is fail-open.
+        script: |
+          set -euo pipefail
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/ostler-music-library/main.swift"
+          PLIST="${SRCROOT}/ostler-music-library/Info.plist"
+          if [ ! -f "${SRC}" ] || [ ! -f "${PLIST}" ]; then
+            echo "ERROR: ostler-music-library source or Info.plist missing under ${SRCROOT}/ostler-music-library" >&2
+            exit 1
+          fi
+          mkdir -p "${DEST}"
+          DEPLOY="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+          SLICES=()
+          for arch in ${ARCHS}; do
+            slice="${DERIVED_FILE_DIR}/ostler-music-library-${arch}"
+            echo "Compiling ostler-music-library slice: ${arch} (macos ${DEPLOY})"
+            xcrun swiftc -O \
+              -target "${arch}-apple-macos${DEPLOY}" \
+              -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "${PLIST}" \
+              "${SRC}" -o "${slice}"
+            SLICES+=("${slice}")
+          done
+          xcrun lipo -create "${SLICES[@]}" -output "${DEST}/ostler-music-library"
+          chmod 755 "${DEST}/ostler-music-library"
+          /usr/bin/xattr -cr "${DEST}/ostler-music-library" || true
+          echo "Bundled ostler-music-library: $(xcrun lipo -archs "${DEST}/ostler-music-library")"
+        inputFiles:
+          - $(SRCROOT)/ostler-music-library/main.swift
+          - $(SRCROOT)/ostler-music-library/Info.plist
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-music-library
       - name: Bundle ostler_security Python package into Resources
         script: |
           set -euo pipefail

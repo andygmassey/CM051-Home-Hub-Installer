@@ -6030,7 +6030,7 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      sign-in, never mid-install.)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=15
+PERMISSIONS_TOTAL=16
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -6058,6 +6058,7 @@ echo -e "        ${BOLD}(assistant)${NC}                     reading the app dat
 echo -e "    13. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
 echo -e "    14. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo -e "    15. ${BOLD}Reminders (assistant)${NC}           The assistant asks for itself, at the very end of the install"
+echo -e "    16. ${BOLD}Apple Music${NC}                     Play counts, loved songs + playlists (asked now, upfront)"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
@@ -11435,7 +11436,14 @@ PRESET=${PRESET:-recommended}
 # not read it unless they picked Everything or ticked it by hand: on the
 # v1.0.102 walk a default install ingested 0 of 1,298 photo events. Faces stay
 # out of every preset (photos_faces is the Art. 9 opt-in, tickable only).
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata"
+# CM051 walk #27 (Andy, 2026-10-14): "we MUST have Apple Music data in there,
+# and as complete as possible", without telling the customer to tick a
+# setting. apple_music is now read by the signed ostler-music-library helper
+# (iTunesLibrary, "Media & Apple Music" permission, pre-warmed with the other
+# permissions), not only from the optional XML export, so it is in the
+# default preset. A refused permission or an empty library is fail-open:
+# zero tracks, no prompt here, no abort.
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata,apple_music"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -11523,24 +11531,12 @@ case "$PRESET" in
             _ask_source "chrome_history"   "Chrome history            " N
         fi
         _ask_source "photos_metadata"  "Photos events (no faces)  " Y
-        # vendor/ostler_fda/apple_music.py has a complete extractor but is
-        # DELIBERATELY not offered here, in RECOMMENDED, or in EVERYTHING.
-        # Every other source above reads a live, TCC-gated database the FDA
-        # consent grant unlocks directly. apple_music is structurally
-        # different: the modern Music app's live store is an undocumented
-        # opaque CoreData bundle the extractor will not touch, so it reads
-        # only ~/Music/iTunes/iTunes Music Library.xml, a file that exists
-        # ONLY if the customer has separately run a manual export from the
-        # Music app's file menu (the "export library" action). A checkbox
-        # here would grant no new access and would silently produce zero
-        # rows for the near-totality of customers who have never run that
-        # export -- the same "ticked the box, got nothing" trap
-        # tests/test_status_ok_with_zero_payload_is_not_ok.sh exists to
-        # catch on the CONSUMPTION side. Offering it needs a real UI
-        # affordance (a file picker + instructions for the manual export),
-        # not a same-shaped toggle, so it stays unreachable-by-design here
-        # rather than reachable-but-broken. Revisit if a customer-visible
-        # "point me at your exported library" flow is ever built.
+        # apple_music used to be withheld here because it could read only
+        # the Music app's optional XML export. It now reads the live library
+        # through the bundled ostler-music-library helper (CM051 walk #27),
+        # so it is offered and on by default; a refused permission or an
+        # empty library yields zero tracks, never an error.
+        _ask_source "apple_music"      "Apple Music library       " Y
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
@@ -18895,8 +18891,18 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
     : "${OSTLER_MAIL_BACKFILL_DAYS:=1825}"
 
+    # CM051 walk #27: the signed Apple Music helper sits beside install.sh in
+    # the installer's Resources (gui/project.yml bundles it like
+    # ostler-mecard). Passed only when it is there and executable; absent, the
+    # extractor reads the XML export or nothing, exactly as before.
+    _OSTLER_MUSIC_HELPER=""
+    if [[ -x "${SCRIPT_DIR:-}/ostler-music-library" ]]; then
+        _OSTLER_MUSIC_HELPER="${SCRIPT_DIR}/ostler-music-library"
+    fi
+
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
+                 OSTLER_MUSIC_LIBRARY_HELPER="${_OSTLER_MUSIC_HELPER}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
                  OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS:-}" \
                  OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
@@ -18939,6 +18945,22 @@ print(json.dumps(summary, default=str))
         info "$MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL"
         info "$MSG_INFO_AND_RE_RUN_OSTLER_FDA"
     fi
+
+    # CM051 walk #27: stage the Apple Music library export into the
+    # preferences drop-zone, which 3.12b hands to ostler-import (CM019
+    # ingest-dir). Upserts by a source-keyed id, so it only ADDS preferences
+    # with source apple_music and touches no existing row. Absent export
+    # (permission refused, empty library, source not chosen) = nothing staged.
+    _AM_EXPORT="${OSTLER_DIR}/imports/fda/ostler_apple_music_library.json"
+    if [[ -s "$_AM_EXPORT" ]]; then
+        if mkdir -p "${OSTLER_DIR}/imports/preferences/apple_music" \
+           && cp -f "$_AM_EXPORT" "${OSTLER_DIR}/imports/preferences/apple_music/"; then
+            info "Apple Music library staged for your preferences."  # i18n-exempt
+        else
+            warn "Could not stage the Apple Music library for preferences; continuing."  # i18n-exempt
+        fi
+    fi
+    unset _AM_EXPORT
 
     # #259: Apple Mail no-content guidance. The apple_mail extractor
     # arm now reports status "empty_no_content" when Mail is in the
@@ -31191,7 +31213,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
 
 # ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
 #
@@ -31234,7 +31256,7 @@ OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts
 # OSTLER_SENTINEL_SOURCES above, and that every right-hand row RENDERS in the
 # real vendored panel. A source added to the picker and to nothing else is
 # caught by the first of those, which is the durable half of #1587.
-OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders"
+OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders apple_music:apple_music"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -31600,6 +31622,12 @@ _hydrate_fda_decision() {
             # rather than inventing a count.
             printf 'error\t'
             ;;
+        media_library_not_granted)
+            # Apple Music (CM051 walk #27): the Music framework refused the
+            # read. Media & Apple Music was not granted, or the Music app is
+            # unavailable. "Could not look" is not "looked and found none".
+            printf 'cannot_run\tmedia_library_not_granted'
+            ;;
         no_extract_summary|no_python_to_read_extract_summary|absent_from_extract_summary)
             # Not extractor verdicts: these are the caller saying it could not
             # obtain one. Passed through this same door so there is exactly one
@@ -31655,6 +31683,19 @@ _hydrate_fda_record_reminders() {
     esac
 }
 
+_hydrate_fda_record_apple_music() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            apple_music "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    apple_music "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run apple_music "$_a" ;;
+        error)      _hydrate_sentinel_record_error      apple_music 1 "" ;;
+        *)          : ;;
+    esac
+}
+
 _hydrate_record_fda_extract() {
     local summary="${1:-${OSTLER_DIR}/imports/fda/extraction_summary.json}"
     local py="${2:-${OSTLER_PYTHON:-python3}}"
@@ -31667,6 +31708,7 @@ _hydrate_record_fda_extract() {
     if [[ ! -x "$py" ]] && ! command -v "$py" >/dev/null 2>&1; then
         _hydrate_fda_record_photos    "no_python_to_read_extract_summary"
         _hydrate_fda_record_reminders "no_python_to_read_extract_summary"
+        _hydrate_fda_record_apple_music "no_python_to_read_extract_summary"
         return 0
     fi
     if [[ ! -f "$summary" ]]; then
@@ -31675,6 +31717,7 @@ _hydrate_record_fda_extract() {
         # that is CANNOT-RUN. It is emphatically not zero items.
         _hydrate_fda_record_photos    "no_extract_summary"
         _hydrate_fda_record_reminders "no_extract_summary"
+        _hydrate_fda_record_apple_music "no_extract_summary"
         return 0
     fi
 
@@ -31703,6 +31746,8 @@ import json, os, sys
 WANT = {
     "photos":    ("photos",    ("recognised_people", "photo_events")),
     "reminders": ("reminders", ("pending", "completed", "total_reminders")),
+    # Apple Music (CM051 walk #27): the count is the tracks the reader saw.
+    "apple_music": ("apple_music", ("total_playlists", "total_tracks")),
     }
 try:
     doc = json.loads(open(os.environ["OSTLER_FDA_SUMMARY"],
@@ -31719,6 +31764,11 @@ for key in sorted(WANT):
     if not isinstance(rec, dict):
         continue         # absent from the summary: caller records CANNOT-RUN
     status = str(rec.get("status", "")).strip() or "unrecognised"
+    # Apple Music reports ok with 0 tracks when it could not read: say why,
+    # never a measured zero. A previous_export read is a real count.
+    if key == "apple_music" and status == "ok" and not rec.get("total_tracks"):
+        native = str(rec.get("native_status", ""))
+        status = "media_library_not_granted" if native == "unavailable" else "not_found"
     payload = ""
     if status == "ok":
         parts = []
@@ -31739,6 +31789,7 @@ FDASUMEOF
         case "$_name" in
             photos)    _hydrate_fda_record_photos    "$_status" "$_payload" ;;
             reminders) _hydrate_fda_record_reminders "$_status" "$_payload" ;;
+            apple_music) _hydrate_fda_record_apple_music "$_status" "$_payload" ;;
             *)         : ;;
         esac
     done <<< "$_parsed"
@@ -31751,6 +31802,10 @@ FDASUMEOF
     case "$_seen" in
         *" reminders "*) : ;;
         *) _hydrate_fda_record_reminders "absent_from_extract_summary" ;;
+    esac
+    case "$_seen" in
+        *" apple_music "*) : ;;
+        *) _hydrate_fda_record_apple_music "absent_from_extract_summary" ;;
     esac
     return 0
 }
