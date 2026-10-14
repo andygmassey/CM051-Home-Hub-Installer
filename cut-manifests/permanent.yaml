@@ -1055,6 +1055,20 @@ entries:
       kind: box_walk_probe
       probe: "todos_reach_reminders"
 
+  - id: box-walk-apple-music-library-reaches-preferences
+    title: the Apple Music reader saw the owner's library and apple_music preference points exist in the store
+    incident: >-
+      Walk #27, 2026-10-14. Music showed only Spotify likes for an owner who
+      mostly uses Apple Music: the reader read only the Music app's optional
+      library XML, and the source was in no preset. The reader now uses the
+      bundled ostler-music-library helper (iTunesLibrary, Media & Apple Music
+      permission). An ssh-driven install cannot answer that permission, so
+      the TCC arm is console-only (console_only_probes.tsv); an empty library
+      is its own CANNOT-RUN. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "apple_music_library_reaches_preferences"
+
   # ADVISORY (scripts/walk_promote_scope.tsv): v1.0.107 has no on-demand send
   # endpoint and no email delivery channel, so this probe measures only the
   # config-correctness shape (an enabled channel with a written recipient).
