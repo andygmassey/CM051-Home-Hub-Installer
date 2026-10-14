@@ -1,0 +1,55 @@
+# v1.0.108 full-history catch-up: Photos and AI chats walk back past the
+# install's 365-day clamp. Fixtures larger than the clamp (6,500 photos over
+# 7 years, 450 chats over 5 years), each item reaching the keyed sink once,
+# across a SIGKILL mid-walk.
+name: catchup-photos-ai
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'vendor/ostler_fda/photos_metadata.py'
+      - 'vendor/ostler_fda/catchup_photos.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/extract_all.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/**'
+      - 'tests/test_catchup_photos_ai.py'
+      - '.github/workflows/catchup-photos-ai.yml'
+  pull_request:
+    paths:
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'vendor/ostler_fda/photos_metadata.py'
+      - 'vendor/ostler_fda/catchup_photos.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/extract_all.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/**'
+      - 'tests/test_catchup_photos_ai.py'
+      - '.github/workflows/catchup-photos-ai.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  catchup-photos-ai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest and the vendored runtime dependencies
+        run: python -m pip install --quiet pytest "httpx>=0.27,<1.0" "PyYAML>=6.0,<7.0"
+      - name: Photos and AI chats reach their oldest item, once each, kill-safe
+        run: |
+          n="$(python -m pytest tests/test_catchup_photos_ai.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 12 ]; then
+            echo "REFUSING: expected at least 12 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_catchup_photos_ai.py -v -rs -s
