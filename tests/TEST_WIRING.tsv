@@ -420,6 +420,7 @@ test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_local_stores_do_not_route_through_a_proxy.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_loopback_property_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
+test_machine_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_mail_content_probe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_mail_onboarding_259_260.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_mailbox_ingest_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

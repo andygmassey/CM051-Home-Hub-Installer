@@ -77,6 +77,12 @@ jobs:
         if: always()
         run: python3 tests/test_calendar_attendee_resolve_before_create.py
 
+      # DMG #27: machine senders (no-reply, calendar system, notification
+      # domain, all-list mail) create no Person; a human who replied does.
+      - name: Machine senders do not become People; a human who replied does
+        if: always()
+        run: python3 tests/test_machine_senders_are_not_people.py
+
       - name: A service sender (Skype, PayPal, no-reply) gets no reconnect card
         if: always()
         run: python3 tests/test_service_senders_get_no_reconnect_card.py
