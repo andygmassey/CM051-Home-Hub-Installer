@@ -337,6 +337,42 @@ async def _run_dir_ingestion(
         raise SystemExit(1)
 
 
+@cli.command('ingest-tail')
+@click.option('--queue', 'queue_dir', default=None,
+              help='Tail queue directory (default: $OSTLER_PREFS_TAIL_QUEUE or ~/.ostler/state/prefs-tail)')
+@click.option('--budget-seconds', default=600.0, type=float, help='Stop after this long; the next tick resumes')
+def ingest_tail(queue_dir, budget_seconds):
+    """Drain preferences the foreground install queued for later (CM051 #28).
+
+    Run by the existing background preference importer (com.ostler.export-scan
+    -> ostler-scan-exports) before it looks for new exports. Resumable and idempotent:
+    safe to kill at any point. Prints one counts-only status line.
+    """
+    import json as _json
+    import os as _os
+    from pathlib import Path as _Path
+    from . import tail_queue
+
+    qdir = _Path(queue_dir or _os.environ.get(tail_queue.QUEUE_ENV, "")
+                 or "~/.ostler/state/prefs-tail").expanduser()
+    if not qdir.is_dir() or not any(qdir.glob("*.jsonl")):
+        click.echo(_json.dumps({"status": "empty", "written": 0, "remaining": 0}))
+        return
+
+    async def _run():
+        pipeline = IngestPipeline()
+        if not await pipeline.initialize():
+            click.echo(_json.dumps({"status": "store_unavailable", "remaining": tail_queue.pending(qdir)}))
+            raise SystemExit(1)
+        return await tail_queue.drain(pipeline, qdir, budget_seconds=budget_seconds)
+
+    out = asyncio.run(_run())
+    out["status"] = "drained" if out["remaining"] == 0 else "partial"
+    click.echo(_json.dumps(out))
+    if out["errors"]:
+        raise SystemExit(1)
+
+
 @cli.command('stats')
 @click.argument('file_path', type=click.Path(exists=True))
 @click.option('--json', 'as_json', is_flag=True, help='Output as JSON')
