@@ -1140,6 +1140,26 @@ would have shown a healthy "Reminders are syncing". This record is
 location and shape only; `doctor.patch` is not regenerated here. Test:
 `tests/test_doctor_reminders_list_removed.py`.
 
+## 2026-10-14: `ostler_fda` `imessage.py` drops the assistant's own sends
+
+`imessage.py` gains `ASSISTANT_SEND_PREFIX`, `ASSISTANT_SEND_MARKER` and
+`is_assistant_send()`; `extract_messages` skips rows it matches. The
+`whatsapp_source` and `email_source` readers import this predicate. Full
+record, the reason, and the regeneration outcome:
+`ASSISTANT_OWN_SENDS.UNRECORDED.md`. Test:
+`tests/test_assistant_sends_are_not_owner_input.py`.
+## Apple Music: native library reader, XML kept as fallback (CM051, walk #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour in `apple_music.py` and the `apple_music` arm of `extract_all.py`. `extract_library()` now tries the signed `ostler-music-library` helper first (Apple's iTunesLibrary framework, "Media & Apple Music" permission), located only through `OSTLER_MUSIC_LIBRARY_HELPER`, and falls back to the existing XML reader. With no helper located the behaviour is the old XML-only path. New: `read_native_library`, `library_from_helper_json`, `to_preference_export`, `write_preference_export`, `MusicLibrary.reader/native_status/native_detail`, `Track.added/skip_count/disliked` (defaulted, so existing `Track(...)` calls are unchanged), `Playlist.smart`, CLI `--helper`. `extract_all` writes `ostler_apple_music_library.json` beside `apple_music.json` when there are tracks, and its summary carries `reader` and `native_status`. A later run whose native read is refused (the launchd re-run holds no Media & Apple Music grant and must never prompt) keeps the earlier export and reports its track count with `reader: previous_export` (`previous_export_track_count`). Every helper failure (refused permission, empty library, crash, garbage, hang past `OSTLER_MUSIC_LIBRARY_HELPER_TIMEOUT`, default 180 s) returns an empty library, never an exception. The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`read_native_library` before the XML read in `extract_library`, and the export write in the `apple_music` arm. Guarded by `tests/test_apple_music_library_reader.py` (21 tests, all red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## doctor: an Apple Music row in the source table (CM051 walk #27)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`: `_FDA_EXTRACT_KINDS` gains `"apple_music": "source"`, so the "Where your data came from" table shows an apple music row once install.sh records one. Writer side, in install.sh: `apple_music` in `OSTLER_SENTINEL_SOURCES`, `apple_music:apple_music` in `OSTLER_FDA_SOURCE_ROWS`, `_hydrate_fda_record_apple_music` fed by `_hydrate_record_fda_extract` (`total_tracks` is the count; a 0-track read is recorded as `cannot_run media_library_not_granted` when the Music framework refused, or `no_data` when there was nothing to read, never a measured zero). Same conditional-row shape as `photos` and `reminders`. Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (red on this branch before the row) and `tests/test_source_status_canonical_matches_recorders.sh`. `doctor.patch` is NOT regenerated.
+
 ## The owner's own addresses never become People (DMG #27)
 
 Tree `ostler_fda`. NEW CM051-side behaviour, three files:
@@ -1163,3 +1183,25 @@ The name read before the move and the `_elect_survivor_name` call in `_merge_pai
 ## Apple Music records keep every artist and genre (CM051 #28)
 
 Tree `ostler_fda`. `apple_music.to_records` called `top_artists(limit=200)` and `top_genres(limit=100)`, so `apple_music.json` held at most 200 artists and 100 genres of the owner's library. Both now pass `limit=None` (ranking unchanged; `top_artists`/`top_genres` accept `Optional[int]`, and `[:None]` keeps all). Display callers (`library_stats`, top 10) are unchanged. Guarded by `tests/test_owner_data_is_never_capped_at_storage.py::test_apple_music_records_keep_every_artist_and_genre`. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+## Machine senders are not People; a human who replied is (DMG #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/machine_senders.py` (NEW FILE): `noreply_reason` (no-reply / mailer-daemon / bounces / notifications / calendar-notification local parts; calendar-system domains such as shared Google calendars and the iCloud invitation sender; a notification first-label domain), `header_reason` (List-Id, List-Unsubscribe, Auto-Submitted other than "no", Precedence bulk/list/junk), `mail_evidence` over the Mail Envelope Index (per-sender message and list-flag counts from `list_id_hash` / `unsubscribe_type`; correspondents = To/Cc of Sent mail plus senders of non-list mail in a conversation holding a Sent message), `classify`, `collect` (writes `machine_senders.json`), `load`.
+- `vendor/ostler_fda/extract_all.py`: the Apple Mail block calls `machine_senders.collect` after writing `apple_mail_contacts.json` (counts only into `summary["machine_senders"]`).
+- `vendor/ostler_fda/pwg_ingest.py`: imports `machine_senders`; `ingest_calendar` skips an attendee with a `noreply_reason`; `ingest_mail_contacts` skips a machine sender, and lets a recorded CORRESPONDENT past the role-address skip; `_person_id_from_identifier` gains keyword `correspondent=False`, which only that call sets. Both return `machine_senders_skipped`.
+
+WHY: measured read-only on the DMG #27 walk box, `calendar_fda` minted People for calendar-system addresses and `apple_mail_fda` for a notification subdomain. Auto-Submitted and Precedence are NOT INSTRUMENTED on the Envelope Index path (the index does not store them). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`machine_senders.py`, the `collect` call, the two ingest skips, the correspondent pass-through and the `correspondent` keyword. Guarded by `tests/test_machine_senders_are_not_people.py` (wired in `.github/workflows/privacy-spine.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## A merged person is never re-created by the next ingest (DMG #27, shape sweep S2)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. New `_StoreUnavailable`, `_resolve_merged` (follows `pwg:mergedInto` to the live survivor, at most 16 hops, cycle-safe), `_live_person`. `_person_exists` now answers True for a `pwg:mergedInto` tombstone as well as any typed node, and RAISES `_StoreUnavailable` on a store error (it answered False). `_identifier_exists` answers True on a store error (fail closed). `ingest_imessage`, `ingest_whatsapp`, `ingest_calendar`, `ingest_mail_contacts` and `ingest_photos_people` resolve their URI (or the identifier holder) to the live survivor before creating or writing, and SKIP the person on a store error (iMessage and WhatsApp now report `people_lookup_failed`; calendar and mail no longer create on a failed identifier lookup). `ingest_photo_events` points `photoAttendee` at the survivor. `_load_people_from_oxigraph` and `_current_person_uris` exclude nodes carrying `pwg:mergedInto`, so the people index stops indexing, and prunes, merged-away nodes.
+
+WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) could not see it, so the next tick re-minted the merged person on its uuid5 URI. Measured on the DMG #27 walk box: 145 merged nodes typed Person again (138 WhatsApp, 6 iMessage) and 144 duplicate Qdrant people points. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).

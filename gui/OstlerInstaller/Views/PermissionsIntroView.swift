@@ -168,6 +168,7 @@ struct PermissionsIntroView: View {
         case .calendar:  return "calendar"
         case .reminders: return "checklist"
         case .photos:    return "photo.on.rectangle"
+        case .music:     return "music.note"
         }
     }
 

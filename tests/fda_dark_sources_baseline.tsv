@@ -25,4 +25,3 @@
 # exactly what this one did for the life of the product.
 #
 # source<TAB>reason<TAB>removal condition
-apple_music	no consumer anywhere. 0 hits in install.sh, 0 hits in vendor/cm024_knowledge, and `convert --source` is never invoked for it. Extracting it would read the library and hand the data to nothing.	a consumer exists and is invoked from the hydrate path

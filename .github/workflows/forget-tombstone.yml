@@ -12,6 +12,8 @@ on:
       - 'tests/test_forget_tombstone_*.py'
       - 'tests/_fake_oxigraph.py'
       - 'tests/test_facebook_export_imports_once.py'
+      - 'tests/test_merged_people_are_not_recreated.py'
+      - 'vendor/cm021/src/cli.py'
       - 'install.sh'
       - '.github/workflows/forget-tombstone.yml'
   pull_request:
@@ -21,6 +23,8 @@ on:
       - 'tests/test_forget_tombstone_*.py'
       - 'tests/_fake_oxigraph.py'
       - 'tests/test_facebook_export_imports_once.py'
+      - 'tests/test_merged_people_are_not_recreated.py'
+      - 'vendor/cm021/src/cli.py'
       - 'install.sh'
       - '.github/workflows/forget-tombstone.yml'
 
@@ -53,6 +57,30 @@ jobs:
           check tests/test_forget_tombstone_every_syncer.py 18
           check tests/test_forget_tombstone_ostler_fda.py 10
           python -m pytest tests/test_forget_tombstone_every_syncer.py tests/test_forget_tombstone_ostler_fda.py -v
+
+  # DMG #27 shape sweep S2. Its own job (ci-maskless): a merged person is
+  # never re-created by the next ingest, facts land on the survivor, a store
+  # error creates nobody, and the people index skips merged nodes.
+  merged-people-not-recreated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml beautifulsoup4
+      - name: A merged person is never re-created by the next ingest
+        run: |
+          set -eu
+          n="$(python -m pytest tests/test_merged_people_are_not_recreated.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_merged_people_are_not_recreated.py -v
 
   # Its own job, not a step after the tombstone suite: a step there is skipped
   # whenever that suite fails, so a red tombstone run would mask this one
