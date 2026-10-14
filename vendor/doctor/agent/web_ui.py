@@ -307,7 +307,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
+SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@ostler.ai")
 
 
 # ── Cross-site refusal on the credential routes ──────────────────────
