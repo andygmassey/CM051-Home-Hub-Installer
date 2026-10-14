@@ -139,6 +139,8 @@ def test_contact_sync_with_a_name_records_nothing(log):
 def test_dedupe_merge_records_the_duplicate(log, monkeypatch):
     from ostler_fda import dedupe_merge as dm
     monkeypatch.setattr(dm, "_sparql_update", lambda *a, **k: None)
+    # _merge_pair now reads both name sets before the move (DMG #27 name tiers).
+    monkeypatch.setattr(dm, "_sparql_query", lambda *a, **k: [])
     dm._merge_pair(KEEP, DISCARD)
     assert _has(log, DISCARD, "ostler_fda.dedupe_merge")
 
