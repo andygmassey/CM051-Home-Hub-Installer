@@ -38,8 +38,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install pytest
-        run: python -m pip install --quiet pytest
+      - name: Install pytest and the ostler_fda ingest dependencies
+        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml
       - name: every correspondent in a 125,000-message, 9-year mailbox, kill-safe
         run: |
           n="$(python -m pytest tests/test_catchup_mail.py --collect-only -q | grep -cE '::test_')" || n=0
