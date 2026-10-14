@@ -1140,6 +1140,29 @@ would have shown a healthy "Reminders are syncing". This record is
 location and shape only; `doctor.patch` is not regenerated here. Test:
 `tests/test_doctor_reminders_list_removed.py`.
 
+## The owner's own addresses never become People (DMG #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/owner_addresses.py` (NEW FILE): computes the owner's exact addresses from (1) the Contacts me card (`ZABCDRECORD.ZME` -> `ZABCDEMAILADDRESS`, every AddressBook source), (2) Mail accounts (`Accounts4.sqlite` `ZACCOUNT.ZUSERNAME`), (3) From addresses of messages in a Sent mailbox, (4) the sole To recipient of non-list INBOX mail (`list_id_hash` and `unsubscribe_type` both zero) from at least two distinct non-owner senders, all from the Mail Envelope Index. Never a domain. Read-only (`immutable=1`). Writes `owner_addresses.json` into the FDA output dir; `load_owner_addresses` / `is_owner_address` read it.
+- `vendor/ostler_fda/extract_all.py`: `run_all` calls `owner_addresses.collect` just before the summary is saved (counts only into `summary["owner_addresses"]`; never fatal).
+- `vendor/ostler_fda/pwg_ingest.py`: imports `load_owner_addresses, is_owner_address`; `ingest_imessage`, `ingest_whatsapp`, `ingest_calendar` and `ingest_mail_contacts` load the set once and `continue` past an owner address immediately before the existing `_observe_identifier` skip; calendar and mail return `owner_addresses_skipped`.
+
+WHY: measured read-only on the DMG #27 walk box, 15 `calendar_fda` Person nodes held an address on the owner's own domain (the owner attends their own invites). Delivered-To is NOT INSTRUMENTED (the Envelope Index does not store it). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`owner_addresses.py`, the `collect` call in `run_all`, and the four `is_owner_address` skips. Guarded by `tests/test_owner_addresses_are_not_people.py` (wired in `.github/workflows/privacy-spine.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## dedupe_merge: a merge survivor keeps one displayName, chosen upward only (DMG #27 KNOWN-ISSUE 1)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/dedupe_merge.py`. NEW CM051-side behaviour. `_merge_pair` reads the survivor's and the duplicate's `pwg:displayName` values BEFORE the outbound move, then (after the move, before the tombstone) calls the new `_elect_survivor_name`: the survivor ends with ONE `displayName`, the duplicate's best name winning only when it is a HIGHER tier than the survivor's own (phone < email < human, ranked by `pwg_ingest._display_name_tier`, imported lazily, never copied); every losing name becomes `pwg:alternateName`; a kinship word is never elected and is also kept as `pwg:alternateName` (never deleted); `displayNameProvisional` is cleared when the winner is a human name. New helpers appended after `_merge_pair`: `_display_names`, `_escape`, `_tier_fn`, `choose_survivor_name`, `_elect_survivor_name`. WHY: the outbound move carried the duplicate's displayName onto the survivor, which then held a phone or email beside a human name (measured read-only on the walk box: 257 such survivors, every one with an undated `mergedInto`, which only this writer leaves). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The name read before the move and the `_elect_survivor_name` call in `_merge_pair`. Guarded by `tests/test_dedupe_merge_name_tier_upward_only.py` (red on origin/main, wired in `.github/workflows/dedupe-merge-rule-2.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## Apple Music records keep every artist and genre (CM051 #28)
+
+Tree `ostler_fda`. `apple_music.to_records` called `top_artists(limit=200)` and `top_genres(limit=100)`, so `apple_music.json` held at most 200 artists and 100 genres of the owner's library. Both now pass `limit=None` (ranking unchanged; `top_artists`/`top_genres` accept `Optional[int]`, and `[:None]` keeps all). Display callers (`library_stats`, top 10) are unchanged. Guarded by `tests/test_owner_data_is_never_capped_at_storage.py::test_apple_music_records_keep_every_artist_and_genre`. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
 ## A merged person is never re-created by the next ingest (DMG #27, shape sweep S2)
 
 Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. New `_StoreUnavailable`, `_resolve_merged` (follows `pwg:mergedInto` to the live survivor, at most 16 hops, cycle-safe), `_live_person`. `_person_exists` now answers True for a `pwg:mergedInto` tombstone as well as any typed node, and RAISES `_StoreUnavailable` on a store error (it answered False). `_identifier_exists` answers True on a store error (fail closed). `ingest_imessage`, `ingest_whatsapp`, `ingest_calendar`, `ingest_mail_contacts` and `ingest_photos_people` resolve their URI (or the identifier holder) to the live survivor before creating or writing, and SKIP the person on a store error (iMessage and WhatsApp now report `people_lookup_failed`; calendar and mail no longer create on a failed identifier lookup). `ingest_photo_events` points `photoAttendee` at the survivor. `_load_people_from_oxigraph` and `_current_person_uris` exclude nodes carrying `pwg:mergedInto`, so the people index stops indexing, and prunes, merged-away nodes.

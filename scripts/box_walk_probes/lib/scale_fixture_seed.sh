@@ -60,3 +60,20 @@ scale_fixture_apply() {
     printf '%s rc=%s\n' "$state" "$rc" > "${HOME}/.walk-scale-fixture-run"
     return 0
 }
+
+# scale_fixture_forget -- the teardown this seed never had (walk #27 shape
+# sweep S7: on macmini16-walk 9000 of 11154 reminders_knowledge points and
+# 18000 of 18971 apple_notes_knowledge chunks were fixture text, left by
+# earlier walks). Deletes every point carrying the fixture's tag
+# (scale_fixture.py FIXTURE_TAGS), removes the F12 neighbour note, counts
+# again, and prints what is left. Re-stages the helper so it also runs from
+# the abort trap when the seed never got that far.
+scale_fixture_forget() {
+    local here out
+    here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local dir='$HOME/.ostler/walk-scale-fixture'
+    printf -- '--- SCALE FIXTURE: removing the tagged fixture points and the neighbour note ---\n'
+    out="$(_sfs_box "mkdir -p ${dir} && printf %s '$(base64 < "${here}/scale_fixture.py" | tr -d '\n')' | base64 -d > ${dir}/scale_fixture.py && cd ${dir} && python3 scale_fixture.py forget" 2>&1 | tail -1)"
+    OSTLER_SCALE_FORGET_JSON="$out"; export OSTLER_SCALE_FORGET_JSON
+    printf '    %s\n\n' "$out"
+}
