@@ -133,3 +133,19 @@ def test_measure_50000(tmp_path, monkeypatch):
     print(f"\nMEASURE items=50000 stored={n} ingest_s={secs:.2f} "
           f"payload_bytes={pipe.qdrant.payload_bytes} triples_bytes={pipe.oxigraph.triples_bytes}")
     assert n == 50000
+
+
+def test_apple_music_records_keep_every_artist_and_genre():
+    """ostler_fda.apple_music.to_records kept the top 200 artists and top 100
+    genres of the owner's library and dropped the rest."""
+    sys.path.insert(0, str(ROOT / "vendor"))
+    from ostler_fda import apple_music as am
+    lib = am.MusicLibrary(tracks=[
+        am.Track(str(i), f"track-k{i}", f"artist-k{i}", None, f"genre-k{i}", i % 7, None, None, False)
+        for i in range(450)])
+    recs = am.to_records(lib)
+    kinds = {t: sum(1 for r in recs if r["type"] == t) for t in ("music_artist", "music_genre")}
+    assert kinds == {"music_artist": 450, "music_genre": 450}, kinds
+    # still ranked: the most-played artist leads
+    artists = [r for r in recs if r["type"] == "music_artist"]
+    assert artists[0]["total_plays"] == max(a["total_plays"] for a in artists)

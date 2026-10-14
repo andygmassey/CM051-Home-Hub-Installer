@@ -1139,3 +1139,7 @@ Reminders list and pauses pushes. Doctor's reader had no word for it and
 would have shown a healthy "Reminders are syncing". This record is
 location and shape only; `doctor.patch` is not regenerated here. Test:
 `tests/test_doctor_reminders_list_removed.py`.
+
+## Apple Music records keep every artist and genre (CM051 #28)
+
+Tree `ostler_fda`. `apple_music.to_records` called `top_artists(limit=200)` and `top_genres(limit=100)`, so `apple_music.json` held at most 200 artists and 100 genres of the owner's library. Both now pass `limit=None` (ranking unchanged; `top_artists`/`top_genres` accept `Optional[int]`, and `[:None]` keeps all). Display callers (`library_stats`, top 10) are unchanged. Guarded by `tests/test_owner_data_is_never_capped_at_storage.py::test_apple_music_records_keep_every_artist_and_genre`. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
