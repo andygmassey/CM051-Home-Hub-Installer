@@ -1,0 +1,55 @@
+# v1.0.108 full-history catch-up, mail family: every correspondent in the
+# whole Envelope Index becomes reachable (the install pass keeps 5 years,
+# 100,000 messages and the top 50), kill-safe, and Doctor mirrors
+# email-ingest's body sweep.
+name: catchup-mail
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/catchup_mail.py'
+      - 'vendor/ostler_fda/apple_mail.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'tests/test_catchup_mail.py'
+      - '.github/workflows/catchup-mail.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/catchup_mail.py'
+      - 'vendor/ostler_fda/apple_mail.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'tests/test_catchup_mail.py'
+      - '.github/workflows/catchup-mail.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  catchup-mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: every correspondent in a 125,000-message, 9-year mailbox, kill-safe
+        run: |
+          n="$(python -m pytest tests/test_catchup_mail.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_catchup_mail.py -v -rs -s
+      - name: the machinery the mail family stands on still holds
+        if: always()
+        run: |
+          python -m pytest tests/test_catchup_core.py -q -rs

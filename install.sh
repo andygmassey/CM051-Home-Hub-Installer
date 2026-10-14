@@ -26977,6 +26977,20 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
         EMAIL_INGEST_VENV_PYTHON=""
     fi
 
+    # v1.0.108 catch-up, mail family: every correspondent in the whole
+    # Envelope Index (the install pass keeps five years, 100,000 messages and
+    # the top 50 senders), plus Doctor's view of email-ingest's own body sweep.
+    # This venv, because it is the one the install-time people ingests already
+    # use (ostler_fda + store-auth .pth). Slot 0: ingest_mail_contacts is
+    # SPARQL only, no model call, so it does not take the Ollama ingest slot.
+    if [[ -n "$EMAIL_INGEST_VENV_PYTHON" && -x "$EMAIL_INGEST_VENV_PYTHON" ]]; then
+        _ostler_catchup_register 40-mail \
+            "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/services/email-ingest/.venv/bin/python3" \
+            "ostler_fda.catchup_mail:adapters" 0 \
+            "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/fda-module" \
+            || warn "mail catch-up runner not written; older correspondents will not be read in the background."  # i18n-exempt
+    fi
+
     # CX-83: also install CM021 (pwg-email-intelligence) into the
     # same venv. CM021 provides the `pwg-email-ingest` console
     # script that vendor/email_ingest/bin/email-ingest-tick.sh has

@@ -363,3 +363,19 @@ def test_kill_inside_the_ingest_then_restart(envelope, tmp_path):
             break
     assert kills >= 2, f"only {kills} random kills landed"
     check(home_b, "random external", kills)
+
+
+def test_install_registers_the_mail_runner_after_the_helper_exists():
+    src = (REPO / "install.sh").read_text(encoding="utf-8").splitlines()
+    defn = [i for i, l in enumerate(src) if l.startswith("_ostler_catchup_register() {")]
+    calls = [i for i, l in enumerate(src) if "_ostler_catchup_register 40-mail" in l]
+    assert defn, "install.sh defines no _ostler_catchup_register"
+    assert calls, "install.sh never registers the mail catch-up runner"
+    assert calls[0] > defn[0], "the mail runner is registered before the helper is defined"
+    block = "\n".join(src[calls[0]:calls[0] + 5])
+    assert "ostler_fda.catchup_mail:adapters" in block and "email-ingest/.venv/bin/python3" in block
+    guard = "\n".join(src[calls[0] - 3:calls[0]])
+    assert 'EMAIL_INGEST_VENV_PYTHON' in guard, "registered without checking the venv exists"
+    from ostler_fda import catchup_mail
+    names = sorted(a.source for a in catchup_mail.adapters())
+    assert names == ["mail_bodies", "mail_contacts"], names

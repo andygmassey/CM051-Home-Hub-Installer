@@ -1212,3 +1212,14 @@ Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, a
 ### What a future sync must preserve
 
 The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).
+## Mail correspondents: full-history catch-up past the top 50 (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/catchup_mail.py` (NEW FILE): two catch-up adapters for `lib/ostler_catchup.py`. `MailContacts` walks the whole Envelope Index newest to oldest (keyset on date_received, ROWID; no window, no 100,000 limit, no top 50), counts each sender once per message ROWID in the catch-up ledger, and hands an address to `pwg_ingest.ingest_mail_contacts` the moment it reaches `MAIL_CONTACT_MIN_COUNT`, with the install's owner-address and machine-sender files beside it. `MailBodies` mirrors email-ingest's own backward sweep (`apple_mail_mbox_checkpoint.json`) into Doctor and processes nothing.
+- `vendor/ostler_fda/apple_mail.py`: the three Envelope Index SELECT shapes move into `_MESSAGE_SHAPES` / `query_message_rows`, and the sender normalisation into `normalise_sender`, shared by `extract_messages`, `frequent_contacts` and the catch-up. Install-time behaviour unchanged.
+- `vendor/ostler_fda/pwg_ingest.py`: the literal 3 in `ingest_mail_contacts` becomes `MAIL_CONTACT_MIN_COUNT`, so the catch-up qualifies an address at exactly the point the ingest accepts it.
+
+### What a future sync must preserve
+
+`catchup_mail.py`, `query_message_rows` / `normalise_sender`, and `MAIL_CONTACT_MIN_COUNT`. Guarded by `tests/test_catchup_mail.py` (red on origin/main, wired in `.github/workflows/catchup-mail.yml`).
