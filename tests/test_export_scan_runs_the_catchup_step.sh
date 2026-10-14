@@ -105,11 +105,23 @@ fi
 S="$SB/stage/bin/catchup.d/40-slotted.sh"
 rm -f "$SB/fakepy.out"
 mkdir -p "$SB/ws/ingest-ollama.lock.d"
+sleep 600 & live=$!
+printf '%s\n' "$live" > "$SB/ws/ingest-ollama.lock.d/pid"
 msg="$(HOME="$home" OSTLER_STATE_DIR="$SB/ws" /bin/bash "$S" 42)"
 if [ ! -f "$SB/fakepy.out" ] && printf '%s' "$msg" | grep -q '"slot_busy"'; then
-    ok "a slotted runner yields at once while another feed holds the model slot"
+    ok "a slotted runner yields at once while a LIVE feed holds the model slot"
 else
     bad "slotted runner with the slot held: ran=$([ -f "$SB/fakepy.out" ] && echo yes || echo no) said=${msg}"
+fi
+kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+# A stale lock dir (its holder is dead) must not stop catch-up for ever: the
+# runner falls through (here to the payload, since no slot lib is installed
+# in this sandbox HOME; on a box ostler_slot_acquire reclaims the dead dir).
+msg="$(HOME="$home" OSTLER_STATE_DIR="$SB/ws" /bin/bash "$S" 42)"
+if [ -f "$SB/fakepy.out" ]; then
+    ok "a stale lock dir left by a dead holder does not stop catch-up"
+else
+    bad "a dead holder's lock dir stopped the runner: said=${msg}"
 fi
 
 echo
