@@ -3388,7 +3388,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8428   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8473   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8482 and :15497, both of which run
+    # Its two top-level arming calls are :8482 and :15534, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
     # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
@@ -3406,13 +3406,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16277, where the note reads
+    # WhatsApp Web session path did it again at :16314, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16294 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16331 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3425,9 +3425,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8482, :15497) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8482, :15534) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18425 / :18603 / :18760 / :19102 path. There the
+    # :18462 / :18640 / :18797 / :19139 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -13208,11 +13208,41 @@ else
     # unpack the source tarball wherever you want it".
     #
     # https://docs.brew.sh/Installation#untar-anywhere-unsupported
+    # RED TEAM DMG #27 F3-1: both fetches below used to track a MOVING branch
+    # (brew tarball/main, install.sh at HEAD) with no checksum, and the second
+    # was piped straight into bash. Each is now pinned to a release tag or a
+    # commit and verified against a sha256 BEFORE anything is extracted or run;
+    # a mismatch fails the step (ERR-04 below) rather than running unknown code.
+    # To move a pin: change the tag/commit, download it once, and record its
+    # `shasum -a 256` here (tests/test_homebrew_bootstrap_is_pinned.sh).
+    # OSTLER_BREW_PINS_BEGIN
+    OSTLER_BREW_TAG="7.0.9"
+    OSTLER_BREW_TARBALL_SHA256="9fd47fcae0b34c1d57e8d1334e28778c72f8687584371d38fad04c28b1c11c72"
+    OSTLER_BREW_INSTALLER_COMMIT="7a3f48c7e498d7df3237fd41c30f4d492857edf4"
+    OSTLER_BREW_INSTALLER_SHA256="5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148"
+    # OSTLER_BREW_PINS_END
+    # _ostler_fetch_verified <url> <sha256> <dest>: download, then compare.
+    _ostler_fetch_verified() {
+        local _got
+        curl -fsSL "$1" -o "$3" 2>>"$BREW_INSTALL_LOG" || return 1
+        _got="$(/usr/bin/shasum -a 256 "$3" | awk '{print $1}')"
+        if [[ "$_got" != "$2" ]]; then
+            echo "FAIL: $1 has sha256 ${_got}, expected $2; not using it" >> "$BREW_INSTALL_LOG"
+            rm -f "$3"
+            return 1
+        fi
+        echo "verified sha256 of $1" >> "$BREW_INSTALL_LOG"
+    }
     if [[ "${OSTLER_GUI:-0}" == "1" ]] && [[ -d /opt/homebrew ]] && [[ -w /opt/homebrew ]]; then
         echo "Using manual tarball install (prefix is pre-chowned)" >> "$BREW_INSTALL_LOG"
-        curl -fsSL https://github.com/Homebrew/brew/tarball/main 2>>"$BREW_INSTALL_LOG" \
-            | tar xz --strip 1 -C /opt/homebrew 2>>"$BREW_INSTALL_LOG"
-        BREW_EXIT=${PIPESTATUS[0]:-0}
+        _brew_tgz="${OSTLER_DIAG_DIR}/homebrew-${OSTLER_BREW_TAG}.tar.gz"
+        BREW_EXIT=0
+        _ostler_fetch_verified "https://github.com/Homebrew/brew/archive/refs/tags/${OSTLER_BREW_TAG}.tar.gz" \
+            "$OSTLER_BREW_TARBALL_SHA256" "$_brew_tgz" || BREW_EXIT=1
+        if [[ $BREW_EXIT -eq 0 ]]; then
+            tar xzf "$_brew_tgz" --strip 1 -C /opt/homebrew 2>>"$BREW_INSTALL_LOG" || BREW_EXIT=1
+        fi
+        rm -f "$_brew_tgz"
         # If curl succeeded, validate via brew --version. If brew is
         # broken (bad tarball, missing files), this catches it.
         if [[ $BREW_EXIT -eq 0 ]]; then
@@ -13256,8 +13286,15 @@ else
         echo "Falling back to official installer: ${_brew_fallback_why}" >> "$BREW_INSTALL_LOG"
         echo "NOTE: the official installer aborts at have_sudo_access() even when no sudo is needed (CX-25)." >> "$BREW_INSTALL_LOG"
         unset _brew_fallback_why
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
-        BREW_EXIT=$?
+        _brew_inst="${OSTLER_DIAG_DIR}/homebrew-install-${OSTLER_BREW_INSTALLER_COMMIT}.sh"
+        if _ostler_fetch_verified "https://raw.githubusercontent.com/Homebrew/install/${OSTLER_BREW_INSTALLER_COMMIT}/install.sh" \
+                "$OSTLER_BREW_INSTALLER_SHA256" "$_brew_inst"; then
+            NONINTERACTIVE=1 /bin/bash "$_brew_inst" >> "$BREW_INSTALL_LOG" 2>&1  # the pinned Homebrew installer, non-interactive under OSTLER_GUI
+            BREW_EXIT=$?
+        else
+            BREW_EXIT=1
+        fi
+        rm -f "$_brew_inst"
     fi
     set -e
 
