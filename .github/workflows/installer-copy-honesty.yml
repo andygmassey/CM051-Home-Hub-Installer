@@ -1,0 +1,24 @@
+name: installer-copy-honesty
+
+# Installer copy must match behaviour: no "log attached" when it is only
+# copied to the clipboard, no "contact support" without an address, one
+# support address. Gate: scripts/verify_installer_copy_honesty.sh.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/**'
+      - 'install.sh'
+      - 'scripts/verify_installer_copy_honesty.sh'
+      - 'scripts/tests/test_installer_copy_honesty.sh'
+      - '.github/workflows/installer-copy-honesty.yml'
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Controls
+        run: bash scripts/tests/test_installer_copy_honesty.sh
+      - name: Gate
+        run: bash scripts/verify_installer_copy_honesty.sh
