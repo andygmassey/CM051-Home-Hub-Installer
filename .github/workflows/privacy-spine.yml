@@ -77,6 +77,11 @@ jobs:
         if: always()
         run: python3 tests/test_calendar_attendee_resolve_before_create.py
 
+      # DMG #27: the owner's own addresses (me card, Mail account, Sent From,
+      # sole To of delivered non-list mail) never become People. Never a domain.
+      - name: The owner's own addresses do not become People
+        if: always()
+        run: python3 tests/test_owner_addresses_are_not_people.py
       # DMG #27: machine senders (no-reply, calendar system, notification
       # domain, all-list mail) create no Person; a human who replied does.
       - name: Machine senders do not become People; a human who replied does

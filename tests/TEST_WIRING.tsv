@@ -180,6 +180,7 @@ test_cm048_reminder_title_has_no_iso_date.py	WIRED	.github/workflows/cm048-parti
 test_cm048_reminders_sidecar_never_reaches_the_body.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_third_party_facts_keep_their_subject.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_thread_key_matches_the_daemon.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-not-phone.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -247,10 +248,12 @@ test_dedupe_defer_background.sh	WIRED	.github/workflows/tests-unwired-sweep-al.y
 test_dedupe_deps_reach_the_consumer_venv.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_dedupe_heartbeat.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_dedupe_merge_enforces_rule_2.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
+test_dedupe_merge_name_tier_upward_only.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_digest_refreshes_when_the_interest_profile_lands.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_discord_claims_an_extracted_package.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
 test_dispatch_timing.sh	WIRED	.github/workflows/dispatch-timing.yml
@@ -401,6 +404,7 @@ test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-mem
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
 test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
+test_interest_card_says_what_and_where.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_interval_agents_are_quiesced_before_their_programs_move.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
@@ -440,6 +444,7 @@ test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers
 test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_nameless_filter_applies_to_the_hub_people_count.py	WIRED	.github/workflows/privacy-spine.yml
 test_new_cut_checks_what_preflight_checks.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -494,6 +499,8 @@ test_ostler_home_is_owner_only_on_every_path.sh	WIRED	.github/workflows/secrets-
 test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_ostler_import_exit_code_separates_misses_from_failures.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_ostler_import_owner_name_and_exit_code.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_owner_addresses_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
+test_owner_data_is_never_capped_at_storage.py	WIRED	.github/workflows/owner-data-never-capped.yml
 test_owner_digest_hydration_retries_5xx.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
@@ -582,6 +589,8 @@ test_runtime_ready_invariant.sh	WIRED	.github/workflows/consent-data-handling.ym
 test_runtime_ready_status_is_read_not_fatal.sh	WIRED	.github/workflows/colima-autostart.yml
 test_safari_extension_bearer_reaches_doctor.py	WIRED	.github/workflows/safari-extension-paired-bearer.yml
 test_safari_extension_paired_bearer_write.sh	WIRED	.github/workflows/safari-extension-paired-bearer.yml
+test_same_name_is_a_suggestion_not_a_merge.py	WIRED	.github/workflows/walk-defect-e-duplicate-evidence-guard.yml
+test_scale_fixture_forget.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_scale_gate_probes.sh	WIRED	.github/workflows/scale-gate-probes.yml
 test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-failure-is-loud.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
@@ -658,6 +667,7 @@ test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dm
 test_the_forward_calendar_window_survives_the_rerun.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_front_page_cards_only_real_interests.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_front_page_catch_up_survives_a_late_ingest.sh	WIRED	.github/workflows/writer-reader-vocabulary.yml
+test_the_front_page_catch_up_waits_out_hydration.sh	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_hub_app_can_record_card_feedback.py	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -796,6 +806,7 @@ test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_version_gate_refuses_a_tautology.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walk_driver_cancel_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_walk_driver_does_not_inherit_a_stale_result.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_driver_requires_a_completion_marker.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -807,11 +818,13 @@ test_walk_probes_bypass_a_local_proxy.sh	WIRED	.github/workflows/hub-screens-and
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
+test_walk_unpairs_its_synthetic_companion.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_whatsapp_keepalive_repairs_and_reports.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_wiki_baseline_background.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_wiki_compile_gets_owner_tz.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_compile_has_a_page_count_oracle.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
 test_wiki_compiler_gets_the_qdrant_key.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_wiki_compose_paths.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -899,6 +912,7 @@ scripts/tests/test_hint_coverage.sh	WIRED	.github/workflows/hint-coverage.yml
 scripts/tests/test_hydrate_contacts_timeout_arm.sh	WIRED	.github/workflows/consent-data-handling.yml
 scripts/tests/test_ingest_coverage_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_install_duration_honesty.sh	WIRED	.github/workflows/install-duration-honesty.yml
+scripts/tests/test_installer_copy_honesty.sh	WIRED	.github/workflows/installer-copy-honesty.yml
 scripts/tests/test_invocation_predicate_rejects_non_execution.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_invocation_predicate_sees_bare_python.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_new_tests_are_wired_predicate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml

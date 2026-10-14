@@ -53,6 +53,29 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
 
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
 
+# >>> owner-tz (CM044 compiled timestamps are owner-local; see compiler/local_time.py)
+# Prints the Mac's IANA zone (e.g. Asia/Hong_Kong) from the /etc/localtime
+# symlink. Missing/unreadable/odd target -> prints NOTHING and says so on
+# stderr; the wiki then labels its times "UTC" rather than passing UTC off as
+# local. Re-derived every call because the owner may travel.
+ostler_owner_tz() {
+    local link="${1:-/etc/localtime}" target zone
+    if ! target="$(readlink "$link" 2>/dev/null)" || [[ -z "$target" ]]; then
+        echo "owner-tz: cannot read zone from $link; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    zone="${target#*zoneinfo/}"
+    if [[ "$zone" == "$target" || -z "$zone" || ! "$zone" =~ ^[A-Za-z0-9_+/-]+$ ]]; then
+        echo "owner-tz: unrecognised zone target '$target'; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    printf '%s\n' "$zone"
+}
+# <<< owner-tz
+
+OSTLER_TZ="$(ostler_owner_tz)"
+export OSTLER_TZ
+
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }

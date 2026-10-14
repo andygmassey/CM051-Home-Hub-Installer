@@ -284,6 +284,23 @@ while IFS='|' read -r kind target pattern desc; do
         info "the daemon tag predates this fix; re-tag from a main HEAD that contains it"
       fi
       ;;
+    assistant_tag_absent)
+      # The mirror of assistant_tag_grep: `target` must NOT exist in the exact
+      # tag the daemon is built from (e.g. a broken vendored file a fix
+      # deleted). Pair every row with an assistant_tag_grep on a sibling file,
+      # so a mistyped path cannot pass by being absent everywhere.
+      if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
+        cannot "assistant_tag_absent ${target} :: ostler-assistant checkout absent at ${ASSISTANT_DIR} -- this check observed nothing (${desc})"; continue
+      fi
+      if [[ -z "${DAEMON_TAG}" ]] || ! git -C "${ASSISTANT_DIR}" rev-parse -q --verify "${DAEMON_TAG}^{commit}" >/dev/null 2>&1; then
+        red "assistant_tag_absent ${target} :: no readable tag for pin '${DAEMON_PIN}' (${desc})"; continue
+      fi
+      if git -C "${ASSISTANT_DIR}" cat-file -e "${DAEMON_TAG}:${target}" 2>/dev/null; then
+        red "assistant_tag_absent ${DAEMON_TAG}:${target} PRESENT -- STALE DAEMON SOURCE (${desc})"
+      else
+        green "assistant_tag_absent ${DAEMON_TAG}:${target} absent (${desc})"
+      fi
+      ;;
     wiki_image_grep)
       # Verify a fix is baked into the PINNED wiki Docker image digest the cut
       # actually ships (install.sh `image: ghcr.io/...@sha256:...`). This closes
