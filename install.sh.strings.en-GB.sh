@@ -406,6 +406,10 @@ MSG_OK_CONTAINER_ENGINE_ANSWERED="Container runtime responding"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item left by an older version"
 MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
+MSG_OK_AT_REST_EXCLUDED="Kept out of Spotlight and Time Machine (checked): %s"
+MSG_WARN_AT_REST_NOT_EXCLUDED="%s is NOT excluded from Time Machine or Spotlight: %s. Its contents, including Ostler's secrets, may be copied to your backup disk. The Doctor will keep showing this until it is fixed."
+MSG_INFO_AT_REST_FOLDER_ABSENT="%s does not exist yet, so there is nothing to exclude from backups."
+MSG_WARN_DB_KEY_NOT_EXCLUDED="The database key file %s is NOT excluded from Time Machine, so it may be copied to your backup disk."
 MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enrichment choice to ~/.ostler/posture/. Your choice is still being applied to this install; it simply will not appear in a support report."
 # The old text read "Databases encrypted. Passphrase required at each
 # startup." Both halves were false. Nothing delivered the key to the
