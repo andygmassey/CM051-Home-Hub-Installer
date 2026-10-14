@@ -27,6 +27,7 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
       - 'tests/_fake_oxigraph.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
@@ -37,6 +38,7 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
       - 'tests/_fake_oxigraph.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
@@ -169,3 +171,14 @@ jobs:
             exit 1
           fi
           python -m pytest vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py -v
+      - name: Person view, timeline, forget, memory/assert, decisions, speakers and birthdays follow merges (walk #27)
+        if: always()
+        run: |
+          T=vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
+          n="$(python -m pytest "$T" --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 10 ]; then
+            echo "REFUSING: expected at least 10 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest "$T" -v

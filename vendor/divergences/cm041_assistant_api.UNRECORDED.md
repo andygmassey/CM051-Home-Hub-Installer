@@ -1102,3 +1102,24 @@ Review round 1: the SPARQL LIMIT is 50 ROWS and the cap of 5 applies to
 PEOPLE after the dedupe, so one survivor's merged-away names cannot crowd the
 asked-for person out (`test_retired_names_do_not_crowd_out_the_target`: red
 on the 5-row cap, green after).
+
+## One merge-aware person resolver for every slug- and name-keyed read (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- New helpers beside `person_context`: `_LIVE_TERMINUS_SPARQL`,
+  `_merge_aware_name_rows`, `_rank_name_rows`, `_resolve_person_by_slug`,
+  `_resolve_person_by_exact_name`, `_merged_cluster`.
+- Callers moved onto them: `person_enrichment`, `person_timeline`,
+  `api_people_forget` (now erases the survivor and every node merged into it,
+  tombstones the whole cluster's identifiers, deletes Qdrant points for the
+  cluster, and reports `nodes_erased`), `_resolve_person_uri_by_name`
+  (memory/assert), `decisions_list` (about=slug matches decisions filed on
+  any merged node), `_speaker_directory_rows`, and `people_birthdays` (one
+  entry per live person URI instead of a dedupe by name; adds `person_uri`).
+- Why: walk #27 (Mini16) has 1079 mergedInto subjects, 145 of them still
+  typed `pwg:Person`; each of these reads could land on the dead duplicate,
+  and birthdays listed 48 two-named people twice.
+- No patch: same refusal as the entries above (the pin cannot be regenerated
+  without folding in unrelated work). Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py`.
