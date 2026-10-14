@@ -25,6 +25,7 @@ on:
       - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
+      - 'tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py'
       - 'tests/test_hub_interest_card_shows_a_handle_as_at_handle.py'
       - 'tests/test_hub_screens_real_person_name_never_printed.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
@@ -138,6 +139,9 @@ jobs:
         # vendored copy, not upstream CM059 -- the two disagreed.
         if: always()
         run: python3 tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
+      - name: The vendored Front Page holds back consent cards (no card without a working action)
+        if: always()
+        run: python3 tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py
       - name: A real person's name never reaches the screens probe's output or record (DMG #23)
         if: always()
         run: python3 tests/test_hub_screens_real_person_name_never_printed.py
