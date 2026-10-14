@@ -71,12 +71,21 @@ class PreferenceFilter:
     # the count and dilute genuine taste signals, so we drop them here.
     DROP_CATEGORIES = {"social"}
 
-    # Per-source preference cap. A single noisy export (tens of thousands of
-    # Facebook reactions, say) must not crowd out high-signal preferences from
-    # every other source. When a source exceeds this many UNIQUE preferences,
-    # the lowest-priority categories are trimmed first (see CATEGORY_PRIORITY).
-    # No row is dropped silently: every trimmed row is logged (see cap_by_source).
-    MAX_PREFS_PER_SOURCE = 5000
+    # Per-source preference STORAGE cap: None = NO CAP (CM051 #28, Andy
+    # 2026-10-14: "That's not good enough. Need everything.").
+    #
+    # This used to be 5000. It stored at most 5000 preferences per source and
+    # dropped the rest, so an owner's 12,000-track library kept 5000 and a
+    # large Spotify history kept 5000, logged and gone. The concern it answered
+    # (one noisy export crowding out every other source) is a RANKING concern,
+    # not a storage one, and the ranking is kept: cap_by_source still orders
+    # each source high-signal first (category priority, then strength, which
+    # carries play count and recency, then frequency), so the most-played
+    # still lead every read that takes a head. Nothing is dropped.
+    #
+    # An integer here restores a cap (operator override only); nothing in the
+    # shipped tree sets one.
+    MAX_PREFS_PER_SOURCE = None
 
     # Category priority for the per-source cap. LOWER rank = higher signal =
     # kept first when the cap bites. Deliberate follows and declared interests
@@ -277,13 +286,22 @@ class PreferenceFilter:
         # Source-agnostic belt-and-braces gate added in v1.0.11: this is the
         # single chokepoint every parser's output passes through, so it stops
         # the junk regardless of which upstream produced it.
-        if self.is_non_preference_shape(subject):
+        if self.is_non_preference_shape(subject, category=pref.category):
             self.stats["filtered_non_preference"] += 1
             return True
 
         return False
 
-    def is_non_preference_shape(self, subject: str) -> bool:
+    # Categories whose subject is a structured title from a player library or
+    # play history ("Artist - Title"), never free text. The prose gates (word
+    # count, boilerplate phrases) dropped real tracks: a classical work runs
+    # past 12 words ("Composer - Symphony No. 9 in D minor, Op. 125: IV. ..."),
+    # and a song can be called "Click Here" or "Your Order". CM051 #28: the
+    # owner's whole library is kept. The artifact checks (Re:/Fwd:, an email
+    # address, a URL) still apply.
+    _STRUCTURED_TITLE_CATEGORIES = frozenset({"music"})
+
+    def is_non_preference_shape(self, subject: str, category=None) -> bool:
         """Return True if ``subject`` is a shape that is never a genuine taste.
 
         Rejects email subject-line artifacts (``Re:`` / ``Fwd:`` prefixes,
@@ -312,6 +330,9 @@ class PreferenceFilter:
             return True
         if self._URL_RE.search(text):
             return True
+
+        if (category or "").strip().lower() in self._STRUCTURED_TITLE_CATEGORIES:
+            return False
 
         # Transactional / notification boilerplate.
         for marker in self._TRANSACTIONAL_MARKERS:
@@ -708,8 +729,9 @@ class PreferenceFilter:
         kept: List[ParsedPreference] = []
         capped_log: List[Dict[str, str]] = []
 
+        cap = self.MAX_PREFS_PER_SOURCE
         for source, prefs in by_source.items():
-            if len(prefs) <= self.MAX_PREFS_PER_SOURCE:
+            if cap is not None and len(prefs) <= cap:
                 kept.extend(prefs)
                 continue
 
@@ -729,8 +751,13 @@ class PreferenceFilter:
                 )
 
             ranked = sorted(prefs, key=_sort_key)
-            survivors = ranked[: self.MAX_PREFS_PER_SOURCE]
-            trimmed = ranked[self.MAX_PREFS_PER_SOURCE :]
+            if cap is None:
+                # No storage cap: keep EVERY row, in ranked order, so the
+                # high-signal, most-played head is still written first.
+                kept.extend(ranked)
+                continue
+            survivors = ranked[:cap]
+            trimmed = ranked[cap:]
             kept.extend(survivors)
 
             trimmed_by_category: Dict[str, int] = {}

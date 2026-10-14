@@ -499,6 +499,7 @@ test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.y
 test_ostler_import_exit_code_separates_misses_from_failures.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_ostler_import_owner_name_and_exit_code.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_owner_addresses_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
+test_owner_data_is_never_capped_at_storage.py	WIRED	.github/workflows/owner-data-never-capped.yml
 test_owner_digest_hydration_retries_5xx.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml

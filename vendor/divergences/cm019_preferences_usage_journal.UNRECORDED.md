@@ -215,5 +215,38 @@ Test: `tests/test_music_services_score_on_one_scale.py`.
 every music preference came from Spotify. Test:
 `tests/test_apple_music_library_reader.py` (parser scale, registry order, and
 an additive-only ingest against recording fake stores).
+## No per-source storage cap (CM051 #28, Andy 2026-10-14: "Need everything.")
+
+**File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
+- `PreferenceFilter.MAX_PREFS_PER_SOURCE`: 5000 -> `None` (no cap).
+- `cap_by_source()`: with no cap, every source is still RANKED (category
+  priority, strength, frequency) and returned WHOLE, empty trim log. An integer
+  restores the old trimming (operator override only; nothing ships one).
+- `is_non_preference_shape(subject, category=None)`: `category` in the new
+  `_STRUCTURED_TITLE_CATEGORIES` (`music`) skips the prose gates (more than
+  `_MAX_PREFERENCE_WORDS` = 12 words, and the boilerplate phrases); the
+  Re:/Fwd:, email-address and URL checks still apply. `is_low_value` passes
+  `pref.category`. A classical work's "Composer - Symphony No. 9 ..." title
+  ran past 12 words and was dropped as prose.
+- `parsers/discord.py` (channels `most_common(20)`, games `(15)`, link
+  domains `(10)`), `parsers/whatsapp.py` (contacts `(20)` and `(10)`, topic
+  keywords `(15)`), `parsers/pinterest.py` (followees `[:50]`): every item
+  above the existing evidence floor is yielded, no top-N. The floors (e.g. 10
+  messages for a channel) are unchanged.
+- `tail_queue.py` (NEW) + `pipeline.py` `_queue_tail` (called right after
+  `cap_by_source` on both aggregation paths) + `cli.py` `ingest-tail` (NEW):
+  when the caller sets `OSTLER_PREFS_FOREGROUND_PER_SOURCE` and
+  `OSTLER_PREFS_TAIL_QUEUE` (install.sh does, for the install import only),
+  the first N ranked rows per source are stored now and the rest are queued
+  as JSONL (ids and created_at preserved) for `ingest-tail`, run by
+  `ostler-scan-exports` (com.ostler.export-scan). Resumable per-file
+  checkpoint, idempotent rewrites; an unwritable queue stores everything now.
+- Callers unchanged: `pipeline.py` `ingest_file_with_aggregation` and
+  `_ingest_directory_with_aggregation` (both call `cap_by_source`).
+
+**Why:** 5000 per source was a storage cap on the owner's data. Mini16,
+2026-10-14 (read-only scroll of `preferences`, 40,320 points): `netflix` 5000,
+`apple` 5000, `csv` 5001. Tests: `tests/test_owner_data_is_never_capped_at_storage.py`,
+`tests/test_pref_noise_source_cap.py` (updated: all rows kept, head first).
 
 **Upstream status:** not ported; owed to personal-world-graph `services/ingest`.
