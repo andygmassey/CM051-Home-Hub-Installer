@@ -61,7 +61,7 @@ MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="Questions done. Ostler now installs i
 MSG_INFO_AND_RE_RUN_OSTLER_FDA="and re-run: ostler-fda"
 MSG_INFO_ASSISTANT_FINAL_RESTART_FDA="Restarting the assistant so it can use Full Disk Access to read your Messages history. A restart is what makes a just-granted permission take effect; if you have not granted it yet, the Doctor dashboard will keep guiding you."
 MSG_OK_ASSISTANT_RUNNING_WITH_FDA="Your assistant is running and has Full Disk Access, so it can read the files it needs."
-MSG_WARN_ASSISTANT_RUNNING_WITHOUT_FDA="Your assistant is running, but it does NOT have Full Disk Access yet, so it cannot read your Messages history or the files in your Documents folder. It will keep working for everything else. The Doctor dashboard will guide you through granting it."
+MSG_WARN_ASSISTANT_RUNNING_WITHOUT_FDA="Your assistant is running, but it does not have Full Disk Access yet. Until you turn it on, Ostler cannot keep Messages, Mail, Calendar, Reminders, Notes, Photos, Safari, Contacts or WhatsApp up to date, and cannot read your Documents folder. Anything it has already read stays. The Doctor dashboard will guide you through turning it on."
 MSG_INFO_ASSISTANT_FDA_UNVERIFIED="Your assistant is running. We could not check whether it has Full Disk Access on this Mac, so this is not a confirmation either way. The Doctor dashboard will tell you once it can look."
 MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL="Apple Mail accounts visible: %s (informational)"
 MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD="Apple Mail does not appear to hold any local messages yet. Doctor will surface a follow-up if no mail arrives within 24 hours."
@@ -190,9 +190,9 @@ MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE="This part needs you for about 
 # "Ostler is already listed" while the row said OstlerAssistant, so the
 # customer went hunting in Finder for a row this line says is there.
 MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="\"%s\" is already listed in Full Disk Access, so you can just switch it on. No need to drag anything from Finder."
-MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant can read your Messages history..."
+MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant has Full Disk Access..."
 MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="Assistant can read Messages history; iMessage channel will work."
-MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="Assistant cannot read Messages history yet. The Doctor dashboard will show a card guiding you through System Settings."
+MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="The Ostler assistant does not have Full Disk Access yet. It needs it to keep your Mac's own apps up to date, Messages or not. If you skip it now, the Doctor dashboard will guide you through System Settings."
 MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON="Assistant LaunchAgent did not load; skipping the iMessage Full Disk Access probe."
 MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE="Import-Evernote UI in Doctor will surface a 'service unavailable'"
 MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="Import pipeline not bundled with installer."
@@ -1107,7 +1107,7 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
 MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +447700900123. Digits and a leading + only – no spaces, brackets or dashes."
 MSG_INFO_WHATSAPP_NUMBER_NORMALISED="Stored as %s. WhatsApp needs the number without spaces or brackets."
 
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Turn on Full Disk Access for the Ostler assistant"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
 # Both branches rewrote these three lines and they made DIFFERENT claims
 # about what happens after Done. Resolved against the CODE, not by
