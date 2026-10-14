@@ -1166,3 +1166,17 @@ Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
 in one busy hour; a retry run in that hour joins the same model queue.
 CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
 extends), or the next re-sync of this tree reverts it.
+
+## cm041/assistant_api: Forget says done only when both stores are purged (walk #28, sweep V17)
+
+`vendor/cm041/assistant_api/ical-server.py`, `api_people_forget`:
+- `forgotten:true` / 200 only when Oxigraph AND Qdrant were purged; otherwise
+  503 with `stores_remaining` and `retry:true`. A Qdrant 404 (no `people`
+  collection) counts as purged: nothing is held.
+- the audit line behind "already forgotten" moved out of
+  `_queue_wiki_recompile` (also called by memory/assert and the not-found
+  branch) into `_record_forget_audit`, called only after a complete purge.
+- an unreadable tombstone is named in `reason` via `forget_tombstone.problem()`.
+- the recompile is queued only when the graph half went.
+Guarded by `vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+Upstream CM041 mirror OWED, or the next re-sync of this tree reverts it.

@@ -168,6 +168,7 @@ def _warn_plaintext_once(db_path: str) -> None:
     )
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -2890,8 +2891,23 @@ def _queue_wiki_recompile(slug):
     try:
         _RECOMPILE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
         (_RECOMPILE_QUEUE_DIR / "wiki_recompile_pending").touch()
-        # Per-slug audit line for debug. Append-only, never rotated by
-        # us. The OS log rotator handles that if customer wires one.
+        return True
+    except OSError:
+        return False
+
+
+def _record_forget_audit(slug):
+    """Append ``<utc> forget <slug>`` to forget_audit.log. True when written.
+
+    ONLY api_people_forget calls this, and only after BOTH stores were
+    purged. It used to live inside _queue_wiki_recompile, which memory/assert
+    and a failed or not-found forget also call, so a slug that had never been
+    erased could later be answered "already forgotten" with nothing purged
+    (status-honesty sweep V17). The line is the evidence of a real erasure,
+    so it is written only when there was one.
+    """
+    try:
+        _RECOMPILE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
         audit = _RECOMPILE_QUEUE_DIR / "forget_audit.log"
         with audit.open("a", encoding="utf-8") as f:
             f.write(f"{datetime.utcnow().isoformat()}Z forget {slug}\n")
@@ -2912,9 +2928,9 @@ def _forget_audit_has(slug):
     and an unreadable log must not be allowed to produce the reassuring
     answer. See the branch in api_people_forget.
 
-    The writer is _queue_wiki_recompile, a few lines above: it appends
-    ``<utc> forget <slug>`` on every call. Reader and writer are kept
-    adjacent on purpose.
+    The writer is _record_forget_audit, a few lines above: it appends
+    ``<utc> forget <slug>`` only after a forget purged both stores. Reader
+    and writer are kept adjacent on purpose.
     """
     try:
         audit = _RECOMPILE_QUEUE_DIR / "forget_audit.log"
@@ -3083,10 +3099,16 @@ def api_people_forget(slug):
             id_values,
             display_name=forget_name,
         )
+        if not tombstone_written:
+            # An unreadable tombstone file is left in place (it keeps every
+            # syncer fail-closed) and is never overwritten. Say so by name.
+            why = forget_tombstone.problem()
+            if why:
+                degraded_reasons.append(why)
     except Exception as exc:  # never block the erasure on the tombstone
         degraded_reasons.append(f"tombstone_failed: {exc}")
     if not tombstone_written and not any(
-        r.startswith("tombstone_failed") for r in degraded_reasons
+        r.startswith(("tombstone_failed", "tombstone_unreadable")) for r in degraded_reasons
     ):
         degraded_reasons.append("tombstone_failed: could not write the tombstone file")
 
@@ -3136,25 +3158,53 @@ def api_people_forget(slug):
         )
         urllib.request.urlopen(req, timeout=30)
         stores_purged.append("qdrant")
+    except urllib.error.HTTPError as exc:
+        # 404 is Qdrant saying the `people` collection does not exist. A Mac
+        # that never created it holds no vectors for anyone, so there is
+        # nothing to purge: a measured empty, not a failed delete. Every
+        # other status is a failure.
+        if exc.code == 404:
+            stores_purged.append("qdrant")
+        else:
+            degraded_reasons.append(f"qdrant_delete_failed: {exc}")
     except Exception as exc:
         degraded_reasons.append(f"qdrant_delete_failed: {exc}")
 
-    queued = _queue_wiki_recompile(slug)
+    # DONE MEANS BOTH STORES. This used to answer forgotten:true / 200 when
+    # EITHER store was purged, so a failed graph delete (or a failed vector
+    # delete) was reported to the customer as an erasure while their records
+    # were still on the Mac (status-honesty sweep V17). Now a partial purge is
+    # a 503 naming what remains, and the call is safe to retry: each half is
+    # idempotent and the cluster is re-resolved from the graph.
+    remaining = [s for s in ("oxigraph", "qdrant") if s not in stores_purged]
+    forgotten = not remaining
 
-    forgotten = bool(stores_purged)
+    # The wiki page is compiled from the graph, so a recompile is worth
+    # queueing whenever the graph half went, complete or not.
+    queued = _queue_wiki_recompile(slug) if "oxigraph" in stores_purged else False
+    if forgotten:
+        # The "already forgotten" answer on a later call reads this line, so
+        # it is written only for a real, complete erasure.
+        if not _record_forget_audit(slug):
+            degraded_reasons.append("forget_audit_not_written")
+
     response = {
         "forgotten": forgotten,
         "wiki_recompile_queued": queued,
         "stores_purged": stores_purged,
         "tombstone_written": tombstone_written,
-        "nodes_erased": len(cluster),
+        "nodes_erased": len(cluster) if forgotten else 0,
     }
+    if remaining:
+        response["stores_remaining"] = remaining
+        response["retry"] = True
     if degraded_reasons:
         response["degraded"] = True
         response["reason"] = "; ".join(degraded_reasons)
 
-    # 200 if at least one store was purged, 503 if both failed (so the
-    # iOS Companion shows the gatewayError banner per PR #90 contract).
+    # 200 only when both stores were purged; 503 otherwise, so the iOS
+    # Companion shows its gatewayError banner (PR #90 contract) and the
+    # customer can try again, instead of being told it is done.
     status_code = 200 if forgotten else 503
     return response, status_code
 

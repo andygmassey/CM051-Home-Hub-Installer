@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO / "tests"))
 sys.path.insert(0, str(HERE))
 
 from _fake_oxigraph import FakeOxigraph  # noqa: E402
+from _fake_qdrant import FakeQdrant  # noqa: E402
 from test_people_list_endpoint import server  # noqa: E402  (loads ical-server.py with its stubs)
 
 B = "urn:test:person:"
@@ -85,8 +86,10 @@ class _Base(unittest.TestCase):
         self.ox.update(_triples())
         self._saved = (server.OXIGRAPH_URL, server.QDRANT_URL, server._RECOMPILE_QUEUE_DIR)
         server.OXIGRAPH_URL = self.ox.url
-        # Unreachable on purpose: Qdrant is not under test here.
-        server.QDRANT_URL = "http://127.0.0.1:9"
+        # Qdrant is not under test here, but forget reports done only when
+        # BOTH stores were purged, so it must accept the delete.
+        self.qd = FakeQdrant()
+        server.QDRANT_URL = self.qd.url
         self.tmp = tempfile.TemporaryDirectory()
         server._RECOMPILE_QUEUE_DIR = Path(self.tmp.name) / "queue"
         self._env = {k: os.environ.get(k) for k in (
@@ -102,6 +105,7 @@ class _Base(unittest.TestCase):
             else:
                 os.environ[k] = v
         self.ox.close()
+        self.qd.close()
         self.tmp.cleanup()
 
 

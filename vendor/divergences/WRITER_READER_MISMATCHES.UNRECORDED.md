@@ -1205,3 +1205,14 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+
+---
+
+## ostler_fda: forget_tombstone.py kept byte-identical with cm041/identity_resolver (walk #28, sweep V22)
+
+`vendor/ostler_fda/forget_tombstone.py` takes the same change as the
+cm041/identity_resolver copy: an unreadable tombstone file is never
+overwritten (left in place, bytes copied aside, `record()` returns False), and
+`problem()` names it. The two copies are asserted byte-identical by
+`vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
