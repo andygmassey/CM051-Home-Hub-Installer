@@ -422,3 +422,26 @@ def test_measured_overhead_per_item(oc):
     print(f"\n[overhead] {N_ITEMS} items in {dt:.2f}s = {per_item_ms:.3f} ms/item (ledger commit + bookkeeping)")
     assert len(sink) == N_ITEMS
     assert per_item_ms < 50, f"{per_item_ms:.1f} ms of bookkeeping per item"
+
+
+def test_an_adapter_that_cannot_find_its_edge_does_not_stop_the_others(oc):
+    class Broken(oc.Adapter):
+        source = "broken"
+
+        def start_cursor(self):
+            raise OSError("database unreadable")
+
+        def next_batch(self, cursor, limit):  # pragma: no cover
+            raise AssertionError("unreachable")
+
+        def key(self, item):  # pragma: no cover
+            return str(item)
+
+        def process(self, item):  # pragma: no cover
+            return True
+
+    sink = {}
+    good = _make_adapter(oc, sink, n=300)
+    s = oc.run([Broken(), good], budget_seconds=1e9, busy=lambda: None)
+    assert s["sources"]["broken"]["reason"] == "read_failed:OSError"
+    assert s["sources"]["fx"]["complete"] and len(sink) == 300

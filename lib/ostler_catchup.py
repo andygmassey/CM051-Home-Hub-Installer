@@ -411,8 +411,10 @@ def run(
                 if why:
                     stop = "busy:" + why
                     break
-                cursor = wm.cursor if wm.has_cursor else a.start_cursor()
                 try:
+                    # start_cursor is inside the guard too: an adapter that
+                    # cannot even find its edge must not end the whole tick.
+                    cursor = wm.cursor if wm.has_cursor else a.start_cursor()
                     batch = a.next_batch(cursor, max(1, int(a.batch_size or DEFAULT_BATCH_SIZE)))
                 except Exception as exc:  # noqa: BLE001 - one source never stops the others
                     logger.warning("catch-up %s: reading the next batch failed (%s)",
