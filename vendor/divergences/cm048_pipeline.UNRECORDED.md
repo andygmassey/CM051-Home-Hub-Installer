@@ -251,3 +251,45 @@ The three edits above, byte-identical normalisation to the Rust
 `tests/test_cm048_thread_key_matches_the_daemon.py` (computed from oa
 644b6137; the regeneration command is in that file's docstring).
 Upstream CM048 needs the same change.
+
+
+## A gateway chat's assistant turns are not extracted about the owner (CM051 v1.0.107 F&F blocker, Mini16 #27)
+
+Tree `cm048_pipeline`, file `src/processor.py`:
+
+- new `_is_gateway_conversation`, `_gateway_assistant_labels`,
+  `_owner_turns_only` and `_extraction_transcript`, plus `import re`;
+- `_step_facts` passes the raw transcript through `_extraction_transcript`
+  before building the 05 prompt;
+- `_step_enrich` passes its transcript through `_extraction_transcript`
+  before chunking and building the 02 prompts;
+- `_step_bundle` passes `_extraction_transcript(transcript, metadata)` to
+  `bundle_extractor.extract`. The `transcript` handed to
+  `channel_adapter.make_bundle` (the rendered transcript artefact) is
+  unchanged, as is `00_raw_transcript.md`.
+
+WHY: a gateway conversation (metadata `source: gateway`, provenance
+`source_kind: zeroclaw_gateway`, ids `zg-*`) is the owner chatting with their
+own assistant. Fact extraction read the whole transcript, so the assistant's
+replies, guesses and test-persona answers included, were extracted as facts
+with subject=user and chat repeated them back. Measured by Archie on the box:
+66 gateway facts, 45 subject=user, 15 located only in Assistant turns, 0 of
+those in User turns. Turns are identified from the producer's structure
+(CM052 `wire.render_transcript`: one `**<label>:**` header per message), and
+only headers naming a real speaker open a turn.
+
+SHARED INPUT, DECIDED: the bundle's summary, topics and todos come from ONE
+LLM call on one input, so for gateway all three read the owner's turns only.
+Chosen over leaving the bundle unfiltered because its topics are written into
+the graph (`topic_writer`) where the assistant's topics tool reads them back,
+which is the same defect class. `_step_enrich` (step 02) reads the same
+filtered transcript (Archie, #2865 review): its Action items table becomes the
+`outstanding_todos` sidecar and its text seeds the step 09 topics, so an
+unfiltered enrichment would carry an assistant guess into both.
+
+Not attempted against the regeneration tool: this tree is `verify = "skip"`,
+see the first section. Guarded by
+`tests/test_cm048_gateway_extracts_owner_turns_only.py`, wired into
+`.github/workflows/cm048-participants-as-strings.yml`. Upstream: no CM048 PR
+opened with this graft (the gate does not require one); an upstream mirror is
+owed before this tree is re-pinned, or a re-pin deletes the fix.
