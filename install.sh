@@ -23882,7 +23882,7 @@ fi
 # Disk Access), and never removes itself.
 #
 # CHEAP WHEN NOTHING CHANGED. Each tick first reads a signature of the store
-# (row counts and Core Data change counters). Only a changed signature re-runs
+# (row counts and the store's own change counters). Only a changed signature re-runs
 # the syncer, which is idempotent (it dedupes by identity).
 #
 # EVERY OUTCOME IS RECORDED, and none of them is a guess:
@@ -23929,7 +23929,7 @@ if [[ -z "$PY" ]]; then
     exit 1
 fi
 
-# The signature, and the refusal test. Listing Sources/ and opening each
+# The signature, and the refusal test. Reading the Sources/ folder and opening each
 # store is exactly what the syncer does, so a refusal here is a refusal there.
 probe="$("$PY" -c '
 import hashlib, json, os, sqlite3
