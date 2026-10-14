@@ -1102,3 +1102,67 @@ Review round 1: the SPARQL LIMIT is 50 ROWS and the cap of 5 applies to
 PEOPLE after the dedupe, so one survivor's merged-away names cannot crowd the
 asked-for person out (`test_retired_names_do_not_crowd_out_the_target`: red
 on the 5-row cap, green after).
+
+## One merge-aware person resolver for every slug- and name-keyed read (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- New helpers beside `person_context`: `_LIVE_TERMINUS_SPARQL`,
+  `_merge_aware_name_rows`, `_rank_name_rows`, `_resolve_person_by_slug`,
+  `_resolve_person_by_exact_name`, `_merged_cluster`.
+- Callers moved onto them: `person_context` (its UNION replaced by the shared fragment; the plain `a pwg:Person` arm also returned merged duplicates), `person_enrichment`, `person_timeline`,
+  `api_people_forget` (now erases the survivor and every node merged into it,
+  tombstones the whole cluster's identifiers, deletes Qdrant points for the
+  cluster, and reports `nodes_erased`), `_resolve_person_uri_by_name`
+  (memory/assert), `decisions_list` (about=slug matches decisions filed on
+  any merged node), `_speaker_directory_rows`, and `people_birthdays` (one
+  entry per live person URI instead of a dedupe by name; adds `person_uri`).
+- Why: walk #27 (Mini16) has 1079 mergedInto subjects, 145 of them still
+  typed `pwg:Person`; each of these reads could land on the dead duplicate,
+  and birthdays listed 48 two-named people twice.
+- No patch: same refusal as the entries above (the pin cannot be regenerated
+  without folding in unrelated work). Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py`.
+## Filter and group before the cap, never after it (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- `api_browsing_search`: reads every page of `safari_history` (only the
+  fields the filter and the item need) before the keyword filter, instead of
+  5 pages of 1000 in point-id order. `_BROWSING_SCAN_MAX_PAGES` (200) is a
+  runaway guard; reaching it adds `truncated` and `scanned` to the response.
+- `people_recent`: one row per attendee (`MAX(?date)` grouped by person,
+  merged nodes excluded) with no row cap; the screens run over people and
+  `limit` caps the people that pass. Was `LIMIT limit*3` over meeting x
+  attendee rows.
+- `people_stale`: pages every stale point (`_STALE_SCAN_MAX_PAGES`) instead
+  of the first max(limit*5, limit+20) in id order; the recheck queries are
+  batched by 500.
+- `_timeline_conversations`: reads the whole `conversations` collection
+  instead of stopping at limit*4 points.
+- Why: walk #27, about 43% of 8714 browsing visits unfindable, and "who did I
+  meet recently" returning one person in a busy week.
+- No patch: same refusal as the entries above. Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_filter_before_limit.py`.
+
+## The automatic conversation retry waits for a quiet machine (CM051, 2026-10-14, walk #27)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`
+(and its test `tests/test_failed_conversation_auto_retry.py`).
+`scripts/regenerate_divergence_patch.sh cm041/assistant_api --write` with
+`CM041=~/Developer/CM041-People-Graph` REFUSED (exit 1, PII-shaped content on
+the patch, pattern `+1[[...`), so this edit is recorded here.
+
+- NEW constant `CONVERSATION_RETRY_MAX_LOAD_PER_CORE = 0.75`, after
+  `CONVERSATION_RETRY_TIMEOUT_SECONDS`;
+- NEW `_conversation_retry_busy_reason()` before `_conversation_retry_sweep`:
+  "processing" while any first dispatch is in `_CONVERSATIONS_IN_FLIGHT`,
+  "load" when the 1-minute load average per core is over the constant;
+- `_conversation_retry_sweep` gains a `busy` count and returns before
+  selecting anything when the machine is busy, so no attempt and no sidecar
+  is spent.
+
+Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
+in one busy hour; a retry run in that hour joins the same model queue.
+CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
+extends), or the next re-sync of this tree reverts it.

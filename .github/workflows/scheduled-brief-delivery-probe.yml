@@ -1,0 +1,34 @@
+name: scheduled brief delivery probe
+
+# Walk #27: the morning brief run said `ok` and chat.db held nothing near it,
+# so brief DELIVERY was not instrumented. The walk probe
+# scheduled_brief_reaches_messages joins each ok run to the daemon's own
+# delivery= line and to an assistant-marked chat.db row, and must be able to
+# say PASS, FAIL and CANNOT-RUN, each for its own reason, while writing nothing.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/lib/brief_delivery_probe.py'
+      - 'scripts/box_walk_probes/probes/scheduled_brief_reaches_messages.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'tests/test_scheduled_brief_probe.sh'
+      - '.github/workflows/scheduled-brief-delivery-probe.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  scheduled-brief-delivery-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: PASS, FAIL and CANNOT-RUN each for its own reason, read-only, self-test goes red
+        run: /bin/bash tests/test_scheduled_brief_probe.sh

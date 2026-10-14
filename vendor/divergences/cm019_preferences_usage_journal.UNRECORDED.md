@@ -170,3 +170,84 @@ red over a fully successful import. Tests:
 Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
 
 **Upstream status:** not ported; owed to personal-world-graph `services/enrich`.
+
+## Apple Music library parser (CM051, walk #27, 2026-10-14)
+
+**Files:**
+- `vendor/cm019_preferences/services/ingest/src/parsers/apple_music_library.py` (NEW):
+  `AppleMusicLibraryParser`, source `apple_music`, claims only the exact file
+  name `ostler_apple_music_library.json` written by `ostler_fda.apple_music`.
+  One `music` preference per library track, subject `Artist - Title`, base
+  strength from the SAME constants `parsers/spotify.py` uses for the same
+  evidence (dislike -0.45, star map, loved 0.40, user playlist 0.30, played or
+  in library 0.10). Play count, skips, last played and date added ride in
+  `extra` / `observed_at`.
+- `parsers/__init__.py`: imports and exports it.
+- `pipeline.py`: imports it and lists it FIRST in `self.parsers` (exact-name
+  match, so it cannot shadow another parser).
+
+**Why:** the owner's Apple Music listening never reached the preference store;
+every music preference came from Spotify. Test:
+`tests/test_apple_music_library_reader.py` (parser scale, registry order, and
+an additive-only ingest against recording fake stores).
+
+## One scale for every music service: plays and recency (CM051, walk #27, 2026-10-14)
+
+**File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
+- `is_duplicate()` (aggregation mode): a row adds `_observation_weight(pref)`
+  to its key's frequency instead of 1, and the kept row takes the LATEST
+  `observed_at` of its duplicates (`_with_latest_observation`).
+- `_observation_weight()` (NEW): `extra["play_count"]` when it is an integer
+  above 1, else 1 (never 0, never negative, bool rejected).
+- `_with_latest_observation()` (NEW): keeps the most recent observation.
+
+**Why:** frequency counted rows, so a per-play history (Spotify) outscored a
+per-track library with the same plays (Apple Music: 42 plays scored frequency
+1), and time decay used the first row seen, so file order changed a score.
+Rows without a play count (email, likes, per-play histories) are unchanged.
+
+**File:** `vendor/cm019_preferences/services/ingest/src/parsers/apple.py`
+(the privacy.apple.com export): `_parse_track_play_history`,
+`_parse_play_activity` and `_parse_daily_tracks` now emit Spotify's
+passive-play base strength (`MUSIC_PASSIVE_PLAY_STRENGTH` 0.10) with the play
+count in `extra["play_count"]`, instead of count-encoded strengths
+(0.5 + n x 0.03..0.05, capped 0.75..0.8) that would double count once the
+filter weighs play_count. Last played is the LATEST event (`_later`), not the
+first row. Play Activity drops plays under 30 s (`MUSIC_MIN_PLAY_MS`, Spotify's
+rule); Daily Tracks counts plays, not skips, and drops a track with 0 plays.
+Test: `tests/test_music_services_score_on_one_scale.py`.
+## No per-source storage cap (CM051 #28, Andy 2026-10-14: "Need everything.")
+
+**File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
+- `PreferenceFilter.MAX_PREFS_PER_SOURCE`: 5000 -> `None` (no cap).
+- `cap_by_source()`: with no cap, every source is still RANKED (category
+  priority, strength, frequency) and returned WHOLE, empty trim log. An integer
+  restores the old trimming (operator override only; nothing ships one).
+- `is_non_preference_shape(subject, category=None)`: `category` in the new
+  `_STRUCTURED_TITLE_CATEGORIES` (`music`) skips the prose gates (more than
+  `_MAX_PREFERENCE_WORDS` = 12 words, and the boilerplate phrases); the
+  Re:/Fwd:, email-address and URL checks still apply. `is_low_value` passes
+  `pref.category`. A classical work's "Composer - Symphony No. 9 ..." title
+  ran past 12 words and was dropped as prose.
+- `parsers/discord.py` (channels `most_common(20)`, games `(15)`, link
+  domains `(10)`), `parsers/whatsapp.py` (contacts `(20)` and `(10)`, topic
+  keywords `(15)`), `parsers/pinterest.py` (followees `[:50]`): every item
+  above the existing evidence floor is yielded, no top-N. The floors (e.g. 10
+  messages for a channel) are unchanged.
+- `tail_queue.py` (NEW) + `pipeline.py` `_queue_tail` (called right after
+  `cap_by_source` on both aggregation paths) + `cli.py` `ingest-tail` (NEW):
+  when the caller sets `OSTLER_PREFS_FOREGROUND_PER_SOURCE` and
+  `OSTLER_PREFS_TAIL_QUEUE` (install.sh does, for the install import only),
+  the first N ranked rows per source are stored now and the rest are queued
+  as JSONL (ids and created_at preserved) for `ingest-tail`, run by
+  `ostler-scan-exports` (com.ostler.export-scan). Resumable per-file
+  checkpoint, idempotent rewrites; an unwritable queue stores everything now.
+- Callers unchanged: `pipeline.py` `ingest_file_with_aggregation` and
+  `_ingest_directory_with_aggregation` (both call `cap_by_source`).
+
+**Why:** 5000 per source was a storage cap on the owner's data. Mini16,
+2026-10-14 (read-only scroll of `preferences`, 40,320 points): `netflix` 5000,
+`apple` 5000, `csv` 5001. Tests: `tests/test_owner_data_is_never_capped_at_storage.py`,
+`tests/test_pref_noise_source_cap.py` (updated: all rows kept, head first).
+
+**Upstream status:** not ported; owed to personal-world-graph `services/ingest`.

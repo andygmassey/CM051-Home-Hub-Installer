@@ -45,6 +45,45 @@ MAC_EPOCH_OFFSET = 978307200
 DEFAULT_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 
 
+# The assistant's own sends are not the owner's words. The brief and wrap go
+# out from the owner's Apple ID, so chat.db marks them is_from_me=1. Same rule
+# and same constants as imessage_source/reader.py (see the note there);
+# tests/test_assistant_sends_are_not_owner_input.py holds the copies in step.
+ASSISTANT_SEND_PREFIX = "\U0001F916"  # robot face, the identity prefix
+ASSISTANT_SEND_MARKER = "\u2063\u2064\u2063"  # invisible sep, plus, sep
+
+
+def _owner_sent(row) -> bool:
+    """Was this row sent from the owner's own account?
+
+    is_from_me=1, or the inbound copy in the owner's Note-to-Self chat: a
+    one-handle chat whose handle IS the account it was received on (the
+    same test ostler-assistant's POLL_QUERY_SELF_CHAT uses). The brief lands
+    in that chat as both an outgoing and an inbound row.
+    """
+    if row["is_from_me"]:
+        return True
+    hid = row["handle_id"] or ""
+    login = row["account_login"] or ""
+    return bool(hid) and row["n_handles"] == 1 and login in ("E:" + hid, "P:" + hid)
+
+
+def is_assistant_send(text: Optional[str], from_owner: bool = False) -> bool:
+    """True when ``text`` was written by the Ostler assistant, not a person.
+
+    The invisible marker counts in any direction: only the assistant stamps
+    it. The robot-emoji PREFIX counts only on a row the owner's own account
+    sent (``from_owner``), because that is the only place the assistant's
+    sends appear with it. A contact whose message happens to open with the
+    same emoji is a person, and their words are kept.
+    """
+    if not text:
+        return False
+    if ASSISTANT_SEND_MARKER in text:
+        return True
+    return from_owner and text.lstrip().startswith(ASSISTANT_SEND_PREFIX)
+
+
 @dataclass
 class Conversation:
     """A conversation thread (individual or group)."""
@@ -297,7 +336,11 @@ def extract_messages(
                 m.is_from_me,
                 m.date,
                 m.cache_has_attachments as has_attachment,
-                COALESCE(h.id, 'me') as sender
+                COALESCE(h.id, 'me') as sender,
+                h.id as handle_id,
+                c.account_login as account_login,
+                (SELECT COUNT(*) FROM chat_handle_join x
+                  WHERE x.chat_id = c.ROWID) as n_handles
             FROM message m
             JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
             JOIN chat c ON c.ROWID = cmj.chat_id
@@ -316,6 +359,8 @@ def extract_messages(
     messages = []
     for row in rows:
         if row["date"] is None:
+            continue
+        if is_assistant_send(row["text"], from_owner=_owner_sent(row)):
             continue
 
         messages.append(Message(

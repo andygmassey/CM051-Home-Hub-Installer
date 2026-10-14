@@ -10,11 +10,15 @@ on:
     paths:
       - 'vendor/cm041/identity_resolver/tidy.py'
       - 'tests/test_vendored_tidy_cross_strategy_phone_visibility.py'
+      - 'tests/test_same_name_is_a_suggestion_not_a_merge.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - '.github/workflows/walk-defect-e-duplicate-evidence-guard.yml'
   pull_request:
     paths:
       - 'vendor/cm041/identity_resolver/tidy.py'
       - 'tests/test_vendored_tidy_cross_strategy_phone_visibility.py'
+      - 'tests/test_same_name_is_a_suggestion_not_a_merge.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - '.github/workflows/walk-defect-e-duplicate-evidence-guard.yml'
 
 concurrency:
@@ -57,3 +61,17 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_vendored_tidy_cross_strategy_phone_visibility.py -v
+      # DMG #27 item 4 (Archie ruling: SUGGEST only). An identical full name
+      # is a "Same person?" review suggestion, never an automatic merge; a
+      # common name at different employers, and conflicting phones, stay apart.
+      - name: An identical name is a suggestion, never an automatic merge
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_same_name_is_a_suggestion_not_a_merge.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_same_name_is_a_suggestion_not_a_merge.py -v

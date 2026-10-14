@@ -2744,7 +2744,25 @@ _OSTLER_FINAL_PREEXISTED=false
 # staging tree on a re-run), so lock it here, before any secret is touched.
 _ostler_lock_home_dir "$OSTLER_FINAL_DIR" \
     || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
-OSTLER_PRELAUNCH_DIR="${OSTLER_PRELAUNCH_DIR:-/tmp/ostler-prelaunch-$$}"
+# RED TEAM DMG #27 F3-2: this was /tmp/ostler-prelaunch-$$, a PREDICTABLE
+# path in a world-writable directory. A second local account could pre-create
+# it (or a symlink there), and `mkdir -p` + `chmod 700` below would follow it,
+# so the venv and key material staged here (recovery_key_delivered.json) would
+# land where that account chose. Now: an unpredictable mktemp directory under
+# the customer's own ~/.ostler (0700), checked for owner and symlink before
+# use. The name keeps "ostler-prelaunch" so every gate that hunts for a
+# staging path frozen into a shipped file still finds it.
+# OSTLER_PRELAUNCH_STAGING_BEGIN
+if [[ -z "${OSTLER_PRELAUNCH_DIR:-}" ]]; then
+    if [[ -L "$OSTLER_FINAL_DIR" ]]; then
+        fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "${OSTLER_FINAL_DIR} is a link to somewhere else. Remove it, then run the installer again."  # i18n-exempt
+    fi
+    mkdir -p "$OSTLER_FINAL_DIR" && chmod 700 "$OSTLER_FINAL_DIR" \
+        || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
+    OSTLER_PRELAUNCH_DIR="$(mktemp -d "${OSTLER_FINAL_DIR}/.ostler-prelaunch.XXXXXX")" \
+        || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not create a private staging folder in ${OSTLER_FINAL_DIR}. Check who owns that folder, then run the installer again."  # i18n-exempt
+fi
+# OSTLER_PRELAUNCH_STAGING_END
 
 # _ostler_set_paths $target_root rebinds OSTLER_DIR + every
 # derived path variable to the supplied root. Called twice in the
@@ -2999,8 +3017,18 @@ _ostler_fda_pane_line1() {
 
 # Pre-create the staging tree so the first writes downstream
 # (LOGS_DIR mkdir at ~line 396) land in a writable location.
+# OSTLER_PRELAUNCH_CHECK_BEGIN
+# Never follow a link, and never stage into a folder another account owns
+# (RED TEAM DMG #27 F3-2). A directory this run created with mktemp passes.
+if [[ -L "$OSTLER_PRELAUNCH_DIR" ]]; then
+    fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "The installer's staging folder ${OSTLER_PRELAUNCH_DIR} is a link. Remove it, then run the installer again."  # i18n-exempt
+fi
 mkdir -p "$OSTLER_PRELAUNCH_DIR"
+if [[ -L "$OSTLER_PRELAUNCH_DIR" || ! -O "$OSTLER_PRELAUNCH_DIR" ]]; then
+    fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "The installer's staging folder ${OSTLER_PRELAUNCH_DIR} belongs to another account. Remove it, then run the installer again."  # i18n-exempt
+fi
 chmod 700 "$OSTLER_PRELAUNCH_DIR"
+# OSTLER_PRELAUNCH_CHECK_END
 
 # Mirror any pre-existing ~/.ostler/license/ into the staging tree
 # so install.sh paths that read license.json find it where they
@@ -3384,14 +3412,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8427) captures the path BY
+    # _ostler_write_store_curl_config (defined :8456) captures the path BY
     # VALUE and never re-reads it:
-    #     :8428   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8473   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8482 and :15497, both of which run
+    #     :8457   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8502   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8511 and :15558, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
-    # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
+    # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3406,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16277, where the note reads
+    # WhatsApp Web session path did it again at :16338, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16294 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16355 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3421,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5936 against a definition at :8427. Top-level
+    # writer's own definition: :5964 against a definition at :8456. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8482, :15497) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8511, :15558) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18425 / :18603 / :18760 / :19102 path. There the
+    # :18497 / :18675 / :18832 / :19200 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -6002,7 +6030,7 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      sign-in, never mid-install.)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=15
+PERMISSIONS_TOTAL=16
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -6030,6 +6058,7 @@ echo -e "        ${BOLD}(assistant)${NC}                     reading the app dat
 echo -e "    13. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
 echo -e "    14. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo -e "    15. ${BOLD}Reminders (assistant)${NC}           The assistant asks for itself, at the very end of the install"
+echo -e "    16. ${BOLD}Apple Music${NC}                     Play counts, loved songs + playlists (asked now, upfront)"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
@@ -11407,7 +11436,14 @@ PRESET=${PRESET:-recommended}
 # not read it unless they picked Everything or ticked it by hand: on the
 # v1.0.102 walk a default install ingested 0 of 1,298 photo events. Faces stay
 # out of every preset (photos_faces is the Art. 9 opt-in, tickable only).
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata"
+# CM051 walk #27 (Andy, 2026-10-14): "we MUST have Apple Music data in there,
+# and as complete as possible", without telling the customer to tick a
+# setting. apple_music is now read by the signed ostler-music-library helper
+# (iTunesLibrary, "Media & Apple Music" permission, pre-warmed with the other
+# permissions), not only from the optional XML export, so it is in the
+# default preset. A refused permission or an empty library is fail-open:
+# zero tracks, no prompt here, no abort.
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata,apple_music"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -11495,24 +11531,12 @@ case "$PRESET" in
             _ask_source "chrome_history"   "Chrome history            " N
         fi
         _ask_source "photos_metadata"  "Photos events (no faces)  " Y
-        # vendor/ostler_fda/apple_music.py has a complete extractor but is
-        # DELIBERATELY not offered here, in RECOMMENDED, or in EVERYTHING.
-        # Every other source above reads a live, TCC-gated database the FDA
-        # consent grant unlocks directly. apple_music is structurally
-        # different: the modern Music app's live store is an undocumented
-        # opaque CoreData bundle the extractor will not touch, so it reads
-        # only ~/Music/iTunes/iTunes Music Library.xml, a file that exists
-        # ONLY if the customer has separately run a manual export from the
-        # Music app's file menu (the "export library" action). A checkbox
-        # here would grant no new access and would silently produce zero
-        # rows for the near-totality of customers who have never run that
-        # export -- the same "ticked the box, got nothing" trap
-        # tests/test_status_ok_with_zero_payload_is_not_ok.sh exists to
-        # catch on the CONSUMPTION side. Offering it needs a real UI
-        # affordance (a file picker + instructions for the manual export),
-        # not a same-shaped toggle, so it stays unreachable-by-design here
-        # rather than reachable-but-broken. Revisit if a customer-visible
-        # "point me at your exported library" flow is ever built.
+        # apple_music used to be withheld here because it could read only
+        # the Music app's optional XML export. It now reads the live library
+        # through the bundled ostler-music-library helper (CM051 walk #27),
+        # so it is offered and on by default; a refused permission or an
+        # empty library yields zero tracks, never an error.
+        _ask_source "apple_music"      "Apple Music library       " Y
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
@@ -13208,11 +13232,41 @@ else
     # unpack the source tarball wherever you want it".
     #
     # https://docs.brew.sh/Installation#untar-anywhere-unsupported
+    # RED TEAM DMG #27 F3-1: both fetches below used to track a MOVING branch
+    # (brew tarball/main, install.sh at HEAD) with no checksum, and the second
+    # was piped straight into bash. Each is now pinned to a release tag or a
+    # commit and verified against a sha256 BEFORE anything is extracted or run;
+    # a mismatch fails the step (ERR-04 below) rather than running unknown code.
+    # To move a pin: change the tag/commit, download it once, and record its
+    # `shasum -a 256` here (tests/test_homebrew_bootstrap_is_pinned.sh).
+    # OSTLER_BREW_PINS_BEGIN
+    OSTLER_BREW_TAG="7.0.9"
+    OSTLER_BREW_TARBALL_SHA256="9fd47fcae0b34c1d57e8d1334e28778c72f8687584371d38fad04c28b1c11c72"
+    OSTLER_BREW_INSTALLER_COMMIT="7a3f48c7e498d7df3237fd41c30f4d492857edf4"
+    OSTLER_BREW_INSTALLER_SHA256="5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148"
+    # OSTLER_BREW_PINS_END
+    # _ostler_fetch_verified <url> <sha256> <dest>: download, then compare.
+    _ostler_fetch_verified() {
+        local _got
+        curl -fsSL "$1" -o "$3" 2>>"$BREW_INSTALL_LOG" || return 1
+        _got="$(/usr/bin/shasum -a 256 "$3" | awk '{print $1}')"
+        if [[ "$_got" != "$2" ]]; then
+            echo "FAIL: $1 has sha256 ${_got}, expected $2; not using it" >> "$BREW_INSTALL_LOG"
+            rm -f "$3"
+            return 1
+        fi
+        echo "verified sha256 of $1" >> "$BREW_INSTALL_LOG"
+    }
     if [[ "${OSTLER_GUI:-0}" == "1" ]] && [[ -d /opt/homebrew ]] && [[ -w /opt/homebrew ]]; then
         echo "Using manual tarball install (prefix is pre-chowned)" >> "$BREW_INSTALL_LOG"
-        curl -fsSL https://github.com/Homebrew/brew/tarball/main 2>>"$BREW_INSTALL_LOG" \
-            | tar xz --strip 1 -C /opt/homebrew 2>>"$BREW_INSTALL_LOG"
-        BREW_EXIT=${PIPESTATUS[0]:-0}
+        _brew_tgz="${OSTLER_DIAG_DIR}/homebrew-${OSTLER_BREW_TAG}.tar.gz"
+        BREW_EXIT=0
+        _ostler_fetch_verified "https://github.com/Homebrew/brew/archive/refs/tags/${OSTLER_BREW_TAG}.tar.gz" \
+            "$OSTLER_BREW_TARBALL_SHA256" "$_brew_tgz" || BREW_EXIT=1
+        if [[ $BREW_EXIT -eq 0 ]]; then
+            tar xzf "$_brew_tgz" --strip 1 -C /opt/homebrew 2>>"$BREW_INSTALL_LOG" || BREW_EXIT=1
+        fi
+        rm -f "$_brew_tgz"
         # If curl succeeded, validate via brew --version. If brew is
         # broken (bad tarball, missing files), this catches it.
         if [[ $BREW_EXIT -eq 0 ]]; then
@@ -13256,8 +13310,15 @@ else
         echo "Falling back to official installer: ${_brew_fallback_why}" >> "$BREW_INSTALL_LOG"
         echo "NOTE: the official installer aborts at have_sudo_access() even when no sudo is needed (CX-25)." >> "$BREW_INSTALL_LOG"
         unset _brew_fallback_why
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
-        BREW_EXIT=$?
+        _brew_inst="${OSTLER_DIAG_DIR}/homebrew-install-${OSTLER_BREW_INSTALLER_COMMIT}.sh"
+        if _ostler_fetch_verified "https://raw.githubusercontent.com/Homebrew/install/${OSTLER_BREW_INSTALLER_COMMIT}/install.sh" \
+                "$OSTLER_BREW_INSTALLER_SHA256" "$_brew_inst"; then
+            NONINTERACTIVE=1 /bin/bash "$_brew_inst" >> "$BREW_INSTALL_LOG" 2>&1  # the pinned Homebrew installer, non-interactive under OSTLER_GUI
+            BREW_EXIT=$?
+        else
+            BREW_EXIT=1
+        fi
+        rm -f "$_brew_inst"
     fi
     set -e
 
@@ -16382,6 +16443,17 @@ TOMLPREAMBLE
     # above BEFORE this block truncated the file. Never write the admin token
     # unconditionally here -- that unpairs every device on upgrade.
     echo "paired_tokens = [${_paired_tokens_toml}]"
+    # RED TEAM DMG #27 F4-4: the companion listener binds 0.0.0.0:8443 (below),
+    # reachable from the whole LAN, and whether pairing was required and the
+    # pair attempts rate-limited rested on the binary's defaults, which the
+    # shipped config never stated. State both: an upgrade to a binary whose
+    # default changed must not open the listener silently. Proved on a box by
+    # the walk probe companion_listener_refuses_unauthenticated.
+    echo "require_pairing = true"
+    _ostler_pair_rl="${OSTLER_PAIR_RATE_LIMIT_PER_MINUTE:-10}"
+    [[ "$_ostler_pair_rl" =~ ^[1-9][0-9]*$ ]] || _ostler_pair_rl=10
+    echo "pair_rate_limit_per_minute = ${_ostler_pair_rl}"
+    unset _ostler_pair_rl
 
     # v1.0.13: phone pairing ENABLED by default. Prior comment
     # (v1.0.10 DEFERRED) is superseded -- the two preconditions have
@@ -17477,7 +17549,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.16}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.17}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -17590,7 +17662,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="c77051d9323c1484ee213ae983ec52cc764bda19563aa2790aca00515f4b672a"
+DEFAULT_ASSISTANT_TARBALL_SHA256="098b915e817643b6e59763a2456ebaf734c5bdcb2538f979fde30173a9d18e38"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -18867,8 +18939,18 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
     : "${OSTLER_MAIL_BACKFILL_DAYS:=1825}"
 
+    # CM051 walk #27: the signed Apple Music helper sits beside install.sh in
+    # the installer's Resources (gui/project.yml bundles it like
+    # ostler-mecard). Passed only when it is there and executable; absent, the
+    # extractor reads the XML export or nothing, exactly as before.
+    _OSTLER_MUSIC_HELPER=""
+    if [[ -x "${SCRIPT_DIR:-}/ostler-music-library" ]]; then
+        _OSTLER_MUSIC_HELPER="${SCRIPT_DIR}/ostler-music-library"
+    fi
+
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
+                 OSTLER_MUSIC_LIBRARY_HELPER="${_OSTLER_MUSIC_HELPER}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
                  OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS:-}" \
                  OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
@@ -18911,6 +18993,22 @@ print(json.dumps(summary, default=str))
         info "$MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL"
         info "$MSG_INFO_AND_RE_RUN_OSTLER_FDA"
     fi
+
+    # CM051 walk #27: stage the Apple Music library export into the
+    # preferences drop-zone, which 3.12b hands to ostler-import (CM019
+    # ingest-dir). Upserts by a source-keyed id, so it only ADDS preferences
+    # with source apple_music and touches no existing row. Absent export
+    # (permission refused, empty library, source not chosen) = nothing staged.
+    _AM_EXPORT="${OSTLER_DIR}/imports/fda/ostler_apple_music_library.json"
+    if [[ -s "$_AM_EXPORT" ]]; then
+        if mkdir -p "${OSTLER_DIR}/imports/preferences/apple_music" \
+           && cp -f "$_AM_EXPORT" "${OSTLER_DIR}/imports/preferences/apple_music/"; then
+            info "Apple Music library staged for your preferences."  # i18n-exempt
+        else
+            warn "Could not stage the Apple Music library for preferences; continuing."  # i18n-exempt
+        fi
+    fi
+    unset _AM_EXPORT
 
     # #259: Apple Mail no-content guidance. The apple_mail extractor
     # arm now reports status "empty_no_content" when Mail is in the
@@ -19762,7 +19860,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:bfeec0e3e673dc107548ddd26f7432b57b9e741a9b7ebb00fe3b994fdc14c9f7
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:5dcbcb8fffe3c4b7064fb38034e1540aed8c6f39da889ac943babdf3ba62fe25
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19806,7 +19904,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:e6bc14607fa02c9c89ea759d3105d10b71dd2948e142934706387dc4361b29f5
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:2265d9e1b731f661d9dc4fe11622db3a0d38da961768a0fb66c9fed481acd380
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -19983,6 +20081,9 @@ services:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
       - WIKI_OUTPUT_DIR=/wiki
+      # Owner's IANA zone, exported by wiki-recompile-tick.sh / the install-time
+      # compile. Empty -> the compiler labels its times UTC.
+      - OSTLER_TZ=${OSTLER_TZ:-}
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian
@@ -21434,7 +21535,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.16"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.17"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -23034,7 +23135,16 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     _import_log="${OSTLER_DIAG_DIR}/import.log"
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
-    if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
+    # CM051 #28: the install import is the FOREGROUND. Store the first 5000
+    # preferences per source now (same ranking as the old cap, so the same top
+    # items are there when install finishes) and queue the rest for the
+    # background drain (com.ostler.export-scan -> ostler-scan-exports ->
+    # ingest-tail; RunAtLoad, so it starts as soon as it is bootstrapped later
+    # in this install, then every 4 h until the queue is empty). Nothing is
+    # dropped.
+    if OSTLER_PREFS_FOREGROUND_PER_SOURCE="${OSTLER_PREFS_FOREGROUND_PER_SOURCE:-5000}" \
+       OSTLER_PREFS_TAIL_QUEUE="${OSTLER_DIR}/state/prefs-tail" \
+       "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
         --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
         | tee "$_import_log" | while IFS= read -r line; do echo "  $line"; done; then
         ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
@@ -23837,6 +23947,32 @@ _notify() {
     _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
         osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
 }
+
+# ── CM051 #28: drain the preference TAIL the install queued ────────────────
+# The install import stores the first 5000 preferences per source in the
+# foreground and queues the rest (OSTLER_PREFS_TAIL_QUEUE). This agent
+# (com.ostler.export-scan, RunAtLoad + every 4 h, ON by default) is the
+# existing recurring preference importer, so it is the drain: it writes the
+# queue in bounded, resumable, idempotent slices BEFORE looking for new
+# exports, and runs whether or not a new export is found. The enrichment
+# agent is not used for this because it is OFF by default
+# (OSTLER_ENRICH_AGENT_ENABLED). Counts only in the log.
+_PREFS_TAIL_QUEUE="${OSTLER_PREFS_TAIL_QUEUE:-${OSTLER_DIR}/state/prefs-tail}"
+_CM019_DIR="${OSTLER_DIR}/services/cm019"
+if ls "$_PREFS_TAIL_QUEUE"/*.jsonl >/dev/null 2>&1 && [[ -x "${_CM019_DIR}/.venv/bin/python" ]]; then
+    mkdir -p "${OSTLER_DIR}/logs"
+    _tail_budget="${OSTLER_PREFS_TAIL_BUDGET_SECONDS:-1800}"
+    ( cd "$_CM019_DIR" && export QDRANT_COLLECTION=preferences && \
+        _ostler_run_with_deadline "$(( _tail_budget + 300 ))" \
+        "${_CM019_DIR}/.venv/bin/python" -m services.ingest.src.cli ingest-tail \
+            --queue "$_PREFS_TAIL_QUEUE" --budget-seconds "$_tail_budget" ) \
+        >>"${OSTLER_DIR}/logs/prefs-tail.log" 2>>"${OSTLER_DIR}/logs/prefs-tail.err" \
+        && _tail_rc=0 || _tail_rc=$?
+    # The rc is captured on the command itself: "$?" inside printf would read
+    # the exit of the $(date) substitution, not the tail run's.
+    printf '[%s] prefs-tail rc=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$_tail_rc" >>"${OSTLER_DIR}/logs/prefs-tail.log"
+    unset _tail_rc
+fi
 
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
 # names (for a friendly notification). Order people-graph first, then
@@ -28131,6 +28267,22 @@ except Exception:
 ' 2>/dev/null || printf 'CANNOT-READ'
 }
 
+# HYDRATING: the install that will fill the stores is still running. Walk #27:
+# this agent read the preferences collection as 0 points twice at 20:22Z and
+# 20:27Z, called it GENUINELY EMPTY and removed itself; the 40,315 points
+# landed before the install finished at 21:01Z, and the profile then waited
+# for the next hourly tick. While the install-in-progress marker exists, an
+# empty read means "not yet". A marker older than 6 h is an aborted install's
+# leftover (the marker's own lifetime) and does not count.
+_hydrating() {
+    local m="${OSTLER_DIR}/state/install-in-progress"
+    [ -f "$m" ] || return 1
+    # Fresh = modified in the last 6 h (360 min). find -mmin is the same on
+    # BSD and GNU; /usr/bin/stat -f %m is BSD-only and read every marker as
+    # stale on the Linux test runner.
+    [ -n "$(find "$m" -mmin -360 -print 2>/dev/null)" ]
+}
+
 _read_counter() {
     local f="$1" v=0
     [ -f "$f" ] && v="$(cat "$f" 2>/dev/null || echo 0)"
@@ -28144,6 +28296,11 @@ _read_counter() {
 tries="$(_read_counter "$TRIES_FILE")"
 tries=$((tries + 1))
 printf '%s' "$tries" >"$TRIES_FILE"
+if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ] && _hydrating; then
+    # The bound counts ticks after the install, not ticks spent waiting for it.
+    printf '%s' "$EDITOR_CATCHUP_MAX_TRIES" >"$TRIES_FILE"
+    tries="$EDITOR_CATCHUP_MAX_TRIES"
+fi
 if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ]; then
     log "catch-up gave up after ${EDITOR_CATCHUP_MAX_TRIES} ticks with the interest profile still empty; removing agent (the hourly Front Page refresh continues)"
     remove_self
@@ -28201,6 +28358,11 @@ case "$upstream" in
         exit 0
         ;;
     0)
+        if _hydrating; then
+            printf '0' >"$EMPTY_FILE"
+            log "HYDRATING (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): the preferences collection answered with 0 points while the install is still running, which means not yet, not nothing. Waiting."
+            exit 0
+        fi
         empties="$(_read_counter "$EMPTY_FILE")"
         empties=$((empties + 1))
         printf '%s' "$empties" >"$EMPTY_FILE"
@@ -31099,7 +31261,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
 
 # ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
 #
@@ -31142,7 +31304,7 @@ OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts
 # OSTLER_SENTINEL_SOURCES above, and that every right-hand row RENDERS in the
 # real vendored panel. A source added to the picker and to nothing else is
 # caught by the first of those, which is the durable half of #1587.
-OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders"
+OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders apple_music:apple_music"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -31508,6 +31670,12 @@ _hydrate_fda_decision() {
             # rather than inventing a count.
             printf 'error\t'
             ;;
+        media_library_not_granted)
+            # Apple Music (CM051 walk #27): the Music framework refused the
+            # read. Media & Apple Music was not granted, or the Music app is
+            # unavailable. "Could not look" is not "looked and found none".
+            printf 'cannot_run\tmedia_library_not_granted'
+            ;;
         no_extract_summary|no_python_to_read_extract_summary|absent_from_extract_summary)
             # Not extractor verdicts: these are the caller saying it could not
             # obtain one. Passed through this same door so there is exactly one
@@ -31563,6 +31731,19 @@ _hydrate_fda_record_reminders() {
     esac
 }
 
+_hydrate_fda_record_apple_music() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            apple_music "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    apple_music "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run apple_music "$_a" ;;
+        error)      _hydrate_sentinel_record_error      apple_music 1 "" ;;
+        *)          : ;;
+    esac
+}
+
 _hydrate_record_fda_extract() {
     local summary="${1:-${OSTLER_DIR}/imports/fda/extraction_summary.json}"
     local py="${2:-${OSTLER_PYTHON:-python3}}"
@@ -31575,6 +31756,7 @@ _hydrate_record_fda_extract() {
     if [[ ! -x "$py" ]] && ! command -v "$py" >/dev/null 2>&1; then
         _hydrate_fda_record_photos    "no_python_to_read_extract_summary"
         _hydrate_fda_record_reminders "no_python_to_read_extract_summary"
+        _hydrate_fda_record_apple_music "no_python_to_read_extract_summary"
         return 0
     fi
     if [[ ! -f "$summary" ]]; then
@@ -31583,6 +31765,7 @@ _hydrate_record_fda_extract() {
         # that is CANNOT-RUN. It is emphatically not zero items.
         _hydrate_fda_record_photos    "no_extract_summary"
         _hydrate_fda_record_reminders "no_extract_summary"
+        _hydrate_fda_record_apple_music "no_extract_summary"
         return 0
     fi
 
@@ -31611,6 +31794,8 @@ import json, os, sys
 WANT = {
     "photos":    ("photos",    ("recognised_people", "photo_events")),
     "reminders": ("reminders", ("pending", "completed", "total_reminders")),
+    # Apple Music (CM051 walk #27): the count is the tracks the reader saw.
+    "apple_music": ("apple_music", ("total_playlists", "total_tracks")),
     }
 try:
     doc = json.loads(open(os.environ["OSTLER_FDA_SUMMARY"],
@@ -31627,6 +31812,11 @@ for key in sorted(WANT):
     if not isinstance(rec, dict):
         continue         # absent from the summary: caller records CANNOT-RUN
     status = str(rec.get("status", "")).strip() or "unrecognised"
+    # Apple Music reports ok with 0 tracks when it could not read: say why,
+    # never a measured zero. A previous_export read is a real count.
+    if key == "apple_music" and status == "ok" and not rec.get("total_tracks"):
+        native = str(rec.get("native_status", ""))
+        status = "media_library_not_granted" if native == "unavailable" else "not_found"
     payload = ""
     if status == "ok":
         parts = []
@@ -31647,6 +31837,7 @@ FDASUMEOF
         case "$_name" in
             photos)    _hydrate_fda_record_photos    "$_status" "$_payload" ;;
             reminders) _hydrate_fda_record_reminders "$_status" "$_payload" ;;
+            apple_music) _hydrate_fda_record_apple_music "$_status" "$_payload" ;;
             *)         : ;;
         esac
     done <<< "$_parsed"
@@ -31659,6 +31850,10 @@ FDASUMEOF
     case "$_seen" in
         *" reminders "*) : ;;
         *) _hydrate_fda_record_reminders "absent_from_extract_summary" ;;
+    esac
+    case "$_seen" in
+        *" apple_music "*) : ;;
+        *) _hydrate_fda_record_apple_music "absent_from_extract_summary" ;;
     esac
     return 0
 }
@@ -32575,6 +32770,38 @@ else
     _hydrate_sentinel_record_cannot_run "contacts" "pipeline_venv_missing"
 fi
 unset _hydrate_contacts_accounts
+
+# Owner node ----------------------------------------------------------
+#
+# pwg:isOwner had a writer (contact_syncer/owner_node.py) and NO caller: on
+# the walk #27 box it had 0 triples. Its readers were all running blind:
+#   lib/ostler-confirm-identity.py   finds the owner by user_<id> or isOwner;
+#                                    with neither it returns before proposing
+#                                    anything, so "is this you?" never fires
+#   context-refresh generate_pwg_context.py _owner_uris   isOwner arm
+#   ical-server.py _load_people_list_self_uris   says outright the anchor is
+#                                    "unconfirmed as ever minted"
+# Minted here, after the contacts sync, from the name and id this installer
+# already asked for. Idempotent, and it never overwrites a name the node
+# already has. The batch identity resolver leaves isOwner nodes alone (an
+# exact-name match against the owner's own contact card would otherwise
+# fold the anchor into it), so this cannot be merged away on the next pass.
+# Non-fatal: a failure is logged and the install carries on, because every
+# reader above already degrades without it.
+if [[ -x "$_HYDRATE_PIPELINE_PY" && -n "${USER_ID:-}" && -n "${USER_NAME:-}" ]]; then
+    if ( cd "$PIPELINE_DIR" && "$_HYDRATE_PIPELINE_PY" -m contact_syncer.owner_node \
+            --user-id "$USER_ID" --display-name "$USER_NAME" \
+            --graph-endpoint "$_HYDRATE_OXIGRAPH" ) \
+            >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>&1; then
+        printf 'owner_node minted=true\n' >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
+    else
+        printf 'owner_node minted=false rc=%s\n' "$?" >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
+    fi
+else
+    printf 'owner_node minted=false reason=%s\n' \
+        "$([[ -x "$_HYDRATE_PIPELINE_PY" ]] && echo no_user_id_or_name || echo pipeline_venv_missing)" \
+        >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
+fi
 
 # Calendar hydration -----------------------------------------------
 #
@@ -36704,6 +36931,13 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             # edited: a BLOCKING acquire, because a yield here means no
             # summaries at all, and reclaim on a DEAD PID rather than a time
             # threshold, because a real compile legitimately runs for hours.
+            # Owner-local wiki times (CM044 compiler/local_time.py): the IANA zone
+            # from the /etc/localtime symlink. Unreadable -> empty, and the wiki
+            # then labels its times UTC. (No single quotes: this is a bash -c block.)
+            _tzl="$(readlink /etc/localtime 2>/dev/null || true)"
+            OSTLER_TZ="${_tzl#*zoneinfo/}"
+            [ "$OSTLER_TZ" = "$_tzl" ] && OSTLER_TZ=""
+            export OSTLER_TZ
             _slot_lib_active=0
             if [ -r "$_lib" ]; then
                 # shellcheck source=/dev/null
@@ -39142,8 +39376,8 @@ if [[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/k
         echo "     Encryption:    passphrase-wrapped DEK"
         echo -e "     ${RED}${BOLD}Recovery:      UNAVAILABLE -- see the warning above.${NC}"
         echo "                    Your passphrase still works and nothing is"
-        echo "                    locked today. Contact support to have a"
-        echo "                    recovery key minted and shown to you."
+        echo "                    locked today. Email hello@ostler.ai and"
+        echo "                    we will tell you what can be done."
     else
         # Minted here and NOT handed over. Do not dress this as a feature.
         echo "     Encryption:    passphrase-wrapped DEK"

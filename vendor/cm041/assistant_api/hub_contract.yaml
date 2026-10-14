@@ -281,7 +281,9 @@
     "count",
     "degraded",
     "reason",
-    "results"
+    "results",
+    "scanned",
+    "truncated"
    ],
    "source": "install.sh"
   },
@@ -1342,6 +1344,7 @@
     "degraded",
     "error",
     "forgotten",
+    "nodes_erased",
     "not_found",
     "reason",
     "stores_purged",
@@ -3628,6 +3631,7 @@
     "degraded",
     "error",
     "forgotten",
+    "nodes_erased",
     "not_found",
     "reason",
     "stores_purged",
@@ -4724,7 +4728,9 @@
     "count",
     "degraded",
     "reason",
-    "results"
+    "results",
+    "scanned",
+    "truncated"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5507,6 +5513,7 @@
     "degraded",
     "error",
     "forgotten",
+    "nodes_erased",
     "not_found",
     "reason",
     "stores_purged",

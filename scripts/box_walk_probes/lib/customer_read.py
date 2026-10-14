@@ -78,6 +78,7 @@ SOURCE_LABELS = {
     "browsing": ["safari history", "safari", "browsing"],
     "apple_notes": ["notes"],
     "photos": ["photos"],
+    "apple_music": ["apple music"],
     "places": ["places you go", "places"],
     "ai_conversations": ["ai chats"],
     "privacy_backfill": ["privacy labelling"],
