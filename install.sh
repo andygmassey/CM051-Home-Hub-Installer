@@ -19983,6 +19983,9 @@ services:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
       - WIKI_OUTPUT_DIR=/wiki
+      # Owner's IANA zone, exported by wiki-recompile-tick.sh / the install-time
+      # compile. Empty -> the compiler labels its times UTC.
+      - OSTLER_TZ=${OSTLER_TZ:-}
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian
@@ -36704,6 +36707,13 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             # edited: a BLOCKING acquire, because a yield here means no
             # summaries at all, and reclaim on a DEAD PID rather than a time
             # threshold, because a real compile legitimately runs for hours.
+            # Owner-local wiki times (CM044 compiler/local_time.py): the IANA zone
+            # from the /etc/localtime symlink. Unreadable -> empty, and the wiki
+            # then labels its times UTC. (No single quotes: this is a bash -c block.)
+            _tzl="$(readlink /etc/localtime 2>/dev/null || true)"
+            OSTLER_TZ="${_tzl#*zoneinfo/}"
+            [ "$OSTLER_TZ" = "$_tzl" ] && OSTLER_TZ=""
+            export OSTLER_TZ
             _slot_lib_active=0
             if [ -r "$_lib" ]; then
                 # shellcheck source=/dev/null
