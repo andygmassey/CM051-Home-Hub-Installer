@@ -2744,7 +2744,25 @@ _OSTLER_FINAL_PREEXISTED=false
 # staging tree on a re-run), so lock it here, before any secret is touched.
 _ostler_lock_home_dir "$OSTLER_FINAL_DIR" \
     || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
-OSTLER_PRELAUNCH_DIR="${OSTLER_PRELAUNCH_DIR:-/tmp/ostler-prelaunch-$$}"
+# RED TEAM DMG #27 F3-2: this was /tmp/ostler-prelaunch-$$, a PREDICTABLE
+# path in a world-writable directory. A second local account could pre-create
+# it (or a symlink there), and `mkdir -p` + `chmod 700` below would follow it,
+# so the venv and key material staged here (recovery_key_delivered.json) would
+# land where that account chose. Now: an unpredictable mktemp directory under
+# the customer's own ~/.ostler (0700), checked for owner and symlink before
+# use. The name keeps "ostler-prelaunch" so every gate that hunts for a
+# staging path frozen into a shipped file still finds it.
+# OSTLER_PRELAUNCH_STAGING_BEGIN
+if [[ -z "${OSTLER_PRELAUNCH_DIR:-}" ]]; then
+    if [[ -L "$OSTLER_FINAL_DIR" ]]; then
+        fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "${OSTLER_FINAL_DIR} is a link to somewhere else. Remove it, then run the installer again."  # i18n-exempt
+    fi
+    mkdir -p "$OSTLER_FINAL_DIR" && chmod 700 "$OSTLER_FINAL_DIR" \
+        || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
+    OSTLER_PRELAUNCH_DIR="$(mktemp -d "${OSTLER_FINAL_DIR}/.ostler-prelaunch.XXXXXX")" \
+        || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not create a private staging folder in ${OSTLER_FINAL_DIR}. Check who owns that folder, then run the installer again."  # i18n-exempt
+fi
+# OSTLER_PRELAUNCH_STAGING_END
 
 # _ostler_set_paths $target_root rebinds OSTLER_DIR + every
 # derived path variable to the supplied root. Called twice in the
@@ -2999,8 +3017,18 @@ _ostler_fda_pane_line1() {
 
 # Pre-create the staging tree so the first writes downstream
 # (LOGS_DIR mkdir at ~line 396) land in a writable location.
+# OSTLER_PRELAUNCH_CHECK_BEGIN
+# Never follow a link, and never stage into a folder another account owns
+# (RED TEAM DMG #27 F3-2). A directory this run created with mktemp passes.
+if [[ -L "$OSTLER_PRELAUNCH_DIR" ]]; then
+    fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "The installer's staging folder ${OSTLER_PRELAUNCH_DIR} is a link. Remove it, then run the installer again."  # i18n-exempt
+fi
 mkdir -p "$OSTLER_PRELAUNCH_DIR"
+if [[ -L "$OSTLER_PRELAUNCH_DIR" || ! -O "$OSTLER_PRELAUNCH_DIR" ]]; then
+    fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "The installer's staging folder ${OSTLER_PRELAUNCH_DIR} belongs to another account. Remove it, then run the installer again."  # i18n-exempt
+fi
 chmod 700 "$OSTLER_PRELAUNCH_DIR"
+# OSTLER_PRELAUNCH_CHECK_END
 
 # Mirror any pre-existing ~/.ostler/license/ into the staging tree
 # so install.sh paths that read license.json find it where they
@@ -3384,14 +3412,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8427) captures the path BY
+    # _ostler_write_store_curl_config (defined :8455) captures the path BY
     # VALUE and never re-reads it:
-    #     :8428   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8473   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8482 and :15534, both of which run
+    #     :8456   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8501   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8510 and :15562, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
-    # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
+    # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3406,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16314, where the note reads
+    # WhatsApp Web session path did it again at :16342, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16331 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16359 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3421,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5936 against a definition at :8427. Top-level
+    # writer's own definition: :5964 against a definition at :8455. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8482, :15534) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8510, :15562) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18462 / :18640 / :18797 / :19139 path. There the
+    # :18490 / :18668 / :18825 / :19167 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
