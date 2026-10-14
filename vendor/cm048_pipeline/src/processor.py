@@ -27,6 +27,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import attribution
 from . import prompts
 from . import enrichment_validation
 from . import bulk_classifier as _bulk_classifier
@@ -1645,6 +1646,10 @@ participants: {json.dumps(normalise_participants(metadata.get("participants")))}
     # output "other:speaker" or "other:speaker_1" despite the mapping
     # hint. Map these back to actual participant IDs from metadata.
     facts = _fix_speaker_subjects(facts, metadata)
+    # DMG #27: a first-person line written by ANOTHER participant ("my dad's
+    # ...") is about them, not the owner. Move such facts onto the person
+    # concerned, on evidence read from the transcript. See attribution.py.
+    facts = attribution.reattribute(facts, raw_transcript, metadata)
 
     # Stamp every freshly-extracted fact as a candidate. The 08_linked
     # step promotes facts to candidate=False when a second independent

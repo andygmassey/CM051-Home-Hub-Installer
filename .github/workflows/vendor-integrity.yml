@@ -59,6 +59,7 @@ on:
       - 'tests/test_canonical_keys_must_not_merge.py'
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
+      - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -448,6 +449,12 @@ jobs:
       - name: the Front Page tick recompiles the wiki when front_page.json changes
         if: always()
         run: bash tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh
+
+      # Walk #27 item 2: the digest re-runs when the interest profile fills,
+      # and the real reader turns that profile into Preferences lines.
+      - name: the context digest catches up when the interest profile lands
+        if: always()
+        run: bash tests/test_digest_refreshes_when_the_interest_profile_lands.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #

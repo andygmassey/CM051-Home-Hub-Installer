@@ -275,7 +275,7 @@ def extract_library(xml_path: Optional[Path] = None) -> MusicLibrary:
 
 
 def top_artists(
-    library: MusicLibrary, limit: int = 50
+    library: MusicLibrary, limit: Optional[int] = 50
 ) -> List[ArtistTaste]:
     """Aggregate tracks by artist, ranked by total play count.
 
@@ -299,7 +299,7 @@ def top_artists(
 
 
 def top_genres(
-    library: MusicLibrary, limit: int = 30
+    library: MusicLibrary, limit: Optional[int] = 30
 ) -> List[GenreTaste]:
     """Aggregate tracks by genre, ranked by total play count."""
     agg: dict[str, dict] = {}
@@ -347,13 +347,16 @@ def to_records(library: MusicLibrary) -> List[dict]:
     - ``music_genre``    one per genre, with play + track counts.
     - ``music_playlist`` one per user playlist, with its size.
 
+    EVERY artist and genre is emitted (CM051 #28: no storage cap; this used to
+    keep the top 200 artists and top 100 genres and drop the rest).
+
     Per-track rows are intentionally NOT emitted in bulk here -- the
     aggregates are the durable taste signal; the wiki Music wing
     renders the most-played list from ``most_played()`` directly.
     """
     records: List[dict] = []
 
-    for a in top_artists(library, limit=200):
+    for a in top_artists(library, limit=None):
         records.append({
             "id": _stable_id("artist", a.artist),
             "type": "music_artist",
@@ -364,7 +367,7 @@ def to_records(library: MusicLibrary) -> List[dict]:
             "privacy_level": PRIVACY_LEVEL,
         })
 
-    for g in top_genres(library, limit=100):
+    for g in top_genres(library, limit=None):
         records.append({
             "id": _stable_id("genre", g.genre),
             "type": "music_genre",

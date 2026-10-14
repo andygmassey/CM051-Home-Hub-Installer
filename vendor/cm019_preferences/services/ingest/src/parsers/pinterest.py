@@ -429,7 +429,7 @@ class PinterestParser(BaseParser):
         logger.info(f"Parsed {len(followees)} Pinterest followees")
 
         # Only create preferences for followees (showing who the user is interested in)
-        for followee in followees[:50]:  # Limit to avoid too many
+        for followee in followees:  # every followee (CM051 #28: no top-N)
             yield ParsedPreference(
                 subject=f"Follows Pinterest user: {followee['username']}",
                 preference_type="Like",
