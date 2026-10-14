@@ -147,7 +147,7 @@ grep -q "$(. "$STRINGS"; printf '%s' "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT")
 
 echo "== E. the customer copy says what the grant covers =="
 . "$STRINGS"
-for w in Mail Calendar Reminders Contacts; do
+for w in "Mail," "Calendar," "Reminders," "Contacts"; do
     grep -q "$w" <<<"$MSG_WARN_ASSISTANT_RUNNING_WITHOUT_FDA" && ok_ "the no-grant warning names ${w}" \
         || bad "the no-grant warning does not name ${w}"
 done
