@@ -3384,11 +3384,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8428) captures the path BY
+    # _ostler_write_store_curl_config (defined :8427) captures the path BY
     # VALUE and never re-reads it:
-    #     :8429   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8474   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8483 and :15493, both of which run
+    #     :8428   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8473   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8482 and :15497, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
     # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
@@ -3406,13 +3406,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16273, where the note reads
+    # WhatsApp Web session path did it again at :16277, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16290 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16294 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3421,13 +3421,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5936 against a definition at :8428. Top-level
+    # writer's own definition: :5936 against a definition at :8427. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8483, :15493) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8482, :15497) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18421 / :18599 / :18756 / :19124 path. There the
+    # :18425 / :18603 / :18760 / :19102 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -6002,7 +6002,7 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      sign-in, never mid-install.)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=16
+PERMISSIONS_TOTAL=15
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -6030,7 +6030,6 @@ echo -e "        ${BOLD}(assistant)${NC}                     reading the app dat
 echo -e "    13. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
 echo -e "    14. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo -e "    15. ${BOLD}Reminders (assistant)${NC}           The assistant asks for itself, at the very end of the install"
-echo -e "    16. ${BOLD}Apple Music${NC}                     Play counts, loved songs + playlists (asked now, upfront)"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
@@ -11408,14 +11407,7 @@ PRESET=${PRESET:-recommended}
 # not read it unless they picked Everything or ticked it by hand: on the
 # v1.0.102 walk a default install ingested 0 of 1,298 photo events. Faces stay
 # out of every preset (photos_faces is the Art. 9 opt-in, tickable only).
-# CM051 walk #27 (Andy, 2026-10-14): "we MUST have Apple Music data in there,
-# and as complete as possible", without telling the customer to tick a
-# setting. apple_music is now read by the signed ostler-music-library helper
-# (iTunesLibrary, "Media & Apple Music" permission, pre-warmed with the other
-# permissions), not only from the optional XML export, so it is in the
-# default preset. A refused permission or an empty library is fail-open:
-# zero tracks, no prompt here, no abort.
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata,apple_music"
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -11503,12 +11495,24 @@ case "$PRESET" in
             _ask_source "chrome_history"   "Chrome history            " N
         fi
         _ask_source "photos_metadata"  "Photos events (no faces)  " Y
-        # apple_music used to be withheld here because it could read only
-        # the Music app's optional XML export. It now reads the live library
-        # through the bundled ostler-music-library helper (CM051 walk #27),
-        # so it is offered and on by default; a refused permission or an
-        # empty library yields zero tracks, never an error.
-        _ask_source "apple_music"      "Apple Music library       " Y
+        # vendor/ostler_fda/apple_music.py has a complete extractor but is
+        # DELIBERATELY not offered here, in RECOMMENDED, or in EVERYTHING.
+        # Every other source above reads a live, TCC-gated database the FDA
+        # consent grant unlocks directly. apple_music is structurally
+        # different: the modern Music app's live store is an undocumented
+        # opaque CoreData bundle the extractor will not touch, so it reads
+        # only ~/Music/iTunes/iTunes Music Library.xml, a file that exists
+        # ONLY if the customer has separately run a manual export from the
+        # Music app's file menu (the "export library" action). A checkbox
+        # here would grant no new access and would silently produce zero
+        # rows for the near-totality of customers who have never run that
+        # export -- the same "ticked the box, got nothing" trap
+        # tests/test_status_ok_with_zero_payload_is_not_ok.sh exists to
+        # catch on the CONSUMPTION side. Offering it needs a real UI
+        # affordance (a file picker + instructions for the manual export),
+        # not a same-shaped toggle, so it stays unreachable-by-design here
+        # rather than reachable-but-broken. Revisit if a customer-visible
+        # "point me at your exported library" flow is ever built.
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
@@ -18863,18 +18867,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
     : "${OSTLER_MAIL_BACKFILL_DAYS:=1825}"
 
-    # CM051 walk #27: the signed Apple Music helper sits beside install.sh in
-    # the installer's Resources (gui/project.yml bundles it like
-    # ostler-mecard). Passed only when it is there and executable; absent, the
-    # extractor reads the XML export or nothing, exactly as before.
-    _OSTLER_MUSIC_HELPER=""
-    if [[ -x "${SCRIPT_DIR:-}/ostler-music-library" ]]; then
-        _OSTLER_MUSIC_HELPER="${SCRIPT_DIR}/ostler-music-library"
-    fi
-
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
-                 OSTLER_MUSIC_LIBRARY_HELPER="${_OSTLER_MUSIC_HELPER}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
                  OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS:-}" \
                  OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
@@ -18917,22 +18911,6 @@ print(json.dumps(summary, default=str))
         info "$MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL"
         info "$MSG_INFO_AND_RE_RUN_OSTLER_FDA"
     fi
-
-    # CM051 walk #27: stage the Apple Music library export into the
-    # preferences drop-zone, which 3.12b hands to ostler-import (CM019
-    # ingest-dir). Upserts by a source-keyed id, so it only ADDS preferences
-    # with source apple_music and touches no existing row. Absent export
-    # (permission refused, empty library, source not chosen) = nothing staged.
-    _AM_EXPORT="${OSTLER_DIR}/imports/fda/ostler_apple_music_library.json"
-    if [[ -s "$_AM_EXPORT" ]]; then
-        if mkdir -p "${OSTLER_DIR}/imports/preferences/apple_music" \
-           && cp -f "$_AM_EXPORT" "${OSTLER_DIR}/imports/preferences/apple_music/"; then
-            info "Apple Music library staged for your preferences."  # i18n-exempt
-        else
-            warn "Could not stage the Apple Music library for preferences; continuing."  # i18n-exempt
-        fi
-    fi
-    unset _AM_EXPORT
 
     # #259: Apple Mail no-content guidance. The apple_mail extractor
     # arm now reports status "empty_no_content" when Mail is in the

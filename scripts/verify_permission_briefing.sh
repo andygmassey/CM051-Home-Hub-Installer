@@ -185,7 +185,6 @@ keyword_for_key() {
         NSDownloadsFolderUsageDescription)      printf 'Downloads|no' ;;
         NSAppleEventsUsageDescription)          printf 'Messages automation|no' ;;
         NSPhotoLibraryUsageDescription)         printf 'Photos|no' ;;
-        NSAppleMusicUsageDescription)           printf 'Apple Music|no' ;;
         *)                                       printf '' ;;
     esac
 }

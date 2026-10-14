@@ -25,7 +25,6 @@ from .parsers import (
     LinkedInParser,
     RedditParser,
     AppleParser,
-    AppleMusicLibraryParser,
     TwitterParser,
     YouTubeParser,
     eBayParser,
@@ -67,7 +66,6 @@ class IngestPipeline:
 
         # Available parsers (ordered from most specific to least specific)
         self.parsers: List[BaseParser] = [
-            AppleMusicLibraryParser(),  # Hub's own Music library export - exact filename
             EmailParser(),  # Email preferences from CM021 - specific .jsonl format
             GoogleTakeoutParser(),
             SpotifyParser(),

@@ -196,6 +196,7 @@ filter weighs play_count. Last played is the LATEST event (`_later`), not the
 first row. Play Activity drops plays under 30 s (`MUSIC_MIN_PLAY_MS`, Spotify's
 rule); Daily Tracks counts plays, not skips, and drops a track with 0 plays.
 Test: `tests/test_music_services_score_on_one_scale.py`.
+<<<<<<< HEAD
 ## Apple Music library parser (CM051, walk #27, 2026-10-14)
 
 **Files:**
@@ -248,5 +249,7 @@ an additive-only ingest against recording fake stores).
 2026-10-14 (read-only scroll of `preferences`, 40,320 points): `netflix` 5000,
 `apple` 5000, `csv` 5001. Tests: `tests/test_owner_data_is_never_capped_at_storage.py`,
 `tests/test_pref_noise_source_cap.py` (updated: all rows kept, head first).
+=======
+>>>>>>> parent of d3365b0c (squash #2867 (union on registers))
 
 **Upstream status:** not ported; owed to personal-world-graph `services/ingest`.
