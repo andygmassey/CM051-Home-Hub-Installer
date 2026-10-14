@@ -170,3 +170,25 @@ red over a fully successful import. Tests:
 Also recorded in `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`.
 
 **Upstream status:** not ported; owed to personal-world-graph `services/enrich`.
+
+## Apple Music library parser (CM051, walk #27, 2026-10-14)
+
+**Files:**
+- `vendor/cm019_preferences/services/ingest/src/parsers/apple_music_library.py` (NEW):
+  `AppleMusicLibraryParser`, source `apple_music`, claims only the exact file
+  name `ostler_apple_music_library.json` written by `ostler_fda.apple_music`.
+  One `music` preference per library track, subject `Artist - Title`, base
+  strength from the SAME constants `parsers/spotify.py` uses for the same
+  evidence (dislike -0.45, star map, loved 0.40, user playlist 0.30, played or
+  in library 0.10). Play count, skips, last played and date added ride in
+  `extra` / `observed_at`.
+- `parsers/__init__.py`: imports and exports it.
+- `pipeline.py`: imports it and lists it FIRST in `self.parsers` (exact-name
+  match, so it cannot shadow another parser).
+
+**Why:** the owner's Apple Music listening never reached the preference store;
+every music preference came from Spotify. Test:
+`tests/test_apple_music_library_reader.py` (parser scale, registry order, and
+an additive-only ingest against recording fake stores).
+
+**Upstream status:** not ported; owed to personal-world-graph `services/ingest`.

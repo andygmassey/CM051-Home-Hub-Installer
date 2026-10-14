@@ -682,12 +682,22 @@ def run_all(
     # present, so "not_found" surfaces as ok-with-zero-tracks.
     if "apple_music" in sources:
         try:
-            from .apple_music import extract_library, library_stats, to_records
+            from .apple_music import (
+                extract_library, library_stats, to_records,
+                write_preference_export,
+            )
+            # Native helper first (OSTLER_MUSIC_LIBRARY_HELPER, the
+            # "Media & Apple Music" permission), XML export as fallback.
+            # Never raises for a refused permission or an empty library.
             library = extract_library()
 
             (output_dir / "apple_music.json").write_text(
                 json.dumps(to_records(library), indent=2, default=str)
             )
+            # Per-track evidence for the CM019 preference importer. Written
+            # only when there are tracks; install.sh stages it into the
+            # preferences drop-zone.
+            write_preference_export(library, output_dir)
 
             stats = library_stats(library)
             summary["sources"]["apple_music"] = {
@@ -695,8 +705,10 @@ def run_all(
                 **stats,
             }
             logger.info(
-                "[ok] Apple Music: %d tracks, %d artists, %d playlists",
+                "[ok] Apple Music: %d tracks, %d artists, %d playlists "
+                "(reader %s, native %s)",
                 stats["total_tracks"], stats["distinct_artists"], stats["total_playlists"],
+                stats["reader"], stats["native_status"],
             )
 
         except PermissionError:
