@@ -99,6 +99,87 @@ def noreply_reason(addr: Optional[str]) -> Optional[str]:
     return None
 
 
+# ORGANISATION MAILBOXES (v1.0.107 walk, candidate #28). Two organisations
+# reached the People list: one wrote from `<brand>@<brand's domain>`, the
+# other from an address on its own brand domain under a one-word name. Neither
+# local part is a no-reply word. The shared SHAPE is a sender named after its
+# own domain, so this reads the address and never a list of companies. Same
+# rule as CM044 compiler/pwg_data.py is_organisation_mailbox and CM041
+# people_rules._address_is_automated; kept local because ostler_fda must not
+# import either.
+_BULK_SUBDOMAIN_LABELS = frozenset({
+    "e", "em", "email", "emails", "news", "newsletter", "newsletters",
+    "notification", "notifications", "notify", "alerts", "mailer", "mailing",
+    "bounce", "bounces", "marketing", "campaign", "campaigns", "updates",
+    "reply", "noreply", "no-reply", "donotreply", "info", "communications",
+    "comms", "go", "click", "events",
+})
+_BRAND_LABEL_AFFIXES = frozenset({
+    "mail", "email", "news", "notify", "notifications", "events", "app",
+    "hq", "team", "updates", "alerts", "invites", "calendar",
+})
+_COMMON_SECOND_LEVEL = frozenset({"com", "co", "org", "net", "gov", "edu", "ac", "or", "ne"})
+_AUTOMATION_LOCAL_RE = re.compile(
+    r"(^|[._+-])(alerts?|newsletters?|digest|invitations?|unsubscribe)([._+-]|$)"
+)
+
+
+def _squash(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+
+def domain_brand_names(domain: str) -> Set[str]:
+    """Every way a domain spells its owner's name: each label above the TLD
+    (and a co.uk-style second level) except bulk sub-domain labels, a brand
+    with a mail-ish affix (`glimmer-mail`, `lanternhq`), and a short domain
+    read as one word (`gl.immer` -> "glimmer")."""
+    labels = [l for l in (domain or "").lower().strip(".").split(".") if l]
+    if len(labels) < 2:
+        return set()
+    body = labels[:-1]
+    if len(body) >= 2 and body[-1] in _COMMON_SECOND_LEVEL:
+        body = body[:-1]
+    names: Set[str] = set()
+    for label in body:
+        if label in _BULK_SUBDOMAIN_LABELS or label in ("www", "mail"):
+            continue
+        names.add(_squash(label))
+        toks = [t for t in label.split("-") if t]
+        if len(toks) > 1 and all(t in _BRAND_LABEL_AFFIXES for t in toks[1:]):
+            names.add(_squash(toks[0]))
+        for affix in _BRAND_LABEL_AFFIXES:
+            if label.endswith(affix) and len(label) - len(affix) >= 3:
+                names.add(_squash(label[: -len(affix)]))
+    names.add(_squash("".join(labels)))
+    return {n for n in names if len(n) >= 3}
+
+
+def organisation_reason(addr: Optional[str]) -> Optional[str]:
+    """Why this ADDRESS is an organisation's mailbox, or None.
+
+    NOT strict: a correspondent (the owner wrote to it, or it wrote into a
+    thread the owner wrote in) is a human and is kept by every caller, the
+    same as the role-word rule. a first.last local part at the brand matches nothing.
+    """
+    a = _norm(addr)
+    if not a:
+        return None
+    local, _, domain = a.rpartition("@")
+    local = local.split("+", 1)[0]
+    if _AUTOMATION_LOCAL_RE.search(local):
+        return "automation-local"
+    bare = _squash(re.sub(r"[-._]?\d+$", "", local))
+    if bare and bare in domain_brand_names(domain):
+        return "brand-mailbox"
+    labels = domain.split(".")
+    sub = labels[:-2]
+    if len(labels) > 2 and labels[-2] in _COMMON_SECOND_LEVEL:
+        sub = labels[:-3]
+    if any(l in _BULK_SUBDOMAIN_LABELS for l in sub):
+        return "bulk-subdomain"
+    return None
+
+
 def header_reason(headers: Mapping[str, str]) -> Optional[str]:
     """Why a message with these headers is machine mail, or None."""
     h = {str(k).lower(): (v or "").strip() for k, v in (headers or {}).items()}
@@ -166,6 +247,7 @@ def classify(per_sender: Mapping[str, list], correspondents: Set[str]) -> Dict[s
             continue
         if s in correspondents:
             continue
+        why = why or organisation_reason(s)
         if why:
             out[s] = why
         elif n and flagged == n:

@@ -18,6 +18,13 @@ on:
       - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
       - 'tests/test_apple_music_library_reader.py'
+      - 'tests/test_apple_music_scheduled_refresh.py'
+      - 'vendor/ostler_fda/apple_music_refresh.py'
+      - 'gui/OstlerInstaller/Auth/MusicRefreshMode.swift'
+      - 'gui/OstlerInstaller/App.swift'
+      - 'scripts/box_walk_probes/probes/apple_music_refresh_runs_under_the_grant.sh'
+      - 'scripts/box_walk_probes/lib/apple_music_refresh_probe.py'
+      - 'install.sh'
       - '.github/workflows/apple-music-library.yml'
   pull_request:
     paths:
@@ -30,6 +37,13 @@ on:
       - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
       - 'vendor/cm019_preferences/services/ingest/src/filters.py'
       - 'tests/test_apple_music_library_reader.py'
+      - 'tests/test_apple_music_scheduled_refresh.py'
+      - 'vendor/ostler_fda/apple_music_refresh.py'
+      - 'gui/OstlerInstaller/Auth/MusicRefreshMode.swift'
+      - 'gui/OstlerInstaller/App.swift'
+      - 'scripts/box_walk_probes/probes/apple_music_refresh_runs_under_the_grant.sh'
+      - 'scripts/box_walk_probes/lib/apple_music_refresh_probe.py'
+      - 'install.sh'
       - '.github/workflows/apple-music-library.yml'
 
 concurrency:
@@ -66,5 +80,25 @@ jobs:
         run: |
           set +e
           out=$(bash scripts/box_walk_probes/probes/apple_music_library_reaches_preferences.sh --self-test 2>&1); rc=$?
+          printf '%s\n' "$out"
+          test "$rc" -eq 1 && printf '%s\n' "$out" | grep -q 'negative controls behaved'
+      - name: Scheduled refresh (schedule, fail-open, idempotent, deltas)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_apple_music_scheduled_refresh.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 30 ]; then
+            echo "REFUSING: expected at least 30 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_apple_music_scheduled_refresh.py -v -rs
+      - name: The refresh probe's judge catches every known-bad fixture
+        if: always()
+        run: |
+          set +e
+          python3 scripts/box_walk_probes/lib/apple_music_refresh_probe.py --self-test; rc=$?
+          test "$rc" -eq 1
+          out=$(bash scripts/box_walk_probes/probes/apple_music_refresh_runs_under_the_grant.sh --self-test 2>&1); rc=$?
           printf '%s\n' "$out"
           test "$rc" -eq 1 && printf '%s\n' "$out" | grep -q 'negative controls behaved'

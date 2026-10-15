@@ -52,10 +52,12 @@ on:
       - 'scripts/lib/strip_comments.sh'
       - 'tests/test_fda_rerun_ingests.sh'
       - 'tests/test_notes_are_opened_and_refreshed.sh'
+      - 'tests/test_contacts_and_reminders_are_reread.sh'
+      - 'vendor/doctor/agent/routine_status.py'
+      - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_fda_refusal_is_not_fresh.sh'
       - 'tests/test_fda_refusal_surfaces.py'
       - 'vendor/ostler_fda/**'
-      - 'vendor/doctor/agent/web_ui.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/diagnostic_copy.py'
       - 'vendor/ostler_fda/extract_all.py'
@@ -99,6 +101,12 @@ jobs:
         if: always()
         run: bash tests/test_notes_are_opened_and_refreshed.sh
 
+      # G2 + G3 (TCC sweep 2026-10-15): Contacts and Reminders are re-read
+      # after install, and every outcome (ok, cannot_run, error) is recorded
+      # where the Doctor reads it.
+      - name: Contacts and Reminders are re-read, and refusals are not fresh
+        if: always()
+        run: bash tests/test_contacts_and_reminders_are_reread.sh
       # G1 (TCC sweep 2026-10-15): a read macOS refused is recorded as
       # cannot_run, keeps last_success_at, is not re-ingested, exits 75, and
       # the Doctor shows it as needing permission rather than Up to date.

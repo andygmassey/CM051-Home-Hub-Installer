@@ -15,6 +15,11 @@ on:
   pull_request:
     paths:
       - 'tests/test_an_identifier_is_not_a_taste.py'
+      # The Time Machine exclusion test runs install.sh's helper AND the
+      # Doctor's live rule, so it is watched from both sides.
+      - 'tests/test_time_machine_exclusion_is_measured.sh'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
       - 'vendor/cm059_editor/compiler/interest_profile.py'
       - 'vendor/**'
       # context-refresh/ holds a grafted (divergent) vendored copy of
@@ -572,6 +577,15 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # Status-honesty sweep I1 (walk #28, privacy). The installer said three
+      # folders were excluded from Time Machine after `tmutil addexclusion ...
+      # 2>/dev/null || true`. Runs the real install.sh helper and call site
+      # under set -Eeuo pipefail against a fake tmutil that honours, refuses,
+      # or exits 0 and does nothing; then the Doctor's live rule against the
+      # same fake. Needs the Doctor deps installed above; exit 2 is CANNOT-RUN.
+      - name: A Time Machine exclusion is read back, never assumed
+        if: always()
+        run: bash tests/test_time_machine_exclusion_is_measured.sh
       # Runs after the requirements install above: it imports the shipped app.
       - name: The Hub reads the Doctor like the app does (#2552, #2538)
         if: always()

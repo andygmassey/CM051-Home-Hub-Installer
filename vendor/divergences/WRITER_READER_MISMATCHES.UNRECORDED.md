@@ -1148,6 +1148,34 @@ location and shape only; `doctor.patch` is not regenerated here. Test:
 record, the reason, and the regeneration outcome:
 `ASSISTANT_OWN_SENDS.UNRECORDED.md`. Test:
 `tests/test_assistant_sends_are_not_owner_input.py`.
+## doctor: the iMessage FDA cards never open chat.db (CM051 #30, studio29 follow-on)
+
+Tree `doctor`, file `vendor/doctor/agent/diagnostic_rules.py`. Recorded here
+because this tree is `regenerate_forbidden`. Inserted mid-file, not appended,
+so it does not collide with an open PR appending to this record.
+
+- `_imessage_chat_db_readable()` no longer does `sqlite3.connect` on
+  `~/Library/Messages/chat.db`. It returns the verdict of the most recent
+  record the SIGNED assistant's ticks wrote: the reply-debt snapshot
+  `state/reply_debt/imessage_threads.json` (`status` ok / absent / unreadable,
+  run-source imessage) and `imports/fda/extraction_summary.json`
+  (`sources.imessage.status` ok / not_found / no_fda, run-source fda-rerun).
+  No record means False, so the card stays.
+- NEW helpers `_ostler_engine_root`, `_parse_utc`, `_load_json`,
+  `_imessage_read_evidence`. The name `_imessage_chat_db_readable` is kept for
+  `check_imessage_fda`, `check_imessage_capture_stalled` and
+  `tests/test_imessage_fda_probe.sh`.
+- `state/source_activity/imessage.tsv` is deliberately NOT used: it reports
+  the ingest of the extract JSON, which still succeeds on a stale JSON after
+  the chat.db read starts failing.
+
+WHY: com.ostler.doctor is launched by launchd as a bare venv python, so its
+chat.db open was attributed by TCC to python3.11 on every poll. That was a
+second "python3.11" Full Disk Access request, and the card it was meant to
+dismiss could never clear. Guarded by `tests/test_doctor_never_opens_chat_db.py`
+(job in `.github/workflows/reply-debt-never-reads-protected-data.yml`).
+HR015 `doctor/` needs the same change, or a re-graft reverts it.
+
 ## Apple Music: native library reader, XML kept as fallback (CM051, walk #27)
 
 Tree `ostler_fda`. NEW CM051-side behaviour in `apple_music.py` and the `apple_music` arm of `extract_all.py`. `extract_library()` now tries the signed `ostler-music-library` helper first (Apple's iTunesLibrary framework, "Media & Apple Music" permission), located only through `OSTLER_MUSIC_LIBRARY_HELPER`, and falls back to the existing XML reader. With no helper located the behaviour is the old XML-only path. New: `read_native_library`, `library_from_helper_json`, `to_preference_export`, `write_preference_export`, `MusicLibrary.reader/native_status/native_detail`, `Track.added/skip_count/disliked` (defaulted, so existing `Track(...)` calls are unchanged), `Playlist.smart`, CLI `--helper`. `extract_all` writes `ostler_apple_music_library.json` beside `apple_music.json` when there are tracks, and its summary carries `reader` and `native_status`. A later run whose native read is refused (the launchd re-run holds no Media & Apple Music grant and must never prompt) keeps the earlier export and reports its track count with `reader: previous_export` (`previous_export_track_count`). Every helper failure (refused permission, empty library, crash, garbage, hang past `OSTLER_MUSIC_LIBRARY_HELPER_TIMEOUT`, default 180 s) returns an empty library, never an exception. The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
@@ -1205,6 +1233,19 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+## Contacts has its own recurring reader; fda-rerun no longer claims it (G3, TCC sweep 2026-10-15) -- `doctor`
+
+Tree `doctor`, two files. NEW CM051-side behaviour, paired with `install.sh`: `bin/ostler-contact-resync` is now a permanent reader, scheduled on every install, that writes `state/source_activity/contacts.tsv`. The ostler-fda tick now re-embeds Reminders and writes `state/source_activity/reminders.tsv`.
+
+- `vendor/doctor/agent/routine_status.py`, `_ROUTINES`: new row `("com.ostler.contact-resync", "Contacts", "contact-resync")`; the fda-rerun row reads "Calendar, Notes, Photos, Reminders, Safari" (it never read contacts).
+- `vendor/doctor/agent/diagnostic_rules.py`, `_SCHEDULED_AGENTS`: the fda-rerun feeds string drops "contacts" and gains "reminders".
+
+WHY: Contacts showed "Up to date" from fda-rerun's health while nothing read the address book after install. The HR015 twin is OWED; `vendor/divergences/doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The contact-resync routine row and the corrected feed strings. Guarded by `tests/test_contacts_and_reminders_are_reread.sh` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `doctor/` and re-pinning.
+
 ## A refused read is not a fresh source (G1, TCC sweep 2026-10-15) -- `doctor`
 
 Tree `doctor`, three files. NEW CM051-side behaviour, paired with the `ostler-fda` wrapper in `install.sh`, which now records `last_status=cannot_run` (and keeps `last_success_at`) for a source macOS refused, and exits 75.
@@ -1227,3 +1268,129 @@ WHY: a refused open() reaches Python as SQLITE_CANTOPEN "unable to open database
 ### What a future sync must preserve
 
 `tcc_refusal.py`, the eleven `is_fda_refusal` call sites, and `_failure_status`. Guarded by `tests/test_fda_refusal_surfaces.py` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+---
+
+## ostler_fda: forget_tombstone.py kept byte-identical with cm041/identity_resolver (walk #28, sweep V22)
+
+`vendor/ostler_fda/forget_tombstone.py` takes the same change as the
+cm041/identity_resolver copy: an unreadable tombstone file is never
+overwritten (left in place, bytes copied aside, `record()` returns False), and
+`problem()` names it. The two copies are asserted byte-identical by
+`vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+## Doctor source rows: one honest total, in a declared unit (v1.0.107 walk #28)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour. New `_SOURCE_TOTAL_UNITS`, `_SENTINEL_COUNT_IN_UNIT`, `_SETTLING_DONE_FILES`, `_EXTRACT_SUMMARY_KEYS`, `_BROWSING_EXTRACTS`, `_PAGES_CACHE` and helpers `_ostler_state_root`, `_positive_int`, `_settling_done`, `_extract_summary_count`, `_distinct_pages`, `_canonical_total`, all inside the reader block. `read_source_status` now sets, per row, `item_count` = the total in `item_unit` (or None), `item_count_from`, `install_item_count` (the raw sentinel figure, kept) and `last_run_count_from` (`routine` or `settling_progress`). `render_source_status` prints `<n> <unit>`, drops the old `max(item_count, last_run_count)` override, and shows a routine's per-run figure only when there is no total, worded "in the last check".
+
+WHY: Andy's console walk of candidate #28 read Mail as the last tick's delta, WhatsApp people (one per DM chat) as messages, Safari visits as pages, Photos with no unit and Notes as four numbers. NO HR015 twin is owed: the source-status panel exists only in this repo (VENDOR_MANIFEST `regenerate_forbidden_reason` for `doctor`; measured 2026-10-15, HR015 `doctor/agent/web_ui.py` on main has 0 `def read_source_status`). `doctor.patch` is NOT regenerated.
+
+FOLLOW-UP (same PR, #2920): `_mail_available_total` and `_source_count_label`. Every row carries `count_label` (the exact words the table prints) and `count_kind` (`total` or `last_check`, the flag from the closed duplicate #2922). Mail also carries `item_of`, the Mail store size, and reads "N of M emails read", or "N emails read" with no "of" when M is unknown, zero, or smaller than N.
+
+### What a future sync must preserve
+
+The unit table, `_canonical_total` and the render change. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.
+
+## Mail store size recorded at extract time (v1.0.107 walk #28, follow-up on #2920)
+
+Tree `ostler_fda`. `vendor/ostler_fda/apple_mail.py`: new `envelope_index_total(db_path=None)`, a read-only `COUNT(*)` over the Envelope Index `messages` table, rows with `deleted` set left out when the schema has that column; None (never 0) when the store is missing, unreadable, empty or of unknown schema. `vendor/ostler_fda/extract_all.py`: the Apple Mail block records it as `summary["sources"]["apple_mail"]["mailbox_total"]`, only when it is not None.
+
+WHY: Andy flagged the Doctor's Mail row as misleading; the box's Mail store held about 353,842 messages and the row gave no sense of that. The Doctor reads the recorded figure and never opens Mail's database itself. The HR015 twin (`ostler_fda/apple_mail.py`, `ostler_fda/extract_all.py`) is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`envelope_index_total` and the `mailbox_total` record. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## An organisation's own mailbox is not a Person (v1.0.107 walk, candidate #28)
+
+Tree `ostler_fda`, two files:
+
+- `vendor/ostler_fda/machine_senders.py`: new `domain_brand_names` and `organisation_reason` (an automation word as a local-part token, the local part equal to the sender's own domain name including affix and short-TLD spellings, or a bulk sub-domain such as `e.` / `email.` / `news.`). `classify` records a NON-correspondent with an `organisation_reason` as machine. No company list.
+- `vendor/ostler_fda/pwg_ingest.py`: `ingest_mail_contacts` and `ingest_calendar` skip an address with an `organisation_reason` unless it is a recorded correspondent (calendar now loads the correspondent set too). Counted in `machine_senders_skipped`.
+
+WHY: Andy's console walk listed organisations as people; one wrote from `<brand>@<brand's domain>`. Same shape rule as CM044 #344 (wiki reader) and `people_rules._name_is_sender_domain` (Hub reader). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated (this tree already fails to round-trip on origin/main, see the top of this file).
+
+### What a future sync must preserve
+
+`organisation_reason`, its use in `classify`, and both ingest skips with the correspondent pass-through. Guarded by `tests/test_organisation_senders_are_not_people.py` (`.github/workflows/people-have-human-evidence.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## Apple Music refreshes daily and at login, not only at install (CM051 v1.0.108)
+
+Tree `ostler_fda`. `vendor/ostler_fda/apple_music.py`: `read_native_library` is split so its output parsing is the new `library_from_helper_output(stdout, returncode)`; behaviour of `read_native_library` is unchanged (same bounds, same statuses). The new function is shared with the scheduled refresh. New CM051-only file `vendor/ostler_fda/apple_music_refresh.py` is declared in `vendor/VENDOR_ONLY.tsv` (renders the two LaunchAgents, arms on the install's native read, diffs the library, stores only changed tracks through the CM019 ingest). Guarded by `tests/test_apple_music_scheduled_refresh.py` (32 tests, collection error on origin/main) and `tests/test_apple_music_library_reader.py` (unchanged, still green). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`library_from_helper_output` in `apple_music.py` and its single call at the end of `read_native_library`. Losing it leaves `apple_music_refresh.py` importing a name that does not exist, and the scheduled refresh logs `could not look` forever.
+
+---
+
+## doctor: live Time Machine exclusion rule (walk #28, sweep I1)
+
+`vendor/doctor/agent/diagnostic_rules.py` gains `_tm_isexcluded()` and
+`check_time_machine_exclusion()` (registered last in `ALL_RULES`);
+`vendor/doctor/agent/diagnostic_copy.py` gains the `TM_*` copy. The rule asks
+`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Documents/Ostler`
+and `~/.colima` (each only if it exists): "[Excluded]" is silent, "[Included]"
+is a warning naming the folder ("Ostler's secrets folder is NOT excluded from
+Time Machine" for `~/.ostler`), anything else is an info "could not check",
+never a pass. Not applicable off macOS when tmutil is absent. The installer
+half is in install.sh `_ostler_harden_at_rest`. `doctor.patch` is NOT
+regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
+`tests/test_time_machine_exclusion_is_measured.sh` (vendor-integrity.yml).
+
+---
+
+## doctor: an expired timed Pause re-enables the daemon cron (status-honesty sweep D1)
+
+`vendor/doctor/agent/pause_control.py`: `read_state()` calls the new
+`_reconcile_expired_pause()` when a timed pause has elapsed. It mirrors the
+resume to the daemon cron and the Settings checkbox first, then clears the stale
+governor.env lines; on failure it leaves the file for a retry and returns
+`cron_resume_error`. `_mirror_settings_panel()` now returns its errors (logged,
+and handed back as `mirror_errors` by `set_pause`/`resume`) instead of
+swallowing them. `vendor/doctor/agent/box_status.py` carries
+`pause.cron_resume_error` through. WHY: set_pause switched the cron off and
+nothing switched it back on, so the 09:00 brief and 18:00 wrap never fired
+again while every screen read "not paused".
+
+### What a future sync must preserve
+
+The reconcile on the expiry branch of `read_state`, and the non-swallowing
+mirror. Guarded by `tests/test_pause_expiry_reenables_cron.py` (workflow
+`status-honesty-pause.yml`).
+
+---
+
+## ostler_fda: a refused Apple Mail walk is not a complete one (status-honesty sweep V1)
+
+`vendor/ostler_fda/apple_mail_mbox.py`: `discover_emlx_files()` raises when the
+mail ROOT cannot be read (previously logged and walked as empty, so the tick
+wrote `backfill_complete=true` and exited 0), and collects sub-directory errors
+into an optional `errors` list. `emit_mbox()` holds the forward edge, the
+backward edge and `backfill_complete` when any directory was unreadable, logs an
+ERROR, and records posture `mailbox_unreadable` instead of `success`.
+
+### What a future sync must preserve
+
+The root-raise and the held edges. Guarded by
+`tests/test_apple_mail_refused_walk_is_not_complete.py` (workflow
+`status-honesty-ingest.yml`).
+
+---
+
+## doctor: Reminders tile and all-clear banner measure the outcome (status-honesty sweep D2, D3)
+
+D2: `vendor/doctor/agent/reminders_runtime.py` gains `STATE_PUSH_FAILING`
+(rows exist, at least one `failed`, none `pushed`) and `STATE_CANNOT_READ` (the
+mapping DB exists and could not be read; it used to read as no-data and hide the
+tile). `dashboard_components.py` renders both (amber, grey) and `web_ui_copy.py`
+carries the `REMINDERS_RUNTIME_*PUSH_FAILING` and `*CANNOT_READ` copy.
+D3: `vendor/doctor/agent/web_ui.py` gains `_bundle_routine_findings()`, called by
+`_append_all_clear()`: a failing or stale recurring routine, or an unreadable
+routine status, replaces "Everything looks healthy" with a warning.
+
+### What a future sync must preserve
+
+The two new states and the routine check before the all-clear. Guarded by
+`tests/test_reminders_tile_is_not_green_when_every_push_failed.py` and
+`tests/test_all_clear_counts_the_bundle_routines.py` (workflow
+`status-honesty-meetings-doctor.yml`).

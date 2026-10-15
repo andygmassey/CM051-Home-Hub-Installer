@@ -29,6 +29,7 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
       - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
       - 'tests/_fake_oxigraph.py'
+      - 'tests/_fake_qdrant.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
     paths:
@@ -40,6 +41,7 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
       - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
       - 'tests/_fake_oxigraph.py'
+      - 'tests/_fake_qdrant.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
 concurrency:

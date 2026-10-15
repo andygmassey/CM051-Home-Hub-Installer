@@ -316,3 +316,40 @@ Guarded by `tests/test_cm048_third_party_facts_keep_their_subject.py`, wired
 into `.github/workflows/cm048-participants-as-strings.yml`. Upstream: no CM048
 PR opened; an upstream mirror is owed before this tree is re-pinned, or a
 re-pin deletes the fix.
+
+## Reply debt reads the signed feed's snapshot, never chat.db (CM051 #30, studio29)
+
+Tree `cm048_pipeline`. Files `vendor/cm048_pipeline/src/reply_debt_adapters.py`
+and `vendor/cm048_pipeline/src/reply_debt_service.py`.
+
+- `reply_debt_adapters.py`: the chat.db reader (`sqlite3.connect` on
+  `~/Library/Messages/chat.db`, `CHAT_DB_DEFAULT`, `_apple_ts_to_dt`) is
+  REMOVED. NEW `ReplyDebtSourceUnavailable(reason, detail)`,
+  `imessage_snapshot_path()`, `load_imessage_threads()`; `iter_imessage_threads`
+  keeps its name and now loads the snapshot eagerly. Missing, unreadable,
+  malformed, stale (default 6h, `OSTLER_REPLY_DEBT_MAX_AGE_HOURS`) or
+  `status: unreadable` snapshots RAISE; `status: absent` (no chat.db on the Mac)
+  is a true zero.
+- `reply_debt_adapters.py`, review follow-up: NEW `imessage_connection_state()`
+  (+ `IMESSAGE_CONSENT_TICKBOX`, `IMESSAGE_FEED_LABEL`,
+  `imessage_feed_plist_path()`). Before the snapshot is read, the install's
+  own decision is read: the durable consent record
+  (`ostler_security.consent.read_consent("third_party_data_personal_records")`,
+  decision `accepted`) and the feed LaunchAgent
+  `~/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist`.
+  Either missing raises reason `imessage_not_connected` (never "couldn't
+  check"); an unreadable registry raises `imessage_connection_unknown`.
+- `reply_debt_service.py`: `compute_reply_debts` no longer logs and skips a
+  failing source (that is what turned "could not look" into "nothing owed");
+  it re-raises as `ReplyDebtSourceUnavailable`. `reply_debt_payload` carries
+  `degraded: False`; NEW `degraded_payload()`; the `handle_reply_debt` shim
+  returns `degraded: true` + `reason` and no all-clear.
+
+WHY: this code runs inside ical-server, a bare python3.11 under launchd, so its
+chat.db open was attributed by TCC to python3.11 and denied, and the endpoint
+then said "you're all caught up". Not attempted against the regeneration tool:
+this tree is `verify = "skip"`. Guarded by
+`tests/test_reply_debt_never_opens_protected_data.py`, wired into
+`.github/workflows/reply-debt-never-reads-protected-data.yml`. Upstream: CM048
+needs the same change before this tree is re-pinned, or a re-pin restores the
+chat.db read.
