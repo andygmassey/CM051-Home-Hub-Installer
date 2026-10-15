@@ -257,3 +257,18 @@ holding one export imported twice (`runs=[30, 30]`); a re-import with same-named
 competitor nodes put 30 of 30 friends on a second node (`fb_nodes=60 friends=30`).
 GREEN with these changes: `runs=[30]`, `fb_nodes=30 friends=30`. A sync that drops
 either change turns that test red.
+
+## 2026-10-15: `google_calendar.py` set-aside drop and `other` mapping (cm041/contact_syncer)
+
+Not yet upstream in CM041. Port patch (for the later upstream port, not pushed):
+`~/walkdriver/upstream_ports/cm041_calendar_other.patch`.
+
+| file | what diverges |
+|---|---|
+| `google_calendar.py` | `_entry_is_set_aside()` and `event_is_set_aside()`: an event from a calendar whose `calendars.json` entry has `include` false is dropped in `write_calendar_event()` and in the `import_calendar()` loop (before any store write or attendee resolution); `resolve_calendar_provenance()` returns fail-closed L3 for such an entry if asked. Then `_TYPE_DEFAULT_PRIVACY["other"] = "L1"` (an included `other` calendar was falling to L3) |
+
+Order matters: mapping `other` to L1 without the drop would surface every
+set-aside calendar (written as `type: other, include: false`) as ordinary diary.
+Proven by `tests/test_calendar_set_aside_classification.py` (RED with the `other`
+mapping alone: `test_consumer_withholds_a_set_aside_calendar` returns L1). A sync
+that drops either change turns that test red.
