@@ -50,6 +50,8 @@ jobs:
       - name: memory/assert answers inside the probe's timeout while the model is busy
         run: python3 -m pytest -v tests/test_memory_assert_answers_inside_the_probe_timeout.py
       - name: a bad spool row is quarantined, not retried forever
+        if: always()
         run: python3 -m pytest -v tests/test_spool_sweep_quarantines_a_bad_row.py
       - name: preferences and people pagination is additive
+        if: always()
         run: python3 -m pytest -v tests/test_api_list_pagination_is_additive.py

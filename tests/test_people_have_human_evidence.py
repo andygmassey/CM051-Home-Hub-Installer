@@ -182,7 +182,11 @@ def test_control_without_the_rule_the_junk_rows_are_listed():
     # Has the check ever failed? This is the failing run: the same fixture with
     # the new predicate neutralised lists the junk, so the assertion above can
     # tell the rule's presence from its absence.
-    with patch.object(server, "_is_non_human_person", lambda *a, **k: None):
+    # Since fix/phone-only-people-shown (#30 batch 3) a sender id is ALSO
+    # dropped by _is_nameless_name, decided by its HANDLE ("Google" as the
+    # only handle). Neutralise both filters, or this control could not fail.
+    with patch.object(server, "_is_non_human_person", lambda *a, **k: None), \
+         patch.object(server, "_is_nameless_name", lambda *a, **k: False):
         out = _list(JUNK + KEEP)
     names = {r["name"] for r in out["people"]}
     for must in ("Quidco", "HSBC Hong Kong", "Google", "2inldn", "001", "Valtech",
