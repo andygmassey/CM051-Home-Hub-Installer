@@ -367,3 +367,40 @@ WHY: the catch-up adapters count a non-zero exit as one poison attempt toward
 quarantine. An outage of Ollama or the gateway therefore quarantined history
 windows after a few ticks. 75 lets them stop without counting an attempt.
 Test: `tests/test_cm048_exit_75_when_the_sink_is_unreachable.py`.
+
+
+## A single-speaker capture is a memo, and pipeline-known frontmatter is stamped (Mini16 2026-10-15, v1.0.108)
+
+Tree `cm048_pipeline`:
+
+- new `src/capture_truth.py`: `speaker_labels`, `is_single_speaker_capture`,
+  `as_memo`, `utc_now_iso`, `stamp_frontmatter`, `scrub_solo_body`;
+- new prompt `prompts/02_enrich_voice_memo.md`, its heading list in
+  `src/enrichment_validation.py` (`EXPECTED_HEADINGS_BY_PROMPT`), and the
+  `shape == "memo"` route in `src/prompts.py` (`enrichment_prompt_name_for`);
+- `src/schemas.py`: `Shape` gains `"memo"`;
+- `src/processor.py`: `process()` overrides and persists the classification of
+  a single-speaker capture; `_should_run_relationship` / `_should_run_coach`
+  skip a memo; `_step_enrich_inner` calls `_stamp_capture_truth` before both
+  `out_path.write_text(rendered)` sites; `_build_enrichment_input` names no
+  "other" for a memo and its SECTION STRUCTURE REMINDER now lists the routed
+  variant's own headings (it hard-coded work_one-on-one's eight for every
+  variant).
+
+WHY: a one-speaker iPhone voice memo on Mini16 was written to
+`~/Documents/Ostler/Conversations/<id>.md` (verbatim copy of 02_enrichment.md
+by `ingest._write_conversation_md`) as a two-person call: a second participant
+with a role copied from the social_casual prompt's roster example, an inferred
+"voice call" location, `enrichment_completed_at` padded to midnight,
+`enrichment_model` copied from the prompt template (a 35B label on a box whose
+settings and Ollama had only a 2B model), and `conversation_id: N/A`.
+
+Not attempted against the regeneration tool: this tree is `verify = "skip"`,
+see the first section. No upstream CM048 PR yet; port it with the other #30
+divergences (v108 BOARD row "port #30 vendor divergences upstream").
+
+### What a future sync must preserve
+
+All of the above. Guarded by `tests/test_cm048_single_speaker_capture_is_a_memo.py`
+(drives `processor.process` and `ingest._write_conversation_md`), wired into
+`.github/workflows/cm048-participants-as-strings.yml`.
