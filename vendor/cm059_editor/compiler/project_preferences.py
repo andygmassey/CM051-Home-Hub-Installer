@@ -42,12 +42,34 @@ condition is still here in a year, which is Archie's point and he is right.
 
 IDEMPOTENT BY CONSTRUCTION: every node's IRI is derived from the preference's
 own identity, so re-running replaces rather than duplicates.
+
+2026-10-15, WALK #29: THE PIPELINE NOW WRITES THE GRAPH, SO THIS MODULE MADE
+DUPLICATES. CM019's ingest pipeline writes every preference it ingests as
+``pwg:pref_<preference_id>`` (vendor/cm019_preferences/services/ingest/src/
+parsers/base.py to_turtle, sent by pipeline.py insert_triples). This module
+then copied the SAME Qdrant point again as ``urn:ostler:preference:<sha>``,
+so the graph held two nodes per preference: 138,999 Oxigraph music subjects
+against 70,667 Qdrant music points on the walk box, and every graph count
+(the wiki Topics page, interest_profile's raw_rows) read about double.
+
+It is NOT deleted, because not every writer goes through that pipeline: CM041
+places_ingest.py and ostler_fda's iMessage/bookmark rows upsert Qdrant only,
+and interest_profile still needs them in the graph. So:
+
+  * ``project`` skips a point whose ``pwg:pref_<preference_id>`` node exists
+    (``pipeline_preference_ids``): one producer per preference.
+  * ``dedupe_projected_twins`` is the one-time cleanup for installs that
+    already hold both copies. It removes a projected node ONLY when its
+    pipeline twin exists, backs the removed triples up first, and refuses to
+    delete if the backup did not land. A projected node with no twin is
+    never touched. Re-running finds nothing to do.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -201,25 +223,134 @@ def to_triples(points: list[dict]) -> tuple[list[str], int]:
 
 
 
-def _count_marked(oxi: str, headers: dict) -> int:
-    """How many nodes currently carry this projector's marker. Used to refuse a
-    delete that does not match what we are about to write."""
-    q = (f"PREFIX pwg: <{PWG_NS}> SELECT (COUNT(DISTINCT ?s) AS ?n) "
-         f"WHERE {{ ?s pwg:projectedBy {_lit(PROJECTOR_ID)} }}")
-    h = {"Accept": "text/csv",
-         "Content-Type": "application/x-www-form-urlencoded"}
+PIPELINE_PREFIX = PWG_NS + "pref_"
+PROJECTION_PREFIX = "urn:ostler:preference:"
+_TYPES = ", ".join(f"<{PWG_NS}{t}>" for t in sorted(set(_POLARITY.values())))
+#: Subjects per DELETE / CONSTRUCT request: keeps each request body well under
+#: a megabyte on a 140k-node graph.
+_BATCH = 500
+
+
+def _iri_for_id(preference_id: str) -> str:
+    """The projection IRI for a preference_id. MUST equal ``_iri`` for a
+    point whose payload carries that id (tested)."""
+    return f"{PROJECTION_PREFIX}{hashlib.sha256(str(preference_id).encode('utf-8')).hexdigest()[:32]}"
+
+
+def _query_json(oxi: str, sparql: str, headers: dict) -> list[dict]:
+    """SELECT -> list of {var: value}. Raises on a refused query: a store that
+    will not answer must never read as an empty one."""
+    h = {"Content-Type": "application/sparql-query",
+         "Accept": "application/sparql-results+json"}
     if "Authorization" in headers:
         h["Authorization"] = headers["Authorization"]
-    raw = _post(oxi + "/query",
-                urllib.parse.urlencode({"query": q}).encode("utf-8"), h)
-    rows = raw.decode("utf-8", "replace").splitlines()
-    try:
-        return int(rows[1].strip().strip('"'))
-    except Exception:
-        return 0
+    raw = _post(oxi + "/query", sparql.encode("utf-8"), h)
+    data = json.loads(raw)
+    names = data.get("head", {}).get("vars", [])
+    return [{n: b[n]["value"] for n in names if n in b}
+            for b in data.get("results", {}).get("bindings", [])]
 
 
-def project(qdrant_url: str | None = None, oxigraph_url: str | None = None) -> dict:
+def pipeline_preference_ids(oxi: str, headers: dict) -> set[str]:
+    """Every preference_id the CM019 pipeline has written as pwg:pref_<id>."""
+    q = (f"SELECT DISTINCT ?s WHERE {{ ?s a ?t . FILTER(?t IN ({_TYPES})) "
+         f'FILTER(STRSTARTS(STR(?s), "{PIPELINE_PREFIX}")) }}')
+    return {r["s"][len(PIPELINE_PREFIX):] for r in _query_json(oxi, q, headers)
+            if r.get("s", "").startswith(PIPELINE_PREFIX)}
+
+
+def projected_nodes(oxi: str, headers: dict) -> set[str]:
+    """Every node this projector wrote (it carries the marker)."""
+    q = (f"SELECT DISTINCT ?s WHERE {{ ?s <{PWG_NS}projectedBy> "
+         f"{_lit(PROJECTOR_ID)} }}")
+    return {r["s"] for r in _query_json(oxi, q, headers) if r.get("s")}
+
+
+def _backup_dir() -> str:
+    return os.environ.get(
+        "OSTLER_PREFERENCE_PROJECTION_BACKUP_DIR",
+        os.path.expanduser("~/.ostler/backups/preference-projection"),
+    )
+
+
+def _count_marked(oxi: str, headers: dict) -> int:
+    """How many nodes currently carry this projector's marker. Used to refuse a
+    delete that does not match what we are about to write. Raises on a refused
+    query: this used to return 0 on ANY failure, which disarmed the guard it
+    exists for."""
+    q = (f"PREFIX pwg: <{PWG_NS}> SELECT (COUNT(DISTINCT ?s) AS ?n) "
+         f"WHERE {{ ?s pwg:projectedBy {_lit(PROJECTOR_ID)} }}")
+    rows = _query_json(oxi, q, headers)
+    return int(rows[0]["n"]) if rows and "n" in rows[0] else 0
+
+
+def dedupe_projected_twins(oxigraph_url: str | None = None,
+                           backup_dir: str | None = None) -> dict:
+    """ONE-TIME CLEANUP: remove projected copies whose pipeline twin exists.
+
+    A projected node ``urn:ostler:preference:<sha256(id)[:32]>`` is removed
+    only when ``pwg:pref_<id>`` exists AND the node carries this projector's
+    marker. Everything removed is first written as N-Triples to
+    ``backup_dir`` and the file is read back; if it does not hold every
+    subject about to be deleted, nothing is deleted. Idempotent: a second run
+    finds no twins and writes no backup.
+    """
+    oxi = (oxigraph_url or os.environ.get("OSTLER_OXIGRAPH_URL", _OXIGRAPH_DEFAULT)).rstrip("/")
+    tok = _secret("OXIGRAPH_TOKEN", "oxigraph_token")
+    headers = {"Content-Type": "application/sparql-update"}
+    if tok:
+        headers["Authorization"] = "Bearer " + tok
+
+    projected = projected_nodes(oxi, headers)
+    if not projected:
+        return {"projected": 0, "twins": 0, "removed": 0, "backup": None}
+    pipeline = pipeline_preference_ids(oxi, headers)
+    twins = sorted(projected & {_iri_for_id(i) for i in pipeline})
+    if not twins:
+        return {"projected": len(projected), "twins": 0, "removed": 0, "backup": None}
+
+    # BACK UP FIRST. CONSTRUCT returns N-Triples; every subject must appear.
+    bdir = backup_dir or _backup_dir()
+    os.makedirs(bdir, mode=0o700, exist_ok=True)
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    path = os.path.join(bdir, f"projected-twins-{stamp}.nt")
+    h = {"Content-Type": "application/sparql-query", "Accept": "application/n-triples"}
+    if "Authorization" in headers:
+        h["Authorization"] = headers["Authorization"]
+    tmp = path + ".partial"
+    with open(tmp, "wb") as fh:
+        for i in range(0, len(twins), _BATCH):
+            vals = " ".join(f"<{t}>" for t in twins[i:i + _BATCH])
+            q = f"CONSTRUCT {{ ?s ?p ?o }} WHERE {{ VALUES ?s {{ {vals} }} ?s ?p ?o }}"
+            fh.write(_post(oxi + "/query", q.encode("utf-8"), h))
+    os.replace(tmp, path)
+    with open(path, encoding="utf-8") as fh:
+        backed = {line.split(" ", 1)[0].strip("<>") for line in fh if line.strip()}
+    missing = [t for t in twins if t not in backed]
+    if missing:
+        raise RuntimeError(
+            f"refusing to delete: the backup {path} holds {len(twins) - len(missing)} of "
+            f"{len(twins)} duplicate nodes (first missing: {missing[0]}). Nothing was deleted."
+        )
+
+    # DELETE ONLY THE TWINS, and only their marked form: the marker is part of
+    # the pattern, so a node that lost it (or never had it) cannot match.
+    for i in range(0, len(twins), _BATCH):
+        vals = " ".join(f"<{t}>" for t in twins[i:i + _BATCH])
+        upd = (f"DELETE {{ ?s ?p ?o }} WHERE {{ VALUES ?s {{ {vals} }} "
+               f"?s <{PWG_NS}projectedBy> {_lit(PROJECTOR_ID)} . ?s ?p ?o }}")
+        _post(f"{oxi}/update", upd.encode("utf-8"), headers)
+
+    left = projected_nodes(oxi, headers)
+    still = [t for t in twins if t in left]
+    if still:
+        raise RuntimeError(f"{len(still)} duplicate node(s) survived the delete; backup at {path}")
+    return {"projected": len(projected), "twins": len(twins),
+            "removed": len(twins), "backup": path}
+
+
+def project(qdrant_url: str | None = None, oxigraph_url: str | None = None,
+            pipeline_ids: set[str] | None = None) -> dict:
     """Read Qdrant, replace the projected preference graph in Oxigraph.
 
     Writes into a NAMED GRAPH so the projection can be replaced wholesale
@@ -234,7 +365,13 @@ def project(qdrant_url: str | None = None, oxigraph_url: str | None = None) -> d
         headers["Authorization"] = "Bearer " + tok
 
     points = read_qdrant_preferences(qdrant_url)
-    lines, skipped = to_triples(points)
+    # ONE PRODUCER PER PREFERENCE: a point the CM019 pipeline already wrote as
+    # pwg:pref_<id> is not copied again. Only Qdrant-only rows are projected.
+    already = pipeline_ids if pipeline_ids is not None else pipeline_preference_ids(oxi, headers)
+    own = [p for p in points
+           if str((p.get("payload") or {}).get("preference_id") or "") not in already]
+    in_pipeline = len(points) - len(own)
+    lines, skipped = to_triples(own)
 
     # Replace only our own rows. DELETE WHERE on the marker is exact: a row
     # another producer wrote has no marker and is untouched.
@@ -258,11 +395,23 @@ def project(qdrant_url: str | None = None, oxigraph_url: str | None = None) -> d
         delete + " ;\nINSERT DATA {\n" + "\n".join(lines) + "\n}")
     _post(f"{oxi}/update", body.encode("utf-8"), headers)
     return {"points": len(points), "triples": len(lines), "skipped": skipped,
+            "in_pipeline": in_pipeline,
             "nodes": len(lines and set(l.split(" ")[0] for l in lines) or ())}
 
 
 if __name__ == "__main__":
     import sys
+    # The one-time twin cleanup runs FIRST: project()'s ratio guard would
+    # otherwise (correctly) refuse to replace 70k marked nodes with the few
+    # hundred Qdrant-only rows it now writes.
+    try:
+        d = dedupe_projected_twins()
+    except Exception as exc:  # loud, never a quiet zero
+        print(f"preference projection twin cleanup FAILED: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    if d["removed"]:
+        print(f"removed {d['removed']} projected duplicate(s) of pipeline preferences "
+              f"(of {d['projected']} projected nodes); backup {d['backup']}")
     try:
         r = project()
     except Exception as exc:  # loud, never a quiet zero
@@ -270,4 +419,5 @@ if __name__ == "__main__":
         raise SystemExit(1)
     print(f"projected {r['nodes']} preference nodes "
           f"({r['triples']} triples) from {r['points']} Qdrant points; "
+          f"{r['in_pipeline']} already in the graph from the ingest pipeline; "
           f"{r['skipped']} skipped as unqueryable")
