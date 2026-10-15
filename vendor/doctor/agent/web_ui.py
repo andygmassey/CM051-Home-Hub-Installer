@@ -1377,41 +1377,22 @@ def render_source_status() -> str:
         when = r.get("last_update_at") or r.get("recorded_at")
         n = r.get("item_count")
 
-        # v1.0.107 walk candidate #9, Andy's console walk: this table showed
-        # "email ... read in ... 0" and "imessage ... read in ... 0" while
-        # email-ingest.log had just emitted 11,883 real messages (29,157 for
-        # imessage, the settling ledger's own total) -- status correctly
-        # promoted to "ok" already (read_source_status, board #2562-C), but
-        # the COUNT column still read the install-time item_count alone,
-        # which is a different, narrower question (new items AT INSTALL,
-        # #2529 review) and is legitimately 0 whenever a run finds nothing
-        # NEW. `last_run_count` is the field that carries the real, ongoing
-        # total; prefer it here whenever it says MORE than item_count does,
-        # so the one column a customer reads as "how much did you find" never
-        # prints a number smaller than what read_source_status has already
-        # measured for this exact row.
-        last_run_count = r.get("last_run_count")
-        if (
-            isinstance(last_run_count, int)
-            and not isinstance(last_run_count, bool)
-            and (n is None or last_run_count > n)
-        ):
-            n = last_run_count
-
-        # None and 0 are different answers and must not print the same.
+        # ONE HONEST TOTAL (walk #28). read_source_status builds the cell's
+        # words once, as count_label, with count_kind saying what KIND of
+        # number it is: "total" (what Ostler holds, in the row's unit) or
+        # "last_check" (a per-run figure, the only evidence there is, and
+        # labelled as one). The table prints that label and nothing else, so
+        # the Doctor table and /api/v1/sources can never disagree. This cell
+        # used to take max(item_count, last_run_count), and on Andy's walk
+        # the Mail row printed the last tick's delta as if it were the
+        # mailbox.
         #
-        # AND A STATE THAT TOOK NO MEASUREMENT MUST NOT PRINT ONE (#1587).
-        # _hydrate_sentinel_record_cannot_run writes `item_count=0`, because
-        # the change-detection helper it shares with the other recorders
-        # needs a number to compare against the previous record. That 0 is
-        # bookkeeping, not a count: the whole meaning of cannot_run is that
-        # nothing looked. Printing it beside "could not look" would put a
-        # fabricated zero in the one column a customer reads as "how much of
-        # mine did you find", which is the same shape as the return code
-        # that used to print there (#946).
-        if st in ("cannot_run", "not_run", "unreadable"):
-            n = None
-        count = "&mdash;" if n is None else f"{n:,}"
+        # None and 0 are different answers and must not print the same, and
+        # a state that took no measurement must not print one (#1587):
+        # _source_count_label returns no label for cannot_run / not_run /
+        # unreadable, whose item_count=0 is bookkeeping, not a count.
+        label = r.get("count_label")
+        count = html.escape(label) if label else "&mdash;"
         body.append(
             '<tr>'
             f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
@@ -3009,6 +2990,252 @@ def _settling_progress_total(source: str, progress_dir: Path | None = None) -> i
     return total if isinstance(total, int) and not isinstance(total, bool) and total > 0 else None
 
 
+# ── ONE HONEST TOTAL PER ROW, IN A NAMED UNIT (v1.0.107 walk #28) ────────
+#
+# Andy's console walk of candidate #28 read the Data sources rows and found
+# five of them saying something other than what their label claims:
+#
+#     Mail       the last tick's delta (email-ingest's per-run "emitted"),
+#                not the mail Ostler has read
+#     WhatsApp   the install-time people_added figure, roughly one per DM
+#                chat, under a label that says "messages"
+#     Safari     visits (one per history_visits row), labelled "web pages"
+#     Photos     "events" in the Doctor's own table, with no unit at all
+#     Notes      four different numbers across the surfaces that show it
+#
+# The cause is one shape: `item_count` was whatever number the install-time
+# recorder happened to put LAST in its payload, and every surface supplied
+# its own noun. The noun and the number were chosen in different repos by
+# different people and nothing held them together.
+#
+# THE FIX IS A DECLARED UNIT PER ROW AND ONE PRODUCER PER UNIT. Each row now
+# carries `item_unit` (the noun the number counts) and `item_count_from`
+# (where the number was read), and `item_count` is the total IN THAT UNIT or
+# None. A producer whose number is in a different unit is never used as a
+# stand-in: WhatsApp's people_added is a count of people, so with no message
+# ledger the row has no total, and says so, rather than printing people as
+# messages. The raw sentinel figure stays on the row as `install_item_count`
+# for anyone debugging the writer.
+#
+# The units are the SAME NOUNS the Hub's Data sources tab prints beside
+# item_count (ostler-assistant web/src/lib/dataSources.ts), so the Hub row
+# and this row now say the same thing about the same number.
+_SOURCE_TOTAL_UNITS = {
+    "email": "emails",
+    "imessage": "messages",
+    "whatsapp": "messages",
+    "calendar": "events",
+    "contacts": "contacts",
+    "apple_notes": "notes",
+    "photos": "photos",
+    "browsing": "web pages",
+    "reminders": "reminders",
+    "apple_music": "tracks",
+    "ai_conversations": "chats",
+}
+
+# Rows whose install-time sentinel count IS in the declared unit, so it is a
+# truthful fallback when no live total exists. Absent on purpose:
+#   imessage  payload people=N        people, not messages
+#   whatsapp  payload people_added=N  people (one per DM chat), not messages
+#   browsing  payload sent=N          visits sent to the store, not pages
+_SENTINEL_COUNT_IN_UNIT = {
+    "email",             # people=N,messages=M -> messages (last key)
+    "calendar",          # events=N
+    "contacts",          # imported=N
+    "apple_notes",       # notes=N (CM024 "Files written", one per note)
+    "photos",            # photo_events=N, one per photo asset
+    "reminders",         # total_reminders=N
+    "apple_music",       # total_tracks=N
+    "ai_conversations",  # written=N conversations
+}
+
+# Settling-progress ledgers whose `done` is the running count of items READ,
+# in the row's unit. `done`, not `total`: `total` is the size of the source
+# (what there is to read), `done` is what Ostler has actually read. For email
+# the tick writes done = previous done + this tick's read (email-ingest-tick.sh,
+# _report_email_settling), so it is cumulative, which is exactly the property
+# the per-run "emitted" figure lacks.
+_SETTLING_DONE_FILES = {
+    "email": "emails.json",
+    "imessage": "messages.imessage.json",
+    "whatsapp": "messages.whatsapp.json",
+}
+
+# The FDA extractor's own per-source record, rewritten by every fda-rerun
+# tick. The ONE canonical Notes count is the number of notes the extractor
+# read out of Apple Notes (vendor/ostler_fda/apple_notes.py notes_stats,
+# "notes": len(notes)). The other Notes figures a person can meet are each a
+# different population: CM024's "Files written" (the install-time sentinel,
+# frozen at install), the apple_notes_knowledge collection (CHUNKS, several
+# per note) and the settling "notes" channel (Evernote imports, not Apple
+# Notes). Photos is the same file: photo_events is one row per photo asset
+# (photos_metadata.extract_photo_events GROUP BY a.Z_PK), so it is photos.
+_EXTRACT_SUMMARY_KEYS = {
+    "apple_notes": ("apple_notes", "notes"),
+    "photos": ("photos", "photo_events"),
+}
+
+# Browsing history extracts: one JSON entry per VISIT, each carrying its url.
+# Pages are the distinct urls across them.
+_BROWSING_EXTRACTS = ("safari_history.json", "chrome_history.json")
+_PAGES_CACHE: dict = {}
+
+
+def _ostler_state_root() -> Path:
+    return Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+
+
+def _positive_int(v) -> int | None:
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def _settling_done(source: str, progress_dir: Path | None = None) -> int | None:
+    name = _SETTLING_DONE_FILES.get(source)
+    if name is None:
+        return None
+    base = progress_dir if progress_dir is not None else (
+        _ostler_state_root() / "state" / "settling_progress.d")
+    try:
+        data = json.loads((base / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return _positive_int(data.get("done")) if isinstance(data, dict) else None
+
+
+def _extract_summary_count(source: str, fda_dir: Path | None = None) -> int | None:
+    spec = _EXTRACT_SUMMARY_KEYS.get(source)
+    if spec is None:
+        return None
+    key, field = spec
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    try:
+        doc = json.loads((base / "extraction_summary.json").read_text(
+            encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    rec = (doc.get("sources") or {}).get(key) if isinstance(doc, dict) else None
+    if not isinstance(rec, dict) or rec.get("status") != "ok":
+        return None
+    return _positive_int(rec.get(field))
+
+
+def _distinct_pages(fda_dir: Path | None = None) -> int | None:
+    """Distinct urls across the browsing extracts, or None when none exist.
+    Cached on (path, mtime, size) so a polled panel does not re-read the
+    extract every few seconds."""
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    urls: set = set()
+    seen_any = False
+    for name in _BROWSING_EXTRACTS:
+        p = base / name
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        key = (str(p), st.st_mtime_ns, st.st_size)
+        cached = _PAGES_CACHE.get(str(p))
+        if cached and cached[0] == key:
+            part = cached[1]
+        else:
+            try:
+                entries = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+            except (OSError, ValueError):
+                continue
+            part = frozenset(
+                e["url"] for e in entries
+                if isinstance(e, dict) and isinstance(e.get("url"), str) and e["url"]
+            ) if isinstance(entries, list) else frozenset()
+            _PAGES_CACHE[str(p)] = (key, part)
+        seen_any = True
+        urls |= part
+    if not seen_any:
+        return None
+    return len(urls) or None
+
+
+def _canonical_total(source: str, sentinel_count, status: str | None = None) -> tuple:
+    """(total, where_it_came_from) for one row, in the row's declared unit.
+
+    Live producers first, because they move after install; then the
+    install-time sentinel, ONLY where its number is in the same unit. Never
+    a per-run figure, never a figure in a different unit.
+    """
+    n = _settling_done(source)
+    if n is not None:
+        return n, "settling_progress"
+    n = _extract_summary_count(source)
+    if n is not None:
+        return n, "extraction_summary"
+    if source == "browsing":
+        n = _distinct_pages()
+        if n is not None:
+            return n, "browsing_extract_distinct_urls"
+    if not isinstance(sentinel_count, int) or isinstance(sentinel_count, bool):
+        return None, None
+    if source not in _SOURCE_TOTAL_UNITS or source in _SENTINEL_COUNT_IN_UNIT:
+        return sentinel_count, "install_sentinel"
+    # A sentinel that looked and found NOTHING is zero in every unit: no
+    # people added from no chats is also no messages. Only a POSITIVE count
+    # in the wrong unit is withheld.
+    if sentinel_count == 0 and status == "no_data":
+        return 0, "install_sentinel"
+    return None, None
+
+
+def _mail_available_total(fda_dir: Path | None = None) -> int | None:
+    """How many messages the Mac's Mail store holds, or None when unknown.
+
+    Recorded at EXTRACT time by vendor/ostler_fda (apple_mail.
+    envelope_index_total, written by extract_all as apple_mail.mailbox_total),
+    which already opens the Envelope Index read-only. The Doctor never opens
+    Mail's database itself: it has no Full Disk Access of its own and must not
+    need it. None (no summary, no field, or a non-positive value) means the
+    row shows only what Ostler holds, with no "of", never "of 0".
+    """
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    try:
+        doc = json.loads((base / "extraction_summary.json").read_text(
+            encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    rec = (doc.get("sources") or {}).get("apple_mail") if isinstance(doc, dict) else None
+    if not isinstance(rec, dict):
+        return None
+    return _positive_int(rec.get("mailbox_total"))
+
+
+def _source_count_label(row: dict) -> tuple:
+    """(count_label, count_kind) for one row, or (None, None).
+
+    count_kind is "total" when the number is what Ostler holds in the row's
+    unit, and "last_check" when the only figure is a per-run one: that is
+    labelled "in the last check", never passed off as a total (walk #28, and
+    the count_kind flag from the closed duplicate #2922).
+    """
+    if (row.get("status") or "not_run") in ("cannot_run", "not_run", "unreadable"):
+        return None, None
+    unit = row.get("item_unit")
+    n = row.get("item_count")
+    if isinstance(n, int) and not isinstance(n, bool):
+        if row.get("source") == "email":
+            of = _positive_int(row.get("item_of"))
+            # "of" only when the denominator was read AND is not smaller than
+            # what Ostler holds; a held count above the mailbox would mean the
+            # two were measured on different stores, and "500 of 300" is
+            # worse than no denominator.
+            if of is not None and of >= n:
+                return "{:,} of {:,} emails read".format(n, of), "total"
+            return "{:,} emails read".format(n), "total"
+        return ("{:,} {}".format(n, unit) if unit else "{:,}".format(n)), "total"
+    per_run = row.get("last_run_count")
+    if (row.get("last_run_count_from") == "routine"
+            and _positive_int(per_run) is not None):
+        return (("{:,} {} in the last check".format(per_run, unit) if unit
+                 else "{:,} in the last check".format(per_run)), "last_check")
+    return None, None
+
+
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     """The ongoing-activity record for one source, or {} when absent.
 
@@ -3243,15 +3470,44 @@ def read_source_status(hydrate_dir: Path | None = None,
         # Both run even when a direct activity record already set
         # ongoing=active above -- that record is not evidence about a count.
         count = None
+        count_from = None
         if labels:
             count = _best_routine_count(labels, routine_rows)
+            count_from = "routine" if count is not None else None
         if count is None:
             count = _settling_progress_total(row["source"])
+            count_from = "settling_progress" if count is not None else None
+        row["last_run_count_from"] = count_from
         if count is not None:
             row["last_run_count"] = count
             if row["status"] in ("no_data", "not_run", "unreadable"):
                 row["status"] = "ok"
                 row["detail"] = "the store holds %d" % count
+
+        # ONE honest total, in a declared unit (walk #28). See
+        # _SOURCE_TOTAL_UNITS. item_count becomes that total or None; the
+        # sentinel's own figure is kept beside it, renamed, never lost.
+        row["install_item_count"] = row["item_count"]
+        total, origin = _canonical_total(row["source"], row["item_count"], row["status"])
+        # A stale install-time ZERO is not a total once a live producer has
+        # counted something: "0 emails" beside a tick that just read 4,200
+        # is the walk #9 shape again. Unknown, and the per-run figure is
+        # shown with its own wording instead.
+        if (total == 0 and origin == "install_sentinel"
+                and _positive_int(row.get("last_run_count")) is not None):
+            total, origin = None, None
+        row["item_count"] = total
+        row["item_unit"] = _SOURCE_TOTAL_UNITS.get(row["source"])
+        row["item_count_from"] = origin
+        if (total and origin != "install_sentinel"
+                and row["status"] in ("no_data", "not_run", "unreadable")):
+            row["status"] = "ok"
+            row["detail"] = "the store holds %d" % total
+        # Mail also says how much there is to read (Andy, walk #28): the
+        # Mac's Mail store size, recorded at extract time.
+        if row["source"] == "email":
+            row["item_of"] = _mail_available_total()
+        row["count_label"], row["count_kind"] = _source_count_label(row)
     return rows
 
 
