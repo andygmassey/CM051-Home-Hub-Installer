@@ -78,8 +78,8 @@ def _pref(subject, ptype="Like", category="music", source="spotify"):
 # A and B went through the CM019 pipeline (both stores). C is Qdrant-only, the
 # shape CM041 places_ingest / ostler_fda write.
 A = _pref("Synthetic Track A")
-B = _pref("Synthetic Dish B", ptype="Dislike", category="food", source="uber")
-C = _pref("Synthetic Room C", ptype="Neutral", category="place", source="meeting_locations")
+B = _pref("Synthetic dish B", ptype="Dislike", category="food", source="uber")
+C = _pref("Synthetic room C", ptype="Neutral", category="place", source="meeting_locations")
 
 
 def _qdrant_points():

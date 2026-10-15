@@ -101,9 +101,9 @@ def make_chat_db(path: Path, now: datetime) -> None:
                      [(1, "pat@example.invalid"), (2, "+15555550123")])
     conn.executemany(
         "INSERT INTO chat VALUES (?, ?, ?, ?, ?, ?)",
-        [(1, "iMessage;-;pat@example.invalid", "pat@example.invalid", "Pat Example", 45,
+        [(1, "iMessage;-;pat@example.invalid", "pat@example.invalid", "Jane Doe", 45,
           "E:owner@example.invalid"),
-         (2, "iMessage;-;+15555550123", "+15555550123", "Sam Example", 45,
+         (2, "iMessage;-;+15555550123", "+15555550123", "John Smith", 45,
           "E:owner@example.invalid")])
     conn.executemany("INSERT INTO chat_handle_join VALUES (?, ?)", [(1, 1), (2, 2)])
     msgs = [
@@ -171,12 +171,12 @@ def ok_snapshot(now: datetime, *, generated: datetime | None = None) -> dict:
         "generated_at": (generated or now).isoformat(),
         "lookback_days": 90,
         "threads": [
-            {"chat_id": "iMessage;-;pat@example.invalid", "display_name": "Pat Example",
+            {"chat_id": "iMessage;-;pat@example.invalid", "display_name": "Jane Doe",
              "participants": ["pat@example.invalid"], "is_group": False,
              "last": {"text": "Are you free for lunch on Thursday?", "is_from_me": False,
                       "sender": "pat@example.invalid",
                       "timestamp": (now - timedelta(days=2)).isoformat()}},
-            {"chat_id": "iMessage;-;+15555550123", "display_name": "Sam Example",
+            {"chat_id": "iMessage;-;+15555550123", "display_name": "John Smith",
              "participants": ["+15555550123"], "is_group": False,
              "last": {"text": "Great, see you then", "is_from_me": True, "sender": "me",
                       "timestamp": (now - timedelta(days=1)).isoformat()}},
@@ -223,7 +223,7 @@ def run_endpoint(home: Path, *, mode: str = "endpoint", extra: list[str] | None 
         "PATH": os.environ.get("PATH", ""),
         "PYTHONDONTWRITEBYTECODE": "1",
         "USER_ID": "operator",
-        "USER_DISPLAY_NAME": "Alex Example",
+        "USER_DISPLAY_NAME": "Alex Jones",
         "REPLY_DEBT_PROJECT_DIR": str(CM048),
     }
     proc = subprocess.run(
@@ -275,7 +275,7 @@ def test_reply_debt_never_opens_chat_db_even_when_it_is_readable(home, now):
     p = out["payload"]
     assert p["degraded"] is False, p
     assert p["count"] == 1, p
-    assert [d["person_name"] for d in p["debts"]] == ["Pat Example"], p
+    assert [d["person_name"] for d in p["debts"]] == ["Jane Doe"], p
 
 
 def test_reply_debt_never_opens_chat_db_when_no_snapshot(home, now):
@@ -403,7 +403,7 @@ def test_feed_writes_a_snapshot_the_endpoint_can_score(tmp_path, now, monkeypatc
     assert (out.stat().st_mode & 0o777) == 0o600
     threads = adapters.load_imessage_threads(snapshot_path=out, now=now)
     debts = service.compute_reply_debts(thread_sources=[threads])
-    assert [d.person_name for d in debts] == ["Pat Example"]
+    assert [d.person_name for d in debts] == ["Jane Doe"]
 
 
 def test_feed_records_an_unreadable_chat_db_rather_than_an_empty_list(tmp_path, now, monkeypatch):
@@ -473,7 +473,7 @@ DEGRADED = {"count": 0, "brief_line": "", "debts": [], "degraded": True,
 NOT_CONNECTED = {"count": 0, "brief_line": "", "debts": [], "degraded": True,
                  "reason": "imessage_not_connected", "privacy_level": "L2"}
 OWED = {"count": 1, "brief_line": "You owe a reply to 1 person:", "degraded": False,
-        "debts": [{"person_name": "Pat Example"}], "privacy_level": "L2"}
+        "debts": [{"person_name": "Jane Doe"}], "privacy_level": "L2"}
 CAUGHT_UP = {"count": 0, "brief_line": "No replies owed  -  you're all caught up.",
              "debts": [], "degraded": False, "privacy_level": "L2"}
 
