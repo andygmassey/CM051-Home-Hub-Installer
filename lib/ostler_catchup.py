@@ -367,7 +367,7 @@ def read_all_watermarks(directory: Optional[Path] = None) -> List[dict]:
 
 # ── adapter contract ─────────────────────────────────────────────────────────
 
-class SinkUnavailable(Exception):
+class SinkUnavailable(ConnectionError):
     """Raised by an adapter's ``process`` when the SINK (gateway, store,
     transport) could not take the item. Says nothing about the item: it is never
     counted toward quarantine, ends the run with "sink_unavailable" and leaves
