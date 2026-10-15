@@ -1227,3 +1227,14 @@ WHY: a refused open() reaches Python as SQLITE_CANTOPEN "unable to open database
 ### What a future sync must preserve
 
 `tcc_refusal.py`, the eleven `is_fda_refusal` call sites, and `_failure_status`. Guarded by `tests/test_fda_refusal_surfaces.py` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+---
+
+## ostler_fda: forget_tombstone.py kept byte-identical with cm041/identity_resolver (walk #28, sweep V22)
+
+`vendor/ostler_fda/forget_tombstone.py` takes the same change as the
+cm041/identity_resolver copy: an unreadable tombstone file is never
+overwritten (left in place, bytes copied aside, `record()` returns False), and
+`problem()` names it. The two copies are asserted byte-identical by
+`vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
