@@ -3455,7 +3455,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:8511, :15558) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18497 / :18675 / :18832 / :19200 path. There the
+    # :18497 / :18675 / :18832 / :19259 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -19008,7 +19008,66 @@ print(json.dumps(summary, default=str))
             warn "Could not stage the Apple Music library for preferences; continuing."  # i18n-exempt
         fi
     fi
-    unset _AM_EXPORT
+    # The scheduled Apple Music refresh (CM051, Andy 2026-10-15, "please don't let
+    # that slip"). Apple Music used to refresh at install only: the hourly
+    # fda-rerun is a launchd job and cannot hold the "Media & Apple Music"
+    # grant. Two small agents fix that without a new permission:
+    #   com.ostler.music-refresh        Aqua session, daily + at login; its
+    #       program is the signed installer app itself (--music-refresh), so
+    #       the same signed helper runs under the identity that holds the
+    #       grant. See docs/APPLE_MUSIC_REFRESH_TCC.md.
+    #   com.ostler.music-refresh-apply  no TCC; stores only changed tracks.
+    # ARMED ONLY WHEN THE INSTALL'S OWN NATIVE READ SUCCEEDED (reader native,
+    # with tracks): that is the only proof the customer clicked Allow, and a
+    # background job must never be the thing that raises that dialog. Nothing
+    # here can fail the install.
+    # The program is the signed installer app, and only an installer that sits
+    # in /Applications is a stable anchor: "Don't Move" leaves it on the DMG or
+    # in Downloads, and customers trash installers, after which launchd would
+    # fail every day in silence. (The persistent OstlerAssistant.app would be
+    # the better anchor, but nothing in this repo makes it hold the Media &
+    # Apple Music grant, so that is not claimed.) Every case that does not
+    # schedule the refresh records source_activity apple_music cannot_run with
+    # a reason, so the Doctor shows it. The install-time read is unaffected.
+    _AM_APP_EXEC="/Applications/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"
+    _am_cannot() {
+        [[ -n "${OSTLER_PYTHON:-}" ]] || return 0
+        OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" "$OSTLER_PYTHON" \
+            -m ostler_fda.apple_music_refresh cannot-run --reason "$1" >/dev/null 2>&1 || true
+    }
+    if [[ -s "$_AM_EXPORT" && -n "${OSTLER_PYTHON:-}" ]]; then
+        # THIS run's summary must show a native read with tracks. The export
+        # on disk is not proof: a refused read keeps the previous export.
+        _AM_ARM="$(printf '%s\n' "${FDA_OUTPUT:-}" | OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" \
+            "$OSTLER_PYTHON" -m ostler_fda.apple_music_refresh arm --export "$_AM_EXPORT" --run-summary - 2>/dev/null)" || _AM_ARM=""
+        if [[ "$_AM_ARM" != "armed" ]]; then
+            _am_cannot "install_read_not_native"
+        elif [[ ! -x "$_AM_APP_EXEC" ]]; then
+            OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" "$OSTLER_PYTHON" \
+                -m ostler_fda.apple_music_refresh disarm >/dev/null 2>&1 || true
+            _am_cannot "installer_not_in_applications"
+            warn "Apple Music will refresh at the next install only; move Ostler Installer to Applications to refresh daily."  # i18n-exempt
+        else
+            if OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" \
+                 "$OSTLER_PYTHON" -m ostler_fda.apple_music_refresh install-agents \
+                 --app-executable "$_AM_APP_EXEC" --python "$OSTLER_PYTHON" \
+                 --fda-parent "${FDA_DIR}" --user "${OSTLER_USER:-ostler}" >/dev/null 2>&1; then
+                _ostler_launchagent_load_verified "${HOME}/Library/LaunchAgents/com.ostler.music-refresh-apply.plist" || true
+                if _ostler_launchagent_load_verified "${HOME}/Library/LaunchAgents/com.ostler.music-refresh.plist"; then
+                    info "Apple Music will refresh daily and at login."  # i18n-exempt
+                else
+                    _am_cannot "agent_did_not_load"
+                    warn "Apple Music will refresh at the next install only; the daily refresh did not start."  # i18n-exempt
+                fi
+            else
+                _am_cannot "agents_not_installed"
+                warn "Could not set up the daily Apple Music refresh; continuing."  # i18n-exempt
+            fi
+        fi
+        unset _AM_ARM
+    fi
+    unset _AM_EXPORT _AM_APP_EXEC
+    unset -f _am_cannot
 
     # #259: Apple Mail no-content guidance. The apple_mail extractor
     # arm now reports status "empty_no_content" when Mail is in the
@@ -25379,6 +25438,8 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.export-scan
     com.ostler.fda-rerun
     com.ostler.contact-resync
+    com.ostler.music-refresh
+    com.ostler.music-refresh-apply
     com.ostler.deferred-register-device
     com.ostler.aiconv-resume
     com.ostler.colima

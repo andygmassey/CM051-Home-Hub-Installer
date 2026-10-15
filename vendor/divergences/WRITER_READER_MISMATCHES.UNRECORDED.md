@@ -1271,3 +1271,11 @@ WHY: Andy's console walk listed organisations as people; one wrote from `<brand>
 ### What a future sync must preserve
 
 `organisation_reason`, its use in `classify`, and both ingest skips with the correspondent pass-through. Guarded by `tests/test_organisation_senders_are_not_people.py` (`.github/workflows/people-have-human-evidence.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## Apple Music refreshes daily and at login, not only at install (CM051 v1.0.108)
+
+Tree `ostler_fda`. `vendor/ostler_fda/apple_music.py`: `read_native_library` is split so its output parsing is the new `library_from_helper_output(stdout, returncode)`; behaviour of `read_native_library` is unchanged (same bounds, same statuses). The new function is shared with the scheduled refresh. New CM051-only file `vendor/ostler_fda/apple_music_refresh.py` is declared in `vendor/VENDOR_ONLY.tsv` (renders the two LaunchAgents, arms on the install's native read, diffs the library, stores only changed tracks through the CM019 ingest). Guarded by `tests/test_apple_music_scheduled_refresh.py` (32 tests, collection error on origin/main) and `tests/test_apple_music_library_reader.py` (unchanged, still green). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`library_from_helper_output` in `apple_music.py` and its single call at the end of `read_native_library`. Losing it leaves `apple_music_refresh.py` importing a name that does not exist, and the scheduled refresh logs `could not look` forever.

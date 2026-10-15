@@ -111,6 +111,7 @@
 		F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */; };
 		F953AB41A3E824D581406226 /* SupportLogVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A33AD875E67AD0B3C40F963 /* SupportLogVisibilityTests.swift */; };
 		FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */; };
+		FE30DC9E02C9EDDAD8829362 /* MusicRefreshMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E3925E18384B0486F2FA7FD /* MusicRefreshMode.swift */; };
 		FF3C80CAFC5353E7C36C2631 /* TailscaleConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88E69616403717DA4E9247AC /* TailscaleConnectView.swift */; };
 /* End PBXBuildFile section */
 
@@ -133,6 +134,7 @@
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		0DBB1F8EC328CB51F5752584 /* CaffeinateTerminationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateTerminationTests.swift; sourceTree = "<group>"; };
+		0E3925E18384B0486F2FA7FD /* MusicRefreshMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicRefreshMode.swift; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
 		18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ICON_HASHES.txt; sourceTree = "<group>"; };
 		1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLimitReachedView.swift; sourceTree = "<group>"; };
@@ -402,6 +404,7 @@
 				7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */,
 				F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */,
 				A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */,
+				0E3925E18384B0486F2FA7FD /* MusicRefreshMode.swift */,
 				597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */,
 			);
 			path = Auth;
@@ -1256,6 +1259,7 @@
 				825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */,
 				A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */,
 				68C7099E8A4A66062A1D907C /* MemoryCeiling.swift in Sources */,
+				FE30DC9E02C9EDDAD8829362 /* MusicRefreshMode.swift in Sources */,
 				A24306F6E5743370D87800DF /* OnboardingQuestionView.swift in Sources */,
 				85A41D89844382060889D680 /* OstlerLog.swift in Sources */,
 				9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */,
