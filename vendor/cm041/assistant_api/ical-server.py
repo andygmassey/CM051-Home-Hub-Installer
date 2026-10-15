@@ -9193,6 +9193,89 @@ def _contacts_diff_cached(engine_cls) -> dict:
     return out
 
 
+def _quarantine_quick_note(entry, reason):
+    """Park a malformed quick note with a reason; never drop it silently.
+    The raw point is kept (the owner's own words) in a 0600 file."""
+    import time
+    import uuid
+    qdir = os.path.join(INGEST_DIR, "quarantine")
+    os.makedirs(qdir, exist_ok=True)
+    path = os.path.join(qdir, "quick-note-%d-%s.json" % (int(time.time()), uuid.uuid4().hex[:8]))
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"reason": reason, "point": entry}, fh, default=str)
+    print("[ingest/ios] quick note quarantined: %s" % reason, flush=True)
+    return path
+
+
+def _ingest_quick_notes(batch):
+    """Feed iOS quick_note points into the Save-to-Knowledge drain
+    (EnrichQueue, KIND_KNOWLEDGE) so they reach the knowledge store.
+
+    Level: the owner's own note, levelled like the Apple Notes importer
+    (compartment 2, the floor; a declared L1 is raised, never lowered). A
+    declared L3 is the writer-side short-circuit: not queued, so it never
+    reaches Qdrant; it stays only in the ingest spool. An unreadable level
+    fails closed to 3."""
+    bn = _bn()
+    out = {"seen": 0, "queued": 0, "withheld_l3": 0, "quarantined": 0}
+    for entry in batch:
+        fields = entry.get("payload") if isinstance(entry, dict) else None
+        if not (isinstance(fields, dict) and fields.get("type") == "quick_note"):
+            continue
+        out["seen"] += 1
+        try:
+            pid = entry.get("id")
+            text = fields.get("text")
+            ts = fields.get("timestamp")
+            reason = ""
+            if not isinstance(pid, str) or not pid.strip():
+                reason = "missing_id"
+            elif not isinstance(text, str) or not text.strip():
+                reason = "missing_text"
+            elif not isinstance(ts, str) or not ts.strip():
+                reason = "missing_timestamp"
+            else:
+                try:
+                    datetime.fromisoformat(ts.strip().replace("Z", "+00:00"))
+                except ValueError:
+                    reason = "bad_timestamp"
+            if reason:
+                _quarantine_quick_note(entry, reason)
+                out["quarantined"] += 1
+                continue
+            declared = bn.parse_level(fields.get("privacy_level"))
+            level = 3 if declared is None and "privacy_level" in fields \
+                else max(declared if declared is not None else 0,
+                         bn.KNOWLEDGE_COMPARTMENT_LEVEL)
+            if level >= 3:
+                out["withheld_l3"] += 1
+                continue
+            text = text.strip()[:bn.QUICK_NOTE_TEXT_CAP_CHARS]
+            tags = bn.clean_user_tags([fields.get("person_name"), fields.get("location_name")])
+            ts = ts.strip()
+            url = "ostler://quick-note/" + pid.strip()
+            title = text.splitlines()[0][:80]
+            ok = _enrich_queue().enqueue({
+                "id": "qn-" + pid.strip(), "kind": bn.KIND_KNOWLEDGE,
+                "source_kind": bn.QUICK_NOTE_SOURCE, "level": level,
+                "url": url, "title": title, "text": "", "note": text,
+                "timestamp": ts, "device": "ios", "user_tags": tags,
+            })
+            if ok:
+                out["queued"] += 1
+            else:
+                _quarantine_quick_note(entry, "queue_refused")
+                out["quarantined"] += 1
+        except Exception as exc:  # noqa: BLE001 - one bad note never aborts the batch
+            try:
+                _quarantine_quick_note(entry, "error:" + type(exc).__name__)
+            except Exception:
+                pass
+            out["quarantined"] += 1
+    return out
+
+
 def api_ingest_ios(payload):
     """Accept a batch from the CM031 iOS companion app.
 
@@ -9252,6 +9335,8 @@ def api_ingest_ios(payload):
         except Exception as exc:  # noqa: BLE001 - never fail ingest on graph error
             health_errors.append(str(exc)[:120])
 
+    qn = _ingest_quick_notes(batch)
+
     try:
         os.makedirs(INGEST_DIR, exist_ok=True)
         batch_id = str(uuid.uuid4())
@@ -9274,6 +9359,12 @@ def api_ingest_ios(payload):
             "accepted": len(batch),
             "path": path,
         }
+        # 200 means spooled AND handed to the Knowledge drain (queued), not
+        # yet searchable. Counts only; a quarantined note carries a reason
+        # in INGEST_DIR/quarantine, never its text.
+        if qn["seen"]:
+            result["quick_notes"] = {k: qn[k] for k in
+                                     ("queued", "withheld_l3", "quarantined")}
         if health_written:
             result["health_observations"] = health_written
         if health_errors:
@@ -9638,9 +9729,34 @@ def _bn():
     return browsing_enrich
 
 
+def _knowledge_store_up():
+    """The catch-up predicate: the supervisor's --probe-ports verdict, via
+    ostler_fda.sink_health.stores_answer (Qdrant AND Oxigraph through the
+    proxy credential). If that module is not importable here, fall back to a
+    bounded Qdrant reachability check. Unjudgeable means DOWN (retry, never
+    quarantine)."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for up in ("..", "../..", "../../.."):
+            cand = os.path.normpath(os.path.join(here, up))
+            if os.path.isfile(os.path.join(cand, "ostler_fda", "sink_health.py")) \
+                    and cand not in sys.path:
+                sys.path.insert(0, cand)
+        from ostler_fda import sink_health
+        return bool(sink_health.stores_answer())
+    except ImportError:
+        try:
+            return _bn()._q(QDRANT_URL, "/collections") is not None
+        except Exception:
+            return False
+
+
 def _enrich_summarise(job):
     bn = _bn()
     text = job.get("text") or ""
+    if job.get("source_kind") == bn.QUICK_NOTE_SOURCE:
+        # The owner's own words: stored verbatim (job["note"]), no model.
+        return {"summary": "", "key_points": [], "entities": [], "tags": []}
     if job.get("kind") == bn.KIND_KNOWLEDGE:
         if not text.strip():
             return None
@@ -9667,7 +9783,11 @@ def _enrich_store(job, result):
             visit_id=visit_id, result=result,
             user_tags=job.get("user_tags") or [], note=job.get("note") or "",
             failure_reason=job.get("failure_reason") or "",
+            **({"source": bn.QUICK_NOTE_SOURCE, "notebook": bn.QUICK_NOTE_NOTEBOOK}
+               if job.get("source_kind") == bn.QUICK_NOTE_SOURCE else {}),
         )
+        if job.get("source_kind") == bn.QUICK_NOTE_SOURCE:
+            point["compartment_level"] = job.get("level", bn.KNOWLEDGE_COMPARTMENT_LEVEL)
         vector = _embed_text(point["content"][:6000])
         bn.qdrant_ensure_collection(QDRANT_URL, bn.KNOWLEDGE_COLLECTION, len(vector))
         if not bn.qdrant_upsert(QDRANT_URL, bn.KNOWLEDGE_COLLECTION,
@@ -9710,7 +9830,8 @@ def _enrich_queue():
     with _ENRICH_QUEUE_LOCK:
         if _ENRICH_QUEUE is None:
             bn = _bn()
-            _ENRICH_QUEUE = bn.EnrichQueue(bn.SPOOL_DIR, _enrich_summarise, _enrich_store)
+            _ENRICH_QUEUE = bn.EnrichQueue(bn.SPOOL_DIR, _enrich_summarise, _enrich_store,
+                                           store_up=_knowledge_store_up)
             _ENRICH_QUEUE.start()
         return _ENRICH_QUEUE
 

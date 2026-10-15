@@ -23,6 +23,9 @@ on:
       - 'scripts/box_walk_probes/probes/people_seed_and_retrieval.sh'
       - 'tests/test_memory_assert_answers_inside_the_probe_timeout.py'
       - 'tests/test_spool_sweep_quarantines_a_bad_row.py'
+      - 'tests/test_quick_note_reaches_knowledge_store.py'
+      - 'tests/test_enrichqueue_retries_not_drops.py'
+      - 'vendor/cm041/assistant_api/browsing_enrich.py'
       - 'tests/test_api_list_pagination_is_additive.py'
       - 'tests/fixtures/pagination_golden_*.json'
       - '.github/workflows/memory-assert-answers-under-load.yml'
@@ -55,3 +58,9 @@ jobs:
       - name: preferences and people pagination is additive
         if: always()
         run: python3 -m pytest -v tests/test_api_list_pagination_is_additive.py
+      - name: an iOS quick note reaches the knowledge store
+        if: always()
+        run: python3 -m pytest -v tests/test_quick_note_reaches_knowledge_store.py
+      - name: the knowledge drain retries through a store outage and never drops
+        if: always()
+        run: python3 -m pytest -v tests/test_enrichqueue_retries_not_drops.py

@@ -980,7 +980,8 @@
     "health_observations",
     "item_count",
     "ok",
-    "path"
+    "path",
+    "quick_notes"
    ],
    "source": "install.sh"
   },
@@ -3338,7 +3339,8 @@
     "health_observations",
     "item_count",
     "ok",
-    "path"
+    "path",
+    "quick_notes"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -5205,7 +5207,8 @@
     "health_observations",
     "item_count",
     "ok",
-    "path"
+    "path",
+    "quick_notes"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
