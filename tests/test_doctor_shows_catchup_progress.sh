@@ -65,10 +65,11 @@ cu.mkdir(parents=True)
 os.environ["OSTLER_DIR"] = str(root)
 os.environ["OSTLER_HOME"] = str(root)
 
-def wm(source, row, complete, oldest, reason="budget"):
-    (cu / (source + ".json")).write_text(json.dumps({
-        "schema": 1, "source": source, "doctor_row": row, "complete": complete,
-        "oldest_at": oldest, "items_done": 10, "last_tick": {"reason": reason}}))
+def wm(source, row, complete, oldest, reason="budget", **extra):
+    d = {"schema": 1, "source": source, "doctor_row": row, "complete": complete,
+         "oldest_at": oldest, "items_done": 10, "last_tick": {"reason": reason}}
+    d.update(extra)
+    (cu / (source + ".json")).write_text(json.dumps(d))
 
 wm("imessage", "imessage", False, "2021-03-04T10:00:00Z")
 wm("whatsapp", "whatsapp", True, "2014-01-01T00:00:00Z", "complete")
@@ -76,6 +77,10 @@ wm("safari", "browsing", True, "2012-06-01T00:00:00Z", "complete")
 wm("chrome", "browsing", False, "2019-05-20T00:00:00Z")
 wm("mail_contacts", "email", False, "2020-01-01T00:00:00Z", "busy:load")
 wm("ai_chats", "ai_conversations", False, None)
+# A poisoned item was quarantined (counted, shown); a source whose read was refused.
+wm("people_src", "people", True, "2015-01-01T00:00:00Z", "complete", items_quarantined=2)
+wm("places_src", "places", False, "2020-01-01T00:00:00Z", "cannot_run:read_denied",
+   cannot_run="read_denied")
 # CONTROL: a file that is not a schema-1 watermark must not invent a row state.
 (cu / "calendar.json").write_text(json.dumps({"schema": 99, "source": "calendar",
                                               "doctor_row": "calendar", "complete": True}))
@@ -97,6 +102,8 @@ cases = [
     ("browsing", "Catching up, back to May 2019"),   # least advanced of two
     ("email", "Catching up, waiting for a quiet moment"),
     ("ai_conversations", "Catching up, starting"),
+    ("people", "History read; 2 could not be read and were skipped"),
+    ("places", "Could not read this yet, will keep trying"),
     ("calendar", ""),                                  # never touched: blank
     ("contacts", ""),
 ]

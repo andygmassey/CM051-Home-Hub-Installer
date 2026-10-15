@@ -3281,8 +3281,11 @@ def _read_catchup_by_row(directory: Path | None = None) -> dict:
     out = {}
     for row, ws in by_row.items():
         open_ = [w for w in ws if not w.get("complete")]
+        skipped = sum(int(w.get("items_quarantined") or 0) for w in ws
+                      if isinstance(w.get("items_quarantined"), int))
         if not open_:
-            out[row] = {"state": "complete", "back_to": None, "sources": len(ws)}
+            out[row] = {"state": "complete", "back_to": None, "sources": len(ws),
+                        "skipped": skipped}
             continue
         dated = [w.get("oldest_at") for w in open_ if w.get("oldest_at")]
         # The least advanced is the LATEST "back to" date; one that has not
@@ -3290,8 +3293,13 @@ def _read_catchup_by_row(directory: Path | None = None) -> dict:
         back_to = None if len(dated) < len(open_) else max(dated)
         waiting = all(str((w.get("last_tick") or {}).get("reason", "")).startswith("busy")
                       for w in open_)
-        out[row] = {"state": "waiting" if waiting else "catching_up",
-                    "back_to": back_to, "sources": len(ws)}
+        # A source that could not READ at all (permission refused, store
+        # unreadable) outranks every other state: it is neither done nor
+        # catching up, and saying either would be false.
+        blocked = any(isinstance(w.get("cannot_run"), str) and w.get("cannot_run") for w in open_)
+        state = "cannot_run" if blocked else ("waiting" if waiting else "catching_up")
+        out[row] = {"state": state, "back_to": back_to, "sources": len(ws),
+                    "skipped": skipped}
     return out
 
 
@@ -3303,14 +3311,21 @@ def _catchup_phrase(c: dict | None) -> str:
     """The History cell. Plain words, no em dashes, British spelling."""
     if not c:
         return ""
+    n = c.get("skipped")
+    tail = ""
+    if isinstance(n, int) and n > 0:
+        tail = "; %d could not be read and %s skipped" % (n, "was" if n == 1 else "were")
     if c.get("state") == "complete":
-        return "All of your history is read"
+        return ("All of your history is read" if not tail
+                else "History read" + tail)
+    if c.get("state") == "cannot_run":
+        return "Could not read this yet, will keep trying" + tail
     if c.get("state") == "waiting":
-        return "Catching up, waiting for a quiet moment"
+        return "Catching up, waiting for a quiet moment" + tail
     back = str(c.get("back_to") or "")
     if len(back) >= 7 and back[:4].isdigit() and back[5:7].isdigit() and 1 <= int(back[5:7]) <= 12:
-        return "Catching up, back to %s %s" % (_CATCHUP_MONTHS[int(back[5:7]) - 1], back[:4])
-    return "Catching up, starting"
+        return "Catching up, back to %s %s%s" % (_CATCHUP_MONTHS[int(back[5:7]) - 1], back[:4], tail)
+    return "Catching up, starting" + tail
 
 
 @app.get("/api/v1/sources", response_class=JSONResponse)
