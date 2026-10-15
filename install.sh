@@ -9257,8 +9257,102 @@ set -uo pipefail
 
 DIR="${1:-}"
 DO_UNZIP=0
+DO_LOOSE=0
 [[ "${2:-}" == "--unzip" ]] && DO_UNZIP=1
+[[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
+
+# --- 0. LOOSE FILES: the ONE table both detectors read (#30, 2026-10-15) ------
+#
+# Usage: ostler-detect-exports.sh <dir> --loose
+# Prints one  "LABEL<TAB>path<TAB>VERDICT<TAB>REASON"  line per loose data file
+# under <dir>, where VERDICT is "import" (the importer behind ostler-import can
+# read it) or "skip" (recognised, and REASON says in plain words why it will
+# not be imported). Exit 0 if >=1 line, 1 if none.
+#
+# MEASURED on a synthetic walk box (studio29, v1.0.107 candidate): a loose
+# calendar.ics, emails.mbox and contacts.vcf in ~/Downloads. The install-time
+# scan listed two of them as "Found 2 GDPR export(s)" from its OWN find arms;
+# the Downloads watcher matched none of them, exited 0 before it logged
+# anything, and the customer was never told. Two detectors reading the same
+# folder disagreed, and the one that runs for the life of the install was the
+# blind one. This table is the fix for the SHAPE: both callers read it, so
+# they cannot disagree again. Add a format HERE, never in a caller.
+#
+# Columns, <US>-separated: label, extended regex on the LOWERCASED basename,
+# minimum bytes the importer reads, and the reason it is skipped when no
+# importer exists for it (empty = importable). Each row is checked against
+# the consumer that actually reads it:
+#   Mailbox   ostler_fda.universal_import _detect_mbox (any non-empty .mbox)
+#   Calendar  contact_syncer.import_all, which skips an .ics of 1000 bytes or
+#             less, so 1001 is the floor here and a smaller file is reported
+#             as skipped rather than as imported
+#   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
+#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, for the name
+#             WhatsApp's "Export chat" gives the file
+#   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
+#             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
+#             app's own export. Recognised, so it is never silent, and skipped
+#             with a reason the customer can act on.
+LOOSE=(
+  $'Mailbox\x1f\\.mbox$\x1f1\x1f'
+  $'Calendar\x1f\\.ics$\x1f1001\x1f'
+  $'Evernote\x1f\\.enex$\x1f1\x1f'
+  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1f'
+  $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
+)
+
+if [[ "$DO_LOOSE" == "1" ]]; then
+    _lx_res=""
+    for _lx in "${LOOSE[@]}"; do
+        _lx_rest="${_lx#*$'\x1f'}"
+        _lx_res="${_lx_res}${_lx_res:+$'\x1f'}${_lx_rest%%$'\x1f'*}"
+    done
+    _lx_any=1
+    # Bounded the way the install-time calendar arm was (2026-09-12, Andy:
+    # "change the installer, not the box"): depth 6 covers every export shape
+    # measured so far (Takeout/Calendar is depth 4), -xdev keeps a mounted disk
+    # image out of it, and package bundles are pruned so a file inside an .app
+    # or a photo library is never reported as the customer's own. -maxdepth
+    # goes first because GNU find warns when it follows a primary. No file
+    # cap: a silent cap is how a fourth calendar went missing.
+    #
+    # The regexes reach awk through ENVIRON, NEVER `awk -v`: -v runs escape
+    # processing, which turns `\.mbox$` into `.mbox$`, and measured on BSD awk
+    # a file named "fooxmbox" was then reported as a mailbox.
+    while IFS=$'\t' read -r _lx_idx _lx_path; do
+        [[ -n "$_lx_path" && -f "$_lx_path" ]] || continue
+        _lx_row="${LOOSE[$_lx_idx]}"
+        _lx_label="${_lx_row%%$'\x1f'*}"
+        _lx_t="${_lx_row#*$'\x1f'}"; _lx_t="${_lx_t#*$'\x1f'}"
+        _lx_min="${_lx_t%%$'\x1f'*}"
+        _lx_noimp="${_lx_t#*$'\x1f'}"
+        _lx_size="$(wc -c < "$_lx_path" 2>/dev/null | tr -d ' ')"
+        case "$_lx_size" in ''|*[!0-9]*) _lx_size="" ;; esac
+        if [[ -z "$_lx_size" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "Ostler could not read the file"
+        elif [[ -n "$_lx_noimp" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "$_lx_noimp"
+        elif [[ "$_lx_size" -eq 0 ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is empty"
+        elif [[ "$_lx_size" -lt "$_lx_min" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is too small to hold anything Ostler can read"
+        else
+            printf '%s\t%s\timport\t\n' "$_lx_label" "$_lx_path"
+        fi
+        _lx_any=0
+    done < <(find "$DIR" -maxdepth 6 -xdev \
+                  \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
+                     -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
+                     -o -name '*.photoslibrary' -o -name '*.aplibrary' \
+                     -o -name '*.fcpbundle' -o -name '*.imovielibrary' \
+                     -o -name '*.tvlibrary' -o -name '*.musiclibrary' \
+                     -o -name '*.sparsebundle' \) -prune \
+                  -o -type f -print \
+             | OSTLER_LX_RES="$_lx_res" awk -F/ 'BEGIN { n = split(ENVIRON["OSTLER_LX_RES"], R, "\037") }
+                   { b = tolower($NF); for (i = 1; i <= n; i++) if (b ~ R[i]) { print (i - 1) "\t" $0; next } }')
+    exit "$_lx_any"
+fi
 
 # platform <US> extended-regex of signature basenames (a file OR dir whose
 # name is specific enough to identify the source export). Kept deliberately
@@ -11088,6 +11182,7 @@ if [[ "$_disney_xlsx_encrypted_found" == "1" ]]; then
     fi
 fi
 
+LOOSE_EXPORTS_SKIPPED=()
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
@@ -11137,82 +11232,48 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
         DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 3 -type d -name "followers_and_following" 2>/dev/null || true)
 
-    # Calendar exports: .ics files, at the depth they are actually shipped.
+    # LOOSE DATA FILES: calendars (.ics), mailboxes (.mbox), contact cards
+    # (.vcf), Evernote (.enex) and WhatsApp chat text exports.
     #
-    # 🔴 THIS WAS `-maxdepth 3 ... | head -3` AND BOTH HALVES LOST REAL
-    # CUSTOMER DATA. Andy ruled on 2026-09-12: "change the installer, not
-    # the box". A customer who has done the work of requesting an export
-    # should not have to re-arrange their Downloads folder to match a
-    # number the installer picked.
+    # 🔴 THIS USED TO BE TWO find ARMS OF ITS OWN (.ics here, .mbox at the end
+    # of this loop), AND THE DOWNLOADS WATCHER HAD NEITHER. Measured on a
+    # synthetic walk box (studio29, v1.0.107 candidate): this scan said
+    # "Found 2 GDPR export(s)" for a loose calendar.ics and emails.mbox, and
+    # the watcher that runs for the life of the install ignored the same two
+    # files, exited 0 and logged nothing. Both now read ONE table, the --loose
+    # mode of lib/ostler-detect-exports.sh, so they cannot disagree again. Add
+    # a format there, never here. tests/test_loose_exports_in_downloads_are_
+    # found_and_said.sh extracts this block between its markers and checks it
+    # against the watcher on the same fixtures.
     #
-    # THE DEPTH. Nobody ships calendars at depth 3. Measured against the
-    # shapes the other arms in this same loop already accommodate:
+    # The depth, prune and no-cap rules the calendar arm earned on 2026-09-12
+    # (Andy: "change the installer, not the box") moved into the lib with it,
+    # and tests/test_a_calendar_export_is_found_where_exports_actually_sit.sh
+    # now measures them there.
     #
-    #   ~/Downloads/takeout-<stamp>/Takeout/Calendar/<name>.ics       4
-    #   ~/Downloads/<name>/Takeout/Calendar/<name>.ics                4
-    #   ~/Downloads/your_facebook_activity/events/<...>/<name>.ics    4-5
+    # The label says "Calendar", not "Google Calendar": `*.ics` matches an
+    # Apple, Fastmail or Facebook export as readily as a Takeout one. Same for
+    # "Mailbox", which used to print "Gmail mbox" for any .mbox at all.
     #
-    # The Facebook arm four lines up already went to maxdepth 5 for
-    # exactly this reason, and CX-126 records why: the current export
-    # unzips to a directory whose name nobody predicted. The calendar arm
-    # was never given the same treatment, so the two detectors disagreed
-    # about how deep an export can be while reading the same folders.
-    # 6 leaves headroom for one more wrapper directory, which is how
-    # every one of these formats has drifted so far.
-    #
-    # THE FILE CAP. `head -3` was worse than the depth, because it is
-    # SILENT and order-dependent: a customer with four calendars had one
-    # dropped, and which one depended on the order the filesystem
-    # returned. There is no cap now.
-    #
-    # STAYING BOUNDED WITHOUT A FILE CAP, because an install that hangs
-    # here is not an improvement on one that reads too little:
-    #
-    #   -maxdepth 6   the descent is still bounded, just at a depth that
-    #                 matches the data.
-    #   -xdev         do not cross a filesystem boundary. The real hazard
-    #                 under ~/Downloads is a mounted disk image or an
-    #                 external drive, where a deep scan can take minutes
-    #                 against spinning or network storage. The start
-    #                 directory's own filesystem is scanned normally, so a
-    #                 customer whose home directory lives on an external
-    #                 drive loses nothing.
-    #   -prune        skip the directory types that are enormous and can
-    #                 never hold a calendar export: package bundles that
-    #                 macOS presents as single files (photo, video and
-    #                 music libraries, .app bundles) plus node_modules,
-    #                 .git and the Trash. Pruning a bundle also stops the
-    #                 scan reporting an .ics that lives INSIDE an
-    #                 application as though it were the customer's diary.
-    #
-    # -maxdepth goes FIRST, before the prune expression. BSD find accepts
-    # it anywhere; GNU find warns when it follows a non-option primary,
-    # and this predicate is read by CI on a Linux runner as well as by the
-    # customer's Mac.
-    #
-    # 🗿 THE SIBLING ONE ARM DOWN IS THE SAME SHAPE AND IS NOT FIXED HERE.
-    # The Gmail mbox detector below still ends `| head -3`. It is named
-    # rather than quietly left: a Takeout mailbox is normally a single
-    # file so the cap rarely bites, and removing it changes how much mail
-    # the import pulls in, which is a different decision from this one.
-    #
-    # The label says "Calendar", not "Google Calendar". The predicate is
-    # `*.ics` and always was: it matches an Apple, Fastmail or Facebook
-    # export exactly as readily as a Takeout one, and printing a vendor
-    # name the scan never established told the customer we knew something
-    # about their file that we did not.
-    while IFS= read -r f; do
-        DETECTED_EXPORTS+=("Calendar: $f")
-        EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
-        DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
-    done < <(find "$search_dir" -maxdepth 6 -xdev \
-                  \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
-                     -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
-                     -o -name '*.photoslibrary' -o -name '*.aplibrary' \
-                     -o -name '*.fcpbundle' -o -name '*.imovielibrary' \
-                     -o -name '*.tvlibrary' -o -name '*.musiclibrary' \
-                     -o -name '*.sparsebundle' \) -prune \
-                  -o -type f -name '*.ics' -size +1k -print 2>/dev/null || true)
+    # A file the table recognises but cannot import (a loose .vcf, an empty
+    # or too-small file) is NOT counted as an export. It is named with its
+    # reason below the "Found N" list, so it is never silent either.
+    # >>> loose-export-scan
+    while IFS=$'\t' read -r _lx_label _lx_path _lx_verdict _lx_reason; do
+        [[ -n "${_lx_path:-}" ]] || continue
+        if [[ "${_lx_verdict:-}" != "import" ]]; then
+            LOOSE_EXPORTS_SKIPPED+=("${_lx_label}: ${_lx_path} (${_lx_reason:-not importable})")
+            continue
+        fi
+        DETECTED_EXPORTS+=("${_lx_label}: ${_lx_path}")
+        if [[ "$_lx_label" == "Mailbox" ]]; then
+            TAKEOUT_MBOX_PATH="${TAKEOUT_MBOX_PATH:-$_lx_path}"
+        else
+            EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$_lx_path")}"
+            DETECTED_EXPORT_ROOTS+=("$(dirname "$_lx_path")")
+        fi
+    done < <(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$search_dir" --loose || true)
+    # <<< loose-export-scan
 
     # Twitter/X: tweets.js (2026 export name) or legacy tweet.js, in a
     # data/ directory. CX-126: current X exports ship `tweets.js`; the
@@ -11231,11 +11292,6 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
         TAKEOUT_ZIP_PATH="${TAKEOUT_ZIP_PATH:-$f}"
     done < <(find "$search_dir" -maxdepth 2 -name "takeout-*.zip" 2>/dev/null || true)
 
-    # Loose Gmail mbox files (already extracted from Takeout)
-    while IFS= read -r f; do
-        DETECTED_EXPORTS+=("Gmail mbox: $f")
-        TAKEOUT_MBOX_PATH="${TAKEOUT_MBOX_PATH:-$f}"
-    done < <(find "$search_dir" -maxdepth 4 -name "*.mbox" -size +1k 2>/dev/null | head -3 || true)
 done
 
 # #619: surface any folder the scan could not read. Without this, a
@@ -11249,6 +11305,15 @@ if [[ ${#DENIED_FOLDERS[@]} -gt 0 ]]; then
         warn "$(printf "$MSG_WARN_FOLDER_ACCESS_DENIED_SCAN" "${denied_dir}")"
     done
     info "$MSG_INFO_FOLDER_ACCESS_DENIED_GUIDANCE"
+fi
+
+# Recognised by the shared table and NOT importable: said, never dropped.
+if [[ ${#LOOSE_EXPORTS_SKIPPED[@]} -gt 0 ]]; then
+    echo ""
+    for _lx_skip in "${LOOSE_EXPORTS_SKIPPED[@]}"; do
+        info "Found but not importing ${_lx_skip}"  # i18n-exempt
+    done
+    unset _lx_skip
 fi
 
 if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
@@ -24077,6 +24142,114 @@ if [[ -r "${OSTLER_DIR}/lib/ostler_catchup.py" ]] && ls "$_CATCHUP_DIR"/*.sh >/d
     unset _cu _cu_rc _cu_now _cu_remaining _cu_share _cu_left _cu_end _cu_runners _cu_budget
 fi
 
+# ── EVERY RUN SAYS WHAT IT SAW (#30, 2026-10-15) ───────────────────────────
+#
+# MEASURED on a synthetic walk box (studio29, v1.0.107 candidate): a loose
+# calendar.ics, emails.mbox and contacts.vcf sat in ~/Downloads. This script
+# matched none of them and returned 0 at the `FOUND -eq 0` guard BEFORE it
+# wrote a single byte anywhere: launchd said `last exit code = 0`, both logs
+# were 0 bytes, no notification fired. "Found nothing", "could not look" and
+# "found something and could not import it" all printed identically, which
+# is to say not at all.
+#
+# So from here on, every way out of this script goes through _es_finish (an
+# EXIT trap), and it always writes:
+#   logs/export-scan.log                  one summary line per run, counts and
+#                                         reasons only, never a filename, plus a
+#                                         JSON tail of the same counts
+#   state/export-scan/last_scan.tsv       what this run saw, one row per item
+#   state/source_activity/downloads_exports.tsv
+#                                         the same record shape fda-rerun
+#                                         writes (last_run_at, last_status,
+#                                         last_success_at carried forward,
+#                                         last_detail), so "found 2, imported
+#                                         0 because X" or cannot_run has a
+#                                         machine-readable home
+# The catch-up and prefs-tail steps above run BEFORE this point on purpose:
+# nothing below may return before them.
+_ES_LOG="${OSTLER_DIR}/logs/export-scan.log"
+_ES_STATE="${OSTLER_DIR}/state/export-scan"
+_ES_LEDGER="${_ES_STATE}/imported.tsv"
+_ES_LAST="${_ES_STATE}/last_scan.tsv"
+_ES_ACT_DIR="${OSTLER_DIR}/state/source_activity"
+mkdir -p "${OSTLER_DIR}/logs" "$_ES_STATE" "$_ES_ACT_DIR" 2>/dev/null || true
+
+_es_cand=0; _es_rec=0; _es_imp=0; _es_already=0; _es_failed=0; _es_skipped=0
+_es_status=""; _es_why=""; _es_skips=""; _es_rows=""
+_es_log() {
+    printf '[%s] export-scan: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$_ES_LOG" \
+        || printf 'export-scan: could not write %s: %s\n' "$_ES_LOG" "$*" >&2
+}
+_es_row() {  # label  outcome  reason  path
+    _es_rows="${_es_rows}$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"$'\n'
+}
+_es_skip() {  # label  reason  path
+    _es_skipped=$((_es_skipped + 1))
+    _es_skips="${_es_skips}$1"$'\t'"$2"$'\n'
+    _es_row "$1" "skipped" "$2" "$3"
+}
+_es_finish() {
+    local rc=$? skipsum="" s detail now prev=""
+    if [[ -z "$_es_status" ]]; then
+        if [[ "$_es_failed" -gt 0 ]]; then _es_status="error"
+        elif [[ $((_es_imp + _es_already)) -gt 0 ]]; then _es_status="ok"
+        elif [[ "$_es_rec" -gt 0 ]]; then _es_status="not_imported"
+        else _es_status="no_data"
+        fi
+    fi
+    if [[ -n "$_es_skips" ]]; then
+        # "skipped 1 Contacts file because ...", one clause per distinct reason.
+        skipsum="$(printf '%s' "$_es_skips" | sort | uniq -c \
+            | awk -F'\t' '{ split($1, a, " "); c = a[1]; lbl = $1; sub(/^ *[0-9]+ /, "", lbl);
+                            printf "%sskipped %d %s file%s because %s", (NR > 1 ? "; " : ""), c, lbl, (c == 1 ? "" : "s"), $2 }')"
+    fi
+    s="scanned ~/Downloads: ${_es_cand} candidate file(s), ${_es_rec} recognised, ${_es_imp} imported, ${_es_already} already imported"
+    [[ "$_es_failed" -gt 0 ]] && s="${s}, ${_es_failed} failed"
+    [[ -n "$skipsum" ]] && s="${s}, ${skipsum}"
+    [[ -n "$_es_why" ]] && s="${s}; ${_es_why}"
+    s="${s}; status=${_es_status}"
+    _es_log "${s} {\"candidates\": ${_es_cand}, \"recognised\": ${_es_rec}, \"imported\": ${_es_imp}, \"already_imported\": ${_es_already}, \"failed\": ${_es_failed}, \"skipped\": ${_es_skipped}}"
+
+    printf 'label\toutcome\treason\tpath\n%s' "$_es_rows" > "$_ES_LAST" 2>/dev/null \
+        || _es_log "could not write ${_ES_LAST}"
+
+    # The Doctor-facing sentence. "found N, imported 0 because X" when that is
+    # what happened, never a bare count that reads like health.
+    if [[ "$_es_status" == "not_imported" || "$_es_status" == "cannot_run" || "$_es_status" == "error" ]] && [[ "$_es_rec" -gt 0 ]]; then
+        detail="found ${_es_rec} export(s) in Downloads, imported ${_es_imp}"
+        if [[ -n "$_es_why" ]]; then detail="${detail} because ${_es_why}"
+        elif [[ -n "$skipsum" ]]; then detail="${detail}: ${skipsum}"
+        fi
+    else
+        detail="${s}"
+    fi
+    now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    if [[ -f "${_ES_ACT_DIR}/downloads_exports.tsv" ]]; then
+        prev="$(sed -n 's/^last_success_at=//p' "${_ES_ACT_DIR}/downloads_exports.tsv" | tail -n 1)"
+    fi
+    [[ "$_es_status" == "ok" || "$_es_status" == "no_data" ]] && prev="$now"
+    printf 'source=downloads_exports\nlast_run_at=%s\nlast_status=%s\nlast_success_at=%s\nlast_detail=%s\nwriter=ostler-scan-exports\n' \
+        "$now" "$_es_status" "$prev" "$(printf '%s' "$detail" | tr '\n\t' '  ' | cut -c1-400)" \
+        > "${_ES_ACT_DIR}/downloads_exports.tsv" 2>/dev/null \
+        || _es_log "could not write the Doctor-facing activity record"
+    return "$rc"
+}
+trap _es_finish EXIT
+
+# Could we LOOK at all? An unreadable Downloads globs to nothing and finds to
+# nothing, which is the same zero as an empty one. Ask once, and say which.
+if [[ ! -d "$DOWNLOADS" ]]; then
+    _es_status="no_data"; _es_why="there is no Downloads folder"
+    exit 0
+fi
+if ! _es_ls_err="$(ls -A "$DOWNLOADS" 2>&1 >/dev/null)"; then
+    _es_status="cannot_run"
+    _es_why="Ostler could not read your Downloads folder (${_es_ls_err:-permission denied})"
+    exit 0
+fi
+_es_cand="$(find "$DOWNLOADS" -mindepth 1 -maxdepth 1 ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')"
+case "$_es_cand" in ''|*[!0-9]*) _es_cand=0 ;; esac
+
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
 # names (for a friendly notification). Order people-graph first, then
 # preference exports.
@@ -24101,16 +24274,35 @@ for f in "$DOWNLOADS"/amazon*.zip "$DOWNLOADS"/"Your Orders"*.zip; do _add "$f" 
 # detector the install-time scan uses, so renamed / "Complete" / still-zipped
 # exports dropped here later are caught too (not just the exact 2026 names).
 # Strictly ADDITIVE with a fallback: if the detector lib is unreadable this
-# block is skipped entirely, leaving behaviour byte-identical to the name-glob
-# path above -- a missing/failed lib read can never regress a working install.
+# block is skipped, leaving the name-glob path above working, and the run's
+# log line SAYS the shared detector was missing rather than reading as a
+# clean scan. Its stderr (the counts-only UNZIP_SUMMARY) goes to the log.
 _OSTLER_DETECT="${OSTLER_DIR}/lib/ostler-detect-exports.sh"
+LOOSE_LABELS=()
+LOOSE_PATHS=()
 if [[ -r "$_OSTLER_DETECT" ]]; then
     while IFS=$'\t' read -r _lbl _pth; do
         [[ -n "$_pth" ]] && _add "$_pth" "$_lbl"
-    done < <(bash "$_OSTLER_DETECT" "$DOWNLOADS" --unzip 2>/dev/null || true)
-fi
+    done < <(bash "$_OSTLER_DETECT" "$DOWNLOADS" --unzip 2>>"$_ES_LOG" || true)
 
-[[ ${#FOUND[@]} -eq 0 ]] && exit 0
+    # #30: loose data files (.mbox, .ics, .vcf, .enex, WhatsApp chat text),
+    # from the SAME table the install-time scan reads. A recognised file the
+    # importer cannot read is counted and given its reason, never dropped.
+    while IFS=$'\t' read -r _lbl _pth _verdict _reason; do
+        [[ -n "${_pth:-}" ]] || continue
+        if [[ "${_verdict:-}" == "import" ]]; then
+            LOOSE_LABELS+=("$_lbl"); LOOSE_PATHS+=("$_pth")
+        else
+            _es_skip "$_lbl" "${_reason:-it is not a format Ostler can import}" "$_pth"
+        fi
+    done < <(bash "$_OSTLER_DETECT" "$DOWNLOADS" --loose 2>>"$_ES_LOG" || true)
+else
+    _es_why="the shared export detector (${_OSTLER_DETECT}) is missing, so only platform export names were checked"
+fi
+unset _lbl _pth _verdict _reason
+
+_es_rec=$(( ${#FOUND[@]} + ${#LOOSE_PATHS[@]} + _es_skipped ))
+[[ $(( ${#FOUND[@]} + ${#LOOSE_PATHS[@]} )) -eq 0 ]] && exit 0
 
 # Guard: skip while anything is still downloading -- partial-download
 # markers (Safari .download, Chrome .crdownload, Firefox .part).
@@ -24146,62 +24338,135 @@ for p in "$DOWNLOADS"/*.download "$DOWNLOADS"/*.crdownload "$DOWNLOADS"/*.part; 
     if [[ -z "$_mt" ]]; then
         # Cannot age it. Treat as LIVE: refusing to import is recoverable,
         # importing a half-written export is not.
+        _es_status="waiting"; _es_why="a download in Downloads is still in progress, so nothing was imported this run"
         exit 0
     fi
     if [[ $(( _now_s - _mt )) -lt "$OSTLER_PARTIAL_DOWNLOAD_STALE_S" ]]; then
+        _es_status="waiting"; _es_why="a download in Downloads is still in progress, so nothing was imported this run"
         exit 0
     fi
 done
 
 # Belt-and-braces: if any found FILE is still growing, wait for next tick.
-for f in "${FOUND[@]}"; do
+for f in ${FOUND[@]+"${FOUND[@]}"} ${LOOSE_PATHS[@]+"${LOOSE_PATHS[@]}"}; do
     if [[ -f "$f" ]]; then
         s1=$(stat -f%z "$f" 2>/dev/null || echo 0)
         sleep 2
         s2=$(stat -f%z "$f" 2>/dev/null || echo 0)
-        [[ "$s1" != "$s2" ]] && exit 0
+        if [[ "$s1" != "$s2" ]]; then
+            _es_status="waiting"; _es_why="a file in Downloads is still being written, so nothing was imported this run"
+            exit 0
+        fi
     fi
 done
 
-# Dedupe: same export set already imported? (FOUND_HASH in scan_state)
-FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
-if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
+# Importer not installed yet (mid-install race) -- try again next tick. It
+# used to leave silently; now the run says it found things and could not run.
+if [[ ! -x "$IMPORT_SCRIPT" ]]; then
+    _es_status="cannot_run"; _es_why="the importer is not installed yet, it will try again on the next run"
     exit 0
 fi
 
-# Importer not installed yet (mid-install race) -- try again next tick.
-[[ -x "$IMPORT_SCRIPT" ]] || exit 0
+# ── Platform exports: one import over Downloads, deduped by export-set hash ──
+if [[ ${#FOUND[@]} -gt 0 ]]; then
+    FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
+    if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
+        _es_already=$(( _es_already + ${#FOUND[@]} ))
+        for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "already imported" "" "${FOUND[$_i]}"; done
+    else
+        # Auto-import. ostler-import fans to BOTH pipelines over the whole
+        # Downloads folder and is re-run safe.
+        _first="${FOUND_LABELS[0]}"
+        if [[ ${#FOUND[@]} -gt 1 ]]; then
+            _notify "Ostler found your ${_first} export and $(( ${#FOUND[@]} - 1 )) more, and is adding them to your world." "Importing"
+        else
+            _notify "Ostler found your ${_first} export and is adding it to your world." "Importing"
+        fi
 
-# Auto-import. ostler-import fans to BOTH pipelines over the whole
-# Downloads folder and is re-run safe.
-_first="${FOUND_LABELS[0]}"
-if [[ ${#FOUND[@]} -gt 1 ]]; then
-    _notify "Ostler found your ${_first} export and $(( ${#FOUND[@]} - 1 )) more, and is adding them to your world." "Importing"
-else
-    _notify "Ostler found your ${_first} export and is adding it to your world." "Importing"
+        if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
+            _notify "Your latest export is now part of your world." "Done"
+            # Record ONLY on success. The comment here used to say exactly that
+            # while the write sat outside the branch, so a failed import was
+            # marked done and never retried: the hash is the dedupe key, and once
+            # it is in scan_state this export set is skipped for ever. #1571.
+            echo "$FOUND_HASH" >> "$SCAN_STATE"
+            _es_imp=$(( _es_imp + ${#FOUND[@]} ))
+            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "imported" "" "${FOUND[$_i]}"; done
+        else
+            _imp_rc=$?
+            # The old message on this branch was "Imported your latest export.
+            # Some parts will finish in the background." The importer had just
+            # returned NON-ZERO, so nothing was imported and nothing is finishing
+            # in the background. Both branches claimed an import, which is why the
+            # failure was invisible to the person it happened to.
+            _notify "Ostler could not finish importing your ${_first} export. It will try again." "Import unfinished"
+            # No hash written, so the next tick retries this export set rather
+            # than skipping it for ever.
+            _es_failed=$(( _es_failed + ${#FOUND[@]} ))
+            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "failed" "the importer stopped with exit code ${_imp_rc}" "${FOUND[$_i]}"; done
+        fi
+    fi
 fi
 
-if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
-    _notify "Your latest export is now part of your world." "Done"
-    # Record ONLY on success. The comment here used to say exactly that
-    # while the write sat outside the branch, so a failed import was
-    # marked done and never retried: the hash is the dedupe key, and once
-    # it is in scan_state this export set is skipped for ever. #1571.
-    echo "$FOUND_HASH" >> "$SCAN_STATE"
-else
-    # The old message on this branch was "Imported your latest export.
-    # Some parts will finish in the background." The importer had just
-    # returned NON-ZERO, so nothing was imported and nothing is finishing
-    # in the background. Both branches claimed an import, which is why the
-    # failure was invisible to the person it happened to.
-    _notify "Ostler could not finish importing your ${_first} export. It will try again." "Import unfinished"
-    # No hash written, so the next tick retries this export set rather
-    # than skipping it for ever.
+# ── Loose files (#30): one import per file, remembered by path+size+mtime ───
+#
+# ONE FILE PER IMPORT, ON PURPOSE. The universal importer sniffs a folder and
+# routes the FIRST format it recognises, so a mailbox and an Evernote export
+# handed over together would import the mailbox only and still exit 0. Each
+# file gets its own staging folder holding a link to it (a hard link where
+# possible, so nothing is copied; a symlink otherwise) and its own exit code.
+#
+# The ledger key is path, size and mtime: the same file left in Downloads is
+# not imported again on every 4-hourly tick, and a file that CHANGED (a new
+# calendar export saved over the old name) is. A failed import writes no key,
+# so it is retried next tick, the same rule #1571 set for the platform path.
+_loose_new=0; _loose_fail=0
+_i=0
+while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
+    _p="${LOOSE_PATHS[$_i]}"; _l="${LOOSE_LABELS[$_i]}"
+    _i=$((_i + 1))
+    _sz="$(stat -f%z "$_p" 2>/dev/null)" || _sz=""
+    _mt="$(stat -f%m "$_p" 2>/dev/null)" || _mt=""
+    if [[ -z "$_sz" || -z "$_mt" ]]; then
+        _es_failed=$((_es_failed + 1)); _loose_fail=$((_loose_fail + 1))
+        _es_row "$_l" "failed" "Ostler could not read the file's size and date" "$_p"
+        continue
+    fi
+    _key="${_p}"$'\t'"${_sz}"$'\t'"${_mt}"
+    if [[ -f "$_ES_LEDGER" ]] && grep -Fxq -- "$_key" "$_ES_LEDGER"; then
+        _es_already=$((_es_already + 1))
+        _es_row "$_l" "already imported" "" "$_p"
+        continue
+    fi
+    if [[ "$_loose_new" -eq 0 && "$_loose_fail" -eq 0 ]]; then
+        _notify "Ostler found new files in your Downloads and is adding them to your world." "Importing"
+    fi
+    _stage="$(mktemp -d "${_ES_STATE}/stage.XXXXXX" 2>/dev/null)" || _stage=""
+    if [[ -z "$_stage" ]] || ! { ln "$_p" "$_stage/" 2>/dev/null || ln -s "$_p" "$_stage/"; }; then
+        [[ -n "$_stage" ]] && rm -rf "$_stage"
+        _es_failed=$((_es_failed + 1)); _loose_fail=$((_loose_fail + 1))
+        _es_row "$_l" "failed" "Ostler could not stage the file for import" "$_p"
+        continue
+    fi
+    if "$IMPORT_SCRIPT" "$_stage" >/dev/null 2>&1; then
+        printf '%s\n' "$_key" >> "$_ES_LEDGER"
+        _es_imp=$((_es_imp + 1)); _loose_new=$((_loose_new + 1))
+        _es_row "$_l" "imported" "" "$_p"
+    else
+        _imp_rc=$?
+        _es_failed=$((_es_failed + 1)); _loose_fail=$((_loose_fail + 1))
+        _es_row "$_l" "failed" "the importer stopped with exit code ${_imp_rc}" "$_p"
+    fi
+    rm -rf "$_stage"
+done
+if [[ "$_loose_fail" -gt 0 ]]; then
+    _notify "Ostler could not finish importing ${_loose_fail} file(s) from your Downloads. It will try again." "Import unfinished"
+elif [[ "$_loose_new" -gt 0 ]]; then
+    _notify "Your latest files from Downloads are now part of your world." "Done"
 fi
 
 if [[ -t 1 ]]; then
-    echo "Imported ${#FOUND[@]} export(s):"
-    printf '  %s\n' "${FOUND[@]}"
+    echo "Imported ${_es_imp} item(s) from Downloads (${_es_already} already imported, ${_es_failed} failed, ${_es_skipped} skipped)."
 fi
 SCANEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-scan-exports"
@@ -39520,9 +39785,15 @@ echo "     - Google:    takeout.google.com (select Calendar)"
 echo "     - Twitter:   Settings > Your account > Download an archive"
 echo "     - WhatsApp:  Settings > Account > Request account info"
 echo ""
-echo "  2. Once exports arrive, import them:"
-echo -e "     ${BOLD}ostler-import ~/Downloads/gdpr-exports/ \\${NC}"
-echo -e "     ${BOLD}    --user-name \"${USER_NAME}\" --verbose${NC}"
+# #30: THIS STEP USED TO BE A TERMINAL COMMAND, AND A BROKEN ONE. It told the
+# customer to run `ostler-import ~/Downloads/gdpr-exports/ ... --verbose`, a
+# folder nothing ever creates, and its `\\${NC}` reached the install log as a
+# literal backslash-033 sequence. Measured on studio29 (install.log:5248-5250).
+# The Downloads watcher (com.ostler.export-scan) is the real route, so the
+# customer is told that and nothing else.
+echo "  2. When your exports arrive, just save them to your Downloads folder."
+echo "     Ostler checks it every few hours and adds what it finds for you,"
+echo "     so there is nothing to run."
 echo ""
 echo -e "  3. ${BOLD}Connect your accounts${NC}:"
 else

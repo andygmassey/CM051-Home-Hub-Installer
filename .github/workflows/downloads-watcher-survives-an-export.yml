@@ -53,6 +53,9 @@ on:
       # install.sh's heredoc, so an install.sh edit is exactly the change that
       # can break it, and a step with no path entry never fires on it.
       - 'tests/test_a_failed_import_is_not_announced_as_done.sh'
+      # #30: the loose-file table both detectors read lives in the lib.
+      - 'lib/ostler-detect-exports.sh'
+      - 'tests/test_loose_exports_in_downloads_are_found_and_said.sh'
       - '.github/workflows/downloads-watcher-survives-an-export.yml'
   push:
     branches: [main]
@@ -107,3 +110,16 @@ jobs:
       - name: a failed import is not announced as done (#1571)
         if: always()
         run: bash tests/test_a_failed_import_is_not_announced_as_done.sh
+
+      # #30. A loose calendar.ics, emails.mbox or contacts.vcf in Downloads
+      # matched nothing in the watcher, which returned 0 before writing a
+      # byte, while the install-time scan called the same files exports.
+      # Drives the SHIPPED scanner and the install-time block, both extracted
+      # from install.sh, against the shipped lib: recognised, imported once,
+      # every run logged (empty Downloads included), the reason recorded when
+      # nothing imports, the two detectors agreeing file by file, catch-up
+      # still running first, and the closing text free of Terminal commands
+      # and raw escape codes. Red on the base (17 of 23 fail), green here.
+      - name: a loose export in Downloads is found, imported once, and said (#30)
+        if: always()
+        run: /bin/bash tests/test_loose_exports_in_downloads_are_found_and_said.sh
