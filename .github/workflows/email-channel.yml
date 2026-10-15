@@ -12,6 +12,7 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_email_allowlist_installer.sh'
       - 'tests/test_assistant_mailbox_installer.sh'
+      - 'tests/fixtures/assistant_mailbox_contract.json'
       - 'vendor/doctor/agent/assistant_mailbox.py'
       - 'vendor/doctor/agent/test_assistant_mailbox.py'
       - 'CONTRACT.md'

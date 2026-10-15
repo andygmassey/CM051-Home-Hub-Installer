@@ -3345,9 +3345,10 @@ async def api_assistant_mailbox_post(action: str, request: Request):
             return JSONResponse({"error": "No assistant email is set up."}, status_code=404)
         return JSONResponse({"message": f"Turned {action}. Restart your assistant for it to take effect."})
     if action == "test-now":
-        res = am.test_now()
-        ok = res.get("result") == "ok"
-        return JSONResponse({"message": "Passed" if ok else am.explain(res.get("result", "unknown")),
+        # The daemon runs and records the test (up to ~75 s): keep it off the
+        # event loop.
+        res = await asyncio.to_thread(am.test_now)
+        return JSONResponse({"message": am.selftest_words(res.get("result", "unknown")),
                              "result": res.get("result")})
     if action == "replace-password":
         try:

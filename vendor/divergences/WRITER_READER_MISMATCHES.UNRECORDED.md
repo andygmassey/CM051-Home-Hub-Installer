@@ -1243,7 +1243,8 @@ records the edit by location and shape only.
   `assistant_mailbox_section` beside the other posture tiles, and a route block
   `/api/v1/assistant-mailbox` (GET) and `/api/v1/assistant-mailbox/{action}`
   (POST: `on`, `off`, `test-now`, `replace-password`) placed just before
-  `/api/v1/box-status`. POSTs use `_not_hub_local` and `_cross_site_refusal`.
+  `/api/v1/box-status`. `test-now` awaits `asyncio.to_thread(am.test_now)`
+  because the daemon's self-test can take about a minute. POSTs use `_not_hub_local` and `_cross_site_refusal`.
 - `vendor/doctor/agent/test_assistant_mailbox.py`: its tests (excluded from the
   shipped tree by `test_*.py`).
 
