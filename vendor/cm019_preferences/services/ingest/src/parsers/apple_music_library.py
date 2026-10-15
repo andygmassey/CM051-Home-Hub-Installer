@@ -20,7 +20,7 @@ parser:
     star rating 1..5          Spotify's rating map, identical
     loved / favourited         0.40   (Spotify: saved track, explicit like)
     in a playlist they made    0.30   (Spotify: playlist track, curated)
-    played or in the library   0.10   (Spotify: passive play)
+    played or in the library   0.10   (Spotify: passive play), kind "Listen"
 
 An explicit negative (disliked, or a 1-2 star rating) wins over any
 positive, because it is the owner saying so. Otherwise the strongest
@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Optional
 
-from .base import BaseParser, ParsedPreference, describe_json_parse_failure
+from .base import LISTEN, BaseParser, ParsedPreference, describe_json_parse_failure
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,11 @@ def score_track(row: dict) -> tuple:
     if row.get("in_user_playlist") is True:
         candidates.append((CURATED_STRENGTH, "playlist"))
     strength, evidence = max(candidates, key=lambda c: c[0])
-    return strength, "Like", evidence
+    # Only something the owner SAID is a like: loved, rated, or put in a
+    # playlist they made. A track that is merely in the library or played is
+    # a listen; its play count still rides in extra and the filter turns it
+    # into strength.
+    return strength, (LISTEN if evidence == "library" else "Like"), evidence
 
 
 class AppleMusicLibraryParser(BaseParser):

@@ -216,10 +216,12 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -409,18 +410,128 @@
+@@ -407,20 +408,130 @@
+ _HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
+ # A one-off signal this old is not a current interest, regardless of shape.
  _ANCIENT_YEARS = 15
- 
- 
++
++
 +# 🔴 AN IDENTIFIER IS NOT A TASTE, AND NOTHING WAS SAYING SO.
 +#
 +# Found by looking at the page a person sees rather than at the counts. With
@@ -284,8 +286,8 @@
 +    if not any(ch.isalpha() for ch in s):
 +        return True
 +    return False
-+
-+
+ 
+ 
  # ---------------------------------------------------------------------------
  # Scoring layer (pure)
  # ---------------------------------------------------------------------------
@@ -503,9 +505,30 @@
      rows = list(csv.DictReader(io.StringIO(body)))
      return rows
  
+@@ -901,11 +1123,18 @@
+ 
+ 
+ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
+-    """Read like/dislike preference rows from Oxigraph. Read-only."""
++    """Read like/listen/dislike preference rows from Oxigraph. Read-only.
++
++    A listen is a play, not an explicit like (CM051, v1.0.107 walk). Every
++    consumer treats any polarity other than "dislike" as positive, so a
++    listen ranks as an interest exactly as the same play did when it was
++    mislabelled "like"; it is read here so Music does not vanish."""
+     oxigraph_url = oxigraph_url or os.environ.get(
+         "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
+     out: list[dict] = []
+-    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike")):
++    for node_type, polarity in (("LikePreference", "like"),
++                                ("ListenPreference", "listen"),
++                                ("DislikePreference", "dislike")):
+         for row in _sparql_select(oxigraph_url, _pref_query(node_type)):
+             out.append({
+                 "subject": row.get("subject", ""),
 --- /dev/null
 +++ b/project_preferences.py
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,279 @@
 +"""Project preference facts from Qdrant into the RDF graph.
 +
 +WHY THIS EXISTS, measured on a live v1.0.98 box 2026-09-16:
@@ -571,9 +594,16 @@
 +# LikePreference and DislikePreference, and inventing a third class the reader
 +# does not read would be a producer with no consumer, which is the defect this
 +# module exists to fix.
++#
++# Listen is the third, and it IS read: interest_profile.fetch_preferences asks
++# for ListenPreference too. A listen is a play (CM019 stamps plays "Listen",
++# keeping "Like" for an explicit save or love); without this row every
++# play-only track would be skipped here and Music would empty off the front
++# page. CM051, Andy's v1.0.107 walk.
 +PROJECTOR_ID = "ostler:cm059:preference-projection"
 +
-+_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference"}
++_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference",
++             "listen": "ListenPreference"}
 +
 +
 +def _secret(env_var: str, filename: str) -> str:

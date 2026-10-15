@@ -6,7 +6,7 @@ import hashlib
 import math
 from typing import Set, List, Dict, Tuple
 from dataclasses import replace
-from .parsers.base import ParsedPreference
+from .parsers.base import LISTEN, ParsedPreference
 
 logger = logging.getLogger(__name__)
 
@@ -422,6 +422,7 @@ class PreferenceFilter:
                 # Increment count for existing preference (same source)
                 existing_pref, count = self._aggregated[key]
                 existing_pref = self._with_latest_observation(existing_pref, pref)
+                existing_pref = self._explicit_kind_wins(existing_pref, pref)
                 self._aggregated[key] = (existing_pref, count + weight)
                 self.stats["aggregated_count"] += 1
                 # Mark as modified since frequency increased
@@ -460,6 +461,33 @@ class PreferenceFilter:
         except (TypeError, ValueError):
             return 1
         return n if n > 1 else 1
+
+    @staticmethod
+    def _explicit_kind_wins(
+        kept: ParsedPreference, seen: ParsedPreference
+    ) -> ParsedPreference:
+        """A listen merged with an explicit like or dislike becomes the explicit one.
+
+        Plays and a save of the same track share a dedup key, so whichever
+        row arrived FIRST used to set the kind and the base strength: a
+        streaming history read before the library made a saved track a 0.10
+        passive play. The owner's own word wins: the explicit row's kind, its
+        base strength (or the listen's, if higher and the explicit row is
+        positive), and its id. The play count is kept either way, because the
+        merge only ever adds to the count. A like is never downgraded to a
+        listen: if the kept row is already explicit, it is returned as is.
+        """
+        if kept.preference_type != LISTEN or seen.preference_type == LISTEN:
+            return kept
+        strength = seen.strength if seen.strength < 0 else max(kept.strength, seen.strength)
+        return replace(
+            kept,
+            id=seen.id,
+            preference_type=seen.preference_type,
+            strength=strength,
+            source_id=seen.source_id or kept.source_id,
+            extra={**(kept.extra or {}), **(seen.extra or {})},
+        )
 
     @staticmethod
     def _with_latest_observation(
@@ -536,8 +564,13 @@ class PreferenceFilter:
                 source_count=source_count
             )
 
-            # Derive preference_type from sign of strength
-            if adjusted_strength > 0:
+            # Derive preference_type from sign of strength. A positive LISTEN
+            # stays a listen: deriving "Like" from the sign alone is what made
+            # every play on the box a like (CM051, v1.0.107 walk, 51,808 of
+            # 51,808 music prefs "Like"). Play count still raises its strength.
+            if adjusted_strength > 0 and pref.preference_type == LISTEN:
+                preference_type = LISTEN
+            elif adjusted_strength > 0:
                 preference_type = "Like"
             elif adjusted_strength < 0:
                 preference_type = "Dislike"

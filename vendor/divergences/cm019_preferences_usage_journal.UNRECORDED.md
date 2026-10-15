@@ -265,3 +265,42 @@ Test: `tests/test_music_services_score_on_one_scale.py`.
   gap. Upstream has no consent gate, so the edit is owed upstream as well.
 - detail: `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`, "Walk #28".
 - proven by execution: `tests/test_enrichment_honours_a_decline.sh` (arm C).
+
+## A music play is a listen, not a like (CM051, v1.0.107 candidate #28 walk, 2026-10-15)
+
+All 51,808 music preferences on the walk box were "Like": every play was
+stamped "Like", and the frequency filter re-derived "Like" from the sign of
+any positive strength.
+
+- vendored files and edits:
+  - `vendor/cm019_preferences/services/ingest/src/parsers/base.py`: new
+    module constant `LISTEN = "Listen"`; `to_turtle()` writes a Listen as
+    `pwg:ListenPreference`; the content-keyed id keys a Listen as "Like" so a
+    re-ingest overwrites the pre-fix point in place.
+  - `vendor/cm019_preferences/services/ingest/src/parsers/spotify.py`:
+    streaming-history track plays yield `preference_type=LISTEN`.
+  - `vendor/cm019_preferences/services/ingest/src/parsers/apple.py`: Track
+    Play History, Play Activity, Play History Daily Tracks, Top Content,
+    Container Details and Container Origin yield `LISTEN`. Favorites and
+    every other explicit signal stay "Like".
+  - `vendor/cm019_preferences/services/ingest/src/parsers/apple_music_library.py`:
+    `score_track()` returns `LISTEN` when the only evidence is "library"
+    (played or in the library); loved, rated and playlisted stay "Like".
+  - `vendor/cm019_preferences/services/ingest/src/filters.py`:
+    `get_aggregated_preferences()` keeps a positive Listen as Listen; new
+    `_explicit_kind_wins()` in the `is_duplicate()` merge makes an explicit
+    Like or Dislike win over plays of the same key, whatever the file order.
+  - `vendor/cm019_preferences/ontology/shacl/preference-shapes.ttl`: new
+    `pwg:ListenPreferenceShape` (strength 0.0 to 1.0).
+- consumers: the vendored CM059 projector and front page reader read
+  `ListenPreference` (recorded in `vendor/divergences/cm059_editor.patch`).
+  CM044 wiki pages that list "Likes" now list only explicit likes; Music and
+  Media pages do not filter on the kind.
+- why no patch: same reason as above, this row's `divergence_patch` is
+  deliberately empty.
+- proven by execution: `tests/test_music_plays_are_listens_not_likes.py`
+  (12 tests; 10 red on the pre-fix tree), wired by
+  `.github/workflows/music-plays-are-listens.yml`.
+
+**Upstream status:** not ported; owed to personal-world-graph `services/ingest`
+and to CM059 `compiler/` (`project_preferences.py`, `interest_profile.py`).

@@ -50,6 +50,10 @@ def describe_json_parse_failure(content: str, exc: "json.JSONDecodeError") -> st
     return f"malformed JSON, {size} bytes ({exc})"
 
 
+#: A play, as opposed to an explicit like. See ParsedPreference.preference_type.
+LISTEN = "Listen"
+
+
 @dataclass
 class ParsedPreference:
     """A parsed preference ready for ingestion."""
@@ -62,7 +66,12 @@ class ParsedPreference:
     # still pass an explicit id and it is preserved.
     id: str = ""
     subject: str = ""
-    preference_type: str = "Like"  # Like, Dislike, Love, Hate, Neutral
+    # Like, Dislike, Love, Hate, Neutral, or LISTEN. "Listen" is a play: the
+    # owner played it, which is not the owner saying they like it. Plays keep
+    # their play count and strength; "Like" is reserved for an explicit save,
+    # love, rating or playlist (CM051, Andy's v1.0.107 walk: all 51,808 music
+    # prefs on the box were "Like" because every play was stamped "Like").
+    preference_type: str = "Like"
     strength: float = 0.5  # -1.0 to +1.0 (negative=dislike, positive=like)
     compartment_level: int = 2  # Default to L2 (Trusted)
 
@@ -104,11 +113,18 @@ class ParsedPreference:
         # collision-to-one-id is the intended dedup. An explicitly-passed id
         # is left untouched.
         if not self.id:
+            # A Listen keys as "Like". Before LISTEN existed every play was
+            # written as "Like"; keying it the same keeps the id stable, so a
+            # re-ingest on an existing box overwrites the old Qdrant point in
+            # place instead of leaving a stale "Like" twin beside the Listen.
+            # It also gives a play and a later explicit save of the same
+            # track ONE id, which is right: it is one preference, upgraded.
+            ptype = self.preference_type or ""
             key = "|".join([
                 self.source or "",
                 str(self.source_id) if self.source_id else self.subject,
                 self.category or "",
-                self.preference_type or "",
+                "Like" if ptype == LISTEN else ptype,
             ])
             self.id = str(uuid.uuid5(uuid.NAMESPACE_URL, key))
 
@@ -121,6 +137,8 @@ class ParsedPreference:
         pref_class = f"pwg:{self.preference_type}Preference"
         if self.preference_type in ("Like", "Love"):
             pref_class = "pwg:LikePreference"
+        elif self.preference_type == LISTEN:
+            pref_class = "pwg:ListenPreference"
         elif self.preference_type in ("Dislike", "Hate"):
             pref_class = "pwg:DislikePreference"
         else:

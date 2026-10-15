@@ -63,9 +63,16 @@ _PAGE = 512
 # LikePreference and DislikePreference, and inventing a third class the reader
 # does not read would be a producer with no consumer, which is the defect this
 # module exists to fix.
+#
+# Listen is the third, and it IS read: interest_profile.fetch_preferences asks
+# for ListenPreference too. A listen is a play (CM019 stamps plays "Listen",
+# keeping "Like" for an explicit save or love); without this row every
+# play-only track would be skipped here and Music would empty off the front
+# page. CM051, Andy's v1.0.107 walk.
 PROJECTOR_ID = "ostler:cm059:preference-projection"
 
-_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference"}
+_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference",
+             "listen": "ListenPreference"}
 
 
 def _secret(env_var: str, filename: str) -> str:

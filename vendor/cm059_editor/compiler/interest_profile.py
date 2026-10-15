@@ -1123,11 +1123,18 @@ def _pref_query(node_type: str) -> str:
 
 
 def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
-    """Read like/dislike preference rows from Oxigraph. Read-only."""
+    """Read like/listen/dislike preference rows from Oxigraph. Read-only.
+
+    A listen is a play, not an explicit like (CM051, v1.0.107 walk). Every
+    consumer treats any polarity other than "dislike" as positive, so a
+    listen ranks as an interest exactly as the same play did when it was
+    mislabelled "like"; it is read here so Music does not vanish."""
     oxigraph_url = oxigraph_url or os.environ.get(
         "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
     out: list[dict] = []
-    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike")):
+    for node_type, polarity in (("LikePreference", "like"),
+                                ("ListenPreference", "listen"),
+                                ("DislikePreference", "dislike")):
         for row in _sparql_select(oxigraph_url, _pref_query(node_type)):
             out.append({
                 "subject": row.get("subject", ""),

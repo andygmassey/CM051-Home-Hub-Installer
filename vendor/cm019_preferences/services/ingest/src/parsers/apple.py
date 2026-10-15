@@ -13,7 +13,7 @@ import tempfile
 import re
 import xml.etree.ElementTree as ET
 
-from .base import BaseParser, ParsedPreference
+from .base import LISTEN, BaseParser, ParsedPreference
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -632,7 +632,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=track_name,
-                preference_type="Like",
+                preference_type=LISTEN,  # a play, not a like (see base.LISTEN)
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -750,7 +750,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=subject,
-                preference_type="Like",
+                preference_type=LISTEN,  # a play, not a like (see base.LISTEN)
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -853,7 +853,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=track_desc,
-                preference_type="Like",
+                preference_type=LISTEN,  # a play, not a like (see base.LISTEN)
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -1911,7 +1911,7 @@ class AppleParser(BaseParser):
 
                 yield ParsedPreference(
                     subject=content_name,
-                    preference_type="Like",
+                    preference_type=LISTEN,  # a play, not a like (see base.LISTEN)
                     category="music",
                     strength=strength,
                     observed_at=timestamp,
@@ -2386,7 +2386,7 @@ class AppleParser(BaseParser):
 
                 yield ParsedPreference(
                     subject=container_desc,
-                    preference_type="Like",
+                    preference_type=LISTEN,  # a play, not a like (see base.LISTEN)
                     category="music",
                     strength=strength,
                     observed_at=timestamp,
@@ -2668,7 +2668,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=artist,
-                preference_type="Like",
+                preference_type=LISTEN,  # a play, not a like (see base.LISTEN)
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],

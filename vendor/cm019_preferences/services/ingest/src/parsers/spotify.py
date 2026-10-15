@@ -7,7 +7,7 @@ from typing import AsyncIterator, Optional
 from datetime import datetime
 import aiofiles
 
-from .base import BaseParser, ParsedPreference, describe_json_parse_failure
+from .base import LISTEN, BaseParser, ParsedPreference, describe_json_parse_failure
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -204,7 +204,7 @@ class SpotifyParser(BaseParser):
 
                     yield ParsedPreference(
                         subject=f"{artist_name} - {track_name}",
-                        preference_type="Like",
+                        preference_type=LISTEN,  # a play, not a like (see base.LISTEN)
                         category="music",
                         strength=0.10,  # V2: Passive play (could be playlist/shuffle)
                         observed_at=observed_at,

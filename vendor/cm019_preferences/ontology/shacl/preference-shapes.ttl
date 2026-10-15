@@ -78,6 +78,22 @@ pwg:DislikePreferenceShape a sh:NodeShape ;
         sh:message "Dislike preference strength must be between -1.0 and 0.0" ;
     ] .
 
+# A listen is a play: the owner played it, which is not the owner saying they
+# like it. Positive strength, from play count and recency. "Like" is reserved
+# for an explicit save, love, rating or playlist.
+pwg:ListenPreferenceShape a sh:NodeShape ;
+    sh:targetClass pwg:ListenPreference ;
+    sh:name "Listen Preference Shape" ;
+
+    sh:property [
+        sh:path pwg:preferenceStrength ;
+        sh:datatype xsd:float ;
+        sh:minInclusive 0.0 ;
+        sh:maxInclusive 1.0 ;
+        sh:name "preference strength" ;
+        sh:message "Listen preference strength must be between 0.0 and 1.0" ;
+    ] .
+
 # =============================================================================
 # Size Validation
 # =============================================================================
