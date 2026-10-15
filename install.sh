@@ -28861,7 +28861,16 @@ else
     # log entry from racing the LaunchAgent.
     sleep 2
 
-    if [[ -f "$_imessage_chat_db_path" ]]; then
+    # ASKED ON EVERY INSTALL (TCC sweep 2026-10-15). This whole block used to
+    # sit inside `if [[ -f chat.db ]]`, so a Mac with no Messages history never
+    # asked for the assistant's Full Disk Access at all, and printed "can read
+    # Messages history" on the way past. But every brokered feed (fda-rerun,
+    # contacts, email, WhatsApp, voice notes, AI chats, exports) runs as the
+    # assistant and needs that one grant, Messages or not. The daemon-identity
+    # check below reads TCC.db, not chat.db, so it never needed the file.
+    _imessage_has_history=false
+    [[ -f "$_imessage_chat_db_path" ]] && _imessage_has_history=true
+
         # ── CX-90 (fresh-install P0): daemon-identity test is FIRST ──
         #
         # The authoritative test is whether the *daemon*
@@ -28897,7 +28906,7 @@ else
             # identity, not the daemon's), so it must NOT set
             # needed=false nor print the "channel will work" line. We
             # keep its outcome to a non-committal log only.
-            if sqlite3 -readonly \
+            if [[ "$_imessage_has_history" == true ]] && sqlite3 -readonly \
                     "file:${_imessage_chat_db_path}?mode=ro" \
                     "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
                 : # installer identity can read chat.db; not authoritative for the daemon
@@ -29574,13 +29583,16 @@ else
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
-    else
-        # No chat.db on this Mac at all (e.g. Messages.app never
-        # signed in to iMessage). Card would be a false positive --
-        # default to false so it stays quiet.
+
+    # The iMessage Doctor card is keyed on chat.db: it auto-dismisses by
+    # opening chat.db, so on a Mac with no Messages history it could never
+    # clear. There it stays off, and says nothing about the grant either way.
+    # The grant itself was still asked for above, and a refusal still shows:
+    # the hourly fda-rerun tick exits 75 and the Doctor names Full Disk Access.
+    if [[ "$_imessage_has_history" != true ]]; then
         _imessage_fda_needed="false"
-        info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
     fi
+    unset _imessage_has_history
 
     # Re-resolve the writer + sidecar path. The mail-content probe
     # already mkdir'd PIPELINE_SIGNALS_DIR earlier in Phase 3, but
