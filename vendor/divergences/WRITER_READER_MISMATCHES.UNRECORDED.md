@@ -1205,3 +1205,15 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+## An organisation's own mailbox is not a Person (v1.0.107 walk, candidate #28)
+
+Tree `ostler_fda`, two files:
+
+- `vendor/ostler_fda/machine_senders.py`: new `domain_brand_names` and `organisation_reason` (an automation word as a local-part token, the local part equal to the sender's own domain name including affix and short-TLD spellings, or a bulk sub-domain such as `e.` / `email.` / `news.`). `classify` records a NON-correspondent with an `organisation_reason` as machine. No company list.
+- `vendor/ostler_fda/pwg_ingest.py`: `ingest_mail_contacts` and `ingest_calendar` skip an address with an `organisation_reason` unless it is a recorded correspondent (calendar now loads the correspondent set too). Counted in `machine_senders_skipped`.
+
+WHY: Andy's console walk listed organisations as people; one wrote from `<brand>@<brand's domain>`. Same shape rule as CM044 #344 (wiki reader) and `people_rules._name_is_sender_domain` (Hub reader). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated (this tree already fails to round-trip on origin/main, see the top of this file).
+
+### What a future sync must preserve
+
+`organisation_reason`, its use in `classify`, and both ingest skips with the correspondent pass-through. Guarded by `tests/test_organisation_senders_are_not_people.py` (`.github/workflows/people-have-human-evidence.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.

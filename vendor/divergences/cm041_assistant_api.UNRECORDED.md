@@ -1166,3 +1166,13 @@ Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
 in one busy hour; a retry run in that hour joins the same model queue.
 CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
 extends), or the next re-sync of this tree reverts it.
+
+## A one-word name that is just the sender's domain is not a person (CM051, 2026-10-15, v1.0.107 walk #28)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
+
+- new `_domain_brand_names`, `_name_is_sender_domain`, `_name_parts_echo_address`;
+- `_address_is_automated`: the brand-mailbox test also accepts the domain's affix and short-TLD spellings (`brightwell@brightwell-mail.example.com`);
+- `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
+
+WHY: Andy's console walk listed organisations as people ("Glimmer" on `events@glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).

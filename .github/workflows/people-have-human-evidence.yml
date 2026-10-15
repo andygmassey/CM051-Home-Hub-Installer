@@ -12,7 +12,10 @@ on:
       - 'vendor/cm021/src/cli.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/role_addresses.py'
+      - 'vendor/ostler_fda/machine_senders.py'
+      - 'vendor/cm041/assistant_api/people_rules.py'
       - 'tests/test_people_have_human_evidence.py'
+      - 'tests/test_organisation_senders_are_not_people.py'
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - '.github/workflows/people-have-human-evidence.yml'
   pull_request:
@@ -21,7 +24,10 @@ on:
       - 'vendor/cm021/src/cli.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/role_addresses.py'
+      - 'vendor/ostler_fda/machine_senders.py'
+      - 'vendor/cm041/assistant_api/people_rules.py'
       - 'tests/test_people_have_human_evidence.py'
+      - 'tests/test_organisation_senders_are_not_people.py'
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - '.github/workflows/people-have-human-evidence.yml'
 
@@ -50,3 +56,15 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_people_have_human_evidence.py -v -rs
+      # v1.0.107 walk #28: an organisation sender is not a person, on both
+      # writers (ostler_fda mail + calendar ingest) and the Hub People list.
+      - name: Organisation senders are not people
+        run: |
+          n="$(python -m pytest tests/test_organisation_senders_are_not_people.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_organisation_senders_are_not_people.py -v -rs
