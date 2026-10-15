@@ -1401,11 +1401,15 @@ def render_source_status() -> str:
     _LABEL = {"ok": "read in", "no_data": "nothing to read",
               "not_run": "not run yet", "unreadable": "record unreadable",
               "error": "failed", "cannot_run": "could not look",
-              "timeout": "ran out of time"}
+              "timeout": "ran out of time",
+              # #30, the Downloads watcher row
+              "not_imported": "found, not imported",
+              "waiting": "waiting for a download"}
     _COLOUR = {"ok": "#2C4A2C", "no_data": "rgba(236,232,225,0.55)",
                "not_run": "#5C4611", "unreadable": "#7A1F1F",
                "error": "#7A1F1F", "cannot_run": "#5C4611",
-               "timeout": "#5C4611"}
+               "timeout": "#5C4611", "not_imported": "#5C4611",
+               "waiting": "#5C4611"}
     body = []
     for r in rows:
         st = (r.get("status") or "not_run")
@@ -1430,9 +1434,14 @@ def render_source_status() -> str:
         count = html.escape(label) if label else "&mdash;"
         body.append(
             '<tr>'
-            f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
+            f'<td>{html.escape({"downloads_exports": "Downloads folder"}.get(r.get("source"), str(r.get("source", "?")).replace("_", " ")))}</td>'
             f'<td><span style="color:{_COLOUR.get(st, "#5C4611")}">'
-            f'{html.escape(_LABEL.get(st, st))}</span></td>'
+            f'{html.escape(_LABEL.get(st, st))}</span>'
+            # #30: a row that found something and did not import it says WHY,
+            # in the customer's words, right under its status.
+            + (f'<div class="muted" style="font-size:0.85em">'
+               f'{html.escape(str(r["reason"]))}</div>' if r.get("reason") else "")
+            + '</td>'
             f'<td style="text-align:right">{count}</td>'
             f'<td>{html.escape(str(when)) if when else "never"}</td>'
             f'<td>{html.escape(_catchup_phrase(r.get("catchup")))}</td>'
@@ -3546,6 +3555,87 @@ def read_source_status(hydrate_dir: Path | None = None,
         if row["source"] == "email":
             row["item_of"] = _mail_available_total()
         row["count_label"], row["count_kind"] = _source_count_label(row)
+
+    # ── #30: THE DOWNLOADS WATCHER, AND WHY IT FOUND SOMETHING AND IMPORTED NOTHING ──
+    #
+    # MEASURED on a synthetic walk box (studio29, v1.0.107 candidate): a loose
+    # calendar.ics, emails.mbox and contacts.vcf in ~/Downloads. The watcher
+    # (com.ostler.export-scan -> ostler-scan-exports) matched none of them and
+    # exited 0 having written nothing, and this panel had no row for it at all,
+    # so "found nothing", "could not look" and "found three files and imported
+    # none" were all the same silence.
+    #
+    # The watcher now writes state/source_activity/downloads_exports.tsv on EVERY
+    # run (install.sh, the ostler-scan-exports heredoc): last_status is one of
+    # ok / no_data / not_imported / error / cannot_run / waiting, the run's
+    # counts (found, imported, already_imported, skipped, failed), and `reason`,
+    # the plain-words why when what it found did not import. This row prints that
+    # record and nothing else. No record at all means the watcher has not run on
+    # this Mac yet, and says so rather than being left out.
+    #
+    # NESTED, NOT MODULE-LEVEL, ON PURPOSE: the source-table tests rebuild this function from
+    # the AST with a hand-written list of the helpers it calls, so a new
+    # module-level helper turns every one of them into a NameError. Kept inside
+    # read_source_status, it travels with the function those tests already take.
+    def _downloads_exports_row(activity_dir: Path | None = None) -> dict:
+        """The Doctor row for the Downloads export watcher (#30)."""
+        _DOWNLOADS_STATUS = {
+            "ok": "ok", "no_data": "no_data", "not_imported": "not_imported",
+            "error": "error", "cannot_run": "cannot_run", "waiting": "waiting",
+        }
+        base = activity_dir if activity_dir is not None else _source_activity_dir()
+        row = {"source": "downloads_exports", "kind": "watcher",
+               "status": "not_run", "item_count": None, "recorded_at": None,
+               "last_update_at": None, "detail": None, "reason": None,
+               "count_label": None, "count_kind": None, "catchup": None}
+        f = base / "downloads_exports.tsv"
+        try:
+            if not f.is_file():
+                row["reason"] = "the Downloads watcher has not run on this Mac yet"
+                return row
+            rec = {}
+            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    rec[k.strip()] = v.strip()
+        except OSError as exc:
+            row["status"] = "unreadable"
+            row["reason"] = "the watcher's record could not be read (%s)" % exc.__class__.__name__
+            return row
+
+        def _n(key: str):
+            v = rec.get(key, "")
+            return int(v) if v.isdigit() else None
+
+        st = rec.get("last_status", "")
+        # A status this row has never seen is not absorbed into a healthy word.
+        row["status"] = _DOWNLOADS_STATUS.get(st, "error" if st else "unreadable")
+        row["last_update_at"] = rec.get("last_run_at") or None
+        row["last_success_at"] = rec.get("last_success_at") or None
+        found, imported = _n("found"), _n("imported")
+        already = _n("already_imported")
+        row["item_count"] = imported
+        row["found"], row["imported"] = found, imported
+        row["already_imported"] = already
+        row["skipped"], row["failed"] = _n("skipped"), _n("failed")
+        if found is not None and imported is not None:
+            label = "%d found, %d imported" % (found, imported)
+            if already:
+                label += ", %d already in" % already
+            row["count_label"], row["count_kind"] = label, "last_check"
+        reason = rec.get("reason") or ""
+        if not reason and row["status"] not in ("ok", "no_data"):
+            reason = rec.get("last_detail") or ""
+        row["reason"] = reason or None
+        row["detail"] = rec.get("last_detail") or None
+        return row
+
+    # ── #30: the Downloads watcher has a row of its own ──────────────────
+    # See _downloads_exports_row. Appended here, after the per-source loop,
+    # because it is not a hydrate source and none of the sentinel, routine or
+    # settling-progress producers above speak for it.
+    rows.append(_downloads_exports_row(activity_dir))
+
     # ── v1.0.108: how far back each source has been read ─────────────────
     # The background catch-up (lib/ostler_catchup.py) walks every source
     # backwards past the install window and writes one watermark per source
