@@ -178,6 +178,68 @@ def test_consumer_withholds_a_set_aside_calendar():
     assert (ctype_p, level_p) == ("personal", "L1"), (ctype_p, level_p)
 
 
+def _recording_reader():
+    gc = _load_cm041_reader()
+    sent = []
+    gc._sparql_update = lambda url, q: sent.append(q)
+    return gc, sent
+
+
+def _map_with_set_aside():
+    payload = cc.build_calendars_json([
+        {"match": "Personal", "owner": "You", "type": "personal", "include": "1"},
+        {"match": "Gardening", "owner": "You", "type": "other", "include": "1"},
+        {"match": "Feiertage", "owner": "You", "type": "personal",
+         "include": "0", "set_aside": "holiday"},
+    ])
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "calendars.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+    return p
+
+
+def test_a_set_aside_calendar_never_reaches_any_store_or_level():
+    gc, sent = _recording_reader()
+    prov = gc.load_calendar_provenance(_map_with_set_aside())
+    ev = {"summary": "Public holiday", "uid": "h1", "dtstart": "2026-12-25T00:00:00",
+          "source_calendar": "Feiertage"}
+    assert gc.event_is_set_aside(prov, ev)
+    gc.write_calendar_event("http://x", ev, "u1", provenance=prov)
+    assert sent == [], "a set-aside event was written to the store"
+    # Control: the same call on an included calendar does write, so the empty
+    # list above is the drop's doing and not a recorder that records nothing.
+    gc.write_calendar_event(
+        "http://x", {"summary": "Dentist", "uid": "p1", "dtstart": "2026-12-01T09:00:00",
+                     "source_calendar": "Personal"}, "u1", provenance=prov)
+    assert len(sent) == 1 and '"L1"' in sent[0]
+
+
+def test_an_included_other_calendar_is_l1():
+    gc, sent = _recording_reader()
+    prov = gc.load_calendar_provenance(_map_with_set_aside())
+    _, ctype, level = gc.resolve_calendar_provenance(
+        {"source_calendar": "Gardening"}, prov)
+    assert (ctype, level) == ("other", "L1"), (ctype, level)
+    gc.write_calendar_event(
+        "http://x", {"summary": "Pruning", "uid": "g1", "dtstart": "2026-11-01T09:00:00",
+                     "source_calendar": "Gardening"}, "u1", provenance=prov)
+    assert len(sent) == 1 and 'pwg:privacyLevel "L1"' in sent[0]
+
+
+def test_existing_calendar_types_are_unchanged():
+    gc = _load_cm041_reader()
+    assert gc._TYPE_DEFAULT_PRIVACY["personal"] == "L1"
+    assert gc._TYPE_DEFAULT_PRIVACY["family"] == "L1"
+    assert gc._TYPE_DEFAULT_PRIVACY["work"] == "L2"
+    assert gc._TYPE_DEFAULT_PRIVACY["shared"] == "L2"
+    assert gc._DEFAULT_PRIVACY == "L3"
+    # an unknown confirmed type still fails closed
+    _, _, level = gc.resolve_calendar_provenance(
+        {"source_calendar": "Odd"}, [{"match": "Odd", "owner": "You", "type": "zzz"}])
+    assert level == "L3"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = failed = 0
