@@ -3680,7 +3680,9 @@
    ],
    "proxy_to": "ical:GET:/api/v1/preferences",
    "query_params": [
+    "cursor",
     "domain",
+    "fields",
     "limit",
     "polarity"
    ],
@@ -5605,7 +5607,9 @@
     8090
    ],
    "query_params": [
+    "cursor",
     "domain",
+    "fields",
     "limit",
     "polarity"
    ],

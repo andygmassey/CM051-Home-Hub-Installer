@@ -1238,3 +1238,12 @@ nobody. `assert_spool_status.json` gains `quarantined`; the Doctor
 `asserted_at` raised out of the loop every 20 s, 1,032+ times, and starved the
 rows behind it. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py`.
 CM041 and Doctor upstream need the same change, or the next re-sync reverts it.
+## optional pagination on /api/v1/preferences and /api/v1/people (walk #29)
+
+`ical-server.py` gains `_paginate` and optional `limit`, `cursor` (opaque; `start`
+for page one) and `fields` on both list routes (`/api/v1/people` is aliased to
+`/people`, one handler). With none of the new parameters, and `limit` alone on
+preferences, the response is byte-identical to before. WHY: preferences answered
+55 MB (97,173 items), people 2 MB. Guarded by
+`tests/test_api_list_pagination_is_additive.py` (goldens captured from the
+pre-change server). CM041 upstream needs the same change or a re-sync reverts it.
