@@ -216,3 +216,163 @@ def test_single_token_name_is_not_a_merge_basis(tmp_path):
     s.person("k2", "Mum", phones=[MOBILE_A], uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 2
+
+
+# --------------------------------------------------------------------------
+# Guard without any card uid in play: a switchboard held by 3 names must not
+# merge the name-variant pair that shares it (the variant pair is joined by
+# the phone alone, so only the guard holds it; RED on the old code).
+# --------------------------------------------------------------------------
+def test_switchboard_guard_holds_without_card_uids(tmp_path):
+    s = FakeStore()
+    s.person("l1", "Alex Stone", phones=[LANDLINE])
+    s.person("l2", "Alexander Stone", phones=[LANDLINE])
+    s.person("l3", "Pat Quinn", phones=[LANDLINE])
+    s.person("l4", "Kim Doyle", phones=[LANDLINE])
+    converge(s, tmp_path)
+    assert len(s.live()) == 4
+
+
+def test_two_names_on_one_number_is_still_a_key(tmp_path):
+    """Control for the guard: 2 distinct names is below the 3+ threshold."""
+    s = FakeStore()
+    s.person("m1", "Alex Stone", phones=[MOBILE_A], uids=["u1"])
+    s.person("m2", "Alex Stone", phones=[MOBILE_A], uids=["u2"])
+    s.person("m3", "Pat Quinn", phones=[MOBILE_A], uids=["u3"])
+    converge(s, tmp_path)
+    live = s.live()
+    assert len(live) == 2           # the Alex pair merged, Pat untouched
+
+
+def test_converge_stops_at_the_fixpoint_when_everything_is_refused(tmp_path):
+    s = FakeStore()
+    s.person("n1", "Sam Hartley", emails=["s@example.com"],
+             linkedin=["https://www.linkedin.com/in/sam-a"], uids=["u1"])
+    s.person("n2", "Sam Hartley", emails=["s@example.com"],
+             linkedin=["https://www.linkedin.com/in/sam-b"], uids=["u2"])
+    r = make(s, tmp_path)
+    rounds = r.converge(backup_dir=str(tmp_path / "bk"))
+    assert len(rounds) == 1
+
+
+# --------------------------------------------------------------------------
+# Safety: backup before merge, one journal entry per merge, undo restores.
+# --------------------------------------------------------------------------
+def _dump(store: FakeStore) -> set[tuple[str, str, str]]:
+    return {(str(s), str(p), repr(o)) for s, p, o in store.g}
+
+
+def test_merge_is_journalled_and_undo_restores_the_pre_merge_graph(tmp_path):
+    s = FakeStore()
+    s.person("p1", "Casey Morgan", phones=[MOBILE_A], emails=["c@example.com"],
+             uids=["uid-1"], given="Casey", family="Morgan", extra_triples=3)
+    s.person("p2", "Casey Morgan", phones=[MOBILE_A], uids=["uid-2"],
+             extra_triples=1)
+    s.g.update(
+        f'INSERT DATA {{ <{PWG}fact_1> <{PWG}aboutPerson> <{PWG}person_p2> . '
+        f'<{PWG}meeting_1> <{PWG}meetingAttendee> <{PWG}person_p2> }}')
+    before = _dump(s)
+
+    r = make(s, tmp_path)
+    r.converge(backup_dir=str(tmp_path / "bk"))
+    assert len(s.live()) == 1
+    assert _dump(s) != before
+
+    jdir = tmp_path / "bk" / "merge_journal"
+    entries = [json.loads(x) for x in (jdir / "merge_journal.jsonl").read_text().splitlines()]
+    merges = [e for e in entries if e["kind"] == "merge"]
+    assert len(merges) == 1                                   # one per merge
+    assert merges[0]["override"].startswith("exact_identifier:")
+    assert (jdir / merges[0]["snapshot"]).exists()            # backup exists
+    assert oct((jdir / merges[0]["snapshot"]).stat().st_mode & 0o777) == "0o600"
+    assert "c@example.com" not in (jdir / "merge_journal.jsonl").read_text()
+
+    res = r.undo_merge(merges[0]["id"], backup_dir=str(tmp_path / "bk"))
+    assert res["qdrant_restored"] is False
+    assert _dump(s) == before                                 # exact restore
+    assert len(s.live()) == 2
+
+
+def test_undo_pins_the_pair_so_converge_does_not_remerge(tmp_path):
+    pytest.importorskip("yaml")
+    s = FakeStore()
+    s.person("q1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
+    s.person("q2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    r = make(s, tmp_path)
+    r.converge(backup_dir=str(tmp_path / "bk"))
+    mid = [e for e in merge_entries(tmp_path) if e["kind"] == "merge"][0]["id"]
+    r.undo_merge(mid, backup_dir=str(tmp_path / "bk"))
+    assert len(s.live()) == 2
+    make(s, tmp_path).converge(backup_dir=str(tmp_path / "bk"))
+    assert len(s.live()) == 2                                  # stays apart
+
+
+def merge_entries(tmp_path):
+    p = tmp_path / "bk" / "merge_journal" / "merge_journal.jsonl"
+    return [json.loads(x) for x in p.read_text().splitlines()]
+
+
+def test_undo_twice_and_unknown_id_are_refused(tmp_path):
+    from identity_resolver.merge_journal import UndoError
+    s = FakeStore()
+    s.person("r1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
+    s.person("r2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    r = make(s, tmp_path)
+    r.converge(backup_dir=str(tmp_path / "bk"))
+    mid = merge_entries(tmp_path)[0]["id"]
+    r.undo_merge(mid, backup_dir=str(tmp_path / "bk"))
+    with pytest.raises(UndoError):
+        r.undo_merge(mid, backup_dir=str(tmp_path / "bk"))
+    with pytest.raises(UndoError):
+        r.undo_merge("no-such-id", backup_dir=str(tmp_path / "bk"))
+
+
+def test_no_snapshot_no_merge(tmp_path, monkeypatch):
+    s = FakeStore()
+    s.person("t1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
+    s.person("t2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(br.merge_journal, "record_merge", boom)
+    converge(s, tmp_path)
+    assert len(s.live()) == 2
+
+
+# --------------------------------------------------------------------------
+# Policy unit tests (pure functions), including a mutation control.
+# --------------------------------------------------------------------------
+def _rec(name, phones=(), emails=(), li=()):
+    return br.PersonRecord(uri=name, display_name=name,
+                           phones=set(phones), emails=set(emails),
+                           linkedin_urls=set(li))
+
+
+def test_policy_overrides_only_the_card_uid_conflict():
+    from identity_resolver import exact_identifier as ex
+    a = _rec("Casey Morgan", phones=[MOBILE_A])
+    b = _rec("Casey Morgan", phones=[MOBILE_A])
+    h = ex.build_holder_index({"a": a, "b": b}, br._normalise_linkedin_url)
+    f = lambda c: ex.card_uid_override(a, b, c, h, br._normalise_linkedin_url)
+    assert f({"icloud_contact_uid"})[0] is True
+    assert f({"icloud_contact_uid", "linkedin_url"})[0] is False
+    assert f({"whatsapp_lid"})[0] is False
+    assert f({"unreadable"})[0] is False
+    assert f(set())[0] is False
+
+
+def test_policy_mutation_control_guard_threshold():
+    """Break the guard (threshold 99) and the switchboard test's premise
+    disappears: proves the 3+ rule is what holds the line, not luck."""
+    from identity_resolver import exact_identifier as ex
+    a, b = _rec("Alex Stone", phones=[LANDLINE]), _rec("Alex Stone", phones=[LANDLINE])
+    c, d = _rec("Pat Quinn", phones=[LANDLINE]), _rec("Kim Doyle", phones=[LANDLINE])
+    p = {"a": a, "b": b, "c": c, "d": d}
+    h = ex.build_holder_index(p, br._normalise_linkedin_url)
+    assert ex.is_guarded(("phone", LANDLINE), h) is True
+    old = ex.GUARD_MIN_DISTINCT_NAMES
+    try:
+        ex.GUARD_MIN_DISTINCT_NAMES = 99
+        assert ex.is_guarded(("phone", LANDLINE), h) is False
+    finally:
+        ex.GUARD_MIN_DISTINCT_NAMES = old
