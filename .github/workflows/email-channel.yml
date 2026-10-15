@@ -13,6 +13,8 @@ on:
       - 'tests/test_email_allowlist_installer.sh'
       - 'tests/test_assistant_mailbox_installer.sh'
       - 'tests/fixtures/assistant_mailbox_contract.json'
+      - 'tests/e2e/**'
+      - 'tests/test_assistant_mailbox_sim.py'
       - 'vendor/doctor/agent/assistant_mailbox.py'
       - 'vendor/doctor/agent/test_assistant_mailbox.py'
       - 'CONTRACT.md'
@@ -47,6 +49,18 @@ jobs:
         run: |
           python3 -m pip install --quiet fastapi httpx pyyaml 'qrcode>=7.4,<9.0'
           python3 vendor/doctor/agent/test_assistant_mailbox.py
+      - name: The assistant-mailbox loopback provider behaves like a provider (login, delete, unforgeable Authentication-Results)
+        if: always()
+        run: python3 tests/test_assistant_mailbox_sim.py
+      - name: The assistant-mailbox end-to-end run says CANNOT-RUN (exit 2), never a pass, without a daemon binary
+        if: always()
+        run: |
+          set +e
+          out=$(env -u OSTLER_E2E_DAEMON bash tests/e2e/assistant_mailbox_e2e.sh 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 2 ]; then echo "e2e exit $rc, expected 2 (CANNOT-RUN)"; exit 1; fi
+          printf '%s\n' "$out" | grep -q '^CANNOT-RUN:' || { echo "no CANNOT-RUN line"; exit 1; }
       - name: The email judge catches every mutant by its own assertion
         if: always()
         run: set +e; python3 scripts/box_walk_probes/lib/email_channel_probe.py --self-test; rc=$?; test "$rc" -eq 1

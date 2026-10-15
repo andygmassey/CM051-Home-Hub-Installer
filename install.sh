@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8755) captures the path BY
+    # _ostler_write_store_curl_config (defined :8765) captures the path BY
     # VALUE and never re-reads it:
-    #     :8756   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8801   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8810 and :15857, both of which run
+    #     :8766   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8811   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8820 and :15867, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16647, where the note reads
+    # WhatsApp Web session path did it again at :16657, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16664 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16674 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5972 against a definition at :8755. Top-level
+    # writer's own definition: :5972 against a definition at :8765. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8810, :15857) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8820, :15867) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18806 / :18984 / :19141 / :19509 path. There the
+    # :18816 / :18994 / :19151 / :19519 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -7588,6 +7588,11 @@ _am_hosts_for_provider() {
                 _AM_SMTP_HOST="smtp.mail.me.com"; _AM_SMTP_PORT=587 ;;
         gmail)  _AM_IMAP_HOST="imap.gmail.com";   _AM_IMAP_PORT=993
                 _AM_SMTP_HOST="smtp.gmail.com";   _AM_SMTP_PORT=465 ;;
+        # TEST SEAM (tests/e2e/assistant_mailbox_e2e.sh): a loopback mail server,
+        # only when OSTLER_E2E_LOOPBACK=1. Never set on a customer machine.
+        loopback) [[ "${OSTLER_E2E_LOOPBACK:-}" == 1 ]] || return 1
+                _AM_IMAP_HOST="127.0.0.1"; _AM_IMAP_PORT="${OSTLER_E2E_IMAP_PORT:-}"
+                _AM_SMTP_HOST="127.0.0.1"; _AM_SMTP_PORT="${OSTLER_E2E_SMTP_PORT:-}" ;;
         *)      _AM_IMAP_HOST=""; _AM_IMAP_PORT=""; _AM_SMTP_HOST=""; _AM_SMTP_PORT=""
                 return 1 ;;
     esac
@@ -7614,6 +7619,7 @@ _am_address_ok() {
     case "$p:${a##*@}" in
         icloud:icloud.com|icloud:me.com|icloud:mac.com) return 0 ;;
         gmail:gmail.com|gmail:googlemail.com) return 0 ;;
+        loopback:example.test) [[ "${OSTLER_E2E_LOOPBACK:-}" == 1 ]] && return 0 ;;
     esac
     return 1
 }
@@ -8103,7 +8109,11 @@ _assistant_mailbox_flow() {
     local _code _choice _addr _pw _out _imap _smtp _count _oldest _err _try _tests _owner _name _sugg _first
     _name="${ASSISTANT_NAME:-Your assistant}"
     _choice="$(gui_read "$MSG_PROMPT_AM_CHOOSE_TITLE" choice "icloud" "$MSG_PROMPT_AM_CHOOSE_HELP" "icloud,gmail,skip" "am_choose")"
-    case "${_choice:-skip}" in icloud|gmail) ;; *) return 0 ;; esac
+    case "${_choice:-skip}" in
+        icloud|gmail) ;;
+        loopback) [[ "${OSTLER_E2E_LOOPBACK:-}" == 1 ]] || return 0 ;;
+        *) return 0 ;;
+    esac
     AM_PROVIDER="$_choice"
 
     # Every address the owner uses: an account that is one of these is not new.

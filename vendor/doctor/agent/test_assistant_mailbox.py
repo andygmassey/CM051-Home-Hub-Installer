@@ -293,6 +293,35 @@ class Routes(unittest.TestCase):
         self.assertIn("Assistant's own email", r.text.replace("&#x27;", "'").replace("&#39;", "'"))
 
 
+class SeamClosed(unittest.TestCase):
+    """The e2e loopback seam must not exist on a customer machine."""
+
+    def test_only_two_providers_and_no_loopback_host_unless_the_seam_is_on(self):
+        import os
+        if os.environ.get("OSTLER_E2E_LOOPBACK") == "1":
+            self.skipTest("this run is the e2e run")
+        self.assertEqual(sorted(am.PROVIDERS), ["gmail", "icloud"])
+        self.assertFalse(am.E2E_LOOPBACK)
+        self.assertFalse(am.host_pair_allowed("127.0.0.1", 993, "127.0.0.1", 587))
+        self.assertEqual(am._e2e_keychain_args(), [])
+
+    def test_install_sh_loopback_needs_the_seam_variable(self):
+        import subprocess
+        repo = Path(__file__).resolve().parents[3]
+        src = (repo / "install.sh").read_text()
+        import re
+        block = re.search(r"^# BEGIN assistant-mailbox-helpers.*?^# END assistant-mailbox-helpers",
+                          src, re.M | re.S).group(0)
+        script = block + '\n_am_hosts_for_provider loopback && echo OPEN || echo CLOSED\n' \
+            '_am_address_ok loopback x@example.test && echo OPEN || echo CLOSED\n'
+        env = {"PATH": "/usr/bin:/bin"}
+        out = subprocess.run(["/bin/bash", "-c", script], env=env, capture_output=True, text=True).stdout.split()
+        self.assertEqual(out, ["CLOSED", "CLOSED"])
+        env["OSTLER_E2E_LOOPBACK"] = "1"
+        out = subprocess.run(["/bin/bash", "-c", script], env=env, capture_output=True, text=True).stdout.split()
+        self.assertEqual(out, ["OPEN", "OPEN"])
+
+
 class FakeResp:
     def __init__(self, body): self._b = json.dumps(body).encode()
     def read(self): return self._b
