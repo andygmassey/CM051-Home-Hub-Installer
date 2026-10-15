@@ -108,6 +108,23 @@ class BriefLocalStores(unittest.TestCase):
         self.assertIn("exit 3", text[i:i + 600])
         self.assertNotIn("exit 0", text[i:i + 600])
 
+    def test_birthdays_one_row_per_uri_even_when_names_match(self):
+        """Characterisation, not a fix. Two LIVE person URIs with the same
+        name and birthday are two rows: dedupe is by person URI on purpose
+        (a name dedupe collapsed distinct people). A same-name pair is an
+        unmerged duplicate, i.e. an identity-resolution miss, fixed by merging
+        the people, not by hiding one at the birthday query."""
+        bday = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+        rows = [
+            {"p": "urn:test:p1", "name": "Test Person", "bday": bday, "bnode": "urn:test:p1"},
+            {"p": "urn:test:p2", "name": "Test Person", "bday": bday, "bnode": "urn:test:p2"},
+        ]
+        with mock.patch.object(ical_server, "_sparql_select", return_value=rows), \
+             mock.patch.object(ical_server, "_load_people_list_self_uris", return_value=set()), \
+             mock.patch.object(ical_server, "_load_carded_uris", return_value={"urn:test:p1", "urn:test:p2"}):
+            out = ical_server.people_birthdays(days=14)
+        self.assertEqual([r["name"] for r in out["people"]], ["Test Person", "Test Person"])
+
     def test_mail_fixture_is_counted(self):
         n = _now()
         rows = [
