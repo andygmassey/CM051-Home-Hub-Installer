@@ -1,5 +1,5 @@
 {
- "about": "Synthetic demo-life golden counts (Marta Kowalczyk, fictional). Counts only. Built by walkdriver gen/build_conservation_expected.py. chain = box-intrinsic, any box; full = box loaded with the demo-life set plus exports. UNCALIBRATED: every non-preference row of `full` is calibrated against the Studio logs for iMessage/WhatsApp keys only; recalibrate on the first golden-loaded walk.",
+ "about": "Synthetic demo-life golden counts (fictional persona). Counts only. Built by walkdriver gen/build_conservation_expected.py. chain = box-intrinsic, any box; full = box loaded with the demo-life set plus exports. UNCALIBRATED: every non-preference row of `full` is calibrated against the Studio logs for iMessage/WhatsApp keys only; recalibrate on the first golden-loaded walk.",
  "profiles": {
   "chain": {
    "rows": [

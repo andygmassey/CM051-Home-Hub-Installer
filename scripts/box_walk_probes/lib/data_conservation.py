@@ -133,8 +133,12 @@ def adjudicate_row(row, facts):
     verdict = "CONSERVED"
     why, notes = [], []
 
+    unread = False                     # any stage or exclusion fact that could not be read
+
     def bump(v, text=None):
-        nonlocal verdict
+        nonlocal verdict, unread
+        if v == "NOT-MEASURED":
+            unread = True
         if RANK[v] > RANK[verdict]:
             verdict = v
         if text:
@@ -189,9 +193,15 @@ def adjudicate_row(row, facts):
             prev_stage, prev_val = s, mv
     gap = row.get("known_gap")
     if gap:
-        if verdict in FAILING or verdict == "NOT-MEASURED":
+        # A known gap applies ONLY to a row that WAS fully measured and failed.
+        # NOT-MEASURED must never become KNOWN-GAP (which exits 0): an unread
+        # row says nothing about the gap, and a failing row with an unread
+        # stage is not a measured match either.
+        if verdict in FAILING and not unread:
             why.insert(0, "KNOWN GAP (declared): %s" % gap)
             verdict = "KNOWN-GAP"
+        elif unread:
+            notes.append("known_gap declared but the row was not fully measured; it stays %s: %s" % (verdict, gap))
         else:
             notes.append("known_gap is now CLOSED, delete the flag: %s" % gap)
     return {"id": row["id"], "source": row.get("source", ""), "category": row.get("category", ""),
@@ -244,6 +254,12 @@ def overall(rows, counts):
     """-> (word, exit_code). 0 PASS, 1 FAIL, 78 CANNOT-RUN."""
     if not rows:
         return "CANNOT-RUN", 78           # a zero denominator is not a pass
+    # An all-zero box proves nothing was loaded, not that nothing was lost:
+    # every measured IN count 0, or every measured STORED count 0, is CANNOT-RUN.
+    for stage in ("in", "stored"):
+        vals = [r[stage] for r in rows if r.get(stage) is not None]
+        if vals and not any(vals):
+            return "CANNOT-RUN", 78
     if counts["LOST"] or counts["INFLATED"]:
         return "FAIL", 1
     if counts["NOT-MEASURED"]:
@@ -790,8 +806,8 @@ def selftest():
     #    from items; the MUTATED copy renders through an allow-list that lacks
     #    "apple" (the 2026-10-15 shape) and the REAL is_shown must see the loss.
     import tempfile
-    items = [("spotify", "Track Alpha"), ("spotify", "Track Beta"), ("apple", "Track Gamma"),
-             ("apple", "Track Delta"), ("apple", "Track Epsilon")]
+    items = [("spotify", "track-1"), ("spotify", "track-2"), ("apple", "track-3"),
+             ("apple", "track-4"), ("apple", "track-5")]
 
     def vault(allow):
         d = tempfile.mkdtemp(prefix="dcv_")
@@ -877,6 +893,44 @@ def selftest():
     rt, ct = adjudicate({"rows": [{"template": "preferences_pairs"}]}, tf2)
     if ct["LOST"] or ct["INFLATED"]:
         fails.append("template control (healthy) not clean: %s" % ct)
+
+    # 11. A known gap may never swallow an UNREAD row: NOT-MEASURED is not PASS
+    #     and not KNOWN-GAP. Only a row that WAS measured and failed is a gap.
+    exp6 = {"rows": [{"id": "places/areas", "source": "places", "category": "area",
+                      "known_gap": "headline reads 'areas', no writer produces it",
+                      "expected": {"stored": 4, "shown": 4}, "facts": {"stored": "q", "shown": "w"}}]}
+    r6, c6 = adjudicate(exp6, {"q": 4})            # shown unreadable
+    if c6["NOT-MEASURED"] != 1 or c6["KNOWN-GAP"] != 0 or overall(r6, c6)[1] != 78:
+        fails.append("known gap swallowed an unread row (want NOT-MEASURED / 78): %s" % c6)
+    exp7 = {"rows": [{"id": "places/areas", "source": "places", "category": "area",
+                      "known_gap": "headline reads 'areas', no writer produces it",
+                      "expected": {"in": 4, "stored": 4}, "facts": {"in": "i", "stored": "q", "shown": "w"}}]}
+    r7, c7 = adjudicate(exp7, {"i": 4, "q": 0})    # stored LOST, shown unreadable
+    if c7["KNOWN-GAP"] != 0 or overall(r7, c7)[1] == 0:
+        fails.append("known gap hid a row with an unread stage: %s" % c7)
+
+    # 12. An all-zero box is CANNOT-RUN, never PASS (nothing was loaded, so
+    #     nothing was conserved). Control: the same rows with data PASS.
+    exp8 = {"rows": [{"id": "a/x", "source": "a", "category": "x", "expected": {"in": 0, "stored": 0, "shown": 0},
+                      "facts": {"in": "i", "stored": "q", "shown": "w"}}]}
+    r8, c8 = adjudicate(exp8, {"i": 0, "q": 0, "w": 0})
+    if overall(r8, c8)[1] != 78:
+        fails.append("all-zero box did not CANNOT-RUN: %s" % (overall(r8, c8),))
+    exp9 = {"rows": [{"id": "a/x", "source": "a", "category": "x", "expected": {"in": 3, "stored": 3, "shown": 3},
+                      "facts": {"in": "i", "stored": "q", "shown": "w"}},
+                     {"id": "b/y", "source": "b", "category": "y", "expected": {"in": 0, "stored": 0, "shown": 0},
+                      "facts": {"in": "i2", "stored": "q2", "shown": "w2"}}]}
+    r9, c9 = adjudicate(exp9, {"i": 3, "q": 3, "w": 3, "i2": 0, "q2": 0, "w2": 0})
+    if overall(r9, c9)[1] != 0:
+        fails.append("control: a box with data and one genuinely empty row did not PASS: %s" % (overall(r9, c9),))
+    r10, c10 = adjudicate(exp9, {"i": 3, "q": 0, "w": 0, "i2": 0, "q2": 0, "w2": 0})
+    if overall(r10, c10)[1] != 78:
+        fails.append("every STORED count 0 while IN is not did not CANNOT-RUN: %s" % (overall(r10, c10),))
+    exp11 = {"rows": [{"id": "a/x", "source": "a", "category": "x", "expected": {"in": 0, "stored": 0},
+                       "facts": {"in": "i", "stored": "q"}}]}
+    r11, c11 = adjudicate(exp11, {"i": 0, "q": 0})
+    if overall(r11, c11)[1] != 78:
+        fails.append("all IN zero (and stored zero) did not CANNOT-RUN")
 
     for f_ in fails:
         print("SELFTEST FAIL: " + f_)

@@ -7,6 +7,8 @@
 #   D. the same set with a fact removed -> exit 78 (not a pass, not a fail)
 #   E. every profile in the shipped expected.json parses and has rows
 #   F. the probe is registered: walk_promote_scope.tsv has its row
+#   G. an all-zero box exits 78 (CANNOT-RUN), never 0
+#   H. a known_gap row that was not read exits 78, never 0 (NOT-MEASURED is not KNOWN-GAP)
 # EXIT: 0 pass, 1 fail, 2 cannot-run.
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -48,4 +50,18 @@ for k,v in d["profiles"].items():
         assert r.get("template") or (r["id"] and r["facts"]), r
 PY
 awk -F'\t' '$1=="data_conservation"{f=1} END{exit !f}' "$SCOPE" && ok "F: walk_promote_scope.tsv has a data_conservation row" || bad "F: no scope row"
+cat > "$W/exp_gz.json" <<'J'
+{"profiles":{"t":{"rows":[
+ {"id":"a/x","source":"a","category":"x","expected":{"in":0,"stored":0,"shown":0},"facts":{"in":"i","stored":"s","shown":"w"}}]}}}
+J
+echo '{"facts":{"i":0,"s":0,"w":0}}' > "$W/f_zero.json"
+python3 "$LIB" adjudicate --expected "$W/exp_gz.json" --facts "$W/f_zero.json" --profile t >"$W/o4" 2>&1; r4=$?
+[ "$r4" -eq 78 ] && ok "G: an all-zero box exits 78, not 0" || bad "G: rc=$r4"
+cat > "$W/exp_kg.json" <<'J'
+{"profiles":{"t":{"rows":[
+ {"id":"p/a","source":"p","category":"a","known_gap":"declared gap","expected":{"stored":4,"shown":4},"facts":{"stored":"s","shown":"w"}}]}}}
+J
+echo '{"facts":{"s":4}}' > "$W/f_kg.json"
+python3 "$LIB" adjudicate --expected "$W/exp_kg.json" --facts "$W/f_kg.json" --profile t >"$W/o5" 2>&1; r5=$?
+{ [ "$r5" -eq 78 ] && ! grep -q 'KNOWN-GAP |' "$W/o5"; } && ok "H: an unread known_gap row exits 78 and is not KNOWN-GAP" || bad "H: rc=$r5"
 echo; echo "== ${PASS} pass / ${FAIL} fail =="; [ "$FAIL" -eq 0 ]
