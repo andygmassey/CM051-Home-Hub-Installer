@@ -47,6 +47,7 @@ probe	scope	owner	why
 app_signature_survives_first_run	blocking	CM051	the signature on the .app we shipped. A red is the artefact.
 assistant_answers_grounded	blocking	CM051	the shipped assistant reaching the customer's own data is the product's core promise. Currently red on 1 of 3 questions (tool_error) and it SHOULD hold the promote.
 assistant_prompt_names_every_pwg_tool	blocking	CM051	the prompt is a file in the bundle. A red is the artefact.
+data_conservation	advisory	CM051 + CM044 + vendored writers	a red is a TRUE unexplained loss or duplication between what an importer saw, what the stores hold and what the wiki shows (LOST/INFLATED), and is about the box data and the writers rather than the DMG signature. Advisory ONLY until the first golden-loaded walk calibrates the `full` profile; the `chain` profile needs no golden data. Promote to blocking after that walk, per CM051 #1508.
 daemon_is_listening	blocking	CM051	the daemon we installed does not answer. That is the install.
 fda_tick_can_import	blocking	CM051	shipped tick modules failing to import under the shipped interpreter is the artefact.
 freshness_panel_has_dates	blocking	CM051	a customer-facing surface the install produced.
