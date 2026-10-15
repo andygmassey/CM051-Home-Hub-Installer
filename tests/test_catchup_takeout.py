@@ -708,7 +708,7 @@ def test_extraction_stops_when_busy_resumes_from_the_part_and_never_runs_out_of_
     home = tmp_path / "home"
     oc, ui = _load_modules(monkeypatch, home)
     from ostler_fda import catchup_mbox as cm
-    payload = b"From a@example.com Mon Jan 01 00:00:00 2026\n" + os.urandom(20 * 1024 * 1024)
+    payload = b"From a@example.com\n" + os.urandom(20 * 1024 * 1024)
     z = tmp_path / "takeout-20261003T000000Z-1-001.zip"
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("Takeout/Mail/Big.mbox", payload)
