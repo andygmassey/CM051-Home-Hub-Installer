@@ -297,6 +297,163 @@ def _dispatch_to_cm048(
         return proc.returncode
 
 
+# --- Reply-debt snapshot (CM051 #30 studio29 finding) --------------------
+#
+# The Hub's reply-debt endpoint (ical-server, /api/v1/reply-debt) used to
+# open chat.db ITSELF. ical-server is launched by launchd as a bare
+# python3.11, so macOS TCC treats that interpreter as the requester: the
+# customer got a Full Disk Access entry for an unsigned-looking "python3.11",
+# denied by default, and the endpoint then answered "you're all caught up"
+# because it read nothing. Reproduced on a walked box 2026-10-15
+# (AUTHREQ_RESULT authValue=0, accessing=.../python/bin/python3.11).
+#
+# The shipped design is that protected reads happen under the SIGNED
+# assistant. This tick already runs as `ostler-assistant run-source
+# imessage`, so it already reads chat.db under the assistant's grant. It now
+# also writes the one thing reply debt needs, the LAST message of each recent
+# thread with its direction, into the engine room, where ical-server can read
+# it without asking TCC for anything.
+#
+# One message per thread, not the thread: reply debt is decided by the last
+# message alone (reply_debt.detect_thread), so nothing more is copied out of
+# chat.db than the decision uses. The file is 0600 in a 0700 directory.
+REPLY_DEBT_SNAPSHOT_SCHEMA = 1
+REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS = 90
+_SNAPSHOT_TEXT_LIMIT = 500
+
+
+def reply_debt_snapshot_path() -> Path:
+    """Where the snapshot lives. Must agree with CM048's
+    ``reply_debt_adapters.imessage_snapshot_path``: ``$OSTLER_REPLY_DEBT_SNAPSHOT``,
+    else ``$OSTLER_DIR/state/reply_debt/imessage_threads.json``, else under
+    ``~/.ostler``."""
+    explicit = (os.environ.get("OSTLER_REPLY_DEBT_SNAPSHOT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    root = (os.environ.get("OSTLER_DIR") or "").strip()
+    base = Path(root).expanduser() if root else Path.home() / ".ostler"
+    return base / "state" / "reply_debt" / "imessage_threads.json"
+
+
+def _write_snapshot_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    fd, tmp = tempfile.mkstemp(prefix=".imessage_threads.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=1)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def build_reply_debt_snapshot(
+    *,
+    db_path: Optional[Path] = None,
+    lookback_days: int = REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS,
+    tail: int = 20,
+) -> dict:
+    """Read chat.db (in THIS process, which runs under the signed assistant)
+    and return the snapshot dict: per recent thread, its last text message
+    and whether the owner sent it.
+
+    Raises PermissionError / FileNotFoundError exactly as the reader does, so
+    the caller can record WHY there is no data rather than an empty list.
+    """
+    from datetime import datetime, timezone
+
+    threads = []
+    for convo in extract_conversations(
+        db_path=db_path, since_days=lookback_days, min_messages=1
+    ):
+        messages = extract_messages(convo.chat_id, db_path=db_path, limit=tail)
+        last = None
+        for m in reversed(messages):
+            if (m.text or "").strip():
+                last = m
+                break
+        if last is None:
+            continue
+        threads.append(
+            {
+                "chat_id": convo.chat_id,
+                "display_name": convo.display_name,
+                "participants": list(convo.participants),
+                "is_group": bool(convo.is_group),
+                "last": {
+                    "text": (last.text or "")[:_SNAPSHOT_TEXT_LIMIT],
+                    "is_from_me": bool(last.is_from_me),
+                    "sender": last.sender,
+                    "timestamp": last.timestamp.isoformat(),
+                },
+            }
+        )
+    return {
+        "schema": REPLY_DEBT_SNAPSHOT_SCHEMA,
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "producer": "imessage_source (ostler-assistant run-source imessage)",
+        "lookback_days": lookback_days,
+        "threads": threads,
+    }
+
+
+def write_reply_debt_snapshot(
+    *,
+    db_path: Optional[Path] = None,
+    out_path: Optional[Path] = None,
+    lookback_days: int = REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS,
+) -> str:
+    """Write the reply-debt snapshot; return its status.
+
+    A chat.db this process cannot read is RECORDED as ``status:
+    "unreadable"`` (with no threads), never written as an empty-but-ok list,
+    so the endpoint can say "couldn't check" instead of "all caught up".
+    Never raises: the snapshot must not be the thing that stops ingest.
+    """
+    from datetime import datetime, timezone
+
+    out = out_path or reply_debt_snapshot_path()
+    try:
+        payload = build_reply_debt_snapshot(
+            db_path=db_path, lookback_days=lookback_days
+        )
+    except PermissionError as exc:
+        payload = {"status": "unreadable", "reason": str(exc)[:200]}
+    except FileNotFoundError:
+        # No chat.db at all: Messages never used on this Mac. That is a true
+        # zero, not a failure to look.
+        payload = {"status": "absent", "threads": []}
+    except Exception as exc:  # noqa: BLE001 -- recorded, never swallowed silently
+        payload = {"status": "error", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    if payload.get("status") != "ok":
+        payload.update(
+            schema=REPLY_DEBT_SNAPSHOT_SCHEMA,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            producer="imessage_source (ostler-assistant run-source imessage)",
+        )
+    try:
+        _write_snapshot_atomic(out, payload)
+    except OSError as exc:
+        logger.error("reply-debt snapshot could not be written to %s: %s", out, exc)
+        return "write_failed"
+    if payload["status"] == "ok":
+        logger.info("reply-debt snapshot: %d thread(s) -> %s",
+                    len(payload.get("threads") or []), out)
+    else:
+        logger.warning("reply-debt snapshot: status=%s -> %s", payload["status"], out)
+    return payload["status"]
+# ------------------------------------------------------------------------
+
+
 def process_imessage(
     *,
     db_path: Optional[Path] = None,
@@ -307,8 +464,14 @@ def process_imessage(
     pwg_convo_cmd: Optional[list[str]] = None,
     state_path: Optional[Path] = None,
     dry_run: bool = False,
+    snapshot_path: Optional[Path] = None,
 ) -> dict:
     """Read chat.db, thread, and dispatch new sessions to CM048.
+
+    ``snapshot_path`` is where the reply-debt snapshot goes. Unset, it sits
+    beside an explicitly passed ``state_path`` (so a caller that isolates its
+    state never writes into the real engine room), else at the canonical
+    ``reply_debt_snapshot_path()`` the Hub reads.
 
     Returns a summary dict: threads scanned, sessions dispatched,
     sessions skipped (already processed), failures.
@@ -321,6 +484,14 @@ def process_imessage(
     contacts = _load_contacts_map(contacts_path)
     privacy_map = _load_privacy_map(contacts_path)
     name_for_handle = _name_resolver(contacts)
+
+    # Reply-debt snapshot FIRST: it is one cheap read, and the dispatch loop
+    # below can run for hours on a backlog. Its own window, not since_days,
+    # which the daytime throttle clamps to two days.
+    if not dry_run:
+        if snapshot_path is None and state_path is not None:
+            snapshot_path = Path(state_path).parent / "reply_debt_imessage_threads.json"
+        write_reply_debt_snapshot(db_path=db_path, out_path=snapshot_path)
 
     conversations = extract_conversations(db_path=db_path, since_days=since_days)
 

@@ -94,3 +94,22 @@ Edits:
 Other `urn:ostler:preference:` readers, checked by grep in CM044, CM051 and CM059: the CM019 enrich service (`services/enrich/src/enricher.py`, `cli.py`) and CM044 `compiler/enrichment_reader.py` use `<urn:ostler:preference:{raw preference_id}>`. That is a different node, carries no projection marker, and is never matched by the cleanup (tested).
 
 Proof: `tests/test_preference_projection_does_not_duplicate_the_pipeline.py`, wired in `.github/workflows/misclassified-things.yml`. On origin/main: 5 failed. Here: 5 passed. CM059 upstream has no copy of this module, so nothing needs forward-porting.
+## Reply debt that could not be checked says so (CM051 #30, studio29), tree cm059_editor
+
+Tree `cm059_editor`, file `vendor/cm059_editor/compiler/signals.py`.
+
+- NEW strings `reply_debt_unchecked_title` / `reply_debt_unchecked_body`;
+- NEW `reply_debt_degraded(raw)` and `reply_debt_unchecked_card(now, ledger)`
+  (signal type `reply_debt` with `unchecked: true`, L2, names nobody, no
+  action, a quarter of the reply-debt band);
+- `build_signal_cards` emits the "Couldn't check who is waiting on you" card
+  when the reply-debt payload is `degraded: true`, instead of no card, which
+  read exactly like nobody waiting. The Hub's Front Page renders the same
+  feed, so it shows the same card.
+- review follow-up: NEW strings `reply_debt_not_connected_title` /
+  `_body`, `reply_debt_not_connected(raw)`; `reply_debt_unchecked_card` gains
+  `not_connected=` and, for reason `imessage_not_connected`, renders "Messages
+  isn't connected" with no retry promise (signal `not_connected: true`).
+
+Guarded by `tests/test_reply_debt_never_opens_protected_data.py`. CM059
+upstream needs the same change, or a re-sync reverts it.

@@ -1189,3 +1189,20 @@ Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
 - `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
 
 WHY: Andy's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
+## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+`api_reply_debt` and the comment block above it. Recorded by hand for the same
+reason as the sections above.
+
+- the exception branch keeps a source's own `reason` code (and `detail`)
+  instead of flattening everything to `reply_debt_failed: ...`;
+- a degraded payload has its `brief_line` forced to `""`, so the all-clear copy
+  can never ride on `degraded: true`;
+- the comments no longer say this process reads chat.db; it reads the snapshot
+  the signed iMessage feed writes.
+
+WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
+with `degraded: false` while it could not read Messages at all. Guarded by
+`tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
+same change, or the next re-sync reverts it.

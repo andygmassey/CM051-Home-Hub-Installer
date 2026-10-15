@@ -69,3 +69,30 @@ moved the watermark to the newest message, so the busiest chats kept 2 days.
 The `windows` state key and the widen test. Guarded by
 `vendor/whatsapp_source/tests/test_whatsapp_clamp_window.py` (workflow
 `status-honesty-ingest.yml`).
+## Reply-debt snapshot written by the signed feed (CM051 #30, studio29), tree imessage_source
+
+Tree `imessage_source`, file `vendor/imessage_source/pipeline.py`. Recorded by
+hand: this tree's divergence is already carried here, so a regenerated patch
+would mix this change with the assistant-send graft above.
+
+- NEW `REPLY_DEBT_SNAPSHOT_SCHEMA`, `reply_debt_snapshot_path()`,
+  `_write_snapshot_atomic()`, `build_reply_debt_snapshot()` and
+  `write_reply_debt_snapshot()` above `process_imessage`;
+- `process_imessage` gains `snapshot_path=None` and, unless `dry_run`, writes
+  the snapshot BEFORE the dispatch loop (own 90-day window, not the throttled
+  `since_days`). With an explicit `state_path` and no `snapshot_path` it writes
+  beside the state file, so a test never writes into the real engine room.
+
+WHY: ical-server's `/api/v1/reply-debt` opened `~/Library/Messages/chat.db` from
+a bare python3.11, which TCC attributes to python3.11 and denies (the customer
+was asked to grant Full Disk Access to "python3.11"). This feed already runs as
+`ostler-assistant run-source imessage`, under the signed assistant's grant, so
+it now writes the last message per recent thread (text capped at 500 chars,
+direction, sender handle, timestamp) to
+`~/.ostler/state/reply_debt/imessage_threads.json` (0600, dir 0700). An
+unreadable chat.db is written as `status: unreadable`, never as an empty list.
+
+Guarded by `tests/test_reply_debt_never_opens_protected_data.py`, wired into
+`.github/workflows/reply-debt-never-reads-protected-data.yml`. Upstream: CM040
+needs the same change, or a re-sync of this tree deletes the producer and the
+Hub reports "couldn't check" forever.
