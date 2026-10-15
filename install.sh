@@ -27805,10 +27805,41 @@ _install_conversation_feed() {
 # (its reader reuses ostler_fda.whatsapp_history) plus pyyaml (contacts).
 # Step-count: WhatsApp body-feed is a gated (Phase 2) progress step. Subtract
 # its slot from TOTAL_STEPS when skipped, so the bar never overshoots 100%.
+# ── v1.0.108: full-history catch-up for a conversation feed (catch-up 2/6) ──
+# The forward feed above reads a recent window only (iMessage: chats active in
+# 30 days, newest 2,000 rows each; WhatsApp: newest 2,000 in 365 days). This
+# registers the feed's catch-up runner (lib/ostler_catchup.py via
+# _ostler_catchup_register), which walks every chat BACKWARDS to its first
+# message from com.ostler.export-scan. Same venv, same package path, same
+# environment the feed's own plist renders (PWG_CONVO_CMD, display name, user
+# id), and the shared model slot (slot=1). Only when the feed's venv exists:
+# a feed that did not install has nothing to walk with.
+_ostler_catchup_register_feed() {
+    local feed_key="$1" order_name="$2" spec="$3"
+    local base="${OSTLER_DIR}/services/${feed_key}-source"
+    local final_base="${OSTLER_FINAL_DIR:-${OSTLER_DIR}}/services/${feed_key}-source"
+    [[ -x "${base}/.venv/bin/python3" ]] || return 0
+    command -v _ostler_catchup_register >/dev/null 2>&1 || return 0
+    local pwg="${CM048_VENV}/bin/pwg-convo"
+    if [[ ! -x "$pwg" ]]; then
+        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
+            pwg="/usr/local/bin/pwg-convo"
+        else
+            pwg="pwg-convo"
+        fi
+    fi
+    _ostler_catchup_register "$order_name" "${final_base}/.venv/bin/python3" "$spec" 1 "$final_base" \
+        "PWG_CONVO_CMD=${pwg}" \
+        "OSTLER_USER_DISPLAY_NAME=${USER_NAME:-You}" \
+        "OSTLER_USER_ID=${USER_ID:-}" \
+        || warn "catch-up runner ${order_name} not written; older ${feed_key} history will not be read in the background."  # i18n-exempt
+}
+
 [[ "$CHANNEL_WHATSAPP_ENABLED" != true || "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" != true ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
     _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
+    _ostler_catchup_register_feed whatsapp 62-whatsapp whatsapp_source.catchup:adapters
 else
     # SAY WHICH PRECONDITION FAILED. Before this else existed the step was
     # subtracted from TOTAL_STEPS and NOTHING was printed, so a customer
@@ -28001,6 +28032,7 @@ fi
 if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
+    _ostler_catchup_register_feed imessage 60-imessage services.imessage_source.catchup:adapters
 else
     # Fourth of four. Same shape, same silence, same fix.
     if [[ ! -f "${HOME}/Library/Messages/chat.db" ]]; then

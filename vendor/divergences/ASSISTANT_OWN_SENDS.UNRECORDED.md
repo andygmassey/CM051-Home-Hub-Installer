@@ -96,3 +96,21 @@ Guarded by `tests/test_reply_debt_never_opens_protected_data.py`, wired into
 `.github/workflows/reply-debt-never-reads-protected-data.yml`. Upstream: CM040
 needs the same change, or a re-sync of this tree deletes the producer and the
 Hub reports "couldn't check" forever.
+## Full-history catch-up adapters (v1.0.108, catch-up 2/6)
+
+Two NEW vendor-side files, no change to any existing file in either tree:
+
+- Tree `imessage_source`: `vendor/imessage_source/catchup.py`. Walks every
+  chat in chat.db back to its first message for `lib/ostler_catchup.py`,
+  starting below the forward feed's newest-2,000 window for a chat it has a
+  watermark for. Sessions are cut by `threader.thread_messages` (same ids as
+  the forward feed), assistant sends dropped by the reader's own predicate,
+  dispatched through `pipeline._dispatch_to_cm048`.
+- Tree `whatsapp_source`: `vendor/whatsapp_source/catchup.py`. Same walk per
+  in-tier (T1/T2) chat below the forward bundle's window; one bundle per
+  6-hour-gap session; ids from `renderer.conversation_id_for`. T3 stays
+  skipped.
+
+Neither has an upstream counterpart yet (CM040 `services/imessage_source`,
+HR015 `whatsapp_source`). Guarded by `tests/test_catchup_messages.py`, wired
+in `.github/workflows/catchup-messages.yml`. A future sync must keep both files.
