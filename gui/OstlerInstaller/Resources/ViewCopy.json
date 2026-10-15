@@ -203,6 +203,19 @@
         "recommended": "Recommended",
         "everything": "Everything",
         "customise": "Customise"
+      },
+      "am_choose": {
+        "icloud": "iCloud (recommended)",
+        "gmail": "Gmail",
+        "skip": "Skip for now"
+      },
+      "am_retry": {
+        "retry": "Try again",
+        "skip": "Skip for now"
+      },
+      "am_test_retry": {
+        "retry": "Try again",
+        "skip": "Skip the test"
       }
     },
     "fda_preset_recommended": "Recommended",
@@ -358,6 +371,15 @@
     "faq_secure_a": "Yes. All traffic between your devices is end-to-end encrypted with WireGuard. Tailscale itself can never read your data – it only helps your devices find each other.",
     "faq_later_q": "Can I add it later?",
     "faq_later_a": "Yes. You can run the installer again with --repair, or open Settings inside Ostler and turn Tailscale on then."
+  },
+
+  "assistant_mailbox": {
+    "_meta": "v1.0.108: helpers on the assistant's own email address screens (OnboardingQuestionView, AssistantMailbox enum). The screens themselves are install.sh prompts am_*.",
+    "open_page_button": "Open the page",
+    "copy_address_button": "Copy address",
+    "copied": "Copied",
+    "paste_button": "Paste from clipboard",
+    "paste_no_match": "The clipboard does not hold an app password. Copy it from the provider's page first."
   },
 
   "whatsapp_link": {

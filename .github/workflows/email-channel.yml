@@ -11,6 +11,10 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_email_allowlist_installer.sh'
+      - 'tests/test_assistant_mailbox_installer.sh'
+      - 'vendor/doctor/agent/assistant_mailbox.py'
+      - 'vendor/doctor/agent/test_assistant_mailbox.py'
+      - 'CONTRACT.md'
       - 'scripts/box_walk_probes/lib/email_channel_probe.py'
       - 'scripts/box_walk_probes/probes/email_channel_round_trip.sh'
       - 'scripts/walk_promote_scope.tsv'
@@ -34,6 +38,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: The installer asks, pre-fills, requires one address, and keeps the password out of logs
         run: bash tests/test_email_allowlist_installer.sh
+      - name: The assistant's own mailbox. Host rules, guards, and the password never in config or logs
+        if: always()
+        run: bash tests/test_assistant_mailbox_installer.sh
+      - name: The assistant's own mailbox. Doctor row, routes and error wording
+        if: always()
+        run: |
+          python3 -m pip install --quiet fastapi httpx pyyaml 'qrcode>=7.4,<9.0'
+          python3 vendor/doctor/agent/test_assistant_mailbox.py
       - name: The email judge catches every mutant by its own assertion
         if: always()
         run: set +e; python3 scripts/box_walk_probes/lib/email_channel_probe.py --self-test; rc=$?; test "$rc" -eq 1

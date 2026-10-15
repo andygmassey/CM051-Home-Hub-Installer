@@ -239,6 +239,16 @@ struct OnboardingQuestionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // v1.0.108: the assistant's own email address screens get an
+            // "Open the page" button and, on the create screen, a
+            // copy-ready suggested address.
+            if !q.isReview, let help = q.prompt.help,
+               !AssistantMailbox.actions(promptId: q.prompt.id, help: help).isEmpty {
+                assistantMailboxActionRow(
+                    AssistantMailbox.actions(promptId: q.prompt.id, help: help)
+                )
+            }
+
             // CX-97 (DMG #48g+1, 2026-05-29): install.sh's secret-
             // confirm loops (recovery_passphrase, email_password) pass
             // a mismatch message via gui_read's $7 error_text arg,
@@ -618,6 +628,9 @@ struct OnboardingQuestionView: View {
                     .tint(.ostlerOxblood)
                     .focused($focused)
                     .onSubmit { submit(q) }
+                if AssistantMailbox.offersPaste(promptId: q.prompt.id) {
+                    assistantMailboxPasteRow()
+                }
             }
         case .yesno:
             HStack(spacing: .ostlerSpace2) {
@@ -1056,6 +1069,59 @@ struct OnboardingQuestionView: View {
     /// install.sh passes raw machine values (`"1"`, `"recommended"`,
     /// etc.) so without this lookup the dropdown shows the raw codes.
     /// Falls back to the raw value when no label is catalogued.
+    @State private var assistantMailboxNote: String = ""
+
+    private func assistantMailboxActionRow(_ actions: [AssistantMailbox.Action]) -> some View {
+        HStack(spacing: .ostlerSpace2) {
+            ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
+                switch action {
+                case .openURL(let url):
+                    Button(ViewCopy.shared.string(for: "assistant_mailbox.open_page_button")) {
+                        NSWorkspace.shared.open(url)
+                    }
+                case .copy(let text):
+                    Button(ViewCopy.shared.string(for: "assistant_mailbox.copy_address_button")) {
+                        // User-initiated write only.
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                        assistantMailboxNote = ViewCopy.shared.string(for: "assistant_mailbox.copied")
+                    }
+                }
+            }
+            if !assistantMailboxNote.isEmpty {
+                Text(assistantMailboxNote)
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInkMuted)
+            }
+            Spacer()
+        }
+    }
+
+    /// "Paste from clipboard" for the app password. The clipboard is read
+    /// ONLY when the customer presses the button (never on appear, never on
+    /// a timer), and the field is filled ONLY when the clipboard matches the
+    /// app-password format. Anything else is left alone and explained.
+    private func assistantMailboxPasteRow() -> some View {
+        HStack(spacing: .ostlerSpace2) {
+            Button(ViewCopy.shared.string(for: "assistant_mailbox.paste_button")) {
+                let clip = NSPasteboard.general.string(forType: .string) ?? ""
+                if let pw = AssistantMailbox.pasteableAppPassword(clip) {
+                    secretValue = pw
+                    assistantMailboxNote = ""
+                } else {
+                    assistantMailboxNote = ViewCopy.shared.string(for: "assistant_mailbox.paste_no_match")
+                }
+            }
+            if !assistantMailboxNote.isEmpty {
+                Text(assistantMailboxNote)
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+    }
+
     private func choiceLabel(promptId: String, value: String) -> String {
         let key = "onboarding_question.choice_label.\(promptId).\(value)"
         let label = ViewCopy.shared.string(for: key)
@@ -1307,5 +1373,71 @@ func linkifyDetectedURLs(_ raw: String) -> [String] {
             s = String(s.dropLast())
         }
         return s
+    }
+}
+
+// MARK: - The assistant's own email address (v1.0.108)
+
+/// Pure helpers for the `am_*` screens, kept free of AppKit so they can be
+/// unit-tested (AssistantMailboxTests). The screens are install.sh prompts;
+/// this only decides which buttons a screen gets and what a paste may do.
+enum AssistantMailbox {
+    enum Action: Equatable {
+        case openURL(URL)
+        case copy(String)
+    }
+
+    /// Prompt ids that carry an "Open the page" button.
+    static let pagePromptIds: Set<String> = ["am_create", "am_two_step", "am_app_password"]
+
+    /// Only the app-password field offers "Paste from clipboard".
+    static func offersPaste(promptId: String) -> Bool { promptId == "am_password" }
+
+    /// The first https URL in the help text, if any.
+    static func firstURL(in help: String) -> URL? {
+        for token in help.split(whereSeparator: { $0.isWhitespace || $0 == "\n" }) {
+            let t = token.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:()"))
+            if t.hasPrefix("https://"), let url = URL(string: t) { return url }
+        }
+        return nil
+    }
+
+    /// The address on the line "Suggested address: <address>", if any.
+    static func suggestedAddress(in help: String) -> String? {
+        for line in help.split(separator: "\n") {
+            let prefix = "Suggested address:"
+            if line.hasPrefix(prefix) {
+                let a = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+                return a.contains("@") ? a : nil
+            }
+        }
+        return nil
+    }
+
+    static func actions(promptId: String, help: String) -> [Action] {
+        guard pagePromptIds.contains(promptId) else { return [] }
+        var out: [Action] = []
+        if let url = firstURL(in: help) { out.append(.openURL(url)) }
+        if promptId == "am_create", let a = suggestedAddress(in: help) { out.append(.copy(a)) }
+        return out
+    }
+
+    /// Spaces, dashes and other whitespace removed, lower-cased.
+    static func cleaned(_ raw: String) -> String {
+        let drop = CharacterSet.whitespacesAndNewlines
+            .union(CharacterSet(charactersIn: "-\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}"))
+        return String(raw.unicodeScalars.filter { !drop.contains($0) }).lowercased()
+    }
+
+    /// Both providers' app passwords are 16 letters once spaces and dashes go.
+    static func looksLikeAppPassword(_ raw: String) -> Bool {
+        let c = cleaned(raw)
+        return c.count == 16 && c.unicodeScalars.allSatisfy { $0.value >= 97 && $0.value <= 122 }
+    }
+
+    /// The cleaned password when the clipboard matches, else nil (and the
+    /// field is left untouched).
+    static func pasteableAppPassword(_ clipboard: String) -> String? {
+        looksLikeAppPassword(clipboard) ? cleaned(clipboard) : nil
     }
 }

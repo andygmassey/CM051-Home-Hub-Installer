@@ -1832,3 +1832,56 @@ MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler could not open System Settings for
 # sentence without removing the corresponding capability.
 MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler runs your wiki and search in containers, so it installs and manages a container engine (Colima) on this Mac. If that engine is removed or reconfigured, your wiki and search will stop working – Ostler will tell you and try to restart it."
 MSG_INFO_ENGINE_ALREADY_PRESENT="A container engine is already installed on this Mac. Ostler will use it rather than installing its own, and will not manage or modify it."
+
+# ── The assistant's own email address (v1.0.108) ─────────────────────
+MSG_PROMPT_AM_CHOOSE_TITLE="Give your assistant its own email address"
+MSG_PROMPT_AM_CHOOSE_HELP="Give your assistant its own email address. Create a new account just for your assistant, not your own email. Your assistant can then email you and reply as itself, never as you. Messages go through the provider you choose (Apple or Google), who can read them, not through Ostler. We never see your assistant's mail. The password you paste is a special app password that only works for this account, and it is kept in your Mac's Keychain. You can turn this off or delete the account at any time.
+
+Choose icloud (recommended), gmail, or skip. You can skip and do this later."
+MSG_PROMPT_AM_CREATE_ICLOUD_TITLE="Create an Apple Account for your assistant"
+MSG_PROMPT_AM_CREATE_GMAIL_TITLE="Create a Google account for your assistant"
+MSG_PROMPT_AM_CREATE_HELP="Open %s and create a NEW account just for your assistant.
+
+This must not be your own email. Use a brand-new account.
+
+Suggested address: %s
+
+Choose Continue when the account exists."
+MSG_PROMPT_AM_TWOSTEP_TITLE="Turn on two-step verification"
+MSG_PROMPT_AM_TWOSTEP_HELP="Sign in to the NEW account at %s and turn on two-step verification. App passwords only exist once it is on.
+
+Choose Continue when it is on."
+MSG_PROMPT_AM_APPPW_TITLE="Make an app password"
+MSG_PROMPT_AM_APPPW_ICLOUD_HELP="Sign in to the new account at https://account.apple.com/account/manage, then open Sign-In and Security, then App-Specific Passwords. Make one and name it Ostler. Apple shows it once, in four groups of four letters.
+
+If you cannot find the setting, two-step verification is probably still off. Go back one step."
+MSG_PROMPT_AM_APPPW_GMAIL_HELP="Open %s while signed in to the new account and make an app password. Name it Ostler. Google shows it once, as 16 letters.
+
+If the page says the setting is unavailable, two-step verification is off on this account (or the account is a work or school account). Go back one step and turn it on."
+MSG_PROMPT_AM_ADDRESS_TITLE="The new account's email address"
+MSG_PROMPT_AM_ADDRESS_HELP="Type the address of the account you just made. It must be a new account, not your own email."
+MSG_PROMPT_AM_PASSWORD_TITLE="Paste the app password"
+MSG_PROMPT_AM_PASSWORD_HELP="Paste the app password here. Spaces and dashes are removed for you. It is not your Apple ID or Google password. Ostler checks it by signing in to the mailbox and confirming it can send, without sending anything."
+MSG_PROMPT_AM_RETRY_TITLE="That did not work. Try again or skip?"
+MSG_PROMPT_AM_REAL_INBOX_TITLE="This looks like a real inbox, not a new account"
+MSG_PROMPT_AM_REAL_INBOX_HELP="%s has many messages, or messages older than two weeks. Your assistant should have an account of its own, not a mailbox you already use. Use it anyway?"
+MSG_PROMPT_AM_TEST_RETRY_TITLE="The test email did not arrive. Retry or skip?"
+MSG_PROMPT_AM_TEST_RETRY_HELP="Ostler sent a test email from the new address to itself and did not see it arrive within a minute. You can retry, or skip and test later from the Doctor page. The install carries on either way."
+MSG_PROMPT_AM_DONE_TITLE="Your assistant has its own email address"
+MSG_PROMPT_AM_DONE_HELP="Address: %s
+
+In this version it only answers you. Email from anyone else is ignored. If you were sent a hello email, reply with any word to finish setting up."
+MSG_OK_AM_IMAP="Signed in to the assistant's mailbox and opened its inbox"
+MSG_OK_AM_SMTP="The assistant's mailbox can send mail (nothing was sent)"
+MSG_INFO_AM_SELFTEST="Sending the assistant a test email, up to a minute..."
+MSG_OK_AM_SELFTEST="The assistant received its own test email"
+MSG_OK_AM_HELLO_SENT="Sent a hello email to %s. Reply with any word to finish setting up"
+MSG_WARN_AM_HELLO_FAILED="Could not send the hello email. You can test again from the Doctor page"
+MSG_WARN_AM_SELFTEST_SKIPPED="Test skipped. You can run it later from the Doctor page"
+MSG_WARN_AM_SKIPPED="Skipping the assistant's own email address. You can set it up later"
+MSG_WARN_AM_KEYCHAIN_FAILED="Could not save the app password to your Keychain, so the assistant's own email address was not set up"
+MSG_WARN_AM_COULD_NOT_CHECK="Could not check. Try again in a moment"
+MSG_WARN_AM_PASSWORD_SHAPE="That does not look like an app password. It is 16 letters, usually shown in groups. It is not your Apple ID or Google password"
+MSG_WARN_AM_ADDRESS_WRONG_PROVIDER="That is not a valid %s address"
+MSG_WARN_AM_ADDRESS_IS_OWNER="That is one of your own addresses. Create a new account just for your assistant"
+MSG_WARN_AM_GMAIL_USERNAME_DIFFERS="For Gmail the sign-in name must be the same as the From address"

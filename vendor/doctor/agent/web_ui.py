@@ -64,6 +64,7 @@ from dashboard_components import (
     render_security_posture,
     render_whatsapp_keepalive,
 )
+from assistant_mailbox import render_html as render_assistant_mailbox
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -1571,6 +1572,12 @@ def render_dashboard(
 
     source_status_section = render_source_status()
 
+    # The assistant's own mailbox (v1.0.108). Empty when none is set up.
+    try:
+        assistant_mailbox_section = render_assistant_mailbox()
+    except Exception:  # noqa: BLE001 - a card must never take the page down
+        assistant_mailbox_section = ""
+
     # Build findings
     findings_html = ""
     for f in findings:
@@ -2132,6 +2139,8 @@ def render_dashboard(
         {reminders_runtime_section}
 
         {whatsapp_keepalive_section}
+
+        {assistant_mailbox_section}
         {source_status_section}
 
         <div class="section">
@@ -3309,6 +3318,50 @@ async def api_remote_access_post(request: Request):
         return JSONResponse({"error": "enabled must be true or false"}, status_code=400)
     from remote_access import set_enabled
     return JSONResponse(set_enabled(body["enabled"]), status_code=200)
+
+
+# ── The assistant's own mailbox (v1.0.108) ───────────────────────────────
+# Same guard as the credential routes: Hub-local Host AND no cross-site
+# origin. No route returns the password; the status route is the row only.
+
+@app.get("/api/v1/assistant-mailbox", response_class=JSONResponse)
+async def api_assistant_mailbox_get():
+    from assistant_mailbox import read_row
+    try:
+        return read_row()
+    except Exception:  # pragma: no cover - never 500 the poll
+        return {"configured": False}
+
+
+@app.post("/api/v1/assistant-mailbox/{action}", response_class=JSONResponse)
+async def api_assistant_mailbox_post(action: str, request: Request):
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+    import assistant_mailbox as am
+    if action in ("on", "off"):
+        done = am.set_enabled(action == "on")
+        if not done:
+            return JSONResponse({"error": "No assistant email is set up."}, status_code=404)
+        return JSONResponse({"message": f"Turned {action}. Restart your assistant for it to take effect."})
+    if action == "test-now":
+        res = am.test_now()
+        ok = res.get("result") == "ok"
+        return JSONResponse({"message": "Passed" if ok else am.explain(res.get("result", "unknown")),
+                             "result": res.get("result")})
+    if action == "replace-password":
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        pw = body.get("password") if isinstance(body, dict) else None
+        if not isinstance(pw, str) or not pw:
+            return JSONResponse({"error": "Paste the app password."}, status_code=400)
+        res = am.replace_password(pw)
+        if res.get("ok"):
+            return JSONResponse({"message": "Password replaced."})
+        return JSONResponse({"error": am.explain(res.get("error", "unknown"))}, status_code=400)
+    return JSONResponse({"error": "Unknown action"}, status_code=404)
 
 
 @app.get("/api/v1/box-status", response_class=JSONResponse)

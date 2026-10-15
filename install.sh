@@ -5757,6 +5757,13 @@ CHANNEL_EMAIL_ALLOWED_SENDERS=""
 # reuse-settings re-run (see _ostler_existing_email_block).
 _EMAIL_BLOCK_PRESERVED=""
 CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
+# The assistant's own mailbox (v1.0.108). Hoisted for the same reason as the
+# flags above: the Phase-2 flow does not run on a reuse-settings re-run.
+ASSISTANT_MAILBOX_ENABLED=false
+ASSISTANT_MAILBOX_ADDRESS=""
+ASSISTANT_MAILBOX_PROVIDER=""
+ASSISTANT_MAILBOX_SELFTEST=""
+_AM_BLOCK_PRESERVED=""
 WA_CONSENT=""
 
 # Consent decisions (CX-126). Same CX-98 class as the CHANNEL_* flags
@@ -7557,6 +7564,154 @@ _ostler_existing_email_block() {
 }
 # END email-allowlist-helpers
 
+# BEGIN assistant-mailbox-helpers (tests/test_assistant_mailbox_installer.sh extracts this block)
+#
+# THE ASSISTANT'S OWN MAILBOX (v1.0.108). Separate from the owner's mailbox
+# above, which keeps its rule: we never ask for a cloud-provider password for
+# the owner's own mail. The assistant's mailbox is a NEW account made just for
+# it, and an app-specific password for an assistant-only account is allowed.
+# Only two host pairs are accepted; Outlook and everything else stays refused.
+#
+#   iCloud  imap.mail.me.com:993  + smtp.mail.me.com:587
+#   Gmail   imap.gmail.com:993    + smtp.gmail.com:465
+#
+# The password goes to the macOS Keychain and nowhere else. The config holds a
+# secret_ref pointing at it. The rules below mirror vendor/doctor/agent/
+# assistant_mailbox.py, which does the live probes; tests pin the two together.
+_AM_SERVICE="Ostler Assistant Mailbox"
+
+# Sets _AM_IMAP_HOST/_PORT and _AM_SMTP_HOST/_PORT for a provider.
+_am_hosts_for_provider() {
+    case "${1:-}" in
+        icloud) _AM_IMAP_HOST="imap.mail.me.com"; _AM_IMAP_PORT=993
+                _AM_SMTP_HOST="smtp.mail.me.com"; _AM_SMTP_PORT=587 ;;
+        gmail)  _AM_IMAP_HOST="imap.gmail.com";   _AM_IMAP_PORT=993
+                _AM_SMTP_HOST="smtp.gmail.com";   _AM_SMTP_PORT=465 ;;
+        *)      _AM_IMAP_HOST=""; _AM_IMAP_PORT=""; _AM_SMTP_HOST=""; _AM_SMTP_PORT=""
+                return 1 ;;
+    esac
+}
+
+# 0 only for the two accepted IMAP+SMTP host:port pairs.
+_am_host_pair_allowed() {
+    local ih sh
+    ih="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+    sh="$(printf '%s' "${3:-}" | tr '[:upper:]' '[:lower:]')"
+    case "${ih}:${2:-}|${sh}:${4:-}" in
+        imap.gmail.com:993\|smtp.gmail.com:465) return 0 ;;
+        imap.mail.me.com:993\|smtp.mail.me.com:587) return 0 ;;
+    esac
+    return 1
+}
+
+_am_lower() { printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'; }
+
+# Syntax, and the address belongs to the provider the customer chose.
+_am_address_ok() {
+    local p="${1:-}" a; a="$(_am_lower "${2:-}")"
+    [[ "$a" =~ ^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$ ]] || return 1
+    case "$p:${a##*@}" in
+        icloud:icloud.com|icloud:me.com|icloud:mac.com) return 0 ;;
+        gmail:gmail.com|gmail:googlemail.com) return 0 ;;
+    esac
+    return 1
+}
+
+# 0 (refuse) when the address is one of the owner's own. $2 is a comma list.
+_am_is_owner_address() {
+    local a o; a="$(_am_lower "${1:-}")"
+    local _old_ifs="$IFS"; IFS=','
+    for o in ${2:-}; do
+        o="$(_am_lower "$o")"; o="${o// /}"
+        if [[ -n "$o" && "$o" == "$a" ]]; then IFS="$_old_ifs"; return 0; fi
+    done
+    IFS="$_old_ifs"
+    return 1
+}
+
+# Gmail logs in as the address it sends as. 0 when they match.
+_am_gmail_identity_ok() { [[ "$(_am_lower "${1:-}")" == "$(_am_lower "${2:-}")" ]]; }
+
+# Strip spaces, dashes and other whitespace from a pasted app password.
+_am_clean_password() { printf '%s' "${1:-}" | LC_ALL=C tr -d ' \t\r\n-' | tr '[:upper:]' '[:lower:]'; }
+
+# 0 when the cleaned password is 16 letters (the shape of both providers').
+_am_password_shape_ok() { [[ "$(_am_clean_password "${1:-}")" =~ ^[a-z]{16}$ ]]; }
+
+# "This looks like a real inbox, not a new account": more than 200 messages,
+# or any older than 14 days. $1 = count, $2 = oldest age in days (may be empty).
+_am_inbox_looks_real() {
+    local n="${1:-0}" d="${2:-}"
+    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    (( n > 200 )) && return 0
+    [[ "$d" =~ ^[0-9]+$ ]] && (( d > 14 )) && return 0
+    return 1
+}
+
+# Where the probes live. The Doctor module is the single implementation.
+_am_probe_script() {
+    local c
+    for c in "${OSTLER_AM_PROBE:-}" \
+             "${SCRIPT_DIR:-.}/doctor/agent/assistant_mailbox.py" \
+             "${SCRIPT_DIR:-.}/services/doctor/assistant_mailbox.py" \
+             "${SCRIPT_DIR:-.}/vendor/doctor/agent/assistant_mailbox.py"; do
+        [[ -n "$c" && -f "$c" ]] && { printf '%s' "$c"; return 0; }
+    done
+    return 1
+}
+
+# Run one probe mode. The password travels in the environment, never argv.
+# Prints key=value lines. $1 = mode (probe|selftest|hello|store).
+_am_run() {
+    local mode="$1" script
+    script="$(_am_probe_script)" || { echo "error=unavailable"; return 3; }
+    AM_PROVIDER="$AM_PROVIDER" AM_ADDRESS="$AM_ADDRESS" AM_PASSWORD="${AM_PASSWORD:-}" \
+    AM_OWNER="${AM_OWNER:-}" AM_NAME="${AM_NAME:-}" \
+        "${OSTLER_AM_PYTHON:-python3}" -I "$script" "$mode" 2>/dev/null
+}
+
+# Pull one key out of key=value output.
+_am_kv() { printf '%s\n' "$2" | sed -n "s/^$1=//p" | head -n 1; }
+
+# The TOML block. No password anywhere in it; secret_ref names the Keychain
+# item. owner_addresses_verified starts empty: the daemon fills it when the
+# owner replies to the hello email.
+_am_emit_config() {
+    local a p
+    a="$(_am_lower "${1:-}")"; p="${2:-}"
+    _am_hosts_for_provider "$p" || return 1
+    echo
+    echo "[email_assistant]"
+    echo "enabled = true"
+    echo "address = \"${a}\""
+    echo "provider = \"${p}\""
+    echo "imap_host = \"${_AM_IMAP_HOST}\""
+    echo "imap_port = ${_AM_IMAP_PORT}"
+    echo "smtp_host = \"${_AM_SMTP_HOST}\""
+    echo "smtp_port = ${_AM_SMTP_PORT}"
+    echo "secret_ref = \"keychain:${_AM_SERVICE}:${a}\""
+    echo "owner_addresses_verified = []"
+}
+
+# One information screen. 1 when the customer chose Cancel (treated as Skip).
+_am_ack() {
+    local r
+    r="$(gui_read "$1" acknowledge "OK" "$2" "OK,CANCEL" "$3")" || r="OK"
+    [[ "$r" != CANCEL ]]
+}
+
+# Verbatim [email_assistant] block from a previous config (reuse-settings).
+_am_existing_block() {
+    local cfg="${1:-}"
+    [[ -n "$cfg" && -f "$cfg" ]] || return 0
+    awk '
+        $0 == "[email_assistant]" { in_s = 1; print; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s { print }
+    ' "$cfg"
+}
+# END assistant-mailbox-helpers
+
 # ── Email sources ──────────────────────────────────────────────────
 #
 # Source order, agreed in HR015 task #209 / TNM 2026-05-16 update:
@@ -7571,7 +7726,11 @@ _ostler_existing_email_block() {
 #      Reserved for genuinely self-hosted mailboxes. We refuse to
 #      accept cloud-provider hosts (Gmail / iCloud / Outlook) here:
 #      the customer is nudged back to Apple Mail. We will never ask
-#      for a customer's account password for a cloud provider.
+#      for a cloud-provider password for the OWNER's mailbox. An app
+#      password for an assistant-only mailbox (a NEW account made just
+#      for the assistant, iCloud or Gmail) is allowed, and is collected
+#      by the separate "assistant's own mailbox" step below
+#      (assistant-mailbox-helpers), never through this path.
 #
 # PU9 now allows MULTIPLE sources: a customer can tick Apple Mail
 # AND a custom IMAP server. PU11/PU12 (password + confirm) only
@@ -7636,10 +7795,12 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
 
     if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
         echo ""
-        # Cloud-provider block list. The whole point of this branch
-        # is that we DO NOT want to handle Gmail / iCloud / Outlook
-        # passwords ourselves -- those go through Apple Mail. If the
-        # customer types one of these hosts we nudge them back.
+        # Cloud-provider block list, for the OWNER's mailbox. The whole
+        # point of this branch is that we DO NOT want to handle the
+        # owner's Gmail / iCloud / Outlook passwords -- those go through
+        # Apple Mail. If the customer types one of these hosts we nudge
+        # them back. The assistant's own mailbox has its own step and
+        # its own two-host rule; this list is deliberately unchanged.
         while true; do
             CHANNEL_EMAIL_IMAP_HOST="$(gui_read "$MSG_PROMPT_IMAP_HOST_TITLE" text "" "$MSG_PROMPT_IMAP_HOST_HELP" "" "imap_host")"
             _imap_host_lower="$(printf '%s' "$CHANNEL_EMAIL_IMAP_HOST" | tr '[:upper:]' '[:lower:]')"
@@ -7694,7 +7855,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # Hidden password input (kind=secret); confirm with re-entry
         # so a typo doesn't silently lock the assistant out of email.
         # This loop fires ONLY for custom IMAP -- we never ask a
-        # customer for a cloud-provider password.
+        # customer for a cloud-provider password for their own mailbox.
         #
         # CX-97 (DMG #48g+1, 2026-05-29): same shape as the
         # recovery_passphrase mismatch loop above -- surface the
@@ -7920,6 +8081,133 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     ok "$(printf "$MSG_OK_EMAIL_CHANNEL_FOLDER" "${_email_summary_joined}" "${CHANNEL_EMAIL_IMAP_FOLDER}")"
     unset _email_summary_parts _email_summary_joined _email_part
     dbg "CX-57 email-summary: exiting"
+fi
+
+# ── The assistant's own email address (v1.0.108) ───────────────────────
+#
+# One screen per task. Nothing here can block the install: every failure,
+# and every Skip, falls out to ASSISTANT_MAILBOX_ENABLED=false and the install
+# carries on. The assistant answers the OWNER ONLY and replies as itself.
+ASSISTANT_MAILBOX_ENABLED=false
+ASSISTANT_MAILBOX_ADDRESS=""
+ASSISTANT_MAILBOX_PROVIDER=""
+_assistant_mailbox_flow() {
+    local _code _choice _addr _pw _out _imap _smtp _count _oldest _err _try _tests _owner _name _sugg _first
+    _name="${ASSISTANT_NAME:-Your assistant}"
+    _choice="$(gui_read "$MSG_PROMPT_AM_CHOOSE_TITLE" choice "icloud" "$MSG_PROMPT_AM_CHOOSE_HELP" "icloud,gmail,skip" "am_choose")"
+    case "${_choice:-skip}" in icloud|gmail) ;; *) return 0 ;; esac
+    AM_PROVIDER="$_choice"
+
+    # Every address the owner uses: an account that is one of these is not new.
+    _owner="${USER_EMAIL:-},${CHANNEL_EMAIL_ALLOWED_SENDERS:-},${CHANNEL_EMAIL_USERNAME:-}"
+    _first="$(printf '%s' "${CHANNEL_EMAIL_ALLOWED_SENDERS:-},${USER_EMAIL:-}" | tr ',' '\n' | sed -n '/@/{p;q;}')"
+
+    _sugg="$(printf '%s' "$_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')"
+    _sugg="${_sugg:-ostler}.assistant"
+    if [[ "$AM_PROVIDER" == gmail ]]; then
+        _sugg="${_sugg}.$(( RANDOM % 900 + 100 ))@gmail.com"
+        _am_ack "$MSG_PROMPT_AM_CREATE_GMAIL_TITLE" "$(printf "$MSG_PROMPT_AM_CREATE_HELP" "https://accounts.google.com/signup" "$_sugg")" "am_create" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+        _am_ack "$MSG_PROMPT_AM_TWOSTEP_TITLE" "$(printf "$MSG_PROMPT_AM_TWOSTEP_HELP" "https://myaccount.google.com/signinoptions/two-step-verification")" "am_two_step" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+        _am_ack "$MSG_PROMPT_AM_APPPW_TITLE" "$(printf "$MSG_PROMPT_AM_APPPW_GMAIL_HELP" "https://myaccount.google.com/apppasswords")" "am_app_password" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+    else
+        _sugg="${_sugg}@icloud.com"
+        _am_ack "$MSG_PROMPT_AM_CREATE_ICLOUD_TITLE" "$(printf "$MSG_PROMPT_AM_CREATE_HELP" "https://account.apple.com/account" "$_sugg")" "am_create" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+        _am_ack "$MSG_PROMPT_AM_TWOSTEP_TITLE" "$(printf "$MSG_PROMPT_AM_TWOSTEP_HELP" "https://account.apple.com/account/manage")" "am_two_step" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+        _am_ack "$MSG_PROMPT_AM_APPPW_TITLE" "$MSG_PROMPT_AM_APPPW_ICLOUD_HELP" "am_app_password" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+    fi
+
+    _err=""
+    for _try in 1 2 3 4 5; do
+        _addr="$(_am_lower "$(gui_read "$MSG_PROMPT_AM_ADDRESS_TITLE" text "$_sugg" "$MSG_PROMPT_AM_ADDRESS_HELP" "" "am_address" "$_err")")"
+        _addr="${_addr// /}"
+        _err=""
+        if ! _am_address_ok "$AM_PROVIDER" "$_addr"; then
+            _err="$(printf "$MSG_WARN_AM_ADDRESS_WRONG_PROVIDER" "$AM_PROVIDER")"
+        elif _am_is_owner_address "$_addr" "$_owner"; then
+            _err="$MSG_WARN_AM_ADDRESS_IS_OWNER"
+        elif [[ "$AM_PROVIDER" == gmail ]] && ! _am_gmail_identity_ok "$_addr" "$_addr"; then
+            _err="$MSG_WARN_AM_GMAIL_USERNAME_DIFFERS"
+        fi
+        [[ -z "$_err" ]] && break
+        warn "$_err"; _addr=""
+    done
+    [[ -n "$_addr" ]] || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+    AM_ADDRESS="$_addr"
+
+    # Paste + validate. IMAP login + SELECT INBOX, then SMTP AUTH (nothing
+    # sent): each its own tick. Retry or skip on failure; never block.
+    _err=""
+    while true; do
+        _pw="$(gui_read "$MSG_PROMPT_AM_PASSWORD_TITLE" secret "" "$MSG_PROMPT_AM_PASSWORD_HELP" "" "am_password" "$_err")"
+        _err=""
+        if ! _am_password_shape_ok "$_pw"; then
+            _err="$MSG_WARN_AM_PASSWORD_SHAPE"
+        else
+            AM_PASSWORD="$(_am_clean_password "$_pw")"
+            _out="$(_am_run probe)" || _out="error=unavailable"
+            _imap="$(_am_kv imap "$_out")"; _smtp="$(_am_kv smtp "$_out")"
+            _count="$(_am_kv inbox_count "$_out")"; _oldest="$(_am_kv oldest_days "$_out")"
+            if [[ "$_imap" == ok ]]; then ok "$MSG_OK_AM_IMAP"; fi
+            if [[ "$_smtp" == ok ]]; then ok "$MSG_OK_AM_SMTP"; fi
+            if [[ "$_imap" == ok && "$_smtp" == ok ]]; then break; fi
+            _code="${_imap:-unknown}"
+            [[ "$_code" == ok ]] && _code="${_smtp:-unknown}"
+            _err="$(AM_CODE="$_code" _am_run explain)" || _err=""
+            [[ -n "$_err" ]] || _err="$MSG_WARN_AM_COULD_NOT_CHECK"
+        fi
+        warn "$_err"
+        _tests="$(gui_read "$MSG_PROMPT_AM_RETRY_TITLE" choice "retry" "$_err" "retry,skip" "am_retry")"
+        if [[ "${_tests:-skip}" != retry ]]; then
+            AM_PASSWORD=""; warn "$MSG_WARN_AM_SKIPPED"; return 0
+        fi
+    done
+
+    # Guards. A real inbox is not a new account: second explicit confirm.
+    if _am_inbox_looks_real "$_count" "$_oldest"; then
+        _tests="$(gui_read "$MSG_PROMPT_AM_REAL_INBOX_TITLE" yesno "N" "$(printf "$MSG_PROMPT_AM_REAL_INBOX_HELP" "$_addr")" "" "am_real_inbox_confirm")"
+        case "${_tests:-N}" in
+            y|Y|yes|YES|Yes) ;;
+            *) AM_PASSWORD=""; warn "$MSG_WARN_AM_SKIPPED"; return 0 ;;
+        esac
+    fi
+
+    # Keychain first, so the password sits in a shell variable no longer
+    # than the checks that need it.
+    _out="$(_am_run store)" || _out=""
+    if [[ "$(_am_kv result "$_out")" != ok ]]; then
+        AM_PASSWORD=""; warn "$MSG_WARN_AM_KEYCHAIN_FAILED"; return 0
+    fi
+
+    # Test: a self-send with a random token, seen within 60 s, then a hello
+    # to the owner. Skip or retry; the result never blocks the install.
+    while true; do
+        info "$MSG_INFO_AM_SELFTEST"
+        _out="$(_am_run selftest)" || _out=""
+        if [[ "$(_am_kv result "$_out")" == ok ]]; then
+            ok "$MSG_OK_AM_SELFTEST"; ASSISTANT_MAILBOX_SELFTEST=ok; break
+        fi
+        ASSISTANT_MAILBOX_SELFTEST=failed
+        _tests="$(gui_read "$MSG_PROMPT_AM_TEST_RETRY_TITLE" choice "retry" "$MSG_PROMPT_AM_TEST_RETRY_HELP" "retry,skip" "am_test_retry")"
+        [[ "${_tests:-skip}" == retry ]] || { warn "$MSG_WARN_AM_SELFTEST_SKIPPED"; break; }
+    done
+    if [[ "$ASSISTANT_MAILBOX_SELFTEST" == ok && -n "$_first" ]]; then
+        AM_OWNER="$_first"; AM_NAME="$_name"
+        _out="$(_am_run hello)" || _out=""
+        if [[ "$(_am_kv result "$_out")" == ok ]]; then
+            ok "$(printf "$MSG_OK_AM_HELLO_SENT" "$_first")"
+        else
+            warn "$MSG_WARN_AM_HELLO_FAILED"
+        fi
+    fi
+    AM_PASSWORD=""; unset AM_PASSWORD
+
+    ASSISTANT_MAILBOX_ENABLED=true
+    ASSISTANT_MAILBOX_ADDRESS="$_addr"
+    ASSISTANT_MAILBOX_PROVIDER="$AM_PROVIDER"
+    _am_ack "$MSG_PROMPT_AM_DONE_TITLE" "$(printf "$MSG_PROMPT_AM_DONE_HELP" "$_addr")" "am_done" || true
+}
+if [[ "${OSTLER_ASSISTANT_MAILBOX:-ask}" != skip && -z "${_AM_BLOCK_PRESERVED:-}" ]]; then
+    _assistant_mailbox_flow || warn "$MSG_WARN_AM_SKIPPED"
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
@@ -15914,6 +16202,7 @@ if [[ "${SKIP_PHASE2:-false}" == true ]]; then
     if [[ "${CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED:-false}" != true ]]; then
         _EMAIL_BLOCK_PRESERVED="$(_ostler_existing_email_block "$ASSISTANT_CONFIG")"
     fi
+    _AM_BLOCK_PRESERVED="$(_am_existing_block "$ASSISTANT_CONFIG")"
 fi
 
 umask_orig=$(umask)
@@ -16246,6 +16535,15 @@ TOMLPREAMBLE
         printf '%s\n' "$_EMAIL_BLOCK_PRESERVED"
     fi
     unset _email_section_active
+
+    # v1.0.108: the assistant's OWN mailbox. No password here, ever: the
+    # secret lives in the Keychain and secret_ref names it.
+    if [[ "$ASSISTANT_MAILBOX_ENABLED" == true ]]; then
+        _am_emit_config "$ASSISTANT_MAILBOX_ADDRESS" "$ASSISTANT_MAILBOX_PROVIDER"
+    elif [[ -n "${_AM_BLOCK_PRESERVED:-}" ]]; then
+        echo
+        printf '%s\n' "$_AM_BLOCK_PRESERVED"
+    fi
 
     # #134 (v1.0.1): the Apple Mail COMMS channel -- email the assistant from
     # your OWN address (the email analogue of the iMessage Note-to-Self) and
