@@ -56,6 +56,9 @@ on:
       # #30: the loose-file table both detectors read lives in the lib.
       - 'lib/ostler-detect-exports.sh'
       - 'tests/test_loose_exports_in_downloads_are_found_and_said.sh'
+      # #30, the Doctor half: the row that reads the watcher's record.
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'tests/test_doctor_shows_why_downloads_exports_did_not_import.sh'
       - '.github/workflows/downloads-watcher-survives-an-export.yml'
   push:
     branches: [main]
@@ -123,3 +126,12 @@ jobs:
       - name: a loose export in Downloads is found, imported once, and said (#30)
         if: always()
         run: /bin/bash tests/test_loose_exports_in_downloads_are_found_and_said.sh
+
+      # #30, the Doctor half. The SHIPPED watcher writes the record against a
+      # fake HOME, and the SHIPPED Doctor reader and renderer must show a
+      # "Downloads folder" row with "found, not imported", the reason, and
+      # "1 found, 0 imported"; a failed import with its exit code; and
+      # "not run yet" with no invented count when there is no record.
+      - name: the Doctor says why a Downloads export did not import (#30)
+        if: always()
+        run: /bin/bash tests/test_doctor_shows_why_downloads_exports_did_not_import.sh

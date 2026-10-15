@@ -1234,3 +1234,13 @@ WHY: Andy flagged the Doctor's Mail row as misleading; the box's Mail store held
 ### What a future sync must preserve
 
 `envelope_index_total` and the `mailbox_total` record. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## Doctor shows the Downloads watcher, and why what it found did not import (#30)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour. `read_source_status` gains a nested `_downloads_exports_row` (nested on purpose: the source-table tests rebuild that function from the AST with a hand-written helper list, and a new module-level helper would NameError every one of them) and appends one `downloads_exports` row, kind `watcher`, after the per-source loop and before the catch-up merge. It reads `state/source_activity/downloads_exports.tsv`, which the Downloads watcher (`ostler-scan-exports`, the install.sh heredoc) now writes on every run: `last_status` (ok, no_data, not_imported, error, cannot_run, waiting), this run's `found`, `imported`, `already_imported`, `skipped`, `failed`, and `reason`. The row carries those plus `count_label` "N found, K imported" (`count_kind` `last_check`). No record gives `not_run` with a reason and no count; an unknown status reads as `error`, never as a healthy word. `render_source_status` prints the source as "Downloads folder", labels `not_imported` "found, not imported" and `waiting` "waiting for a download", and prints a row's `reason` under its status.
+
+WHY: a synthetic walk box (studio29, v1.0.107 candidate) had a loose calendar.ics, emails.mbox and contacts.vcf in Downloads; the watcher imported none, wrote nothing, and the Doctor had no row for it, so "found nothing", "could not look" and "found three, imported none" were the same silence. As with the rows above, NO HR015 twin exists yet for the source-status panel; the HR015 port is owed after #30.
+
+### What a future sync must preserve
+
+The `downloads_exports` row, its record vocabulary, and the reason line in the render. Guarded by `tests/test_doctor_shows_why_downloads_exports_did_not_import.sh`, which runs the SHIPPED watcher to write the record and the SHIPPED reader and renderer to show it (red before this change: no row; wired in `.github/workflows/downloads-watcher-survives-an-export.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.

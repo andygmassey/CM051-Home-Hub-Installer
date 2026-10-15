@@ -24215,7 +24215,7 @@ _ES_ACT_DIR="${OSTLER_DIR}/state/source_activity"
 mkdir -p "${OSTLER_DIR}/logs" "$_ES_STATE" "$_ES_ACT_DIR" 2>/dev/null || true
 
 _es_cand=0; _es_rec=0; _es_imp=0; _es_already=0; _es_failed=0; _es_skipped=0
-_es_status=""; _es_why=""; _es_skips=""; _es_rows=""
+_es_status=""; _es_why=""; _es_skips=""; _es_rows=""; _es_fail_why=""
 _es_log() {
     printf '[%s] export-scan: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$_ES_LOG" \
         || printf 'export-scan: could not write %s: %s\n' "$_ES_LOG" "$*" >&2
@@ -24229,7 +24229,7 @@ _es_skip() {  # label  reason  path
     _es_row "$1" "skipped" "$2" "$3"
 }
 _es_finish() {
-    local rc=$? skipsum="" s detail now prev=""
+    local rc=$? skipsum="" s detail now prev="" reason=""
     if [[ -z "$_es_status" ]]; then
         if [[ "$_es_failed" -gt 0 ]]; then _es_status="error"
         elif [[ $((_es_imp + _es_already)) -gt 0 ]]; then _es_status="ok"
@@ -24258,6 +24258,7 @@ _es_finish() {
     if [[ "$_es_status" == "not_imported" || "$_es_status" == "cannot_run" || "$_es_status" == "error" ]] && [[ "$_es_rec" -gt 0 ]]; then
         detail="found ${_es_rec} export(s) in Downloads, imported ${_es_imp}"
         if [[ -n "$_es_why" ]]; then detail="${detail} because ${_es_why}"
+        elif [[ -n "$_es_fail_why" ]]; then detail="${detail} because ${_es_fail_why}"
         elif [[ -n "$skipsum" ]]; then detail="${detail}: ${skipsum}"
         fi
     else
@@ -24268,8 +24269,19 @@ _es_finish() {
         prev="$(sed -n 's/^last_success_at=//p' "${_ES_ACT_DIR}/downloads_exports.tsv" | tail -n 1)"
     fi
     [[ "$_es_status" == "ok" || "$_es_status" == "no_data" ]] && prev="$now"
-    printf 'source=downloads_exports\nlast_run_at=%s\nlast_status=%s\nlast_success_at=%s\nlast_detail=%s\nwriter=ostler-scan-exports\n' \
+    # `reason` is the plain-words WHY when this run did not import what it
+    # found (empty when there is nothing to explain); the Doctor's Downloads
+    # row prints it verbatim. The counts are this run's, not totals.
+    reason=""
+    if [[ "$_es_status" != "ok" && "$_es_status" != "no_data" ]]; then
+        reason="${_es_why:-${_es_fail_why:-$skipsum}}"
+    elif [[ "$_es_imp" -eq 0 && "$_es_already" -eq 0 && -n "$skipsum" ]]; then
+        reason="$skipsum"
+    fi
+    printf 'source=downloads_exports\nlast_run_at=%s\nlast_status=%s\nlast_success_at=%s\nlast_detail=%s\nfound=%s\nimported=%s\nalready_imported=%s\nskipped=%s\nfailed=%s\nreason=%s\nwriter=ostler-scan-exports\n' \
         "$now" "$_es_status" "$prev" "$(printf '%s' "$detail" | tr '\n\t' '  ' | cut -c1-400)" \
+        "$_es_rec" "$_es_imp" "$_es_already" "$_es_skipped" "$_es_failed" \
+        "$(printf '%s' "$reason" | tr '\n\t' '  ' | cut -c1-400)" \
         > "${_ES_ACT_DIR}/downloads_exports.tsv" 2>/dev/null \
         || _es_log "could not write the Doctor-facing activity record"
     return "$rc"
@@ -24443,7 +24455,8 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
             # No hash written, so the next tick retries this export set rather
             # than skipping it for ever.
             _es_failed=$(( _es_failed + ${#FOUND[@]} ))
-            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "failed" "the importer stopped with exit code ${_imp_rc}" "${FOUND[$_i]}"; done
+            _es_fail_why="the importer stopped with exit code ${_imp_rc}"
+            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "failed" "$_es_fail_why" "${FOUND[$_i]}"; done
         fi
     fi
 fi
@@ -24495,7 +24508,8 @@ while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
     else
         _imp_rc=$?
         _es_failed=$((_es_failed + 1)); _loose_fail=$((_loose_fail + 1))
-        _es_row "$_l" "failed" "the importer stopped with exit code ${_imp_rc}" "$_p"
+        _es_fail_why="the importer stopped with exit code ${_imp_rc}"
+        _es_row "$_l" "failed" "$_es_fail_why" "$_p"
     fi
     rm -rf "$_stage"
 done
