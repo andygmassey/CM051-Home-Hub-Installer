@@ -6,7 +6,10 @@ name: reply-debt-never-reads-protected-data
 # endpoint said "you're all caught up". The suite proves, with a CPython audit
 # hook and a positive control that the hook fires, that the endpoint opens no
 # TCC-protected path, that an unreadable source is degraded:true with no
-# all-clear copy, and that the Front Page says "couldn't check".
+# all-clear copy, and that the Front Page says "couldn't check". The same
+# defect lived in the Doctor (com.ostler.doctor, also a bare venv python): its
+# FDA cards opened chat.db to decide whether to dismiss themselves. The second
+# step proves it now reads only what the signed assistant records.
 #
 # macOS runner and Python 3.11: the platform and the interpreter the Hub ships.
 # British English. No em dashes.
@@ -23,6 +26,8 @@ on:
       - 'vendor/cm059_editor/compiler/frontpage.py'
       - 'vendor/cm059_editor/compiler/render_frontpage.py'
       - 'tests/test_reply_debt_never_opens_protected_data.py'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'tests/test_doctor_never_opens_chat_db.py'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/reply-debt-never-reads-protected-data.yml'
   push:
@@ -61,3 +66,14 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_reply_debt_never_opens_protected_data.py -v -rs
+      - name: The Doctor never opens chat.db, and its FDA cards follow the signed side
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_doctor_never_opens_chat_db.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 8 ]; then
+            echo "REFUSING: expected at least 8 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_doctor_never_opens_chat_db.py -v -rs
