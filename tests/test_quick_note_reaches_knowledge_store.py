@@ -54,10 +54,14 @@ class QuickNote(unittest.TestCase):
         bn = self.s._bn()
         self.bn = bn
         self.store = {}
-        bn.qdrant_ensure_collection = lambda *a, **k: None
-        bn.qdrant_upsert = lambda base, coll, pid, vec, payload: (
-            self.store.__setitem__((coll, pid), payload) or True)
-        bn.qdrant_set_payload = lambda *a, **k: True
+        for name, fn in (
+                ("qdrant_ensure_collection", lambda *a, **k: None),
+                ("qdrant_upsert", lambda base, coll, pid, vec, payload: (
+                    self.store.__setitem__((coll, pid), payload) or True)),
+                ("qdrant_set_payload", lambda *a, **k: True)):
+            pp = patch.object(bn, name, fn)   # restored in tearDown: bn is shared
+            pp.start()
+            self.addCleanup(pp.stop)
         self.s._embed_text = lambda t, timeout=30: [0.1, 0.2, 0.3]
         self.q = bn.EnrichQueue(str(home / "queue"), self.s._enrich_summarise,
                                 self.s._enrich_store, min_interval_s=0,
