@@ -1346,3 +1346,23 @@ ERROR, and records posture `mailbox_unreadable` instead of `success`.
 The root-raise and the held edges. Guarded by
 `tests/test_apple_mail_refused_walk_is_not_complete.py` (workflow
 `status-honesty-ingest.yml`).
+
+---
+
+## doctor: Reminders tile and all-clear banner measure the outcome (status-honesty sweep D2, D3)
+
+D2: `vendor/doctor/agent/reminders_runtime.py` gains `STATE_PUSH_FAILING`
+(rows exist, at least one `failed`, none `pushed`) and `STATE_CANNOT_READ` (the
+mapping DB exists and could not be read; it used to read as no-data and hide the
+tile). `dashboard_components.py` renders both (amber, grey) and `web_ui_copy.py`
+carries the `REMINDERS_RUNTIME_*PUSH_FAILING` and `*CANNOT_READ` copy.
+D3: `vendor/doctor/agent/web_ui.py` gains `_bundle_routine_findings()`, called by
+`_append_all_clear()`: a failing or stale recurring routine, or an unreadable
+routine status, replaces "Everything looks healthy" with a warning.
+
+### What a future sync must preserve
+
+The two new states and the routine check before the all-clear. Guarded by
+`tests/test_reminders_tile_is_not_green_when_every_push_failed.py` and
+`tests/test_all_clear_counts_the_bundle_routines.py` (workflow
+`status-honesty-meetings-doctor.yml`).
