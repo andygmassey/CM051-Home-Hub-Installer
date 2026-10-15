@@ -318,6 +318,7 @@ test_enrichment_honours_a_decline.sh	WIRED	.github/workflows/enrichment-reaches-
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
+test_enrichqueue_retries_not_drops.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_err06_states_what_it_measured.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_err_trap_emits_done_fail.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_every_consent_decision_is_recorded.sh	WIRED	.github/workflows/consent-registry.yml
@@ -601,6 +602,7 @@ test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wra
 test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_qdrant_membership_not_cardinality.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_quick_note_reaches_knowledge_store.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_real_person_link_miss_classified.py	WIRED	.github/workflows/walk-record-gate.yml
@@ -999,5 +1001,3 @@ scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrap
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
-test_quick_note_reaches_knowledge_store.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
-test_enrichqueue_retries_not_drops.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml

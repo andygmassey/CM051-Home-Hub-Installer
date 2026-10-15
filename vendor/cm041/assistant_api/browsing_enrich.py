@@ -535,7 +535,7 @@ KIND_KNOWLEDGE = "knowledge"
 # floor (the iOS app declares L1, which is raised, never lowered). L3 is the
 # writer-side short-circuit: it is never queued, so it never reaches Qdrant.
 QUICK_NOTE_SOURCE = "ios_quick_note"
-QUICK_NOTE_NOTEBOOK = "Quick Notes"
+QUICK_NOTE_NOTEBOOK = "Quick notes"
 QUICK_NOTE_TEXT_CAP_CHARS = 20 * 1024
 
 

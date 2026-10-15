@@ -59,6 +59,8 @@ jobs:
         if: always()
         run: python3 -m pytest -v tests/test_api_list_pagination_is_additive.py
       - name: an iOS quick note reaches the knowledge store
+        if: always()
         run: python3 -m pytest -v tests/test_quick_note_reaches_knowledge_store.py
       - name: the knowledge drain retries through a store outage and never drops
+        if: always()
         run: python3 -m pytest -v tests/test_enrichqueue_retries_not_drops.py

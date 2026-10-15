@@ -31,7 +31,7 @@ for _p in (ROOT / "vendor", ROOT / "vendor/cm041", ROOT / "vendor/cm041/assistan
 def point(pid="11111111-aaaa-bbbb-cccc-000000000001", text="Remember the synthetic widget order",
           level="L1", **kw):
     f = {"type": "quick_note", "timestamp": "2026-10-15T09:30:00Z", "text": text,
-         "person_name": "Pat Example", "location_name": None, "privacy_level": level}
+         "person_name": "Jane", "location_name": None, "privacy_level": level}
     f.update(kw)
     return {"id": pid, "payload": f}
 
@@ -91,7 +91,7 @@ class QuickNote(unittest.TestCase):
         self.assertEqual(coll, self.bn.KNOWLEDGE_COLLECTION)
         self.assertIn("Remember the synthetic widget order", payload["content"])
         self.assertEqual(payload["source"], self.bn.QUICK_NOTE_SOURCE)
-        self.assertIn("Pat Example", payload["tags"])
+        self.assertIn("Jane", payload["tags"])
         self.assertEqual(payload["summary_status"], "done")
         self.assertEqual(self.q.depth(), 0)
 
