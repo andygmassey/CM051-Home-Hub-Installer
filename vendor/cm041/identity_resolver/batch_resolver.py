@@ -2215,6 +2215,21 @@ class BatchResolver:
                         if k in action.details.lower() or k + "_" in action.strategy
                     }),
                 )
+            except merge_journal.SnapshotUnavailable:
+                # Not a RULE 2 refusal and not a pin: the pair is simply not
+                # merged this pass and the next converge retries it.
+                self._qdrant_skipped = getattr(self, "_qdrant_skipped", 0) + 1
+                logger.warning(
+                    "SKIPPING merge %s -> %s: qdrant_unavailable, so no vector "
+                    "snapshot can be taken. No snapshot, no merge; retried on "
+                    "the next converge.", action.discard_uri, action.keep_uri)
+                try:
+                    merge_journal.record_skip(
+                        os.path.join(backup_dir, "merge_journal"),
+                        action.keep_uri, action.discard_uri, "qdrant_unavailable")
+                except OSError:
+                    pass
+                continue
             except (OSError, httpx.HTTPError) as exc:
                 logger.warning(
                     "SKIPPING merge %s -> %s: the pre-merge snapshot could not "

@@ -20,6 +20,8 @@ import types
 
 import httpx
 import pytest
+
+qdrant_client = pytest.importorskip("qdrant_client")
 from rdflib import Graph
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -97,9 +99,17 @@ def make(store: FakeStore, tmp_path) -> br.BatchResolver:
 
 @pytest.fixture(autouse=True)
 def _no_qdrant(monkeypatch):
+    # An in-memory Qdrant stands in for the server: "no snapshot, no merge"
+    # means every merge needs a reachable store.
+    from qdrant_client import QdrantClient, models
+    mem = QdrantClient(":memory:")
+    mem.create_collection("people", vectors_config=models.VectorParams(
+        size=4, distance=models.Distance.COSINE))
+    monkeypatch.setattr(qdrant_client, "QdrantClient", lambda *a, **k: mem)
     monkeypatch.setattr(br, "_merge_qdrant", lambda *a, **k: True)
     monkeypatch.setattr(br, "_set_qdrant_display_name", lambda *a, **k: None)
     monkeypatch.setattr(br, "record_person_removal", lambda *a, **k: None)
+    return mem
 
 
 def converge(store, tmp_path):
@@ -289,7 +299,7 @@ def test_merge_is_journalled_and_undo_restores_the_pre_merge_graph(tmp_path):
     assert "c@example.com" not in (jdir / "merge_journal.jsonl").read_text()
 
     res = r.undo_merge(merges[0]["id"], backup_dir=str(tmp_path / "bk"))
-    assert res["qdrant_restored"] is False
+    assert res["qdrant_restored"] is True
     assert _dump(s) == before                                 # exact restore
     assert len(s.live()) == 2
 
@@ -384,17 +394,14 @@ def test_policy_mutation_control_guard_threshold():
 # Real _merge_qdrant and the real reconcile sweep run against an in-memory
 # Qdrant; the point ids are the production ones, uuid5(NAMESPACE_URL, uri).
 # --------------------------------------------------------------------------
-def test_undo_restores_graph_and_qdrant_points_and_pins_distinct(tmp_path, monkeypatch):
+def test_undo_restores_graph_and_qdrant_points_and_pins_distinct(tmp_path, monkeypatch, _no_qdrant):
     qc = pytest.importorskip("qdrant_client")
     pytest.importorskip("yaml")
     import uuid
     from qdrant_client import QdrantClient, models
 
-    mem = QdrantClient(":memory:")
-    monkeypatch.setattr(qc, "QdrantClient", lambda *a, **k: mem)
+    mem = _no_qdrant
     monkeypatch.setattr(br, "_merge_qdrant", _REAL_MERGE_QDRANT)
-    mem.create_collection("people", vectors_config=models.VectorParams(
-        size=4, distance=models.Distance.COSINE))
 
     s = FakeStore()
     ka = s.person("v1", "Casey Morgan", phones=[MOBILE_A], uids=["uid-1"], extra_triples=3)
@@ -446,18 +453,15 @@ def test_undo_restores_graph_and_qdrant_points_and_pins_distinct(tmp_path, monke
     assert qdump() == q_before
 
 
-def test_undo_refuses_before_touching_the_graph_if_qdrant_restore_fails(tmp_path, monkeypatch):
+def test_undo_refuses_before_touching_the_graph_if_qdrant_restore_fails(tmp_path, monkeypatch, _no_qdrant):
     qc = pytest.importorskip("qdrant_client")
     pytest.importorskip("yaml")
     from qdrant_client import QdrantClient, models
     from identity_resolver.merge_journal import UndoError
     import uuid
 
-    mem = QdrantClient(":memory:")
-    monkeypatch.setattr(qc, "QdrantClient", lambda *a, **k: mem)
+    mem = _no_qdrant
     monkeypatch.setattr(br, "_merge_qdrant", _REAL_MERGE_QDRANT)
-    mem.create_collection("people", vectors_config=models.VectorParams(
-        size=4, distance=models.Distance.COSINE))
     s = FakeStore()
     ka = s.person("w1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
     kb = s.person("w2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
@@ -476,3 +480,35 @@ def test_undo_refuses_before_touching_the_graph_if_qdrant_restore_fails(tmp_path
     with pytest.raises(UndoError):
         r.undo_merge(mid, backup_dir=str(tmp_path / "bk"))
     assert _dump(s) == merged_graph                 # graph untouched, retry is safe
+
+
+# --------------------------------------------------------------------------
+# No snapshot, no merge: Qdrant down means the pair is skipped (recorded as
+# qdrant_unavailable), the graph is untouched, nothing is pinned, and the next
+# converge with Qdrant back merges it.
+# --------------------------------------------------------------------------
+def test_qdrant_down_skips_the_merge_and_the_next_converge_retries(tmp_path, monkeypatch):
+    s = FakeStore()
+    s.person("x1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
+    s.person("x2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    before = _dump(s)
+    working = qdrant_client.QdrantClient
+
+    def down(*a, **k):
+        raise ConnectionError("qdrant down")
+    monkeypatch.setattr(qdrant_client, "QdrantClient", down)
+    r = converge(s, tmp_path)
+    assert _dump(s) == before                       # graph unchanged
+    assert len(s.live()) == 2
+    entries = merge_entries(tmp_path)
+    assert [e["kind"] for e in entries] == ["skip"]
+    assert entries[0]["reason"] == "qdrant_unavailable"
+    assert not list((tmp_path / "bk" / "merge_journal" / "merge_snapshots").glob("*"))
+    assert not (tmp_path / "corr" / "duplicates.yaml").exists()   # no pin
+    assert getattr(r, "_qdrant_skipped", 0) == 1
+
+    monkeypatch.setattr(qdrant_client, "QdrantClient", working)
+    converge(s, tmp_path)
+    assert len(s.live()) == 1                       # retried and merged
+    kinds = [e["kind"] for e in merge_entries(tmp_path)]
+    assert kinds == ["skip", "merge"]
