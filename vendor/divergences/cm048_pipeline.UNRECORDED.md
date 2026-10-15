@@ -393,6 +393,11 @@ Tree `cm048_pipeline`:
   `start_time` / `end_time` before the date-only fallback; the spoken
   adapter's `source_subtype` defaults to `voice_memo`, not `meeting`, for a
   memo.
+- `src/processor.py` `process()`: a single-speaker capture with any words in
+  it is ALWAYS kept; a model answer of `processing_depth: none` is overridden
+  to `full`. `prompts/01_classify.md` no longer tells the model to skip a solo
+  voice memo (it did, so a memo the model obeyed on was silently never
+  written).
 
 WHY: a one-speaker iPhone voice memo on Mini16 was written to
 `~/Documents/Ostler/Conversations/<id>.md` (verbatim copy of 02_enrichment.md

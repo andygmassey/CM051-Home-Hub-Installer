@@ -150,16 +150,31 @@ def process(
     # person. The speaker count is a fact the pipeline measures, so it
     # overrides the model's shape and is persisted, so every later step
     # (and a resume) reads the same classification.
-    if (
-        classification.shape != _capture_truth.MEMO_SHAPE
-        and _capture_truth.is_single_speaker_capture(transcript, metadata)
-    ):
-        classification = _capture_truth.as_memo(classification)
-        write_json(state_dir / "01_classification.json", classification.to_dict())
-        logger.info(
-            "Single-speaker capture %s: classified as %s",
-            conversation_id, classification.suggested_type_slug,
-        )
+    #
+    # A memo is ALWAYS kept. 01_classify.md used to tell the model to answer
+    # processing_depth "none" for a solo voice memo, and "none" stops the
+    # pipeline below: the memo was silently never written. Whether to skip
+    # is decided here, in code, from what we measured; the model's "none"
+    # stands only for a capture with no words in it.
+    if _capture_truth.is_single_speaker_capture(transcript, metadata):
+        changed = False
+        if classification.shape != _capture_truth.MEMO_SHAPE:
+            classification = _capture_truth.as_memo(classification)
+            changed = True
+        if classification.processing_depth == "none" and (transcript or "").strip():
+            classification.processing_depth = "full"
+            classification.reasoning = (
+                "memo kept: the model said processing_depth none. "
+                + (classification.reasoning or "")
+            )
+            changed = True
+        if changed:
+            write_json(state_dir / "01_classification.json", classification.to_dict())
+            logger.info(
+                "Single-speaker capture %s: classified as %s, depth %s",
+                conversation_id, classification.suggested_type_slug,
+                classification.processing_depth,
+            )
 
     if classification.processing_depth == "none":
         logger.info("processing_depth=none  –  pipeline stops here.")

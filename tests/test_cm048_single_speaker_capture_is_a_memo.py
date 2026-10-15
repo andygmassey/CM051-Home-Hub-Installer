@@ -290,3 +290,36 @@ def test_the_bundle_carries_the_capture_times_not_midnight(settings, tmp_path):
     assert fm["started_at"] == "2026-10-15T14:00:00Z", fm["started_at"]
     assert fm["ended_at"] == "2026-10-15T14:01:00Z", fm["ended_at"]
     assert fm["source_subtype"] == "voice_memo"
+
+
+def test_a_memo_the_model_says_to_skip_is_still_written(settings, monkeypatch):
+    """01_classify.md told the model to answer processing_depth "none" for
+    a solo voice memo, and "none" stops the pipeline: the memo was never
+    written, with no error. The stub here OBEYS that instruction."""
+    obeys = dict(CLASSIFIER_SAYS, processing_depth="none",
+                 reasoning="solo voice memo, not a conversation.")
+    monkeypatch.setattr(sys.modules[__name__], "CLASSIFIER_SAYS", obeys)
+    cid = "00000000-0000-4000-8000-00000000500e"
+    state = processor.process(cid, MEMO, _iphone_metadata(cid, ["S1"]), settings,
+                              ingest_sinks=False)
+    assert state.failed_step is None, state.failure_reason
+    assert "02_enrich" in state.completed_steps, state.completed_steps
+    out = ingest._write_conversation_md(settings.processing_state_dir / cid, cid, settings, False)
+    assert out is not None and out.exists(), "the memo was never written"
+    assert "## Cleaned transcript" in out.read_text()
+
+
+def test_control_an_empty_capture_the_model_skips_stays_skipped(settings, monkeypatch):
+    obeys = dict(CLASSIFIER_SAYS, processing_depth="none", reasoning="empty")
+    monkeypatch.setattr(sys.modules[__name__], "CLASSIFIER_SAYS", obeys)
+    cid = "00000000-0000-4000-8000-0000000e0e0e"
+    state = processor.process(cid, "   \n", _iphone_metadata(cid, ["S1"]), settings,
+                              ingest_sinks=False)
+    assert "02_enrich" not in state.completed_steps
+
+
+def test_the_classifier_prompt_no_longer_asks_to_skip_a_memo():
+    text = (Path(processor.__file__).resolve().parent.parent / "prompts" / "01_classify.md").read_text()
+    assert "solo voice memo, not a" not in text
+    assert "voice memos, or conversations" not in text
+
