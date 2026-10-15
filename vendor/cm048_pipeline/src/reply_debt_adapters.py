@@ -7,10 +7,17 @@ how to resolve a counterpart to a CM041 person + relationship strength.
 
 Three adapters, in increasing order of how much live data they need to prove:
 
-  * ``iter_imessage_threads``    -  reads Apple's chat.db directly. ``is_from_me``
-    gives ground-truth per-message direction; ``OSTLER_IMESSAGE_SELF_HANDLES``
-    + the chat.db owner are the "me" signal. THIS IS THE STRONGEST SOURCE for
-    reply debt and the one that needs the real box + Full Disk Access to prove.
+  * ``iter_imessage_threads``    -  reads the reply-debt SNAPSHOT that the
+    iMessage feed writes under ``~/.ostler/state/reply_debt/``. It NEVER opens
+    chat.db. The feed runs as ``ostler-assistant run-source imessage``, so its
+    chat.db read happens under the signed assistant's Full Disk Access; this
+    module runs inside ical-server, a bare python3.11 that TCC would attribute
+    the read to and deny (CM051 #30, studio29: the customer was shown a Full
+    Disk Access entry for "python3.11" and then told "you're all caught up").
+    ``is_from_me`` from chat.db is still the direction signal, carried in the
+    snapshot; ``OSTLER_IMESSAGE_SELF_HANDLES`` is applied here as before.
+    A missing, unreadable, malformed or stale snapshot RAISES
+    ``ReplyDebtSourceUnavailable``: it is "could not check", never "nothing owed".
 
   * ``iter_email_threads``       -  reads the CM048 conversation store's
     email-thread sidecars (``email_thread`` in ``extra_metadata`` /
@@ -34,9 +41,9 @@ two sides agree on who "me" is.
 from __future__ import annotations
 
 import logging
+import json
 import os
 import re
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
@@ -101,142 +108,160 @@ StrengthLookup = "Callable[[str], Optional[tuple[Optional[str], Optional[float]]
 
 
 # ---------------------------------------------------------------------------
-# iMessage chat.db adapter (strongest direction signal; needs the box)
+# iMessage adapter: reads the signed feed's snapshot, never chat.db
 # ---------------------------------------------------------------------------
 
 
-CHAT_DB_DEFAULT = Path.home() / "Library" / "Messages" / "chat.db"
+class ReplyDebtSourceUnavailable(RuntimeError):
+    """A reply-debt source could not be read. ``reason`` is a short stable
+    code the endpoint returns as ``degraded`` + ``reason``. Raising (rather
+    than yielding nothing) is the whole point: an empty source and an
+    unreadable one must never produce the same answer."""
 
-# Apple epoch is 2001-01-01; message.date is nanoseconds since then for modern
-# macOS. We convert to aware UTC datetimes.
-_APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
-
-
-def _apple_ts_to_dt(raw: int) -> datetime:
-    # Modern chat.db stores nanoseconds; older stored seconds. Detect by
-    # magnitude.
-    if raw > 1_000_000_000_000:  # ns
-        seconds = raw / 1_000_000_000
-    else:
-        seconds = float(raw)
-    return _APPLE_EPOCH.fromtimestamp(
-        _APPLE_EPOCH.timestamp() + seconds, tz=timezone.utc
-    )
+    def __init__(self, reason: str, detail: str = ""):
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
 
 
-def iter_imessage_threads(
+IMESSAGE_SNAPSHOT_SCHEMA = 1
+
+# Older than this and the snapshot no longer says who is waiting NOW: a reply
+# sent since would still read as owed. The feed ticks every 15 minutes but
+# yields to live chat and to the shared ingest lock, so allow some slack.
+DEFAULT_SNAPSHOT_MAX_AGE_HOURS = 6.0
+
+
+def imessage_snapshot_path() -> Path:
+    """Must agree with ``imessage_source.pipeline.reply_debt_snapshot_path``."""
+    explicit = (os.environ.get("OSTLER_REPLY_DEBT_SNAPSHOT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    root = (os.environ.get("OSTLER_DIR") or "").strip()
+    base = Path(root).expanduser() if root else Path.home() / ".ostler"
+    return base / "state" / "reply_debt" / "imessage_threads.json"
+
+
+def _snapshot_max_age_hours() -> float:
+    raw = (os.environ.get("OSTLER_REPLY_DEBT_MAX_AGE_HOURS") or "").strip()
+    if not raw:
+        return DEFAULT_SNAPSHOT_MAX_AGE_HOURS
+    try:
+        v = float(raw)
+    except ValueError:
+        return DEFAULT_SNAPSHOT_MAX_AGE_HOURS
+    return v if v > 0 else DEFAULT_SNAPSHOT_MAX_AGE_HOURS
+
+
+def load_imessage_threads(
     *,
-    db_path: Optional[Path] = None,
+    snapshot_path: Optional[Path] = None,
     strength_lookup=None,
     lookback_days: int = 90,
-    max_messages_per_thread: int = 40,
-) -> Iterator[Thread]:
-    """Yield normalised threads from Apple's chat.db (READ-ONLY).
+    max_age_hours: Optional[float] = None,
+    now: Optional[datetime] = None,
+) -> list[Thread]:
+    """Return normalised threads from the iMessage reply-debt snapshot.
 
-    ``is_from_me`` is the ground-truth direction signal  -  no heuristic needed.
-    Group chats are flagged via ``chat.style`` / participant count. Opens the
-    db read-only (``mode=ro``) so it never mutates Messages.
-
-    NOTE: requires the real box + Full Disk Access to read chat.db. Cannot be
-    proven in CI / off-box. The query shape is conservative and well-trodden
-    (it mirrors the assistant daemon's poll query) but live correctness is
-    UNPROVEN until run on the box.
+    Raises ``ReplyDebtSourceUnavailable`` when the snapshot is absent,
+    unreadable, malformed, stale, or records that the feed itself could not
+    read Messages. A snapshot whose feed found no chat.db at all
+    (``status: absent``) is a true zero and returns ``[]``.
     """
-    db_path = db_path or CHAT_DB_DEFAULT
-    if not db_path.exists():
-        log.info("reply_debt: chat.db not found at %s  -  skipping", db_path)
-        return
-
-    uri = f"file:{db_path}?mode=ro&immutable=1"
+    path = snapshot_path or imessage_snapshot_path()
+    now = now or datetime.now(timezone.utc)
     try:
-        conn = sqlite3.connect(uri, uri=True)
-    except sqlite3.Error as exc:  # pragma: no cover - needs the box
-        log.warning("reply_debt: could not open chat.db: %s", exc)
-        return
-
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise ReplyDebtSourceUnavailable(
+            "imessage_snapshot_missing",
+            "the iMessage feed has not written its reply-debt snapshot yet",
+        )
+    except OSError as exc:
+        raise ReplyDebtSourceUnavailable("imessage_snapshot_unreadable", str(exc)[:200])
     try:
-        conn.row_factory = sqlite3.Row
-        # One row per chat with its participant count + style (43 == group).
-        chats = conn.execute(
-            """
-            SELECT c.ROWID AS chat_id,
-                   c.chat_identifier AS chat_identifier,
-                   c.display_name AS display_name,
-                   c.style AS style,
-                   COUNT(DISTINCT chj.handle_id) AS participant_count
-            FROM chat c
-            LEFT JOIN chat_handle_join chj ON chj.chat_id = c.ROWID
-            GROUP BY c.ROWID
-            """
-        ).fetchall()
+        snap = json.loads(raw)
+    except ValueError as exc:
+        raise ReplyDebtSourceUnavailable("imessage_snapshot_malformed", str(exc)[:200])
+    if not isinstance(snap, dict) or snap.get("schema") != IMESSAGE_SNAPSHOT_SCHEMA:
+        raise ReplyDebtSourceUnavailable(
+            "imessage_snapshot_malformed", "unknown snapshot schema"
+        )
 
-        for chat in chats:
-            rows = conn.execute(
-                """
-                SELECT m.text AS text,
-                       m.is_from_me AS is_from_me,
-                       m.date AS date,
-                       h.id AS handle
-                FROM message m
-                JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
-                LEFT JOIN handle h ON h.ROWID = m.handle_id
-                WHERE cmj.chat_id = ?
-                  AND m.text IS NOT NULL AND m.text != ''
-                ORDER BY m.date DESC
-                LIMIT ?
-                """,
-                (chat["chat_id"], max_messages_per_thread),
-            ).fetchall()
-            if not rows:
-                continue
+    status = snap.get("status")
+    if status == "absent":
+        return []
+    if status != "ok":
+        raise ReplyDebtSourceUnavailable(
+            "messages_not_readable",
+            str(snap.get("reason") or status or "unknown")[:200],
+        )
 
-            messages: list[Message] = []
-            for r in reversed(rows):  # chronological
-                ts = _apple_ts_to_dt(r["date"])
-                is_owner = bool(r["is_from_me"]) or is_owner_handle(
-                    r["handle"] or ""
-                )
-                messages.append(
+    generated = _parse_iso(snap.get("generated_at"))
+    if generated is None:
+        raise ReplyDebtSourceUnavailable(
+            "imessage_snapshot_malformed", "no generated_at"
+        )
+    age_h = (now - generated).total_seconds() / 3600.0
+    limit_h = max_age_hours if max_age_hours is not None else _snapshot_max_age_hours()
+    if age_h > limit_h:
+        raise ReplyDebtSourceUnavailable(
+            "imessage_snapshot_stale",
+            f"snapshot is {age_h:.1f}h old (limit {limit_h:g}h)",
+        )
+
+    threads: list[Thread] = []
+    for row in snap.get("threads") or []:
+        if not isinstance(row, dict):
+            continue
+        last = row.get("last") or {}
+        ts = _parse_iso(last.get("timestamp"))
+        text = last.get("text") or ""
+        if ts is None or not text:
+            continue
+        if (now - ts).days > lookback_days:
+            continue
+        handle = last.get("sender") or ""
+        is_owner = bool(last.get("is_from_me")) or is_owner_handle(handle)
+        is_group = bool(row.get("is_group")) or len(row.get("participants") or []) > 1
+        counterpart = (
+            row.get("display_name")
+            or (handle if not is_owner else "")
+            or ", ".join(row.get("participants") or [])
+            or str(row.get("chat_id") or "")
+        )
+        person_uri = None
+        strength = None
+        if strength_lookup and not is_group:
+            resolved = strength_lookup(counterpart)
+            if resolved:
+                person_uri, strength = resolved
+        threads.append(
+            Thread(
+                thread_id=f"imessage:{row.get('chat_id')}",
+                channel="imessage",
+                messages=(
                     Message(
-                        sender=(r["handle"] or "me") if not is_owner else "me",
-                        text=r["text"] or "",
+                        sender="me" if is_owner else (handle or counterpart),
+                        text=text,
                         timestamp=ts,
                         is_from_owner=is_owner,
-                    )
-                )
-            if not messages:
-                continue
-
-            # Respect the lookback window on the last message.
-            last_ts = messages[-1].timestamp
-            age_days = (datetime.now(timezone.utc) - last_ts).days
-            if age_days > lookback_days:
-                continue
-
-            is_group = (chat["style"] == 43) or (
-                (chat["participant_count"] or 0) > 1
-            )
-            counterpart = chat["display_name"] or chat["chat_identifier"] or ""
-
-            person_uri = None
-            strength = None
-            if strength_lookup and not is_group:
-                resolved = strength_lookup(counterpart)
-                if resolved:
-                    person_uri, strength = resolved
-
-            yield Thread(
-                thread_id=f"imessage:{chat['chat_id']}",
-                channel="imessage",
-                messages=tuple(messages),
+                    ),
+                ),
                 privacy_level="L2",  # iMessage default; per-thread gating TBD
                 is_group=is_group,
                 counterpart_name=counterpart,
                 person_uri=person_uri,
                 relationship_strength=strength,
             )
-    finally:
-        conn.close()
+        )
+    return threads
+
+
+def iter_imessage_threads(**kwargs) -> Iterator[Thread]:
+    """Back-compatible name. Loads EAGERLY so an unavailable source raises at
+    the call, where ``compute_reply_debts`` can see it, not lazily mid-merge."""
+    return iter(load_imessage_threads(**kwargs))
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +349,8 @@ def _parse_iso(s: Optional[str]) -> Optional[datetime]:
 __all__ = [
     "is_owner_handle",
     "iter_imessage_threads",
+    "load_imessage_threads",
+    "imessage_snapshot_path",
+    "ReplyDebtSourceUnavailable",
     "thread_from_email_transcript",
-    "CHAT_DB_DEFAULT",
 ]

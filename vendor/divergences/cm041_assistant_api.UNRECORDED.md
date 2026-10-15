@@ -1166,3 +1166,21 @@ Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
 in one busy hour; a retry run in that hour joins the same model queue.
 CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
 extends), or the next re-sync of this tree reverts it.
+
+## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+`api_reply_debt` and the comment block above it. Recorded by hand for the same
+reason as the sections above.
+
+- the exception branch keeps a source's own `reason` code (and `detail`)
+  instead of flattening everything to `reply_debt_failed: ...`;
+- a degraded payload has its `brief_line` forced to `""`, so the all-clear copy
+  can never ride on `degraded: true`;
+- the comments no longer say this process reads chat.db; it reads the snapshot
+  the signed iMessage feed writes.
+
+WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
+with `degraded: false` while it could not read Messages at all. Guarded by
+`tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
+same change, or the next re-sync reverts it.

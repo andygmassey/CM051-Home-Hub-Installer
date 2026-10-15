@@ -62,6 +62,13 @@ _STRINGS = {
     "reply_debt_title_many": "{count} people are waiting on you",
     "reply_debt_body": "{names} {have} messages awaiting your reply.",
     "reply_debt_action": "See who",
+    # A reply-debt source that could not be read is said out loud. Without
+    # this card the band simply had no reply-debt card, which reads exactly
+    # like nobody waiting (CM051 #30, studio29).
+    "reply_debt_unchecked_title": "Couldn't check who is waiting on you",
+    "reply_debt_unchecked_body": ("Ostler could not read your messages just "
+                                  "now, so this is not an all-clear. It will "
+                                  "check again shortly."),
     "gone_quiet_title": "You and {name} have gone quiet",
     "gone_quiet_body": ("No contact for {span}. A short message keeps "
                         "the thread alive."),
@@ -404,6 +411,29 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
     return card
 
 
+def reply_debt_degraded(raw) -> bool:
+    """True when the reply-debt endpoint answered but said it could not look
+    (``degraded: true``). A degraded payload carries count 0, and count 0 must
+    not be read as "nobody is waiting"."""
+    return isinstance(raw, dict) and bool(raw.get("degraded"))
+
+
+def reply_debt_unchecked_card(now: datetime, ledger=None):
+    """The "couldn't check" card. Names nobody and quotes nothing, so it is
+    safe at L2. No action: there is no list to open."""
+    cid = fp.card_id("signal", "reply_debt_unchecked")
+    created = _ledger_created(ledger, cid, now)
+    card = fp._make_card(
+        "signal", "reply_debt_unchecked",
+        title=_STRINGS["reply_debt_unchecked_title"],
+        body=_STRINGS["reply_debt_unchecked_body"], now=now,
+        domain="people", priority=fp.BAND_REPLY_DEBT * 0.25,
+        action=None, source="ostler:conversations", privacy="L2",
+        signal={"type": "reply_debt", "unchecked": True})
+    card["created_utc"] = fp._iso(created)
+    return card
+
+
 def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
                     privacy: str = "L2"):
     name = fp.person_label(name)
@@ -519,10 +549,13 @@ def build_signal_cards(raw: dict | None, now: datetime, ledger=None) -> list:
         return []
     cards: list = []
 
-    rd = _normalise_reply_debt(raw.get("reply_debt"))
-    card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
-    if card:
-        cards.append(card)
+    if reply_debt_degraded(raw.get("reply_debt")):
+        cards.append(reply_debt_unchecked_card(now, ledger=ledger))
+    else:
+        rd = _normalise_reply_debt(raw.get("reply_debt"))
+        card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
+        if card:
+            cards.append(card)
 
     reconnect, birthdays = _normalise_suggestions(raw.get("suggestions"), now)
     for it in reconnect:

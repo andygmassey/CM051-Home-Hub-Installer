@@ -6707,24 +6707,27 @@ def commitments_list(owner=None, due_before=None, status="open",
 #
 # The detector itself lives in CM048 (src/reply_debt.py + adapters +
 # service). It is deliberately source-agnostic stdlib-only code (no LLM,
-# no network): the iMessage adapter reads Apple's chat.db READ-ONLY and
-# the core scores the normalised threads. We invoke it in-process by
+# no network): the iMessage adapter reads the reply-debt SNAPSHOT that the
+# signed iMessage feed (`ostler-assistant run-source imessage`) writes under
+# ~/.ostler/state/reply_debt/, and the core scores the normalised threads. We invoke it in-process by
 # importing CM048's reply-debt service from OSTLER_PROJECT_DIR -- the same
 # env var the existing CM048 conversation-processing integration uses to
 # locate the CM048 checkout on the box. CM048's
 # ``handle_reply_debt``/``compute_reply_debts`` were written for exactly
 # this seam (see src/reply_debt_service.py docstring).
 #
-# Single-machine architecture (v1.0.3): chat.db lives at
-# ~/Library/Messages/chat.db on the same Mac the Assistant API runs on, so
-# the data is reachable from this process given Full Disk Access. No second
-# host, no cross-machine sync.
+# THIS PROCESS NEVER OPENS chat.db (CM051 #30, studio29). launchd runs it
+# as a bare python3.11, so TCC attributes any protected read to that
+# interpreter: the customer was shown a Full Disk Access request for
+# "python3.11", denied by default, and this endpoint then said "you're all
+# caught up" because it had read nothing. Protected reads belong to the
+# signed assistant, which already holds Full Disk Access.
 #
-# HONESTY: we distinguish "no data source reachable" (degraded:true -- the
-# CM048 checkout is not on the path, or chat.db cannot be read) from "zero
-# replies owed" (degraded:false, debts:[] -- you are caught up). The brief
-# leads with the headline only when debts is non-empty; an empty-but-not-
-# degraded result is the honest "all caught up" state.
+# HONESTY: we distinguish "no data source reachable" (degraded:true plus a
+# reason -- the CM048 checkout is not on the path, the snapshot is missing,
+# stale or malformed, or the feed recorded that it could not read Messages)
+# from "zero replies owed" (degraded:false, debts:[]). A degraded payload
+# carries an EMPTY brief_line, never the all-clear copy.
 
 # Where the CM048 checkout lives on the box. Mirrors OSTLER_PROJECT_DIR
 # used by _conversation_process_background; that env var points at the
@@ -6824,23 +6827,34 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
             debts = debts[:limit]
         payload = service.reply_debt_payload(debts)
     except Exception as exc:
-        # Any failure inside the detector (a chat.db read error, a bad
-        # adapter) degrades to caught-up rather than 5xx.
+        # Any failure inside the detector (an unreadable source, a bad
+        # adapter) degrades to "couldn't check", never to caught-up and
+        # never to a 5xx. A source the detector names keeps its own reason
+        # code so a consumer (and the walk) can say WHICH thing was missing.
         print(
             f"[reply-debt] computation failed: "
             f"{type(exc).__name__}: {exc}",
             file=sys.stderr,
             flush=True,
         )
-        return {
+        reason = getattr(exc, "reason", None)
+        payload = {
             "count": 0,
             "brief_line": "",
             "debts": [],
             "degraded": True,
-            "reason": f"reply_debt_failed: {str(exc)[:200]}",
-        }, 200
+            "reason": (str(reason) if reason
+                       else f"reply_debt_failed: {str(exc)[:200]}"),
+        }
+        detail = getattr(exc, "detail", "")
+        if reason and detail:
+            payload["detail"] = str(detail)[:200]
+        return payload, 200
 
     payload.setdefault("degraded", False)
+    if payload.get("degraded"):
+        # Belt and braces: a degraded payload must never carry the all-clear.
+        payload["brief_line"] = ""
     # Same contract as the two payloads above. reply_debt is the "N people are
     # waiting on you" card, badged L2 on the public front-page design.
     if isinstance(payload, dict):
@@ -11335,7 +11349,7 @@ class Handler(BaseHTTPRequestHandler):
         # GET /api/v1/reply-debt?limit=N&threshold_hours=F&lookback_days=N&include_group=0|1
         # The daily-brief headline: "you owe a reply to N people". Read-only;
         # degrades to {count:0, debts:[], degraded:true} when the CM048
-        # detector / chat.db is not reachable so the brief omits the line
+        # detector / its snapshot is not reachable so the brief omits the line
         # rather than going red. (CM048 reply-debt detector, JTBD#1.)
         if parsed.path == "/api/v1/reply-debt":
             params = parse_qs(parsed.query)
