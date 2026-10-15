@@ -1,0 +1,38 @@
+# D1: a timed Pause that expires must re-enable the daemon cron, and say so when it cannot.
+name: status-honesty-pause
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/doctor/agent/pause_control.py'
+      - 'vendor/doctor/agent/daemon_cron.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'tests/test_pause_expiry_reenables_cron.py'
+      - '.github/workflows/status-honesty-pause.yml'
+  pull_request:
+    paths:
+      - 'vendor/doctor/agent/pause_control.py'
+      - 'vendor/doctor/agent/daemon_cron.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'tests/test_pause_expiry_reenables_cron.py'
+      - '.github/workflows/status-honesty-pause.yml'
+
+jobs:
+  pause-expiry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet pytest
+      - name: Expired pause re-enables cron
+        run: |
+          set -eu
+          n="$(python -m pytest tests/test_pause_expiry_reenables_cron.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n}"
+          [ "${n:-0}" -ge 3 ] || { echo "REFUSING: expected at least 3 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest tests/test_pause_expiry_reenables_cron.py -v
+          python vendor/doctor/agent/test_daemon_cron.py

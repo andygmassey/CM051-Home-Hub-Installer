@@ -1308,3 +1308,24 @@ never a pass. Not applicable off macOS when tmutil is absent. The installer
 half is in install.sh `_ostler_harden_at_rest`. `doctor.patch` is NOT
 regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
 `tests/test_time_machine_exclusion_is_measured.sh` (vendor-integrity.yml).
+
+---
+
+## doctor: an expired timed Pause re-enables the daemon cron (status-honesty sweep D1)
+
+`vendor/doctor/agent/pause_control.py`: `read_state()` calls the new
+`_reconcile_expired_pause()` when a timed pause has elapsed. It mirrors the
+resume to the daemon cron and the Settings checkbox first, then clears the stale
+governor.env lines; on failure it leaves the file for a retry and returns
+`cron_resume_error`. `_mirror_settings_panel()` now returns its errors (logged,
+and handed back as `mirror_errors` by `set_pause`/`resume`) instead of
+swallowing them. `vendor/doctor/agent/box_status.py` carries
+`pause.cron_resume_error` through. WHY: set_pause switched the cron off and
+nothing switched it back on, so the 09:00 brief and 18:00 wrap never fired
+again while every screen read "not paused".
+
+### What a future sync must preserve
+
+The reconcile on the expiry branch of `read_state`, and the non-swallowing
+mirror. Guarded by `tests/test_pause_expiry_reenables_cron.py` (workflow
+`status-honesty-pause.yml`).
