@@ -470,6 +470,26 @@ def _budget_timeout(ceiling: float = _ENRICH_CALL_CEILING_SECS) -> float:
 BASE_DELAY_SECONDS = 30
 
 
+class SinkUnavailableError(RuntimeError):
+    """A step failed because the model / gateway could not be REACHED (refused
+    connection, DNS, 502/503/504), not because it rejected this document.
+    ``pwg-convo process`` exits 75 (EX_TEMPFAIL) on it so a catch-up caller
+    can tell an outage from a poisoned item."""
+
+
+def _is_sink_unreachable(exc: BaseException) -> bool:
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (502, 503, 504)
+    if isinstance(exc, httpx.TimeoutException):
+        # Only a connect timeout: a read timeout is one slow document.
+        return isinstance(exc, httpx.ConnectTimeout)
+    if isinstance(exc, (httpx.ConnectError, ConnectionError)):
+        return True
+    return False
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Classify whether an exception is worth retrying.
 
@@ -549,6 +569,11 @@ def _run_step(
                 )
                 state.fail(step, reason)
                 _save_state(state_dir, state)
+                if _is_sink_unreachable(exc):
+                    raise SinkUnavailableError(
+                        f"Step {step}: model or gateway unreachable "
+                        f"({type(exc).__name__}). See state.json."
+                    ) from exc
                 raise RuntimeError(
                     f"Step {step} failed "
                     f"({'permanent error' if not retryable else f'after {MAX_RETRIES} retries'}). "

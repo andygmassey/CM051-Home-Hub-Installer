@@ -14,6 +14,8 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'gui/project.yml'
       - 'tests/test_catchup_core.py'
+      - 'tests/test_cm048_exit_75_when_the_sink_is_unreachable.py'
+      - 'vendor/cm048_pipeline/src/**'
       - 'tests/test_export_scan_runs_the_catchup_step.sh'
       - 'tests/test_doctor_shows_catchup_progress.sh'
       - '.github/workflows/catchup-machinery.yml'
@@ -25,6 +27,8 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'gui/project.yml'
       - 'tests/test_catchup_core.py'
+      - 'tests/test_cm048_exit_75_when_the_sink_is_unreachable.py'
+      - 'vendor/cm048_pipeline/src/**'
       - 'tests/test_export_scan_runs_the_catchup_step.sh'
       - 'tests/test_doctor_shows_catchup_progress.sh'
       - '.github/workflows/catchup-machinery.yml'
@@ -43,7 +47,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pytest
-        run: python -m pip install --quiet pytest
+        run: python -m pip install --quiet pytest httpx
       - name: core walks to the oldest item, bounded, kill-safe
         run: |
           n="$(python -m pytest tests/test_catchup_core.py --collect-only -q | grep -cE '::test_')" || n=0
@@ -53,6 +57,9 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_catchup_core.py -v -rs -s
+      - name: pwg-convo exits 75 when the sink is unreachable (outage is not poison)
+        if: always()
+        run: python -m pytest tests/test_cm048_exit_75_when_the_sink_is_unreachable.py -v
       - name: export-scan drives every registered catch-up runner
         if: always()
         run: /bin/bash tests/test_export_scan_runs_the_catchup_step.sh

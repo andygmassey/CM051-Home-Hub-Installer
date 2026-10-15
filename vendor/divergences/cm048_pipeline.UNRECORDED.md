@@ -316,3 +316,18 @@ Guarded by `tests/test_cm048_third_party_facts_keep_their_subject.py`, wired
 into `.github/workflows/cm048-participants-as-strings.yml`. Upstream: no CM048
 PR opened; an upstream mirror is owed before this tree is re-pinned, or a
 re-pin deletes the fix.
+
+## `pwg-convo process` exits 75 when the model or gateway cannot be reached (CM051 #2903, Ostler #30, 2026-10-15)
+
+Tree `cm048_pipeline`, files `src/processor.py` and `src/cli.py`:
+
+- new `SinkUnavailableError(RuntimeError)` and `_is_sink_unreachable(exc)`
+  (refused or reset connection, connect timeout, 502/503/504);
+  `_run_step` raises it in place of the generic `RuntimeError` for those;
+- `cmd_process` catches it and returns 75 (EX_TEMPFAIL). Every other failure
+  keeps its old exit code, so 1 still means "this item was rejected".
+
+WHY: the catch-up adapters count a non-zero exit as one poison attempt toward
+quarantine. An outage of Ollama or the gateway therefore quarantined history
+windows after a few ticks. 75 lets them stop without counting an attempt.
+Test: `tests/test_cm048_exit_75_when_the_sink_is_unreachable.py`.
