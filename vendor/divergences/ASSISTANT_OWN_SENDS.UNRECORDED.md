@@ -60,3 +60,11 @@ Tree `imessage_source`, `vendor/imessage_source/pipeline.py`: new `_widen_first_
 ### What a future sync must preserve
 
 `_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py`. Retire by landing the change upstream (CM040) and re-pinning.
+
+## The first mail BUNDLE window widens when the default holds too little (#30)
+
+Tree `email_source`, `vendor/email_source/pipeline.py`: new `_widen_first_window`, `_install_running` and the `FIRST_WINDOW_*` constants, and one call in `process_email`. Not an assistant-send change; recorded here because this is the record the manifest declares for this tree. The mail bundle tick reads `--since-days 30` (2 in the daytime clamp), so a sparse mailbox got 0 thread bundles on day one. On the FIRST tick only, if the window holds under 2,000 messages and under 50 threads it widens backwards until either is met (not during the install, not past 180 s, not when OSTLER_EMAIL_SINCE_DAYS is pinned).
+
+### What a future sync must preserve
+
+`_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change upstream and re-pinning.
