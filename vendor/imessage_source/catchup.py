@@ -125,6 +125,10 @@ def _raw_to_ns(raw: int) -> int:
     return raw if raw > 1e15 else int(raw * 1e9)
 
 
+# EX_TEMPFAIL: `pwg-convo process` exits 75 when the model/gateway cannot be reached.
+SINK_UNAVAILABLE_RC = 75
+
+
 class IMessageCatchup(oc.Adapter):
     source = "imessage"
     doctor_row = "imessage"
@@ -260,6 +264,11 @@ class IMessageCatchup(oc.Adapter):
         rc = _dispatch_to_cm048(transcript, metadata,
                                 pwg_convo_cmd=self.pwg_convo_cmd or _resolve_pwg_convo_cmd(),
                                 dry_run=False)
+        if rc == SINK_UNAVAILABLE_RC:
+            # pwg-convo could not reach its model or gateway: an outage, not a
+            # verdict on this conversation. Raising a ConnectionError keeps it
+            # out of the poison-attempt count (lib/ostler_catchup.py).
+            raise ConnectionError("pwg-convo: sink unavailable (exit 75)")
         return rc == 0
 
 

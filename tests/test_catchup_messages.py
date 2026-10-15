@@ -508,3 +508,40 @@ def test_the_registered_runner_carries_the_feeds_environment(tmp_path):
     assert "Jane" in body
     assert not (stage / "bin" / "catchup.d" / "62-whatsapp.sh").exists(), \
         "a runner was written for a feed whose venv does not exist"
+
+
+# ── an outage of the sink is not a poison attempt (Archie re-review of #2903) ─
+
+def _exit_script(tmp: Path, rc: int) -> list:
+    s = tmp / f"pwg-convo-rc{rc}"
+    s.write_text(f"#!/bin/sh\nexit {rc}\n")
+    s.chmod(0o755)
+    return [str(s)]
+
+
+def _first_item(adapter):
+    batch = adapter.next_batch(adapter.start_cursor(), 1)
+    assert batch.items, "fixture produced no item to process"
+    return batch.items[0]
+
+
+@pytest.mark.parametrize("which", ["imessage", "whatsapp"])
+def test_a_cm048_exit_75_is_an_outage_never_a_failed_item(env, which):
+    if which == "imessage":
+        db = env["tmp"] / "chat.db"
+        build_chat_db(db)
+        mk = lambda cmd: _catchup_module("imessage_source.catchup").IMessageCatchup(
+            db_path=db, state_path=env["ws"] / "none.json", pwg_convo_cmd=cmd)
+    else:
+        db = env["tmp"] / "ChatStorage.sqlite"
+        build_chatstorage(db)
+        mk = lambda cmd: _catchup_module("whatsapp_source.catchup").WhatsAppCatchup(
+            db_path=db, state_path=env["ws"] / "none.json", pwg_convo_cmd=cmd)
+    down = mk(_exit_script(env["tmp"], 75))
+    with pytest.raises(ConnectionError):
+        down.process(_first_item(down))
+    # A real rejection is still just False: it counts toward quarantine.
+    rejects = mk(_exit_script(env["tmp"], 1))
+    assert rejects.process(_first_item(rejects)) is False
+    ok = mk(_exit_script(env["tmp"], 0))
+    assert ok.process(_first_item(ok)) is True
