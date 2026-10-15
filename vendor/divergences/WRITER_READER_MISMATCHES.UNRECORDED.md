@@ -1444,3 +1444,13 @@ Tree `ostler_fda`. NEW CM051-side behaviour, three files:
 ### What a future sync must preserve
 
 `catchup_mail.py`, `query_message_rows` / `normalise_sender`, and `MAIL_CONTACT_MIN_COUNT`. Guarded by `tests/test_catchup_mail.py` (red on origin/main, wired in `.github/workflows/catchup-mail.yml`).
+## Full-history catch-up for Google Takeout and dropped mailboxes (v1.0.108, catch-up 6/6)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, two files:
+
+- `vendor/ostler_fda/catchup_mbox.py` (NEW FILE): finds every `takeout-*.zip` part and every `.mbox` member (install.sh 9.4 takes the first zip and its first member), extracts each once, and walks each distinct mailbox for `lib/ostler_catchup.py` in three phases: a header index in bounded byte-offset slices with no date window and no message cap, the full correspondent map through `_persist_mail_contacts`, then threads newest first through `_email_thread_to_payload` / `_persist_conversations`. A thread CM048 already holds (`processing/email_*_<key hash>`) is not sent again; messages the install's caps cut off go as one continuation bundle.
+- `vendor/ostler_fda/universal_import.py`: `_dispatch_mbox` queues the mailbox it read (`catchup_mbox.queue_mailbox`, never fatal) so catch-up finishes it. The install-time caps (250,000 messages, 20,000 threads, five years, 4,000 body characters) are unchanged.
+
+### What a future sync must preserve
+
+`catchup_mbox.py` and the `queue_mailbox` call in `_dispatch_mbox`. Also (tree `ostler_fda`, file `vendor/ostler_fda/catchup_mbox.py`): `sweep_gone_sources` (a vanished Takeout zip leaves no extraction behind; state in `state/catchup/takeout-source-gone.json`) and `extract_member`'s cap from `ostler_catchup.tick_remaining()`; guarded by `test_a_takeout_zip_that_vanishes_mid_walk_leaves_nothing_behind` and `test_the_extraction_cap_is_the_ticks_remaining_budget`. Guarded by `tests/test_catchup_takeout.py` (red on origin/main, wired in `.github/workflows/catchup-takeout.yml`).

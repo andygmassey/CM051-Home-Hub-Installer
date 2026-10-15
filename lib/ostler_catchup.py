@@ -429,6 +429,19 @@ class Adapter:
 
 # ── the loop ─────────────────────────────────────────────────────────────────
 
+# The running tick's deadline, so an adapter that does one long step (a Takeout
+# extraction) can cap it by what the tick has LEFT instead of a fixed number.
+_TICK: dict = {"deadline": None, "clock": None}
+
+
+def tick_remaining() -> Optional[float]:
+    """Seconds left in the tick now running, or None outside a tick."""
+    d, c = _TICK.get("deadline"), _TICK.get("clock")
+    if d is None or c is None:
+        return None
+    return max(0.0, d - c())
+
+
 def run(
     adapters: Iterable[Adapter],
     *,
@@ -444,6 +457,7 @@ def run(
     """
     adapters = [a for a in adapters if a is not None]
     t0 = clock()
+    _TICK["deadline"], _TICK["clock"] = t0 + budget_seconds, clock
     own_ledger = ledger is None
     ledger = ledger or Ledger()
     wms = {a.source: Watermark.load(a.source, a.doctor_row or a.source) for a in adapters}
@@ -598,6 +612,7 @@ def run(
                             "batches": st["batches"],
                             "reason": st["reason"], "seconds": seconds}
             wm.save()
+        _TICK["deadline"] = _TICK["clock"] = None
         if own_ledger:
             ledger.close()
 

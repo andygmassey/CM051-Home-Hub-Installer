@@ -783,6 +783,7 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
 
     persisted = 0
     failed = 0
+    unavailable = 0
     for payload in payloads:
         conv_id = payload.get("conversation_id")
         transcript = payload.get("transcript")
@@ -810,6 +811,10 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
                     "conversation (exit %s)", source, proc.returncode
                 )
                 failed += 1
+                if proc.returncode == 75:
+                    # EX_TEMPFAIL: pwg-convo could not reach its model or
+                    # gateway. An outage, not a verdict on this thread.
+                    unavailable += 1
         except (OSError, ValueError) as exc:  # noqa: BLE001 -- type only (privacy)
             logger.warning(
                 "universal_import: pwg-convo exec failed for %s (%s)",
@@ -824,6 +829,7 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
         "persist_status": status,
         "persisted": persisted,
         "persist_failed": failed,
+        "persist_unavailable": unavailable,
     }
 
 
@@ -1206,6 +1212,15 @@ def _dispatch_mbox(detection: Detection, *, output_dir: Optional[Path]) -> dict:
     convo = _persist_email_conversations(
         messages, source="email_mbox", output_dir=out
     )
+    # v1.0.108: this pass stops at five years, 250,000 messages and 20,000
+    # threads (fast install). Queue the mailbox so the background catch-up
+    # (catchup_mbox.py) reads the rest of it; threads sent here are not sent
+    # again. Never fatal.
+    try:
+        from .catchup_mbox import queue_mailbox
+        queue_mailbox(detection.route_path)
+    except Exception as exc:  # noqa: BLE001 -- type only
+        logger.info("universal_import: mailbox not queued for catch-up (%s)", type(exc).__name__)
     return {
         "status": "ok",
         "dispatched": "google_takeout(mbox)",
