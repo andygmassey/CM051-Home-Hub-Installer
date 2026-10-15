@@ -244,6 +244,23 @@ def test_a_batch_that_cannot_run_is_never_complete_and_never_moves(oc):
     assert wm["complete"] is False and wm["cannot_run"] == "read_denied"
 
 
+def test_cannot_run_raised_from_process_is_not_an_attempt_and_never_quarantines(oc):
+    sink = {}
+    adapter = _make_adapter(oc, sink, n=50)
+
+    def process(item):
+        raise oc.CannotRun("schema_unrecognised")
+
+    adapter.process = process
+    for _ in range(oc.MAX_ITEM_ATTEMPTS + 2):
+        s = oc.run([adapter], budget_seconds=1e9, busy=lambda: None)
+        row = s["sources"]["fx"]
+        assert row["reason"] == "cannot_run:schema_unrecognised"
+        assert not row["complete"] and row["quarantined"] == 0
+    wm = json.loads((oc.state_dir() / "fx.json").read_text())
+    assert wm["cannot_run"] == "schema_unrecognised" and wm["items_quarantined"] == 0
+
+
 def test_a_corrupt_watermark_restarts_the_walk_but_the_ledger_prevents_duplicates(oc):
     sink = {}
     adapter = _make_adapter(oc, sink)
