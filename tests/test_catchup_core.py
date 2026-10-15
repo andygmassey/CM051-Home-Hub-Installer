@@ -543,3 +543,69 @@ def test_a_paused_mirror_is_neither_complete_nor_spinning(oc):
         s = oc.run([Mirror()], budget_seconds=5, busy=lambda: None)
         assert not s["sources"]["mirror"]["complete"], "an unchanged mirror was called complete"
     assert calls["n"] == 3, f"the mirror was read {calls['n']} times in 3 ticks (spinning)"
+
+
+# ── Archie's review of #2903: outage is not poison; a read error is said ─────
+
+def test_a_sink_outage_for_many_ticks_quarantines_nothing_and_resumes(oc):
+    sink = {}
+    adapter = _make_adapter(oc, sink, n=100)
+    real = adapter.process
+    down = {"on": True}
+
+    def process(item):
+        if down["on"]:
+            raise oc.SinkUnavailable("gateway_down")
+        return real(item)
+
+    adapter.process = process
+    # ~12 h of 15-minute ticks: far more than MAX_ITEM_ATTEMPTS.
+    for _ in range(50):
+        s = oc.run([adapter], budget_seconds=1e9, busy=lambda: None)
+        row = s["sources"]["fx"]
+        assert row["reason"] == "sink_unavailable"
+        assert row["quarantined"] == 0 and row["failed"] == 0 and not row["complete"]
+    wm = json.loads((oc.state_dir() / "fx.json").read_text())
+    assert wm["items_quarantined"] == 0 and wm.get("cursor", 0) == 0, "cursor moved or item quarantined during an outage"
+    down["on"] = False
+    s = oc.run([adapter], budget_seconds=1e9, busy=lambda: None)
+    assert s["sources"]["fx"]["complete"] and s["sources"]["fx"]["items_quarantined"] == 0
+    assert len(sink) == 100, "history was lost to the outage"
+
+
+def test_a_connection_error_from_the_sink_is_an_outage_not_a_poison_attempt(oc):
+    sink = {}
+    adapter = _make_adapter(oc, sink, n=20)
+
+    def process(item):
+        raise ConnectionRefusedError("synthetic")
+
+    adapter.process = process
+    for _ in range(oc.MAX_ITEM_ATTEMPTS + 3):
+        s = oc.run([adapter], budget_seconds=1e9, busy=lambda: None)
+        assert s["sources"]["fx"]["reason"] == "sink_unavailable"
+        assert s["sources"]["fx"]["quarantined"] == 0
+
+
+def test_a_generic_next_batch_error_sets_cannot_run_for_the_doctor(oc):
+    class Boom(oc.Adapter):
+        source, doctor_row = "boom", "boom_row"
+
+        def start_cursor(self):
+            return 0
+
+        def next_batch(self, cursor, limit):
+            raise PermissionError("synthetic: full disk access denied")
+
+        def key(self, item):
+            return str(item)
+
+        def process(self, item):
+            return True
+
+    s = oc.run([Boom()], budget_seconds=1e9, busy=lambda: None)
+    row = s["sources"]["boom"]
+    assert row["reason"] == "read_failed:PermissionError"
+    wm = json.loads((oc.state_dir() / "boom.json").read_text())
+    assert wm["cannot_run"] == "read_failed:PermissionError", "the Doctor would still say Catching up"
+    assert wm["complete"] is False
