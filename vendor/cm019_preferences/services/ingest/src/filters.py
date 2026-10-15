@@ -421,7 +421,11 @@ class PreferenceFilter:
             if key in self._aggregated:
                 # Increment count for existing preference (same source)
                 existing_pref, count = self._aggregated[key]
-                existing_pref = self._with_latest_observation(existing_pref, pref)
+                if self._is_passive(existing_pref) and not self._is_passive(pref):
+                    # An explicit signal outranks the plays already seen.
+                    existing_pref = self._with_latest_observation(pref, existing_pref)
+                else:
+                    existing_pref = self._with_latest_observation(existing_pref, pref)
                 self._aggregated[key] = (existing_pref, count + weight)
                 self.stats["aggregated_count"] += 1
                 # Mark as modified since frequency increased
@@ -439,6 +443,10 @@ class PreferenceFilter:
                 return True
             self._seen_keys.add(key)
             return False
+
+    @staticmethod
+    def _is_passive(pref: ParsedPreference) -> bool:
+        return isinstance(pref.extra, dict) and pref.extra.get("passive_play") is True
 
     @staticmethod
     def _observation_weight(pref: ParsedPreference) -> int:
@@ -537,7 +545,12 @@ class PreferenceFilter:
             )
 
             # Derive preference_type from sign of strength
-            if adjusted_strength > 0:
+            passive = isinstance(pref.extra, dict) and pref.extra.get("passive_play") is True
+            if adjusted_strength > 0 and passive:
+                # Plays only: a play is not a like. Strength is kept, so the
+                # listening still ranks; only the label stops claiming a like.
+                preference_type = "Neutral"
+            elif adjusted_strength > 0:
                 preference_type = "Like"
             elif adjusted_strength < 0:
                 preference_type = "Dislike"

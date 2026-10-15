@@ -93,6 +93,9 @@ def score_track(row: dict) -> tuple:
     if row.get("in_user_playlist") is True:
         candidates.append((CURATED_STRENGTH, "playlist"))
     strength, evidence = max(candidates, key=lambda c: c[0])
+    if evidence == "library":
+        # In the library, nothing more: a play, not a like (Ostler #30).
+        return strength, "Neutral", evidence
     return strength, "Like", evidence
 
 

@@ -662,7 +662,7 @@ source_repo      = "$CM019"
 source_path      = "."
 pinned_sha       = "f2a305f17a5239ddc8c178aacb56671020b194ca"
 divergence_patch = ""
-unrecorded_divergence = "vendor/divergences/cm019_preferences_usage_journal.UNRECORDED.md"
+unrecorded_divergence = "vendor/divergences/cm019_preferences_usage_journal.UNRECORDED.md"  # 2026-10-15 Ostler #30: see the section appended to this file
 exclude          = ["__pycache__/"]
 verify           = "skip"
 unverifiable_ack = true
@@ -845,7 +845,7 @@ source_repo      = "$CM059"
 source_path      = "compiler"
   pinned_sha = "85c8792465f1a540a4e7c7725c39968d64c17988"
   divergence_patch = "vendor/divergences/cm059_editor.patch"
-unrecorded_divergence = "vendor/divergences/cm059_editor_calls_field.UNRECORDED.md"
+unrecorded_divergence = "vendor/divergences/cm059_editor_calls_field.UNRECORDED.md"  # 2026-10-15 Ostler #30: see the section appended to this file
   hold_ack_shas            = "1935dba08c4478e898b84bff49cb783c931dc80a"
   hold_ack_reason          = "2026-10-02 (Archie, v1.0.107): 1935dba0 is the squash merge of CM059-Ostler-Editor #29 (render_frontpage treats a None title or body as empty and omits the empty body element). Its change is ALREADY GRAFTED into this tree by CM051 #2602 and carried in vendor/divergences/cm059_editor.patch; pinned to the graft by tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py, which fails (rc=1) against the pre-graft renderer and passes (rc=0) on this tree. Acked, not re-pinned, because the source is one further commit ahead on an unrelated change. SCOPE: this sha only."
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
