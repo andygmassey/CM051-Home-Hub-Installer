@@ -24246,18 +24246,11 @@ if [[ -e "${_FW_PENDING[0]}" && -x "$_FW_PY" && -d "${OSTLER_DIR}/fda-module/ost
     _fw_src="$(cat "${_FW_PENDING[@]}" 2>/dev/null | sort -u | paste -sd, -)"
     ( export OSTLER_HOME="${OSTLER_DIR}" OSTLER_FW_SOURCES="$_fw_src"
       _ostler_run_with_deadline 600 "$_FW_PY" -c "
-import os, sys
+import sys
 sys.path.insert(0, '${OSTLER_DIR}/fda-module')
-from ostler_fda.backfill_ladder import _default_busy
-why = _default_busy()
-if why:
-    print('first-window: skipped, machine busy (%s)' % why)
-    sys.exit(0)
 from pathlib import Path
-from ostler_fda.extract_all import run_all
-srcs = [s for s in os.environ['OSTLER_FW_SOURCES'].split(',') if s]
-run_all(Path('${OSTLER_DIR}/imports/fda'), enabled_sources=srcs)
-print('first-window: re-extracted %d source(s)' % len(srcs))
+from ostler_fda.backfill_ladder import finish_pending_first_windows
+print('first-window: ' + str(finish_pending_first_windows(Path('${OSTLER_DIR}/imports/fda'))))
 " ) >>"${OSTLER_DIR}/logs/first-window.log" 2>&1 || true
     printf '[%s] first-window pending=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$_fw_src" >>"${OSTLER_DIR}/logs/first-window.log"
     unset _fw_src

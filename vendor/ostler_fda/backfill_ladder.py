@@ -441,3 +441,30 @@ def widen_first_window(source, days, extract, measure, env_var=None, persist_lad
         # wider than it, not a repeat of a narrower one.
         _write_days(source, days)
     return result, days
+
+
+def finish_pending_first_windows(fda_dir, busy=None) -> dict:
+    """The first QUIET firing after install: finish what the install deferred.
+
+    For every source queued in state/first_window_pending_<source>, re-extract
+    it (widening its first window now that the Mac is quiet) and then run the
+    SAME graph ingest the recurring tick runs (pwg_ingest.ingest_all), so the
+    wider history reaches the people graph and not just imports/fda. Conversation
+    bundles do NOT come from here: they are read from chat.db by the
+    imessage-bundle agent, which widens its own first window
+    (imessage_source/pipeline.py). Returns a counts-only dict."""
+    sd = _state_dir()
+    pending = sorted(sd.glob("first_window_pending_*")) if sd.is_dir() else []
+    if not pending:
+        return {"status": "nothing_pending"}
+    why = (busy or _default_busy)()
+    if why:
+        logger.info("[first-window] finish skipped, machine busy (%s)", why)
+        return {"status": "busy", "reason": why}
+    sources = sorted({p.read_text().strip() for p in pending if p.read_text().strip()})
+    from .extract_all import run_all
+    from .pwg_ingest import ingest_all
+    run_all(Path(fda_dir), enabled_sources=sources)
+    results = ingest_all(Path(fda_dir)) or {}
+    logger.info("[first-window] finished %d pending source(s)", len(sources))
+    return {"status": "ok", "sources": sources, "ingest": sorted(results) if isinstance(results, dict) else []}

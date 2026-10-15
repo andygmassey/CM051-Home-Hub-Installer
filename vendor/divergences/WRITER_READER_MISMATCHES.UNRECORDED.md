@@ -1256,3 +1256,13 @@ WHY: on a synthetic install whose every message was older than 45 days the first
 `widen_first_window` and the three call sites. Guarded by `tests/test_first_window_adaptive.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in HR015 `ostler_fda` and re-pinning.
 
 Follow-up (tree `ostler_fda`, `vendor/ostler_fda/backfill_ladder.py`): `_default_busy`, `_bounded` and the `busy` / `run_source` parameters of `widen_first_window`, plus the pending queue. Guarded by the same test file.
+
+## The first iMessage BUNDLE window widens when the default holds too little (#30, A3 follow-up)
+
+Tree `imessage_source`, `vendor/imessage_source/pipeline.py`: new `_widen_first_window`, `_install_running` and the `FIRST_WINDOW_*` constants; one call in `process_imessage`. Tree `ostler_fda`, `vendor/ostler_fda/backfill_ladder.py`: new `finish_pending_first_windows` (re-extract the queued sources, then the same `pwg_ingest.ingest_all` the recurring tick runs).
+
+WHY: conversation bundles come from the imessage-bundle agent reading chat.db with `--since-days 30` (2 in the daytime clamp) and a forward watermark, NOT from imports/fda. Widening imports/fda alone left a sparse owner with 0 conversations on day one. On the first tick only, if the window holds under 2,000 messages and under 50 threads, it widens backwards until either is met; not during the install, not past 180 s, not when OSTLER_IMESSAGE_SINCE_DAYS is pinned.
+
+### What a future sync must preserve
+
+`_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in the upstream source and re-pinning.

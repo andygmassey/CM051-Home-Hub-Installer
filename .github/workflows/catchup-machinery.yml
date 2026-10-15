@@ -17,6 +17,8 @@ on:
       - 'tests/test_export_scan_runs_the_catchup_step.sh'
       - 'tests/test_catchup_first_48h_cadence.sh'
       - 'tests/test_first_window_adaptive.py'
+      - 'tests/test_first_window_end_to_end.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/ostler_fda/backfill_ladder.py'
       - 'vendor/ostler_fda/extract_all.py'
       - 'tests/test_doctor_shows_catchup_progress.sh'
@@ -32,6 +34,8 @@ on:
       - 'tests/test_export_scan_runs_the_catchup_step.sh'
       - 'tests/test_catchup_first_48h_cadence.sh'
       - 'tests/test_first_window_adaptive.py'
+      - 'tests/test_first_window_end_to_end.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/ostler_fda/backfill_ladder.py'
       - 'vendor/ostler_fda/extract_all.py'
       - 'tests/test_doctor_shows_catchup_progress.sh'
@@ -73,3 +77,6 @@ jobs:
       - name: the first window widens when the default holds too little
         if: always()
         run: python -m pytest tests/test_first_window_adaptive.py -v -rs
+      - name: a sparse day one reaches the graph AND the conversation bundles
+        if: always()
+        run: python -m pytest tests/test_first_window_end_to_end.py -v -rs

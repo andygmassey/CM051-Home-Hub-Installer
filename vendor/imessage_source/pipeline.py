@@ -297,6 +297,63 @@ def _dispatch_to_cm048(
         return proc.returncode
 
 
+# ── #30: the FIRST bundle window widens when the default holds too little ───
+# The tick reads --since-days 30 (and only 2 in the daytime clamp), then a
+# forward watermark. An owner whose conversations are all older than that got
+# ZERO bundles on day one. On the first tick only, if the window holds fewer
+# than FIRST_WINDOW_MIN_MESSAGES messages and fewer than
+# FIRST_WINDOW_MIN_CONVERSATIONS threads (either minimum is enough), widen
+# backwards through FIRST_WINDOW_RUNGS until one is met or the history is
+# exhausted. Never during the install (the install marker counts as busy: the
+# first tick after it does the widening), never past FIRST_WINDOW_BUDGET_SECONDS,
+# never when the operator pinned OSTLER_IMESSAGE_SINCE_DAYS. Mirrors
+# ostler_fda.backfill_ladder.widen_first_window (separate venv, so no import).
+FIRST_WINDOW_MIN_MESSAGES = 2000
+FIRST_WINDOW_MIN_CONVERSATIONS = 50
+FIRST_WINDOW_RUNGS = [90, 180, 365, 730, 1095, 1825, 3650, 36500]
+FIRST_WINDOW_BUDGET_SECONDS = 180
+
+
+def _install_running() -> bool:
+    home = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
+    return (Path(home) / "state" / "install-in-progress").exists()
+
+
+def _widen_first_window(state: dict, conversations: list, db_path, since_days: int) -> list:
+    if "first_window" in state or os.environ.get("OSTLER_IMESSAGE_SINCE_DAYS", "").strip():
+        return conversations
+
+    def measure(cs):
+        return sum(int(c.message_count or 0) for c in cs), len(cs)
+
+    msgs, convs = measure(conversations)
+    if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
+        state["first_window"] = {"days": since_days, "result": "kept"}
+        logger.info("[first-window] imessage-bundle kept %dd: %d messages, %d conversations",
+                    since_days, msgs, convs)
+        return conversations
+    if _install_running():
+        logger.info("[first-window] imessage-bundle deferred: busy (installing); "
+                    "the first tick after the install widens it")
+        return conversations
+    started = time.monotonic()
+    days, result = since_days, "exhausted"
+    for rung in (r for r in FIRST_WINDOW_RUNGS if r > since_days):
+        if time.monotonic() - started >= FIRST_WINDOW_BUDGET_SECONDS:
+            result = "budget"
+            break
+        days = rung
+        conversations = extract_conversations(db_path=db_path, since_days=rung)
+        msgs, convs = measure(conversations)
+        if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
+            result = "widened"
+            break
+    state["first_window"] = {"days": days, "result": result}
+    logger.info("[first-window] imessage-bundle %s: default %dd -> %dd: %d messages, %d conversations",
+                result, since_days, days, msgs, convs)
+    return conversations
+
+
 def process_imessage(
     *,
     db_path: Optional[Path] = None,
@@ -323,6 +380,8 @@ def process_imessage(
     name_for_handle = _name_resolver(contacts)
 
     conversations = extract_conversations(db_path=db_path, since_days=since_days)
+    if not dry_run:
+        conversations = _widen_first_window(state, conversations, db_path, since_days)
 
     scanned = dispatched = skipped = failed = 0
     for convo in conversations:

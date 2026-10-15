@@ -52,3 +52,11 @@ with `HR015` and `CM040` pointed at local checkouts:
 Test: `tests/test_assistant_sends_are_not_owner_input.py`.
 Upstream mirror owed: CM040 `services/imessage_source/reader.py`, HR015
 `whatsapp_source/reader.py`, `email_source/reader.py`, `ostler_fda/imessage.py`.
+
+## The first iMessage bundle window widens when the default holds too little (#30)
+
+Tree `imessage_source`, `vendor/imessage_source/pipeline.py`: new `_widen_first_window`, `_install_running` and the `FIRST_WINDOW_*` constants, and one call in `process_imessage`. Not an assistant-send change; recorded here because this is the record the manifest declares for this tree. The conversation bundles are read from chat.db with `--since-days 30` and a forward watermark, so a sparse owner got 0 on day one; on the FIRST tick only, if the window holds under 2,000 messages and under 50 threads it widens backwards until either is met (not during the install, not past 180 s, not when OSTLER_IMESSAGE_SINCE_DAYS is pinned).
+
+### What a future sync must preserve
+
+`_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py`. Retire by landing the change upstream (CM040) and re-pinning.
