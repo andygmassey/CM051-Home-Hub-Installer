@@ -1503,3 +1503,23 @@ ends in `|| true`, records the failure.
 `_lookup_status` at the four return sites and the non-zero exit in `main()`.
 Guarded by `tests/test_people_status_honesty.py` (workflow
 `status-honesty-people.yml`).
+
+## ostler_fda: WhatsApp's unknown-name token is not a name (#30 batch 3)
+
+Mini16 carried 13 people all named "WhatsApp contact": `_whatsapp_display_name`
+returns that literal for an all-digit non-phone JID (an LID), and it ranked as
+tier 2, a real name, so it was written as one.
+
+`vendor/ostler_fda/pwg_ingest.py`: new `_is_whatsapp_placeholder_name()` (shape
+match: empty, punctuation or emoji only, "~"-prefixed, unknown-name words and
+"WhatsApp contact"-shaped labels across locales). `_display_name_tier` ranks it
+tier 0; `_creation_name_triples` writes the provisional flag and NO name;
+`_upsert_display_name` writes nothing. The person and its identifier are still
+created.
+
+### What a future sync must preserve
+
+All three edits. Guarded by
+`vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py` (workflow
+`whatsapp-lid-not-phone.yml`). Locale strings are best-effort, not verified
+against WhatsApp's string tables.

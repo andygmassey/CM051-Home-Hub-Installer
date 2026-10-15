@@ -17,12 +17,14 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/whatsapp_history.py'
       - 'vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py'
+      - 'vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py'
       - '.github/workflows/whatsapp-lid-not-phone.yml'
   pull_request:
     paths:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/whatsapp_history.py'
       - 'vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py'
+      - 'vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py'
       - '.github/workflows/whatsapp-lid-not-phone.yml'
 
 concurrency:
@@ -71,4 +73,5 @@ jobs:
             echo "REFUSING: expected at least 13 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py -v
+          python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py \
+            ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py -v
