@@ -413,3 +413,88 @@ def test_install_registers_the_runner_and_its_spec_resolves(name, spec, venv):
     assert m, f"install.sh does not register {name} with {spec} on {venv}"
     mod, _, attr = spec.partition(":")
     assert callable(getattr(_need(mod), attr)), f"{spec} does not resolve"
+
+
+# ── cannot_run is never "all of your history is read" ───────────────────────
+
+class _DeniedConn:
+    """A sqlite connection that opens fine and refuses every query, as macOS
+    does when Full Disk Access is withdrawn after the file was opened."""
+
+    def __init__(self, real):
+        self._real = real
+        self.row_factory = None
+
+    def execute(self, *a, **k):
+        raise sqlite3.OperationalError("authorization denied")
+
+    def close(self):
+        self._real.close()
+
+
+def _run_photos(oc, adapter, state_dir, monkeypatch):
+    monkeypatch.setenv("OSTLER_CATCHUP_STATE_DIR", str(state_dir))
+    return oc.run([adapter], budget_seconds=1e9, busy=lambda: None)["sources"]["photos"]
+
+
+def test_photos_denied_read_is_cannot_run_never_an_empty_library_or_done(env, monkeypatch):
+    import ostler_catchup as oc
+    from ostler_fda import photos_metadata as pm
+    cp = _need("ostler_fda.catchup_photos")
+    real_connect = sqlite3.connect
+    import types
+    # Shim only photos_metadata's view of sqlite3; the catch-up ledger keeps the real one.
+    shim = types.SimpleNamespace(**{k: getattr(sqlite3, k) for k in dir(sqlite3) if not k.startswith("__")})
+    shim.connect = lambda *a, **k: _DeniedConn(real_connect(*a, **k))
+    monkeypatch.setattr(pm, "sqlite3", shim)
+    with pytest.raises(pm.PhotosCannotRead):
+        pm.oldest_asset_date(env["db"])
+    row = _run_photos(oc, cp.PhotosAdapter(env["db"]), env["tmp"] / "st", monkeypatch)
+    assert not row["complete"], "a denied read was reported as a finished walk (Doctor: All of your history is read)"
+    assert row["reason"] == "cannot_run:read_denied"
+    wm = json.loads((env["tmp"] / "st" / "photos.json").read_text())
+    assert wm["complete"] is False and wm["cannot_run"] == "read_denied"
+
+
+def test_photos_genuinely_empty_library_is_still_complete(env, monkeypatch):
+    """Control: the fix must not turn a real empty library into a permanent cannot-run."""
+    import ostler_catchup as oc
+    cp = _need("ostler_fda.catchup_photos")
+    empty = env["tmp"] / "Empty.sqlite"
+    c = sqlite3.connect(empty)
+    c.executescript("CREATE TABLE ZASSET (Z_PK INTEGER PRIMARY KEY, ZDATECREATED REAL, "
+                    "ZLATITUDE REAL, ZLONGITUDE REAL, ZTRASHEDSTATE INTEGER);")
+    c.commit(); c.close()
+    row = _run_photos(oc, cp.PhotosAdapter(empty), env["tmp"] / "st", monkeypatch)
+    assert row["complete"] and row["reason"] == "complete"
+
+
+def test_photos_unrecognised_layout_is_cannot_run_not_a_done_window(env, monkeypatch):
+    import ostler_catchup as oc
+    from ostler_fda import photos_metadata as pm
+    cp = _need("ostler_fda.catchup_photos")
+    # (a) no known asset table at all
+    alien = env["tmp"] / "Alien.sqlite"
+    c = sqlite3.connect(alien)
+    c.executescript("CREATE TABLE ZSOMETHINGNEW (Z_PK INTEGER PRIMARY KEY);")
+    c.commit(); c.close()
+    with pytest.raises(pm.PhotosCannotRead):
+        pm.oldest_asset_date(alien)
+    row = _run_photos(oc, cp.PhotosAdapter(alien), env["tmp"] / "st_a", monkeypatch)
+    assert not row["complete"] and row["reason"].startswith("cannot_run:")
+    # (b) the asset table reads, but none of the event layouts match: every
+    # window used to come back [] and be written down as done.
+    half = env["tmp"] / "Half.sqlite"
+    c = sqlite3.connect(half)
+    c.executescript("CREATE TABLE ZASSET (Z_PK INTEGER PRIMARY KEY, ZDATECREATED REAL, "
+                    "ZLATITUDE REAL, ZLONGITUDE REAL, ZTRASHEDSTATE INTEGER);")
+    c.execute("INSERT INTO ZASSET VALUES (1, ?, 0, 0, 0)",
+              ((NOW - timedelta(days=900)).timestamp() - MAC_EPOCH,))
+    c.commit(); c.close()
+    assert pm.extract_photo_events(half, since_days=3650) == [], "default behaviour must stay [] for the install path"
+    row = _run_photos(oc, cp.PhotosAdapter(half), env["tmp"] / "st_b", monkeypatch)
+    assert not row["complete"], "unrecognised event layout was recorded as done windows"
+    assert row["reason"] == "cannot_run:schema_unrecognised"
+    ledger_db = env["tmp"] / "st_b" / "ledger.sqlite"
+    n = sqlite3.connect(ledger_db).execute("SELECT COUNT(*) FROM done").fetchone()[0]
+    assert n == 0, f"{n} windows were written to the ledger as done"

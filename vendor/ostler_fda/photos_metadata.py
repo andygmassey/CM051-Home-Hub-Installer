@@ -35,6 +35,22 @@ DEFAULT_PHOTOS_PATH = (
 )
 
 
+class PhotosCannotRead(RuntimeError):
+    """The Photos database could not be READ (permission refused) or its layout
+    is not one this code knows. Distinct from an empty library: callers that
+    walk history (catchup_photos.py) must report this as cannot-run, never as
+    "nothing there". ``reason`` is a short code, never content."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _is_denied(err: Exception) -> bool:
+    msg = str(err).lower()
+    return "authorization denied" in msg or "not authorized" in msg
+
+
 @dataclass
 class PersonInPhotos:
     """A person recognised by Apple Photos' face detection."""
@@ -232,6 +248,7 @@ def extract_photo_events(
     with_people_only: bool = True,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
+    strict: bool = False,
 ) -> list[PhotoEvent]:
     """Extract photo events for timeline integration.
 
@@ -244,6 +261,9 @@ def extract_photo_events(
             window at a time. None keeps the original behaviour exactly.
         until: absolute upper bound (inclusive). None means no upper bound,
             which is the original behaviour.
+        strict: raise PhotosCannotRead when the read is refused or the layout
+            is not recognised, instead of returning []. The default keeps the
+            original behaviour for the install-time caller.
 
     Returns:
         List of PhotoEvent objects for timeline display.
@@ -353,6 +373,9 @@ def extract_photo_events(
         except sqlite3.OperationalError as e:
             logger.error("Photo events schema not recognised: %s", e)
             conn.close()
+            if strict:
+                raise PhotosCannotRead(
+                    "read_denied" if _is_denied(e) else "schema_unrecognised") from e
             return []
 
     conn.close()
@@ -384,7 +407,9 @@ def oldest_asset_date(db_path: Optional[Path] = None) -> Optional[datetime]:
     """Capture time of the oldest non-trashed asset, or None for an empty
     library. Same schema order as extract_photo_events (ZASSET, then the
     legacy ZGENERICASSET). Raises like extract_photo_events when the
-    database is missing or Full Disk Access is not granted."""
+    database is missing or Full Disk Access is not granted, and raises
+    PhotosCannotRead when the read is refused part-way or no known table
+    exists: None means EMPTY LIBRARY and nothing else."""
     db_path = db_path or DEFAULT_PHOTOS_PATH
     if not db_path.exists():
         raise FileNotFoundError(f"Photos database not found at {db_path}")
@@ -397,17 +422,27 @@ def oldest_asset_date(db_path: Optional[Path] = None) -> Optional[datetime]:
             ) from e
         raise
     try:
+        saw_table = False
         for table in ("ZASSET", "ZGENERICASSET"):
             try:
                 row = conn.execute(
                     f"SELECT MIN(ZDATECREATED) FROM {table} "
                     "WHERE ZTRASHEDSTATE = 0 AND ZDATECREATED IS NOT NULL"
                 ).fetchone()
-            except sqlite3.OperationalError:
-                continue
+            except sqlite3.OperationalError as e:
+                if _is_denied(e):
+                    raise PhotosCannotRead("read_denied") from e
+                if "no such table" in str(e).lower():
+                    continue
+                raise PhotosCannotRead("schema_unrecognised") from e
+            saw_table = True
             if row and row[0] is not None:
                 return datetime.fromtimestamp(row[0] + MAC_EPOCH_OFFSET, tz=timezone.utc)
+            # The table was read and holds no live asset: a genuinely empty
+            # library. This, and only this, is None.
             return None
+        if not saw_table:
+            raise PhotosCannotRead("schema_unrecognised")
         return None
     finally:
         conn.close()

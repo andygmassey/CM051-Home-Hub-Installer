@@ -103,7 +103,14 @@ class PhotosAdapter(oc.Adapter):
     def next_batch(self, cursor, limit):
         cur = dict(cursor)
         if not cur.get("floor_read"):
-            oldest = pm.oldest_asset_date(self.db_path)
+            try:
+                oldest = pm.oldest_asset_date(self.db_path)
+            except pm.PhotosCannotRead as exc:
+                raise oc.CannotRun(exc.reason) from exc
+            except PermissionError as exc:
+                raise oc.CannotRun("read_denied") from exc
+            except FileNotFoundError as exc:
+                raise oc.CannotRun("library_missing") from exc
             cur["floor"] = int(oldest.timestamp()) if oldest else None
             cur["floor_read"] = True
         upper, floor = int(cur["upper"]), cur["floor"]
@@ -126,12 +133,21 @@ class PhotosAdapter(oc.Adapter):
 
     def process(self, item):
         faces = self.faces if self.faces is not None else faces_enabled()
-        events = pm.extract_photo_events(
-            self.db_path,
-            with_people_only=faces,
-            since=datetime.fromtimestamp(item["lower"], tz=timezone.utc),
-            until=datetime.fromtimestamp(item["upper"], tz=timezone.utc),
-        )
+        try:
+            events = pm.extract_photo_events(
+                self.db_path,
+                with_people_only=faces,
+                since=datetime.fromtimestamp(item["lower"], tz=timezone.utc),
+                until=datetime.fromtimestamp(item["upper"], tz=timezone.utc),
+                strict=True,
+            )
+        except pm.PhotosCannotRead as exc:
+            # An unrecognised layout or a refused read is not an empty window:
+            # reporting [] here would mark the window done and, window by
+            # window, tell the customer all of their history was read.
+            raise oc.CannotRun(exc.reason) from exc
+        except PermissionError as exc:
+            raise oc.CannotRun("read_denied") from exc
         if not faces:
             for e in events:
                 e.people = []
