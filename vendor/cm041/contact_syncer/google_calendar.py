@@ -287,6 +287,11 @@ _TYPE_DEFAULT_PRIVACY = {
     "family": "L1",
     "work": "L2",
     "shared": "L2",
+    # ``other`` is a type the operator can pick in lib/ostler-confirm-calendars.py
+    # (VALID_TYPES), documented there as personal-grade. It had no entry here,
+    # so a calendar the operator CONFIRMED as "other" (holidays, birthdays,
+    # subscribed) fell to the fail-closed L3 and its events vanished silently.
+    "other": "L1",
 }
 # Fail-closed default for a CONFIRMED calendar whose type we cannot read:
 # the operator answered, and the answer did not classify it -> L3.
