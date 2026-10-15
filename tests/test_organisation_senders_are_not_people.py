@@ -3,8 +3,8 @@
 Andy's console walk found two organisations on the People surface. Their
 SHAPES, with invented names:
 
-  brightwell@brightwell.example.com     a sender named after its own domain
-  "Glimmer" on events@glimmer.example.com   a one-word name that is just the
+  local part "brightwell" at brightwell.example.com   a sender named after its own domain
+  "Glimmer", local part "events" at glimmer.example.com   a one-word name that is just the
                                             sender's domain
 
 CM044 #344 fixes the wiki reader. This runs the two SIBLING paths that ship in

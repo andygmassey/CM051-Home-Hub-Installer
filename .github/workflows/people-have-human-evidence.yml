@@ -59,6 +59,7 @@ jobs:
       # v1.0.107 walk #28: an organisation sender is not a person, on both
       # writers (ostler_fda mail + calendar ingest) and the Hub People list.
       - name: Organisation senders are not people
+        if: always()
         run: |
           n="$(python -m pytest tests/test_organisation_senders_are_not_people.py \
                  --collect-only -q | grep -cE '::test_')" || n=0

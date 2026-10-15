@@ -274,7 +274,7 @@ def _address_is_automated(addr):
 
 
 # v1.0.107 walk #28 (candidate #28): organisations on the People list. Their
-# SHAPE, with invented names: "Glimmer" on events@glimmer.example.com, a
+# SHAPE, with invented names: "Glimmer" writing from an "events" mailbox at glimmer.example.com, a
 # one-word name that is just the sender's own domain. A person writes from
 # jane.doe@company and her name is not the company's domain. Read from the
 # address, never from a list of companies. Same rule as CM044

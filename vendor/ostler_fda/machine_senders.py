@@ -159,7 +159,7 @@ def organisation_reason(addr: Optional[str]) -> Optional[str]:
 
     NOT strict: a correspondent (the owner wrote to it, or it wrote into a
     thread the owner wrote in) is a human and is kept by every caller, the
-    same as the role-word rule. `jane.doe@brand.example` matches nothing.
+    same as the role-word rule. a first.last local part at the brand matches nothing.
     """
     a = _norm(addr)
     if not a:
