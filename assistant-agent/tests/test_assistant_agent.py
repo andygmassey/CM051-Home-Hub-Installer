@@ -61,15 +61,15 @@ def test_plist_invokes_daemon_subcommand():
     assert args[1] == "daemon", args
 
 
-def test_plist_keepalive_only_on_abnormal_exit():
+def test_plist_keepalive_is_pathstate_not_successfulexit():
     data = plistlib.loads(PLIST.read_bytes())
     keepalive = data["KeepAlive"]
-    # Bool-True would respawn even on intentional shutdown
-    # (uninstall, fatal config error). Dict form with
-    # SuccessfulExit=false is the launchd idiom for "respawn on
-    # crash, leave alone on clean exit".
+    # Bool-True ignores the deliberate-stop marker; SuccessfulExit=false
+    # leaves a SIGTERM (exit 0) dead. PathState on the marker (absent =
+    # alive) is the contract with the daemon's `service stop`.
     assert isinstance(keepalive, dict), keepalive
-    assert keepalive.get("SuccessfulExit") is False
+    assert "SuccessfulExit" not in keepalive
+    assert list(keepalive["PathState"].values()) == [False]
 
 
 def test_plist_runs_at_load():
@@ -355,3 +355,19 @@ def test_snippet_creates_logs_dir_if_absent(tmp_path):
     result = _run_snippet(setup)
     assert result.returncode == 0, result.stderr
     assert setup["logs_dir"].is_dir()
+
+
+def test_rendered_plist_keepalive_is_pathstate_on_absolute_marker(tmp_path):
+    # SIGTERM -> daemon exits 0 -> SuccessfulExit=false left it dead.
+    # KeepAlive must be PathState on the deliberate-stop marker (absent
+    # means keep alive), with an ABSOLUTE rendered path.
+    setup = _stage_inputs(tmp_path)
+    result = _run_snippet(setup)
+    assert result.returncode == 0, result.stderr
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    data = plistlib.loads(rendered.read_bytes())
+    ka = data["KeepAlive"]
+    assert "SuccessfulExit" not in ka
+    marker = str(setup["home_dir"] / ".ostler" / "deliberate-stop")
+    assert ka["PathState"] == {marker: False}
+    assert marker.startswith("/")
