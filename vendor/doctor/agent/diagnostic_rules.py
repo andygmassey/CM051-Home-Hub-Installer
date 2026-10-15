@@ -2475,7 +2475,7 @@ def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
         })
     if cannot:
         findings.append({
-            "severity": "info",
+            "severity": "warning",
             "title": TM_CANNOT_CHECK_TITLE,
             "detail": TM_CANNOT_CHECK_DETAIL_FMT.format(reason=cannot[0]),
             "fix": TM_CANNOT_CHECK_FIX,

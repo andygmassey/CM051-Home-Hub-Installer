@@ -52,12 +52,18 @@ case "$cmd" in
     [[ "${FAKE_TM:-}" == lies ]] && exit 0
     : > "$mark"; exit 0 ;;
   isexcluded)
+    if [[ "${FAKE_TM:-}" == unknown ]]; then printf '[UNKNOWN]   %s\n' "$p"; exit 0; fi
+    if [[ "${FAKE_TM:-}" == errors ]]; then echo "tmutil: could not read the exclusion list." >&2; exit 1; fi
     if [[ -e "$mark" ]]; then printf '[Excluded]  %s\n' "$p"; else printf '[Included]  %s\n' "$p"; fi
     exit 0 ;;
 esac
 exit 64
 TM
 chmod +x "$WORK/bin/tmutil"
+
+# The OK lines of an output file, read once into a variable so each match is a
+# here-string and no producer can be SIGPIPEd by `grep -q` under pipefail.
+ok_lines() { grep '^OK' "$1" || true; }
 
 run_install() {  # run_install <mode> [refuse-path] -> output in $WORK/out.<mode>
     local mode="$1" h="$WORK/home-$1"
@@ -80,9 +86,10 @@ RUN
 
 # control: everything honoured
 h="$(run_install honours)"
+okl="$(ok_lines "$WORK/out.honours")"
 if grep -q "REACHED THE END" "$WORK/out.honours" && ! grep -q '^WARN' "$WORK/out.honours" \
-   && grep '^OK' "$WORK/out.honours" | grep -q "$h/.ostler" \
-   && grep '^OK' "$WORK/out.honours" | grep -q "$h/.colima"; then
+   && grep -q "$h/.ostler" <<< "$okl" \
+   && grep -q "$h/.colima" <<< "$okl"; then
     pass "honours: all three excluded, one green line naming them, no warning"
 else fail "honours (control): $(cat "$WORK/out.honours")"; fi
 
@@ -91,7 +98,8 @@ for mode in refuses lies; do
     out="$WORK/out.$mode"
     if ! grep -q "REACHED THE END" "$out"; then
         fail "$mode: the install aborted instead of reporting: $(tail -3 "$out")"; continue; fi
-    if grep '^OK' "$out" | grep -qE 'excluded|Time Machine'; then
+    okl="$(ok_lines "$out")"
+    if grep -qE 'excluded|Time Machine' <<< "$okl"; then
         fail "$mode: a green line claims an exclusion Time Machine does not have: $(grep '^OK' "$out")"
     else pass "$mode: no green line claims an exclusion"; fi
     n="$(grep -c "^WARN: .*NOT excluded" "$out" || true)"
@@ -103,10 +111,25 @@ done
 h="$WORK/home-one-refused"
 h="$(run_install one-refused "$h/.colima")"
 out="$WORK/out.one-refused"
-if grep '^OK' "$out" | grep -q "$h/.ostler" && ! grep '^OK' "$out" | grep -q "$h/.colima" \
+okl="$(ok_lines "$out")"
+if grep -q "$h/.ostler" <<< "$okl" && ! grep -q "$h/.colima" <<< "$okl" \
    && grep -q "WARN: $h/.colima is NOT excluded" "$out" && [[ "$(grep -c '^WARN' "$out")" -eq 1 ]]; then
     pass "one-refused: the green line names the two that held, the warning names the one that did not"
 else fail "one-refused: $(cat "$out")"; fi
+
+# tmutil that cannot answer (an [UNKNOWN] reply, or an error): the text must say
+# "could not be checked", never the measurement "still includes it".
+for mode in unknown errors; do
+    h="$(run_install "$mode")"
+    out="$WORK/out.$mode"
+    if ! grep -q "REACHED THE END" "$out"; then
+        fail "$mode: the install aborted instead of reporting: $(tail -3 "$out")"; continue; fi
+    n="$(grep -c "^WARN: .*could not be checked" "$out" || true)"
+    if [[ "$n" -eq 3 ]] && ! grep -q "still includes it" "$out" \
+       && ! grep -qE 'excluded|Time Machine' <<< "$(ok_lines "$out")"; then
+        pass "$mode: three 'could not be checked' warnings, no 'still includes it', no green claim"
+    else fail "$mode: expected 3 'could not be checked' and no 'still includes it', got $n: $(grep -E '^(WARN|OK)' "$out")"; fi
+done
 
 # ── Doctor: the live rule ─────────────────────────────────────────────────
 PY="${PYTHON:-python3}"
@@ -130,20 +153,22 @@ PYEOF
 }
 out="$(doctor honours 0)"
 case "$out" in IMPORT-FAILED*) cannot "the Doctor rules module does not import: $out";; esac
-if echo "$out" | grep -q "Ostler's secrets folder is NOT excluded from Time Machine" \
-   && echo "$out" | grep -q "Documents/Ostler is NOT excluded" && echo "$out" | grep -q '^REGISTERED'; then
+if grep -q "Ostler's secrets folder is NOT excluded from Time Machine" <<< "$out" \
+   && grep -q "Documents/Ostler is NOT excluded" <<< "$out" && grep -q '^REGISTERED' <<< "$out"; then
     pass "Doctor: both included folders are named, the secrets folder in its own words, and the rule is registered"
 else fail "Doctor, included: $out"; fi
 out="$(doctor honours 1)"
-if echo "$out" | head -1 | grep -qx '\[\]'; then pass "Doctor control: excluded folders give no finding"
+first="$(head -n 1 <<< "$out")"
+if [[ "$first" == "[]" ]]; then pass "Doctor control: excluded folders give no finding"
 else fail "Doctor control: $out"; fi
 printf '#!/usr/bin/env bash\necho "garbled" ; exit 0\n' > "$WORK/bin/tmutil.garbled"
 mv "$WORK/bin/tmutil" "$WORK/bin/tmutil.real"; cp "$WORK/bin/tmutil.garbled" "$WORK/bin/tmutil"; chmod +x "$WORK/bin/tmutil"
 out="$(doctor honours 0)"
 mv "$WORK/bin/tmutil.real" "$WORK/bin/tmutil"
-if echo "$out" | grep -q "Could not check" && ! echo "$out" | grep -q "NOT excluded"; then
+if grep -q "Could not check" <<< "$out" && ! grep -q "NOT excluded" <<< "$out" \
+   && grep -q '"warning", "Could not check' <<< "$out" && ! grep -q '"info"' <<< "$out"; then
     pass "Doctor: an unreadable tmutil answer is 'could not check', never a pass"
 else fail "Doctor, garbled tmutil: $out"; fi
 
-echo "denominator: 4 install runs x 3 folders + 3 Doctor runs"
+echo "denominator: 6 install runs x 3 folders + 3 Doctor runs"
 exit "$status"

@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8456) captures the path BY
+    # _ostler_write_store_curl_config (defined :8504) captures the path BY
     # VALUE and never re-reads it:
-    #     :8457   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8502   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8511 and :15558, both of which run
+    #     :8505   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8550   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8559 and :15606, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16338, where the note reads
+    # WhatsApp Web session path did it again at :16386, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16355 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16403 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5964 against a definition at :8456. Top-level
+    # writer's own definition: :5964 against a definition at :8504. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8511, :15558) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8559, :15606) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18497 / :18675 / :18832 / :19200 path. There the
+    # :18549 / :18727 / :18884 / :19252 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8114,12 +8114,22 @@ fi
 # "[Included]  <p>", "[UNKNOWN]   <p>" (missing path), all exit 0, so the
 # exit code alone cannot answer it.
 #
-# _ostler_tm_excluded <path>: 0 excluded, 1 not excluded, 2 tmutil absent.
+# _ostler_tm_excluded <path>: 0 excluded, 1 measured as [Included], 2 tmutil
+# absent, 4 could not be checked (tmutil errored, or answered [UNKNOWN] or
+# something unrecognised; its text is left in _OSTLER_TM_ANSWER). Only 1 means
+# "still included"; 4 must never be reported as a measurement.
+_OSTLER_TM_ANSWER=""
 _ostler_tm_excluded() {
-    local _out
+    local _out _rc=0
+    _OSTLER_TM_ANSWER=""
     command -v tmutil >/dev/null 2>&1 || return 2
-    _out="$(tmutil isexcluded "$1" 2>&1)" || return 1
-    [[ "$_out" == "[Excluded]"* ]]
+    _out="$(tmutil isexcluded "$1" 2>&1)" || _rc=$?
+    if [[ $_rc -ne 0 ]]; then _OSTLER_TM_ANSWER="$_out"; return 4; fi
+    case "$_out" in
+        "[Excluded]"*) return 0 ;;
+        "[Included]"*) return 1 ;;
+        *) _OSTLER_TM_ANSWER="$_out"; return 4 ;;
+    esac
 }
 # _ostler_harden_at_rest <dir>: 0 when BOTH the Spotlight marker and the
 # Time Machine exclusion are measured in place, 1 otherwise, 3 when the
@@ -8146,7 +8156,9 @@ _ostler_harden_at_rest() {
         0) ;;
         2) _OSTLER_HARDEN_PROBLEM="${_OSTLER_HARDEN_PROBLEM:+${_OSTLER_HARDEN_PROBLEM}; }tmutil is not available, so the exclusion could not be set or checked"
            _rc=1 ;;
-        *) _OSTLER_HARDEN_PROBLEM="${_OSTLER_HARDEN_PROBLEM:+${_OSTLER_HARDEN_PROBLEM}; }Time Machine still includes it${_add_err:+ (tmutil: ${_add_err})}"
+        1) _OSTLER_HARDEN_PROBLEM="${_OSTLER_HARDEN_PROBLEM:+${_OSTLER_HARDEN_PROBLEM}; }Time Machine still includes it${_add_err:+ (tmutil: ${_add_err})}"
+           _rc=1 ;;
+        *) _OSTLER_HARDEN_PROBLEM="${_OSTLER_HARDEN_PROBLEM:+${_OSTLER_HARDEN_PROBLEM}; }whether Time Machine includes it could not be checked${_OSTLER_TM_ANSWER:+ (tmutil: ${_OSTLER_TM_ANSWER})}${_add_err:+ (addexclusion: ${_add_err})}"
            _rc=1 ;;
     esac
     return "$_rc"
