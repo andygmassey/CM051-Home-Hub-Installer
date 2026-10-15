@@ -236,8 +236,13 @@ run_sup() {
     OSTLER_LOGS_DIR="${WORK}/logs" \
     OSTLER_DIR="${WORK}/ostler" \
     OSTLER_ENGINE_KICKSTART_CMD="$2" \
-    OSTLER_ENGINE_RECOVERY_SETTLE_S=5 \
+    OSTLER_ENGINE_RECOVERY_SETTLE_S=2 \
+    OSTLER_ENGINE_SETTLE_POLL_S=1 \
     OSTLER_ENGINE_RECOVERY_COOLDOWN_S=0 \
+    OSTLER_ENGINE_PORT_FAIL_N=2 \
+    OSTLER_ENGINE_PORT_FAIL_INTERVAL_S=0 \
+    OSTLER_ENGINE_INSTALL_RUNNING_CMD=false \
+    OSTLER_ENGINE_PORT_PROBE_CMD="${PORTS_CMD:-false}" \
     PATH="/usr/bin:/bin" \
         bash "$SUP" >"${WORK}/sup.out" 2>&1
     return $?
@@ -260,7 +265,7 @@ fi
 # kickstarts the daemon on every tick is a worse outage than the one it
 # was built for.
 rm -rf "${WORK}/state" "${WORK}/logs"
-run_sup "$p_up" "echo KICKSTART_CALLED; exit 0"; rc=$?
+PORTS_CMD=true run_sup "$p_up" "echo KICKSTART_CALLED; exit 0"; rc=$?
 if grep -q 'KICKSTART_CALLED' "${WORK}/sup.out"; then
     failure "NEGATIVE CONTROL FAILED: the supervisor restarted the daemon on a HEALTHY box"
 elif [[ "$rc" -eq 0 ]]; then
@@ -287,10 +292,10 @@ else
 fi
 
 # Thrash guard: a supervisor with no attempt budget is a second outage.
-if grep -q 'RECOVERY_MAX_ATTEMPTS' "$SUP_CODE" && grep -q 'RECOVERY_COOLDOWN_S' "$SUP_CODE"; then
-    pass "recovery is rationed by both an attempt budget and a cooldown"
+if grep -q 'RECOVERY_COOLDOWN_CAP_S' "$SUP_CODE" && grep -q 'RECOVERY_COOLDOWN_S' "$SUP_CODE"; then
+    pass "recovery is rationed by a cooldown with capped exponential backoff"
 else
-    failure "the supervisor has no attempt budget or no cooldown; it would restart the daemon forever"
+    failure "the supervisor has no capped backoff or no cooldown; it would restart the daemon forever"
 fi
 
 # ── 4. IT MUST BE PERIODIC, AND FASTER THAN THE THING THAT FAILED ───
