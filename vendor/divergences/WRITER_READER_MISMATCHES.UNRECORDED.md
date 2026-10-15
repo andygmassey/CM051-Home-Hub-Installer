@@ -1485,3 +1485,21 @@ WHY: conversation bundles come from the imessage-bundle agent reading chat.db wi
 ### What a future sync must preserve
 
 `_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in the upstream source and re-pinning.
+
+---
+
+## ostler_fda: people writers and the CLI report failure (status-honesty sweep E2, V3)
+
+`vendor/ostler_fda/pwg_ingest.py`: new `_lookup_status(lookup_failed, landed)`;
+`ingest_imessage`, `ingest_whatsapp`, `ingest_calendar` and `ingest_mail_contacts`
+return `status` "error" (nothing landed, lookups failed) or "partial" instead of
+a hardcoded "ok", so the fda-rerun no longer stamps `last_success_at` when
+Oxigraph was down. `main()` exits 1 when any result is an error (it exited 0
+whatever the results said), so install.sh's WhatsApp graph write, which no longer
+ends in `|| true`, records the failure.
+
+### What a future sync must preserve
+
+`_lookup_status` at the four return sites and the non-zero exit in `main()`.
+Guarded by `tests/test_people_status_honesty.py` (workflow
+`status-honesty-people.yml`).

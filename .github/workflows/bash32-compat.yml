@@ -48,6 +48,7 @@ on:
       - 'tests/test_no_test_uses_a_bash4_builtin.sh'
       - 'tests/test_pgrep_no_match_does_not_fabricate_a_done.sh'
       - 'tests/test_upgrade_path_can_wire_store_auth.sh'
+      - 'tests/test_whatsapp_ingest_err_trap.sh'
       - '.github/workflows/bash32-compat.yml'
       # The class guard scans every tests/*.sh and scripts/*.sh, so any new
       # or edited test can introduce the defect it looks for. Watching only
@@ -136,10 +137,14 @@ jobs:
           esac
           /bin/bash tests/test_upgrade_path_can_wire_store_auth.sh install.sh
 
+      - name: WhatsApp pwg_ingest step survives rc=1 under an armed ERR trap
+        run: /bin/bash tests/test_whatsapp_ingest_err_trap.sh
+
       - name: All three parse under /bin/bash 3.2
         if: always()
         run: |
           /bin/bash -n tests/test_no_test_uses_a_bash4_builtin.sh
           /bin/bash -n tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
           /bin/bash -n tests/test_upgrade_path_can_wire_store_auth.sh
+          /bin/bash -n tests/test_whatsapp_ingest_err_trap.sh
           echo "OK: parses under the shell the cut actually uses"
