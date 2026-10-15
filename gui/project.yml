@@ -284,6 +284,12 @@ targets:
           # failure shape the coverage gate exists to catch.
           cp "${SRCROOT}/../lib/ostler-confirm-calendars.py"     "${DEST}/lib/ostler-confirm-calendars.py"
           cp "${SRCROOT}/../lib/ostler-confirm-identity.py"      "${DEST}/lib/ostler-confirm-identity.py"
+          # v1.0.108 full-history catch-up core. install.sh seeds it from
+          # ${SCRIPT_DIR}/lib/ostler_catchup.py into ${OSTLER_DIR}/lib and every
+          # catch-up runner imports it from there. Missing here = the seeder
+          # warns and no older history is ever read on a .app install.
+          cp "${SRCROOT}/../lib/ostler_catchup.py"               "${DEST}/lib/ostler_catchup.py"
+          chmod 644 "${DEST}/lib/ostler_catchup.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
@@ -358,6 +364,7 @@ targets:
           - $(SRCROOT)/../bin/ostler-engine-supervisor.sh
           - $(SRCROOT)/../lib/ostler-confirm-calendars.py
           - $(SRCROOT)/../lib/ostler-confirm-identity.py
+          - $(SRCROOT)/../lib/ostler_catchup.py
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
@@ -370,6 +377,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ostler-engine-supervisor.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-calendars.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-identity.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_catchup.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that

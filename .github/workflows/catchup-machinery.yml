@@ -1,0 +1,68 @@
+# v1.0.108 full-history catch-up: the shared machinery. A walk reaches the
+# oldest item across bounded ticks, a kill loses nothing and duplicates
+# nothing, export-scan actually drives every registered family, and Doctor
+# shows how far back each source has been read.
+name: catchup-machinery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'gui/project.yml'
+      - 'tests/test_catchup_core.py'
+      - 'tests/test_cm048_exit_75_when_the_sink_is_unreachable.py'
+      - 'vendor/cm048_pipeline/src/**'
+      - 'tests/test_export_scan_runs_the_catchup_step.sh'
+      - 'tests/test_doctor_shows_catchup_progress.sh'
+      - '.github/workflows/catchup-machinery.yml'
+  pull_request:
+    paths:
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'gui/project.yml'
+      - 'tests/test_catchup_core.py'
+      - 'tests/test_cm048_exit_75_when_the_sink_is_unreachable.py'
+      - 'vendor/cm048_pipeline/src/**'
+      - 'tests/test_export_scan_runs_the_catchup_step.sh'
+      - 'tests/test_doctor_shows_catchup_progress.sh'
+      - '.github/workflows/catchup-machinery.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  catchup-machinery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --quiet pytest httpx
+      - name: core walks to the oldest item, bounded, kill-safe
+        run: |
+          n="$(python -m pytest tests/test_catchup_core.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 16 ]; then
+            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_catchup_core.py -v -rs -s
+      - name: pwg-convo exits 75 when the sink is unreachable (outage is not poison)
+        if: always()
+        run: python -m pytest tests/test_cm048_exit_75_when_the_sink_is_unreachable.py -v
+      - name: export-scan drives every registered catch-up runner
+        if: always()
+        run: /bin/bash tests/test_export_scan_runs_the_catchup_step.sh
+      - name: Doctor shows catch-up progress per source
+        if: always()
+        run: /bin/bash tests/test_doctor_shows_catchup_progress.sh
