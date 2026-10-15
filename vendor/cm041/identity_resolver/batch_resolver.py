@@ -46,7 +46,7 @@ from identity_resolver.canonical_name import choose_canonical_display_name, pref
 
 logger = logging.getLogger(__name__)
 
-from . import retirement
+from . import exact_identifier, merge_journal, retirement
 from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
@@ -176,6 +176,7 @@ class MergeAction:
     strategy: str
     details: str
     executed: bool = False
+    merge_id: str = ""
 
 
 @dataclass
@@ -411,17 +412,25 @@ def detect_email_matches(
     name_threshold = config.get("email_name_similarity_threshold", 0.7)
     high_conf = config["email_match_confidence"]
     low_conf = config.get("email_name_mismatch_confidence", 0.7)
+    holders = exact_identifier.build_holder_index(persons, _normalise_linkedin_url)
 
     matches = []
     for email, uris in email_index.items():
         if len(uris) < 2:
             continue
+        guarded = exact_identifier.is_guarded(("email", email), holders)
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
                 verdict = names_agree(
                     persons[uris[i]].display_name, persons[uris[j]].display_name
                 )
-                if verdict == "agree":
+                if guarded:
+                    confidence = low_conf
+                    detail = (
+                        f"Shared email: {email} (held by 3+ distinct names, "
+                        f"so a shared inbox and not a merge key)"
+                    )
+                elif verdict == "agree":
                     confidence = high_conf
                     detail = f"Shared email: {email} (names agree)"
                 elif verdict == "disagree":
@@ -466,11 +475,13 @@ def detect_phone_matches(
     name_threshold = config.get("phone_name_similarity_threshold", 0.5)
     high_conf = config["phone_match_confidence"]
     low_conf = config.get("phone_name_mismatch_confidence", 0.6)
+    holders = exact_identifier.build_holder_index(persons, _normalise_linkedin_url)
 
     matches = []
     for phone, uris in phone_index.items():
         if len(uris) < 2:
             continue
+        guarded = exact_identifier.is_guarded(("phone", phone), holders)
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
                 name_a = _normalise_name(persons[uris[i]].display_name)
@@ -478,7 +489,13 @@ def detect_phone_matches(
                 verdict = names_agree(
                     persons[uris[i]].display_name, persons[uris[j]].display_name
                 )
-                if verdict == "agree":
+                if guarded:
+                    confidence = low_conf
+                    detail = (
+                        f"Shared phone: {phone} (held by 3+ distinct names, "
+                        f"so a switchboard or shared handset and not a merge key)"
+                    )
+                elif verdict == "agree":
                     confidence = high_conf
                     detail = f"Shared phone: {phone} (names agree)"
                 elif verdict == "disagree":
@@ -646,10 +663,18 @@ def detect_linkedin_url_matches(
                 url_index[key].append(uri)
 
     confidence = config.get("linkedin_url_match_confidence", 1.0)
+    holders = exact_identifier.build_holder_index(persons, _normalise_linkedin_url)
     matches = []
     for key, uris in url_index.items():
         if len(uris) < 2:
             continue
+        if exact_identifier.is_guarded(("linkedin", key), holders):
+            # One profile URL on 3+ distinct names is a scraping artefact,
+            # not a person: never an automatic merge key.
+            confidence_here = min(
+                confidence, config.get("phone_name_mismatch_confidence", 0.6))
+        else:
+            confidence_here = confidence
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
                 matches.append(DuplicateMatch(
@@ -657,7 +682,7 @@ def detect_linkedin_url_matches(
                     name_a=persons[uris[i]].display_name,
                     uri_b=uris[j],
                     name_b=persons[uris[j]].display_name,
-                    confidence=confidence,
+                    confidence=confidence_here,
                     strategy="linkedin_url_match",
                     details=f"Shared LinkedIn profile URL: {key}",
                 ))
@@ -1277,6 +1302,38 @@ def _canonical_keys_conflict(
         if values_b and not (values_a & values_b):
             return id_type
     return None
+
+
+def _all_canonical_conflicts(
+    url: str, client: httpx.Client, uri_a: str, uri_b: str
+) -> Set[str]:
+    """EVERY canonical id_type on which two nodes provably differ.
+
+    _canonical_keys_conflict above returns the FIRST conflict in sorted order
+    (icloud_contact_uid sorts before linkedin_url and whatsapp_lid), so it
+    cannot tell "only the card uid differs" from "the card uid AND the
+    LinkedIn profile differ". The exact-identifier override needs that
+    distinction. LinkedIn values are compared in canonical form so a trailing
+    slash or http/https is not read as a different profile.
+
+    FAILS CLOSED: an unreadable store returns {"unreadable"}, which the
+    override treats as a conflict it may not override.
+    """
+    from identity_resolver.resolver import IdentityResolver
+
+    out: Set[str] = set()
+    for id_type in sorted(IdentityResolver._CANONICAL_ID_TYPES):
+        try:
+            va = _person_canonical_values(url, client, uri_a, id_type)
+            vb = _person_canonical_values(url, client, uri_b, id_type)
+        except httpx.HTTPError:
+            return {"unreadable"}
+        if id_type == "linkedin_url":
+            va = {_normalise_linkedin_url(v) for v in va} - {""}
+            vb = {_normalise_linkedin_url(v) for v in vb} - {""}
+        if va and vb and not (va & vb):
+            out.add(id_type)
+    return out
 
 
 def _merge_oxigraph(
@@ -1998,6 +2055,11 @@ class BatchResolver:
         """Run all detection strategies and return a report."""
         persons = _fetch_all_persons(self.oxigraph_url, self._client, self.config)
         logger.info("Loaded %d active person nodes from Oxigraph", len(persons))
+        # Kept for execute()'s exact-identifier override (same snapshot the
+        # report was planned from).
+        self._persons = persons
+        self._holders = exact_identifier.build_holder_index(
+            persons, _normalise_linkedin_url)
 
         all_matches: List[DuplicateMatch] = []
         all_matches.extend(detect_exact_name_matches(persons, self.config))
@@ -2076,6 +2138,15 @@ class BatchResolver:
                 self.oxigraph_url, self._client,
                 action.keep_uri, action.discard_uri,
             )
+            override_reason = ""
+            if conflict is not None:
+                override_reason = self._exact_identifier_override(action)
+                if override_reason:
+                    logger.info(
+                        "RULE 2 overridden for %s -> %s: %s",
+                        action.discard_uri, action.keep_uri, override_reason,
+                    )
+                    conflict = None
             if conflict is not None:
                 refused_rule2 += 1
                 # The TYPE and the node URIs, never the values: canonical keys
@@ -2126,6 +2197,46 @@ class BatchResolver:
                 action.keep_name, action.keep_uri,
                 action.strategy, action.confidence,
             )
+            # BACKUP + JOURNAL BEFORE THE FIRST WRITE. A merge with no
+            # restorable snapshot does not happen: if the snapshot cannot be
+            # written the pair is skipped and left for the next pass.
+            try:
+                action.merge_id = merge_journal.record_merge(
+                    self.oxigraph_url, self._client,
+                    os.path.join(backup_dir, "merge_journal"),
+                    action.keep_uri, action.discard_uri,
+                    strategy=action.strategy, confidence=action.confidence,
+                    details="identifier values withheld from the journal",
+                    override=override_reason,
+                    qdrant_url=self.qdrant_url,
+                    qdrant_collection=self.qdrant_collection,
+                    shared_kinds=sorted({
+                        k for k in ("email", "phone", "linkedin")
+                        if k in action.details.lower() or k + "_" in action.strategy
+                    }),
+                )
+            except merge_journal.SnapshotUnavailable:
+                # Not a RULE 2 refusal and not a pin: the pair is simply not
+                # merged this pass and the next converge retries it.
+                self._qdrant_skipped = getattr(self, "_qdrant_skipped", 0) + 1
+                logger.warning(
+                    "SKIPPING merge %s -> %s: qdrant_unavailable, so no vector "
+                    "snapshot can be taken. No snapshot, no merge; retried on "
+                    "the next converge.", action.discard_uri, action.keep_uri)
+                try:
+                    merge_journal.record_skip(
+                        os.path.join(backup_dir, "merge_journal"),
+                        action.keep_uri, action.discard_uri, "qdrant_unavailable")
+                except OSError:
+                    pass
+                continue
+            except (OSError, httpx.HTTPError) as exc:
+                logger.warning(
+                    "SKIPPING merge %s -> %s: the pre-merge snapshot could not "
+                    "be written (%s). No snapshot, no merge.",
+                    action.discard_uri, action.keep_uri, type(exc).__name__,
+                )
+                continue
             _renamed = _merge_oxigraph(
                 self.oxigraph_url, self._client,
                 action.keep_uri, action.discard_uri,
@@ -2170,6 +2281,38 @@ class BatchResolver:
                 "irreversible in practice, a duplicate is not.",
                 refused_rule2, len(report.auto_merges),
             )
+
+    def _exact_identifier_override(self, action: "MergeAction") -> str:
+        """Non-empty reason when an exact shared identifier may override a
+        card-uid-only RULE 2 refusal for this planned merge, else "". See
+        exact_identifier.py for the rule and why it is this narrow."""
+        persons = getattr(self, "_persons", None)
+        holders = getattr(self, "_holders", None)
+        if not persons or holders is None:
+            return ""
+        a = persons.get(action.keep_uri)
+        b = persons.get(action.discard_uri)
+        if a is None or b is None:
+            return ""
+        if action.strategy not in (
+            "email_match", "phone_match", "linkedin_url_match"
+        ):
+            # Name-only strategies never override a card conflict.
+            return ""
+        conflicts = _all_canonical_conflicts(
+            self.oxigraph_url, self._client, action.keep_uri, action.discard_uri)
+        ok, reason = exact_identifier.card_uid_override(
+            a, b, conflicts, holders, _normalise_linkedin_url)
+        return reason if ok else ""
+
+    def undo_merge(self, merge_id: str, backup_dir: str = "./backups") -> Dict[str, Any]:
+        """Undo one journalled merge: graph and Qdrant points (see merge_journal)."""
+        return merge_journal.undo_merge(
+            self.oxigraph_url, self._client,
+            os.path.join(backup_dir, "merge_journal"), merge_id,
+            corrections_dir=self.config.get("corrections_dir", ""),
+            qdrant_url=self.qdrant_url,
+        )
 
     def reconcile_qdrant(
         self, *, apply: bool = False, backup_dir: str = "./backups",
@@ -2233,6 +2376,15 @@ class BatchResolver:
             if n == 0:
                 break
             self.execute(report, backup_dir=backup_dir)
+            # A round that executed nothing (every planned merge was refused
+            # by RULE 2 or skipped) will plan the identical set next round.
+            # Measured on the test fixture: ten identical rounds, then the
+            # max_rounds warning. That is the fixpoint, so stop.
+            if not any(a.executed for a in report.auto_merges):
+                logger.info(
+                    "Converge round %d executed 0 of %d planned merge(s); "
+                    "fixpoint reached", i + 1, n)
+                break
         else:
             logger.warning(
                 "Converge hit max_rounds=%d without a fixpoint; remaining "
@@ -2356,6 +2508,16 @@ def main() -> None:
              "(over-split vectors). Detect-only unless --execute is also set.",
     )
     parser.add_argument(
+        "--undo-merge", metavar="MERGE_ID", default="",
+        help="Undo one journalled merge (restores both nodes in the graph from "
+             "<backup-dir>/merge_journal and pins the pair as distinct). "
+             "Restores the Qdrant people points (ids, vectors, payloads) too.",
+    )
+    parser.add_argument(
+        "--list-merges", action="store_true",
+        help="List journalled merges (id, time, strategy, override) and exit.",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable verbose logging",
     )
@@ -2379,6 +2541,23 @@ def main() -> None:
     )
 
     try:
+        if args.list_merges:
+            done = set()
+            entries = merge_journal.read_journal(
+                os.path.join(args.backup_dir, "merge_journal"))
+            for e in entries:
+                if e.get("kind") == "undo":
+                    done.add(e["merge_id"])
+            for e in entries:
+                if e.get("kind") == "merge":
+                    print(e["id"], e["ts"], e["strategy"],
+                          e.get("override") or "-",
+                          "UNDONE" if e["id"] in done else "live")
+            return
+        if args.undo_merge:
+            result = resolver.undo_merge(args.undo_merge, backup_dir=args.backup_dir)
+            print(json.dumps(result))
+            return
         # Whole-graph convergence path: loop to a fixpoint, then report the
         # final round. Used by the post-hydrate install pass so transitive
         # clusters collapse fully rather than spilling to review.
@@ -2386,7 +2565,7 @@ def main() -> None:
             rounds = resolver.converge(
                 max_rounds=args.max_rounds, backup_dir=args.backup_dir,
             )
-            total_merged = sum(len(r.auto_merges) for r in rounds)
+            total_merged = sum(1 for r in rounds for a in r.auto_merges if a.executed)
             report = rounds[-1]
             print(f"\n{'=' * 70}")
             print("IDENTITY RESOLVER - WHOLE-GRAPH CONVERGENCE")
