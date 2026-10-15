@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "vendor" / "cm019_preferences"))
 from services.ingest.src.pipeline import IngestPipeline  # noqa: E402
 
 HEADER = "First Name,Last Name,Company,Job Title,Text,Creation Date,Status\n"
-ROW = ('Marta,Kowalczyk,Fixture Co,Engineer,"Marta is a wonderful colleague who plays piano and '
+ROW = ('Marta,Kowalczyk,fixture co,Engineer,"Marta is a wonderful colleague who plays piano and '
        'listens to jazz music every day with great dedication to the craft over many years.",'
        '01/02/24,VISIBLE\n')
 

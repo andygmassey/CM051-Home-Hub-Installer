@@ -40,26 +40,26 @@ def _profile(*items):
 
 @pytest.mark.parametrize("flag", ["too_long", "too_short", "empty", "url_only"])
 def test_exploration_pick_skips_flagged_entries(flag):
-    top = _it("a", "Fixture Jazz", "Music", 0.9)
+    top = _it("a", "fixture jazz", "Music", 0.9)
     bad = _it("b", PARAGRAPH, "Reading", 0.5, [flag])
     assert frontpage.exploration_pick(_profile(top, bad), [top]) is None
 
 
 def test_exploration_pick_prefers_the_clean_entry_over_a_higher_scoring_flagged_one():
-    top = _it("a", "Fixture Jazz", "Music", 0.9)
+    top = _it("a", "fixture jazz", "Music", 0.9)
     bad = _it("b", PARAGRAPH, "Reading", 0.8, ["too_long"])
-    ok = _it("c", "Fixture Sailing", "Sport", 0.2)
+    ok = _it("c", "fixture sailing", "Sport", 0.2)
     assert frontpage.exploration_pick(_profile(top, bad, ok), [top])["id"] == "c"
 
 
 def test_control_an_unflagged_entry_is_still_picked():
-    top = _it("a", "Fixture Jazz", "Music", 0.9)
-    ok = _it("c", "Fixture Sailing", "Sport", 0.2)
+    top = _it("a", "fixture jazz", "Music", 0.9)
+    ok = _it("c", "fixture sailing", "Sport", 0.2)
     assert frontpage.exploration_pick(_profile(top, ok), [top])["id"] == "c"
 
 
 def test_rotation_bench_skips_flagged_entries_too():
-    top = _it("a", "Fixture Jazz", "Music", 0.9)
+    top = _it("a", "fixture jazz", "Music", 0.9)
     bad = _it("b", PARAGRAPH, "Reading", 0.5, ["too_long"])
     out = frontpage._rotation_picks(_profile(top, bad), [top], NOW, 2)
     assert all(it["id"] != "b" for it in out)
