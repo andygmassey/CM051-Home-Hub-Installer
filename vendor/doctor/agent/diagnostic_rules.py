@@ -27,6 +27,15 @@ from typing import Any
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    TM_SECRETS_NOT_EXCLUDED_TITLE,
+    TM_FOLDER_NOT_EXCLUDED_TITLE_FMT,
+    TM_NOT_EXCLUDED_DETAIL_FMT,
+    TM_NOT_EXCLUDED_FIX,
+    TM_NOT_EXCLUDED_FIX_COMMAND_FMT,
+    TM_CANNOT_CHECK_TITLE,
+    TM_CANNOT_CHECK_DETAIL_FMT,
+    TM_CANNOT_CHECK_FIX,
+    TM_CANNOT_CHECK_FIX_COMMAND,
     MEMORY_UNREADABLE_TITLE,
     MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
     MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
@@ -1378,47 +1387,96 @@ def _imessage_chat_db_path() -> str:
     )
 
 
-def _imessage_chat_db_readable() -> bool:
-    """True if SOMETHING in this Doctor process can open chat.db.
+def _ostler_engine_root():
+    from pathlib import Path
 
-    Used purely as a "FDA is granted on this machine" liveness probe
-    for the auto-dismiss path in :func:`check_imessage_fda`. The
-    file exists on every macOS install; failing to open it is the
-    signal the user has not yet granted Full Disk Access for the
-    binary doing the probing.
+    root = (os.environ.get("OSTLER_DIR") or "").strip()
+    return Path(root).expanduser() if root else Path.home() / ".ostler"
 
-    We use ``sqlite3.connect`` rather than ``os.access`` because
-    macOS reports the path as readable from a stat() perspective
-    even when TCC denies the actual open -- we have to attempt the
-    real SQLite open to get the truthful answer.
 
-    Any failure (missing file, permission denied, OSError on the
-    sqlite extension import) is treated as "not readable" -- safer
-    to keep the card visible than to wrongly auto-dismiss.
+def _parse_utc(value):
+    from datetime import datetime, timezone
+
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _load_json(path):
+    import json
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _imessage_read_evidence() -> list[tuple]:
+    """``(when, granted)`` records of chat.db reads made by the SIGNED side.
+
+    Two producers, both of which run under ``ostler-assistant run-source``
+    and so hold the assistant's Full Disk Access:
+
+    * the iMessage feed's reply-debt snapshot
+      (``state/reply_debt/imessage_threads.json``, run-source imessage):
+      ``status`` ok / absent = read worked, unreadable = denied;
+    * the FDA extract summary (``imports/fda/extraction_summary.json``,
+      run-source fda-rerun): ``sources.imessage.status`` ok / not_found =
+      read worked, no_fda = denied.
+
+    NOT ``state/source_activity/imessage.tsv``: its ``last_status`` is the
+    INGEST of the extract JSON, and a previous run's JSON still ingests "ok"
+    after the chat.db read has started failing. It cannot tell the two apart.
     """
-    import sqlite3
+    root = _ostler_engine_root()
+    out: list[tuple] = []
 
-    path = _imessage_chat_db_path()
-    try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
-    except sqlite3.Error:
+    snap = _load_json(root / "state" / "reply_debt" / "imessage_threads.json")
+    if isinstance(snap, dict):
+        when = _parse_utc(snap.get("generated_at"))
+        status = snap.get("status")
+        if when is not None and status in ("ok", "absent"):
+            out.append((when, True))
+        elif when is not None and status == "unreadable":
+            out.append((when, False))
+
+    summary = _load_json(root / "imports" / "fda" / "extraction_summary.json")
+    if isinstance(summary, dict):
+        when = _parse_utc(summary.get("extracted_at"))
+        imsg = (summary.get("sources") or {}).get("imessage")
+        status = imsg.get("status") if isinstance(imsg, dict) else None
+        if when is not None and status in ("ok", "not_found"):
+            out.append((when, True))
+        elif when is not None and status == "no_fda":
+            out.append((when, False))
+    return out
+
+
+def _imessage_chat_db_readable() -> bool:
+    """True when the SIGNED assistant's most recent chat.db read succeeded.
+
+    THIS PROCESS NEVER OPENS chat.db (CM051 #30, studio29 follow-on). It used
+    to, with ``sqlite3.connect`` as a "has FDA been granted" probe. But
+    com.ostler.doctor is launched by launchd as a bare venv python, so TCC
+    attributed that open to python3.11: every poll was a second "python3.11"
+    Full Disk Access request, it could never be granted in a way the
+    customer would recognise, and so the card this probe was meant to
+    auto-dismiss never cleared. The grant that matters is the assistant's,
+    and the assistant's own ticks already record whether their read worked.
+    The name is kept because the two rules below and their tests call it.
+
+    The most recent record wins, so a grant clears the card on the next
+    tick and a later revocation brings it back. No record at all is False:
+    keep the card rather than wrongly dismiss it.
+    """
+    evidence = _imessage_read_evidence()
+    if not evidence:
         return False
-    except OSError:
-        return False
-    try:
-        # A minimal read confirms the open succeeded; the chat.db
-        # ``message`` table always exists once Messages has run once,
-        # but we only care that the open + a no-op SELECT round-trip
-        # without raising the OperationalError that TCC denial throws.
-        conn.execute("SELECT 1").fetchone()
-        return True
-    except sqlite3.Error:
-        return False
-    finally:
-        try:
-            conn.close()
-        except sqlite3.Error:
-            pass
+    return max(evidence, key=lambda r: r[0])[1]
 
 
 def check_imessage_fda(snapshot: Any) -> list[dict]:
@@ -1430,10 +1488,10 @@ def check_imessage_fda(snapshot: Any) -> list[dict]:
     1. The installer recorded ``imessage_chat_db_fda_needed=True`` in
        pipeline_signals.json (the install-time probe found the
        daemon could not open chat.db once the LaunchAgent loaded).
-    2. A live re-probe from this Doctor process *also* cannot open
-       chat.db. This is the auto-dismiss path: as soon as either
-       the customer's Doctor process or the assistant binary gains
-       FDA and the customer re-runs Doctor, the card disappears.
+    2. The signed assistant's most recent recorded chat.db read did not
+       succeed (``_imessage_chat_db_readable``). This is the auto-dismiss
+       path: once the assistant's tick reads chat.db, the card disappears.
+       Doctor itself never opens chat.db.
 
     A missing key on the snapshot (``None``) means the install ran
     before CX-60 shipped -- we stay quiet rather than firing a
@@ -1457,11 +1515,9 @@ def check_imessage_fda(snapshot: Any) -> list[dict]:
         # the daemon was already healthy). Either way: no card.
         return findings
 
-    # Live auto-dismiss: if Doctor's own process can open chat.db,
-    # FDA has been granted at least to one binary on this Mac. The
-    # daemon may still need its own grant (TCC is per-binary), but
-    # at that point the install-time probe is stale -- prefer the
-    # live signal so the card does not linger.
+    # Live auto-dismiss: the signed assistant's own most recent chat.db
+    # read succeeded, so the install-time probe is stale. Read from the
+    # records its ticks write; this process never opens chat.db.
     if _imessage_chat_db_readable():
         return findings
 
@@ -1684,9 +1740,10 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
     Fires when BOTH:
 
     1. The crash signature is present in the log tail, AND
-    2. A live re-probe from this Doctor process *also* cannot open chat.db.
+    2. The signed assistant's most recent recorded chat.db read did not
+       succeed. Doctor itself never opens chat.db.
 
-    The live re-probe is the auto-dismiss path (shared with
+    That record is the auto-dismiss path (shared with
     :func:`check_imessage_fda`): the crash lines linger in the appended log
     after FDA is finally granted, so without the re-probe the card would never
     clear. Once FDA is granted and Messages is readable, the card disappears.
@@ -1699,8 +1756,8 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
     if not _imessage_capture_crash_logged():
         return findings
 
-    # Live auto-dismiss: if this Doctor process can now open chat.db, FDA has
-    # been granted on this Mac and the logged crashes are stale history.
+    # Live auto-dismiss: the signed assistant's latest chat.db read worked,
+    # so the logged crashes are stale history. Never an open from here.
     if _imessage_chat_db_readable():
         return findings
 
@@ -2003,7 +2060,7 @@ def check_hydrate_ingest(snapshot: Any) -> list[dict]:
 _SCHEDULED_AGENTS = (
     (
         "com.ostler.fda-rerun",
-        "contacts, calendar, iMessage, WhatsApp, browsing and notes",
+        "calendar, reminders, iMessage, WhatsApp, browsing and notes",
         "fda-rerun",
         3600,
     ),
@@ -2416,6 +2473,86 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _tm_isexcluded(path: str) -> "tuple[str, str]":
+    """Query tmutil about one path, LIVE.
+
+    Returns ("excluded" | "included" | "cannot", detail). Measured output on
+    macOS 26: "[Excluded]  <p>", "[Included]  <p>", "[UNKNOWN]   <p>", all
+    exit 0, so only the leading tag answers the question. Anything that is
+    not a readable tag is "cannot": a check that did not run is not a pass.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(["tmutil", "isexcluded", path],
+                              capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        return "cannot", "tmutil not found"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "cannot", f"{type(exc).__name__}"
+    out = (proc.stdout or "").strip()
+    if out.startswith("[Excluded]"):
+        return "excluded", out
+    if out.startswith("[Included]"):
+        return "included", out
+    return "cannot", (out or (proc.stderr or "").strip() or f"exit {proc.returncode}")[:120]
+
+
+def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
+    """The folders the installer excludes from Time Machine are STILL excluded.
+
+    Status-honesty sweep I1: the installer used to print "excluded from Time
+    Machine backups" after `tmutil addexclusion ... 2>/dev/null || true`, so a
+    refused exclusion was reported as done. The installer now reads it back,
+    and this rule asks again on every Doctor run, so a failure (or an
+    exclusion removed later) stays visible. A folder that does not exist has
+    nothing to back up and is skipped.
+    """
+    import shutil
+    import sys
+    if sys.platform != "darwin" and shutil.which("tmutil") is None:
+        # No Time Machine on this platform at all: not applicable, rather
+        # than a check that failed to run. On a Mac tmutil is part of the OS,
+        # so its absence there IS reported (as "could not check") below.
+        return []
+    home = os.path.expanduser("~")
+    secrets_dir = os.path.join(home, ".ostler")
+    folders = [secrets_dir, os.path.join(home, "Documents", "Ostler"),
+               os.path.join(home, ".colima")]
+    findings: list[dict] = []
+    cannot: list[str] = []
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue
+        state, detail = _tm_isexcluded(folder)
+        if state == "excluded":
+            continue
+        if state == "cannot":
+            cannot.append(detail)
+            continue
+        findings.append({
+            "severity": "warning",
+            "title": (TM_SECRETS_NOT_EXCLUDED_TITLE if folder == secrets_dir
+                      else TM_FOLDER_NOT_EXCLUDED_TITLE_FMT.format(folder=folder)),
+            "detail": TM_NOT_EXCLUDED_DETAIL_FMT.format(folder=folder),
+            "fix": TM_NOT_EXCLUDED_FIX,
+            "fix_command": TM_NOT_EXCLUDED_FIX_COMMAND_FMT.format(folder=folder),
+            "risk": "low",
+            "category": "privacy",
+            "folder": folder,
+        })
+    if cannot:
+        findings.append({
+            "severity": "warning",
+            "title": TM_CANNOT_CHECK_TITLE,
+            "detail": TM_CANNOT_CHECK_DETAIL_FMT.format(reason=cannot[0]),
+            "fix": TM_CANNOT_CHECK_FIX,
+            "fix_command": TM_CANNOT_CHECK_FIX_COMMAND,
+            "risk": "low",
+            "category": "privacy",
+        })
+    return findings
+
+
 def _ostler_subscription_state_path() -> str:
     """Returns the canonical ~/.ostler/state/subscription_state.json path.
 
@@ -2597,6 +2734,7 @@ ALL_RULES = [
     check_conversation_dispatch_failures,
     check_licence_expiry,
     check_parked_facts,
+    check_time_machine_exclusion,
 ]
 
 

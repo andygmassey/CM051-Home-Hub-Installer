@@ -63,14 +63,13 @@ if ! grep -Eq 'nohup "?\$\{OSTLER_DIR\}/bin/wiki-recompile-tick.sh"?[^&]*&' <<<"
     failure "(a) tick is not launched backgrounded/non-fatally (nohup ... &)"
 fi
 
-# (a4) It must fire BEFORE remove_self -- the agent must still self-remove.
-# The success branch is the LAST remove_self call in the wrapper (the
-# bounded-give-up branch calls remove_self earlier); compare the tick
-# kick against that final call.
-_trigger_line="$(grep -n 'nohup .*wiki-recompile-tick.sh' <<<"$RESYNC_BLOCK" | tail -1 | cut -d: -f1)"
-_remove_line="$(grep -n '^    remove_self$' <<<"$RESYNC_BLOCK" | tail -1 | cut -d: -f1)"
-if [[ -z "$_trigger_line" || -z "$_remove_line" ]] || [[ "$_trigger_line" -ge "$_remove_line" ]]; then
-    failure "(a) tick must be kicked BEFORE remove_self in the success branch"
+# (a4) REWRITTEN for G3 (TCC sweep 2026-10-15): the reader no longer removes
+# itself, so "before remove_self" has no anchor. The kick must instead be
+# gated on the FIRST successful import, or a permanent reader would rebuild
+# the wiki every time the address book changes.
+if ! grep -q 'contact-resync.imported' <<<"$RESYNC_BLOCK" \
+   || ! grep -q 'if \[\[ "$first" -eq 1 \]\]; then' <<<"$RESYNC_BLOCK"; then
+    failure "(a) tick kick is not gated on the first successful contact import"
 fi
 
 # ---------------------------------------------------------------------------
@@ -164,4 +163,4 @@ if [[ "$FAILED" -ne 0 ]]; then
     echo "test_wiki_recompile_after_late_hydration: FAILED" >&2
     exit 1
 fi
-echo "test_wiki_recompile_after_late_hydration: late-hydration wiki recompile wired (a: contact-resync kicks tick before remove_self, guarded + backgrounded; b: bounded self-removing catch-up agent reusing tick; daily interval unchanged; uninstaller + strings)"
+echo "test_wiki_recompile_after_late_hydration: late-hydration wiki recompile wired (a: contact reader kicks tick on its first import, guarded + backgrounded; b: bounded self-removing catch-up agent reusing tick; daily interval unchanged; uninstaller + strings)"

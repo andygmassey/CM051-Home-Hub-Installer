@@ -937,3 +937,25 @@ PENDING_FACTS_FIX = (
     "Leave the assistant idle for a few minutes. If this stays, restart the "
     "Assistant API from Doctor."
 )
+
+# ── Time Machine exclusion (status-honesty sweep I1, walk #28) ────────────
+TM_SECRETS_NOT_EXCLUDED_TITLE = "Ostler's secrets folder is NOT excluded from Time Machine"
+TM_FOLDER_NOT_EXCLUDED_TITLE_FMT = "{folder} is NOT excluded from Time Machine"
+TM_NOT_EXCLUDED_DETAIL_FMT = (
+    "Time Machine reports {folder} as included in backups. Ostler keeps its "
+    "keys, settings and your unencrypted data here, so your backup disk may "
+    "hold a copy of them."
+)
+TM_NOT_EXCLUDED_FIX = (
+    "Exclude the folder from Time Machine. If the command below does not "
+    "change this, add the folder in System Settings, General, Time Machine, "
+    "Options."
+)
+TM_NOT_EXCLUDED_FIX_COMMAND_FMT = "tmutil addexclusion {folder}"
+TM_CANNOT_CHECK_TITLE = "Could not check whether Ostler's folders are kept out of Time Machine"
+TM_CANNOT_CHECK_DETAIL_FMT = (
+    "The Time Machine tool did not answer ({reason}), so this check did not "
+    "run. It is not a pass."
+)
+TM_CANNOT_CHECK_FIX = "Run the command below in Terminal and look for [Excluded]."
+TM_CANNOT_CHECK_FIX_COMMAND = "tmutil isexcluded ~/.ostler"

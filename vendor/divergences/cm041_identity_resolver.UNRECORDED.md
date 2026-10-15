@@ -172,3 +172,16 @@ duplicates review (`needs_review`, `duplicates.yaml` decisions).
 Guarded by `tests/test_same_name_is_a_suggestion_not_a_merge.py`, wired in
 `.github/workflows/walk-defect-e-duplicate-evidence-guard.yml`. Upstream CM041
 mirror OWED; no re-vendor.
+
+## cm041/identity_resolver: an unreadable forget tombstone is never overwritten (walk #28, sweep V22)
+
+`vendor/cm041/identity_resolver/forget_tombstone.py`: `record()` used to log
+"starting a new one" on a `TombstoneUnreadable` and write a fresh file over
+it, wiping every earlier Forget. It now leaves the file in place (so
+`is_forgotten()` stays fail-closed for every syncer), copies its bytes to
+`<file>.unreadable-<sha12>` (new `_set_aside()`), and returns False. New
+`problem()` returns the reason for callers that must say why. The
+`vendor/ostler_fda/forget_tombstone.py` copy is kept byte-identical. Guarded
+by `vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`
+(job `forget-reports-only-what-it-erased` in
+`.github/workflows/forget-tombstone.yml`). Upstream CM041 mirror OWED.

@@ -500,7 +500,9 @@ def scan_emlx_metadata(
     return EmlxMeta(path=path, received_at=received_at)
 
 
-def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
+def discover_emlx_files(
+    mail_dir: Path, errors: Optional[list] = None
+) -> Iterator[Path]:
     """Yield every ``.emlx`` file under ``mail_dir`` recursively.
 
     Apple Mail nests files several directories deep (V*/account.mbox/
@@ -513,8 +515,17 @@ def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
     # #197: rglob raises if a subdir vanishes/unreadable mid-walk (Apple Mail
     # rearranges its V*/*.mbox tree during a tick). Walk resiliently: skip the
     # unreadable subtree + log, keep going. Email-ingest degrades, never crashes.
+    # A failure on the ROOT is not "a subdir vanished": the whole mailbox was
+    # refused (Full Disk Access not granted), and returning an empty walk made
+    # the caller record backfill_complete=true, so older mail was never read
+    # after the grant. Raise it. A failure BELOW the root is still skipped, but
+    # is appended to ``errors`` so the caller can refuse to advance its edges.
     def _on_walk_error(err: OSError) -> None:
+        if Path(err.filename or "") == Path(mail_dir):
+            raise err
         logger.warning("discover_emlx_files: skipping unreadable dir during walk: %s", err)
+        if errors is not None:
+            errors.append(err)
     found: list[Path] = []
     for root, _dirs, files in os.walk(mail_dir, onerror=_on_walk_error):
         for name in files:
@@ -753,8 +764,9 @@ def emit_mbox(
     skipped_unparseable = 0
     skipped_no_date = 0
     scanned_files = 0
+    walk_errors: list = []
     try:
-        for emlx_path in discover_emlx_files(mail_dir):
+        for emlx_path in discover_emlx_files(mail_dir, walk_errors):
             scanned_files += 1
             try:
                 meta = scan_emlx_metadata(emlx_path)
@@ -802,6 +814,17 @@ def emit_mbox(
         ]
         new_oldest_edge = chunk_floor
 
+    if walk_errors:
+        # Part of the mailbox could not be read this tick. Whatever we did not
+        # see cannot be counted as covered: hold the backward edge where it was
+        # so the chunk is retried, and never declare the backfill complete.
+        new_oldest_edge = oldest_edge
+        logger.error(
+            "Apple Mail walk could not read %d director%s (first: %s); holding "
+            "the backward edge and not marking the backfill complete.",
+            len(walk_errors), "y" if len(walk_errors) == 1 else "ies", walk_errors[0],
+        )
+
     fresh = forward + backward
     fresh.sort(key=lambda p: p.received_at or datetime.min.replace(tzinfo=timezone.utc))
 
@@ -814,7 +837,9 @@ def emit_mbox(
         min((p.received_at for p in discovered if p.received_at is not None),
             default=None)
     )
-    if is_unbounded_first_run:
+    if walk_errors:
+        pass  # incomplete walk: no completion claim of any kind
+    elif is_unbounded_first_run:
         # Unbounded first run emitted the entire mailbox in one
         # go; backward sweep would re-emit what we just shipped.
         # Mark complete and pin the oldest edge to the actual
@@ -890,7 +915,11 @@ def emit_mbox(
             _record("other", error_message=f"checkpoint save failed: {exc}")
             raise
         _record(
-            "success",
+            "mailbox_unreadable" if walk_errors else "success",
+            error_message=(
+                f"{len(walk_errors)} director(ies) unreadable, first: {walk_errors[0]}"
+                if walk_errors else None
+            ),
             emitted=0,
             oldest=new_oldest_edge,
             newest=checkpoint.newest_processed,
@@ -947,6 +976,11 @@ def emit_mbox(
         max(emitted_forward_dates) if emitted_forward_dates
         else checkpoint.newest_processed
     )
+    if walk_errors:
+        # Mail in the directory we could not read may be NEWER than what we
+        # just emitted; stepping the forward edge over it would lose it for
+        # good. Hold it (a later tick may re-emit; the importer dedupes).
+        advanced_newest = checkpoint.newest_processed
 
     try:
         save_checkpoint(
@@ -974,7 +1008,11 @@ def emit_mbox(
         skipped_unparseable, skipped_no_date, skipped_at_emit,
     )
     _record(
-        "success",
+        "mailbox_unreadable" if walk_errors else "success",
+        error_message=(
+            f"{len(walk_errors)} director(ies) unreadable, first: {walk_errors[0]}"
+            if walk_errors else None
+        ),
         emitted=emitted_count,
         oldest=new_oldest_edge,
         newest=advanced_newest,

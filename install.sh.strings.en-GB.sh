@@ -406,6 +406,10 @@ MSG_OK_CONTAINER_ENGINE_ANSWERED="Container runtime responding"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item left by an older version"
 MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
+MSG_OK_AT_REST_EXCLUDED="Kept out of Spotlight and Time Machine (checked): %s"
+MSG_WARN_AT_REST_NOT_EXCLUDED="%s is NOT excluded from Time Machine or Spotlight: %s. Its contents, including Ostler's secrets, may be copied to your backup disk. The Doctor will keep showing this until it is fixed."
+MSG_INFO_AT_REST_FOLDER_ABSENT="%s does not exist yet, so there is nothing to exclude from backups."
+MSG_WARN_DB_KEY_NOT_EXCLUDED="The database key file %s is NOT excluded from Time Machine, so it may be copied to your backup disk."
 MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enrichment choice to ~/.ostler/posture/. Your choice is still being applied to this install; it simply will not appear in a support report."
 # The old text read "Databases encrypted. Passphrase required at each
 # startup." Both halves were false. Nothing delivered the key to the
@@ -1058,11 +1062,28 @@ MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.
 # diary each calendar is (so a partner's flight is not read as yours);
 # identity prompts confirm which look-alike profiles are you (collapse) and
 # which are a different person who happens to share your name (split). All
-# skippable -- hitting enter accepts the pre-filled guess. %s placeholders
-# carry runtime values (calendar name, event count/samples, the evidence
-# that links or separates a profile).
-MSG_CONFIRM_CALENDARS_INTRO="Let's confirm whose calendar is whose, so your brief never mixes up whose trip is whose."
-MSG_CONFIRM_CALENDAR_HELP="%s events, e.g. %s"
+# skippable -- hitting enter accepts the pre-filled guess. Calendars are ONE
+# screen confirmed once; the per-calendar OWNER/TYPE/INCLUDE prompts appear
+# only if the customer says the list is not right. %s placeholders carry
+# runtime values (calendar name, event count/samples, the evidence that
+# links or separates a profile). EVENTS_ONE / EVENTS_MANY are the singular
+# and plural of the event count ("1 event", "2 events").
+MSG_CONFIRM_CALENDARS_REVIEW_TITLE="Here are your calendars. Do these look right?"
+MSG_CONFIRM_CALENDARS_REVIEW_INTRO="We've guessed whose each one is, so your brief never mixes up whose trip is whose."
+MSG_CONFIRM_CALENDARS_SET_ASIDE_HEADING="Set aside automatically, not used for your brief:"
+MSG_CONFIRM_CALENDAR_ROW="%s: %s, %s (%s)"
+MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW="%s: %s (%s)"
+MSG_CONFIRM_CALENDAR_OWNER_YOU="yours"
+MSG_CONFIRM_CALENDAR_EVENTS_ONE="%s event"
+MSG_CONFIRM_CALENDAR_EVENTS_MANY="%s events"
+MSG_CONFIRM_CALENDAR_KIND_HOLIDAY="public holidays"
+MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="birthdays"
+MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri suggestions"
+MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="a calendar you subscribe to"
+MSG_CONFIRM_CALENDAR_KIND_REMINDERS="reminders"
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Use \"%s\" for your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="We set this one aside because it looks like %s. Say yes if it is really someone's diary."
+MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="Whose calendar is \"%s\"?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="What kind of calendar is \"%s\"?"
 MSG_CONFIRM_CALENDAR_TYPE_HELP="One of: personal, work, family, shared, other. This sets how sensitive its events are treated."

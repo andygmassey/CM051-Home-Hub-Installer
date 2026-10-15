@@ -387,14 +387,24 @@ def read_native_library(
         logger.warning("Music library helper could not start (%s).", type(exc).__name__)
         return MusicLibrary(native_status="error", native_detail=type(exc).__name__)
 
-    lines = [ln for ln in proc.stdout.decode("utf-8", "replace").splitlines() if ln.strip()]
+    return library_from_helper_output(proc.stdout, proc.returncode)
+
+
+def library_from_helper_output(stdout: bytes, returncode: int = 0) -> MusicLibrary:
+    """Turn the helper's stdout into a library. NEVER raises.
+
+    Shared by the install-time read (``read_native_library``) and the
+    scheduled refresh (``apple_music_refresh``), which receives the same
+    bytes from the signed app that ran the helper.
+    """
+    lines = [ln for ln in stdout.decode("utf-8", "replace").splitlines() if ln.strip()]
     try:
         payload = json.loads(lines[-1]) if lines else None
     except ValueError:
         payload = None
     if not isinstance(payload, dict) or payload.get("schema") != _HELPER_SCHEMA:
         return MusicLibrary(native_status="bad_output",
-                            native_detail=f"rc={proc.returncode}")
+                            native_detail=f"rc={returncode}")
 
     status = payload.get("status")
     if status == "ok":

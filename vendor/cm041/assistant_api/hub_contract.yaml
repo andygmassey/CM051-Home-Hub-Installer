@@ -1128,6 +1128,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "cron_resume_error",
     "expiry",
     "expiry_human",
     "governor_env_path",
@@ -1154,7 +1155,8 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "error"
+    "error",
+    "mirror_errors"
    ],
    "source": "vendor/doctor/agent/web_ui.py"
   },
@@ -1347,7 +1349,9 @@
     "nodes_erased",
     "not_found",
     "reason",
+    "retry",
     "stores_purged",
+    "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
    ],
@@ -1492,7 +1496,8 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "error"
+    "error",
+    "mirror_errors"
    ],
    "source": "vendor/doctor/agent/web_ui.py"
   },
@@ -3634,7 +3639,9 @@
     "nodes_erased",
     "not_found",
     "reason",
+    "retry",
     "stores_purged",
+    "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
    ],
@@ -3721,6 +3728,7 @@
     "count",
     "debts",
     "degraded",
+    "detail",
     "reason"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -5516,7 +5524,9 @@
     "nodes_erased",
     "not_found",
     "reason",
+    "retry",
     "stores_purged",
+    "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
    ],
@@ -5628,6 +5638,7 @@
     "count",
     "debts",
     "degraded",
+    "detail",
     "reason"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"

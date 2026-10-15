@@ -1373,6 +1373,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
     owner_addrs = load_owner_addresses(fda_dir)
     owner_skipped = 0
     machine_skipped = 0
+    _cal_machine, cal_correspondents = _machine_senders.load(fda_dir)
 
     for event in events:
         attendees = event.get("attendees", [])
@@ -1397,6 +1398,13 @@ def ingest_calendar(fda_dir: Path) -> dict:
             # DMG #27: a calendar SYSTEM address (shared calendar, room,
             # iCloud invitation sender) or a no-reply sender is not a Person.
             if _machine_senders.noreply_reason(attendee):
+                machine_skipped += 1
+                continue
+            # v1.0.107 walk #28: an organisation's own mailbox as an attendee
+            # (an events platform's invite sender) is not a Person. A
+            # correspondent is a human and is kept.
+            if (attendee.strip().lower() not in cal_correspondents
+                    and _machine_senders.organisation_reason(attendee)):
                 machine_skipped += 1
                 continue
             if _observe_identifier(attendee, ""):
@@ -1811,6 +1819,13 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # DMG #27: a machine sender (no-reply address, calendar system or
         # notification domain, or every message a list mail) is not a Person.
         if email.strip().lower() in machine or _machine_senders.noreply_reason(email):
+            machine_skipped += 1
+            continue
+        # v1.0.107 walk #28: an organisation's own mailbox (`<brand>@<brand's
+        # domain>`, a bulk sub-domain) is not a Person either. Not strict: a
+        # correspondent is a human and is kept, same as the role rule below.
+        if (email.strip().lower() not in correspondents
+                and _machine_senders.organisation_reason(email)):
             machine_skipped += 1
             continue
         # A person the owner has corresponded with is kept even when the

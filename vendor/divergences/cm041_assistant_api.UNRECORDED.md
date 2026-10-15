@@ -1166,3 +1166,43 @@ Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
 in one busy hour; a retry run in that hour joins the same model queue.
 CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
 extends), or the next re-sync of this tree reverts it.
+
+## cm041/assistant_api: Forget says done only when both stores are purged (walk #28, sweep V17)
+
+`vendor/cm041/assistant_api/ical-server.py`, `api_people_forget`:
+- `forgotten:true` / 200 only when Oxigraph AND Qdrant were purged; otherwise
+  503 with `stores_remaining` and `retry:true`. A Qdrant 404 (no `people`
+  collection) counts as purged: nothing is held.
+- the audit line behind "already forgotten" moved out of
+  `_queue_wiki_recompile` (also called by memory/assert and the not-found
+  branch) into `_record_forget_audit`, called only after a complete purge.
+- an unreadable tombstone is named in `reason` via `forget_tombstone.problem()`.
+- the recompile is queued only when the graph half went.
+Guarded by `vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+Upstream CM041 mirror OWED, or the next re-sync of this tree reverts it.
+## A one-word name that is just the sender's domain is not a person (CM051, 2026-10-15, v1.0.107 walk #28)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
+
+- new `_domain_brand_names`, `_name_is_sender_domain`, `_name_parts_echo_address`;
+- `_address_is_automated`: the brand-mailbox test also accepts the domain's affix and short-TLD spellings (local part "brightwell" at `brightwell-mail.example.com`);
+- `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
+
+WHY: Andy's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
+## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+`api_reply_debt` and the comment block above it. Recorded by hand for the same
+reason as the sections above.
+
+- the exception branch keeps a source's own `reason` code (and `detail`)
+  instead of flattening everything to `reply_debt_failed: ...`;
+- a degraded payload has its `brief_line` forced to `""`, so the all-clear copy
+  can never ride on `degraded: true`;
+- the comments no longer say this process reads chat.db; it reads the snapshot
+  the signed iMessage feed writes.
+
+WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
+with `degraded: false` while it could not read Messages at all. Guarded by
+`tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
+same change, or the next re-sync reverts it.

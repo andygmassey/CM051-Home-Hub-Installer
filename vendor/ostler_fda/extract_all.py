@@ -856,6 +856,7 @@ def run_all(
     if "apple_mail" in sources:
         try:
             from .apple_mail import extract_messages, email_stats, frequent_contacts
+            from .apple_mail import envelope_index_total
             # Mail history window is configurable, same shape as the
             # other sources (OSTLER_IMESSAGE_BACKFILL_DAYS etc). The
             # hardcoded since_days=365 silently dropped everything older
@@ -872,6 +873,13 @@ def run_all(
             mail_limit = int(os.environ.get("OSTLER_MAIL_BACKFILL_LIMIT", "100000"))
             messages = extract_messages(since_days=mail_backfill_days, limit=mail_limit)
             stats = email_stats(messages)
+            # How many messages the Mail store holds in all, read from the
+            # same Envelope Index (walk #28: the Doctor's Mail row shows
+            # "N of M emails read"). Recorded only when it could be counted;
+            # an absent field means unknown, never 0.
+            mailbox_total = envelope_index_total()
+            if mailbox_total is not None:
+                stats["mailbox_total"] = mailbox_total
             contacts = frequent_contacts(messages)
 
             (output_dir / "apple_mail.json").write_text(
