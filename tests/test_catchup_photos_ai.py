@@ -295,7 +295,7 @@ def test_ai_paused_subscription_holds_the_walk(env, monkeypatch):
                                                           "reason": "subscription_inactive"})
     s = oc.run(cu.adapters(), budget_seconds=1e9, busy=lambda: None)
     assert s["sources"]["ai_conversations"]["items"] == 0
-    assert s["sources"]["ai_conversations"]["reason"] == "item_failed"
+    assert s["sources"]["ai_conversations"]["reason"] == "cannot_run:subscription_paused"
     wm = json.loads((oc.state_dir() / "ai_conversations.json").read_text())
     assert "cursor" not in wm and not wm["complete"]
 
@@ -498,3 +498,71 @@ def test_photos_unrecognised_layout_is_cannot_run_not_a_done_window(env, monkeyp
     ledger_db = env["tmp"] / "st_b" / "ledger.sqlite"
     n = sqlite3.connect(ledger_db).execute("SELECT COUNT(*) FROM done").fetchone()[0]
     assert n == 0, f"{n} windows were written to the ledger as done"
+
+
+# ── an outage of the sink is not a poison attempt (Archie re-review of #2903) ─
+
+def test_photos_an_oxigraph_outage_is_not_a_failed_window(env):
+    import httpx
+    cp = _need("ostler_fda.catchup_photos")
+    req = httpx.Request("POST", "http://127.0.0.1:1/update")
+
+    def ingest_down(d):
+        raise httpx.ConnectError("synthetic", request=req)
+
+    def ingest_503(d):
+        raise httpx.HTTPStatusError("synthetic", request=req, response=httpx.Response(503, request=req))
+
+    def ingest_400(d):
+        raise httpx.HTTPStatusError("synthetic", request=req, response=httpx.Response(400, request=req))
+
+    def item_for(a):
+        return a.next_batch(a.start_cursor(), 1).items[0]
+
+    for ingest in (ingest_down, ingest_503):
+        a = cp.PhotosAdapter(env["db"], ingest=ingest)
+        with pytest.raises(ConnectionError):
+            a.process(item_for(a))
+    # control: the store answered and refused this window (400): not an outage
+    a = cp.PhotosAdapter(env["db"], ingest=ingest_400)
+    with pytest.raises(httpx.HTTPStatusError):
+        a.process(item_for(a))
+
+
+def test_ai_a_gateway_outage_is_not_a_failed_conversation(env, monkeypatch):
+    import httpx
+    from src.cm052 import wire
+    cu = _need("src.cm052.catchup")
+    req = httpx.Request("POST", "http://127.0.0.1:1/")
+    a = cu.adapters()[0]
+    item = a.next_batch(None, 1).items[0]
+
+    def raiser(exc):
+        def post(conv, **kw):
+            raise exc
+        return post
+
+    monkeypatch.setattr(wire, "post", raiser(httpx.ConnectError("synthetic", request=req)))
+    with pytest.raises(ConnectionError):
+        a.process(item)
+    monkeypatch.setattr(wire, "post", raiser(httpx.HTTPStatusError(
+        "synthetic", request=req, response=httpx.Response(503, request=req))))
+    with pytest.raises(ConnectionError):
+        a.process(item)
+    # control: a 400 is the gateway refusing THIS conversation
+    monkeypatch.setattr(wire, "post", raiser(httpx.HTTPStatusError(
+        "synthetic", request=req, response=httpx.Response(400, request=req))))
+    with pytest.raises(httpx.HTTPStatusError):
+        a.process(item)
+
+
+def test_ai_a_paused_subscription_never_counts_toward_quarantine(env, monkeypatch):
+    from src.cm052 import wire
+    cu = _need("src.cm052.catchup")
+    oc = _need("ostler_catchup")
+    monkeypatch.setattr(wire, "post", lambda conv, **kw: {"status": "paused",
+                                                          "reason": "subscription_inactive"})
+    for _ in range(oc.MAX_ITEM_ATTEMPTS + 2):
+        s = oc.run(cu.adapters(), budget_seconds=1e9, busy=lambda: None)
+    row = s["sources"]["ai_conversations"]
+    assert row["quarantined"] == 0 and row["reason"] == "cannot_run:subscription_paused", row

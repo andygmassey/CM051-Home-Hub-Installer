@@ -42,6 +42,14 @@ INSTALL_WINDOW_DAYS = cli._DEFAULT_SINCE_DAYS
 def _sort_key(conv: Conversation):
     return (conv.last_activity or "", conv.conversation_id)
 
+def _is_sink_outage(exc: BaseException) -> bool:
+    """The sink could not be REACHED (refused/reset connection, connect timeout,
+    502/503/504). A 4xx or a parse failure is the sink refusing THIS item."""
+    import httpx
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (502, 503, 504)
+    return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError))
+
 
 class AIConversationsAdapter(oc.Adapter):
     source = "ai_conversations"
@@ -91,10 +99,18 @@ class AIConversationsAdapter(oc.Adapter):
         return item.conversation_id
 
     def process(self, item):
-        outcome = self._process(item)
+        try:
+            outcome = self._process(item)
+        except Exception as exc:  # noqa: BLE001
+            if _is_sink_outage(exc):
+                # Gateway down: an outage, never a poison attempt.
+                raise ConnectionError("conversation gateway unavailable") from exc
+            raise
         if outcome == "paused":
+            # Not a verdict on this conversation: say so (Doctor shows the
+            # reason) and hold the cursor, never count it toward quarantine.
             log.info("catch-up ai_conversations: subscription paused; holding the walk")
-            return False
+            raise oc.CannotRun("subscription_paused")
         return outcome in ("posted", "l3_skipped")
 
 

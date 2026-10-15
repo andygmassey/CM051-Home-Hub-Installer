@@ -76,6 +76,14 @@ def _default_ingest(window_dir: Path) -> dict:
     from .pwg_ingest import ingest_photo_events
     return ingest_photo_events(window_dir)
 
+def _is_sink_outage(exc: BaseException) -> bool:
+    """The sink could not be REACHED (refused/reset connection, connect timeout,
+    502/503/504). A 4xx or a parse failure is the sink refusing THIS item."""
+    import httpx
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (502, 503, 504)
+    return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError))
+
 
 class PhotosAdapter(oc.Adapter):
     source = "photos"
@@ -161,7 +169,13 @@ class PhotosAdapter(oc.Adapter):
                 # ingest_photo_events writes face edges only when this file
                 # exists, which is exactly extract_all's opt-in signal.
                 (d / "photos_people.json").write_text("[]")
-            res = self.ingest(d) or {}
+            try:
+                res = self.ingest(d) or {}
+            except Exception as exc:  # noqa: BLE001
+                if _is_sink_outage(exc):
+                    # Oxigraph down: an outage, never a poison attempt.
+                    raise ConnectionError("photos graph unavailable") from exc
+                raise
         finally:
             shutil.rmtree(d, ignore_errors=True)
         ok = res.get("status") == "ok" or (not events and res.get("status") == "skipped")
