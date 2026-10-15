@@ -249,7 +249,9 @@ def test_control_two_speakers_stay_a_conversation(settings):
     (MEMO, ["S1"], {}, True),
     ("**Test User** (00:01):\nSynthetic note.\n\n**Test User** (00:09):\nMore.\n",
      [{"id": "user", "display": "Test User", "role": "user"}], {}, True),
-    ("Synthetic dictation with no labels at all.\n", [], {}, True),
+    ("Synthetic dictation with no labels at all.\n", ["S1"], {}, True),
+    # No roster: who was there is unknown, so the model's shape stands.
+    (MEMO, [], {}, False),
     (DUO, ["S1"], {}, False),
     (MEMO, ["S1", "S2"], {}, False),
     ("**Test User** (00:01):\nHi.\n\n**Speaker 2** (00:04):\nHello.\n",

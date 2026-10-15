@@ -108,7 +108,10 @@ def is_single_speaker_capture(transcript: str, metadata: dict) -> bool:
         return False
     if str(metadata.get("source") or "").strip().lower() == "gateway":
         return False
-    if len(normalise_participants(metadata.get("participants"))) > 1:
+    roster = normalise_participants(metadata.get("participants"))
+    # No roster means we cannot say who was there: not a memo by default.
+    # Every spoken producer sends one (CM031 envelope, spoken_source).
+    if len(roster) != 1:
         return False
     return len(speaker_labels(transcript, metadata)) <= 1
 

@@ -1034,10 +1034,11 @@ def _retention_tier(classification: Classification) -> str | None:
     with it. Absent (not guessed) when the sink module cannot load."""
     try:
         from .ingest import _retention_tier_for
+
+        return _retention_tier_for(classification)
     except Exception as exc:  # ingest hard-requires ostler_security
         logger.warning("retention_tier left absent: %s", type(exc).__name__)
         return None
-    return _retention_tier_for(classification)
 
 
 def _stamp_capture_truth(
