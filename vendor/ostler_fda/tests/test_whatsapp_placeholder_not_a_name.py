@@ -54,17 +54,6 @@ def test_none_is_placeholder():
     assert p._is_whatsapp_placeholder_name(None) is True
 
 
-@pytest.mark.parametrize("v", PLACEHOLDERS)
-def test_placeholder_push_name_falls_back_to_phone_handle(v):
-    assert p._whatsapp_display_name(_NANP + JID_SUFFIX_PERSON, v) == "+" + _NANP
-
-
-def test_real_push_name_is_used_and_tilde_stripped():
-    jid = _NANP + JID_SUFFIX_PERSON
-    assert p._whatsapp_display_name(jid, "Sam Wang") == "Sam Wang"
-    assert p._whatsapp_display_name(jid, "~Sam Wang") == "Sam Wang"
-
-
 def test_upsert_never_writes_a_placeholder():
     with patch("ostler_fda.pwg_ingest._sparql_update") as upd:
         p._upsert_display_name("urn:x:1", "WhatsApp contact")

@@ -749,7 +749,7 @@ def _whatsapp_jid_is_genuine_phone(local: str) -> bool:
     return phonenumbers.is_valid_number(parsed)
 
 
-def _whatsapp_display_name(jid: str, push_name: Optional[str] = None) -> str:
+def _whatsapp_display_name(jid: str) -> str:
     """Placeholder display name for an un-named WhatsApp contact.
 
     The local-part of an `@s.whatsapp.net` JID is USUALLY an E.164 number.
@@ -762,10 +762,6 @@ def _whatsapp_display_name(jid: str, push_name: Optional[str] = None) -> str:
     replaces any of these once contact_syncer or CM046 email enrichment
     supplies one.
     """
-    # CM051 #30 b3: a real push name (leading "~" stripped) is used; a
-    # placeholder one falls back to the phone handle below.
-    if push_name is not None and not _is_whatsapp_placeholder_name(push_name):
-        return push_name.strip().lstrip("~").strip()
     local = jid.split("@", 1)[0] if "@" in jid else jid
     if _whatsapp_jid_is_genuine_phone(local):
         return "+" + local

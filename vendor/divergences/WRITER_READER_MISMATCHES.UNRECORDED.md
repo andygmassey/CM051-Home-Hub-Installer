@@ -1405,13 +1405,12 @@ tier 2, a real name, so it was written as one.
 match: empty, punctuation or emoji only, "~"-prefixed, unknown-name words and
 "WhatsApp contact"-shaped labels across locales). `_display_name_tier` ranks it
 tier 0; `_creation_name_triples` writes the provisional flag and NO name;
-`_upsert_display_name` writes nothing. `_whatsapp_display_name` takes an
-optional `push_name` and falls back to the `+phone` handle when it is a
-placeholder. The person and its identifier are still created.
+`_upsert_display_name` writes nothing. The person and its identifier are still
+created.
 
 ### What a future sync must preserve
 
-All four edits. Guarded by
+All three edits. Guarded by
 `vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py` (workflow
 `whatsapp-lid-not-phone.yml`). Locale strings are best-effort, not verified
 against WhatsApp's string tables.
