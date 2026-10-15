@@ -75,3 +75,22 @@ Edits under `vendor/cm059_editor/compiler/`:
 - `interest_profile.py`: `fetch_preferences` also reads `NeutralPreference` (polarity "neutral", ranked with likes, never as a dislike).
 
 Proof: `tests/test_hunch_card_never_shows_a_flagged_interest.py` (fails on origin/main), `tests/test_passive_plays_are_not_likes.py::test_neutral_survives_into_the_graph_and_the_profile`.
+
+## 2026-10-15 walk #29: the projection stops duplicating pipeline preferences, plus a one-time cleanup
+
+Tree: `cm059_editor`. File: `vendor/cm059_editor/compiler/project_preferences.py`. That file is VENDOR-ONLY (CM059 upstream has no `project_preferences.py`), so `verify_vendor_fresh.sh` does not compare it and `cm059_editor.patch` cannot carry it. It is recorded here, as the earlier Neutral change to the same file was. Measured with CM059 cloned and exported: `verify_vendor_fresh.sh cm059_editor` reports the same single pre-existing `frontpage.py` drift on origin/main and on this branch. Nothing new.
+
+Why: CM019's ingest pipeline writes every preference as `pwg:pref_<preference_id>` (`vendor/cm019_preferences/.../parsers/base.py` `to_turtle`, `pipeline.py` `insert_triples`). The projection then copied every Qdrant point again as `urn:ostler:preference:<sha256(id)[:32]>`. On the walk #29 box Oxigraph held 138,999 music preference subjects against 70,667 Qdrant music points.
+
+Edits:
+
+- `project()` skips a point whose `pwg:pref_<preference_id>` node exists (`pipeline_preference_ids`). Only Qdrant-only rows are still projected: CM041 `places_ingest`, and the ostler_fda iMessage and bookmark rows.
+- NEW `dedupe_projected_twins()` is the one-time cleanup.
+  - It removes a node only when all three hold: the node carries the projector's marker, its IRI is the SHA256 twin of an existing `pwg:pref_` id, and the backup holds it.
+  - Before deleting, it writes the triples it will remove as N-Triples to `~/.ostler/backups/preference-projection/projected-twins-<utc>.nt` (override: `OSTLER_PREFERENCE_PROJECTION_BACKUP_DIR`) and reads the file back. If any subject is missing from the backup, nothing is deleted.
+  - `__main__` runs it before `project()`, so `bin/editor-frontpage-tick.sh` Step 0 runs it unchanged.
+- `_count_marked` now raises on a refused query. Before, any failure returned 0, which disarmed the ratio guard.
+
+Other `urn:ostler:preference:` readers, checked by grep in CM044, CM051 and CM059: the CM019 enrich service (`services/enrich/src/enricher.py`, `cli.py`) and CM044 `compiler/enrichment_reader.py` use `<urn:ostler:preference:{raw preference_id}>`. That is a different node, carries no projection marker, and is never matched by the cleanup (tested).
+
+Proof: `tests/test_preference_projection_does_not_duplicate_the_pipeline.py`, wired in `.github/workflows/misclassified-things.yml`. On origin/main: 5 failed. Here: 5 passed. CM059 upstream has no copy of this module, so nothing needs forward-porting.
