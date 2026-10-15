@@ -53,6 +53,7 @@ run() {
     OSTLER_ENGINE_KICKSTART_CMD="echo KICKSTART_CALLED; touch '${WORK}/kicked'; exit 0" \
     OSTLER_ENGINE_PORT_PROBE_CMD="$2" \
     OSTLER_ENGINE_INSTALL_RUNNING_CMD="${3:-false}" \
+    OSTLER_ENGINE_HA_PID_FILE="${OSTLER_ENGINE_HA_PID_FILE:-${WORK}/no-such-ha.pid}" \
     OSTLER_ENGINE_PORT_FAIL_N=4 OSTLER_ENGINE_PORT_FAIL_INTERVAL_S=0 \
     OSTLER_ENGINE_RECOVERY_SETTLE_S=2 OSTLER_ENGINE_SETTLE_POLL_S=1 \
     PATH="/usr/bin:/bin" bash "$SUP" >"${WORK}/sup.out" 2>&1
@@ -133,6 +134,35 @@ rm -rf "${WORK}/state"; seed 2 200; run "$P" "false"
 if ! kicked; then pass "backoff: after 2 failures the cooldown is 240s, 200s is still inside it"; else failure "ignored the exponential backoff (2 failures, 200s)"; fi
 rm -rf "${WORK}/state"; seed 20 1000; run "$P" "$RECOVER_PROBE"
 if kicked; then pass "backoff is capped at 900s and never gives up (20 failures, 1000s ago, acts)"; else failure "20 failures stopped the supervisor for good, or the cap exceeds 900s"; fi
+
+# 6b. Booting window: hostagent PROCESS age from ps, via its pid file.
+# A real sleep is the hostagent; its age is genuinely young. The old-process
+# case seams the clock because a 10-minute-old process cannot be conjured.
+sleep 600 & HA=$!
+echo "$HA" > "${WORK}/ha.pid"
+P="$(make_prefix boot 1)"
+rm -rf "${WORK}/state"
+OSTLER_ENGINE_HA_PID_FILE="${WORK}/ha.pid" run "$P" "false"; rc=$?
+if ! stop_called && ! kicked && [[ $rc -eq 1 ]] && grep -q 'VM is BOOTING' "${WORK}/sup.out"; then
+    pass "fresh hostagent (real ps age, ports dead): BOOTING, no forced stop, no restart"
+else
+    failure "a booting VM (hostagent seconds old) was force-stopped or not reported (rc=${rc}): $(tail -3 "${WORK}/sup.out")"
+fi
+rm -rf "${WORK}/state"
+OSTLER_ENGINE_HA_PID_FILE="${WORK}/ha.pid" OSTLER_ENGINE_BOOT_GRACE_S=0 run "$P" "$RECOVER_PROBE"; rc=$?
+if stop_called && kicked && [[ $rc -eq 0 ]]; then
+    pass "hostagent older than the grace window (grace 0), same dead ports: recovered"
+else
+    failure "an old hostagent with dead ports was not recovered (rc=${rc})"
+fi
+kill "$HA" 2>/dev/null; wait "$HA" 2>/dev/null
+# etime parser: dd-hh:mm:ss, hh:mm:ss, mm:ss (BSD ps).
+for pair in "10:00=600" "01:02:03=3723" "2-00:00:05=172805" "00:07=7"; do
+    et="${pair%%=*}"; want="${pair##*=}"
+    fake_et="$et"
+    got="$(ps() { echo "$fake_et"; }; eval "$(sed -n '/^hostagent_age_s()/,/^}/p' "$SUP")"; HA_PID_FILE="${WORK}/ha.pid"; echo 4242 > "$HA_PID_FILE"; hostagent_age_s)"
+    if [[ "$got" == "$want" ]]; then pass "etime ${et} parses to ${want}s"; else failure "etime ${et} parsed to '${got}', want ${want}"; fi
+done
 
 # 7. Still never runs `colima start` itself (FDA constraint).
 SUP_CODE="$(sed 's/#.*//' "$SUP")"

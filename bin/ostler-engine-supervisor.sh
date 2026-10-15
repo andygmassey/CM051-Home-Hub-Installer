@@ -108,6 +108,14 @@ RECOVERY_COOLDOWN_CAP_S="${OSTLER_ENGINE_RECOVERY_COOLDOWN_CAP_S:-900}"
 # How long to wait for the ports after asking for a restart.
 RECOVERY_SETTLE_S="${OSTLER_ENGINE_RECOVERY_SETTLE_S:-120}"
 SETTLE_POLL_S="${OSTLER_ENGINE_SETTLE_POLL_S:-5}"
+# BOOTING WINDOW. On a loaded 16 GB Mac at login a boot can exceed the 90 s
+# dead-probe window, and killing a booting VM in a loop is worse than the
+# outage. So while the lima hostagent is younger than this, the supervisor
+# only waits. Age comes from the PROCESS START TIME (ps), never from this
+# script's own memory, so a supervisor restart cannot reset it.
+BOOT_GRACE_S="${OSTLER_ENGINE_BOOT_GRACE_S:-300}"
+COLIMA_HOME_DIR="${OSTLER_ENGINE_COLIMA_HOME:-${HOME}/.colima}"
+HA_PID_FILE="${OSTLER_ENGINE_HA_PID_FILE:-${COLIMA_HOME_DIR}/_lima/colima/ha.pid}"
 
 # Injectable so the tests can drive every branch without a real launchd, a
 # real engine or real ports. Production leaves them empty.
@@ -208,6 +216,22 @@ stop_colima_hard() {
     fi
 }
 
+# hostagent_age_s: seconds since the lima hostagent PROCESS started, read from
+# its pid file and `ps`. Prints nothing (rc 1) when there is no live hostagent:
+# fully dead, so not booting. etime is [[dd-]hh:]mm:ss (BSD ps has no etimes).
+hostagent_age_s() {
+    local pid et d=0 h=0 m=0 sec=0 rest
+    [ -r "$HA_PID_FILE" ] || return 1
+    pid="$(tr -dc '0-9' < "$HA_PID_FILE")"
+    [ -n "$pid" ] || return 1
+    et="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [ -n "$et" ] || return 1
+    case "$et" in *-*) d="${et%%-*}"; rest="${et#*-}" ;; *) rest="$et" ;; esac
+    IFS=: read -r a b c <<<"$rest"
+    if [ -n "${c:-}" ]; then h=$((10#$a)); m=$((10#$b)); sec=$((10#$c)); else m=$((10#$a)); sec=$((10#${b:-0})); fi
+    echo $(( 10#$d * 86400 + h * 3600 + m * 60 + sec ))
+}
+
 cooldown_for() {
     # cooldown_for <consecutive_failures> -> seconds: base * 2^failures, capped.
     local c="$RECOVERY_COOLDOWN_S" i=0
@@ -294,6 +318,12 @@ while [ "$n" -lt "$PORT_FAIL_N" ]; do
     fi
 done
 log "store ports dead on ${PORT_FAIL_N} consecutive probes ${PORT_FAIL_INTERVAL_S}s apart (engine state '${state}': ${detail})"
+
+ha_age="$(hostagent_age_s)" || ha_age=""
+if [ -n "$ha_age" ] && [ "$ha_age" -lt "$BOOT_GRACE_S" ]; then
+    log "VM is BOOTING: lima hostagent started ${ha_age}s ago (< ${BOOT_GRACE_S}s grace); ports still dead, waiting, no forced stop"
+    exit 1
+fi
 
 cooldown="$(cooldown_for "$failures")"
 if [ "$last_attempt" -gt 0 ] && [ "$since" -lt "$cooldown" ]; then
