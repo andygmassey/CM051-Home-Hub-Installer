@@ -1244,3 +1244,13 @@ WHY: a synthetic walk box (studio29, v1.0.107 candidate) had a loose calendar.ic
 ### What a future sync must preserve
 
 The `downloads_exports` row, its record vocabulary, and the reason line in the render. Guarded by `tests/test_doctor_shows_why_downloads_exports_did_not_import.sh`, which runs the SHIPPED watcher to write the record and the SHIPPED reader and renderer to show it (red before this change: no row; wired in `.github/workflows/downloads-watcher-survives-an-export.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.
+
+## The first backfill window widens when the default holds too little (#30)
+
+Tree `ostler_fda`. `vendor/ostler_fda/backfill_ladder.py`: new `widen_first_window`, `is_first_window`, the `MIN_FIRST_WINDOW_*` and `WIDEN_RUNGS` constants, appended after `resolve_backfill_days`. `vendor/ostler_fda/extract_all.py`: the iMessage, WhatsApp and Apple Mail blocks pass their extract through `widen_first_window` (three call sites, no other change).
+
+WHY: on a synthetic install whose every message was older than 45 days the first iMessage window held 0 conversations on day one. On a source's FIRST run only, if the window holds fewer than 2,000 messages and fewer than 50 conversations/threads, it widens backwards (90, 180, 365, 730, 1095, 1825, 3650, 36500 days) until either minimum is met, the history is exhausted, or a 180 s budget is spent. The chosen window is logged per source, counts only. An explicit OSTLER_*_BACKFILL_DAYS pin is never widened. A marker `state/first_window_<source>.json` makes later runs ordinary.
+
+### What a future sync must preserve
+
+`widen_first_window` and the three call sites. Guarded by `tests/test_first_window_adaptive.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in HR015 `ostler_fda` and re-pinning.

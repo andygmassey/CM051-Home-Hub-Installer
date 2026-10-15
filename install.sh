@@ -24123,6 +24123,56 @@ _notify() {
         osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
 }
 
+# ── #30: CADENCE. One agent, two speeds. ────────────────────────────────────
+# com.ostler.export-scan fires every 30 minutes (StartInterval 1800). For the
+# first 48 hours after install EVERY firing runs the catch-up step, so a fresh
+# install's history arrives in hours, not weeks (30 min of work per 4 h was far
+# too slow on day one). After 48 hours only a firing at least 4 h after the
+# last FULL run proceeds; every other firing exits here, at once. No second
+# LaunchAgent: a second plist is a second thing to bootstrap, quiesce, prune and
+# walk, for a schedule one timestamp can express. The busy predicate, the
+# per-run budget and the resumable slices are unchanged (lib/ostler_catchup.py).
+#
+# Install time is state/install_completed_at, written once at the end of
+# install. A box without one (installed before this, or a state wipe) gets it
+# written now: it is then given its 48 hours, which is what a box that has never
+# had the catch-up wants. OSTLER_CADENCE_NOW is a test hook for the clock.
+_CAD_STATE="${OSTLER_DIR}/state"
+_CAD_NOW="${OSTLER_CADENCE_NOW:-$(date +%s)}"
+case "$_CAD_NOW" in ''|*[!0-9]*) _CAD_NOW="$(date +%s)" ;; esac
+_CAD_INSTALL_TS="$(cat "${_CAD_STATE}/install_completed_at" 2>/dev/null || true)"
+case "$_CAD_INSTALL_TS" in ''|*[!0-9]*)
+    _CAD_INSTALL_TS="$_CAD_NOW"
+    mkdir -p "$_CAD_STATE" 2>/dev/null || true
+    printf '%s\n' "$_CAD_NOW" >"${_CAD_STATE}/install_completed_at" 2>/dev/null || true ;;
+esac
+_CAD_FIRST_WINDOW="${OSTLER_CATCHUP_FIRST_WINDOW_SECONDS:-172800}"   # 48 h
+_CAD_FAST="${OSTLER_CATCHUP_FAST_INTERVAL_SECONDS:-1800}"            # 30 min
+_CAD_SLOW="${OSTLER_CATCHUP_SLOW_INTERVAL_SECONDS:-14400}"           # 4 h
+_CAD_STAMP="${_CAD_STATE}/export-scan/last_full_run"
+_CAD_RUN_STAMP="${_CAD_STATE}/export-scan/last_run"
+_CAD_LAST="$(cat "$_CAD_STAMP" 2>/dev/null || true)"
+case "$_CAD_LAST" in ''|*[!0-9]*) _CAD_LAST=0 ;; esac
+_CAD_LAST_RUN="$(cat "$_CAD_RUN_STAMP" 2>/dev/null || true)"
+case "$_CAD_LAST_RUN" in ''|*[!0-9]*) _CAD_LAST_RUN=0 ;; esac
+# 120 s of slack: launchd fires a little early or late, and a firing at 3 h 59 m
+# must not push the next full run to 8 h.
+_CAD_MODE=skip
+if [[ $(( _CAD_NOW - _CAD_LAST )) -ge $(( _CAD_SLOW - 120 )) ]]; then
+    _CAD_MODE=full
+elif [[ $(( _CAD_NOW - _CAD_INSTALL_TS )) -lt "$_CAD_FIRST_WINDOW" \
+        && $(( _CAD_NOW - _CAD_LAST_RUN )) -ge $(( _CAD_FAST - 120 )) ]]; then
+    _CAD_MODE=catchup
+fi
+if [[ "$_CAD_MODE" == skip ]]; then
+    exit 0
+fi
+mkdir -p "${_CAD_STATE}/export-scan" 2>/dev/null || true
+printf '%s\n' "$_CAD_NOW" >"$_CAD_RUN_STAMP" 2>/dev/null || true
+if [[ "$_CAD_MODE" == full ]]; then
+    printf '%s\n' "$_CAD_NOW" >"$_CAD_STAMP" 2>/dev/null || true
+fi
+
 # ── CM051 #28: drain the preference TAIL the install queued ────────────────
 # The install import stores the first 5000 preferences per source in the
 # foreground and queues the rest (OSTLER_PREFS_TAIL_QUEUE). This agent
@@ -24134,7 +24184,7 @@ _notify() {
 # (OSTLER_ENRICH_AGENT_ENABLED). Counts only in the log.
 _PREFS_TAIL_QUEUE="${OSTLER_PREFS_TAIL_QUEUE:-${OSTLER_DIR}/state/prefs-tail}"
 _CM019_DIR="${OSTLER_DIR}/services/cm019"
-if ls "$_PREFS_TAIL_QUEUE"/*.jsonl >/dev/null 2>&1 && [[ -x "${_CM019_DIR}/.venv/bin/python" ]]; then
+if [[ "$_CAD_MODE" == full ]] && ls "$_PREFS_TAIL_QUEUE"/*.jsonl >/dev/null 2>&1 && [[ -x "${_CM019_DIR}/.venv/bin/python" ]]; then
     mkdir -p "${OSTLER_DIR}/logs"
     _tail_budget="${OSTLER_PREFS_TAIL_BUDGET_SECONDS:-1800}"
     ( cd "$_CM019_DIR" && export QDRANT_COLLECTION=preferences && \
@@ -24180,6 +24230,12 @@ if [[ -r "${OSTLER_DIR}/lib/ostler_catchup.py" ]] && ls "$_CATCHUP_DIR"/*.sh >/d
             "$(basename "$_cu" .sh)" "$_cu_share" "$_cu_rc" >>"${OSTLER_DIR}/logs/catchup.log"
     done
     unset _cu _cu_rc _cu_now _cu_remaining _cu_share _cu_left _cu_end _cu_runners _cu_budget
+fi
+
+# A catch-up-only firing (inside the first 48 hours, between full runs) stops
+# here: the Downloads scan and the preference tail keep their 4-hourly rhythm.
+if [[ "$_CAD_MODE" != full ]]; then
+    exit 0
 fi
 
 # ── EVERY RUN SAYS WHAT IT SAW (#30, 2026-10-15) ───────────────────────────
@@ -24525,7 +24581,8 @@ fi
 SCANEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-scan-exports"
 
-# Set up launchd plist to scan every 4 hours
+# Set up launchd plist: fires every 30 minutes; the script decides whether the
+# firing is due (every 30 min for 48 h after install, then every 4 h, #30).
 mkdir -p "${HOME}/Library/LaunchAgents"
 SCAN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 cat > "$SCAN_PLIST" <<SPEOF
@@ -24542,7 +24599,7 @@ cat > "$SCAN_PLIST" <<SPEOF
         <string>export-scan</string>
     </array>
     <key>StartInterval</key>
-    <integer>14400</integer>
+    <integer>1800</integer>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
@@ -39577,6 +39634,13 @@ fi
 # probe, or at most one 30s tick later), which is the END of the install,
 # after the Tailscale sign-in above. See _ostler_install_marker_set.
 _ostler_install_marker_clear
+# #30: record when the install finished, once. com.ostler.export-scan reads it
+# to run the full-history catch-up every 30 minutes for the next 48 hours.
+if [[ ! -s "${OSTLER_DIR}/state/install_completed_at" ]]; then
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+    date +%s >"${OSTLER_DIR}/state/install_completed_at" 2>/dev/null \
+        || warn "could not record the install time; catch-up will start its 48 hours at its first run"  # i18n-exempt
+fi
 _ostler_start_assistant_daemon
 
 # #1538: and SAY what the customer has, whatever the channel set. TOP LEVEL,

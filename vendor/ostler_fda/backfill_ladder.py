@@ -266,3 +266,103 @@ def resolve_backfill_days(
     else:
         logger.info("[backfill-ladder] %s widening %sd -> %sd", source, current, chosen)
     return chosen
+
+
+# ── #30: the FIRST window widens when the default holds too little ───────────
+#
+# WHY. The ladder opens at 45 days. An owner whose recent history is sparse
+# (every message 60 to 400 days old) saw ZERO conversations on day one, on a
+# synthetic install, because everything fell outside the first rung. Day one
+# should show something.
+#
+# THE RULE. On a source's FIRST run only, if the default window holds fewer than
+# MIN_FIRST_WINDOW_MESSAGES messages AND fewer than MIN_FIRST_WINDOW_CONVERSATIONS
+# conversations/threads (so: stop as soon as EITHER minimum is met, "whichever
+# comes first"), widen backwards through WIDEN_RUNGS until a minimum is met, the
+# history is exhausted (the last rung), or the time budget is spent. The chosen
+# window is logged per source, counts only. An explicit operator pin
+# (the source's OSTLER_*_BACKFILL_DAYS) is never widened.
+#
+# A LATER run is not a first run: the marker file written below says the first
+# window was already chosen, and the ladder's own dwell governs from there.
+MIN_FIRST_WINDOW_MESSAGES: int = 2000
+MIN_FIRST_WINDOW_CONVERSATIONS: int = 50
+# Finer than DEFAULT_LADDER on purpose: a wide jump overshoots the minimum into
+# thousands of conversations, each costing ten chained model calls downstream.
+WIDEN_RUNGS: List[int] = [90, 180, 365, 730, 1095, 1825, 3650, 36500]
+# Install-time cap on the time spent re-reading to widen, seconds.
+DEFAULT_FIRST_WINDOW_BUDGET_SECONDS: int = 180
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            logger.warning("[first-window] %s=%r is not an integer", name, raw)
+    return default
+
+
+def _first_window_marker(source: str) -> Path:
+    return _state_dir() / f"first_window_{source}.json"
+
+
+def is_first_window(source: str) -> bool:
+    """True until widen_first_window has recorded a choice for this source."""
+    return not _first_window_marker(source).exists()
+
+
+def widen_first_window(source, days, extract, measure, env_var=None, persist_ladder=False):
+    """Run ``extract(days)`` and, on a source's first run, widen ``days`` until
+    the result holds enough. Returns ``(result, days_used)``.
+
+    ``measure(result) -> (messages, conversations)``. ``extract(days)`` must be
+    safe to call repeatedly (a read, not a write).
+    """
+    pinned = bool(env_var and os.environ.get(env_var, "").strip())
+    result = extract(days)
+    if pinned or not is_first_window(source):
+        return result, days
+
+    min_msgs = _env_int("OSTLER_FIRST_WINDOW_MIN_MESSAGES", MIN_FIRST_WINDOW_MESSAGES)
+    min_convs = _env_int("OSTLER_FIRST_WINDOW_MIN_CONVERSATIONS", MIN_FIRST_WINDOW_CONVERSATIONS)
+    budget = _env_int("OSTLER_FIRST_WINDOW_BUDGET_SECONDS", DEFAULT_FIRST_WINDOW_BUDGET_SECONDS)
+    started = time.monotonic()
+    default_days = days
+    msgs, convs = measure(result)
+    stop = "kept"
+    while msgs < min_msgs and convs < min_convs:
+        nxt = next((r for r in WIDEN_RUNGS if r > days), None)
+        if nxt is None:
+            stop = "exhausted"
+            break
+        if time.monotonic() - started >= budget:
+            stop = "budget"
+            break
+        days = nxt
+        result = extract(days)
+        msgs, convs = measure(result)
+        stop = "widened"
+
+    if days == default_days and stop == "kept":
+        logger.info("[first-window] %s kept %dd: %d messages, %d conversations (minimum %d or %d)",
+                    source, days, msgs, convs, min_msgs, min_convs)
+    else:
+        logger.info("[first-window] %s %s: default %dd -> %dd: %d messages, %d conversations "
+                    "(minimum %d or %d)", source, stop, default_days, days, msgs, convs,
+                    min_msgs, min_convs)
+    try:
+        m = _first_window_marker(source)
+        m.parent.mkdir(parents=True, exist_ok=True)
+        m.write_text(json.dumps({"source": source, "default_days": default_days, "days": days,
+                                 "messages": msgs, "conversations": convs, "result": stop,
+                                 "at": int(time.time())}, indent=2))
+    except OSError as exc:
+        logger.warning("[first-window] could not record the first window for %s: %s", source, exc)
+    if persist_ladder and days != default_days:
+        # Keep the ladder above the window actually read, so the next rung is
+        # wider than it, not a repeat of a narrower one.
+        _write_days(source, days)
+    return result, days
+

@@ -62,6 +62,11 @@ setup_box() {
 }
 run_box() {
     local box="$1"
+    # Each call is one launchd firing 4 h after the last (#30: the scanner
+    # decides whether a firing is due, so the clock must move between them).
+    local n=$(( $(cat "$box/.scan_n" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$box/.scan_n"
+    OSTLER_CADENCE_NOW=$(( 2000000000 + n * 14400 )) \
     NOTIFY_LOG="$box/notifications.txt" HOME="$box" PATH="$box/shim:$PATH" \
         bash "$SCAN" >/dev/null 2>&1
     printf '%s' "$?"
