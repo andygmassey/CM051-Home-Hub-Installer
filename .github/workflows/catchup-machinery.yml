@@ -88,4 +88,8 @@ jobs:
         run: python -m pytest tests/test_first_window_adaptive.py -v -rs
       - name: a sparse day one reaches the graph AND the conversation bundles
         if: always()
+        # Point the duplicate-bundle tests at #2907's adapter explicitly, so they
+        # RUN rather than SKIP as CANNOT-RUN.
+        env:
+          OSTLER_CATCHUP_MESSAGES_PY: vendor/imessage_source/catchup.py
         run: python -m pytest tests/test_first_window_end_to_end.py -v -rs
