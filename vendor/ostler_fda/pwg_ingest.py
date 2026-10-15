@@ -288,12 +288,6 @@ def _is_relationship_label(value: str) -> bool:
 
 
 
-_NAME_TIER_REFUSED = -1
-_NAME_TIER_PLACEHOLDER = 0
-_NAME_TIER_HANDLE = 1
-_NAME_TIER_NAME = 2
-
-
 # CM051 #30 batch 3. WhatsApp's own default / unknown-name tokens. A chat-only
 # contact with no real name reaches us as one of these (or as a "~"-prefixed
 # push name, or as nothing legible), and "WhatsApp contact" was being written
@@ -323,7 +317,7 @@ _WA_FILLER_WORDS = frozenset({
 })
 
 
-def _is_whatsapp_placeholder_name(value: Optional[str]) -> bool:
+def _is_whatsapp_placeholder_name(value: "Optional[str]") -> bool:
     """True when ``value`` is WhatsApp's stand-in for "no real name".
 
     Covers: empty/whitespace, names made only of punctuation/emoji/marks,
@@ -349,6 +343,12 @@ def _is_whatsapp_placeholder_name(value: Optional[str]) -> bool:
         return True
     return len(words) <= 4 and all(w in _WA_FILLER_WORDS for w in words)
 
+
+
+_NAME_TIER_REFUSED = -1
+_NAME_TIER_PLACEHOLDER = 0
+_NAME_TIER_HANDLE = 1
+_NAME_TIER_NAME = 2
 
 
 def _display_name_tier(value: str) -> int:
