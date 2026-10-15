@@ -208,7 +208,7 @@ def test_the_model_was_asked_for_a_memo_not_a_call(settings):
     enrich_prompts = [p for p in _FakeOllama.prompts if "--- SECTION STRUCTURE REMINDER ---" in p]
     assert enrich_prompts, "no enrichment prompt was sent"
     sent = enrich_prompts[0]
-    assert sent.startswith("# Prompt 02 – Enrich: a single-speaker capture"), sent[:80]
+    assert sent.startswith("# Prompt 02 - Enrich: a single-speaker capture"), sent[:80]
     assert "Other name: other" not in sent
     assert "## Notable moments" not in sent.split("--- SECTION STRUCTURE REMINDER ---")[1]
 

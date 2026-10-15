@@ -1,4 +1,4 @@
-# Prompt 02 – Enrich: a single-speaker capture (voice memo or note)
+# Prompt 02 - Enrich: a single-speaker capture (voice memo or note)
 
 **Stage:** enrichment. Chosen by the PIPELINE, not by the classifier:
 the capture has one speaker label and one participant, so it is a memo.
