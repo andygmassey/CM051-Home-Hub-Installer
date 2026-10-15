@@ -74,8 +74,23 @@ def free_port() -> int:
     return p
 
 
+LLM_MODE = {"mode": "ok"}  # ok | badshape | error | empty
+
+
 class Llm(BaseHTTPRequestHandler):  # stub model, as in the v1.0.107 email probe
     def log_message(self, *a): pass
+
+    def _fail(self) -> bool:
+        m = LLM_MODE["mode"]
+        if m == "error":
+            b = b'{"error":{"message":"Internal Server Error: model crashed"}}'
+            self.send_response(500); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+            return True
+        if m == "badshape":
+            self._json({"model": "stub", "message": {"role": "assistant", "content": "x"}, "done": True})
+            return True
+        return False
 
     def _json(self, obj):
         b = json.dumps(obj).encode()
@@ -87,7 +102,9 @@ class Llm(BaseHTTPRequestHandler):  # stub model, as in the v1.0.107 email probe
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n) or b"{}")
-        msg = {"role": "assistant", "content": "Synthetic reply from the loopback model."}
+        if self._fail():
+            return
+        msg = {"role": "assistant", "content": "" if LLM_MODE["mode"] == "empty" else "Synthetic reply from the loopback model."}
         base = {"model": req.get("model", "stub"), "created_at": "2026-10-15T00:00:00Z"}
         if self.path.rstrip("/").endswith("/chat/completions"):  # OpenAI shape (what the daemon speaks)
             text = msg["content"]
@@ -399,7 +416,7 @@ allowed_senders = ["{OWNER}"]
               d1.get("automated", 0) == d0.get("automated", 0) + 1, str(d1))
         check("(e) none of the three got any reply", len(sim.submission.sent) == sent0,
               f"{len(sim.submission.sent) - sent0} extra sends")
-        canon = {"not_listed", "failed_auth", "automated", "rate_limited"}
+        canon = {"not_listed", "failed_auth", "automated", "rate_limited", "model_failed"}
         check("(e) every counted reason is in the canonical set", set(d1) <= canon, str(d1))
 
         stop_daemon()
@@ -421,6 +438,26 @@ allowed_senders = ["{OWNER}"]
         deliver(mail(OWNER, "After restart", "<after-1@example.test>"))
         check("(e) after the restart the verified owner is still answered",
               wait(lambda: len(replies_to(OWNER)) == n_rep + 1, 60))
+
+        # ---------------------------------------------------------------- (g)
+        # A failed model turn is never mailed, whatever shape the failure takes.
+        for mode, label in (("badshape", "a bad payload shape"), ("error", "an HTTP 500 error"),
+                            ("empty", "an empty answer")):
+            LLM_MODE["mode"] = mode
+            n_sent, n_fail = len(sim.submission.sent), drops().get("model_failed", 0)
+            deliver(mail(OWNER, f"Question while the model is down ({mode})", f"<g-{mode}@example.test>"))
+            counted = wait(lambda: drops().get("model_failed", 0) == n_fail + 1, 90)
+            time.sleep(3)
+            check(f"(g) {label}: the failure is recorded as model_failed", counted, str(drops()))
+            check(f"(g) {label}: nothing at all was sent to anyone",
+                  len(sim.submission.sent) == n_sent,
+                  str([(x['rcpt'], str(x['msg']['Subject'])) for x in sim.submission.sent[n_sent:]]))
+        LLM_MODE["mode"] = "ok"
+        n_rep = len(replies_to(OWNER))
+        deliver(mail(OWNER, "Model is back", "<g-back@example.test>"))
+        check("(g) once the model is back the owner is answered again",
+              wait(lambda: len(replies_to(OWNER)) == n_rep + 1, 60))
+        check("(g) every counted reason is still in the canonical set", set(drops()) <= canon, str(drops()))
 
         # ---------------------------------------------------------------- (f)
         row = am.read_row(config, ostler / "state")

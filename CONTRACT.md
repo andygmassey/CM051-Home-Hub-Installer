@@ -109,7 +109,7 @@ it and writes nothing here.
   `two_step_off`, `imap_disabled`, `locked`, `network`, `unknown`.
 * Times are ISO 8601 with an offset.
 
-### Drop reasons (canonical, the only set the daemon writes)
+### Drop reasons (canonical, the only set the daemon writes; five)
 
 | Reason | Meaning |
 | --- | --- |
@@ -117,6 +117,11 @@ it and writes nothing here.
 | `failed_auth` | The sender is listed, but the message is not aligned DMARC/DKIM authenticated. |
 | `automated` | `Auto-Submitted`, list, bulk, bounce, null sender or no-reply mail. |
 | `rate_limited` | Over the inbound flood cap. |
+| `model_failed` | The owner's message was accepted but the model failed, errored or answered with nothing, so nothing was sent. |
+
+A failed model turn is never sent as a reply, on any channel: no model or
+provider error text goes to anyone. It is logged, counted here, and (on email,
+where there is no typing indicator) answered with silence.
 
 The retired names `not_owner`, `loop_guard`, `auth_failed` and `too_large` are
 not written by anything. (`too_large` has no producer: add it to this table, to
