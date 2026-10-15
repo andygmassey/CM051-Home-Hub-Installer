@@ -2305,6 +2305,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
             "points_created": sent,
             "skipped_sensitive": skipped_sensitive,
             "total": len(queue),
+            # The embedder or vector store could not be used: an outage, not a
+            # verdict on these visits. The catch-up reads this and does not
+            # count the window toward quarantine.
+            "sink_unavailable": True,
         }
 
     if sent == 0:
@@ -2321,6 +2325,7 @@ def ingest_browser_history(fda_dir: Path) -> dict:
             "points_created": 0,
             "skipped_sensitive": skipped_sensitive,
             "total": len(queue),
+            "sink_unavailable": True,   # every chunk failed: the store is down
         }
 
     logger.info(

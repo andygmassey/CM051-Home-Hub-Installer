@@ -27435,6 +27435,19 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
     # measurement.
     if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$OSTLER_FDA_SRC" --quiet 2>"${OSTLER_DIAG_DIR}/fda-pip.log"; then
         ok "$MSG_OK_OSTLER_FDA_INSTALLED_VENV"
+        # v1.0.108 browser catch-up: Safari and Chrome walk back past the
+        # install window (vendor/ostler_fda/catchup_browser.py). Same venv as
+        # the install-time browsing hydrate (_HYDRATE_BROWSING_VENV), which has
+        # the store-auth .pth wired just above. slot=1 because
+        # ingest_browser_history embeds every visit through Ollama. The edge
+        # and the per-source consent are baked as install.sh resolved them.
+        _ostler_catchup_register 20-browser \
+            "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/services/email-ingest/.venv/bin/python3" \
+            "ostler_fda.catchup_browser:adapters" 1 "" \
+            "OSTLER_SAFARI_BACKFILL_DAYS=${OSTLER_SAFARI_BACKFILL_DAYS:-1825}" \
+            "OSTLER_BROWSER_BACKFILL_DAYS=${OSTLER_BROWSER_BACKFILL_DAYS:-1825}" \
+            "OSTLER_FDA_SOURCES=${OSTLER_FDA_SOURCES:-}" \
+            || warn "browser catch-up runner not registered; history older than the install window will not be read."  # i18n-exempt
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL"
         if [[ -s "${OSTLER_DIAG_DIR}/fda-pip.log" ]]; then

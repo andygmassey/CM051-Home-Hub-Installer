@@ -1405,3 +1405,19 @@ The `catchup` field, the History column and the three helpers. Guarded by `tests
 ## `ostler_fda/sink_health.py`: one sink health predicate for the catch-up (v1.0.108)
 
 Tree `ostler_fda`. NEW CM051-side file, no upstream. `sink_healthy()` is true only when Ollama answers `/api/tags` AND the Qdrant and Oxigraph stores answer 2xx through the store proxy with the install credential. The store half is NOT re-implemented: it runs `bin/ostler-engine-supervisor.sh --probe-ports`, the supervisor's own port-judged predicate (added on `fix/colima-hung-vm-recovery`, so that branch must merge with or before this one). Anything unjudgeable (supervisor absent or without the subcommand, no credential) is not healthy. The iMessage and WhatsApp catch-up adapters call it when a dispatch times out (exit 124): healthy means the document hung and the attempt counts toward quarantine; unhealthy raises `ConnectionError` and counts nothing. Guarded by `tests/test_catchup_messages.py` (`test_sink_healthy_needs_ollama_and_the_stores`, `test_a_timeout_with_ollama_up_and_stores_down_counts_no_attempt`, `test_a_hanging_item_with_a_healthy_sink_is_quarantined_and_the_rest_proceeds`, `test_a_timeout_with_a_dead_sink_counts_no_attempt`).
+## Browser history catch-up walks Safari and Chrome back past the install window (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/safari_history.py`, `vendor/ostler_fda/chrome_history.py`: `extract_history` gains keyword-only `since` / `until` absolute bounds (with neither, the SQL and its parameters are exactly the install-time query), and each module gains `oldest_visit()`.
+- `vendor/ostler_fda/catchup_browser.py` (NEW FILE): `SafariAdapter` / `ChromeAdapter` for `lib/ostler_catchup.py` (doctor_row `browsing`), 30-day windows from now minus OSTLER_SAFARI_BACKFILL_DAYS / OSTLER_BROWSER_BACKFILL_DAYS back to the oldest visit, through `to_timeline_entries` and `pwg_ingest.ingest_browser_history`; a window is done only when `sent == total`. `adapters()` honours OSTLER_FDA_SOURCES and leaves Chrome out when it is not installed.
+
+WHY: install.sh reads 1825 days of browsing and nothing ever read further back.
+
+### What a future sync must preserve
+
+The two keyword bounds, `oldest_visit`, and `catchup_browser.py`. Guarded by `tests/test_catchup_browser.py` (red on origin/main, wired in `.github/workflows/catchup-browser.yml`).
+
+## `ingest_browser_history` flags a vector-store outage as `sink_unavailable` (catch-up, v1.0.108)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. The two `"status": "error"` returns of `ingest_browser_history` (the embed/upsert raised; or every chunk failed to land) gain `"sink_unavailable": True`. `catchup_browser` reads it and raises `ConnectionError`, so a Qdrant or Ollama outage is not counted as a poison attempt toward quarantine. A partial landing (0 < sent < total) is unchanged and still counts. Guarded by `tests/test_catchup_browser.py::test_an_embed_or_vector_store_outage_is_not_a_failed_window`.

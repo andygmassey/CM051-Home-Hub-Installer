@@ -168,6 +168,7 @@ test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.y
 test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.yml
 test_canonicalise_syncs_qdrant.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_catchup_browser.py	WIRED	.github/workflows/catchup-browser.yml
 test_catchup_core.py	WIRED	.github/workflows/catchup-machinery.yml
 test_catchup_messages.py	WIRED	.github/workflows/catchup-messages.yml
 test_chat_wait_is_sized_from_measured_turns.py	WIRED	.github/workflows/walk-record-gate.yml
@@ -339,7 +340,7 @@ test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
-test_export_scan_runs_the_catchup_step.sh	WIRED	.github/workflows/catchup-machinery.yml
+test_export_scan_runs_the_catchup_step.sh	WIRED	.github/workflows/catchup-browser.yml
 test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
 test_facebook_export_imports_once.py	WIRED	.github/workflows/forget-tombstone.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml

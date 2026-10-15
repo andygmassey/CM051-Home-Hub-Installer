@@ -72,6 +72,10 @@ def extract_history(
     db_path: Optional[Path] = None,
     since_days: int = 365,
     min_visits: int = 1,
+    *,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    strict: bool = False,
 ) -> list[HistoryEntry]:
     """Extract browsing history entries from Safari.
 
@@ -79,6 +83,15 @@ def extract_history(
         db_path: Path to History.db. Default: ~/Library/Safari/History.db
         since_days: Only extract entries from the last N days. Default: 365.
         min_visits: Minimum visit count to include. Default: 1.
+        since: Absolute lower bound (exclusive); overrides since_days.
+            Used by the full-history catch-up (catchup_browser.py) to read
+            one fixed window at a time. None keeps since_days.
+        until: Absolute upper bound (exclusive). None = no upper bound,
+            which is the install-time behaviour, unchanged.
+        strict: Re-raise a query error (sqlite3.OperationalError, or
+            PermissionError when macOS refused the read) instead of
+            returning []. The catch-up needs "could not read" to differ
+            from "no visits"; the default keeps the install-time [].
 
     Returns:
         List of HistoryEntry objects, most recent first.
@@ -108,6 +121,12 @@ def extract_history(
     # Calculate the Mac absolute time for our since_days cutoff
     now_unix = datetime.now(timezone.utc).timestamp()
     cutoff_mac = (now_unix - (since_days * 86400)) - MAC_EPOCH_OFFSET
+    if since is not None:
+        cutoff_mac = since.timestamp() - MAC_EPOCH_OFFSET
+    upper_sql, params = "", [cutoff_mac, min_visits]
+    if until is not None:
+        upper_sql = "\n              AND hv.visit_time < ?"
+        params = [cutoff_mac, until.timestamp() - MAC_EPOCH_OFFSET, min_visits]
 
     try:
         rows = conn.execute("""
@@ -119,12 +138,17 @@ def extract_history(
                 hv.redirect_source
             FROM history_items hi
             JOIN history_visits hv ON hi.id = hv.history_item
-            WHERE hv.visit_time > ?
+            WHERE hv.visit_time > ?""" + upper_sql + """
               AND hi.visit_count >= ?
             ORDER BY hv.visit_time DESC
-        """, (cutoff_mac, min_visits)).fetchall()
+        """, tuple(params)).fetchall()
     except sqlite3.OperationalError as e:
         logger.error("Failed to query Safari history: %s", e)
+        if strict:
+            conn.close()
+            if "authorization denied" in str(e).lower():
+                raise PermissionError("Cannot read browser history: Full Disk Access") from e
+            raise
         conn.close()
         return []
 
@@ -163,6 +187,30 @@ def extract_history(
 
     logger.info("Extracted %d history entries from Safari", len(entries))
     return entries
+
+
+def oldest_visit(db_path: Optional[Path] = None) -> Optional[datetime]:
+    """The oldest visit in History.db, or None when it holds no visits.
+
+    The full-history catch-up walks back to this and stops. Raises like
+    extract_history: FileNotFoundError when there is no History.db,
+    PermissionError when Full Disk Access is missing."""
+    db_path = db_path or DEFAULT_HISTORY_PATH
+    if not db_path.exists():
+        raise FileNotFoundError(f"Safari history not found at {db_path}")
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT MIN(visit_time) FROM history_visits").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        if "authorization denied" in str(e).lower():
+            raise PermissionError("Cannot read Safari history: Full Disk Access") from e
+        raise
+    if not row or row[0] is None:
+        return None
+    return datetime.fromtimestamp(row[0] + MAC_EPOCH_OFFSET, tz=timezone.utc)
 
 
 def top_domains(
