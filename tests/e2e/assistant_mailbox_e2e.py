@@ -382,6 +382,15 @@ allowed_senders = ["{OWNER}"]
         start_daemon()
         wait(lambda: sim.box.logins >= 6, 60)
         check("(e) after a daemon restart the drop counts survive", drops() == d1, f"{drops()} vs {d1}")
+        # The file alone can look right until the daemon next writes it, so make
+        # it write: one more unlisted sender, and every old count must still be there.
+        before = sim.box.next_uid - 1
+        deliver(mail(STRANGER, "Hello again", "<stranger-2@example.test>"))
+        settle(before, 40)
+        d2 = drops()
+        want = dict(d1, not_listed=d1.get("not_listed", 0) + 1)
+        check("(e) after a restart AND a new drop, the old counts are still there (not reset)",
+              d2 == want, f"{d2} vs {want}")
         before = sim.box.next_uid - 1
         n_rep = len(replies_to(OWNER))
         deliver(mail(OWNER, "After restart", "<after-1@example.test>"))
