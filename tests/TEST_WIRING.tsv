@@ -795,7 +795,7 @@ test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflow
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_uninstall_stops_what_it_deletes.sh	WIRED	.github/workflows/launchd-plist-paths.yml
-test_uninstall_writes_deliberate_stop_marker.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_uninstall_writes_deliberate_stop_marker.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstaller_keep_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_universal_import_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

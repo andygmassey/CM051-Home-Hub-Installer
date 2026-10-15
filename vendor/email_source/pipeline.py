@@ -450,10 +450,10 @@ def _widen_first_window(state, messages, threads, mail_dir, since_days, user_add
         logger.info("[first-window] email-bundle deferred: busy (installing); "
                     "the first tick after the install widens it")
         return messages, threads
-    started = time.monotonic()
+    widen_t0 = time.monotonic()
     days, result = since_days, "exhausted"
     for rung in (r for r in FIRST_WINDOW_RUNGS if r > since_days):
-        if time.monotonic() - started >= FIRST_WINDOW_BUDGET_SECONDS:
+        if time.monotonic() - widen_t0 >= FIRST_WINDOW_BUDGET_SECONDS:
             result = "budget"
             break
         days = rung

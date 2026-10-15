@@ -33,12 +33,12 @@ SB="$(cd "$SB" && pwd -P)"  # launchd path-watches need the real path, not /var 
 LABEL="ai.ostler.test.dsm.$$"
 cleanup() { launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true; rm -rf "$SB"; }
 trap cleanup EXIT
-mkdir -p "$SB/home/.ostler/bin"; : > "$SB/home/.ostler/deliberate-stop"; : > "$SB/home/.ostler/power.conf"
+mkdir -p "$SB/fakehome/.ostler/bin"; : > "$SB/fakehome/.ostler/deliberate-stop"; : > "$SB/fakehome/.ostler/power.conf"
 TAIL="$(awk '/^if \[\[ -d "\$\{HOME\}\/\.ostler" \]\]; then$/{f=1} f{print} f&&/rm -f "\$\{HOME\}\/\.ostler\/deliberate-stop"/{exit}' <<<"$BODY")"
 if grep -q 'rm -f "${HOME}/.ostler/deliberate-stop"' <<<"$TAIL"; then
-    HOME="$SB/home" bash -c "$TAIL"
-    [[ ! -e "$SB/home/.ostler/deliberate-stop" ]] && ok "2 marker removed" || bad "2 marker survived the uninstall tail"
-    [[ -e "$SB/home/.ostler/power.conf" ]] && ok "3 power.conf still kept (control: tail ran)" || bad "3 power.conf lost"
+    HOME="$SB/fakehome" bash -c "$TAIL"
+    [[ ! -e "$SB/fakehome/.ostler/deliberate-stop" ]] && ok "2 marker removed" || bad "2 marker survived the uninstall tail"
+    [[ -e "$SB/fakehome/.ostler/power.conf" ]] && ok "3 power.conf still kept (control: tail ran)" || bad "3 power.conf lost"
 else
     bad "2 uninstaller tail never removes the marker"
 fi

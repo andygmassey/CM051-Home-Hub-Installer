@@ -497,10 +497,10 @@ def _widen_first_window(state: dict, conversations: list, db_path, since_days: i
         logger.info("[first-window] imessage-bundle deferred: busy (installing); "
                     "the first tick after the install widens it")
         return conversations
-    started = time.monotonic()
+    widen_t0 = time.monotonic()
     days, result = since_days, "exhausted"
     for rung in (r for r in FIRST_WINDOW_RUNGS if r > since_days):
-        if time.monotonic() - started >= FIRST_WINDOW_BUDGET_SECONDS:
+        if time.monotonic() - widen_t0 >= FIRST_WINDOW_BUDGET_SECONDS:
             result = "budget"
             break
         days = rung

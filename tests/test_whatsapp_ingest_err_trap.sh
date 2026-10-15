@@ -52,8 +52,8 @@ out="$("$BASH_BIN" "${TMPDIR:-/tmp}/wa_harness.$$" 2>&1)"; rc=$?
 rm -f "${TMPDIR:-/tmp}/wa_harness.$$"
 echo "$out"
 fails=0
-echo "$out" | grep -q 'ERR_TRAP_FIRED' && { echo "  FAIL  ERR trap fired: install would abort" >&2; fails=$((fails+1)); }
-echo "$out" | grep -q 'REACHED rc=1' || { echo "  FAIL  did not reach the next line with the ingest error recorded (rc=$rc)" >&2; fails=$((fails+1)); }
-echo "$out" | grep -q 'TRAP_REARMED' || { echo "  FAIL  ERR trap not restored after the step" >&2; fails=$((fails+1)); }
+grep -q 'ERR_TRAP_FIRED' <<<"$out" && { echo "  FAIL  ERR trap fired: install would abort" >&2; fails=$((fails+1)); }
+grep -q 'REACHED rc=1' <<<"$out" || { echo "  FAIL  did not reach the next line with the ingest error recorded (rc=$rc)" >&2; fails=$((fails+1)); }
+grep -q 'TRAP_REARMED' <<<"$out" || { echo "  FAIL  ERR trap not restored after the step" >&2; fails=$((fails+1)); }
 [ "$fails" -eq 0 ] && echo "  PASS  ingest rc=1 under armed ERR trap: recorded, trap restored ($BASH_BIN)"
 exit "$fails"

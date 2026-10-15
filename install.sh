@@ -40287,11 +40287,6 @@ fi
 # may raise the Documents prompt once -- but ALONE, after the FDA windows
 # are gone, never stacked on them.
 #
-# F2: the install-in-progress marker goes JUST before this start. From here
-# the daemon's Reminders watcher asks for access (this start's own startup
-# probe, or at most one 30s tick later), which is the END of the install,
-# after the Tailscale sign-in above. See _ostler_install_marker_set.
-_ostler_install_marker_clear
 # #30: record when the install finished, once. com.ostler.export-scan reads it
 # to run the full-history catch-up every 30 minutes for the next 48 hours.
 if [[ ! -s "${OSTLER_DIR}/state/install_completed_at" ]]; then
@@ -40299,6 +40294,11 @@ if [[ ! -s "${OSTLER_DIR}/state/install_completed_at" ]]; then
     date +%s >"${OSTLER_DIR}/state/install_completed_at" 2>/dev/null \
         || warn "could not record the install time; catch-up will start its 48 hours at its first run"  # i18n-exempt
 fi
+# F2: the install-in-progress marker goes JUST before this start. From here
+# the daemon's Reminders watcher asks for access (this start's own startup
+# probe, or at most one 30s tick later), which is the END of the install,
+# after the Tailscale sign-in above. See _ostler_install_marker_set.
+_ostler_install_marker_clear
 _ostler_start_assistant_daemon
 
 # #1538: and SAY what the customer has, whatever the channel set. TOP LEVEL,

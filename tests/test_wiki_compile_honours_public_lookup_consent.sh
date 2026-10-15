@@ -137,15 +137,15 @@ fi
 # ---------------------------------------------------------------------------
 echo "D. the real tick, docker stubbed"
 run_tick() { # decision caller_env -> prints the recorded "lookups|args" lines for compile runs
-    local d="$WORK/d-$1-$2" ; rm -rf "$d"; mkdir -p "$d/home/.ostler/config" "$d/home/.ostler/logs"
-    local od="$d/home/.ostler"
+    local d="$WORK/d-$1-$2" ; rm -rf "$d"; mkdir -p "$d/fakehome/.ostler/config" "$d/fakehome/.ostler/logs"
+    local od="$d/fakehome/.ostler"
     printf 'services: {}\n' > "$od/docker-compose.yml"
     [ "$1" = none ] || printf 'OSTLER_CONSENT_ENRICHMENT_DECISION="%s"\n' "$1" > "$od/config/.env"
     : > "$d/docker.log"
     # A bash FUNCTION, exported: it wins over any docker on PATH (the tick
     # prepends /usr/local/bin, where a dev Mac keeps the real one) and is
     # inherited by the detached `nohup bash -c` full compile.
-    DOCKER_LOG="$d/docker.log" HOME="$d/home" OSTLER_DIR="$od" OSTLER_INGEST_SLOT=0 \
+    DOCKER_LOG="$d/docker.log" HOME="$d/fakehome" OSTLER_DIR="$od" OSTLER_INGEST_SLOT=0 \
     OSTLER_RESOURCE_GOVERNOR=0 OSTLER_PUBLIC_LOOKUPS="$2" \
     bash -c '
         docker() { printf "%s|%s\n" "${OSTLER_PUBLIC_LOOKUPS-UNSET}" "$*" >> "$DOCKER_LOG"; return 0; }
