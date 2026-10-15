@@ -134,6 +134,7 @@ test_assistant_config_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_assistant_fda_is_asked_on_every_mac.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_assistant_identity_belt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_sandbox_is_pinned_to_seatbelt.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
@@ -293,6 +294,7 @@ test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/wor
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
+test_enrichment_honours_a_decline.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml

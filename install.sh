@@ -21010,6 +21010,21 @@ if [[ ! -x "$CM019_PY" ]]; then
     exit 0
 fi
 
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES, checked on EVERY tick and not
+# only when the installer decides whether to create this agent. An agent
+# created by an earlier install where the answer was yes survives a later
+# install where it was no, and nothing else stops it. Same reader as
+# ostler-import: the answer in config/.env, and anything but "accepted"
+# (missing, unreadable, empty) is a NO.
+_ENV_FILE="${OSTLER_DIR}/config/.env"
+_decision=""
+[[ -r "$_ENV_FILE" ]] && _decision="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$_ENV_FILE" | tail -n 1)"
+_decision="${_decision%\"}"; _decision="${_decision#\"}"
+if [[ "$_decision" != "accepted" ]]; then
+    log "public look-ups not agreed (recorded answer: ${_decision:-none}); standing down, nothing sent"
+    exit 0
+fi
+
 # Counts-only readback, before and after. This is what makes the log
 # EVIDENCE rather than noise: a tick that enriched nothing and a tick that
 # never ran print differently, which is the whole lesson of every silent
@@ -22818,6 +22833,23 @@ fi
 if [[ -f "${OSTLER_DIR}/config/.env" ]]; then
     set -a; source "${OSTLER_DIR}/config/.env"; set +a
 fi
+
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES. Setup asks consent_enrichment
+# (default no) and writes the answer to config/.env as
+# OSTLER_CONSENT_ENRICHMENT_DECISION. Until this gate the enrich pass below ran
+# on every import regardless, so a customer who said no and later dropped an
+# export into Downloads had its titles and artists sent to Wikidata and
+# MusicBrainz anyway. The answer is read from the FILE, not from the
+# environment this script inherited: a variable left over in a caller is not
+# the customer's recorded answer. Missing file, unreadable file, missing key,
+# empty, or anything but "accepted" is a NO.
+_public_lookups_agreed() {
+    local f="${OSTLER_DIR}/config/.env" v
+    [[ -r "$f" ]] || return 1
+    v="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$f" | tail -n 1)"
+    v="${v%\"}"; v="${v#\"}"
+    [[ "$v" == "accepted" ]]
+}
 # CM019 tags points by user slug; prefer an explicit flag, then the
 # installed-user env, then a neutral default.
 CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
@@ -22887,6 +22919,13 @@ for d in "${DIRS[@]}"; do
         #
         # It stays non-zero rather than being removed so a manual
         # `ostler-import` still shows something happening.
+        #
+        # Everything from here to the kickstart sends things to public
+        # reference sources, so all of it sits behind the customer's answer.
+        # The local ingest above is not a look-up and always runs.
+        if ! _public_lookups_agreed; then
+            echo "Public look-ups are off (you said no during setup), so nothing was looked up in Wikidata, MusicBrainz or Open Library."
+        else
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
             "$CM019_PY" -m services.enrich.src.cli enrich --all \
                 --budget-seconds "${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}" \
@@ -22940,6 +22979,7 @@ for d in "${DIRS[@]}"; do
             # site is where the 23h56m wedge was measured; _ks_bounded carries
             # the evidence and the bound.
             _ks_bounded "gui/$(id -u)/com.ostler.enrich"
+        fi
         fi
     fi
 
@@ -28821,7 +28861,16 @@ else
     # log entry from racing the LaunchAgent.
     sleep 2
 
-    if [[ -f "$_imessage_chat_db_path" ]]; then
+    # ASKED ON EVERY INSTALL (TCC sweep 2026-10-15). This whole block used to
+    # sit inside `if [[ -f chat.db ]]`, so a Mac with no Messages history never
+    # asked for the assistant's Full Disk Access at all, and printed "can read
+    # Messages history" on the way past. But every brokered feed (fda-rerun,
+    # contacts, email, WhatsApp, voice notes, AI chats, exports) runs as the
+    # assistant and needs that one grant, Messages or not. The daemon-identity
+    # check below reads TCC.db, not chat.db, so it never needed the file.
+    _imessage_has_history=false
+    [[ -f "$_imessage_chat_db_path" ]] && _imessage_has_history=true
+
         # ── CX-90 (fresh-install P0): daemon-identity test is FIRST ──
         #
         # The authoritative test is whether the *daemon*
@@ -28857,7 +28906,7 @@ else
             # identity, not the daemon's), so it must NOT set
             # needed=false nor print the "channel will work" line. We
             # keep its outcome to a non-committal log only.
-            if sqlite3 -readonly \
+            if [[ "$_imessage_has_history" == true ]] && sqlite3 -readonly \
                     "file:${_imessage_chat_db_path}?mode=ro" \
                     "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
                 : # installer identity can read chat.db; not authoritative for the daemon
@@ -29534,13 +29583,16 @@ else
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
-    else
-        # No chat.db on this Mac at all (e.g. Messages.app never
-        # signed in to iMessage). Card would be a false positive --
-        # default to false so it stays quiet.
+
+    # The iMessage Doctor card is keyed on chat.db: it auto-dismisses by
+    # opening chat.db, so on a Mac with no Messages history it could never
+    # clear. There it stays off, and says nothing about the grant either way.
+    # The grant itself was still asked for above, and a refusal still shows:
+    # the hourly fda-rerun tick exits 75 and the Doctor names Full Disk Access.
+    if [[ "$_imessage_has_history" != true ]]; then
         _imessage_fda_needed="false"
-        info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
     fi
+    unset _imessage_has_history
 
     # Re-resolve the writer + sidecar path. The mail-content probe
     # already mkdir'd PIPELINE_SIGNALS_DIR earlier in Phase 3, but
