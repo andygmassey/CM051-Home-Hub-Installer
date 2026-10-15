@@ -1221,4 +1221,4 @@ Tree `ostler_fda`. NEW CM051-side behaviour, two files:
 
 ### What a future sync must preserve
 
-`catchup_mbox.py` and the `queue_mailbox` call in `_dispatch_mbox`. Guarded by `tests/test_catchup_takeout.py` (red on origin/main, wired in `.github/workflows/catchup-takeout.yml`).
+`catchup_mbox.py` and the `queue_mailbox` call in `_dispatch_mbox`. Also (tree `ostler_fda`, file `vendor/ostler_fda/catchup_mbox.py`): `sweep_gone_sources` (a vanished Takeout zip leaves no extraction behind; state in `state/catchup/takeout-source-gone.json`) and `extract_member`'s cap from `ostler_catchup.tick_remaining()`; guarded by `test_a_takeout_zip_that_vanishes_mid_walk_leaves_nothing_behind` and `test_the_extraction_cap_is_the_ticks_remaining_budget`. Guarded by `tests/test_catchup_takeout.py` (red on origin/main, wired in `.github/workflows/catchup-takeout.yml`).

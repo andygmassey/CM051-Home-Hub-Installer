@@ -796,3 +796,74 @@ def test_persist_conversations_reports_exit_75_as_unavailable_not_just_failed(tm
         r = ui._persist_conversations([{"conversation_id": "c1", "transcript": "x", "metadata": {}}],
                                       source="test")
         assert r["persist_failed"] == 1 and r.get("persist_unavailable", 0) == unavailable, (rc, r)
+
+def test_a_takeout_zip_that_vanishes_mid_walk_leaves_nothing_behind(tmp_path, monkeypatch):
+    """#2909 review B1: the customer moves or deletes the Takeout zip while a
+    mailbox is extracted. The extracted .mbox and any .part must not stay on
+    disk for ever; the state is recorded (counts only)."""
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    user = _two_mailbox_takeout(tmp_path)
+    monkeypatch.setenv("OSTLER_TAKEOUT_HOME", str(user))
+    from ostler_fda import catchup_mbox as cm
+    parts = cm.find_takeout_parts()
+    zms = cm.list_zip_members(parts)
+    assert len(zms) == 2
+    assert cm.extract_member(zms[0], busy=lambda: None) == "done"          # an extracted mailbox
+    zms[1].ours.parent.mkdir(parents=True, exist_ok=True)
+    zms[1].ours.with_name(zms[1].ours.name + ".part").write_bytes(b"x" * 10)   # and a partial one
+    root = home / "imports" / "takeout"
+    assert [p for p in root.rglob("*") if p.is_file()], "setup: nothing extracted"
+    for z in (user / "Downloads").glob("takeout-*.zip"):
+        z.unlink()                                                          # the customer deletes them
+    assert cm.adapters() == []
+    left = [str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()]
+    assert left == [], f"orphaned extraction left on disk: {left}"
+    rec = json.loads((home / "state" / "catchup" / "takeout-source-gone.json").read_text())
+    assert rec["removed_files"] == 2 and rec["exports"] == 2, rec
+
+
+def test_a_live_zip_keeps_its_extraction(tmp_path, monkeypatch):
+    """CONTROL for the sweep above: it must not touch an extraction whose zip is still there."""
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    user = _two_mailbox_takeout(tmp_path)
+    monkeypatch.setenv("OSTLER_TAKEOUT_HOME", str(user))
+    from ostler_fda import catchup_mbox as cm
+    zms = cm.list_zip_members(cm.find_takeout_parts())
+    assert cm.extract_member(zms[0], busy=lambda: None) == "done"
+    assert len(cm.adapters()) == 2
+    assert zms[0].ours.is_file(), "the sweep deleted an extraction whose zip is still present"
+
+
+def test_the_extraction_cap_is_the_ticks_remaining_budget(tmp_path, monkeypatch):
+    """#2909 review B2: the cap was a fixed 300 s. A tick with 1 s left must stop
+    extracting after ~1 s (leaving a resumable part), not run on to 300."""
+    import time as _t
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    monkeypatch.delenv("OSTLER_CATCHUP_EXTRACT_SECONDS", raising=False)
+    from ostler_fda import catchup_mbox as cm
+    payload = b"From a@example.com\n" + os.urandom(24 * 1024 * 1024)
+    z = tmp_path / "takeout-20261003T000000Z-1-001.zip"
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("Takeout/Mail/Big.mbox", payload)
+    zm = cm.list_zip_members([z], dest_root=home / "imports" / "takeout")[0]
+    monkeypatch.setattr(cm, "_BUSY_EVERY_CHUNKS", 1)
+    monkeypatch.setattr(oc, "busy_reason", lambda: (_t.sleep(0.1), None)[1])   # ~0.1 s per MiB
+    states = []
+
+    class OneShot(oc.Adapter):
+        source = "mbox_budgetprobe"
+        def next_batch(self, cursor, limit):
+            states.append(cm.extract_member(zm))
+            return oc.Batch(items=[], next_cursor=cursor, pause=True)
+        def key(self, item): return str(item)
+        def process(self, item): return True
+
+    t0 = _t.monotonic()
+    oc.run([OneShot()], budget_seconds=1.0, busy=lambda: None)
+    took = _t.monotonic() - t0
+    assert states == ["partial"], states
+    assert took < 1.9, f"extraction ran {took:.1f}s inside a 1 s tick"
+    assert zm.ours.with_name(zm.ours.name + ".part").is_file()

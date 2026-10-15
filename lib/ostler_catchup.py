@@ -367,6 +367,15 @@ def read_all_watermarks(directory: Optional[Path] = None) -> List[dict]:
 
 # ── adapter contract ─────────────────────────────────────────────────────────
 
+class SinkUnavailable(ConnectionError):
+    """Raised by an adapter's ``process`` when the SINK (gateway, store,
+    transport) could not take the item. Says nothing about the item: it is never
+    counted toward quarantine, ends the run with "sink_unavailable" and leaves
+    the cursor where it was. ConnectionError and TimeoutError are read the same
+    way. Only an item the sink REJECTED (``process`` returns False) or that could
+    not be parsed counts as a poison attempt."""
+
+
 class CannotRun(Exception):
     """Raised by an adapter's ``next_batch`` or ``process`` when the source
     cannot be READ right now (permission refused, store unreadable, schema not
@@ -420,6 +429,19 @@ class Adapter:
 
 # ── the loop ─────────────────────────────────────────────────────────────────
 
+# The running tick's deadline, so an adapter that does one long step (a Takeout
+# extraction) can cap it by what the tick has LEFT instead of a fixed number.
+_TICK: dict = {"deadline": None, "clock": None}
+
+
+def tick_remaining() -> Optional[float]:
+    """Seconds left in the tick now running, or None outside a tick."""
+    d, c = _TICK.get("deadline"), _TICK.get("clock")
+    if d is None or c is None:
+        return None
+    return max(0.0, d - c())
+
+
 def run(
     adapters: Iterable[Adapter],
     *,
@@ -435,6 +457,7 @@ def run(
     """
     adapters = [a for a in adapters if a is not None]
     t0 = clock()
+    _TICK["deadline"], _TICK["clock"] = t0 + budget_seconds, clock
     own_ledger = ledger is None
     ledger = ledger or Ledger()
     wms = {a.source: Watermark.load(a.source, a.doctor_row or a.source) for a in adapters}
@@ -478,8 +501,11 @@ def run(
                 except Exception as exc:  # noqa: BLE001 - one source never stops the others
                     logger.warning("catch-up %s: reading the next batch failed (%s)",
                                    a.source, type(exc).__name__)
+                    # Said out loud: without this the Doctor shows "Catching up" for ever.
                     st["reason"] = "read_failed:" + type(exc).__name__
+                    wm.cannot_run = "read_failed:" + type(exc).__name__
                     active.remove(a)
+                    wm.save()
                     continue
 
                 if batch.cannot_run:
@@ -513,6 +539,12 @@ def run(
                     except CannotRun as exc:
                         blocked, finished = exc.reason, False
                         break
+                    except (SinkUnavailable, ConnectionError, TimeoutError) as exc:
+                        # The sink is down, not the item: no attempt is counted.
+                        logger.warning("catch-up %s: sink unavailable (%s); stopping, cursor unchanged",
+                                       a.source, type(exc).__name__)
+                        st["reason"], finished, stop = "sink_unavailable", False, "sink_unavailable"
+                        break
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("catch-up %s: an item failed (%s)", a.source, type(exc).__name__)
                         ok = False
@@ -544,7 +576,7 @@ def run(
                 if not finished:
                     # The cursor stays put: the next tick re-reads this batch
                     # and the ledger skips the items already done.
-                    if st["reason"] == "item_failed":
+                    if st["reason"] in ("item_failed", "sink_unavailable"):
                         active.remove(a)
                     wm.save()
                     if stop:
@@ -580,6 +612,7 @@ def run(
                             "batches": st["batches"],
                             "reason": st["reason"], "seconds": seconds}
             wm.save()
+        _TICK["deadline"] = _TICK["clock"] = None
         if own_ledger:
             ledger.close()
 

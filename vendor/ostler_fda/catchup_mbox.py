@@ -281,7 +281,19 @@ def extract_member(zm: ZipMember, *, busy=None, max_seconds: Optional[float] = N
     import time as _time
     clock = clock or _time.monotonic
     busy = busy or oc.busy_reason
-    cap = _extract_seconds() if max_seconds is None else max_seconds
+    if max_seconds is not None:
+        cap = max_seconds
+    else:
+        # What the running tick has LEFT, not a fixed 300 s: a tick with 40 s
+        # remaining must stop extracting in 40 s (the part resumes next tick).
+        # OSTLER_CATCHUP_EXTRACT_SECONDS, when set, is an extra ceiling.
+        left = oc.tick_remaining()
+        if left is None:
+            cap = _extract_seconds()
+        elif os.environ.get("OSTLER_CATCHUP_EXTRACT_SECONDS", "").strip():
+            cap = min(left, _extract_seconds())
+        else:
+            cap = left
     t0 = clock()
     zm.ours.parent.mkdir(parents=True, exist_ok=True)
     part = zm.ours.with_name(zm.ours.name + ".part")
@@ -745,12 +757,63 @@ def _parse_iso(v) -> Optional[datetime]:
 
 # ── the factory ──────────────────────────────────────────────────────────────
 
+def sweep_gone_sources(live_export_ids: Iterable[str]) -> int:
+    """Delete extractions whose source Takeout zip is no longer there.
+
+    The customer may move or delete the zip mid-walk. Its adapter then never
+    appears again, so the mailbox we extracted (and any .part) would sit in
+    imports/takeout/<export id>/ for ever. Only directories NAMED like our own
+    extractions (takeout-<stamp>) are touched, never a loose file or the
+    install's own layout. Records the state, counts only, in
+    state/catchup/takeout-source-gone.json. Returns files removed."""
+    root = _home() / "imports" / "takeout"
+    live = {i.lower() for i in live_export_ids}
+    removed, exports = 0, 0
+    try:
+        dirs = [d for d in root.iterdir() if d.is_dir() and _EXPORT_ID_RE.match(d.name)
+                and d.name.lower() not in live]
+    except OSError:
+        return 0
+    for d in dirs:
+        n = 0
+        for f in sorted((p for p in d.rglob("*") if p.is_file()), reverse=True):
+            with contextlib.suppress(OSError):
+                f.unlink()
+                n += 1
+        for sub in sorted((p for p in d.rglob("*") if p.is_dir()), key=lambda p: -len(p.parts)):
+            with contextlib.suppress(OSError):
+                sub.rmdir()
+        with contextlib.suppress(OSError):
+            d.rmdir()
+        if n:
+            removed += n
+            exports += 1
+    if removed:
+        logger.info("catch-up takeout: source zip gone; removed %d extracted file(s) of %d export(s)",
+                    removed, exports)
+        try:
+            rec = _catchup_state() / "takeout-source-gone.json"
+            rec.parent.mkdir(parents=True, exist_ok=True)
+            prior = {}
+            with contextlib.suppress(OSError, ValueError):
+                prior = json.loads(rec.read_text(encoding="utf-8"))
+            rec.write_text(json.dumps({
+                "removed_files": removed, "exports": exports,
+                "total_removed_files": int(prior.get("total_removed_files", 0)) + removed,
+                "at": datetime.now(timezone.utc).isoformat()}, indent=2), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("catch-up takeout: could not record the removal (%s)", type(exc).__name__)
+    return removed
+
+
 def adapters() -> list:
     """One adapter per distinct mailbox found right now. Runs at every tick,
     so a Takeout dropped next month is found next month. Nothing is extracted
     here: Takeout members are only listed (see EXTRACTION IS LAZY AND BOUNDED)."""
     out, claimed, seen = [], set(), set()
-    for zm in list_zip_members(find_takeout_parts()):
+    members = list_zip_members(find_takeout_parts())
+    sweep_gone_sources({zm.export_id for zm in members})
+    for zm in members:
         for p in (zm.ours, zm.installs):
             claimed.add(p)
         if zm.identity in seen:
