@@ -6,10 +6,17 @@ language kept) and appends one journal line. ``undo_merge`` puts both nodes
 back to that snapshot and pins the pair as ``distinct`` in duplicates.yaml, so
 the next converge pass does not simply merge them again.
 
-SCOPE OF UNDO, stated plainly: it restores the GRAPH (Oxigraph). The Qdrant
-point merge is not reversed; the vector store is reconciled by person_uri and
-a restored node is re-embedded by the normal pipeline. ``undo_merge`` reports
-``qdrant_restored: False`` so nobody reads it as more than it is.
+UNDO IS COMPLETE ACROSS BOTH STORES. Before the merge, ``record_merge`` also
+snapshots the pair's Qdrant ``people`` points (id, vector, payload): the two
+uuid5(person_uri) points plus any point whose payload ``person_uri`` is either
+node. ``undo_merge`` upserts those points back and deletes any point for the
+pair that was not in the snapshot, THEN restores the graph. Qdrant goes first
+because upsert is idempotent; if it fails nothing in the graph has changed and
+the undo can simply be run again. The one honest limit: if Qdrant was
+unreachable when the merge ran, no vector snapshot exists, and ``undo_merge``
+says so (``qdrant_restored: False`` with the reason) rather than claiming it.
+Cosine collections re-normalise stored vectors, so a restored vector can differ
+from the snapshot in the last float bit; ids and payloads are exact.
 
 Files are written 0600 inside a 0700 directory: a snapshot holds the same
 identifiers the graph does.
@@ -94,6 +101,65 @@ def _sparql_term(t: Term) -> str:
     return f'"{_esc(v)}"@{extra}'
 
 
+def snapshot_qdrant(qdrant_url: str, collection: str, uris: List[str]) -> Dict[str, Any]:
+    """Every people point belonging to ``uris`` (id, vector, payload).
+
+    Never raises: a store that cannot be read is recorded as ``unavailable``
+    with the exception class, so the journal says what it could not capture.
+    """
+    try:
+        from qdrant_client import QdrantClient, models
+        client = QdrantClient(url=qdrant_url, timeout=30)
+        ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, u)) for u in uris]
+        found: Dict[str, Any] = {}
+        for r in client.retrieve(collection_name=collection, ids=ids,
+                                 with_payload=True, with_vectors=True):
+            found[str(r.id)] = r
+        pts, _ = client.scroll(
+            collection_name=collection,
+            scroll_filter=models.Filter(must=[models.FieldCondition(
+                key="person_uri", match=models.MatchAny(any=list(uris)))]),
+            with_payload=True, with_vectors=True, limit=1000)
+        for r in pts:
+            found[str(r.id)] = r
+        return {"status": "ok", "collection": collection,
+                "pair_ids": ids,
+                "points": [{"id": i, "vector": r.vector, "payload": r.payload or {}}
+                           for i, r in sorted(found.items())]}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "unavailable", "collection": collection,
+                "reason": type(exc).__name__, "points": []}
+
+
+def _restore_qdrant(qdrant_url: str, snap: Dict[str, Any]) -> int:
+    """Put the pair's points back exactly; returns the number restored. Raises
+    on any failure so the caller can stop before touching the graph."""
+    from qdrant_client import QdrantClient, models
+    client = QdrantClient(url=qdrant_url, timeout=30)
+    coll = snap["collection"]
+    want = {p["id"] for p in snap["points"]}
+    if snap["points"]:
+        client.upsert(collection_name=coll, wait=True, points=[
+            models.PointStruct(id=p["id"], vector=p["vector"], payload=p["payload"])
+            for p in snap["points"]])
+    # Anything the merge (or the reconcile sweep) left for this pair that was
+    # not there before is removed.
+    pair_uris = {p["payload"].get("person_uri") for p in snap["points"]} - {None}
+    now, _ = client.scroll(
+        collection_name=coll, with_payload=False, with_vectors=False, limit=1000,
+        scroll_filter=models.Filter(must=[models.FieldCondition(
+            key="person_uri", match=models.MatchAny(any=sorted(pair_uris)))]),
+    ) if pair_uris else ([], None)
+    extra = [str(r.id) for r in now if str(r.id) not in want]
+    if extra:
+        client.delete(collection_name=coll, wait=True, points_selector=extra)
+    # Prove it: read the snapshot ids back.
+    got = {str(r.id) for r in client.retrieve(collection_name=coll, ids=sorted(want))}
+    if got != want:
+        raise RuntimeError("restored points not all present after upsert")
+    return len(want)
+
+
 def read_node(url: str, client: httpx.Client, uri: str
               ) -> Tuple[Set[SubjTriple], Set[ObjTriple]]:
     subj = {(b["p"]["value"], _term(b["o"])) for b in _query(
@@ -124,6 +190,7 @@ def record_merge(
     url: str, client: httpx.Client, journal_dir: str, keep_uri: str,
     discard_uri: str, *, strategy: str, confidence: float, details: str,
     override: str = "", shared_kinds: Optional[List[str]] = None,
+    qdrant_url: str = "", qdrant_collection: str = "people",
 ) -> str:
     """Snapshot both nodes and journal the merge. MUST be called BEFORE the
     merge writes anything. Raises on failure: a merge with no backup does not
@@ -132,6 +199,9 @@ def record_merge(
     _private_dir(os.path.join(journal_dir, SNAP_DIR))
     merge_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
     snap: Dict[str, Any] = {"keep": keep_uri, "discard": discard_uri, "nodes": {}}
+    if qdrant_url:
+        snap["qdrant"] = snapshot_qdrant(qdrant_url, qdrant_collection,
+                                         [keep_uri, discard_uri])
     for uri in (keep_uri, discard_uri):
         subj, obj = read_node(url, client, uri)
         snap["nodes"][uri] = {
@@ -146,6 +216,8 @@ def record_merge(
         "keep": keep_uri, "discard": discard_uri, "strategy": strategy,
         "confidence": confidence, "details": details, "override": override,
         "shared_kinds": shared_kinds or [], "snapshot": snap_rel,
+        "qdrant_status": snap.get("qdrant", {}).get("status", "not_requested"),
+        "qdrant_points": len(snap.get("qdrant", {}).get("points", [])),
     }
     _write_private(os.path.join(journal_dir, JOURNAL_NAME),
                    json.dumps(entry) + "\n", append=True)
@@ -192,7 +264,7 @@ def _pin_distinct(corrections_dir: str, keep: str, discard: str) -> bool:
 
 def undo_merge(
     url: str, client: httpx.Client, journal_dir: str, merge_id: str,
-    *, corrections_dir: str = "",
+    *, corrections_dir: str = "", qdrant_url: str = "",
 ) -> Dict[str, Any]:
     """Restore both nodes to their pre-merge snapshot. Raises UndoError and
     writes nothing when the merge is unknown, already undone, or the discard
@@ -259,6 +331,22 @@ def undo_merge(
     for s, p in pre_disc_o - cur_disc_o:
         _ins(s, p, f"<{discard}>")
 
+    # Vectors first (idempotent upsert; a failure leaves the graph untouched).
+    qd = snap.get("qdrant") or {}
+    qdrant_restored = False
+    qdrant_note = qd.get("status", "not_snapshotted")
+    if qd.get("status") == "ok":
+        if not qdrant_url:
+            raise UndoError("this merge has a Qdrant snapshot but no Qdrant URL was given")
+        try:
+            _restore_qdrant(qdrant_url, qd)
+        except Exception as exc:  # noqa: BLE001
+            raise UndoError(
+                f"Qdrant restore failed ({type(exc).__name__}); nothing was "
+                "changed in the graph, run the undo again once Qdrant is up")
+        qdrant_restored = True
+        qdrant_note = "restored"
+
     # One request: the store applies it atomically, so a crash cannot leave
     # a half-restored pair.
     _update(url, client, " ; ".join(ops))
@@ -271,4 +359,4 @@ def undo_merge(
         append=True)
     return {"merge_id": merge_id, "keep": keep, "discard": discard,
             "operations": len(ops), "pinned_distinct": pinned,
-            "qdrant_restored": False}
+            "qdrant_restored": qdrant_restored, "qdrant": qdrant_note}

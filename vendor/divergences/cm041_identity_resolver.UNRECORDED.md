@@ -204,7 +204,11 @@ round executes nothing; `MergeAction.merge_id` added; the converge summary count
 executed merges, not planned ones. Linkedin conflicts are compared in canonical
 form on this path only.
 
-Guarded by `tests/test_exact_identifier_merge.py` (rdflib-backed store, 20
+Guarded by `tests/test_exact_identifier_merge.py` (rdflib-backed store, 22
 tests, wired in `.github/workflows/exact-identifier-merge.yml`).
 `tests/test_converge_path_enforces_rule2.sh` now stubs `record_merge` like it
 already stubs `_backup_triples`. Upstream CM041 mirror OWED; no re-vendor.
+Update: the journal snapshot also carries the pair's Qdrant `people` points
+(id, vector, payload); `--undo-merge` restores them before the graph. New
+vendor-only code in `merge_journal.py`; `batch_resolver.py` passes
+`qdrant_url`/`qdrant_collection` to `record_merge` and `qdrant_url` to undo.

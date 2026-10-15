@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "vendor", "cm041"))
 
 from identity_resolver import batch_resolver as br  # noqa: E402
 
+_REAL_MERGE_QDRANT = br._merge_qdrant   # captured before the autouse stub
 PWG = br.PWG
 MOBILE_A = "+447400123456"      # valid UK mobile (type MOBILE)
 MOBILE_B = "+447400123457"
@@ -376,3 +377,96 @@ def test_policy_mutation_control_guard_threshold():
         assert ex.is_guarded(("phone", LANDLINE), h) is False
     finally:
         ex.GUARD_MIN_DISTINCT_NAMES = old
+
+
+# --------------------------------------------------------------------------
+# Undo is complete across BOTH stores: graph and Qdrant people points.
+# Real _merge_qdrant and the real reconcile sweep run against an in-memory
+# Qdrant; the point ids are the production ones, uuid5(NAMESPACE_URL, uri).
+# --------------------------------------------------------------------------
+def test_undo_restores_graph_and_qdrant_points_and_pins_distinct(tmp_path, monkeypatch):
+    qc = pytest.importorskip("qdrant_client")
+    pytest.importorskip("yaml")
+    import uuid
+    from qdrant_client import QdrantClient, models
+
+    mem = QdrantClient(":memory:")
+    monkeypatch.setattr(qc, "QdrantClient", lambda *a, **k: mem)
+    monkeypatch.setattr(br, "_merge_qdrant", _REAL_MERGE_QDRANT)
+    mem.create_collection("people", vectors_config=models.VectorParams(
+        size=4, distance=models.Distance.COSINE))
+
+    s = FakeStore()
+    ka = s.person("v1", "Casey Morgan", phones=[MOBILE_A], uids=["uid-1"], extra_triples=3)
+    kb = s.person("v2", "Casey Morgan", phones=[MOBILE_A], emails=["c@example.com"],
+                  uids=["uid-2"])
+    pid = lambda u: str(uuid.uuid5(uuid.NAMESPACE_URL, u))
+    mem.upsert("people", [
+        models.PointStruct(id=pid(ka), vector=[1, 0, 0, 0], payload={
+            "person_uri": ka, "display_name": "Casey Morgan",
+            "phones": [MOBILE_A], "emails": []}),
+        models.PointStruct(id=pid(kb), vector=[0, 1, 0, 0], payload={
+            "person_uri": kb, "display_name": "Casey Morgan",
+            "phones": [MOBILE_A], "emails": ["c@example.com"],
+            "organization": "Example Ltd"}),
+        models.PointStruct(id=str(uuid.uuid4()), vector=[0, 0, 1, 0], payload={
+            "person_uri": f"{PWG}person_other", "display_name": "Unrelated Person"}),
+    ])
+
+    def qdump():
+        recs, _ = mem.scroll("people", limit=100, with_payload=True, with_vectors=True)
+        return {str(r.id): (json.dumps(r.payload, sort_keys=True),
+                            [round(x, 6) for x in r.vector]) for r in recs}
+
+    q_before, g_before = qdump(), _dump(s)
+    r = make(s, tmp_path)
+    r.reconcile_qdrant = types.MethodType(br.BatchResolver.reconcile_qdrant, r)
+    r.converge(backup_dir=str(tmp_path / "bk"))
+
+    assert len(s.live()) == 1
+    assert qdump() != q_before                      # the merge really changed Qdrant
+    assert len(qdump()) == len(q_before) - 1        # discard point deleted
+
+    entry = [e for e in merge_entries(tmp_path) if e["kind"] == "merge"][0]
+    assert entry["qdrant_status"] == "ok" and entry["qdrant_points"] == 2
+
+    res = r.undo_merge(entry["id"], backup_dir=str(tmp_path / "bk"))
+    assert res["qdrant_restored"] is True and res["pinned_distinct"] is True
+    assert qdump() == q_before                      # ids, payloads, vectors
+    assert _dump(s) == g_before                     # graph too
+
+    make(s, tmp_path).converge(backup_dir=str(tmp_path / "bk"))
+    assert len(s.live()) == 2                       # pinned distinct: not re-merged
+    assert qdump() == q_before
+
+
+def test_undo_refuses_before_touching_the_graph_if_qdrant_restore_fails(tmp_path, monkeypatch):
+    qc = pytest.importorskip("qdrant_client")
+    pytest.importorskip("yaml")
+    from qdrant_client import QdrantClient, models
+    from identity_resolver.merge_journal import UndoError
+    import uuid
+
+    mem = QdrantClient(":memory:")
+    monkeypatch.setattr(qc, "QdrantClient", lambda *a, **k: mem)
+    monkeypatch.setattr(br, "_merge_qdrant", _REAL_MERGE_QDRANT)
+    mem.create_collection("people", vectors_config=models.VectorParams(
+        size=4, distance=models.Distance.COSINE))
+    s = FakeStore()
+    ka = s.person("w1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
+    kb = s.person("w2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    for u in (ka, kb):
+        mem.upsert("people", [models.PointStruct(
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL, u)), vector=[1, 0, 0, 0],
+            payload={"person_uri": u})])
+    r = make(s, tmp_path)
+    r.converge(backup_dir=str(tmp_path / "bk"))
+    merged_graph = _dump(s)
+    mid = [e for e in merge_entries(tmp_path) if e["kind"] == "merge"][0]["id"]
+
+    def down(*a, **k):
+        raise ConnectionError("qdrant down")
+    monkeypatch.setattr(qc, "QdrantClient", down)
+    with pytest.raises(UndoError):
+        r.undo_merge(mid, backup_dir=str(tmp_path / "bk"))
+    assert _dump(s) == merged_graph                 # graph untouched, retry is safe

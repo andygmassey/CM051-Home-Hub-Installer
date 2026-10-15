@@ -2208,6 +2208,8 @@ class BatchResolver:
                     strategy=action.strategy, confidence=action.confidence,
                     details="identifier values withheld from the journal",
                     override=override_reason,
+                    qdrant_url=self.qdrant_url,
+                    qdrant_collection=self.qdrant_collection,
                     shared_kinds=sorted({
                         k for k in ("email", "phone", "linkedin")
                         if k in action.details.lower() or k + "_" in action.strategy
@@ -2289,11 +2291,12 @@ class BatchResolver:
         return reason if ok else ""
 
     def undo_merge(self, merge_id: str, backup_dir: str = "./backups") -> Dict[str, Any]:
-        """Undo one journalled merge (graph only; see merge_journal)."""
+        """Undo one journalled merge: graph and Qdrant points (see merge_journal)."""
         return merge_journal.undo_merge(
             self.oxigraph_url, self._client,
             os.path.join(backup_dir, "merge_journal"), merge_id,
             corrections_dir=self.config.get("corrections_dir", ""),
+            qdrant_url=self.qdrant_url,
         )
 
     def reconcile_qdrant(
@@ -2493,7 +2496,7 @@ def main() -> None:
         "--undo-merge", metavar="MERGE_ID", default="",
         help="Undo one journalled merge (restores both nodes in the graph from "
              "<backup-dir>/merge_journal and pins the pair as distinct). "
-             "Graph only: the Qdrant point merge is not reversed.",
+             "Restores the Qdrant people points (ids, vectors, payloads) too.",
     )
     parser.add_argument(
         "--list-merges", action="store_true",
