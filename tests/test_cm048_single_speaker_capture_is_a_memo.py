@@ -264,3 +264,28 @@ def test_single_speaker_predicate(transcript, labels, meta, expect):
 
     md = {"participants": labels, "channel": "spoken", **meta}
     assert capture_truth.is_single_speaker_capture(transcript, md) is expect
+
+
+def test_the_bundle_carries_the_capture_times_not_midnight(settings, tmp_path):
+    """Sibling on the same capture: the four-artefact bundle read
+    started_at/ended_at only, so the envelope's start_time/end_time were
+    ignored and a mid-afternoon memo was stamped 00:00-01:00, and the
+    memo was labelled a "meeting". Real adapter + real writer."""
+    from src import channel_adapter, conversation_writer
+    from src.bundle_extractor import BundleExtraction
+
+    _run(settings, CID, MEMO, ["S1"])
+    meta = _iphone_metadata(CID, ["S1"])
+    c = processor._load_classification(settings.processing_state_dir / CID)
+    bundle = channel_adapter.make_bundle(
+        metadata=meta, classification=c,
+        extraction=BundleExtraction(overall_summary="Synthetic.", topics=[], todos=[]),
+        transcript=MEMO, privacy_level="L2",
+    )
+    out = conversation_writer.write_conversation(
+        bundle, root=tmp_path / "bundles", gist_post_fn=None,
+    )
+    fm = yaml.safe_load((out.folder / "summary.md").read_text().split("---", 2)[1])
+    assert fm["started_at"] == "2026-10-15T14:00:00Z", fm["started_at"]
+    assert fm["ended_at"] == "2026-10-15T14:01:00Z", fm["ended_at"]
+    assert fm["source_subtype"] == "voice_memo"
