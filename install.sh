@@ -22732,9 +22732,11 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 if [[ -z "${OSTLER_ICLOUD_USER:-}" || -z "${OSTLER_ICLOUD_APP_PASSWORD:-}" ]]; then
-    # iCloud not paired yet. Exit 0 with empty output so ical-server
-    # treats the calendar as "no events" rather than degraded.
-    exit 0
+    # iCloud not paired. Exit 3 ("not connected"), NOT 0 with empty output:
+    # an empty success reads as "no events today" and the daily brief told
+    # customers their diary was clear. ical-server treats 3 as "this optional
+    # source is not connected", never as an empty calendar.
+    exit 3
 fi
 
 "$PYBIN" - "$DAYS" <<'PYEOF'

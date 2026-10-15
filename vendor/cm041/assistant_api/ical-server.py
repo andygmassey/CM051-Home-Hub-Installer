@@ -7933,6 +7933,10 @@ FDA_IMPORT_DIR = os.environ.get(
 )
 
 
+# ical-query.sh exit code for "iCloud keys not set" (install.sh wrapper).
+ICAL_NOT_CONNECTED_RC = 3
+
+
 class LocalStoreError(Exception):
     """A local ingest file could not be read. Never mapped to an empty list."""
 
@@ -8009,7 +8013,7 @@ def build_calendar_response(days, now=None):
     events when configured. A failed local read is reported (degraded, or 503
     when nothing else answered), never returned as a 200 with no events.
     """
-    all_events, sources, errors = [], [], []
+    all_events, sources, errors, not_connected = [], [], [], []
     try:
         local, age = read_local_calendar_events(days, now=now)
         all_events.extend(local)
@@ -8022,13 +8026,18 @@ def build_calendar_response(days, now=None):
     try:
         result = subprocess.run(
             [ICAL_SCRIPT, str(days)], capture_output=True, text=True, timeout=30)
-        extra = parse_ical_output(result.stdout)
-        if extra:
-            all_events.extend(extra)
-            sources.append("iCloud")
-            extra_ok = True
+        if result.returncode == ICAL_NOT_CONNECTED_RC:
+            not_connected.append("iCloud")  # unpaired: not empty, not an error
+        elif result.returncode != 0:
+            errors.append(f"iCloud calendar failed (rc {result.returncode})")
+        else:
+            extra = parse_ical_output(result.stdout)
+            if extra:
+                all_events.extend(extra)
+                sources.append("iCloud")
+                extra_ok = True
     except Exception:
-        pass  # optional extra
+        pass  # optional extra (script absent)
     try:
         extra = query_google_calendar(days)
         if extra:
@@ -8074,6 +8083,8 @@ def build_calendar_response(days, now=None):
             "sources": sources}
     if age is not None:
         body["local_store_age_seconds"] = age
+    if not_connected:
+        body["not_connected"] = not_connected
     if errors:
         body["degraded"] = True
         body["errors"] = errors

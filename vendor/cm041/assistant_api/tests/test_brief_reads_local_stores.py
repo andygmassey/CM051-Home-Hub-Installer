@@ -73,6 +73,41 @@ class BriefLocalStores(unittest.TestCase):
         status, _ = ical_server.build_calendar_response(1)
         self.assertEqual(status, 503)
 
+    def _script(self, rc):
+        sh = Path(self.dir, "ical-query.sh")
+        sh.write_text(f"#!/bin/sh\nexit {rc}\n")
+        sh.chmod(0o755)
+        q = mock.patch.object(ical_server, "ICAL_SCRIPT", str(sh))
+        q.start()
+        self.addCleanup(q.stop)
+
+    def test_unpaired_icloud_is_not_connected_not_empty(self):
+        self._write("calendar_events.json", [])
+        self._script(3)
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["not_connected"], ["iCloud"])
+        self.assertNotIn("degraded", body)
+
+    def test_unpaired_icloud_and_no_local_store_is_503(self):
+        self._script(3)
+        status, _ = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503)
+
+    def test_icloud_script_failure_degrades(self):
+        self._write("calendar_events.json", [])
+        self._script(1)
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 200)
+        self.assertTrue(body["degraded"])
+
+    def test_install_wrapper_exits_3_when_unpaired(self):
+        root = Path(__file__).resolve().parents[4]
+        text = (root / "install.sh").read_text()
+        i = text.index("iCloud not paired")
+        self.assertIn("exit 3", text[i:i + 600])
+        self.assertNotIn("exit 0", text[i:i + 600])
+
     def test_mail_fixture_is_counted(self):
         n = _now()
         rows = [
