@@ -858,11 +858,24 @@ def ingest_imessage(fda_dir: Path) -> dict:
         people_created, people_enriched, lookup_failed,
     )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_enriched),
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
     }
+
+
+def _lookup_status(lookup_failed: int, landed: int) -> str:
+    """Status for a people writer that asks the graph before it writes.
+
+    "could not look" is not "looked and found nothing". Oxigraph down used to
+    come back as ok with 0 created, which the fda-rerun stamped as a success
+    (last_success_at). Nothing landed AND lookups failed -> "error"; some
+    landed -> "partial" (never "ok", so never stamped as a full success).
+    """
+    if not lookup_failed:
+        return "ok"
+    return "partial" if landed else "error"
 
 
 class _StoreUnavailable(Exception):
@@ -1339,7 +1352,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
         tier_t1, tier_t2_intimate, tier_t2_active, tier_t3_skipped,
     )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_enriched),
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
@@ -1541,7 +1554,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
             "may have been duplicated", lookup_failed,
         )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_matched + meetings_created),
         "events_processed": events_processed,
         "unique_attendees": len(people_seen),
         "meetings_created": meetings_created,
@@ -1885,7 +1898,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             "may have been duplicated", lookup_failed,
         )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_matched),
         "people_created": people_created,
         "people_matched": people_matched,
         "people_lookup_failed": lookup_failed,
@@ -3547,6 +3560,14 @@ def main():
     fda_dir = Path(args.fda_dir) if args.fda_dir else None
     results = ingest_all(fda_dir)
     print(json.dumps(results, indent=2))
+    # Exit non-zero when anything failed, so a caller that captures rc (install
+    # hydrate) cannot record a failed graph write as ok. ingest_all itself
+    # never raises; before this the CLI exited 0 whatever the results said.
+    if results.get("status") == "error" or any(
+        isinstance(v, dict) and v.get("status") == "error"
+        for v in results.values()
+    ):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

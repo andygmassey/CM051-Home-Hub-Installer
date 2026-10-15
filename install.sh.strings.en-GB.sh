@@ -1490,6 +1490,7 @@ MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (t
 # T2 active are ingested; T3 large + passive is skipped invisibly.
 MSG_HYDRATE_WHATSAPP_STARTED="Reading your WhatsApp history – your messages stay on this Mac"
 MSG_HYDRATE_WHATSAPP_DONE="Found %s people in your WhatsApp chats"
+MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="WhatsApp chats were read but not written to your people graph (exit %s). Ostler will retry. Details: %s"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="No WhatsApp chats to read. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install it from the Mac App Store and re-run from Settings."
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
@@ -1677,6 +1678,7 @@ MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED="Could not check whether your Rem
 MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"
 MSG_HYDRATE_PEOPLE_DONE="Indexed %s people for search"
 MSG_HYDRATE_PEOPLE_PARTIAL="Indexed %s of %s people for search so far. The rest were not searchable yet; Ostler will retry automatically."
+MSG_HYDRATE_PEOPLE_FAILED="Your people could not be indexed for search this time (the graph store did not answer). Ostler will retry automatically. Details: %s"
 MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA="No people to index yet. You can re-run later from Settings."
 MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING="People indexer not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES="Your people are still being indexed in the background. Search fills in as it goes, and the wiki shows you where it is up to."

@@ -1205,3 +1205,21 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+
+---
+
+## ostler_fda: people writers and the CLI report failure (status-honesty sweep E2, V3)
+
+`vendor/ostler_fda/pwg_ingest.py`: new `_lookup_status(lookup_failed, landed)`;
+`ingest_imessage`, `ingest_whatsapp`, `ingest_calendar` and `ingest_mail_contacts`
+return `status` "error" (nothing landed, lookups failed) or "partial" instead of
+a hardcoded "ok", so the fda-rerun no longer stamps `last_success_at` when
+Oxigraph was down. `main()` exits 1 when any result is an error (it exited 0
+whatever the results said), so install.sh's WhatsApp graph write, which no longer
+ends in `|| true`, records the failure.
+
+### What a future sync must preserve
+
+`_lookup_status` at the four return sites and the non-zero exit in `main()`.
+Guarded by `tests/test_people_status_honesty.py` (workflow
+`status-honesty-people.yml`).

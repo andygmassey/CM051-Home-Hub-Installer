@@ -23657,7 +23657,7 @@ else:
     for name in sorted(results):
         res = results[name]
         if isinstance(res, dict) and res.get('status') == 'error':
-            failed.append(name + ': ' + str(res.get('error', 'error')))
+            failed.append(name + ': ' + str(res.get('error', 'error' + (' (%s identifier lookups could not run)' % res['people_lookup_failed'] if res.get('people_lookup_failed') else ''))))
 if failed:
     sys.stderr.write('[ingest] FAILED: ' + '; '.join(failed) + chr(10))
     sys.exit(1)
@@ -33647,9 +33647,22 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         # whatsapp_conversations.json was just written, only
         # ingest_whatsapp will do work. Other ingests return their
         # "no data" skip status without touching Oxigraph.
+        set +e
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.pwg_ingest \
             --fda-dir "${OSTLER_DIR}/imports/fda" \
-            >>"$_HYDRATE_WHATSAPP_LOG" 2>&1 || true
+            >>"$_HYDRATE_WHATSAPP_LOG" 2>&1
+        _wa_ingest_rc=$?
+        # Status-honesty E2: this write used to end in `|| true`, so a failed
+        # graph write was recorded as ok. Keep the extract's rc if it already
+        # failed; otherwise the ingest's rc becomes the recorded one.
+        if [[ "$_wa_ingest_rc" -ne 0 ]]; then
+            warn "$(printf "$MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED" "$_wa_ingest_rc" "$_HYDRATE_WHATSAPP_LOG")"
+            if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -eq 0 ]]; then
+                _HYDRATE_WHATSAPP_RC="$_wa_ingest_rc"
+            fi
+        fi
+        unset _wa_ingest_rc
+        set -e
 
         # Parse people_added for the customer-facing message. The CLI
         # contract guarantees this field exists in --json output.
@@ -33664,7 +33677,9 @@ except Exception:
         )" || { _HYDRATE_WHATSAPP_UNMEASURED=true; _HYDRATE_WHATSAPP_COUNT=""; }
         _HYDRATE_WHATSAPP_COUNT="${_HYDRATE_WHATSAPP_COUNT:-0}"
 
-        if [[ "$_HYDRATE_WHATSAPP_COUNT" -gt 0 ]]; then
+        if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -ne 0 ]]; then
+            : # the failure was already reported above; no success line
+        elif [[ "$_HYDRATE_WHATSAPP_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_WHATSAPP_DONE" "$_HYDRATE_WHATSAPP_COUNT")"
         else
             info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS"
@@ -35992,7 +36007,27 @@ except Exception:
         if [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 && "$_HYDRATE_PEOPLE_TOTAL" -gt "$_HYDRATE_PEOPLE_SENT" ]]; then
             _HYDRATE_PEOPLE_PARTIAL=true
         fi
-        if [[ "$_HYDRATE_PEOPLE_PARTIAL" == "true" ]]; then
+        # Status-honesty E1: ingest_people_to_qdrant returns status=error when
+        # Oxigraph held people it could not index. That used to fall through to
+        # "No people to index yet" (sent=0). A partial landing keeps its own message below. Read it, say so, and record a
+        # non-zero rc so the error sentinel is written and the retry is kept.
+        _HYDRATE_PEOPLE_STATUS="$(
+            printf '%s' "$_HYDRATE_PEOPLE_JSON" \
+            | python3 -c 'import json,sys
+try:
+    print(str(json.loads(sys.stdin.read()).get("status", "")))
+except Exception:
+    print("")' 2>/dev/null
+        )" || _HYDRATE_PEOPLE_STATUS=""
+        if [[ "$_HYDRATE_PEOPLE_STATUS" == "error" && "$_HYDRATE_PEOPLE_PARTIAL" != "true" ]]; then
+            _HYDRATE_PEOPLE_FAILED=true
+            if [[ "${_HYDRATE_PEOPLE_RC:-0}" -eq 0 ]]; then
+                _HYDRATE_PEOPLE_RC=1
+            fi
+        fi
+        if [[ "${_HYDRATE_PEOPLE_FAILED:-false}" == "true" ]]; then
+            warn "$(printf "$MSG_HYDRATE_PEOPLE_FAILED" "$_HYDRATE_PEOPLE_LOG")"
+        elif [[ "$_HYDRATE_PEOPLE_PARTIAL" == "true" ]]; then
             warn "$(printf "$MSG_HYDRATE_PEOPLE_PARTIAL" "$_HYDRATE_PEOPLE_SENT" "$_HYDRATE_PEOPLE_TOTAL")"
         elif [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_PEOPLE_DONE" "$_HYDRATE_PEOPLE_SENT")"
@@ -36056,7 +36091,7 @@ except Exception:
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
     unset _HYDRATE_PEOPLE_RC _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
-    unset _HYDRATE_PEOPLE_TOTAL _HYDRATE_PEOPLE_PARTIAL
+    unset _HYDRATE_PEOPLE_TOTAL _HYDRATE_PEOPLE_PARTIAL _HYDRATE_PEOPLE_STATUS _HYDRATE_PEOPLE_FAILED
 else
     info "$MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING"
 fi
