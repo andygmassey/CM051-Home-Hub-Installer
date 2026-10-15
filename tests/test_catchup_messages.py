@@ -383,9 +383,38 @@ def test_whatsapp_forward_alone_misses_history_and_catchup_reads_it_all(env):
     assert not leaked, "a T3 large passive group was read"
 
 
-def test_whatsapp_kill_mid_backfill_then_restart(env):
+def test_whatsapp_catchup_before_the_forward_feed_does_not_double_process_the_newest(env):
+    """Catch-up running BEFORE the forward feed has recorded a chat (a new
+    chat, or the tick order) used to start at the newest message and bundle
+    those messages under session ids; the forward feed then bundled the same
+    messages again as one chat-wide conversation. Every message must end up in
+    exactly one bundle whichever feed runs first."""
+    from whatsapp_source.pipeline import process_whatsapp
     db = env["tmp"] / "ChatStorage.sqlite"
     expected = build_chatstorage(db)
+    state = env["ws"] / "whatsapp_source_state.json"
+    assert not state.exists(), "the fixture must start with no forward state"
+    cu = _catchup_module("whatsapp_source.catchup")
+    adapter = cu.WhatsAppCatchup(db_path=db, state_path=state, pwg_convo_cmd=env["fake"])
+    _run_until_complete(adapter)
+    process_whatsapp(db_path=db, state_path=state, pwg_convo_cmd=env["fake"])
+    seen, per = sink_tokens(env["sink"])
+    missing = [t for t in expected if not seen[t]]
+    double = [t for t in expected if len(per[t]) > 1]
+    print(f"\n[whatsapp catch-up first] missing {len(missing)}, in two bundles {len(double)} of {len(expected)}")
+    assert not double, f"{len(double)} messages in two conversations, e.g. {double[:3]}"
+    assert not missing, f"{len(missing)} never bundled, e.g. {missing[:3]}"
+
+
+def test_whatsapp_kill_mid_backfill_then_restart(env):
+    from whatsapp_source.pipeline import process_whatsapp
+    db = env["tmp"] / "ChatStorage.sqlite"
+    expected = build_chatstorage(db)
+    # Catch-up starts BELOW the window the forward feed bundles, so the forward
+    # feed runs first, as it does at install.
+    process_whatsapp(db_path=db, state_path=env["ws"] / "whatsapp_source_state.json",
+                     pwg_convo_cmd=env["fake"])
+    baseline = sum(writes(env["tmp"]).values())
     e = dict(os.environ)
     e.update({"PYTHONPATH": f"{LIB}{os.pathsep}{VENDOR}", "OSTLER_WHATSAPP_CHAT_DB": str(db),
               "PWG_CONVO_CMD": env["fake"][0], "OSTLER_CATCHUP_MAX_LOAD_PER_CORE": "1000",
@@ -397,7 +426,7 @@ def test_whatsapp_kill_mid_backfill_then_restart(env):
         p = subprocess.Popen(cmd, env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.time() + 120
         while time.time() < deadline and p.poll() is None:
-            if sum(writes(env["tmp"]).values()) >= target:
+            if sum(writes(env["tmp"]).values()) >= baseline + target:
                 p.send_signal(signal.SIGKILL)
                 kills += 1
                 break

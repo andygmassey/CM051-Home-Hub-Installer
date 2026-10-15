@@ -50,10 +50,8 @@ from .pipeline import (
     _label_lookup,
     _load_contacts_map,
     _load_label_map,
-    _load_state,
     _name_resolver,
     _resolve_pwg_convo_cmd,
-    _state_path,
     process_whatsapp,
 )
 from .reader import (
@@ -148,27 +146,35 @@ class WhatsAppCatchup(oc.Adapter):
         return None if r is None else r["ZMESSAGEDATE"]
 
     def _initial(self, conn, now):
-        forward = _load_state(self.state_path or _state_path()).get("chats") or {}
+        """Where each chat's walk starts: just below the window the forward
+        feed bundles (or will bundle) for it.
+
+        EVERY in-tier chat starts below that window, whether or not the forward
+        state has recorded it yet. A chat the forward feed has not reached (a
+        new chat, or this tick running before the next forward tick) used to
+        start at its newest message, so catch-up bundled the newest sessions
+        under session ids and the forward feed then bundled the same messages
+        again as one chat-wide conversation under another id: the same message
+        in two conversations."""
         cutoff = _now_mac_ts(now - timedelta(days=FORWARD_SINCE_DAYS)) if FORWARD_SINCE_DAYS else None
         chats = {}
         for pk, chat in self._classify(conn, now).items():
             before = [_NO_BOUND, _BIG_PK]
-            if chat.chat_id in forward:
-                sql = ("SELECT ZMESSAGEDATE, Z_PK FROM ZWAMESSAGE WHERE ZCHATSESSION = ? "
-                       "AND ZMESSAGETYPE = ? AND ZTEXT IS NOT NULL AND ZTEXT != ''")
-                params = [int(pk), MESSAGE_TYPE_TEXT]
-                if cutoff is not None:
-                    sql += " AND ZMESSAGEDATE > ?"
-                    params.append(cutoff)
-                sql += " ORDER BY ZMESSAGEDATE DESC LIMIT 1 OFFSET ?"
-                params.append(FORWARD_PER_CHAT_LIMIT - 1)
-                edge = conn.execute(sql, params).fetchone()
-                if edge is not None:
-                    before = [edge["ZMESSAGEDATE"], edge["Z_PK"]]
-                elif cutoff is not None:
-                    before = [cutoff, _BIG_PK]   # the forward read everything after the cutoff
-                else:
-                    continue                      # no cutoff, under the cap: all bundled
+            sql = ("SELECT ZMESSAGEDATE, Z_PK FROM ZWAMESSAGE WHERE ZCHATSESSION = ? "
+                   "AND ZMESSAGETYPE = ? AND ZTEXT IS NOT NULL AND ZTEXT != ''")
+            params = [int(pk), MESSAGE_TYPE_TEXT]
+            if cutoff is not None:
+                sql += " AND ZMESSAGEDATE > ?"
+                params.append(cutoff)
+            sql += " ORDER BY ZMESSAGEDATE DESC LIMIT 1 OFFSET ?"
+            params.append(FORWARD_PER_CHAT_LIMIT - 1)
+            edge = conn.execute(sql, params).fetchone()
+            if edge is not None:
+                before = [edge["ZMESSAGEDATE"], edge["Z_PK"]]
+            elif cutoff is not None:
+                before = [cutoff, _BIG_PK]   # the forward read everything after the cutoff
+            else:
+                continue                      # no cutoff, under the cap: all bundled
             head = self._head(conn, pk, before)
             if head is not None:
                 chats[pk] = {"before": before, "head": head}
