@@ -56,7 +56,7 @@ if f:
     # Excluded, each with its declared reason: empty, JID, short code (6
     # digits or fewer), alphanumeric sender ID.
     for nameless in (_lid_jid, "", None, "   ", "x@lid",
-                     "".join("87099"), "".join("123456"), "NHS-ALERT", "AMZN1"):
+                     "".join("87099"), "".join("123456"), "NHS-ALERT", "AMZN1", "HSBCALERT", "AMAZON"):
         check(f"nameless: {nameless!r}", f(nameless))
     # A phone-only person is SHOWN (ruling 2026-08-10), never dropped.
     pf = ns.get("_is_provisional_phone_name")
@@ -64,8 +64,11 @@ if f:
     for shown in (_bare_phone, "+44" + "7700900001", "(555) 010 " + "0100"):
         check(f"NOT nameless (phone-only, provisional): {shown!r}", not f(shown))
         check(f"provisional mark: {shown!r}", bool(pf and pf(shown)))
+    # A carded name always shows, whatever its case (Archie's ruling).
+    for carded in ("JOHN", "ALEX", "JEAN-LUC", "MARY-JANE", "J.R.", "HSBCALERT"):
+        check(f"carded {carded!r} is NOT nameless", not f(carded, has_card=True))
     check("a human name carries no provisional mark", bool(pf) and not pf("Alice Example"))
-    for real in ("Alice Example", "Bob Example", "JOHN", "Marta"):
+    for real in ("Alice Example", "Bob Example", "Marta"):
         check(f"NOT nameless: {real!r}", not f(real))
 
 ical_text = ICAL.read_text()

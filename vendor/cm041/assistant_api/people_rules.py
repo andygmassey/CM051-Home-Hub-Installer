@@ -60,14 +60,19 @@ def _is_short_code(display_name):
 
 
 def _is_alphanumeric_sender_id(display_name):
-    """EXPLAINED EXCLUSION 2: an alphanumeric sender ID, by shape: ONE token of
-    2-11 characters from ``A-Z 0-9 . _ -``, with no lowercase letter and at
-    least two letters, AND at least one digit or separator ("NHS-ALERT",
-    "AMZN1"). A bare upper-case word ("JOHN", "AMAZON") is NOT matched here:
-    "JOHN" can be a real carded name, and a name must never be dropped on a
-    guess. Bare-word senders are left to the card-aware service-name rules.
-    Mixed-case words ("Marta") are never matched."""
+    """EXPLAINED EXCLUSION 2: an alphanumeric sender ID, by shape, applied only
+    to a sender with NO contact card. Two shapes: (i) a single all-caps
+    ALPHABETIC token of 3+ letters ("HSBCALERT", "AMAZON"), Archie's ruling;
+    (ii) ONE token of 2-11 characters from ``A-Z 0-9 . _ -``, no lowercase,
+    at least two letters, AND a digit or separator ("NHS-ALERT", "AMZN1").
+    A carded name is never excluded (a carded "ALEX" is a person). Mixed-case
+    words ("Marta") are never matched."""
     s = (display_name or "").strip()
+    # Archie's ruling: a single all-caps ALPHABETIC token of 3+ letters
+    # ("HSBCALERT", "AMAZON") is a sender ID too, any length. Only ever applied
+    # with no card (see ``_is_nameless_name``): a carded "ALEX" is a person.
+    if len(s) >= 3 and s.isascii() and s.isalpha() and s.isupper():
+        return True
     if not 2 <= len(s) <= 11:
         return False
     if not all(c.isascii() and (c.isupper() or c.isdigit() or c in "._-") for c in s):
@@ -88,9 +93,11 @@ def _is_provisional_phone_name(display_name):
 
 # SHARED RULE (Hub, wiki compiler/nameless.py, iOS PersonNameFilter; all three
 # cite this block and must stay byte-identical in behaviour):
-#   A. A sender-ID exclusion (shape: one token of 2-11 chars from A-Z 0-9 . _ -,
-#      no lowercase, 2+ letters, and a digit or separator) applies ONLY to a
-#      sender with NO contact card. A CARDED name always shows: "JEAN-LUC",
+#   A. A sender-ID exclusion applies ONLY to a sender with NO contact card.
+#      Shapes (Archie's ruling): (i) a single all-caps ALPHABETIC token of 3+
+#      letters ("HSBCALERT", "AMAZON"); (ii) one token of 2-11 chars from
+#      A-Z 0-9 . _ -, no lowercase, 2+ letters, and a digit or separator
+#      ("NHS-ALERT", "AMZN1"). A CARDED name always shows: "JEAN-LUC",
 #      "MARY-JANE" and "J.R." are people. The other exclusions (empty, JID,
 #      short code) are shapes no card makes a person, and apply regardless.
 #   B. Display-name ladder, upward only: human name (given/family) > email >

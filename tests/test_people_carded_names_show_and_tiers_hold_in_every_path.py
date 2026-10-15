@@ -62,12 +62,13 @@ POINTS = [
     pt(3, "JEAN-LUC", icloud_uid="c3"),
     pt(4, "MARY-JANE", icloud_uid="c4"),
     pt(5, "J.R.", icloud_uid="c5"),
-    pt(6, "HSBC-ALERT"),
+    pt(6, "HSBCALERT"),
+    pt(10, "ALEX", icloud_uid="c10"),
     pt(7, "NHS-ALERT"),
     pt(8, "JEAN-LUC"),
     pt(9, PH3),
 ]
-CARDED = {"urn:t:3", "urn:t:4", "urn:t:5", "urn:t:1"}
+CARDED = {"urn:t:3", "urn:t:4", "urn:t:5", "urn:t:1", "urn:t:10"}
 
 
 class Resp(io.BytesIO):
@@ -116,16 +117,18 @@ for n in ("JEAN-LUC", "MARY-JANE", "J.R."):
     check("carded %r shows" % n, not f(n, has_card=True))
     check("uncarded %r keeps the shape exclusion" % n, f(n))
 check("a true sender ID (NHS-ALERT) with no card is hidden", f("NHS-ALERT"))
+check("uncarded HSBCALERT and AMAZON are hidden; carded ALEX shows", f("HSBCALERT") and f("AMAZON") and not f("ALEX", has_card=True))
 check("a short code is hidden even with a card", f("87099", has_card=True))
 
 print("--- people_list ---")
 lst = names(m.people_list()["people"])
 for n in ("Alice Example", EM, "JEAN-LUC", "MARY-JANE", "J.R."):
     check("list shows %r" % n, n in lst, lst)
+check("list: carded single-token ALEX shows, uncarded HSBCALERT hidden", "ALEX" in lst and "HSBCALERT" not in lst, lst)
 check("list: no raw phone over a given name", PH1 not in lst)
 check("list: email beats phone", PH2 not in lst)
 check("list: phone-only shown when nothing better", PH3 in lst, lst)
-check("list: true sender ID with no card hidden", "HSBC-ALERT" not in lst and "NHS-ALERT" not in lst, lst)
+check("list: true sender ID with no card hidden", "HSBCALERT" not in lst and "NHS-ALERT" not in lst, lst)
 check("list: uncarded JEAN-LUC (point 8) is not a second carded row", lst.count("JEAN-LUC") == 1, lst)
 
 print("--- people_search ---")
