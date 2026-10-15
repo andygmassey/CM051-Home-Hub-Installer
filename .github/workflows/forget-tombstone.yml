@@ -125,8 +125,7 @@ jobs:
       - name: Forget says done only when the person is gone from both stores
         run: |
           set -eu
-          t=vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py
-          n="$(python -m pytest "$t" --collect-only -q | grep -cE '::test_')" || n=0
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          [ "${n:-0}" -ge 10 ] || { echo "REFUSING: expected at least 10 tests, got ${n:-0}" >&2; exit 1; }
-          python -m pytest "$t" -v
+          [ "${n:-0}" -ge 15 ] || { echo "REFUSING: expected at least 15 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py -v

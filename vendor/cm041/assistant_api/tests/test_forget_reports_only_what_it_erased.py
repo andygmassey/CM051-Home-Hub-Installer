@@ -142,6 +142,63 @@ class BothStoresMustBePurged(_Base):
         self.assertIn("qdrant", out["stores_purged"], out)
 
 
+class RetryPurgesQdrantEvenWhenTheGraphIsEmpty(_Base):
+    def test_retry_after_a_qdrant_failure_sends_the_qdrant_delete(self):
+        # Call 1: the graph half goes, Qdrant answers 500 -> 503 retry:true.
+        # Call 2: the graph is already empty, so the person no longer resolves.
+        # The retry must still send the Qdrant delete for the same cluster.
+        self.qd.script = [500, 200]
+        out, code = server.api_people_forget("jane-smith")
+        self.assertEqual(code, 503, out)
+        self.assertTrue(out.get("retry"), out)
+        self.assertEqual(self.left(CLUSTER), [])
+        self.assertEqual(len(self.qd.deletes), 1)
+        out2, code2 = server.api_people_forget("jane-smith")
+        self.assertEqual(len(self.qd.deletes), 2, "the retry sent no Qdrant delete: %s" % out2)
+        self.assertEqual(sorted(self.qd.deletes[-1][1]["filter"]["must"][0]["match"]["any"]),
+                         sorted(CLUSTER))
+        self.assertEqual(code2, 200, out2)
+        self.assertTrue(out2["forgotten"], out2)
+        self.assertEqual(sorted(out2["stores_purged"]), ["oxigraph", "qdrant"], out2)
+        self.assertEqual(len([l for l in self.audit_lines() if l.endswith(" forget jane-smith")]), 1)
+        # Once done, the pending record is gone and a third call is benign.
+        out3, code3 = server.api_people_forget("jane-smith")
+        self.assertEqual((code3, out3.get("already_forgotten")), (200, True), out3)
+        self.assertEqual(len(self.qd.deletes), 2)
+
+    def test_control_unknown_slug_still_sends_no_qdrant_delete(self):
+        out, code = server.api_people_forget("nobody-here")
+        self.assertTrue(out.get("not_found"), out)
+        self.assertEqual(self.qd.deletes, [])
+
+
+class OnlyAnAbsenceBodyCountsAs404Empty(_Base):
+    def test_a_bare_404_is_a_failure(self):
+        self.qd.status = 404
+        self.qd.bare404 = True
+        out, code = server.api_people_forget("jane-smith")
+        self.assertEqual(code, 503, out)
+        self.assertIn("qdrant", out.get("stores_remaining", []), out)
+
+
+class DoneIsReadBackNotInferred(_Base):
+    def test_qdrant_that_accepts_the_delete_but_still_holds_vectors_is_not_done(self):
+        self.qd.held = 3
+        out, code = server.api_people_forget("jane-smith")
+        self.assertEqual(code, 503, out)
+        self.assertIn("qdrant", out.get("stores_remaining", []), out)
+        self.assertIn("qdrant_still_holds_vectors", out.get("reason", ""), out)
+        self.assertTrue(self.qd.counts, "no read-back query was sent to Qdrant")
+
+    def test_graph_update_that_returns_ok_but_deletes_nothing_is_not_done(self):
+        server._sparql_update = lambda _q: None   # accepted, erased nothing
+        out, code = server.api_people_forget("jane-smith")
+        self.assertEqual(code, 503, out)
+        self.assertIn("oxigraph", out.get("stores_remaining", []), out)
+        self.assertIn("oxigraph_still_holds_triples", out.get("reason", ""), out)
+        self.assertEqual(self.audit_lines(), [])
+
+
 class AuditOnlyAfterARealPurge(_Base):
     def test_a_memory_assert_recompile_hint_is_not_a_forget(self):
         # memory/assert queues a recompile for the person it wrote about.

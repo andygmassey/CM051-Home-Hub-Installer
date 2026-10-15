@@ -197,11 +197,19 @@ def test_forget_records_the_person_before_the_erasure(log, monkeypatch):
     server = t.server
     server_dir_audit = VENDOR / "cm041" / "assistant_api" / "person_audit.py"
     assert server_dir_audit.exists()
+    # Forget now reads both stores back before it says done, so the stand-in
+    # graph answers the person lookup and then reports the node gone, and the
+    # stand-in Qdrant reports a zero count.
     monkeypatch.setattr(server, "_sparql_select", lambda q: [
-        {"person": DISCARD, "name": "Jane Doe"}])
+        {"person": DISCARD, "name": "Jane Doe"}] if "displayName" in q else [])
     monkeypatch.setattr(server, "_sparql_update", lambda q: None)
     monkeypatch.setattr(server, "_queue_wiki_recompile", lambda s: True)
-    monkeypatch.setattr(server.urllib.request, "urlopen", lambda *a, **k: None)
+
+    class _Zero:
+        def read(self):
+            return b'{"result": {"count": 0}}'
+
+    monkeypatch.setattr(server.urllib.request, "urlopen", lambda *a, **k: _Zero())
     body, status = server.api_people_forget("jane-doe")
     assert status == 200
     assert _has(log, DISCARD, "assistant_api.forget_person")

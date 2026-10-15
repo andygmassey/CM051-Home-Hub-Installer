@@ -2896,6 +2896,110 @@ def _queue_wiki_recompile(slug):
         return False
 
 
+_QDRANT_ABSENT_RE = re.compile(
+    r"(collection|point)\b.{0,80}?(does not exist|doesn't exist|doesnt exist|not found)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _qdrant_says_absent(exc):
+    """True only when a Qdrant 404 body says the collection or point is not
+    there. A bare 404 (a wrong route, a proxy page) is NOT a measured empty."""
+    if getattr(exc, "code", None) != 404:
+        return False
+    try:
+        body = exc.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(_QDRANT_ABSENT_RE.search(body))
+
+
+def _qdrant_person_filter(cluster):
+    return {"filter": {"must": [{"key": "person_uri", "match": {"any": cluster}}]}}
+
+
+def _qdrant_post(path, body):
+    req = urllib.request.Request(
+        QDRANT_URL.rstrip("/") + path,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    return urllib.request.urlopen(req, timeout=30)
+
+
+def _forget_qdrant(cluster):
+    """Delete this cluster's vectors, then READ BACK that none remain.
+
+    Returns (purged, reason). A delete call that returned 2xx is not proof
+    the vectors are gone, so the count query is the evidence. A 404 counts as
+    empty only when its body says the collection or point does not exist.
+    """
+    try:
+        _qdrant_post("/collections/people/points/delete?wait=true",
+                     _qdrant_person_filter(cluster))
+    except urllib.error.HTTPError as exc:
+        if not _qdrant_says_absent(exc):
+            return False, f"qdrant_delete_failed: {exc}"
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        return False, f"qdrant_delete_failed: {exc}"
+    try:
+        body = dict(_qdrant_person_filter(cluster), exact=True)
+        resp = _qdrant_post("/collections/people/points/count", body)
+        left = json.loads(resp.read()).get("result", {}).get("count")
+    except urllib.error.HTTPError as exc:
+        if _qdrant_says_absent(exc):
+            return True, None
+        return False, f"qdrant_readback_failed: {exc}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"qdrant_readback_failed: {exc}"
+    if left != 0:
+        return False, f"qdrant_still_holds_vectors: {left}"
+    return True, None
+
+
+def _forget_graph_left(cluster):
+    """URIs in the cluster that still hold a triple, as the readers see it."""
+    left = []
+    for node in cluster:
+        esc = node.replace("\\", "\\\\").replace(">", "%3E")
+        rows = _sparql_select(
+            "SELECT ?x WHERE {{ {{ <{u}> ?p ?x }} UNION {{ ?x ?p <{u}> }} }} LIMIT 1"
+            .format(u=esc))
+        if rows:
+            left.append(node)
+    return left
+
+
+def _forget_pending_path():
+    return _RECOMPILE_QUEUE_DIR / "forget_pending.json"
+
+
+def _forget_pending_load():
+    try:
+        return json.loads(_forget_pending_path().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _forget_pending_save(data):
+    try:
+        _RECOMPILE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+        path = _forget_pending_path()
+        if data:
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp, path)
+        elif path.exists():
+            path.unlink()
+        return True
+    except OSError:
+        return False
+
+
 def _record_forget_audit(slug):
     """Append ``<utc> forget <slug>`` to forget_audit.log. True when written.
 
@@ -2993,6 +3097,20 @@ def api_people_forget(slug):
             "reason": f"oxigraph_lookup_failed: {exc}",
         }, 503
 
+    # A retry after a 503: the graph half already went, so the person no longer
+    # resolves, but the vectors may still be in Qdrant. The cluster was written
+    # to forget_pending.json BEFORE the graph delete, and it is the only record
+    # of which person_uri values to purge. Without it a retry took the
+    # not-found branch below, sent no Qdrant delete and left the vectors for
+    # good.
+    pending = _forget_pending_load().get(slug)
+    resumed = person_uri is None and isinstance(pending, dict) and bool(pending.get("cluster"))
+    if resumed:
+        person_uri = pending.get("person_uri") or pending["cluster"][0]
+        cluster = list(pending["cluster"])
+    elif person_uri is not None and isinstance(pending, dict):
+        cluster = list(dict.fromkeys(cluster + list(pending.get("cluster") or [])))
+
     if person_uri is None:
         # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
         #
@@ -3081,36 +3199,45 @@ def api_people_forget(slug):
     # and resurrectable. A failed write does not stop the erasure; it is
     # reported (tombstone_written false + degraded) so the caller can say so.
     tombstone_written = False
-    try:
-        from identity_resolver import forget_tombstone
-        # Identifiers from the whole cluster: a retired node's phone or
-        # email must be tombstoned too, or a syncer mints the person again.
-        id_values = []
-        for node in cluster:
-            id_rows = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
-                '?id pwg:identifierValue ?v }}'.format(
-                    ns=PWG_NS, uri=node.replace("\\", "\\\\").replace(">", "%3E"))
+    if resumed:
+        # The first call wrote the tombstone before it erased; do not
+        # re-derive identifiers from a graph that is already empty.
+        try:
+            from identity_resolver import forget_tombstone
+            tombstone_written = bool(forget_tombstone.is_forgotten(uri=person_uri))
+        except Exception as exc:  # noqa: BLE001
+            degraded_reasons.append(f"tombstone_failed: {exc}")
+    else:
+        try:
+            from identity_resolver import forget_tombstone
+            # Identifiers from the whole cluster: a retired node's phone or
+            # email must be tombstoned too, or a syncer mints the person again.
+            id_values = []
+            for node in cluster:
+                id_rows = _sparql_select(
+                    'PREFIX pwg: <{ns}>\n'
+                    'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
+                    '?id pwg:identifierValue ?v }}'.format(
+                        ns=PWG_NS, uri=node.replace("\\", "\\\\").replace(">", "%3E"))
+                )
+                id_values.extend(r.get("v", "") for r in id_rows)
+            tombstone_written = forget_tombstone.record(
+                person_uri,
+                id_values,
+                display_name=forget_name,
             )
-            id_values.extend(r.get("v", "") for r in id_rows)
-        tombstone_written = forget_tombstone.record(
-            person_uri,
-            id_values,
-            display_name=forget_name,
-        )
-        if not tombstone_written:
-            # An unreadable tombstone file is left in place (it keeps every
-            # syncer fail-closed) and is never overwritten. Say so by name.
-            why = forget_tombstone.problem()
-            if why:
-                degraded_reasons.append(why)
-    except Exception as exc:  # never block the erasure on the tombstone
-        degraded_reasons.append(f"tombstone_failed: {exc}")
-    if not tombstone_written and not any(
-        r.startswith(("tombstone_failed", "tombstone_unreadable")) for r in degraded_reasons
-    ):
-        degraded_reasons.append("tombstone_failed: could not write the tombstone file")
+            if not tombstone_written:
+                # An unreadable tombstone file is left in place (it keeps every
+                # syncer fail-closed) and is never overwritten. Say so by name.
+                why = forget_tombstone.problem()
+                if why:
+                    degraded_reasons.append(why)
+        except Exception as exc:  # never block the erasure on the tombstone
+            degraded_reasons.append(f"tombstone_failed: {exc}")
+        if not tombstone_written and not any(
+            r.startswith(("tombstone_failed", "tombstone_unreadable")) for r in degraded_reasons
+        ):
+            degraded_reasons.append("tombstone_failed: could not write the tombstone file")
 
     # Oxigraph: delete every triple where this URI is subject, then
     # every triple where it's object (incoming relationships, mentions).
@@ -3129,46 +3256,41 @@ def api_people_forget(slug):
     # span -- so a forget removes everything any Ostler surface could
     # still show, without deleting out of another user's compartment.
     ox_failed = False
-    for node in cluster:
-        _audit_person_removal(node, "assistant_api.forget_person", "user_forget")
-        try:
-            _sparql_update(_forget_person_update(node, _USER_GRAPH_URIS))
-        except Exception as exc:
-            ox_failed = True
-            degraded_reasons.append(f"oxigraph_update_failed: {exc}")
+    if not resumed:
+        # Record the cluster BEFORE the graph delete: once the graph is empty a
+        # retry cannot re-derive it, and Qdrant is purged by these URIs.
+        pend = _forget_pending_load()
+        pend[slug] = {"person_uri": person_uri, "cluster": list(cluster)}
+        if not _forget_pending_save(pend):
+            degraded_reasons.append("forget_pending_not_written")
+        for node in cluster:
+            _audit_person_removal(node, "assistant_api.forget_person", "user_forget")
+            try:
+                _sparql_update(_forget_person_update(node, _USER_GRAPH_URIS))
+            except Exception as exc:
+                ox_failed = True
+                degraded_reasons.append(f"oxigraph_update_failed: {exc}")
+    # READ BACK. A successful UPDATE is not proof the person is gone, so ask
+    # the graph, through the same scoped reader the customer's surfaces use.
     if not ox_failed:
-        stores_purged.append("oxigraph")
+        try:
+            still = _forget_graph_left(cluster)
+        except Exception as exc:
+            still = None
+            degraded_reasons.append(f"oxigraph_readback_failed: {exc}")
+        if still:
+            degraded_reasons.append(f"oxigraph_still_holds_triples: {len(still)} node(s)")
+        elif still is not None:
+            stores_purged.append("oxigraph")
 
-    # Qdrant: delete every point in `people` whose payload.person_uri
-    # matches. `wait=true` so the response reflects the actual purge.
-    qdrant_body = json.dumps({
-        "filter": {
-            "must": [
-                {"key": "person_uri", "match": {"any": cluster}}
-            ]
-        }
-    }).encode()
-    try:
-        req = urllib.request.Request(
-            QDRANT_URL.rstrip("/")
-            + "/collections/people/points/delete?wait=true",
-            data=qdrant_body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=30)
+    # Qdrant: delete every point in `people` whose payload.person_uri matches
+    # (wait=true), then count what is left. On a retry this runs even though
+    # the graph is already empty.
+    qdrant_ok, qdrant_why = _forget_qdrant(cluster)
+    if qdrant_ok:
         stores_purged.append("qdrant")
-    except urllib.error.HTTPError as exc:
-        # 404 is Qdrant saying the `people` collection does not exist. A Mac
-        # that never created it holds no vectors for anyone, so there is
-        # nothing to purge: a measured empty, not a failed delete. Every
-        # other status is a failure.
-        if exc.code == 404:
-            stores_purged.append("qdrant")
-        else:
-            degraded_reasons.append(f"qdrant_delete_failed: {exc}")
-    except Exception as exc:
-        degraded_reasons.append(f"qdrant_delete_failed: {exc}")
+    else:
+        degraded_reasons.append(qdrant_why)
 
     # DONE MEANS BOTH STORES. This used to answer forgotten:true / 200 when
     # EITHER store was purged, so a failed graph delete (or a failed vector
@@ -3183,6 +3305,10 @@ def api_people_forget(slug):
     # queueing whenever the graph half went, complete or not.
     queued = _queue_wiki_recompile(slug) if "oxigraph" in stores_purged else False
     if forgotten:
+        pend = _forget_pending_load()
+        if slug in pend:
+            pend.pop(slug)
+            _forget_pending_save(pend)
         # The "already forgotten" answer on a later call reads this line, so
         # it is written only for a real, complete erasure.
         if not _record_forget_audit(slug):
