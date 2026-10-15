@@ -1346,3 +1346,14 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "chat_latency_baseline"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, data_conservation row): per
+  # source, importer IN vs stores STORED vs wiki/Doctor SHOWN. Declared here
+  # because every probe on disk must be invoked by the cut; the promote scope
+  # keeps it advisory until the first golden-loaded walk calibrates `full`.
+  - id: box-walk-data-conservation
+    title: "advisory: what an importer saw, what the stores hold and what the wiki shows agree per source, or the loss is named"
+    incident: "the 2026-10-15 sweep found about eleven silent drops, e.g. most music preferences hidden by one missing allow-list entry"
+    proof:
+      kind: box_walk_probe
+      probe: "data_conservation"

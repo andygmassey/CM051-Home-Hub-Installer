@@ -279,11 +279,18 @@ def run_all(
             # still arrives, over the settle-in period rather than during
             # onboarding. An explicit env value pins the window and disables
             # the ladder. Andy's call.
-            from .backfill_ladder import resolve_backfill_days
+            from .backfill_ladder import resolve_backfill_days, widen_first_window
             imsg_backfill_days = resolve_backfill_days(
                 "imessage", "OSTLER_IMESSAGE_BACKFILL_DAYS"
             )
-            conversations = extract_conversations(since_days=imsg_backfill_days)
+            # #30: on the FIRST run, widen when the 45-day rung holds too
+            # little (a sparse recent history showed 0 conversations on day one).
+            conversations, imsg_backfill_days = widen_first_window(
+                "imessage", imsg_backfill_days,
+                lambda d: extract_conversations(since_days=d),
+                lambda cs: (sum(int(c.message_count or 0) for c in cs), len(cs)),
+                env_var="OSTLER_IMESSAGE_BACKFILL_DAYS", persist_ladder=True, run_source="imessage",
+            )
             stats = conversation_stats(conversations)
 
             (output_dir / "imessage_conversations.json").write_text(
@@ -332,7 +339,14 @@ def run_all(
             # even when the customer was a 5-year user. Operator
             # override via OSTLER_WHATSAPP_BACKFILL_DAYS.
             wa_backfill_days = int(os.environ.get("OSTLER_WHATSAPP_BACKFILL_DAYS", "365"))
-            chats = _wa_extract(since_days=wa_backfill_days)
+            # #30: widen on the first run when the window holds too little.
+            from .backfill_ladder import widen_first_window
+            chats, wa_backfill_days = widen_first_window(
+                "whatsapp", wa_backfill_days,
+                lambda d: _wa_extract(since_days=d),
+                lambda cs: (0, sum(1 for c in cs if c.tier != TIER_T3_SKIP)),
+                env_var="OSTLER_WHATSAPP_BACKFILL_DAYS", run_source="whatsapp_history",
+            )
             stats = _wa_stats(chats)
 
             # Drop T3 chats before writing the JSON -- they contain
@@ -871,7 +885,22 @@ def run_all(
                 os.environ.get("OSTLER_MAIL_BACKFILL_DAYS", "1825")
             )
             mail_limit = int(os.environ.get("OSTLER_MAIL_BACKFILL_LIMIT", "100000"))
-            messages = extract_messages(since_days=mail_backfill_days, limit=mail_limit)
+            # #30: widen on the first run when the window holds too little.
+            # Threads are approximated by distinct subjects with any Re:/Fwd:
+            # prefix stripped: Mail's envelope row carries no thread id here.
+            from .backfill_ladder import widen_first_window
+            import re as _re
+
+            def _mail_threads(ms):
+                return len({_re.sub(r"^(?:(?:re|fwd?)\s*:\s*)+", "", (m.subject or "").strip().lower())
+                            for m in ms})
+
+            messages, mail_backfill_days = widen_first_window(
+                "mail", mail_backfill_days,
+                lambda d: extract_messages(since_days=d, limit=mail_limit),
+                lambda ms: (len(ms), _mail_threads(ms)),
+                env_var="OSTLER_MAIL_BACKFILL_DAYS", run_source="apple_mail",
+            )
             stats = email_stats(messages)
             # How many messages the Mail store holds in all, read from the
             # same Envelope Index (walk #28: the Doctor's Mail row shows

@@ -1394,3 +1394,112 @@ The two new states and the routine check before the all-clear. Guarded by
 `tests/test_reminders_tile_is_not_green_when_every_push_failed.py` and
 `tests/test_all_clear_counts_the_bundle_routines.py` (workflow
 `status-honesty-meetings-doctor.yml`).
+## Doctor shows full-history catch-up progress per source (v1.0.108)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, and like the rest of the source-status panel it has never existed upstream. `read_source_status` gains a `catchup_dir` parameter and sets `row["catchup"]` from the watermarks `lib/ostler_catchup.py` writes under `state/catchup/` (new `_catchup_state_dir`, `_read_catchup_by_row`: a row is complete only when every catch-up source mapped to it is; otherwise the least advanced "back to" date wins). `render_source_status` gains a History column via `_catchup_phrase` ("Catching up, back to March 2021", "Catching up, waiting for a quiet moment", "All of your history is read", blank when catch-up never ran for that row).
+
+### What a future sync must preserve
+
+The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).
+
+## `ostler_fda/sink_health.py`: one sink health predicate for the catch-up (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side file, no upstream. `sink_healthy()` is true only when Ollama answers `/api/tags` AND the Qdrant and Oxigraph stores answer 2xx through the store proxy with the install credential. The store half is NOT re-implemented: it runs `bin/ostler-engine-supervisor.sh --probe-ports`, the supervisor's own port-judged predicate (added on `fix/colima-hung-vm-recovery`, so that branch must merge with or before this one). Anything unjudgeable (supervisor absent or without the subcommand, no credential) is not healthy. The iMessage and WhatsApp catch-up adapters call it when a dispatch times out (exit 124): healthy means the document hung and the attempt counts toward quarantine; unhealthy raises `ConnectionError` and counts nothing. Guarded by `tests/test_catchup_messages.py` (`test_sink_healthy_needs_ollama_and_the_stores`, `test_a_timeout_with_ollama_up_and_stores_down_counts_no_attempt`, `test_a_hanging_item_with_a_healthy_sink_is_quarantined_and_the_rest_proceeds`, `test_a_timeout_with_a_dead_sink_counts_no_attempt`).
+## Browser history catch-up walks Safari and Chrome back past the install window (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/safari_history.py`, `vendor/ostler_fda/chrome_history.py`: `extract_history` gains keyword-only `since` / `until` absolute bounds (with neither, the SQL and its parameters are exactly the install-time query), and each module gains `oldest_visit()`.
+- `vendor/ostler_fda/catchup_browser.py` (NEW FILE): `SafariAdapter` / `ChromeAdapter` for `lib/ostler_catchup.py` (doctor_row `browsing`), 30-day windows from now minus OSTLER_SAFARI_BACKFILL_DAYS / OSTLER_BROWSER_BACKFILL_DAYS back to the oldest visit, through `to_timeline_entries` and `pwg_ingest.ingest_browser_history`; a window is done only when `sent == total`. `adapters()` honours OSTLER_FDA_SOURCES and leaves Chrome out when it is not installed.
+
+WHY: install.sh reads 1825 days of browsing and nothing ever read further back.
+
+### What a future sync must preserve
+
+The two keyword bounds, `oldest_visit`, and `catchup_browser.py`. Guarded by `tests/test_catchup_browser.py` (red on origin/main, wired in `.github/workflows/catchup-browser.yml`).
+
+## `ingest_browser_history` flags a vector-store outage as `sink_unavailable` (catch-up, v1.0.108)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. The two `"status": "error"` returns of `ingest_browser_history` (the embed/upsert raised; or every chunk failed to land) gain `"sink_unavailable": True`. `catchup_browser` reads it and raises `ConnectionError`, so a Qdrant or Ollama outage is not counted as a poison attempt toward quarantine. A partial landing (0 < sent < total) is unchanged and still counts. Guarded by `tests/test_catchup_browser.py::test_an_embed_or_vector_store_outage_is_not_a_failed_window`.
+## Photos older than the first year are walked by the catch-up (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, two files:
+
+- `vendor/ostler_fda/photos_metadata.py`: `extract_photo_events` gains optional absolute `since` / `until` bounds (both default None, and with both None the three schema queries and their parameters are byte-identical to before); new `oldest_asset_date`.
+- `vendor/ostler_fda/catchup_photos.py` (NEW FILE): the `photos` adapter for `lib/ostler_catchup.py`. 30-day windows backwards from now - 365 d to the oldest non-trashed asset, extracted with extract_all's faces rule and written through the shipped `pwg_ingest.ingest_photo_events` (uuid5-keyed PhotoEvents). Runs only when the install recorded a Photos result (`state/hydrate/photos.done`) and never when `OSTLER_FDA_SOURCES` omits photos_metadata.
+
+WHY: extract_all reads Photos with `since_days=365` and nothing read further back. Measured on a 6,500-asset, 7-year fixture: the install path covers 929 of 6,500.
+
+### What a future sync must preserve
+
+The `since` / `until` parameters, `oldest_asset_date`, and `catchup_photos.py`. Guarded by `tests/test_catchup_photos_ai.py` (red on origin/main, wired in `.github/workflows/catchup-photos-ai.yml`). Registered by install.sh as `bin/catchup.d/30-photos.sh`.
+## Mail correspondents: full-history catch-up past the top 50 (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/catchup_mail.py` (NEW FILE): two catch-up adapters for `lib/ostler_catchup.py`. `MailContacts` walks the whole Envelope Index newest to oldest (keyset on date_received, ROWID; no window, no 100,000 limit, no top 50), counts each sender once per message ROWID in the catch-up ledger, and hands an address to `pwg_ingest.ingest_mail_contacts` the moment it reaches `MAIL_CONTACT_MIN_COUNT`, with the install's owner-address and machine-sender files beside it. `MailBodies` mirrors email-ingest's own backward sweep (`apple_mail_mbox_checkpoint.json`) into Doctor and processes nothing.
+- `vendor/ostler_fda/apple_mail.py`: the three Envelope Index SELECT shapes move into `_MESSAGE_SHAPES` / `query_message_rows`, and the sender normalisation into `normalise_sender`, shared by `extract_messages`, `frequent_contacts` and the catch-up. Install-time behaviour unchanged.
+- `vendor/ostler_fda/pwg_ingest.py`: the literal 3 in `ingest_mail_contacts` becomes `MAIL_CONTACT_MIN_COUNT`, so the catch-up qualifies an address at exactly the point the ingest accepts it.
+
+### What a future sync must preserve
+
+`catchup_mail.py`, `query_message_rows` / `normalise_sender`, and `MAIL_CONTACT_MIN_COUNT`. Guarded by `tests/test_catchup_mail.py` (red on origin/main, wired in `.github/workflows/catchup-mail.yml`).
+## Full-history catch-up for Google Takeout and dropped mailboxes (v1.0.108, catch-up 6/6)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, two files:
+
+- `vendor/ostler_fda/catchup_mbox.py` (NEW FILE): finds every `takeout-*.zip` part and every `.mbox` member (install.sh 9.4 takes the first zip and its first member), extracts each once, and walks each distinct mailbox for `lib/ostler_catchup.py` in three phases: a header index in bounded byte-offset slices with no date window and no message cap, the full correspondent map through `_persist_mail_contacts`, then threads newest first through `_email_thread_to_payload` / `_persist_conversations`. A thread CM048 already holds (`processing/email_*_<key hash>`) is not sent again; messages the install's caps cut off go as one continuation bundle.
+- `vendor/ostler_fda/universal_import.py`: `_dispatch_mbox` queues the mailbox it read (`catchup_mbox.queue_mailbox`, never fatal) so catch-up finishes it. The install-time caps (250,000 messages, 20,000 threads, five years, 4,000 body characters) are unchanged.
+
+### What a future sync must preserve
+
+`catchup_mbox.py` and the `queue_mailbox` call in `_dispatch_mbox`. Also (tree `ostler_fda`, file `vendor/ostler_fda/catchup_mbox.py`): `sweep_gone_sources` (a vanished Takeout zip leaves no extraction behind; state in `state/catchup/takeout-source-gone.json`) and `extract_member`'s cap from `ostler_catchup.tick_remaining()`; guarded by `test_a_takeout_zip_that_vanishes_mid_walk_leaves_nothing_behind` and `test_the_extraction_cap_is_the_ticks_remaining_budget`. Guarded by `tests/test_catchup_takeout.py` (red on origin/main, wired in `.github/workflows/catchup-takeout.yml`).
+## Doctor shows the Downloads watcher, and why what it found did not import (#30)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour. `read_source_status` gains a nested `_downloads_exports_row` (nested on purpose: the source-table tests rebuild that function from the AST with a hand-written helper list, and a new module-level helper would NameError every one of them) and appends one `downloads_exports` row, kind `watcher`, after the per-source loop and before the catch-up merge. It reads `state/source_activity/downloads_exports.tsv`, which the Downloads watcher (`ostler-scan-exports`, the install.sh heredoc) now writes on every run: `last_status` (ok, no_data, not_imported, error, cannot_run, waiting), this run's `found`, `imported`, `already_imported`, `skipped`, `failed`, and `reason`. The row carries those plus `count_label` "N found, K imported" (`count_kind` `last_check`). No record gives `not_run` with a reason and no count; an unknown status reads as `error`, never as a healthy word. `render_source_status` prints the source as "Downloads folder", labels `not_imported` "found, not imported" and `waiting` "waiting for a download", and prints a row's `reason` under its status.
+
+WHY: a synthetic walk box (studio29, v1.0.107 candidate) had a loose calendar.ics, emails.mbox and contacts.vcf in Downloads; the watcher imported none, wrote nothing, and the Doctor had no row for it, so "found nothing", "could not look" and "found three, imported none" were the same silence. As with the rows above, NO HR015 twin exists yet for the source-status panel; the HR015 port is owed after #30.
+
+### What a future sync must preserve
+
+The `downloads_exports` row, its record vocabulary, and the reason line in the render. Guarded by `tests/test_doctor_shows_why_downloads_exports_did_not_import.sh`, which runs the SHIPPED watcher to write the record and the SHIPPED reader and renderer to show it (red before this change: no row; wired in `.github/workflows/downloads-watcher-survives-an-export.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.
+
+## The first backfill window widens when the default holds too little (#30)
+
+Tree `ostler_fda`. `vendor/ostler_fda/backfill_ladder.py`: new `widen_first_window`, `is_first_window`, the `MIN_FIRST_WINDOW_*` and `WIDEN_RUNGS` constants, appended after `resolve_backfill_days`. `vendor/ostler_fda/extract_all.py`: the iMessage, WhatsApp and Apple Mail blocks pass their extract through `widen_first_window` (three call sites, no other change).
+
+WHY: on a synthetic install whose every message was older than 45 days the first iMessage window held 0 conversations on day one. On a source's FIRST run only, if the window holds fewer than 2,000 messages and fewer than 50 conversations/threads, it widens backwards (90, 180, 365, 730, 1095, 1825, 3650, 36500 days) until either minimum is met, the history is exhausted, or a 180 s budget is spent. The chosen window is logged per source, counts only. An explicit OSTLER_*_BACKFILL_DAYS pin is never widened. A marker `state/first_window_<source>.json` makes later runs ordinary. Widening runs only while quiet (the catch-up's `busy_reason` is checked before every batch; the install foreground counts as busy), and each batch is bounded by the budget. A deferred source is queued in `state/first_window_pending_<source>`; `ostler-scan-exports` finishes it on the first quiet firing after install.
+
+### What a future sync must preserve
+
+`widen_first_window` and the three call sites. Guarded by `tests/test_first_window_adaptive.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in HR015 `ostler_fda` and re-pinning.
+
+Follow-up (tree `ostler_fda`, `vendor/ostler_fda/backfill_ladder.py`): `_default_busy`, `_bounded` and the `busy` / `run_source` parameters of `widen_first_window`, plus the pending queue. Guarded by the same test file.
+
+## The first iMessage BUNDLE window widens when the default holds too little (#30, A3 follow-up)
+
+Tree `imessage_source`, `vendor/imessage_source/pipeline.py`: new `_widen_first_window`, `_install_running` and the `FIRST_WINDOW_*` constants; one call in `process_imessage`. Tree `ostler_fda`, `vendor/ostler_fda/backfill_ladder.py`: new `finish_pending_first_windows` (re-extract the queued sources, then the same `pwg_ingest.ingest_all` the recurring tick runs).
+
+WHY: conversation bundles come from the imessage-bundle agent reading chat.db with `--since-days 30` (2 in the daytime clamp) and a forward watermark, NOT from imports/fda. Widening imports/fda alone left a sparse owner with 0 conversations on day one. On the first tick only, if the window holds under 2,000 messages and under 50 threads, it widens backwards until either is met; not during the install, not past 180 s, not when OSTLER_IMESSAGE_SINCE_DAYS is pinned.
+
+### What a future sync must preserve
+
+`_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in the upstream source and re-pinning.
+
+---
+
+## ostler_fda: people writers and the CLI report failure (status-honesty sweep E2, V3)
+
+`vendor/ostler_fda/pwg_ingest.py`: new `_lookup_status(lookup_failed, landed)`;
+`ingest_imessage`, `ingest_whatsapp`, `ingest_calendar` and `ingest_mail_contacts`
+return `status` "error" (nothing landed, lookups failed) or "partial" instead of
+a hardcoded "ok", so the fda-rerun no longer stamps `last_success_at` when
+Oxigraph was down. `main()` exits 1 when any result is an error (it exited 0
+whatever the results said), so install.sh's WhatsApp graph write, which no longer
+ends in `|| true`, records the failure.
+
+### What a future sync must preserve
+
+`_lookup_status` at the four return sites and the non-zero exit in `main()`.
+Guarded by `tests/test_people_status_honesty.py` (workflow
+`status-honesty-people.yml`).

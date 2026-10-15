@@ -357,7 +357,9 @@ want = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
           # walk #28: one honest total per row, in a declared unit.
           "_ostler_state_root", "_positive_int", "_settling_done",
           "_extract_summary_count", "_distinct_pages", "_canonical_total",
-          "_mail_available_total", "_source_count_label"}
+          "_mail_available_total", "_source_count_label",
+        # v1.0.108 catch-up progress.
+        "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase"}
 for node in tree.body:
     if isinstance(node, ast.FunctionDef) and node.name in want:
         exec(compile(ast.Module([node], []), "<f>", "exec"), ns)

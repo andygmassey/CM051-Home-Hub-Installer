@@ -1401,11 +1401,15 @@ def render_source_status() -> str:
     _LABEL = {"ok": "read in", "no_data": "nothing to read",
               "not_run": "not run yet", "unreadable": "record unreadable",
               "error": "failed", "cannot_run": "could not look",
-              "timeout": "ran out of time"}
+              "timeout": "ran out of time",
+              # #30, the Downloads watcher row
+              "not_imported": "found, not imported",
+              "waiting": "waiting for a download"}
     _COLOUR = {"ok": "#2C4A2C", "no_data": "rgba(236,232,225,0.55)",
                "not_run": "#5C4611", "unreadable": "#7A1F1F",
                "error": "#7A1F1F", "cannot_run": "#5C4611",
-               "timeout": "#5C4611"}
+               "timeout": "#5C4611", "not_imported": "#5C4611",
+               "waiting": "#5C4611"}
     body = []
     for r in rows:
         st = (r.get("status") or "not_run")
@@ -1430,11 +1434,17 @@ def render_source_status() -> str:
         count = html.escape(label) if label else "&mdash;"
         body.append(
             '<tr>'
-            f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
+            f'<td>{html.escape({"downloads_exports": "Downloads folder"}.get(r.get("source"), str(r.get("source", "?")).replace("_", " ")))}</td>'
             f'<td><span style="color:{_COLOUR.get(st, "#5C4611")}">'
-            f'{html.escape(_LABEL.get(st, st))}</span></td>'
+            f'{html.escape(_LABEL.get(st, st))}</span>'
+            # #30: a row that found something and did not import it says WHY,
+            # in the customer's words, right under its status.
+            + (f'<div class="muted" style="font-size:0.85em">'
+               f'{html.escape(str(r["reason"]))}</div>' if r.get("reason") else "")
+            + '</td>'
             f'<td style="text-align:right">{count}</td>'
             f'<td>{html.escape(str(when)) if when else "never"}</td>'
+            f'<td>{html.escape(_catchup_phrase(r.get("catchup")))}</td>'
             f'<td class="muted">{html.escape(str(r.get("kind", "")))}</td>'
             '</tr>'
         )
@@ -1446,6 +1456,7 @@ def render_source_status() -> str:
         '<table class="src-table" style="width:100%;border-collapse:collapse">'
         '<thead><tr><th align="left">Source</th><th align="left">Status</th>'
         '<th align="right">Items</th><th align="left">Last read</th>'
+        '<th align="left">History</th>'
         '<th align="left">Kind</th></tr></thead><tbody>'
         + "".join(body) + "</tbody></table></div>"
     )
@@ -2456,16 +2467,16 @@ def render_history(history_entries: list[dict]) -> str:
             warn = sum(1 for f in findings if f.get("severity") == "warning")
             finding_parts = []
             if crit:
-                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=crit)}</span>')
+                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
             if warn:
-                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=warn)}</span>')
+                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
             if not finding_parts:
                 finding_parts.append(f'<span style="color:#2C4A2C">{HISTORY_ALL_CLEAR}</span>')
 
             rows += f"""<tr>
                 <td>{ts}</td>
                 <td>{", ".join(svc_parts)}</td>
-                <td>{HISTORY_RUNNING_FMT.format(running=running, total=total)}</td>
+                <td>{HISTORY_RUNNING_FMT.format(running=f"{running:,}", total=f"{total:,}")}</td>
                 <td>{", ".join(finding_parts)}</td>
             </tr>"""
 
@@ -2556,7 +2567,7 @@ def render_history(history_entries: list[dict]) -> str:
 <body>
     <div class="container">
         <h1>{HISTORY_HEADING}</h1>
-        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=len(history_entries))}</div>
+        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=f"{len(history_entries):,}")}</div>
         <table>
             <thead>
                 <tr>
@@ -3325,7 +3336,8 @@ def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
 
 
 def read_source_status(hydrate_dir: Path | None = None,
-                       activity_dir: Path | None = None) -> list:
+                       activity_dir: Path | None = None,
+                       catchup_dir: Path | None = None) -> list:
     """One typed row per canonical source, read from the .done sentinels.
 
     EVERY canonical source appears: one that never ran is reported as
@@ -3543,7 +3555,181 @@ def read_source_status(hydrate_dir: Path | None = None,
         if row["source"] == "email":
             row["item_of"] = _mail_available_total()
         row["count_label"], row["count_kind"] = _source_count_label(row)
+
+    # ── #30: THE DOWNLOADS WATCHER, AND WHY IT FOUND SOMETHING AND IMPORTED NOTHING ──
+    #
+    # MEASURED on a synthetic walk box (studio29, v1.0.107 candidate): a loose
+    # calendar.ics, emails.mbox and contacts.vcf in ~/Downloads. The watcher
+    # (com.ostler.export-scan -> ostler-scan-exports) matched none of them and
+    # exited 0 having written nothing, and this panel had no row for it at all,
+    # so "found nothing", "could not look" and "found three files and imported
+    # none" were all the same silence.
+    #
+    # The watcher now writes state/source_activity/downloads_exports.tsv on EVERY
+    # run (install.sh, the ostler-scan-exports heredoc): last_status is one of
+    # ok / no_data / not_imported / error / cannot_run / waiting, the run's
+    # counts (found, imported, already_imported, skipped, failed), and `reason`,
+    # the plain-words why when what it found did not import. This row prints that
+    # record and nothing else. No record at all means the watcher has not run on
+    # this Mac yet, and says so rather than being left out.
+    #
+    # NESTED, NOT MODULE-LEVEL, ON PURPOSE: the source-table tests rebuild this function from
+    # the AST with a hand-written list of the helpers it calls, so a new
+    # module-level helper turns every one of them into a NameError. Kept inside
+    # read_source_status, it travels with the function those tests already take.
+    def _downloads_exports_row(activity_dir: Path | None = None) -> dict:
+        """The Doctor row for the Downloads export watcher (#30)."""
+        _DOWNLOADS_STATUS = {
+            "ok": "ok", "no_data": "no_data", "not_imported": "not_imported",
+            "error": "error", "cannot_run": "cannot_run", "waiting": "waiting",
+        }
+        base = activity_dir if activity_dir is not None else _source_activity_dir()
+        row = {"source": "downloads_exports", "kind": "watcher",
+               "status": "not_run", "item_count": None, "recorded_at": None,
+               "last_update_at": None, "detail": None, "reason": None,
+               "count_label": None, "count_kind": None, "catchup": None}
+        f = base / "downloads_exports.tsv"
+        try:
+            if not f.is_file():
+                row["reason"] = "the Downloads watcher has not run on this Mac yet"
+                return row
+            rec = {}
+            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    rec[k.strip()] = v.strip()
+        except OSError as exc:
+            row["status"] = "unreadable"
+            row["reason"] = "the watcher's record could not be read (%s)" % exc.__class__.__name__
+            return row
+
+        def _n(key: str):
+            v = rec.get(key, "")
+            return int(v) if v.isdigit() else None
+
+        st = rec.get("last_status", "")
+        # A status this row has never seen is not absorbed into a healthy word.
+        row["status"] = _DOWNLOADS_STATUS.get(st, "error" if st else "unreadable")
+        row["last_update_at"] = rec.get("last_run_at") or None
+        row["last_success_at"] = rec.get("last_success_at") or None
+        found, imported = _n("found"), _n("imported")
+        already = _n("already_imported")
+        row["item_count"] = imported
+        row["found"], row["imported"] = found, imported
+        row["already_imported"] = already
+        row["skipped"], row["failed"] = _n("skipped"), _n("failed")
+        if found is not None and imported is not None:
+            label = "%d found, %d imported" % (found, imported)
+            if already:
+                label += ", %d already in" % already
+            row["count_label"], row["count_kind"] = label, "last_check"
+        reason = rec.get("reason") or ""
+        if not reason and row["status"] not in ("ok", "no_data"):
+            reason = rec.get("last_detail") or ""
+        row["reason"] = reason or None
+        row["detail"] = rec.get("last_detail") or None
+        return row
+
+    # ── #30: the Downloads watcher has a row of its own ──────────────────
+    # See _downloads_exports_row. Appended here, after the per-source loop,
+    # because it is not a hydrate source and none of the sentinel, routine or
+    # settling-progress producers above speak for it.
+    rows.append(_downloads_exports_row(activity_dir))
+
+    # ── v1.0.108: how far back each source has been read ─────────────────
+    # The background catch-up (lib/ostler_catchup.py) walks every source
+    # backwards past the install window and writes one watermark per source
+    # under state/catchup/. None when it has never run for this row: an
+    # absent record is not invented into a state.
+    try:
+        catchup = _read_catchup_by_row(catchup_dir)
+    except Exception:  # noqa: BLE001 - a broken record never fails the panel
+        catchup = {}
+    for row in rows:
+        row["catchup"] = catchup.get(row["source"])
     return rows
+
+
+def _catchup_state_dir() -> Path:
+    """``${OSTLER_DIR}/state/catchup``, where lib/ostler_catchup.py writes."""
+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+    root = Path(base) if base else Path.home() / ".ostler"
+    return root / "state" / "catchup"
+
+
+def _read_catchup_by_row(directory: Path | None = None) -> dict:
+    """Catch-up progress per Doctor row, aggregated over its sources.
+
+    Several catch-up sources can report under one row (Safari and Chrome are
+    both "browsing"). A row is complete only when every one of them is; while
+    any is still walking, the row shows the LEAST advanced one, because "back
+    to 2019" must not be claimed while another source is still in 2024.
+
+    Each value: {"state": "complete" | "catching_up" | "waiting",
+                 "back_to": ISO date or None, "sources": n}.
+    """
+    d = directory if directory is not None else _catchup_state_dir()
+    by_row: dict = {}
+    try:
+        files = sorted(d.glob("*.json"))
+    except OSError:
+        return {}
+    for f in files:
+        try:
+            w = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(w, dict) or w.get("schema") != 1 or not w.get("source"):
+            continue
+        by_row.setdefault(w.get("doctor_row") or w["source"], []).append(w)
+    out = {}
+    for row, ws in by_row.items():
+        open_ = [w for w in ws if not w.get("complete")]
+        skipped = sum(int(w.get("items_quarantined") or 0) for w in ws
+                      if isinstance(w.get("items_quarantined"), int))
+        if not open_:
+            out[row] = {"state": "complete", "back_to": None, "sources": len(ws),
+                        "skipped": skipped}
+            continue
+        dated = [w.get("oldest_at") for w in open_ if w.get("oldest_at")]
+        # The least advanced is the LATEST "back to" date; one that has not
+        # read anything yet has no date at all, which outranks every date.
+        back_to = None if len(dated) < len(open_) else max(dated)
+        waiting = all(str((w.get("last_tick") or {}).get("reason", "")).startswith("busy")
+                      for w in open_)
+        # A source that could not READ at all (permission refused, store
+        # unreadable) outranks every other state: it is neither done nor
+        # catching up, and saying either would be false.
+        blocked = any(isinstance(w.get("cannot_run"), str) and w.get("cannot_run") for w in open_)
+        state = "cannot_run" if blocked else ("waiting" if waiting else "catching_up")
+        out[row] = {"state": state, "back_to": back_to, "sources": len(ws),
+                    "skipped": skipped}
+    return out
+
+
+_CATCHUP_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+                   "August", "September", "October", "November", "December")
+
+
+def _catchup_phrase(c: dict | None) -> str:
+    """The History cell. Plain words, no em dashes, British spelling."""
+    if not c:
+        return ""
+    n = c.get("skipped")
+    tail = ""
+    if isinstance(n, int) and n > 0:
+        tail = "; %d could not be read and %s skipped" % (n, "was" if n == 1 else "were")
+    if c.get("state") == "complete":
+        return ("All of your history is read" if not tail
+                else "History read" + tail)
+    if c.get("state") == "cannot_run":
+        return "Could not read this yet, will keep trying" + tail
+    if c.get("state") == "waiting":
+        return "Catching up, waiting for a quiet moment" + tail
+    back = str(c.get("back_to") or "")
+    if len(back) >= 7 and back[:4].isdigit() and back[5:7].isdigit() and 1 <= int(back[5:7]) <= 12:
+        return "Catching up, back to %s %s%s" % (_CATCHUP_MONTHS[int(back[5:7]) - 1], back[:4], tail)
+    return "Catching up, starting" + tail
 
 
 @app.get("/api/v1/sources", response_class=JSONResponse)

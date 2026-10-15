@@ -29,6 +29,7 @@ on:
       - 'vendor/cm041/identity_resolver/compartment.py'
       - 'vendor/ostler_security/**'
       - 'tests/test_meeting_brief_real_hub.py'
+      - 'vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py'
       - 'tests/test_meeting_brief_probe_sends_the_store_credential.py'
       - 'tests/helpers/real_hub.py'
       - 'tests/helpers/real_hub_seed.py'
@@ -61,10 +62,24 @@ jobs:
           python-version: '3.12'
       - name: Install the Hub's test dependencies
         run: |
-          python -m pip install --quiet pyoxigraph cryptography httpx
+          python -m pip install --quiet pyoxigraph cryptography httpx pytest
           sqlite3 --version
       - name: The sender, the contract and the three behaviours against the real Hub
         run: python tests/test_meeting_brief_real_hub.py
+      # #30 (fix/brief-reads-local-stores): /calendar/today and /email/recent read
+      # the local ingested stores, and a failed read is a 503 degraded, never an
+      # empty 200. Its own step so a red here never hides the steps below.
+      - name: The brief endpoints read the local stores, and a failed read is not an empty 200
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py -v -rs
       - name: The oa composer fixtures still equal the real Hub's output
         if: always()
         run: python scripts/capture_meeting_brief_hub_fixtures.py --check tests/fixtures/meeting_brief_real_hub

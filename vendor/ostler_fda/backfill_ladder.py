@@ -266,3 +266,205 @@ def resolve_backfill_days(
     else:
         logger.info("[backfill-ladder] %s widening %sd -> %sd", source, current, chosen)
     return chosen
+
+
+# ── #30: the FIRST window widens when the default holds too little ───────────
+#
+# WHY. The ladder opens at 45 days. An owner whose recent history is sparse
+# (every message 60 to 400 days old) saw ZERO conversations on day one, on a
+# synthetic install, because everything fell outside the first rung. Day one
+# should show something.
+#
+# THE RULE. On a source's FIRST run only, if the default window holds fewer than
+# MIN_FIRST_WINDOW_MESSAGES messages AND fewer than MIN_FIRST_WINDOW_CONVERSATIONS
+# conversations/threads (so: stop as soon as EITHER minimum is met, "whichever
+# comes first"), widen backwards through WIDEN_RUNGS until a minimum is met, the
+# history is exhausted (the last rung), or the time budget is spent. The chosen
+# window is logged per source, counts only. An explicit operator pin
+# (the source's OSTLER_*_BACKFILL_DAYS) is never widened.
+#
+# A LATER run is not a first run: the marker file written below says the first
+# window was already chosen, and the ladder's own dwell governs from there.
+MIN_FIRST_WINDOW_MESSAGES: int = 2000
+MIN_FIRST_WINDOW_CONVERSATIONS: int = 50
+# Finer than DEFAULT_LADDER on purpose: a wide jump overshoots the minimum into
+# thousands of conversations, each costing ten chained model calls downstream.
+WIDEN_RUNGS: List[int] = [90, 180, 365, 730, 1095, 1825, 3650, 36500]
+# Install-time cap on the time spent re-reading to widen, seconds.
+DEFAULT_FIRST_WINDOW_BUDGET_SECONDS: int = 180
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            logger.warning("[first-window] %s=%r is not an integer", name, raw)
+    return default
+
+
+def _first_window_marker(source: str) -> Path:
+    return _state_dir() / f"first_window_{source}.json"
+
+
+def is_first_window(source: str) -> bool:
+    """True until widen_first_window has recorded a choice for this source."""
+    return not _first_window_marker(source).exists()
+
+
+def _pending_marker(source: str) -> Path:
+    return _state_dir() / f"first_window_pending_{source}"
+
+
+def _default_busy() -> Optional[str]:
+    """Why the Mac is too busy to widen now, or None. The SAME predicate the
+    catch-up uses (lib/ostler_catchup.busy_reason: install running, a live chat,
+    load per core). If that module cannot be imported here, fall back to the
+    install marker alone, which is the case that matters at install time."""
+    home = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
+    try:
+        import sys
+        lib = str(Path(home) / "lib")
+        if lib not in sys.path:
+            sys.path.append(lib)
+        from ostler_catchup import busy_reason  # type: ignore
+        return busy_reason()
+    except Exception:  # noqa: BLE001
+        return "installing" if (Path(home) / "state" / "install-in-progress").exists() else None
+
+
+def _bounded(fn, seconds: float):
+    """Run ``fn()``; give up waiting after ``seconds``. Returns (done, value).
+    The extractors expose no deadline hook, so a batch past budget is
+    abandoned (a daemon thread; it is a read and holds nothing)."""
+    import threading
+    box: dict = {}
+
+    def _go():
+        try:
+            box["v"] = fn()
+        except BaseException as exc:  # noqa: BLE001
+            box["e"] = exc
+
+    t = threading.Thread(target=_go, daemon=True)
+    t.start()
+    t.join(max(0.0, seconds))
+    if t.is_alive():
+        return False, None
+    if "e" in box:
+        raise box["e"]
+    return True, box["v"]
+
+
+def widen_first_window(source, days, extract, measure, env_var=None, persist_ladder=False,
+                       busy=None, run_source=None):
+    """Run ``extract(days)`` and, on a source's first run, widen ``days`` until
+    the result holds enough. Returns ``(result, days_used)``.
+
+    ``measure(result) -> (messages, conversations)``. ``extract(days)`` must be
+    safe to call repeatedly (a read, not a write).
+
+    Widening happens only while the machine is quiet (``busy()`` is checked
+    before EVERY batch, the install foreground counts as busy) and inside the
+    time budget (enforced per batch, not just between them). When busy, the
+    first window is left alone, nothing is recorded as chosen, and the source is
+    queued in state/first_window_pending_<source> (content: ``run_source``) for
+    the first post-install catch-up tick to finish.
+    """
+    busy = busy or _default_busy
+    pinned = bool(env_var and os.environ.get(env_var, "").strip())
+    result = extract(days)
+    if pinned or not is_first_window(source):
+        return result, days
+
+    min_msgs = _env_int("OSTLER_FIRST_WINDOW_MIN_MESSAGES", MIN_FIRST_WINDOW_MESSAGES)
+    min_convs = _env_int("OSTLER_FIRST_WINDOW_MIN_CONVERSATIONS", MIN_FIRST_WINDOW_CONVERSATIONS)
+    budget = _env_int("OSTLER_FIRST_WINDOW_BUDGET_SECONDS", DEFAULT_FIRST_WINDOW_BUDGET_SECONDS)
+    started = time.monotonic()
+    default_days = days
+    msgs, convs = measure(result)
+    stop = "kept"
+    deferred = None
+    while msgs < min_msgs and convs < min_convs:
+        nxt = next((r for r in WIDEN_RUNGS if r > days), None)
+        if nxt is None:
+            stop = "exhausted"
+            break
+        why = busy()
+        if why:
+            deferred = why
+            break
+        left = budget - (time.monotonic() - started)
+        if left <= 0:
+            stop = "budget"
+            break
+        done, res = _bounded(lambda d=nxt: extract(d), left)
+        if not done:
+            stop = "budget"
+            break
+        days, result = nxt, res
+        msgs, convs = measure(result)
+        stop = "widened"
+
+    if deferred:
+        logger.info("[first-window] %s deferred: busy (%s): kept %dd, %d messages, %d conversations; "
+                    "the first quiet catch-up tick widens it", source, deferred, days, msgs, convs)
+        try:
+            pm = _pending_marker(source)
+            pm.parent.mkdir(parents=True, exist_ok=True)
+            pm.write_text((run_source or source) + "\n")
+        except OSError as exc:
+            logger.warning("[first-window] could not queue %s: %s", source, exc)
+        if days != default_days and persist_ladder:
+            _write_days(source, days)
+        return result, days
+
+    if days == default_days and stop == "kept":
+        logger.info("[first-window] %s kept %dd: %d messages, %d conversations (minimum %d or %d)",
+                    source, days, msgs, convs, min_msgs, min_convs)
+    else:
+        logger.info("[first-window] %s %s: default %dd -> %dd: %d messages, %d conversations "
+                    "(minimum %d or %d)", source, stop, default_days, days, msgs, convs,
+                    min_msgs, min_convs)
+    try:
+        m = _first_window_marker(source)
+        m.parent.mkdir(parents=True, exist_ok=True)
+        m.write_text(json.dumps({"source": source, "default_days": default_days, "days": days,
+                                 "messages": msgs, "conversations": convs, "result": stop,
+                                 "at": int(time.time())}, indent=2))
+        _pending_marker(source).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("[first-window] could not record the first window for %s: %s", source, exc)
+    if persist_ladder and days != default_days:
+        # Keep the ladder above the window actually read, so the next rung is
+        # wider than it, not a repeat of a narrower one.
+        _write_days(source, days)
+    return result, days
+
+
+def finish_pending_first_windows(fda_dir, busy=None) -> dict:
+    """The first QUIET firing after install: finish what the install deferred.
+
+    For every source queued in state/first_window_pending_<source>, re-extract
+    it (widening its first window now that the Mac is quiet) and then run the
+    SAME graph ingest the recurring tick runs (pwg_ingest.ingest_all), so the
+    wider history reaches the people graph and not just imports/fda. Conversation
+    bundles do NOT come from here: they are read from chat.db by the
+    imessage-bundle agent, which widens its own first window
+    (imessage_source/pipeline.py). Returns a counts-only dict."""
+    sd = _state_dir()
+    pending = sorted(sd.glob("first_window_pending_*")) if sd.is_dir() else []
+    if not pending:
+        return {"status": "nothing_pending"}
+    why = (busy or _default_busy)()
+    if why:
+        logger.info("[first-window] finish skipped, machine busy (%s)", why)
+        return {"status": "busy", "reason": why}
+    sources = sorted({p.read_text().strip() for p in pending if p.read_text().strip()})
+    from .extract_all import run_all
+    from .pwg_ingest import ingest_all
+    run_all(Path(fda_dir), enabled_sources=sources)
+    results = ingest_all(Path(fda_dir)) or {}
+    logger.info("[first-window] finished %d pending source(s)", len(sources))
+    return {"status": "ok", "sources": sources, "ingest": sorted(results) if isinstance(results, dict) else []}
