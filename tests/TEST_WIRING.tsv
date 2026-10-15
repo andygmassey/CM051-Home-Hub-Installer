@@ -121,6 +121,7 @@ test_an_uninstall_does_not_consume_the_purchase.sh	WIRED	.github/workflows/licen
 test_an_uninstall_that_cannot_ask_removes_nothing.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_an_unmeasured_count_is_not_a_measured_zero.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unmeasured_flag_must_be_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_api_list_pagination_is_additive.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_app_binary_agents_bootstrap.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_appcast_debt_is_collected.sh	WIRED	.github/workflows/cut.yml
 test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -339,6 +340,7 @@ test_every_script_install_sh_reads_is_bundled.py	WIRED	.github/workflows/install
 test_every_terminal_done_is_exit_or_guarded.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_every_walk_ssh_gives_up_on_a_dead_link.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_every_workflow_step_can_run.py	WIRED	.github/workflows/declared-gates-reachable.yml
+test_exact_identifier_merge.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_exemption_ref_form.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_exit_1_is_a_crash_or_a_refusal_and_not_always_the_same_one.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
@@ -545,6 +547,7 @@ test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim
 test_passive_plays_are_not_likes.py	WIRED	.github/workflows/misclassified-things.yml
 test_pause_expiry_reenables_cron.py	WIRED	.github/workflows/status-honesty-pause.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
+test_people_carded_names_show_and_tiers_hold_in_every_path.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_hydrate_partial_landing_sentinel.sh	WIRED	.github/workflows/people-sweep-partial-landing.yml
 test_people_projection_prunes_what_left_the_graph.py	WIRED	.github/workflows/people-projection-prune.yml
@@ -660,6 +663,7 @@ test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_spool_sweep_quarantines_a_bad_row.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_stage_payload_strips_ambient_pyc.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchagent-success-verification.yml

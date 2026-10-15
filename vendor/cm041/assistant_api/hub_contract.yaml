@@ -305,7 +305,18 @@
    ],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
+    "events",
+    "local_store_age_seconds",
+    "not_connected",
+    "period_days",
+    "sources"
+   ],
    "source": "install.sh"
   },
   {
@@ -3071,7 +3082,18 @@
    ],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
+    "events",
+    "local_store_age_seconds",
+    "not_connected",
+    "period_days",
+    "sources"
+   ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
   {
@@ -3658,7 +3680,9 @@
    ],
    "proxy_to": "ical:GET:/api/v1/preferences",
    "query_params": [
+    "cursor",
     "domain",
+    "fields",
     "limit",
     "polarity"
    ],
@@ -4755,7 +4779,18 @@
    ],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
+    "events",
+    "local_store_age_seconds",
+    "not_connected",
+    "period_days",
+    "sources"
+   ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
   {
@@ -5572,7 +5607,9 @@
     8090
    ],
    "query_params": [
+    "cursor",
     "domain",
+    "fields",
     "limit",
     "polarity"
    ],
@@ -5848,7 +5885,18 @@
    ],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
+    "events",
+    "local_store_age_seconds",
+    "not_connected",
+    "period_days",
+    "sources"
+   ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
   {
@@ -5886,7 +5934,18 @@
    ],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
+    "events",
+    "local_store_age_seconds",
+    "not_connected",
+    "period_days",
+    "sources"
+   ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
   {

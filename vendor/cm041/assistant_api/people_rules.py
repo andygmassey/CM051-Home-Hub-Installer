@@ -15,8 +15,9 @@ library here (tests/test_people_rules_is_stdlib_only.py enforces it), and do
 not copy these rules elsewhere.
 
 ``_is_nameless_name`` is the canonical "non-displayable name" predicate,
-byte-identical to CM044 ``compiler/nameless.py`` and CM031 ``PersonNameFilter``
-(Ref #664); locked to prevent cross-surface drift.
+mirrored by CM044 ``compiler/nameless.py`` and CM031 ``PersonNameFilter``
+(Ref #664); locked to prevent cross-surface drift. Changed 2026-10-15: a
+phone-only person is shown (provisional), see ``_is_nameless_name``.
 """
 import re
 
@@ -41,23 +42,106 @@ def _is_role_address_name(name):
     return bool(_ROLE_ADDRESS_LOCAL_RE.match(n.split("@", 1)[0]))
 
 
-def _is_nameless_name(display_name):
-    """True when ``display_name`` is a raw handle, not a human name.
+def _digit_count(s):
+    return sum(c.isdigit() for c in s)
 
-    Canonical "non-displayable name" predicate. Byte-identical to
-    ``compiler/nameless.py`` (CM044 wiki) and ``PersonNameFilter`` (CM031
-    iOS); locked to prevent cross-surface drift. Ref #664.
 
-    Non-displayable when:
-      1. empty / whitespace-only, or
-      2. lowercased form contains ``@s.whatsapp.net`` or ``@lid`` (a
-         WhatsApp JID), or
-      3. a bare identifier: every character is in ``[0-9 + - ( ) . space]``
-         AND it contains at least 6 digits (a phone number / numeric handle).
+def _is_bare_phone_shape(s):
+    """Every character is phone-shaped (digits and ``+-(). ``) and there is at
+    least one digit."""
+    return bool(s) and all(c in _NAMELESS_BARE_ID_CHARS for c in s) and _digit_count(s) >= 1
 
-    Rows are hidden at render time (the People list); the Qdrant point /
-    graph node is never deleted. Composes after the exact-identifier merge
-    (#168/#280): only residual nameless rows are filtered, no double-count.
+
+def _is_short_code(display_name):
+    """EXPLAINED EXCLUSION 1: a short code (6 digits or fewer), by shape.
+    A service sender, never a person."""
+    s = (display_name or "").strip()
+    return _is_bare_phone_shape(s) and _digit_count(s) <= 6
+
+
+def _is_sender_id_handle(handle):
+    """True when ONE handle is a non-human sender handle, by shape: an
+    alphanumeric SMS sender ID ("HSBCALERT", "R2D2": one token of 1-11 chars
+    from ``A-Z a-z 0-9 . _ -`` with at least one letter, never an email
+    address and never a phone number) or a short code (6 digits or fewer).
+    A phone number (7+ digits) and an email address are NOT sender IDs."""
+    s = (handle or "").strip()
+    if not s or "@" in s:
+        return False
+    if _is_bare_phone_shape(s):
+        return _digit_count(s) <= 6
+    if not 1 <= len(s) <= 11:
+        return False
+    if not all(c.isascii() and (c.isalnum() or c in "._-") for c in s):
+        return False
+    return any(c.isalpha() for c in s)
+
+
+def _all_handles_are_sender_ids(handles):
+    """SHARED RULE A predicate: True only when the person has at least one
+    handle and EVERY handle is a sender ID or short code. No handles is no
+    evidence, so False (the display name is never consulted)."""
+    hs = [h for h in (handles or ()) if (h or "").strip()]
+    return bool(hs) and all(_is_sender_id_handle(h) for h in hs)
+
+
+def _is_provisional_phone_name(display_name):
+    """True when the stored name IS a real-looking phone number (7+ digits):
+    a phone-only person. SHOWN, with the number as the name and a provisional
+    mark, until a better name arrives (tier 0 phone < tier 1 email < tier 2
+    human name; names go upward only). Andy's ruling 2026-08-10."""
+    s = (display_name or "").strip()
+    return _is_bare_phone_shape(s) and _digit_count(s) >= 7
+
+
+# SHARED RULE (Hub, wiki compiler/nameless.py, iOS PersonNameFilter; all three
+# cite this block and must stay byte-identical in behaviour):
+#   A. A person is a non-human sender (hidden) ONLY when they have NO contact
+#      card AND ALL their HANDLES are alphanumeric SMS sender IDs (not a phone
+#      number, not an email address) or short codes of 6 digits or fewer. The
+#      decision is by HANDLE, never by the display name: an uncarded "JOHN"
+#      with a phone handle and "R2D2" with an email handle are people. A
+#      CARDED person always shows. The other exclusions (empty, JID, short
+#      code as the NAME) are shapes no card makes a person, and apply
+#      regardless. Handles = phones + emails + identifier handles.
+#   B. Display-name ladder, upward only: human name (given/family) > email >
+#      phone. A phone-shaped stored name yields to an email, and any
+#      identifier-shaped stored name yields to a given/family name, in EVERY
+#      path (list, search, stale, recent, birthdays): ``_best_display_name``.
+
+
+def _best_display_name(stored, given="", family="", emails=()):
+    """SHARED RULE B. Return the name to show for a person: human name >
+    email > phone. ``stored`` wins unless it is itself just an identifier."""
+    stored = stored or ""
+    human = " ".join(x for x in ((given or "").strip(), (family or "").strip()) if x)
+    if human and _looks_like_bare_email_or_phone(stored):
+        return human
+    s = stored.strip()
+    if s and "@" not in s and _is_bare_phone_shape(s):
+        for e in emails or ():
+            e = (e or "").strip()
+            if "@" in e:
+                return e
+    return stored
+
+
+def _is_nameless_name(display_name, has_card=False, handles=None):
+    """True when ``display_name`` must NOT be listed as a person.
+
+    A phone-only person is NOT nameless any more (ruling 2026-08-10, tier 0):
+    it is shown with the number as its name, marked provisional. The only
+    exclusions are, each by shape and each declared with its reason:
+
+      1. empty / whitespace-only (no name at all);
+      2. a WhatsApp JID (``@s.whatsapp.net`` / ``@lid``): a transport id;
+      3. a short code, 6 digits or fewer (``_is_short_code``);
+      4. every handle is a sender ID or short code
+         (``_all_handles_are_sender_ids(handles)``), ONLY when ``has_card`` is
+         False (SHARED RULE A: decided by handle, a carded person always shows).
+
+    Rows are hidden at render time only; the Qdrant point / graph node is
+    never deleted.
     """
     if not display_name:
         return True
@@ -67,8 +151,9 @@ def _is_nameless_name(display_name):
     low = s.lower()
     if "@s.whatsapp.net" in low or "@lid" in low:
         return True
-    if all(c in _NAMELESS_BARE_ID_CHARS for c in s) and \
-            sum(c.isdigit() for c in s) >= 6:
+    if _is_short_code(s):
+        return True
+    if not has_card and _all_handles_are_sender_ids(handles):
         return True
     return False
 
@@ -477,6 +562,11 @@ def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None)
     if echoed and (not (given or family) or _name_parts_echo_address(given, family, echoed)):
         return "automated_address" if _address_is_automated(echoed) else "name_is_sender_domain"
     if given or family:
+        return None
+    # A phone-only person (the name IS a 7+ digit number) is a person, shown
+    # provisional (ruling 2026-08-10). The junk-handle shapes below read a
+    # bare digit run as "handle_no_channel" and would drop it.
+    if _is_provisional_phone_name(nm):
         return None
     why = _junk_name_reason(nm)
     if why:

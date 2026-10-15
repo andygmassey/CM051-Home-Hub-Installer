@@ -32,6 +32,7 @@ on:
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
       - 'tests/fixtures/people_rules_golden.json'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
       - 'vendor/cm048_pipeline/src/ostler_paths.py'
       - 'tests/test_doctor_reminders_list_removed.py'
@@ -69,6 +70,7 @@ on:
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
       - 'tests/fixtures/people_rules_golden.json'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
       - 'vendor/cm048_pipeline/src/ostler_paths.py'
       - 'tests/test_doctor_reminders_list_removed.py'
@@ -221,6 +223,9 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_people_rules_is_stdlib_only.py -v
+      - name: A carded name always shows, and the name ladder holds in list, search, stale, recent and birthdays
+        if: always()
+        run: PYTHONPATH=vendor python tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py
       - name: A gateway chat's assistant turns are never extracted as facts or todos about the owner (Mini16 #27)
         if: always()
         run: |

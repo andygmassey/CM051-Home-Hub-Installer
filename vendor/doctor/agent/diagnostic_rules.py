@@ -55,6 +55,9 @@ from diagnostic_copy import (
     PARKED_FACTS_DETAIL,
     PARKED_FACTS_FIX,
     PENDING_FACTS_TITLE_FMT,
+    QUARANTINED_FACTS_TITLE_FMT,
+    QUARANTINED_FACTS_DETAIL,
+    QUARANTINED_FACTS_FIX,
     PENDING_FACTS_DETAIL,
     PENDING_FACTS_FIX,
     INGEST_EMPTY_FIX_COMMAND,
@@ -2449,6 +2452,18 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
             "risk": "low",
             "category": "memory",
             "parked_facts": parked,
+        })
+    quarantined = st.get("quarantined")
+    if isinstance(quarantined, int) and quarantined > 0:
+        findings.append({
+            "severity": "warning",
+            "title": QUARANTINED_FACTS_TITLE_FMT.format(
+                n=quarantined, s="" if quarantined == 1 else "s"),
+            "detail": QUARANTINED_FACTS_DETAIL,
+            "fix": QUARANTINED_FACTS_FIX,
+            "risk": "low",
+            "category": "memory",
+            "quarantined_facts": quarantined,
         })
     pending = st.get("pending")
     oldest = st.get("oldest_pending_at")

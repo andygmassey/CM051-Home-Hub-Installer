@@ -185,3 +185,34 @@ it, wiping every earlier Forget. It now leaves the file in place (so
 by `vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`
 (job `forget-reports-only-what-it-erased` in
 `.github/workflows/forget-tombstone.yml`). Upstream CM041 mirror OWED.
+
+## cm041/identity_resolver: an exact shared identifier merges two Contacts cards of one person (v1.0.107 #30)
+
+`batch_resolver.py`: `execute()` used to refuse every planned merge whose nodes
+carried different `icloud_contact_uid` values (RULE 2). Measured on the Mini16,
+66 of 70 same-name pairs sharing an exact email or phone were refused that way
+(one person, two Contacts cards). New `_exact_identifier_override()` and
+`_all_canonical_conflicts()` let an exact shared identifier override a refusal
+whose ONLY conflicting canonical key is the card uid; policy is in the new
+vendor-only module `exact_identifier.py` (full-name equality, usable shared key,
+no hard veto, key not held by 3+ distinct names). `detect_email_matches`,
+`detect_phone_matches` and `detect_linkedin_url_matches` downgrade a key held by
+3+ distinct names to review. Every merge now calls the new vendor-only
+`merge_journal.record_merge()` BEFORE the first write (no snapshot, no merge);
+`--undo-merge ID` / `--list-merges` added to `main()`; `converge()` stops when a
+round executes nothing; `MergeAction.merge_id` added; the converge summary counts
+executed merges, not planned ones. Linkedin conflicts are compared in canonical
+form on this path only.
+
+Guarded by `tests/test_exact_identifier_merge.py` (rdflib-backed store, 23
+tests, wired in `.github/workflows/exact-identifier-merge.yml`).
+`tests/test_converge_path_enforces_rule2.sh` now stubs `record_merge` like it
+already stubs `_backup_triples`. Upstream CM041 mirror OWED; no re-vendor.
+Update: the journal snapshot also carries the pair's Qdrant `people` points
+(id, vector, payload); `--undo-merge` restores them before the graph. New
+vendor-only code in `merge_journal.py`; `batch_resolver.py` passes
+`qdrant_url`/`qdrant_collection` to `record_merge` and `qdrant_url` to undo.
+Update: no vector snapshot, no merge. `record_merge` raises `SnapshotUnavailable`
+when Qdrant cannot be read; `execute()` skips the pair, journals a `skip`
+(reason `qdrant_unavailable`), and the next converge retries. Not a RULE 2
+refusal, not a pin.

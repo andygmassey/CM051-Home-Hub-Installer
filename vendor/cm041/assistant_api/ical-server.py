@@ -421,6 +421,8 @@ from people_rules import (  # noqa: E402
     _ROLE_ADDRESS_LOCAL_RE,
     _is_role_address_name,
     _is_nameless_name,
+    _best_display_name,
+    _is_provisional_phone_name,
     _looks_like_bare_email_or_phone,
     _SERVICE_NAME_SUFFIX_WORDS,
     _SERVICE_NAME_PHRASE_RE,
@@ -820,6 +822,56 @@ def _load_carded_uris(uris):
     except Exception:
         return set()
     return {r["person"] for r in rows if r.get("person")}
+
+
+def _qdrant_payloads_by_uri(uris):
+    """Best-effort {person_uri: Qdrant payload} for the given URIs, so the
+    SPARQL-fed paths (recent, birthdays) can apply the same SHARED RULE B
+    name ladder and card test as the Qdrant-fed paths. Any failure returns {}
+    (names then stay as stored, never hidden by the failure)."""
+    uris = sorted({u for u in uris if u})
+    if not uris:
+        return {}
+    out = {}
+    try:
+        for i in range(0, len(uris), 200):
+            body = {
+                "filter": {"must": [{"key": "person_uri",
+                                     "match": {"any": uris[i:i + 200]}}]},
+                "limit": 1000, "with_payload": True, "with_vector": False,
+            }
+            req = urllib.request.Request(
+                QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                pts = (json.loads(resp.read()).get("result", {}) or {}).get("points", [])
+            for pt in pts:
+                pl = pt.get("payload", {}) or {}
+                if pl.get("person_uri"):
+                    out[pl["person_uri"]] = pl
+    except Exception:
+        return {}
+    return out
+
+
+def _apply_name_ladder_to_rows(rows):
+    """SHARED RULE B for SPARQL rows ({'p','name',...}): rewrite an
+    identifier-shaped name to the better name on the person's Qdrant payload.
+    Only rows whose name is a bare phone/email are looked up. Returns the
+    payload map (also used for the card test)."""
+    need = [r.get("p") for r in rows
+            if r.get("p") and _looks_like_bare_email_or_phone(r.get("name", ""))]
+    hints = _qdrant_payloads_by_uri(need)
+    for r in rows:
+        pl = hints.get(r.get("p") or "")
+        if pl:
+            r["name"] = _best_display_name(
+                r.get("name", ""), pl.get("given_name"), pl.get("family_name"),
+                pl.get("emails") or [],
+            )
+    return hints
 
 
 def _event_has_human_attendee(event):
@@ -1284,6 +1336,77 @@ def _safe_float(params, key, default):
         return float(raw), None
     except (ValueError, TypeError):
         return default, {"error": f"Invalid float value for '{key}': {raw!r}"}
+
+
+# ── Optional pagination for the two big list endpoints ───────────────────
+# /api/v1/preferences (tens of thousands of rows) and /api/v1/people. ADDITIVE:
+# a request with none of `cursor` / `fields` (and, for people, `limit`) gets
+# exactly the response it always got. `limit`, `cursor` and `fields` are the
+# only knobs. `cursor=start` asks for the first page. The cursor is opaque (base64url JSON of an offset into the
+# endpoint's own stable order, plus a version token of the set it was issued
+# for); if the set has changed since, the server answers 409 rather than
+# serve a page with gaps or duplicates, and the client restarts.
+_PAGE_MAX = 5000
+
+
+def _page_version(items, key_fn):
+    import hashlib
+    h = hashlib.sha1()
+    for it in items:
+        h.update(key_fn(it).encode("utf-8", "replace"))
+        h.update(b"\n")
+    return h.hexdigest()[:16]
+
+
+def _page_wanted(params, *, limit_counts=True):
+    """True when the request asks for any pagination feature."""
+    if params.get("cursor") or params.get("fields"):
+        return True
+    return bool(limit_counts and params.get("limit"))
+
+
+def _paginate(items, params, version):
+    """Return (page_items, meta, error_response_or_None).
+
+    limit: 1.._PAGE_MAX (default 200 once pagination is requested);
+    cursor: opaque token from a previous page; fields: comma list of keys to
+    keep on each item (unknown keys are ignored).
+    """
+    import base64
+    if not params.get("limit") and not params.get("cursor"):
+        # `fields` alone projects the whole set; it does not paginate.
+        params = dict(params, limit=[str(max(len(items), 1))])
+        unbounded = True
+    else:
+        unbounded = False
+    limit, err = _safe_int(params, "limit", 200)
+    if err or limit < 1 or (limit > _PAGE_MAX and not unbounded):
+        return None, None, ({"error": "limit must be an integer 1..%d" % _PAGE_MAX}, 400)
+    offset = 0
+    raw = (params.get("cursor") or [""])[0]
+    if raw == "start":
+        raw = ""  # explicit first page (a bare `limit` on preferences is legacy)
+    if raw:
+        try:
+            tok = json.loads(base64.urlsafe_b64decode(raw.encode() + b"=" * (-len(raw) % 4)))
+            offset, ver = int(tok["o"]), tok["v"]
+            if offset < 0:
+                raise ValueError
+        except Exception:
+            return None, None, ({"error": "invalid cursor"}, 400)
+        if ver != version:
+            return None, None, ({"error": "cursor is stale: the list changed; restart without a cursor"}, 409)
+    page = items[offset:offset + limit]
+    nxt = offset + len(page)
+    next_cursor = None
+    if nxt < len(items):
+        next_cursor = base64.urlsafe_b64encode(
+            json.dumps({"o": nxt, "v": version}).encode()).decode().rstrip("=")
+    fields = [f.strip() for f in ((params.get("fields") or [""])[0]).split(",") if f.strip()]
+    if fields:
+        page = [{k: it[k] for k in fields if isinstance(it, dict) and k in it}
+                for it in page]
+    return page, {"next_cursor": next_cursor, "page_size": len(page)}, None
 
 
 def _to_iso8601(raw):
@@ -2070,11 +2193,17 @@ def people_search(query, limit=10, timeout=30):
     results = []
     for pt in data.get("result", []):
         p = pt.get("payload", {})
-        dn = p.get("display_name", "")
-        # Hide raw-handle "people" (WhatsApp JIDs, bare phone numbers) from
-        # the People list / search results. Render-time filter only; the
-        # Qdrant point is never deleted. Ref #664.
-        if _is_nameless_name(dn):
+        # SHARED RULE B: human name > email > phone, same as people_list.
+        dn = _best_display_name(
+            p.get("display_name", ""), p.get("given_name"), p.get("family_name"),
+            p.get("emails") or [],
+        )
+        # Hide WhatsApp JIDs, short codes and (uncarded) alphanumeric sender
+        # IDs from the People list / search results (a phone-only person is
+        # SHOWN, provisional). SHARED RULE A: a carded name always shows.
+        # Render-time filter only; the Qdrant point is never deleted. Ref #664.
+        if _is_nameless_name(dn, has_card=bool((p.get("icloud_uid") or "").strip()),
+                             handles=list(p.get("phones") or []) + list(p.get("emails") or [])):
             continue
         # F7 (walk #16): the same human-evidence test people_list applies, so a
         # sender id or bulk mailbox is not found by search either.
@@ -2094,6 +2223,8 @@ def people_search(query, limit=10, timeout=30):
             "score": round(pt.get("score", 0), 3),
             "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(dn)}/",
         }
+        if _is_provisional_phone_name(dn):
+            entry["provisional_name"] = True
         # Emit the stable person_uri so consumers (pwg_people dedup #6, the
         # citation slug->uri chain #4) can key on identity, not display name.
         if p.get("person_uri"):
@@ -3522,7 +3653,29 @@ ASSERT_SPOOL_SWEEP_SECONDS = float(
 ASSERT_SPOOL_RESOLVE_BUDGET_S = float(
     os.environ.get("OSTLER_ASSERT_SPOOL_RESOLVE_BUDGET_S", "30")
 )
+# A row that raises a data-shaped error this many times is poison, not an
+# outage: it is moved to state 'quarantined' (kept, encrypted, with a reason)
+# so it stops being retried every sweep and cannot starve the rows behind it.
+ASSERT_SPOOL_MAX_ATTEMPTS = int(
+    os.environ.get("OSTLER_ASSERT_SPOOL_MAX_ATTEMPTS", "5")
+)
+# Errors that name a bad ROW (malformed timestamp, missing field, bad level).
+# Anything else (graph or model down, timeout) is an outage and counts
+# against nobody.
+_ASSERT_POISON_ERRORS = (ValueError, TypeError, KeyError, AttributeError,
+                         UnicodeError)
 _ASSERT_SPOOL_LOCK = threading.Lock()
+
+
+def _redacted_exc(exc):
+    """Exception type plus the file:line frames; NEVER the message, which can
+    carry a subject, a fact or a URL."""
+    import traceback
+    frames = traceback.extract_tb(exc.__traceback__)
+    where = " <- ".join(
+        "%s:%s" % (os.path.basename(f.filename), f.lineno)
+        for f in reversed(frames[-4:]))
+    return "%s @ %s" % (type(exc).__name__, where or "?")
 _ASSERT_SPOOL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS assert_spool (
     spool_id      TEXT PRIMARY KEY,
@@ -3581,7 +3734,8 @@ def _write_assert_spool_status(conn):
     """
     rows = conn.execute(
         "SELECT state, COUNT(*), MIN(created_at) FROM assert_spool "
-        "WHERE state IN ('pending', 'needs_disambiguation') GROUP BY state"
+        "WHERE state IN ('pending', 'needs_disambiguation', 'quarantined') "
+        "GROUP BY state"
     ).fetchall()
     got = {r[0]: (r[1], r[2]) for r in rows}
     status = {
@@ -3589,6 +3743,7 @@ def _write_assert_spool_status(conn):
         "oldest_pending_at": got.get("pending", (0, None))[1],
         "needs_disambiguation": got.get("needs_disambiguation", (0, None))[0],
         "oldest_parked_at": got.get("needs_disambiguation", (0, None))[1],
+        "quarantined": got.get("quarantined", (0, None))[0],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     ASSERT_SPOOL_STATUS.parent.mkdir(parents=True, exist_ok=True)
@@ -3655,7 +3810,7 @@ def _assert_spool_sweep(budget=None, limit=50):
     if budget is None:
         budget = ASSERT_SPOOL_RESOLVE_BUDGET_S
     counts = {"pending": 0, "written": 0, "already": 0, "still_pending": 0,
-              "needs_disambiguation": 0, "failed": 0}
+              "needs_disambiguation": 0, "failed": 0, "quarantined": 0}
     if not _ASSERT_SPOOL_LOCK.acquire(blocking=False):
         counts["skipped"] = 1
         return counts
@@ -3683,46 +3838,77 @@ def _assert_spool_sweep(budget=None, limit=50):
                 conn.commit()
 
             for r in rows:
-                (spool_id, subject, fact_text, relationship, asserted_via,
-                 level, asserted_at, fact_id, person_id) = tuple(r)
+                spool_id = r[0]
                 try:
-                    existing = _assert_fact_person(fact_id)
-                except Exception:
+                    (spool_id, subject, fact_text, relationship, asserted_via,
+                     level, asserted_at, fact_id, person_id) = tuple(r)
+                    try:
+                        existing = _assert_fact_person(fact_id)
+                    except Exception:
+                        counts["failed"] += 1
+                        continue
+                    if existing:
+                        close(spool_id, existing, _wiki_slug(subject or ""))
+                        counts["already"] += 1
+                        continue
+                    if level not in _ASSERT_PRIVACY_LEVELS:
+                        raise ValueError("unknown privacy level")
+                    body, status = _assert_resolve_and_write(
+                        subject, fact_text, relationship, asserted_via,
+                        now=datetime.fromisoformat(asserted_at), budget=budget,
+                        spool_on_timeout=False, fact_id=fact_id,
+                        person_id=person_id, privacy_level=level,
+                    )
+                    if status == 200 and body.get("status") in ("stored", "created_person"):
+                        close(spool_id, body.get("person_uri"),
+                              body.get("person_slug"),
+                              1 if body.get("status") == "created_person" else 0)
+                        counts["written"] += 1
+                    elif body.get("status") == "needs_disambiguation":
+                        # Two plausible people. Not guessed: kept, with the
+                        # candidates, for the assistant or the owner to settle.
+                        conn.execute(
+                            "UPDATE assert_spool SET state = "
+                            "'needs_disambiguation', last_reason = ? "
+                            "WHERE spool_id = ?",
+                            (json.dumps(body.get("candidates") or []), spool_id))
+                        conn.commit()
+                        counts["needs_disambiguation"] += 1
+                    else:
+                        conn.execute(
+                            "UPDATE assert_spool SET attempts = attempts + 1, "
+                            "last_reason = ? WHERE spool_id = ?",
+                            (str(body.get("reason") or body.get("status"))[:200],
+                             spool_id))
+                        conn.commit()
+                        counts["still_pending" if status == 0 else "failed"] += 1
+                except _ASSERT_POISON_ERRORS as exc:
+                    # A bad ROW. One bad row must not abort the sweep (it
+                    # used to: the rows behind it were never reached and it
+                    # was retried every 20 s forever). Count it against the
+                    # row, and quarantine it after N attempts.
+                    reason = "exception: " + _redacted_exc(exc)
+                    print("[memory/assert] spool row error: %s" % reason,
+                          file=sys.stderr, flush=True)
+                    prior = conn.execute(
+                        "SELECT attempts FROM assert_spool WHERE spool_id = ?",
+                        (spool_id,)).fetchone()
+                    n = (prior[0] if prior else 0) + 1
+                    new_state = ("quarantined"
+                                 if n >= ASSERT_SPOOL_MAX_ATTEMPTS
+                                 else "pending")
+                    conn.execute(
+                        "UPDATE assert_spool SET attempts = ?, last_reason = ?,"
+                        " state = ? WHERE spool_id = ?",
+                        (n, reason[:200], new_state, spool_id))
+                    conn.commit()
+                    counts["quarantined" if new_state == "quarantined"
+                           else "failed"] += 1
+                except Exception as exc:
+                    # Outage-shaped: counts against nobody, next row.
+                    print("[memory/assert] spool row not processed: %s"
+                          % _redacted_exc(exc), file=sys.stderr, flush=True)
                     counts["failed"] += 1
-                    continue
-                if existing:
-                    close(spool_id, existing, _wiki_slug(subject or ""))
-                    counts["already"] += 1
-                    continue
-                body, status = _assert_resolve_and_write(
-                    subject, fact_text, relationship, asserted_via,
-                    now=datetime.fromisoformat(asserted_at), budget=budget,
-                    spool_on_timeout=False, fact_id=fact_id,
-                    person_id=person_id, privacy_level=level,
-                )
-                if status == 200 and body.get("status") in ("stored", "created_person"):
-                    close(spool_id, body.get("person_uri"),
-                          body.get("person_slug"),
-                          1 if body.get("status") == "created_person" else 0)
-                    counts["written"] += 1
-                elif body.get("status") == "needs_disambiguation":
-                    # Two plausible people. Not guessed: kept, with the
-                    # candidates, for the assistant or the owner to settle.
-                    conn.execute(
-                        "UPDATE assert_spool SET state = "
-                        "'needs_disambiguation', last_reason = ? "
-                        "WHERE spool_id = ?",
-                        (json.dumps(body.get("candidates") or []), spool_id))
-                    conn.commit()
-                    counts["needs_disambiguation"] += 1
-                else:
-                    conn.execute(
-                        "UPDATE assert_spool SET attempts = attempts + 1, "
-                        "last_reason = ? WHERE spool_id = ?",
-                        (str(body.get("reason") or body.get("status"))[:200],
-                         spool_id))
-                    conn.commit()
-                    counts["still_pending" if status == 0 else "failed"] += 1
             try:
                 _write_assert_spool_status(conn)
             except Exception as exc:
@@ -3746,7 +3932,7 @@ def _assert_spool_loop():
                 print("[memory/assert] spool sweep %s" % json.dumps(c),
                       file=sys.stderr, flush=True)
         except Exception as exc:  # never let the resolver die
-            print(f"[memory/assert] spool sweep error: {type(exc).__name__}",
+            print("[memory/assert] spool sweep error: %s" % _redacted_exc(exc),
                   file=sys.stderr, flush=True)
         time_mod.sleep(ASSERT_SPOOL_SWEEP_SECONDS)
 
@@ -7280,8 +7466,12 @@ def people_list(sort=None, ceiling=10000):
         # nameless/automated checks below -- a bare-phone fallback is
         # exactly what _is_nameless_name hides outright, so upgrading
         # first is the only way this row ever reaches the list at all.
-        if (given or family) and _looks_like_bare_email_or_phone(name):
-            name = " ".join(x for x in (given, family) if x)
+        # SHARED RULE B (people_rules.py): human name > email > phone, so a
+        # phone-only stored name also yields to an email on the same record.
+        name = _best_display_name(
+            name, given, family,
+            list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", [])),
+        )
 
         # CM051 #2568: this used to be `if not name: continue`, which only
         # catches an EMPTY name (case 1 of _is_nameless_name's three). A
@@ -7291,7 +7481,12 @@ def people_list(sort=None, ceiling=10000):
         # the Hub/wiki count gap. Reuse the LOCKED predicate rather than a
         # second filter: it is explicitly byte-identical across all three
         # surfaces for exactly this reason (Ref #664).
-        if _is_nameless_name(name):
+        # SHARED RULE A: a carded name always shows (JEAN-LUC, J.R.).
+        if _is_nameless_name(name,
+                has_card=bool((p.get("icloud_uid") or "").strip()),
+                handles=list(p.get("phones") or []) + list(p.get("emails") or [])
+                + list(ident_by_uri.get(uri, {}).get("phone", []))
+                + list(ident_by_uri.get(uri, {}).get("email", []))):
             continue
         # v1.0.106 walk: a record whose ONLY name is a role or automation
         # mailbox ("support@...", "promotions@...") is not a person to list.
@@ -7413,6 +7608,10 @@ def people_list(sort=None, ceiling=10000):
             "slug": slug,
             "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
         }
+        # Phone-only person (tier 0 name): shown with the number as the name,
+        # marked provisional until a better name arrives. Ruling 2026-08-10.
+        if _is_provisional_phone_name(name):
+            row["provisional_name"] = True
         role = p.get("job_title") or p.get("organization") or ""
         if role:
             row["role"] = role
@@ -7558,13 +7757,20 @@ def people_stale(months=3, limit=5):
     candidates = []
     for pt in result.get("result", {}).get("points", []):
         p = pt.get("payload", {})
-        name = p.get("display_name", "")
+        # SHARED RULE B: human name > email > phone, same as people_list.
+        name = _best_display_name(
+            p.get("display_name", ""), p.get("given_name"), p.get("family_name"),
+            p.get("emails") or [],
+        )
         lc_ts = p.get("last_contact_ts", 0)
         if not name or not lc_ts:
             continue
         # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
-        # Stale / reconnect list. Render-time filter only. Ref #664.
-        if _is_nameless_name(name):
+        # Stale / reconnect list. SHARED RULE A: a carded name always shows.
+        # Render-time filter only. Ref #664.
+        if _is_nameless_name(
+                name, has_card=bool((p.get("icloud_uid") or "").strip()),
+                handles=list(p.get("phones") or []) + list(p.get("emails") or [])):
             continue
         if _is_non_human_person(p, name):
             continue
@@ -7780,6 +7986,7 @@ def people_recent(days=7, limit=5):
     # here. Brought up to the same standard as the other two producers,
     # plus the new People-list-derived checks.
     self_uris = _load_people_list_self_uris()
+    _apply_name_ladder_to_rows(rows)
     carded_uris = _load_carded_uris(r.get("p") for r in rows)
 
     seen = set()
@@ -7792,7 +7999,7 @@ def people_recent(days=7, limit=5):
         # give one person several rows; the first that passes the screens wins.
         if not name or name in seen or (uri and uri in seen_uris):
             continue
-        if _is_nameless_name(name):
+        if _is_nameless_name(name, has_card=uri in carded_uris):
             continue
         if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
@@ -7862,6 +8069,7 @@ def people_birthdays(days=7):
     for r in sorted(rows, key=_pick_rank):
         per_uri.setdefault(r.get("p") or "", r)
     rows = [r for u, r in per_uri.items() if u]
+    _apply_name_ladder_to_rows(rows)
 
     # Walk #6 candidate #10 (Archie): a SECOND, complementary layer on top
     # of _is_not_a_person_to_suggest / _is_service_sender below -- see the
@@ -7880,7 +8088,7 @@ def people_birthdays(days=7):
         # Birthdays surface, same render-time filter the People search / stale /
         # recent endpoints use. Ref #664. The Qdrant point / graph node is never
         # deleted -- only withheld from this listing.
-        if _is_nameless_name(name):
+        if _is_nameless_name(name, has_card=uri in carded_uris):
             continue
         # Shared suggestion screen: no shortcodes, no bare addresses, and never
         # the operator's own birthday. See _is_not_a_person_to_suggest.
@@ -11088,22 +11296,33 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/calendar/today":
                 days = 1
 
-            status, body = build_calendar_response(days)
+            status, result = build_calendar_response(days)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps(body, indent=2).encode())
+            self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
         if parsed.path == "/people":
             params = parse_qs(parsed.query)
             sort = params.get("sort", [None])[0]
+            status = 200
             try:
                 result = people_list(sort=sort)
             except Exception as e:
                 result = {"people": [], "total": 0, "degraded": True,
                           "reason": str(e), "error": str(e)}
-            self.send_response(200)
+            if _page_wanted(params) and isinstance(result.get("people"), list):
+                everyone = result["people"]
+                page, meta, perr = _paginate(
+                    everyone, params,
+                    _page_version(everyone, lambda p: str(p.get("id", ""))
+                                  if isinstance(p, dict) else str(p)))
+                if perr:
+                    result, status = perr
+                else:
+                    result = dict(result, people=page, **meta)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(result, indent=2).encode())
@@ -11813,11 +12032,14 @@ class Handler(BaseHTTPRequestHandler):
             domain = domain_vals[0].strip() if domain_vals else None
             polarity_vals = params.get("polarity") or []
             polarity = polarity_vals[0].strip() if polarity_vals else None
+            paged = bool(params.get("cursor") or params.get("fields"))
+            status = 200
             try:
                 result = api_preferences(
                     domain=domain or None,
                     min_confidence=min_conf,
-                    limit=limit,
+                    # Cursor/fields paginate the whole filtered set themselves.
+                    limit=0 if paged else limit,
                     polarity=polarity or None,
                 )
             except Exception as exc:
@@ -11827,7 +12049,25 @@ class Handler(BaseHTTPRequestHandler):
                     "degraded": True,
                     "reason": str(exc)[:200],
                 }
-            self.send_response(200)
+            if paged and isinstance(result.get("interests"), list):
+                allrows = result["interests"]
+                # The artefact's own stamp plus the filter, and the length,
+                # name the set a cursor was issued for.
+                version = "%s|%s|%s|%s|%s|%d" % (
+                    result.get("generated_at"), domain, polarity, min_conf,
+                    result.get("schema_version"), len(allrows))
+                pparams = dict(params)
+                if limit and limit > 0:
+                    pparams["limit"] = [str(limit)]
+                else:
+                    pparams.pop("limit", None)
+                page, meta, perr = _paginate(allrows, pparams, version)
+                if perr:
+                    result, status = perr
+                else:
+                    result = dict(result, interests=page, count=len(page),
+                                  total=len(allrows), **meta)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(result, indent=2).encode())

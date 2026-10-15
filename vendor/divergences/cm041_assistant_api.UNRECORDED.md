@@ -1167,6 +1167,26 @@ in one busy hour; a retry run in that hour joins the same model queue.
 CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
 extends), or the next re-sync of this tree reverts it.
 
+## 2026-10-15 phone-only people are shown, provisional (fix/phone-only-people-shown)
+
+`people_rules.py`:
+- `_is_nameless_name` no longer hides a bare phone number (7+ digits). It now
+  excludes only: empty, WhatsApp JID, short code (6 digits or fewer), and an
+  alphanumeric sender ID (one upper-case token with a digit or separator).
+  NEW `_is_short_code`, `_is_alphanumeric_sender_id`,
+  `_is_provisional_phone_name`, `_is_bare_phone_shape`, `_digit_count`.
+- `_is_non_human_person` returns None for a provisional phone name (the
+  `no_letters` / `handle_no_channel` junk shapes used to drop it).
+
+`ical-server.py`: People list and search rows carry `provisional_name: true`
+when the name is the phone number.
+
+Why: Andy's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
+human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
+people; the 9 missing were phone-only. CM041 upstream and CM044
+`compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
+predicate and need the same change, or the surfaces drift again.
+
 ## cm041/assistant_api: Forget says done only when both stores are purged (walk #28, sweep V17)
 
 `vendor/cm041/assistant_api/ical-server.py`, `api_people_forget`:
@@ -1226,3 +1246,39 @@ credential, so the old paths always answered empty.
 The local-first order and the 503 on failure. Guarded by
 `vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py`. Retire by
 upstreaming to CM041 and re-pinning.
+## assert-spool sweep: one bad row no longer aborts the pass (walk #29 F1)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py` (the Doctor half is recorded in `WRITER_READER_MISMATCHES.UNRECORDED.md`, tree `doctor`).
+
+`_assert_spool_sweep` in `assistant_api/ical-server.py` now wraps each row. A
+data-shaped error (ValueError, TypeError, KeyError, AttributeError,
+UnicodeError) counts an attempt against that row and moves it to state
+`quarantined` after `OSTLER_ASSERT_SPOOL_MAX_ATTEMPTS` (5), keeping it, with a
+reason of exception type and file:line only. Outage-shaped errors count against
+nobody. `assert_spool_status.json` gains `quarantined`; the Doctor
+(`diagnostic_rules.check_parked_facts`) shows it. WHY: an unparseable
+`asserted_at` raised out of the loop every 20 s, 1,032+ times, and starved the
+rows behind it. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py`.
+CM041 and Doctor upstream need the same change, or the next re-sync reverts it.
+## optional pagination on /api/v1/preferences and /api/v1/people (walk #29)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+`ical-server.py` gains `_paginate` and optional `limit`, `cursor` (opaque; `start`
+for page one) and `fields` on both list routes (`/api/v1/people` is aliased to
+`/people`, one handler). With none of the new parameters, and `limit` alone on
+preferences, the response is byte-identical to before. WHY: preferences answered
+55 MB (97,173 items), people 2 MB. Guarded by
+`tests/test_api_list_pagination_is_additive.py` (goldens captured from the
+pre-change server). CM041 upstream needs the same change or a re-sync reverts it.
+## 2026-10-15 sender IDs are decided by HANDLE, not display name (fix/phone-only-people-shown)
+
+`people_rules.py`: `_is_alphanumeric_sender_id(name)` (the all-caps-name rule,
+which hid a real uncarded "JOHN" and "R2D2") is REPLACED by
+`_is_sender_id_handle` / `_all_handles_are_sender_ids`; `_is_nameless_name`
+takes `handles=`. A person is hidden only when uncarded AND every handle is an
+alphanumeric sender ID or a short code (6 digits or fewer); no handles is no
+evidence (shown). `ical-server.py`: people_search, people_list and
+people_stale pass phones + emails (+ identifier-table handles in the list).
+Golden: `tests/fixtures/people_rules_golden.json` (`by_handle`). CM041 upstream
+and CM044 `compiler/nameless.py` need the same change.

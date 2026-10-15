@@ -1503,3 +1503,31 @@ ends in `|| true`, records the failure.
 `_lookup_status` at the four return sites and the non-zero exit in `main()`.
 Guarded by `tests/test_people_status_honesty.py` (workflow
 `status-honesty-people.yml`).
+
+## ostler_fda: WhatsApp's unknown-name token is not a name (#30 batch 3)
+
+Mini16 carried 13 people all named "WhatsApp contact": `_whatsapp_display_name`
+returns that literal for an all-digit non-phone JID (an LID), and it ranked as
+tier 2, a real name, so it was written as one.
+
+`vendor/ostler_fda/pwg_ingest.py`: new `_is_whatsapp_placeholder_name()` (shape
+match: empty, punctuation or emoji only, "~"-prefixed, unknown-name words and
+"WhatsApp contact"-shaped labels across locales). `_display_name_tier` ranks it
+tier 0; `_creation_name_triples` writes the provisional flag and NO name;
+`_upsert_display_name` writes nothing. The person and its identifier are still
+created.
+
+### What a future sync must preserve
+
+All three edits. Guarded by
+`vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py` (workflow
+`whatsapp-lid-not-phone.yml`). Locale strings are best-effort, not verified
+against WhatsApp's string tables.
+
+## doctor: quarantined assert-spool rows are shown, not hidden (walk #29 F1, #30 batch 3) -- `doctor`
+
+Tree `doctor`, two files. `vendor/doctor/agent/diagnostic_rules.py`, `check_parked_facts`: when `assert_spool_status.json` reports `quarantined` > 0, a warning card (`category` memory, `quarantined_facts` = the count). `vendor/doctor/agent/diagnostic_copy.py`: new `QUARANTINED_FACTS_TITLE_FMT`, `QUARANTINED_FACTS_DETAIL`, `QUARANTINED_FACTS_FIX`. Pairs with the `cm041/assistant_api` spool-sweep change (recorded in `cm041_assistant_api.UNRECORDED.md`), which writes the count. The HR015 doctor twin is OWED; `doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The quarantined branch in `check_parked_facts` and the three copy constants. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py` (memory-assert-answers-under-load.yml).
