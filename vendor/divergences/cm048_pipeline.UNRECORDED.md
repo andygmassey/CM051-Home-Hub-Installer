@@ -386,6 +386,13 @@ Tree `cm048_pipeline`:
   "other" for a memo and its SECTION STRUCTURE REMINDER now lists the routed
   variant's own headings (it hard-coded work_one-on-one's eight for every
   variant).
+- `src/capture_truth.py` `stamp_frontmatter` also writes `participants` from
+  the capture's roster for EVERY conversation that sent one (the prompt's
+  example roster gives each person a copied role).
+- `src/channel_adapter.py`: `_resolve_timestamps` reads the CM031 envelope's
+  `start_time` / `end_time` before the date-only fallback; the spoken
+  adapter's `source_subtype` defaults to `voice_memo`, not `meeting`, for a
+  memo.
 
 WHY: a one-speaker iPhone voice memo on Mini16 was written to
 `~/Documents/Ostler/Conversations/<id>.md` (verbatim copy of 02_enrichment.md

@@ -237,7 +237,8 @@ def test_control_two_speakers_stay_a_conversation(settings):
     cid = "00000000-0000-4000-8000-00000000d0e0"
     state, text, fm = _run(settings, cid, DUO, ["S1", "S2"])
     assert fm["classification"]["shape"] == "one-on-one"
-    assert len(fm["participants"]) == 2
+    assert [p["name"] for p in fm["participants"]] == ["S1", "S2"]
+    assert "new acquaintance" not in text.split("---", 2)[1]
     sent = [p for p in _FakeOllama.prompts if "--- SECTION STRUCTURE REMINDER ---" in p][0]
     assert sent.startswith("# Prompt 02 – Enrich: social")
     # The truthful stamps apply to every capture, not only memos.

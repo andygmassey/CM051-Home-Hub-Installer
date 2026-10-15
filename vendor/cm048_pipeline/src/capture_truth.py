@@ -215,24 +215,25 @@ def stamp_frontmatter(
             f"  stakes: {_yaml_scalar(classification.stakes)}",
             f"  suggested_type_slug: {_yaml_scalar(classification.suggested_type_slug)}",
         ])
-        fm = _set(fm, "participants", _solo_participants_block(metadata))
+    # The roster is the capture's, not the model's: the prompt's example
+    # roster gives each person a role ("new acquaintance, ex-...") that the
+    # model copies. Kept from the model only when no roster was sent.
+    if normalise_participants(metadata.get("participants")) or solo:
+        fm = _set(fm, "participants", _participants_block(metadata))
     return "---\n" + "\n".join(fm) + "\n---\n" + body.lstrip("\n")
 
 
-def _solo_participants_block(metadata: dict) -> list[str]:
-    people = normalise_participants(metadata.get("participants"))
-    if not people:
-        return ["participants: []"]
-    p = people[0]
-    name = str(p.get("display") or p.get("name") or p.get("id") or "").strip()
-    if not name:
-        return ["participants: []"]
-    role = str(p.get("role") or "speaker").strip() or "speaker"
-    return [
-        "participants:",
-        f"  - name: {_yaml_scalar(name)}",
-        f"    role: {_yaml_scalar(role)}",
-    ]
+def _participants_block(metadata: dict) -> list[str]:
+    block: list[str] = []
+    for p in normalise_participants(metadata.get("participants")):
+        name = str(p.get("display") or p.get("name") or p.get("id") or "").strip()
+        if not name:
+            continue
+        block.append(f"  - name: {_yaml_scalar(name)}")
+        role = str(p.get("role") or "").strip()
+        if role:
+            block.append(f"    role: {_yaml_scalar(role)}")
+    return ["participants:"] + block if block else ["participants: []"]
 
 
 _HEADING = re.compile(r"^#{2,3}\s+(.*?)\s*$")
