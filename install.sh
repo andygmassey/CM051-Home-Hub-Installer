@@ -24232,6 +24232,37 @@ if [[ -r "${OSTLER_DIR}/lib/ostler_catchup.py" ]] && ls "$_CATCHUP_DIR"/*.sh >/d
     unset _cu _cu_rc _cu_now _cu_remaining _cu_share _cu_left _cu_end _cu_runners _cu_budget
 fi
 
+# ── #30: finish a first-window widening the install deferred ────────────────
+# The install foreground never widens a source's first window (it is busy by
+# definition). widen_first_window queued each such source in
+# state/first_window_pending_<source>; the first quiet firing after install
+# finishes the job here, behind the same busy predicate the catch-up uses.
+# Re-extracts only the queued sources into imports/fda, bounded by a deadline,
+# counts only in logs/first-window.log.
+_FW_PENDING=( "${OSTLER_DIR}/state"/first_window_pending_* )
+_FW_PY="${OSTLER_DIR}/.venv/bin/python"
+if [[ -e "${_FW_PENDING[0]}" && -x "$_FW_PY" && -d "${OSTLER_DIR}/fda-module/ostler_fda" ]]; then
+    mkdir -p "${OSTLER_DIR}/logs"
+    _fw_src="$(cat "${_FW_PENDING[@]}" 2>/dev/null | sort -u | paste -sd, -)"
+    ( export OSTLER_HOME="${OSTLER_DIR}" OSTLER_FW_SOURCES="$_fw_src"
+      _ostler_run_with_deadline 600 "$_FW_PY" -c "
+import os, sys
+sys.path.insert(0, '${OSTLER_DIR}/fda-module')
+from ostler_fda.backfill_ladder import _default_busy
+why = _default_busy()
+if why:
+    print('first-window: skipped, machine busy (%s)' % why)
+    sys.exit(0)
+from pathlib import Path
+from ostler_fda.extract_all import run_all
+srcs = [s for s in os.environ['OSTLER_FW_SOURCES'].split(',') if s]
+run_all(Path('${OSTLER_DIR}/imports/fda'), enabled_sources=srcs)
+print('first-window: re-extracted %d source(s)' % len(srcs))
+" ) >>"${OSTLER_DIR}/logs/first-window.log" 2>&1 || true
+    printf '[%s] first-window pending=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$_fw_src" >>"${OSTLER_DIR}/logs/first-window.log"
+    unset _fw_src
+fi
+
 # A catch-up-only firing (inside the first 48 hours, between full runs) stops
 # here: the Downloads scan and the preference tail keep their 4-hourly rhythm.
 if [[ "$_CAD_MODE" != full ]]; then

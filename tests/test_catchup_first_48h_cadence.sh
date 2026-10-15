@@ -75,5 +75,31 @@ HOME="$home" OSTLER_CADENCE_NOW=$((INSTALL_TS + 99999)) /bin/bash "$SB/ostler-sc
 # And catch-up still runs with an empty Downloads.
 [ -f "$SB/invocations.log" ] && ok "catch-up ran with an empty Downloads" || bad "catch-up did not run with an empty Downloads"
 
+# The catch-up-only exit: a firing inside the first 48 h that is not a FULL run
+# must stop after catch-up, so the Downloads scan (which logs one line per run)
+# keeps its 4-hourly rhythm. Removing the exit makes every 30-minute firing scan.
+LOGF="$OD/logs/export-scan.log"
+rm -f "$OD/state/export-scan/last_full_run" "$OD/state/export-scan/last_run" "$LOGF"
+echo "$INSTALL_TS" > "$OD/state/install_completed_at"
+lines() { wc -l < "$LOGF" 2>/dev/null | tr -d ' ' || echo 0; }
+t 60 >/dev/null; full_lines="$(lines)"
+t $((60 + 1800)) >/dev/null; t $((60 + 3600)) >/dev/null
+[ "${full_lines:-0}" -ge 1 ] && ok "CONTROL: a full run scans Downloads and logs it ($full_lines line)" || bad "CONTROL: a full run logged nothing"
+[ "$(lines)" = "$full_lines" ] && ok "catch-up-only firings (+30 min, +60 min) do NOT scan Downloads" || bad "a catch-up-only firing scanned Downloads: $(lines) lines vs $full_lines"
+
+# A deferred first window is finished by the first quiet firing, and not before.
+mkdir -p "$OD/fda-module/ostler_fda" "$OD/.venv/bin"
+cat > "$OD/.venv/bin/python" <<PYSTUB
+#!/bin/bash
+echo "fw-python ran sources=\$OSTLER_FW_SOURCES" >> "$SB/fw.log"
+PYSTUB
+chmod +x "$OD/.venv/bin/python"
+rm -f "$SB/fw.log"
+t $((60 + 7200)) >/dev/null
+[ ! -f "$SB/fw.log" ] && ok "no pending first window: nothing re-extracted" || bad "re-extracted with nothing pending"
+printf 'imessage\n' > "$OD/state/first_window_pending_imessage"
+t $((60 + 9000)) >/dev/null
+grep -q "sources=imessage" "$SB/fw.log" 2>/dev/null && ok "a queued first window is finished by the next firing" || bad "queued first window was not finished"
+
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]

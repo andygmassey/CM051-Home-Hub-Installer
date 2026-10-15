@@ -273,7 +273,7 @@ def run_all(
                 "imessage", imsg_backfill_days,
                 lambda d: extract_conversations(since_days=d),
                 lambda cs: (sum(int(c.message_count or 0) for c in cs), len(cs)),
-                env_var="OSTLER_IMESSAGE_BACKFILL_DAYS", persist_ladder=True,
+                env_var="OSTLER_IMESSAGE_BACKFILL_DAYS", persist_ladder=True, run_source="imessage",
             )
             stats = conversation_stats(conversations)
 
@@ -329,7 +329,7 @@ def run_all(
                 "whatsapp", wa_backfill_days,
                 lambda d: _wa_extract(since_days=d),
                 lambda cs: (0, sum(1 for c in cs if c.tier != TIER_T3_SKIP)),
-                env_var="OSTLER_WHATSAPP_BACKFILL_DAYS",
+                env_var="OSTLER_WHATSAPP_BACKFILL_DAYS", run_source="whatsapp_history",
             )
             stats = _wa_stats(chats)
 
@@ -876,7 +876,7 @@ def run_all(
                 "mail", mail_backfill_days,
                 lambda d: extract_messages(since_days=d, limit=mail_limit),
                 lambda ms: (len(ms), _mail_threads(ms)),
-                env_var="OSTLER_MAIL_BACKFILL_DAYS",
+                env_var="OSTLER_MAIL_BACKFILL_DAYS", run_source="apple_mail",
             )
             stats = email_stats(messages)
             # How many messages the Mail store holds in all, read from the

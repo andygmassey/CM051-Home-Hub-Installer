@@ -63,6 +63,11 @@ def box(tmp_path, monkeypatch):
     state = tmp_path / "state"
     state.mkdir()
     monkeypatch.setenv("OSTLER_STATE_DIR", str(state))
+    # The busy predicate (lib/ostler_catchup.busy_reason) reads OSTLER_HOME and
+    # the load average; pin both so this suite is not hostage to the machine.
+    monkeypatch.setenv("OSTLER_HOME", str(tmp_path / "ohome"))
+    monkeypatch.setenv("OSTLER_CATCHUP_MAX_LOAD_PER_CORE", "100000")
+    monkeypatch.syspath_prepend(str(REPO / "lib"))
     for k in ("OSTLER_IMESSAGE_BACKFILL_DAYS", "OSTLER_FIRST_WINDOW_MIN_MESSAGES",
               "OSTLER_FIRST_WINDOW_MIN_CONVERSATIONS", "OSTLER_FIRST_WINDOW_BUDGET_SECONDS"):
         monkeypatch.delenv(k, raising=False)
@@ -129,3 +134,61 @@ def test_a_later_tick_does_not_re_widen_on_its_own(box):
     # Second run is governed by the ladder's dwell, not by the first-window
     # rule: the marker says the first window was already chosen.
     assert (state / "first_window_imessage.json").exists()
+
+
+def _marker(tmp_path):
+    m = tmp_path / "ohome" / "state" / "install-in-progress"
+    m.parent.mkdir(parents=True, exist_ok=True)
+    return m
+
+
+def test_widening_is_deferred_while_the_install_runs_then_done_by_the_first_tick(box, caplog):
+    """#30 review A3: the INSTALL foreground never widens. While the install
+    marker exists the Mac is busy ('installing'), so the first window is left
+    alone, nothing is recorded as chosen, and the source is queued; the first
+    post-install run (marker gone) widens and clears the queue."""
+    tmp_path, db, state = box
+    _make_chat_db(db, [(60 + (i * 340) // 59, 40) for i in range(60)])
+    marker = _marker(tmp_path)
+    marker.write_text("pid=1\n")
+    caplog.set_level(logging.INFO)
+    stat = _run(tmp_path)
+    assert stat["total_conversations"] == 0, "the install foreground widened"
+    assert "[first-window] imessage deferred: busy (installing)" in caplog.text, caplog.text
+    assert not (state / "first_window_imessage.json").exists()
+    assert (state / "first_window_pending_imessage").read_text().strip() == "imessage"
+    marker.unlink()
+    stat = _run(tmp_path)
+    assert stat["total_conversations"] > 0, stat
+    assert (state / "first_window_imessage.json").exists()
+    assert not (state / "first_window_pending_imessage").exists()
+
+
+def test_busy_is_checked_before_every_widening_step(box, caplog):
+    from ostler_fda import backfill_ladder as bl
+    calls = []
+    answers = iter([None, "load"])     # quiet for the first widening, busy for the next
+
+    def extract(d):
+        calls.append(d)
+        return []
+
+    caplog.set_level(logging.INFO)
+    bl.widen_first_window("imessage", 45, extract, lambda r: (0, 0),
+                          busy=lambda: next(answers, "load"))
+    assert calls == [45, 90], calls     # stopped before 180
+    assert "deferred: busy (load)" in caplog.text, caplog.text
+
+
+def test_the_budget_bounds_a_single_slow_extraction(box, monkeypatch):
+    from ostler_fda import backfill_ladder as bl
+    monkeypatch.setenv("OSTLER_FIRST_WINDOW_BUDGET_SECONDS", "1")
+
+    def extract(d):
+        if d > 45:
+            time.sleep(8)          # one batch that would blow the budget
+        return []
+
+    t0 = time.monotonic()
+    bl.widen_first_window("imessage", 45, extract, lambda r: (0, 0), busy=lambda: None)
+    assert time.monotonic() - t0 < 4, "a slow batch ran past the budget"
