@@ -1,0 +1,50 @@
+# V20/V21 meeting briefs say when they cannot run; D2 Reminders tile and D3 all-clear banner measure the outcome.
+name: status-honesty-meetings-doctor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'vendor/cm041/meeting_syncer/**'
+      - 'vendor/doctor/agent/**'
+      - 'tests/test_meeting_briefs_say_when_they_cannot_run.py'
+      - 'tests/test_reminders_tile_is_not_green_when_every_push_failed.py'
+      - 'tests/test_all_clear_counts_the_bundle_routines.py'
+      - '.github/workflows/status-honesty-meetings-doctor.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/cm041/meeting_syncer/**'
+      - 'vendor/doctor/agent/**'
+      - 'tests/test_meeting_briefs_say_when_they_cannot_run.py'
+      - 'tests/test_reminders_tile_is_not_green_when_every_push_failed.py'
+      - 'tests/test_all_clear_counts_the_bundle_routines.py'
+      - '.github/workflows/status-honesty-meetings-doctor.yml'
+
+jobs:
+  honesty:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet pytest httpx fastapi uvicorn pyyaml jinja2 python-multipart
+      - name: Collected-count floors
+        run: |
+          set -eu
+          check() {
+            n="$(python -m pytest "$1" --collect-only -q | grep -cE '::test_')" || n=0
+            echo "$1: collected ${n}"
+            [ "${n:-0}" -ge "$2" ] || { echo "REFUSING: expected at least $2 in $1, got ${n:-0}" >&2; exit 1; }
+          }
+          check tests/test_meeting_briefs_say_when_they_cannot_run.py 7
+          check tests/test_reminders_tile_is_not_green_when_every_push_failed.py 5
+          check tests/test_all_clear_counts_the_bundle_routines.py 4
+      - name: Run
+        run: |
+          python -m pytest tests/test_meeting_briefs_say_when_they_cannot_run.py tests/test_reminders_tile_is_not_green_when_every_push_failed.py tests/test_all_clear_counts_the_bundle_routines.py -v
+          bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
+          bash tests/test_meeting_brief_sender.sh

@@ -53,6 +53,8 @@ except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
 from imessage_tcc_posture import read_imessage_tcc_posture
 from reminders_posture import read_reminders_posture
 from reminders_runtime import (
+    STATE_CANNOT_READ,
+    STATE_PUSH_FAILING,
     STATE_NO_DATA,
     STATE_OK,
     STATE_LIST_REMOVED,
@@ -1137,12 +1139,16 @@ _REMINDERS_RUNTIME_COLOURS = {
     STATE_OK: "#2C4A2C",
     STATE_PERMISSION_DENIED: "#5C4611",
     STATE_LIST_REMOVED: "#5C4611",
+    STATE_PUSH_FAILING: "#5C4611",
+    STATE_CANNOT_READ: "rgba(236,232,221,0.40)",
     STATE_NO_DATA: "rgba(236,232,221,0.40)",
 }
 _REMINDERS_RUNTIME_ICONS = {
     STATE_OK: "&#10003;",
     STATE_PERMISSION_DENIED: "&#9888;",
     STATE_LIST_REMOVED: "&#9888;",
+    STATE_PUSH_FAILING: "&#9888;",
+    STATE_CANNOT_READ: "&#8211;",
     STATE_NO_DATA: "&#8211;",
 }
 
@@ -1175,6 +1181,11 @@ def render_reminders_runtime(now_dt=None) -> str:
     """
     from web_ui_copy import (
         REMINDERS_RUNTIME_DENIED_COUNT_FMT,
+        REMINDERS_RUNTIME_DETAIL_CANNOT_READ,
+        REMINDERS_RUNTIME_DETAIL_PUSH_FAILING,
+        REMINDERS_RUNTIME_FAILED_COUNT_FMT,
+        REMINDERS_RUNTIME_STATUS_CANNOT_READ,
+        REMINDERS_RUNTIME_STATUS_PUSH_FAILING,
         REMINDERS_RUNTIME_DENIED_EXAMPLE_FMT,
         REMINDERS_RUNTIME_DENIED_SINCE_FMT,
         REMINDERS_RUNTIME_BTN_TURN_ON,
@@ -1208,11 +1219,15 @@ def render_reminders_runtime(now_dt=None) -> str:
         STATE_OK: REMINDERS_RUNTIME_STATUS_OK,
         STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_STATUS_DENIED,
         STATE_LIST_REMOVED: REMINDERS_RUNTIME_STATUS_LIST_REMOVED,
+        STATE_PUSH_FAILING: REMINDERS_RUNTIME_STATUS_PUSH_FAILING,
+        STATE_CANNOT_READ: REMINDERS_RUNTIME_STATUS_CANNOT_READ,
     }
     detail_map = {
         STATE_OK: REMINDERS_RUNTIME_DETAIL_OK,
         STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_DETAIL_DENIED,
         STATE_LIST_REMOVED: REMINDERS_RUNTIME_DETAIL_LIST_REMOVED,
+        STATE_PUSH_FAILING: REMINDERS_RUNTIME_DETAIL_PUSH_FAILING,
+        STATE_CANNOT_READ: REMINDERS_RUNTIME_DETAIL_CANNOT_READ,
     }
     status_label = status_label_map[state]
     detail = detail_map[state]
@@ -1252,6 +1267,15 @@ def render_reminders_runtime(now_dt=None) -> str:
                     </summary>
                     <div class="status-detail">{_html_escape(REMINDERS_RUNTIME_REMEDIATION_DENIED)}</div>
                 </details>"""
+
+    if state == STATE_PUSH_FAILING:
+        extra_lines = (
+            '<div class="status-detail">'
+            + _html_escape(REMINDERS_RUNTIME_FAILED_COUNT_FMT.format(count=runtime.get("failed_count", 0)))
+            + '</div>'
+        )
+    if state == STATE_CANNOT_READ and runtime.get("reason"):
+        extra_lines = '<div class="status-detail">' + _html_escape(str(runtime["reason"])) + '</div>'
 
     if state == STATE_LIST_REMOVED:
         # A question needs its control: one button, same-origin POST to the

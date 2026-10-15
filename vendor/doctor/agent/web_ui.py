@@ -818,6 +818,34 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
     return findings
 
 
+def _bundle_routine_findings() -> list[dict]:
+    """Findings for recurring ingest routines that are failing or stale, or
+    that could not be read. Empty only when every installed routine is ok or
+    has simply not run yet."""
+    try:
+        from routine_status import read_routine_status
+        rows = read_routine_status()
+    except Exception as exc:
+        return [{
+            "severity": "warning",
+            "title": "Could not check the background routines",
+            "detail": f"The status of Ostler's recurring import routines could not be read ({type(exc).__name__}).",
+            "fix": None, "fix_command": None, "risk": "low",
+        }]
+    bad = [r for r in rows if r.get("health") in ("failing", "stale")]
+    if not bad:
+        return []
+    names = ", ".join(
+        f"{str(r.get('keeps_up_to_date') or r.get('routine'))} ({r.get('reason')})" for r in bad
+    )
+    return [{
+        "severity": "warning",
+        "title": "A background import routine is not running",
+        "detail": f"These recurring imports are failing or have stopped: {names}.",
+        "fix": None, "fix_command": None, "risk": "low",
+    }]
+
+
 def _append_all_clear(
     findings: list[dict],
     errors: dict[str, str] | None = None,
@@ -833,6 +861,13 @@ def _append_all_clear(
     is not clean and must not say it is.
     """
     if findings or errors:
+        return findings
+    # The recurring ingest routines (email-ingest and the bundles) are part of
+    # the report too. A routine that is failing or has stopped, or one we could
+    # not read, is not a healthy box.
+    routine_findings = _bundle_routine_findings()
+    if routine_findings:
+        findings.extend(routine_findings)
         return findings
     findings.append({
         "severity": "info",

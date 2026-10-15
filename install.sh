@@ -24257,7 +24257,8 @@ cat > "${OSTLER_DIR}/bin/ostler-meeting-brief-sender" <<'BRIEFEOF'
 # and the Doctor's scheduled-agent rule (diagnostic_rules._SCHEDULED_AGENTS)
 # turns a repeated non-zero into a card naming this job and its .err log:
 #   0   sent, nothing due, quiet hours, or Ostler Pro paused (steady states)
-#   75  CANNOT-DELIVER: at least one due brief was not delivered this tick
+#   75  CANNOT-DELIVER: at least one due brief was not delivered this tick, or
+#       the Hub could not be asked (no token, unreachable, empty, degraded)
 #   78  CANNOT-DELIVER: no brief channel is configured, so none ever can be
 # StartInterval jobs are not throttled for a non-zero exit.
 set -uo pipefail
@@ -24396,20 +24397,17 @@ if [[ -z "${SERVICE_TOKEN}" && -r "${OSTLER_DIR}/secrets/service_token" ]]; then
     SERVICE_TOKEN="$(tr -d '[:space:]' < "${OSTLER_DIR}/secrets/service_token")"
 fi
 if [[ -z "${SERVICE_TOKEN}" ]]; then
-    echo "$(date -u +%FT%TZ) skip: CANNOT-RUN no service token (PWG_SERVICE_TOKEN or ${OSTLER_DIR}/secrets/service_token); the Hub would answer 401" >> "${LOG_FILE}"
-    exit 0
+    cannot_deliver 75 "CANNOT-RUN no service token (PWG_SERVICE_TOKEN or ${OSTLER_DIR}/secrets/service_token); the Hub would answer 401"
 fi
 RESPONSE=$(curl -sS -m 8 -f \
     -H "Authorization: Bearer ${SERVICE_TOKEN}" \
     "${HUB_HOST}/api/v1/meeting/upcoming?within_minutes=${WITHIN_MINUTES}" \
     2>>"${LOG_FILE}") || {
-    echo "$(date -u +%FT%TZ) skip: hub fetch failed" >> "${LOG_FILE}"
-    exit 0
+    cannot_deliver 75 "CANNOT-RUN hub fetch failed (${HUB_HOST}); no brief can be composed this tick"
 }
 
 if [[ -z "${RESPONSE}" ]]; then
-    echo "$(date -u +%FT%TZ) skip: empty hub response" >> "${LOG_FILE}"
-    exit 0
+    cannot_deliver 75 "CANNOT-RUN empty hub response from ${HUB_HOST}"
 fi
 
 # Degraded short-circuit, with THREE outcomes rather than two.
@@ -24437,21 +24435,18 @@ DEGRADED_RAW=$(printf '%s' "${RESPONSE}" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("degraded", False))' \
     2>>"${LOG_FILE}") || DEGRADED_RC=$?
 if [[ "${DEGRADED_RC}" -ne 0 ]]; then
-    echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, could not read degraded state (rc=${DEGRADED_RC}); not sending rather than sending a brief that may be missing attendee facts" >> "${LOG_FILE}"
-    exit 0
+    cannot_deliver 75 "CANNOT-RUN, could not read degraded state (rc=${DEGRADED_RC}); not sending rather than sending a brief that may be missing attendee facts"
 fi
 DEGRADED=$(printf '%s' "${DEGRADED_RAW}" | tr -d '[:space:]')
 case "${DEGRADED}" in
     True)
-        echo "$(date -u +%FT%TZ) skip: hub degraded" >> "${LOG_FILE}"
-        exit 0
+        cannot_deliver 75 "CANNOT-RUN hub degraded (People Graph unreachable); not sending a brief with missing attendee facts"
         ;;
     False)
         : # the only path that sends
         ;;
     *)
-        echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, unrecognised degraded value; not sending rather than guessing" >> "${LOG_FILE}"
-        exit 0
+        cannot_deliver 75 "CANNOT-RUN, unrecognised degraded value; not sending rather than guessing"
         ;;
 esac
 
