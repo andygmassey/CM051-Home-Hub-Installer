@@ -52,3 +52,20 @@ with `HR015` and `CM040` pointed at local checkouts:
 Test: `tests/test_assistant_sends_are_not_owner_input.py`.
 Upstream mirror owed: CM040 `services/imessage_source/reader.py`, HR015
 `whatsapp_source/reader.py`, `email_source/reader.py`, `ostler_fda/imessage.py`.
+
+---
+
+## whatsapp_source: the read window is remembered per chat (status-honesty sweep V6)
+
+`vendor/whatsapp_source/pipeline.py`: state gains `windows` (chat id to the
+`since_days` it was last dispatched with). A chat whose newest message is
+already bundled is still re-dispatched when the tick's window is wider than the
+recorded one (0 means no limit); a chat with no recorded window is re-read once
+by a tick of 30 days or more, never by the 2-day daytime clamp. WHY: the clamp
+moved the watermark to the newest message, so the busiest chats kept 2 days.
+
+### What a future sync must preserve
+
+The `windows` state key and the widen test. Guarded by
+`vendor/whatsapp_source/tests/test_whatsapp_clamp_window.py` (workflow
+`status-honesty-ingest.yml`).

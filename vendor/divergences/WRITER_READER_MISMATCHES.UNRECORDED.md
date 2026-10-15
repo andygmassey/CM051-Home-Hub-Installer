@@ -1205,3 +1205,20 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+
+---
+
+## ostler_fda: a refused Apple Mail walk is not a complete one (status-honesty sweep V1)
+
+`vendor/ostler_fda/apple_mail_mbox.py`: `discover_emlx_files()` raises when the
+mail ROOT cannot be read (previously logged and walked as empty, so the tick
+wrote `backfill_complete=true` and exited 0), and collects sub-directory errors
+into an optional `errors` list. `emit_mbox()` holds the forward edge, the
+backward edge and `backfill_complete` when any directory was unreadable, logs an
+ERROR, and records posture `mailbox_unreadable` instead of `success`.
+
+### What a future sync must preserve
+
+The root-raise and the held edges. Guarded by
+`tests/test_apple_mail_refused_walk_is_not_complete.py` (workflow
+`status-honesty-ingest.yml`).
