@@ -23989,13 +23989,128 @@ _ostler_notes_refresh() {
     return 0
 }
 
+# ── REMINDERS: A RECURRING READER (G2, TCC sweep 2026-10-15) ─────────────
+#
+# Every tick re-extracts reminders.json, and until now the only reader was
+# the install-time hydrate leg. So reminders added after install never reached
+# Ostler, while the Doctor showed Reminders "Up to date" from the install
+# sentinel for the life of the install. The Notes pattern, for Reminders:
+# when the extract read Reminders and the file changed, run the SAME convert +
+# embed the install leg runs, into reminders_knowledge.
+#
+# EVERY OUTCOME IS RECORDED in state/source_activity/reminders.tsv, which the
+# Doctor reads, and last_success_at only moves when Reminders was really read:
+#   ok          read this tick (changed and embedded, or unchanged)
+#   cannot_run  macOS refused the read (no_fda in extraction_summary.json)
+#   error       the read or the embed failed; the tick goes non-zero
+# Not found and opted out write nothing: there is nothing to keep fresh.
+_ostler_reminders_record() {
+    local status="$1" detail="$2" now prev="" f="${OSTLER_DIR}/state/source_activity/reminders.tsv"
+    mkdir -p "${OSTLER_DIR}/state/source_activity"
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    [[ -f "$f" ]] && prev="$(sed -n 's/^last_success_at=//p' "$f" | head -1)"
+    [[ "$status" == "ok" ]] && prev="$now"
+    printf 'source=reminders\nlast_run_at=%s\nlast_status=%s\nlast_success_at=%s\nlast_detail=%s\nwriter=ostler-fda\n' \
+        "$now" "$status" "$prev" "$detail" > "$f"
+}
+
+_ostler_reminders_refresh() {
+    [[ "${OSTLER_REMINDERS_REFRESH:-1}" == "0" ]] && return 0
+    [[ "${OSTLER_REMINDERS_KNOWLEDGE:-1}" == "0" ]] && return 0
+    case ",${OSTLER_FDA_SOURCES:-reminders}," in
+        *,reminders,*) ;;
+        *) return 0 ;;
+    esac
+    local fda="${OSTLER_DIR}/imports/fda"
+    local json="${fda}/reminders.json"
+    local state="${OSTLER_DIR}/state"
+    local mark="${state}/hydrate/reminders_knowledge.sha256"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local log="${OSTLER_DIR}/logs/reminders-rerun-embed.log"
+    local staging="${OSTLER_DIR}/data/knowledge-staging-reminders-rerun"
+    local xstatus count sha
+    # What THIS tick's extract said about Reminders. run_all writes it on
+    # every run; an absent summary means we could not look, which is neither
+    # a read nor a refusal, so it records nothing.
+    if [[ ! -f "${fda}/extraction_summary.json" ]]; then
+        echo "[reminders] CANNOT-RUN: no extraction_summary.json, so this tick cannot say whether Reminders was read"
+        return 0
+    fi
+    xstatus="$("$OSTLER_PYTHON" -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[1]))["sources"]["reminders"]["status"])
+except Exception:
+    print("")' "${fda}/extraction_summary.json" 2>/dev/null || true)"
+    case "$xstatus" in
+        ok) ;;
+        no_fda)
+            _ostler_reminders_record cannot_run "no_fda"
+            echo "[reminders] CANNOT-RUN: macOS refused the read (Full Disk Access)"
+            return 0 ;;
+        not_found|disabled_by_user) return 0 ;;
+        *)
+            _ostler_reminders_record error "extract_${xstatus:-unknown}"
+            echo "[reminders] FAILED: the extract did not read Reminders (${xstatus:-no summary})" >&2
+            return 1 ;;
+    esac
+    count=0
+    if [[ -s "$json" ]]; then
+        count="$("$OSTLER_PYTHON" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d) if isinstance(d, list) else 0)' "$json" 2>/dev/null || true)"
+        [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    fi
+    if [[ "$count" -eq 0 ]]; then
+        _ostler_reminders_record ok "reminders=0"
+        return 0
+    fi
+    sha="$(shasum -a 256 "$json" | cut -d' ' -f1)"
+    if [[ "$sha" == "$(cat "$mark" 2>/dev/null || true)" ]]; then
+        _ostler_reminders_record ok "unchanged,reminders=${count}"
+        return 0
+    fi
+    if [[ ! -x "$bin" ]] && ! command -v "$bin" >/dev/null 2>&1; then
+        echo "[reminders] CANNOT-RUN: ${bin} is not installed, so ${count} reminders were not embedded"
+        _ostler_reminders_record error "knowledge_bin_missing"
+        return 0
+    fi
+    rm -rf "$staging"
+    mkdir -p "$staging" "$(dirname "$log")" "${OSTLER_DIR}/data" "${state}/hydrate"
+    if "$bin" convert --source reminders "$json" --output "$staging" >>"$log" 2>&1 \
+       && "$bin" embed "$staging" \
+            --collection reminders_knowledge \
+            --embedding-model "${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}" \
+            --max-compartment-level "${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}" \
+            --db-path "${OSTLER_DIR}/data/knowledge-metadata.db" >>"$log" 2>&1; then
+        printf '%s\n' "$sha" > "$mark"
+        {
+            printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'source=reminders_knowledge\n'
+            printf 'status=ok\n'
+            printf 'item_count=%s\n' "$count"
+            printf 'detail=fda_rerun\n'
+            printf 'payload=reminders=%s\n' "$count"
+        } > "${state}/hydrate/reminders_knowledge.done"
+        _ostler_reminders_record ok "embedded,reminders=${count}"
+        echo "[reminders] embedded ${count} reminders into reminders_knowledge"
+    else
+        _ostler_reminders_record error "embed_failed"
+        echo "[reminders] FAILED to embed ${count} reminders; see ${log}; the next tick retries" >&2
+        return 1
+    fi
+    return 0
+}
+
 _ostler_app_warm_rerun || true
 _notes_rc=0
 _ostler_notes_refresh || _notes_rc=$?
+_reminders_rc=0
+_ostler_reminders_refresh || _reminders_rc=$?
 if [[ "$_fda_rc" -ne 0 ]]; then
     exit "$_fda_rc"
 fi
-exit "$_notes_rc"
+if [[ "$_notes_rc" -ne 0 ]]; then
+    exit "$_notes_rc"
+fi
+exit "$_reminders_rc"
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
@@ -24019,18 +24134,29 @@ if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then
     unset _OSTLER_FDA_RERUN_LOAD_PENDING
 fi
 
-# Create a self-removing contact re-sync wrapper. Re-runs the CM041
-# contact_syncer against the LOCAL AddressBook store -- specifically the
+# Create the recurring contact reader (G3, TCC sweep 2026-10-15). Re-runs the
+# CM041 contact_syncer against the LOCAL AddressBook store -- specifically the
 # Full-Disk-Access-gated AddressBook-v22.abcddb fallback, NOT the
-# Contacts.app osascript export that needs Automation -- so contacts that
-# iCloud finishes syncing AFTER the install window still reach the graph.
-# Idempotent: the syncer dedupes by identity, so re-runs only add what is
-# new. Driven by the com.ostler.contact-resync LaunchAgent, which the
-# hydrate step schedules ONLY when it saw configured accounts but imported
-# zero (the iCloud-sync timing race). The wrapper boots out its own agent
-# once it imports at least one contact, or after CONTACT_RESYNC_MAX_TRIES
-# attempts, so a Mac that never finishes syncing can never keep a re-sync
-# agent alive indefinitely.
+# Contacts.app osascript export that needs Automation.
+#
+# WHY IT IS NOW PERMANENT. It used to be scheduled only when the install-time
+# read failed, and it removed itself on its first success. So on most Macs
+# NOTHING read the address book after install, while the Doctor mapped
+# Contacts to fda-rerun (which never reads contacts) and showed "Up to date"
+# with the install time. Now it runs on every install, under the assistant
+# (`ostler-assistant run-source contact-resync`, the identity that holds Full
+# Disk Access), and never removes itself.
+#
+# CHEAP WHEN NOTHING CHANGED. Each tick first reads a signature of the store
+# (row counts and the store's own change counters). Only a changed signature re-runs
+# the syncer, which is idempotent (it dedupes by identity).
+#
+# EVERY OUTCOME IS RECORDED, and none of them is a guess:
+#   ok          the store was read (changed and synced, or unchanged)
+#   cannot_run  macOS refused the read: no Full Disk Access. Exit 75.
+#   error       the read or the sync failed for another reason. Exit 1.
+# The record is state/source_activity/contacts.tsv, the same file the Doctor
+# reads for every other source. last_success_at only moves on ok.
 cat > "${OSTLER_DIR}/bin/ostler-contact-resync" <<'CRSEOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -24041,57 +24167,125 @@ PIPELINE_PY="${PIPELINE_DIR}/.venv/bin/python"
 OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
 LOGS_DIR="${OSTLER_DIR}/logs"
 STATE_DIR="${OSTLER_DIR}/state"
-LABEL="com.ostler.contact-resync"
-PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
-TRIES_FILE="${STATE_DIR}/contact-resync.tries"
+ACT_DIR="${STATE_DIR}/source_activity"
+SIG_FILE="${STATE_DIR}/contact-resync.sig"
 LOG_FILE="${LOGS_DIR}/contact-resync.log"
-CONTACT_RESYNC_MAX_TRIES="${CONTACT_RESYNC_MAX_TRIES:-48}"
 
-mkdir -p "$LOGS_DIR" "$STATE_DIR"
+mkdir -p "$LOGS_DIR" "$STATE_DIR" "$ACT_DIR"
+# The bounded-retry counter of the old one-shot agent. Meaningless now.
+rm -f "${STATE_DIR}/contact-resync.tries"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
-remove_self() {
-    # Delete the FILES first, then unload. Reversing these two loses the file.
-    #
-    # MEASURED, archie@.240, 2026-09-05, 10 iterations: a LaunchAgent that
-    # calls `launchctl bootout` on its OWN label reached the line before the
-    # bootout 10/10 times and the line after it 0/10 times. launchd tears the
-    # job down before control returns, so every statement after the bootout in
-    # this function was unreachable -- `rm -f` included.
-    #
-    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
-    # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
-    # login, so a "self-removing" agent came back on every reboot, forever, and
-    # the surviving tries file carried its old count back with it. Found on the
-    # v1.0.66 artefact: the dedupe catch-up agent had booted itself out, the
-    # converge was marked done at 06:07:28, and both the plist and the tries
-    # file were still on disk.
-    #
-    # bootout addresses the job by LABEL, so it does not need the plist to
-    # still exist. The old `launchctl unload "$PLIST"` fallback did, which is
-    # why it is gone rather than reordered.
-    rm -f "$PLIST" "$TRIES_FILE"
-    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
+# _resync_record <status> <detail>: the ongoing record the Doctor reads.
+_resync_record() {
+    local status="$1" detail="$2" now prev="" f="${ACT_DIR}/contacts.tsv"
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    [[ -f "$f" ]] && prev="$(sed -n 's/^last_success_at=//p' "$f" | head -1)"
+    [[ "$status" == "ok" ]] && prev="$now"
+    printf 'source=contacts\nlast_run_at=%s\nlast_status=%s\nlast_success_at=%s\nlast_detail=%s\nwriter=ostler-contact-resync\n' \
+        "$now" "$status" "$prev" "$detail" > "$f"
 }
 
-# Bounded retry: bump the attempt counter and, once it exceeds the cap,
-# give up and remove the agent. Belt-and-braces against a Mac that never
-# finishes syncing contacts.
-tries=0
-[[ -f "$TRIES_FILE" ]] && tries="$(cat "$TRIES_FILE" 2>/dev/null || echo 0)"
-[[ "$tries" =~ ^[0-9]+$ ]] || tries=0
-tries=$((tries + 1))
-printf '%s' "$tries" >"$TRIES_FILE"
-if [[ "$tries" -gt "$CONTACT_RESYNC_MAX_TRIES" ]]; then
-    log "giving up after ${CONTACT_RESYNC_MAX_TRIES} attempts; removing agent"
-    remove_self
+PY="$PIPELINE_PY"
+[[ -x "$PY" ]] || PY="$(command -v python3 || true)"
+if [[ -z "$PY" ]]; then
+    log "CANNOT-RUN: no python to read the address book with"
+    _resync_record error "no_python"
+    exit 1
+fi
+
+# The signature, and the refusal test. Reading the Sources/ folder and opening each
+# store is exactly what the syncer does, so a refusal here is a refusal there.
+probe="$("$PY" -c '
+import hashlib, json, os, sqlite3
+from pathlib import Path
+root = Path.home() / "Library" / "Application Support" / "AddressBook"
+def out(**kw):
+    print(json.dumps(kw))
+def present(p):
+    # os.stat, never Path.exists/is_dir: those turn a refusal (EPERM) into
+    # False on some Pythons, which would read a denied store as an absent one.
+    try:
+        os.stat(p)
+        return True
+    except FileNotFoundError:
+        return False
+try:
+    if not present(root):
+        out(state="absent", rows=0, sig="absent")
+        raise SystemExit(0)
+    dbs = []
+    top = root / "AddressBook-v22.abcddb"
+    if present(top):
+        dbs.append(top)
+    src = root / "Sources"
+    if present(src):
+        for name in sorted(os.listdir(src)):
+            p = src / name / "AddressBook-v22.abcddb"
+            if present(p):
+                dbs.append(p)
+    parts, rows = [], 0
+    for p in dbs:
+        con = sqlite3.connect("file:" + str(p) + "?mode=ro", uri=True)
+        try:
+            n, opt = con.execute("SELECT COUNT(*), SUM(Z_OPT) FROM ZABCDRECORD").fetchone()
+            rows += n or 0
+            sig = [p.parent.name, str(n), str(opt)]
+            for t in ("ZABCDEMAILADDRESS", "ZABCDPHONENUMBER", "ZABCDPOSTALADDRESS"):
+                try:
+                    sig.append(str(con.execute("SELECT COUNT(*), SUM(Z_OPT) FROM " + t).fetchone()))
+                except sqlite3.OperationalError as exc:
+                    if "no such table" not in str(exc):
+                        raise
+            parts.append(":".join(sig))
+        finally:
+            con.close()
+    out(state="ok", rows=rows, sig=hashlib.sha256("|".join(parts).encode()).hexdigest())
+except PermissionError as exc:
+    out(state="refused", why=type(exc).__name__)
+except sqlite3.OperationalError as exc:
+    msg = str(exc)
+    refused = "authorization denied" in msg or "unable to open" in msg
+    out(state="refused" if refused else "error", why=msg[:120])
+' 2>>"$LOG_FILE")" || probe=""
+
+field() { printf '%s' "$probe" | "$PY" -c 'import json,sys
+try:
+    print(json.loads(sys.stdin.read()).get(sys.argv[1], ""))
+except Exception:
+    print("")' "$1"; }
+state="$(field state)"
+rows="$(field rows)"; [[ "$rows" =~ ^[0-9]+$ ]] || rows=0
+sig="$(field sig)"
+
+case "$state" in
+    refused)
+        log "CANNOT-RUN: macOS refused the address book read ($(field why)); grant Full Disk Access to the Ostler assistant"
+        _resync_record cannot_run "no_fda"
+        exit 75 ;;
+    ok|absent) ;;
+    *)
+        log "could not read the address book (${state:-no answer}: $(field why))"
+        _resync_record error "probe_${state:-failed}"
+        exit 1 ;;
+esac
+
+if [[ -n "$sig" && "$sig" == "$(cat "$SIG_FILE" 2>/dev/null || true)" ]]; then
+    _resync_record ok "unchanged,rows=${rows}"
+    exit 0
+fi
+if [[ "$rows" -eq 0 ]]; then
+    log "address book is readable and holds no contacts yet"
+    printf '%s\n' "$sig" > "$SIG_FILE"
+    _resync_record ok "rows=0"
     exit 0
 fi
 
 if [[ ! -x "$PIPELINE_PY" ]]; then
-    log "import-pipeline venv missing at ${PIPELINE_PY}; will retry (attempt ${tries})"
-    exit 0
+    log "import-pipeline venv missing at ${PIPELINE_PY}; the next tick retries"
+    _resync_record error "pipeline_venv_missing"
+    exit 1
 fi
 
 # Force the AddressBook-v22.abcddb fallback by pointing --vcf at a path we
@@ -24100,46 +24294,49 @@ fi
 FORCE_ABCDDB_VCF="${OSTLER_DIR}/imports/.contact-resync-force-abcddb.vcf"
 rm -f "$FORCE_ABCDDB_VCF" 2>/dev/null || true
 
+sync_rc=0
 json="$(
     cd "$PIPELINE_DIR" && \
     "$PIPELINE_PY" -m contact_syncer.syncer \
         --vcf "$FORCE_ABCDDB_VCF" \
         --graph-endpoint "$OXIGRAPH_URL" 2>>"$LOG_FILE" \
     | tail -n 1
-)" || json=""
+)" || sync_rc=$?
 
-count="$(
-    printf '%s' "$json" | python3 -c 'import json,sys
+count="$(printf '%s' "$json" | "$PY" -c 'import json,sys
 try:
     print(int(json.loads(sys.stdin.read()).get("imported", 0)))
 except Exception:
-    print(0)' 2>/dev/null
-)" || count=""
-count="${count:-0}"
+    print("")')"
 
-if [[ "$count" -gt 0 ]]; then
-    log "contact re-sync imported ${count} contact(s) on attempt ${tries}; removing agent"
-    # New contacts have just landed in the graph. The install-time wiki
-    # compile (Phase 3.16) ran before iCloud finished syncing, so on a
-    # fresh Mac it saw a near-empty People graph. Kick the existing
-    # wiki-recompile tick now so the wiki reflects the contacts that have
-    # just arrived, rather than waiting for the daily LaunchAgent. Fired
-    # non-fatally and backgrounded: a recompile failure (or a missing tick
-    # on an older layout) must never break the re-sync or hold the agent
-    # open. Guarded on the tick being present so an older install that
-    # predates wiki-recompile degrades quietly.
-    #
-    # Known limitation (v1.0.1, out of scope here): this does NOT re-run
-    # the Qdrant people search-index embed (hydrate_people), so the newly
-    # imported people render on their wiki PAGES (read from Oxigraph) but
-    # may be momentarily absent from wiki SEARCH until the next embed.
+if [[ "$sync_rc" -ne 0 || ! "$count" =~ ^[0-9]+$ ]]; then
+    log "contact sync failed (rc=${sync_rc}); the next tick retries"
+    _resync_record error "sync_failed,rc=${sync_rc}"
+    exit 1
+fi
+if [[ "$count" -eq 0 ]]; then
+    # The store HAS rows and the syncer read none: a read failure, never a
+    # quiet success (the silent-zero shape the install step also refuses).
+    log "the address book holds ${rows} rows but the sync read 0; the next tick retries"
+    _resync_record error "read_zero_of_${rows}"
+    exit 1
+fi
+
+first=0
+[[ -f "${STATE_DIR}/contact-resync.imported" ]] || first=1
+printf '%s\n' "$sig" > "$SIG_FILE"
+: > "${STATE_DIR}/contact-resync.imported"
+_resync_record ok "imported=${count}"
+log "contact sync read ${count} contact(s)"
+if [[ "$first" -eq 1 ]]; then
+    # The first contacts to land after install. The install-time wiki compile
+    # ran before them, so rebuild it now rather than waiting for the daily
+    # LaunchAgent. Backgrounded and non-fatal: a recompile failure must never
+    # fail this read.
     if [[ -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]]; then
         log "new contacts imported; rebuilding your wiki in the background"
         nohup "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" >/dev/null 2>&1 &
     fi
-    remove_self
-else
-    log "contacts still not synced (attempt ${tries}/${CONTACT_RESYNC_MAX_TRIES}); will retry"
 fi
 exit 0
 CRSEOF
@@ -32734,15 +32931,15 @@ _HYDRATE_PIPELINE_PY="${PIPELINE_DIR}/.venv/bin/python"
 # don't drift on leap years.
 OSTLER_HYDRATE_BACKFILL_DAYS="${OSTLER_HYDRATE_BACKFILL_DAYS:-1825}"
 
-# Schedule the self-removing contact re-sync agent. Called from the
-# pending-state branches below (accounts configured but the import came
-# back empty -- iCloud had not finished its first contact sync inside the
-# install window). The agent fires every CONTACT_RESYNC_INTERVAL_S seconds
-# and runs bin/ostler-contact-resync, which re-reads the now-synced local
-# AddressBook (FDA fallback) and removes its own agent once contacts land.
-# Idempotent: if the plist already exists we leave it (it self-removes on
-# success), so two pending branches firing never double-schedule.
+# Schedule the recurring contact reader (G3). Called on EVERY install, after
+# the contacts hydrate below: quietly when the install read worked, and with
+# the "will keep checking" line from the branches where it did not. The agent
+# fires every CONTACT_RESYNC_INTERVAL_S seconds and runs
+# bin/ostler-contact-resync under the assistant, which re-reads the local
+# AddressBook (FDA fallback) whenever it changes. Idempotent: if the plist
+# already exists we leave it, so the two calls never double-schedule.
 _schedule_contact_resync() {
+    local announce="${1:-announce}"
     local plist="${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
     local interval_s="${CONTACT_RESYNC_INTERVAL_S:-1800}"
     [[ -f "$plist" ]] && return 0
@@ -32772,7 +32969,7 @@ _schedule_contact_resync() {
 CRSPLIST
     launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
         launchctl load "$plist" 2>/dev/null || true
-    info "$MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED"
+    [[ "$announce" == "quiet" ]] || info "$MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED"
 }
 
 # Contact hydration ------------------------------------------------
@@ -33038,6 +33235,10 @@ except Exception:
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
         _hydrate_sentinel_record_no_data "contacts" "no_contacts_source"
     fi
+    # G3: the recurring reader runs on every install, not only after a failed
+    # read. Contacts added after today must reach Ostler too. A no-op when one
+    # of the branches above already scheduled it.
+    _schedule_contact_resync quiet
     unset _HYDRATE_FORCE_ABCDDB_VCF
 else
     # Import-pipeline venv missing -- cannot read contacts at all. Loud,

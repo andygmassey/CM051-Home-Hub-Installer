@@ -2012,7 +2012,7 @@ def check_hydrate_ingest(snapshot: Any) -> list[dict]:
 _SCHEDULED_AGENTS = (
     (
         "com.ostler.fda-rerun",
-        "contacts, calendar, iMessage, WhatsApp, browsing and notes",
+        "calendar, reminders, iMessage, WhatsApp, browsing and notes",
         "fda-rerun",
         3600,
     ),
