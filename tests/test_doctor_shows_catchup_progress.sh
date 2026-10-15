@@ -38,7 +38,12 @@ wanted = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir"
           "_parse_source_sentinel", "read_source_status", "render_source_status",
           "_routine_evidence", "_routine_run_count", "_best_routine_count",
           "_settling_progress_total",
-          "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase"}
+          "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase",
+          # #2920 (walk #28): read_source_status now computes one honest total
+          # per row through these, so the extraction needs them too.
+          "_ostler_state_root", "_positive_int", "_settling_done",
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label"}
 ns = {"Path": pathlib.Path, "os": os, "json": json, "html": html}
 for node in tree.body:
     if isinstance(node, (ast.Assign, ast.AnnAssign)):

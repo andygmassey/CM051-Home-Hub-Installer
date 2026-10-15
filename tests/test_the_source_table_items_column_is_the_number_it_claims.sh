@@ -207,11 +207,15 @@ for s in places dedupe "privacy backfill"; do
 done
 
 # --- B: the delivered count wins over the skipped count ---------------------
+# Walk #28: the browsing row counts WEB PAGES, and sent=1500 is VISITS sent
+# to the store. With no browsing extract on disk there is no page count, so
+# the honest cell is unknown, never the visit count and never the skipped one.
 V="$(items browsing)"
 case "$V" in
-    "1,500") ok  "B  browsing: sent=1500,skipped=20 renders 1,500 (what landed), not the skipped count" ;;
-    "20")    bad "B  browsing: renders 20, which is the SKIPPED count. The run delivered 1,500." ;;
-    *)       bad "B  browsing: renders '${V}'; expected the delivered count 1,500" ;;
+    "$UNKNOWN") ok "B  browsing: sent=1500,skipped=20 counts visits, not pages, so the pages cell is unknown rather than a visit count" ;;
+    "20"*)   bad "B  browsing: renders 20, which is the SKIPPED count." ;;
+    "1,500"*) bad "B  browsing: renders '${V}', VISITS under a label that counts pages (walk #28)." ;;
+    *)       bad "B  browsing: renders '${V}'; expected unknown (no page count measured)" ;;
 esac
 
 # --- C: the whole store is not this run's output ----------------------------
@@ -227,10 +231,13 @@ esac
 # hypothetical: a first draft of the fix put its key list at file scope, the
 # extraction-based harnesses lost it, and ALL THIRTEEN rows went blank. A guard
 # that only checks for absent numbers would have called that a pass.
+# Walk #28: imessage's sentinel is people=6719, a count of PEOPLE, and the row
+# counts messages. With no message ledger the cell is unknown; printing 6,719
+# would be the WhatsApp defect (people shown as messages) again.
 V="$(items imessage)"
 case "$V" in
-    "6,719") ok  "D  positive control: imessage people=6719 still renders 6,719; real counts are not being blanked" ;;
-    *)       bad "D  positive control FAILED: imessage renders '${V}', expected 6,719. The count path is broken, so every other assertion here is meaningless." ;;
+    "$UNKNOWN") ok  "D  imessage people=6719 is not printed as messages; with no message ledger the cell is unknown" ;;
+    *)       bad "D  imessage renders '${V}'; people=6719 is a people count, not messages" ;;
 esac
 
 # --- E: POSITIVE CONTROL. The change stays scoped to non-count keys ---------
@@ -239,8 +246,8 @@ esac
 # people count in an email-unit fraction shipped as a defect.
 V="$(items email)"
 case "$V" in
-    "20,114") ok  "E  positive control: email keeps its MESSAGE count (20,114); the fix did not repopulate it with people" ;;
-    "430")    bad "E  email now renders 430, a PEOPLE count, in a column the settling-numerator decision says is messages" ;;
+    "20,114 emails read") ok  "E  positive control: email keeps its MESSAGE count (20,114 emails read); real counts are not being blanked" ;;
+    "430"*)   bad "E  email now renders 430, a PEOPLE count, in a column the settling-numerator decision says is messages" ;;
     *)        bad "E  email renders '${V}'; expected the message count 20,114" ;;
 esac
 
@@ -249,7 +256,7 @@ esac
 # different facts. The fix must not collapse the first into the second.
 V="$(items whatsapp)"
 case "$V" in
-    "0")        ok  "F  positive control: a looked-and-found-nothing source still prints 0, not unknown" ;;
+    "0 messages") ok  "F  positive control: a looked-and-found-nothing source still prints 0, not unknown" ;;
     "$UNKNOWN") bad "F  whatsapp: a MEASURED zero now prints as unknown. The fix has over-reached: 'found nothing' is a real answer." ;;
     *)          bad "F  whatsapp: renders '${V}'; a no_data source has a measured count of 0" ;;
 esac

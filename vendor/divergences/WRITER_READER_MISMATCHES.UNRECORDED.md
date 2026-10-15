@@ -1212,3 +1212,25 @@ Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, a
 ### What a future sync must preserve
 
 The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).
+
+## Doctor source rows: one honest total, in a declared unit (v1.0.107 walk #28)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour. New `_SOURCE_TOTAL_UNITS`, `_SENTINEL_COUNT_IN_UNIT`, `_SETTLING_DONE_FILES`, `_EXTRACT_SUMMARY_KEYS`, `_BROWSING_EXTRACTS`, `_PAGES_CACHE` and helpers `_ostler_state_root`, `_positive_int`, `_settling_done`, `_extract_summary_count`, `_distinct_pages`, `_canonical_total`, all inside the reader block. `read_source_status` now sets, per row, `item_count` = the total in `item_unit` (or None), `item_count_from`, `install_item_count` (the raw sentinel figure, kept) and `last_run_count_from` (`routine` or `settling_progress`). `render_source_status` prints `<n> <unit>`, drops the old `max(item_count, last_run_count)` override, and shows a routine's per-run figure only when there is no total, worded "in the last check".
+
+WHY: Andy's console walk of candidate #28 read Mail as the last tick's delta, WhatsApp people (one per DM chat) as messages, Safari visits as pages, Photos with no unit and Notes as four numbers. NO HR015 twin is owed: the source-status panel exists only in this repo (VENDOR_MANIFEST `regenerate_forbidden_reason` for `doctor`; measured 2026-10-15, HR015 `doctor/agent/web_ui.py` on main has 0 `def read_source_status`). `doctor.patch` is NOT regenerated.
+
+FOLLOW-UP (same PR, #2920): `_mail_available_total` and `_source_count_label`. Every row carries `count_label` (the exact words the table prints) and `count_kind` (`total` or `last_check`, the flag from the closed duplicate #2922). Mail also carries `item_of`, the Mail store size, and reads "N of M emails read", or "N emails read" with no "of" when M is unknown, zero, or smaller than N.
+
+### What a future sync must preserve
+
+The unit table, `_canonical_total` and the render change. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.
+
+## Mail store size recorded at extract time (v1.0.107 walk #28, follow-up on #2920)
+
+Tree `ostler_fda`. `vendor/ostler_fda/apple_mail.py`: new `envelope_index_total(db_path=None)`, a read-only `COUNT(*)` over the Envelope Index `messages` table, rows with `deleted` set left out when the schema has that column; None (never 0) when the store is missing, unreadable, empty or of unknown schema. `vendor/ostler_fda/extract_all.py`: the Apple Mail block records it as `summary["sources"]["apple_mail"]["mailbox_total"]`, only when it is not None.
+
+WHY: Andy flagged the Doctor's Mail row as misleading; the box's Mail store held about 353,842 messages and the row gave no sense of that. The Doctor reads the recorded figure and never opens Mail's database itself. The HR015 twin (`ostler_fda/apple_mail.py`, `ostler_fda/extract_all.py`) is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`envelope_index_total` and the `mailbox_total` record. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.

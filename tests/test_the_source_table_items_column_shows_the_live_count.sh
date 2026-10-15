@@ -68,7 +68,11 @@ wanted = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir"
           "_parse_source_sentinel", "read_source_status", "render_source_status",
           "_routine_evidence", "_routine_run_count", "_best_routine_count",
           "_settling_progress_total",
-          "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase"}
+          "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase",
+          # walk #28: one honest total per row, in a declared unit.
+          "_ostler_state_root", "_positive_int", "_settling_done",
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label"}
 ns = {"Path": pathlib.Path, "os": os, "json": json, "html": html}
 for node in tree.body:
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -145,14 +149,14 @@ settling(root, "messages.imessage.json", 15000)
 page = render_source_status()
 row = cells(page)
 
-if row.get("email") == "4,200":
+if row.get("email") == "4,200 emails in the last check":
     ok("THE REGRESSION: email's rendered Items cell shows the live routine "
-       "count 4,200, not the stale sentinel's 0")
+       "count 4,200, labelled as a per-run figure (walk #28), not the stale sentinel's 0")
 else:
-    bad("email renders '%s', expected 4,200. The render layer is still "
+    bad("email renders '%s', expected '4,200 emails in the last check'. The render layer is still "
         "reading item_count alone." % row.get("email"))
 
-if row.get("imessage") == "15,000":
+if row.get("imessage") == "15,000 messages":
     ok("imessage's rendered Items cell shows the settling-ledger total "
        "15,000, not the stale sentinel's 0")
 else:
@@ -160,7 +164,7 @@ else:
 
 # ── 2. CONTROL: a source with NO live count must keep its sentinel figure,
 #      unchanged -- the override must not fire on nothing. ─────────────────
-if row.get("calendar") == "500":
+if row.get("calendar") == "500 events":
     ok("CONTROL: calendar has no live-count producer, so its sentinel figure "
        "500 renders unchanged")
 else:
@@ -184,7 +188,7 @@ _ROUTINE_ROWS["at"] = [{
 page2 = render_source_status()
 row2 = cells(page2)
 
-if row2.get("email") == "9,000":
+if row2.get("email") == "9,000 emails read":
     ok("CONTROL: the sentinel's 9,000 beats a SMALLER live count (500) -- "
        "the override only ever says MORE, never less")
 else:
