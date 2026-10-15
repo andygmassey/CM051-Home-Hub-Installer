@@ -1167,7 +1167,6 @@ in one busy hour; a retry run in that hour joins the same model queue.
 CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
 extends), or the next re-sync of this tree reverts it.
 
-<<<<<<< HEAD
 ## 2026-10-15 phone-only people are shown, provisional (fix/phone-only-people-shown)
 
 `people_rules.py`:
@@ -1187,7 +1186,7 @@ human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
 people; the 9 missing were phone-only. CM041 upstream and CM044
 `compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
 predicate and need the same change, or the surfaces drift again.
-=======
+
 ## cm041/assistant_api: Forget says done only when both stores are purged (walk #28, sweep V17)
 
 `vendor/cm041/assistant_api/ical-server.py`, `api_people_forget`:
@@ -1227,4 +1226,3 @@ WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
 with `degraded: false` while it could not read Messages at all. Guarded by
 `tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
 same change, or the next re-sync reverts it.
->>>>>>> origin/main
