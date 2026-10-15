@@ -6050,6 +6050,7 @@ ASSISTANT_MAILBOX_ENABLED=false
 ASSISTANT_MAILBOX_ADDRESS=""
 ASSISTANT_MAILBOX_PROVIDER=""
 ASSISTANT_MAILBOX_SELFTEST=""
+ASSISTANT_MAILBOX_HELLO_ID=""
 _AM_BLOCK_PRESERVED=""
 WA_CONSENT=""
 
@@ -8011,10 +8012,11 @@ _am_kv() { printf '%s\n' "$2" | sed -n "s/^$1=//p" | head -n 1; }
 
 # The TOML block. No password anywhere in it; secret_ref names the Keychain
 # item. owner_addresses_verified starts empty: the daemon fills it when the
-# owner replies to the hello email.
+# owner replies to the hello email, and only a reply citing hello_message_id
+# (the hello mail's Message-ID, $3) counts.
 _am_emit_config() {
-    local a p
-    a="$(_am_lower "${1:-}")"; p="${2:-}"
+    local a p h
+    a="$(_am_lower "${1:-}")"; p="${2:-}"; h="${3:-}"
     _am_hosts_for_provider "$p" || return 1
     echo
     echo "[email_assistant]"
@@ -8027,6 +8029,11 @@ _am_emit_config() {
     echo "smtp_port = ${_AM_SMTP_PORT}"
     echo "secret_ref = \"keychain:${_AM_SERVICE}:${a}\""
     echo "owner_addresses_verified = []"
+    # The hello mail's Message-ID. Written only when it has the shape of one
+    # (so nothing odd reaches the TOML); absent means nobody can be verified.
+    if [[ "$h" =~ ^\<[^\<\>\"\\[:space:]]+\>$ ]]; then
+        echo "hello_message_id = \"${h}\""
+    fi
 }
 
 # One information screen. 1 when the customer chose Cancel (treated as Skip).
@@ -8427,6 +8434,7 @@ fi
 ASSISTANT_MAILBOX_ENABLED=false
 ASSISTANT_MAILBOX_ADDRESS=""
 ASSISTANT_MAILBOX_PROVIDER=""
+ASSISTANT_MAILBOX_HELLO_ID=""
 _assistant_mailbox_flow() {
     local _code _choice _addr _pw _out _imap _smtp _count _oldest _err _try _tests _owner _name _sugg _first
     _name="${ASSISTANT_NAME:-Your assistant}"
@@ -8531,6 +8539,9 @@ _assistant_mailbox_flow() {
         _out="$(_am_run hello)" || _out=""
         if [[ "$(_am_kv result "$_out")" == ok ]]; then
             ok "$(printf "$MSG_OK_AM_HELLO_SENT" "$_first")"
+            # Recorded in config.toml: the daemon verifies the owner only by
+            # a reply that cites this Message-ID.
+            ASSISTANT_MAILBOX_HELLO_ID="$(_am_kv message_id "$_out")"
         else
             warn "$MSG_WARN_AM_HELLO_FAILED"
         fi
@@ -17671,7 +17682,7 @@ TOMLPREAMBLE
     # v1.0.108: the assistant's OWN mailbox. No password here, ever: the
     # secret lives in the Keychain and secret_ref names it.
     if [[ "$ASSISTANT_MAILBOX_ENABLED" == true ]]; then
-        _am_emit_config "$ASSISTANT_MAILBOX_ADDRESS" "$ASSISTANT_MAILBOX_PROVIDER"
+        _am_emit_config "$ASSISTANT_MAILBOX_ADDRESS" "$ASSISTANT_MAILBOX_PROVIDER" "$ASSISTANT_MAILBOX_HELLO_ID"
     elif [[ -n "${_AM_BLOCK_PRESERVED:-}" ]]; then
         echo
         printf '%s\n' "$_AM_BLOCK_PRESERVED"

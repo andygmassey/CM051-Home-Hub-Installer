@@ -34,9 +34,11 @@ import ssl
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
-from email.utils import parsedate_to_datetime
+from email.utils import make_msgid, parsedate_to_datetime
 from pathlib import Path
 
 SERVICE = "Ostler Assistant Mailbox"
@@ -164,7 +166,30 @@ ERRORS = {
         "Could not check.",
         "The provider gave an answer Ostler does not recognise. Try again in a moment.",
     ),
+    "daemon_unreachable": (
+        "Could not check.",
+        "Your assistant is not running, so it could not run the test. Start it, then try again.",
+    ),
+    "disabled": (
+        "The assistant's own email is switched off.",
+        "Turn it on, restart your assistant, then try again.",
+    ),
 }
+
+
+# The canonical set of reasons the daemon counts a dropped message under
+# (CONTRACT.md, "Drop reasons"; pinned by the golden fixture on both sides).
+# Anything not listed here is shown as written, never hidden.
+DROP_REASONS = {
+    "not_listed": "sender is not a confirmed owner address",
+    "failed_auth": "sender could not be authenticated",
+    "automated": "automatic or bulk mail",
+    "rate_limited": "too many messages at once",
+}
+
+# What the daemon's self-test can report, beyond ERRORS' keys.
+SELFTEST_OK = "ok"
+SELFTEST_TIMEOUT = "timeout"
 
 
 def classify_error(exc_or_text) -> str:
@@ -267,11 +292,14 @@ def probe(provider: str, address: str, password: str) -> dict:
     return out
 
 
-def _send(provider, address, password, to, subject, body) -> None:
+def _send(provider, address, password, to, subject, body) -> str:
+    """Send one message as ``address`` and return its Message-ID (made here,
+    so the caller can record it)."""
     msg = EmailMessage()
     msg["From"] = address
     msg["To"] = to
     msg["Subject"] = subject
+    msg["Message-ID"] = make_msgid(domain=address.rsplit("@", 1)[-1])
     msg["Auto-Submitted"] = "auto-generated"
     msg.set_content(body)
     s = _smtp(provider)
@@ -283,6 +311,7 @@ def _send(provider, address, password, to, subject, body) -> None:
             s.quit()
         except Exception:
             pass
+    return msg["Message-ID"]
 
 
 def selftest(provider: str, address: str, password: str, seconds: int = SELFTEST_SECONDS) -> dict:
@@ -322,11 +351,13 @@ def selftest(provider: str, address: str, password: str, seconds: int = SELFTEST
 
 
 def hello_owner(provider: str, address: str, password: str, owner: str, name: str) -> dict:
-    """The first message the assistant ever sends: to the owner, as itself."""
+    """The first message the assistant ever sends: to the owner, as itself.
+    Returns its Message-ID: the daemon verifies the owner only by a reply that
+    cites it (config key ``hello_message_id``)."""
     try:
-        _send(provider, address, password, owner, f"Hello from {name}",
-              f"Hello, this is {name}. Reply with any word to finish setting up.")
-        return {"result": "ok"}
+        mid = _send(provider, address, password, owner, f"Hello from {name}",
+                    f"Hello, this is {name}. Reply with any word to finish setting up.")
+        return {"result": "ok", "message_id": mid}
     except Exception as exc:  # noqa: BLE001
         return {"result": classify_error(exc)}
 
@@ -466,7 +497,6 @@ def read_row(config: Path | None = None, state_dir: Path | None = None) -> dict:
         return {"configured": False}
     sd = state_dir or _state_dir()
     daemon = _load(sd / "email_assistant_status.json")
-    test = _load(sd / "email_assistant_selftest.json")
     drops = daemon.get("drops_24h")
     drops = {str(k): int(v) for k, v in drops.items()} if isinstance(drops, dict) else {}
     return {
@@ -474,35 +504,63 @@ def read_row(config: Path | None = None, state_dir: Path | None = None) -> dict:
         "enabled": bool(cfg.get("enabled", True)),
         "address": cfg.get("address"),
         "provider": PROVIDERS.get(cfg.get("provider", ""), {}).get("label", cfg.get("provider", "")),
-        "owner_verified": bool(cfg.get("owner_addresses_verified")),
+        "owner_verified": bool(cfg.get("owner_addresses_verified"))
+        or bool(daemon.get("owner_verified_at")),
         "last_inbound": _age(daemon.get("last_inbound_at")),
         "last_reply": _age(daemon.get("last_reply_at")),
-        "selftest_result": test.get("result"),
-        "selftest_age": _age(test.get("at")),
+        "selftest_result": daemon.get("self_test_result"),
+        "selftest_age": _age(daemon.get("self_test_at")),
         "drops_24h": drops,
         "drops_24h_total": sum(drops.values()),
     }
 
 
-def test_now(config: Path | None = None, state_dir: Path | None = None) -> dict:
-    """Run the self-test with the Keychain password and record the result."""
-    cfg = read_config(config)
-    provider, address = cfg.get("provider", ""), cfg.get("address", "")
-    if provider not in PROVIDERS or not address:
-        return {"result": "unknown"}
-    pw = keychain_read(address)
-    if not pw:
-        return {"result": "wrong_password"}
-    res = selftest(provider, address, pw)
-    res.pop("token", None)
-    sd = state_dir or _state_dir()
+def _gateway_url() -> str:
+    return os.environ.get("OSTLER_CHAT_GATEWAY_URL", "").strip().rstrip("/") or \
+        f"http://127.0.0.1:{os.environ.get('OSTLER_CHAT_GATEWAY_PORT', '42617').strip() or '42617'}"
+
+
+def _admin_token() -> str | None:
+    p = Path(os.environ.get("OSTLER_CHAT_ADMIN_TOKEN_FILE",
+                            str(_root() / "secrets" / "zeroclaw_admin_token")))
     try:
-        sd.mkdir(parents=True, exist_ok=True)
-        (sd / "email_assistant_selftest.json").write_text(json.dumps(
-            {"result": res["result"], "at": datetime.now(timezone.utc).isoformat()}))
+        t = p.read_text(encoding="utf-8").strip()
     except OSError:
-        pass
-    return res
+        return None
+    return t or None
+
+
+def test_now(timeout: int = SELFTEST_SECONDS + 15) -> dict:
+    """Ask the running assistant to run its own self-test.
+
+    The daemon owns the test and its record: ``POST /api/assistant-mailbox/
+    self-test`` sends a token mail to itself, waits to see it, and writes
+    ``self_test_result`` / ``self_test_at`` into its status file, which
+    ``read_row`` then reads. Nothing is written here, so there is exactly one
+    source of truth. If the daemon cannot be reached the answer is
+    ``daemon_unreachable``, never a pass."""
+    tok = _admin_token()
+    if not tok:
+        return {"result": "daemon_unreachable"}
+    req = urllib.request.Request(
+        _gateway_url() + "/api/assistant-mailbox/self-test", data=b"{}", method="POST",
+        headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = json.loads(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode("utf-8", "replace"))
+        except (ValueError, OSError):
+            return {"result": "daemon_unreachable"}
+        if exc.code == 404 and body.get("result") == "disabled":
+            return {"result": "disabled"}
+        if exc.code in (401, 403):
+            return {"result": "daemon_unreachable"}
+    except (OSError, ValueError):
+        return {"result": "daemon_unreachable"}
+    result = body.get("result") if isinstance(body, dict) else None
+    return {"result": result if isinstance(result, str) and result else "unknown"}
 
 
 def replace_password(new_password: str, config: Path | None = None) -> dict:
@@ -527,9 +585,15 @@ def _esc(s) -> str:
 
 
 _SELFTEST_WORDS = {
-    "ok": "Passed",
-    "timeout": "No reply within 60 seconds",
+    SELFTEST_OK: "Passed",
+    SELFTEST_TIMEOUT: "No reply within 60 seconds",
 }
+
+
+def selftest_words(result: str) -> str:
+    """A person's words for a self-test result (the daemon's, or Doctor-side
+    ``daemon_unreachable`` / ``disabled``)."""
+    return _SELFTEST_WORDS.get(result) or explain(result)
 
 
 def render_html(row: dict | None = None) -> str:
@@ -543,12 +607,14 @@ def render_html(row: dict | None = None) -> str:
     if st is None:
         test = "Not run yet"
     else:
-        test = _SELFTEST_WORDS.get(st, explain(st))
+        test = selftest_words(st)
         if row.get("selftest_age"):
             test += f" ({row['selftest_age']})"
     drops = row.get("drops_24h") or {}
     if drops:
-        drop_txt = ", ".join(f"{k}: {int(v)}" for k, v in sorted(drops.items()))
+        drop_txt = ", ".join(
+            f"{k}: {int(v)}" + (f" ({DROP_REASONS[k]})" if k in DROP_REASONS else "")
+            for k, v in sorted(drops.items()))
     else:
         drop_txt = "none"
     on = row.get("enabled", True)
@@ -607,7 +673,10 @@ def _cli(argv) -> int:
         print(f"result={selftest(prov, addr, pw)['result']}")
         return 0
     if mode == "hello":
-        print(f"result={hello_owner(prov, addr, pw, os.environ.get('AM_OWNER', ''), os.environ.get('AM_NAME', 'your assistant'))['result']}")
+        r = hello_owner(prov, addr, pw, os.environ.get("AM_OWNER", ""),
+                        os.environ.get("AM_NAME", "your assistant"))
+        print(f"result={r['result']}")
+        print(f"message_id={r.get('message_id', '')}")
         return 0
     if mode == "store":
         print(f"result={'ok' if keychain_store(addr, pw) else 'failed'}")

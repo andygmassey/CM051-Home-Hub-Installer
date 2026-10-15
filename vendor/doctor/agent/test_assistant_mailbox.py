@@ -131,9 +131,9 @@ class Row(unittest.TestCase):
         (sd / "email_assistant_status.json").write_text(json.dumps({
             "last_inbound_at": (now - timedelta(minutes=5)).isoformat(),
             "last_reply_at": (now - timedelta(hours=3)).isoformat(),
-            "drops_24h": {"not_owner": 4, "loop_guard": 1}, **kw}))
-        (sd / "email_assistant_selftest.json").write_text(json.dumps(
-            {"result": "ok", "at": (now - timedelta(days=2)).isoformat()}))
+            "drops_24h": {"not_listed": 4, "automated": 1},
+            "self_test_result": "ok",
+            "self_test_at": (now - timedelta(days=2)).isoformat(), **kw}))
         return sd
 
     def test_not_configured_renders_nothing(self):
@@ -149,14 +149,14 @@ class Row(unittest.TestCase):
         self.assertEqual(row["last_reply"], "3 h ago")
         self.assertEqual(row["selftest_result"], "ok")
         self.assertEqual(row["selftest_age"], "2 days ago")
-        self.assertEqual(row["drops_24h"], {"loop_guard": 1, "not_owner": 4})
+        self.assertEqual(row["drops_24h"], {"automated": 1, "not_listed": 4})
         self.assertEqual(row["drops_24h_total"], 5)
 
     def test_html_shows_everything_and_no_password(self):
         with mock.patch.object(am, "keychain_read", return_value=PASSWORD):
             html = am.render_html(am.read_row(_cfg(self.d), self._state()))
         for want in ("tess.assistant@icloud.com", "iCloud", "Test now", "Replace password",
-                     "Turn off", "not_owner: 4", "Passed (2 days ago)", "5 min ago"):
+                     "Turn off", "not_listed: 4", "Passed (2 days ago)", "5 min ago"):
             self.assertIn(want, html)
         self.assertNotIn(PASSWORD, html)
         self.assertNotIn("keychain:", html)
@@ -266,12 +266,17 @@ class Routes(unittest.TestCase):
         r = self.client.post("/api/v1/assistant-mailbox/off", headers={"host": "evil.example.test"})
         self.assertEqual(r.status_code, 403)
 
-    def test_test_now_records_result(self):
-        with mock.patch.object(am, "keychain_read", return_value=PASSWORD), \
-                mock.patch.object(am, "selftest", return_value={"result": "ok", "token": "t", "seconds": 4}):
+    def test_test_now_asks_the_daemon_and_writes_nothing_itself(self):
+        # The route returns the daemon's answer; the Doctor writes no file of
+        # its own (the daemon's status file is the single record).
+        with mock.patch.object(am, "test_now", return_value={"result": "ok"}):
             r = self.client.post("/api/v1/assistant-mailbox/test-now", headers={"host": "127.0.0.1:8089"})
         self.assertEqual(r.json()["result"], "ok")
-        self.assertEqual(json.loads((self.d / "email_assistant_selftest.json").read_text())["result"], "ok")
+        self.assertEqual(r.json()["message"], "Passed")
+        self.assertFalse((self.d / "email_assistant_selftest.json").exists())
+        with mock.patch.object(am, "test_now", return_value={"result": "daemon_unreachable"}):
+            r = self.client.post("/api/v1/assistant-mailbox/test-now", headers={"host": "127.0.0.1:8089"})
+        self.assertIn("not running", r.json()["message"])
 
     def test_replace_password_never_echoes_it(self):
         with mock.patch.object(am, "replace_password", return_value={"ok": False, "error": "wrong_password"}):
@@ -286,6 +291,157 @@ class Routes(unittest.TestCase):
         if r.status_code != 200:
             self.skipTest(f"dashboard not renderable here ({r.status_code})")
         self.assertIn("Assistant's own email", r.text.replace("&#x27;", "'").replace("&#39;", "'"))
+
+
+class FakeResp:
+    def __init__(self, body): self._b = json.dumps(body).encode()
+    def read(self): return self._b
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+class DaemonSelfTest(unittest.TestCase):
+    """test_now() is a client of the daemon's endpoint and nothing else."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        (self.d / "secrets").mkdir()
+        (self.d / "secrets" / "zeroclaw_admin_token").write_text("tok-synthetic\n")
+        self.env = mock.patch.dict("os.environ", {"OSTLER_DIR": str(self.d),
+                                                  "OSTLER_CHAT_GATEWAY_PORT": "42617"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def test_posts_to_the_daemon_with_the_bearer_and_returns_its_result(self):
+        seen = {}
+
+        def fake(req, timeout=None):
+            seen["url"], seen["auth"], seen["method"] = req.full_url, req.get_header("Authorization"), req.get_method()
+            return FakeResp({"result": "timeout", "at": "2026-10-15T09:30:00+00:00"})
+        with mock.patch.object(am.urllib.request, "urlopen", fake):
+            r = am.test_now()
+        self.assertEqual(r, {"result": "timeout"})
+        self.assertEqual(seen["url"], "http://127.0.0.1:42617/api/assistant-mailbox/self-test")
+        self.assertEqual(seen["auth"], "Bearer tok-synthetic")
+        self.assertEqual(seen["method"], "POST")
+
+    def test_no_daemon_is_unreachable_never_a_pass(self):
+        with mock.patch.object(am.urllib.request, "urlopen", side_effect=ConnectionRefusedError("refused")):
+            self.assertEqual(am.test_now(), {"result": "daemon_unreachable"})
+        (self.d / "secrets" / "zeroclaw_admin_token").unlink()
+        self.assertEqual(am.test_now(), {"result": "daemon_unreachable"})
+
+    def test_disabled_and_unauthorised_are_named(self):
+        import io
+        import urllib.error
+        def err(code, body):
+            return urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(json.dumps(body).encode()))
+        with mock.patch.object(am.urllib.request, "urlopen", side_effect=err(404, {"result": "disabled"})):
+            self.assertEqual(am.test_now(), {"result": "disabled"})
+        with mock.patch.object(am.urllib.request, "urlopen", side_effect=err(401, {"error": "no"})):
+            self.assertEqual(am.test_now(), {"result": "daemon_unreachable"})
+
+    def test_every_result_has_words(self):
+        for k in ("ok", "timeout", "daemon_unreachable", "disabled", *am.ERRORS):
+            self.assertTrue(am.selftest_words(k))
+
+
+class HelloMessageId(unittest.TestCase):
+    def test_hello_returns_the_message_id_it_sent(self):
+        sent = {}
+
+        class Smtp:
+            def login(self, *a): pass
+            def send_message(self, m): sent["m"] = m
+            def quit(self): pass
+        with mock.patch.object(am, "_smtp", return_value=Smtp()):
+            r = am.hello_owner("icloud", "tess.assistant@icloud.com", PASSWORD, "owner@example.test", "Tess")
+        self.assertEqual(r["result"], "ok")
+        self.assertEqual(r["message_id"], sent["m"]["Message-ID"])
+        self.assertRegex(r["message_id"], r"^<[^<>\s]+@icloud\.com>$")
+        self.assertEqual(sent["m"]["Subject"], "Hello from Tess")
+
+    def test_cli_prints_the_message_id(self):
+        import io
+        from contextlib import redirect_stdout
+        env = {"AM_PROVIDER": "icloud", "AM_ADDRESS": "tess.assistant@icloud.com",
+               "AM_PASSWORD": PASSWORD, "AM_OWNER": "owner@example.test", "AM_NAME": "Tess"}
+        buf = io.StringIO()
+        with mock.patch.dict("os.environ", env), \
+                mock.patch.object(am, "hello_owner", return_value={"result": "ok", "message_id": "<m1@icloud.com>"}), \
+                redirect_stdout(buf):
+            am._cli(["x", "hello"])
+        self.assertIn("result=ok", buf.getvalue())
+        self.assertIn("message_id=<m1@icloud.com>", buf.getvalue())
+        self.assertNotIn(PASSWORD, buf.getvalue())
+
+
+# ── The golden contract fixture (same bytes in ostler-assistant) ─────────
+
+FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "assistant_mailbox_contract.json"
+# Pinned digest. ostler-assistant pins the SAME value in its own test. Change
+# the fixture in BOTH repos together, then update this constant and that one.
+FIXTURE_SHA256 = "e5af7a769db9d032686e295075b96790543229ab3572babb1ef85be4abfdf6e1"
+
+
+class Contract(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import hashlib
+        if not FIXTURE.is_file():
+            raise unittest.SkipTest(f"CANNOT-RUN: {FIXTURE} not present (vendored tree outside the repo)")
+        raw = FIXTURE.read_bytes()
+        cls.sha = hashlib.sha256(raw).hexdigest()
+        cls.fx = json.loads(raw)
+
+    def test_fixture_is_the_pinned_copy(self):
+        self.assertEqual(self.sha, FIXTURE_SHA256,
+                         "contract fixture drifted from the pinned copy; sync it with ostler-assistant")
+
+    def test_reader_conforms_to_the_config_block(self):
+        d = Path(tempfile.mkdtemp())
+        p = d / "config.toml"
+        p.write_text(self.fx["config_block"])
+        cfg = am.read_config(p)
+        i = self.fx["installer_inputs"]
+        self.assertEqual(cfg["address"], i["address"])
+        self.assertEqual(cfg["provider"], i["provider"])
+        self.assertEqual(cfg["hello_message_id"], i["hello_message_id"])
+        self.assertEqual(cfg["owner_addresses_verified"], [])
+        self.assertTrue(am.host_pair_allowed(cfg["imap_host"], cfg["imap_port"],
+                                             cfg["smtp_host"], cfg["smtp_port"]))
+        self.assertEqual(cfg["secret_ref"], am.secret_ref(i["address"]))
+
+    def test_reader_conforms_to_the_status_file(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "state").mkdir()
+        (d / "state" / "email_assistant_status.json").write_text(json.dumps(self.fx["status_file"]))
+        p = d / "config.toml"
+        p.write_text(self.fx["config_block"])
+        row = am.read_row(p, d / "state")
+        sf = self.fx["status_file"]
+        self.assertEqual(row["drops_24h"], sf["drops_24h"])
+        self.assertEqual(row["drops_24h_total"], sum(sf["drops_24h"].values()))
+        self.assertEqual(row["selftest_result"], sf["self_test_result"])
+        self.assertIsNotNone(row["selftest_age"])
+        self.assertIsNotNone(row["last_inbound"])
+        self.assertIsNotNone(row["last_reply"])
+        # Verified by the daemon's status even before the config is re-read.
+        self.assertTrue(row["owner_verified"])
+        html = am.render_html(row)
+        for reason in sf["drops_24h"]:
+            self.assertIn(f"{reason}: ", html)
+
+    def test_reason_and_result_vocabularies_match(self):
+        self.assertEqual(list(am.DROP_REASONS), self.fx["drop_reasons"])
+        # Every self-test result the daemon can emit renders in words here.
+        for k in self.fx["self_test_results"]:
+            self.assertTrue(am.selftest_words(k))
+            self.assertTrue(k in ("ok", "timeout") or k in am.ERRORS, k)
+
+    def test_nothing_reads_the_retired_doctor_selftest_file(self):
+        src = Path(am.__file__).read_text()
+        self.assertNotIn("email_assistant_selftest", src)
 
 
 if __name__ == "__main__":

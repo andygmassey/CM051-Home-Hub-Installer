@@ -117,8 +117,11 @@ elif mode == "explain":
     print("The password was not accepted. Use the app password you just made, not your Apple ID or Google password.")
 elif mode == "store":
     print("result=ok")
-elif mode in ("selftest", "hello"):
+elif mode == "selftest":
     print("result=" + os.environ.get("FAKE_SELFTEST", "ok"))
+elif mode == "hello":
+    print("result=ok")
+    print("message_id=<hello-test@example.test>")
 P
 cat > "$tmp/drive.sh" <<'D'
 set -uo pipefail
@@ -126,7 +129,7 @@ ok() { echo "[ok] $*"; }; warn() { echo "[warn] $*"; }; info() { echo "[info] $*
 for f in $(sed -n 's/^\(MSG_[A-Z_0-9]*\)=.*/\1/p' "$STRINGS" | grep '_AM_'); do :; done
 . "$STRINGS"
 ASSISTANT_NAME="Tess"; USER_EMAIL="${OWNER:-owner@example.test}"; CHANNEL_EMAIL_ALLOWED_SENDERS="${OWNER:-owner@example.test}"
-ASSISTANT_MAILBOX_ENABLED=false; ASSISTANT_MAILBOX_ADDRESS=""; ASSISTANT_MAILBOX_PROVIDER=""; ASSISTANT_MAILBOX_SELFTEST=""
+ASSISTANT_MAILBOX_ENABLED=false; ASSISTANT_MAILBOX_ADDRESS=""; ASSISTANT_MAILBOX_PROVIDER=""; ASSISTANT_MAILBOX_SELFTEST=""; ASSISTANT_MAILBOX_HELLO_ID=""
 CHANNEL_EMAIL_USERNAME=""; SCRIPT_DIR="/nonexistent"
 export OSTLER_AM_PROBE="$PROBE" OSTLER_AM_PYTHON="$PY" FAKE_LOG
 ANS="$ANSWERS"
@@ -141,6 +144,8 @@ gui_read() { # title kind default help choices id [error]
 . "$HELPERS"
 _assistant_mailbox_flow
 echo "ENABLED=$ASSISTANT_MAILBOX_ENABLED ADDRESS=$ASSISTANT_MAILBOX_ADDRESS PROVIDER=$ASSISTANT_MAILBOX_PROVIDER"
+echo "HELLO_ID=$ASSISTANT_MAILBOX_HELLO_ID"
+if [[ "$ASSISTANT_MAILBOX_ENABLED" == true ]]; then _am_emit_config "$ASSISTANT_MAILBOX_ADDRESS" "$ASSISTANT_MAILBOX_PROVIDER" "$ASSISTANT_MAILBOX_HELLO_ID"; fi
 D
 STRINGS="$REPO_ROOT/install.sh.strings.en-GB.sh"
 PYBIN="$(command -v python3 || true)"; [ -n "$PYBIN" ] || { echo "CANNOT-RUN: python3"; exit 2; }
@@ -162,6 +167,8 @@ if [ "$leaked" = yes ]; then fail "the app password appeared in output or in a c
 grep -q 'pw_in_env=yes' "$tmp/fake.log" && pass "password travels in the environment" || fail "password was not passed to the probe"
 grep -q '^store ' "$tmp/fake.log" && pass "stored via the Keychain-backed store step" || fail "no store step"
 grep -q '^hello ' "$tmp/fake.log" && pass "hello sent to the owner after a good self-test" || fail "no hello"
+grep -q '^HELLO_ID=<hello-test@example.test>$' <<< "$o" && grep -qxF 'hello_message_id = "<hello-test@example.test>"' <<< "$o" \
+    && pass "the hello Message-ID is captured and written to the config block" || fail "hello id not recorded: $o"
 
 o="$(run_flow "$tmp/real.sh" "am_choose=skip")"
 grep -q 'ENABLED=false' <<< "$o" && ! grep -q '^probe' "$tmp/fake.log" && pass "Skip leaves the mailbox off and touches nothing" || fail "skip: $o"
@@ -187,11 +194,34 @@ grep -q 'ENABLED=true' <<< "$o" && pass "a real-looking inbox proceeds once conf
 o="$(run_flow "$tmp/real.sh" "$A_OK
 am_test_retry=skip" good timeout)"
 grep -q 'ENABLED=true' <<< "$o" && ! grep -q '^hello' "$tmp/fake.log" && pass "failed self-test then Skip: still enabled, no hello, never blocks" || fail "selftest skip: $o"
+grep -q '^HELLO_ID=$' <<< "$o" && ! grep -q 'hello_message_id' <<< "$o" && pass "no hello sent: no hello_message_id in config (nobody can be verified)" || fail "hello id without a hello: $o"
 
 # mutant: password logged / put on argv must be caught by the flow check
 sed 's#echo "error=unavailable"; return 3; }#echo "error=unavailable"; return 3; }; echo "pw=$AM_PASSWORD" >\&2#' "$tmp/real.sh" > "$tmp/leak.sh"
 o="$(run_flow "$tmp/leak.sh" "$A_OK")"
 grep -q "$SECRET" <<< "$o" && pass "mutant caught: password leaked to output" || fail "mutant NOT caught: password leak"
+
+# ---- 3b. the golden contract fixture: the writer reproduces it exactly -------
+FIXTURE="$REPO_ROOT/tests/fixtures/assistant_mailbox_contract.json"
+FIXTURE_SHA256="e5af7a769db9d032686e295075b96790543229ab3572babb1ef85be4abfdf6e1"
+[ -f "$FIXTURE" ] || { echo "FAIL: contract fixture missing"; exit 1; }
+got_sha="$(shasum -a 256 "$FIXTURE" | cut -d' ' -f1)"
+[ "$got_sha" = "$FIXTURE_SHA256" ] && pass "contract fixture matches the pinned digest (same bytes as ostler-assistant)" \
+    || fail "contract fixture drifted from the pinned copy ($got_sha); sync it with ostler-assistant"
+fx() { "${PYBIN:-python3}" -I -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d
+for k in sys.argv[2:]: v=v[k]
+sys.stdout.write(v)' "$FIXTURE" "$@"; }
+want_block="$(fx config_block)"
+_fa="$(fx installer_inputs address)"; _fp="$(fx installer_inputs provider)"; _fh="$(fx installer_inputs hello_message_id)"
+emit_fx() { bash -c ". '$1'; _am_emit_config '$_fa' '$_fp' '$_fh'" | sed '1{/^$/d;}'; }
+[ "$(emit_fx "$tmp/real.sh")" = "$want_block" ] && pass "_am_emit_config output equals the fixture config block byte for byte" \
+    || fail "installer writer does not match the contract fixture"
+sed 's#echo "hello_message_id = \\"${h}\\""#:#' "$tmp/real.sh" > "$tmp/mut_hello.sh"
+if cmp -s "$tmp/real.sh" "$tmp/mut_hello.sh"; then fail "mutant 'hello id not written' did not change the file"
+elif [ "$(emit_fx "$tmp/mut_hello.sh")" = "$want_block" ]; then fail "mutant NOT caught: hello_message_id dropped"
+else pass "mutant caught: hello_message_id dropped"; fi
+bad_id="$(bash -c ". '$tmp/real.sh'; _am_emit_config a@icloud.com icloud '<x\"y@example.test>'")"
+! grep -q hello_message_id <<< "$bad_id" && pass "a Message-ID with a quote is refused, never written to TOML" || fail "unsafe Message-ID reached the config"
 
 # ---- 4. install.sh structure -------------------------------------------------
 check_struct() { # <file> <label-suffix> ; echoes number of failures
