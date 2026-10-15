@@ -1128,6 +1128,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "cron_resume_error",
     "expiry",
     "expiry_human",
     "governor_env_path",
@@ -1154,7 +1155,8 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "error"
+    "error",
+    "mirror_errors"
    ],
    "source": "vendor/doctor/agent/web_ui.py"
   },
@@ -1494,7 +1496,8 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "error"
+    "error",
+    "mirror_errors"
    ],
    "source": "vendor/doctor/agent/web_ui.py"
   },
@@ -3725,6 +3728,7 @@
     "count",
     "debts",
     "degraded",
+    "detail",
     "reason"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -5634,6 +5638,7 @@
     "count",
     "debts",
     "degraded",
+    "detail",
     "reason"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
