@@ -24781,7 +24781,8 @@ _es_skip() {  # label  reason  path
     _es_row "$1" "skipped" "$2" "$3"
 }
 _es_finish() {
-    local rc=$? skipsum="" s detail now prev="" reason=""
+    # $1 is the status the script exited with, handed over by the trap below.
+    local rc="$1" skipsum="" s detail now prev="" reason=""
     if [[ -z "$_es_status" ]]; then
         if [[ "$_es_failed" -gt 0 ]]; then _es_status="error"
         elif [[ $((_es_imp + _es_already)) -gt 0 ]]; then _es_status="ok"
@@ -24838,7 +24839,7 @@ _es_finish() {
         || _es_log "could not write the Doctor-facing activity record"
     return "$rc"
 }
-trap _es_finish EXIT
+trap '_es_finish $?' EXIT
 
 # Could we LOOK at all? An unreadable Downloads globs to nothing and finds to
 # nothing, which is the same zero as an empty one. Ask once, and say which.
@@ -24987,7 +24988,9 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
             _notify "Ostler found your ${_first} export and is adding it to your world." "Importing"
         fi
 
-        if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
+        _imp_rc=0
+        "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
+        if [[ "$_imp_rc" -eq 0 ]]; then
             _notify "Your latest export is now part of your world." "Done"
             # Record ONLY on success. The comment here used to say exactly that
             # while the write sat outside the branch, so a failed import was
@@ -24997,7 +25000,6 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
             _es_imp=$(( _es_imp + ${#FOUND[@]} ))
             for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "imported" "" "${FOUND[$_i]}"; done
         else
-            _imp_rc=$?
             # The old message on this branch was "Imported your latest export.
             # Some parts will finish in the background." The importer had just
             # returned NON-ZERO, so nothing was imported and nothing is finishing
@@ -25053,12 +25055,13 @@ while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
         _es_row "$_l" "failed" "Ostler could not stage the file for import" "$_p"
         continue
     fi
-    if "$IMPORT_SCRIPT" "$_stage" >/dev/null 2>&1; then
+    _imp_rc=0
+    "$IMPORT_SCRIPT" "$_stage" >/dev/null 2>&1 || _imp_rc=$?
+    if [[ "$_imp_rc" -eq 0 ]]; then
         printf '%s\n' "$_key" >> "$_ES_LEDGER"
         _es_imp=$((_es_imp + 1)); _loose_new=$((_loose_new + 1))
         _es_row "$_l" "imported" "" "$_p"
     else
-        _imp_rc=$?
         _es_failed=$((_es_failed + 1)); _loose_fail=$((_loose_fail + 1))
         _es_fail_why="the importer stopped with exit code ${_imp_rc}"
         _es_row "$_l" "failed" "$_es_fail_why" "$_p"
@@ -34658,10 +34661,10 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         # the ERR trap armed (bash 3.2), which would abort the install here,
         # so save and disarm it exactly as the extract step above does.
         _wa_ingest_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e
+        _wa_ingest_rc=0
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.pwg_ingest \
             --fda-dir "${OSTLER_DIR}/imports/fda" \
-            >>"$_HYDRATE_WHATSAPP_LOG" 2>&1
-        _wa_ingest_rc=$?
+            >>"$_HYDRATE_WHATSAPP_LOG" 2>&1 || _wa_ingest_rc=$?
         # Status-honesty E2: this write used to end in `|| true`, so a failed
         # graph write was recorded as ok. Keep the extract's rc if it already
         # failed; otherwise the ingest's rc becomes the recorded one.
