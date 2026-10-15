@@ -11088,11 +11088,11 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/calendar/today":
                 days = 1
 
-            status, body = build_calendar_response(days)
+            status, result = build_calendar_response(days)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps(body, indent=2).encode())
+            self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
         if parsed.path == "/people":

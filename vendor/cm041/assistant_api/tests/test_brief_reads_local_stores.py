@@ -153,5 +153,39 @@ class BriefLocalStores(unittest.TestCase):
         self.assertNotIn("count", body)
 
 
+class CalendarHandlerWritesTheBuilderReply(unittest.TestCase):
+    """The /calendar handler writes what build_calendar_response returned.
+
+    Batch 3 caught the handler binding the reply to one name and serialising
+    another (NameError on every /calendar and /calendar/today request), which
+    the builder-level tests above could not see. Drives do_GET itself."""
+
+    def _get(self, path):
+        import io
+        h = ical_server.Handler.__new__(ical_server.Handler)
+        h.path = path
+        h.wfile = io.BytesIO()
+        sent = []
+        h._guard = lambda *a, **k: True
+        h.send_response = lambda code, *a: sent.append(code)
+        h.send_header = lambda *a: None
+        h.end_headers = lambda: None
+        reply = {"events": [], "count": 0, "period_days": 0, "sources": [], "marker": path}
+        with mock.patch.object(ical_server, "build_calendar_response",
+                               side_effect=lambda days: (207, dict(reply, period_days=days))):
+            h.do_GET()
+        return sent, json.loads(h.wfile.getvalue().decode())
+
+    def test_calendar_today_writes_the_builder_reply(self):
+        sent, body = self._get("/calendar/today")
+        self.assertEqual(sent, [207])
+        self.assertEqual((body["marker"], body["period_days"]), ("/calendar/today", 1))
+
+    def test_calendar_writes_the_builder_reply(self):
+        sent, body = self._get("/calendar?days=3")
+        self.assertEqual(sent, [207])
+        self.assertEqual((body["marker"], body["period_days"]), ("/calendar?days=3", 3))
+
+
 if __name__ == "__main__":
     unittest.main()
