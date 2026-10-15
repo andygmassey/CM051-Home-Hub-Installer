@@ -62,6 +62,24 @@ PROVIDERS = {
     },
 }
 
+# TEST SEAM (tests/e2e/assistant_mailbox_e2e.sh): a loopback mail server and a
+# temporary keychain, only when OSTLER_E2E_LOOPBACK=1. Never set on a customer
+# machine; unset, PROVIDERS is exactly the two entries above.
+E2E_LOOPBACK = os.environ.get("OSTLER_E2E_LOOPBACK") == "1"
+if E2E_LOOPBACK:
+    PROVIDERS["loopback"] = {
+        "label": "Loopback",
+        "imap_host": "127.0.0.1", "imap_port": int(os.environ.get("OSTLER_E2E_IMAP_PORT", "0")),
+        "smtp_host": "127.0.0.1", "smtp_port": int(os.environ.get("OSTLER_E2E_SMTP_PORT", "0")),
+        "domains": ("example.test",),
+    }
+
+
+def _e2e_keychain_args() -> list:
+    kc = os.environ.get("OSTLER_E2E_KEYCHAIN", "") if E2E_LOOPBACK else ""
+    return [kc] if kc else []
+
+
 # A "new account" has a small, young inbox. Over either limit we say so and
 # make the customer confirm a second time.
 INBOX_MAX_MESSAGES = 200
@@ -227,14 +245,20 @@ def explain(code: str) -> str:
 
 # ── Probes ───────────────────────────────────────────────────────────────
 
-def _imap(provider: str) -> imaplib.IMAP4_SSL:
+def _imap(provider: str) -> imaplib.IMAP4:
     p = PROVIDERS[provider]
+    if provider == "loopback":
+        return imaplib.IMAP4(p["imap_host"], p["imap_port"], timeout=NETWORK_TIMEOUT)
     return imaplib.IMAP4_SSL(p["imap_host"], p["imap_port"], timeout=NETWORK_TIMEOUT,
                              ssl_context=ssl.create_default_context())
 
 
 def _smtp(provider: str) -> smtplib.SMTP:
     p = PROVIDERS[provider]
+    if provider == "loopback":
+        s = smtplib.SMTP(p["smtp_host"], p["smtp_port"], timeout=NETWORK_TIMEOUT)
+        s.ehlo()
+        return s
     ctx = ssl.create_default_context()
     if p["smtp_port"] == 465:
         s = smtplib.SMTP_SSL(p["smtp_host"], p["smtp_port"], timeout=NETWORK_TIMEOUT, context=ctx)
@@ -370,7 +394,8 @@ def keychain_store(address: str, password: str) -> bool:
     pw = clean_password(password)
     if not re.fullmatch(r"[a-z0-9]{8,64}", pw) or "\n" in address or '"' in address:
         return False
-    cmd = f'add-generic-password -U -a "{address}" -s "{SERVICE}" -w "{pw}"\n'
+    kc = "".join(f' "{k}"' for k in _e2e_keychain_args() if '"' not in k and "\n" not in k)
+    cmd = f'add-generic-password -U -a "{address}" -s "{SERVICE}" -w "{pw}"{kc}\n'
     try:
         r = subprocess.run(["security", "-i"], input=cmd, text=True,
                            capture_output=True, timeout=15)
@@ -382,7 +407,8 @@ def keychain_store(address: str, password: str) -> bool:
 def keychain_read(address: str) -> str | None:
     try:
         r = subprocess.run(["security", "find-generic-password", "-a", address,
-                            "-s", SERVICE, "-w"], capture_output=True, text=True, timeout=15)
+                            "-s", SERVICE, "-w", *_e2e_keychain_args()],
+                           capture_output=True, text=True, timeout=15)
     except Exception:
         return None
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None

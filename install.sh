@@ -7924,6 +7924,11 @@ _am_hosts_for_provider() {
                 _AM_SMTP_HOST="smtp.mail.me.com"; _AM_SMTP_PORT=587 ;;
         gmail)  _AM_IMAP_HOST="imap.gmail.com";   _AM_IMAP_PORT=993
                 _AM_SMTP_HOST="smtp.gmail.com";   _AM_SMTP_PORT=465 ;;
+        # TEST SEAM (tests/e2e/assistant_mailbox_e2e.sh): a loopback mail server,
+        # only when OSTLER_E2E_LOOPBACK=1. Never set on a customer machine.
+        loopback) [[ "${OSTLER_E2E_LOOPBACK:-}" == 1 ]] || return 1
+                _AM_IMAP_HOST="127.0.0.1"; _AM_IMAP_PORT="${OSTLER_E2E_IMAP_PORT:-}"
+                _AM_SMTP_HOST="127.0.0.1"; _AM_SMTP_PORT="${OSTLER_E2E_SMTP_PORT:-}" ;;
         *)      _AM_IMAP_HOST=""; _AM_IMAP_PORT=""; _AM_SMTP_HOST=""; _AM_SMTP_PORT=""
                 return 1 ;;
     esac
@@ -7950,6 +7955,7 @@ _am_address_ok() {
     case "$p:${a##*@}" in
         icloud:icloud.com|icloud:me.com|icloud:mac.com) return 0 ;;
         gmail:gmail.com|gmail:googlemail.com) return 0 ;;
+        loopback:example.test) [[ "${OSTLER_E2E_LOOPBACK:-}" == 1 ]] && return 0 ;;
     esac
     return 1
 }
@@ -8439,7 +8445,11 @@ _assistant_mailbox_flow() {
     local _code _choice _addr _pw _out _imap _smtp _count _oldest _err _try _tests _owner _name _sugg _first
     _name="${ASSISTANT_NAME:-Your assistant}"
     _choice="$(gui_read "$MSG_PROMPT_AM_CHOOSE_TITLE" choice "icloud" "$MSG_PROMPT_AM_CHOOSE_HELP" "icloud,gmail,skip" "am_choose")"
-    case "${_choice:-skip}" in icloud|gmail) ;; *) return 0 ;; esac
+    case "${_choice:-skip}" in
+        icloud|gmail) ;;
+        loopback) [[ "${OSTLER_E2E_LOOPBACK:-}" == 1 ]] || return 0 ;;
+        *) return 0 ;;
+    esac
     AM_PROVIDER="$_choice"
 
     # Every address the owner uses: an account that is one of these is not new.
