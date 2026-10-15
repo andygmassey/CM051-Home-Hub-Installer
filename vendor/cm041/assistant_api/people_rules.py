@@ -266,7 +266,79 @@ def _address_is_automated(addr):
     if any(l in _AUTOMATED_DOMAIN_LABELS for l in sub_labels):
         return True
     brand_labels = {l for l in labels[:-1] if l not in _COMMON_SECOND_LEVEL}
-    return bool(squashed) and squashed in brand_labels
+    if bool(squashed) and squashed in brand_labels:
+        return True
+    # v1.0.107 walk #28: the same brand mailbox when the domain spells the
+    # brand with an affix (`glimmer-mail`, `lanternhq`) or across a short TLD.
+    return bool(squashed) and squashed in _domain_brand_names(domain)
+
+
+# v1.0.107 walk #28 (candidate #28): organisations on the People list. Their
+# SHAPE, with invented names: "Glimmer" writing from an "events" mailbox at glimmer.example.com, a
+# one-word name that is just the sender's own domain. A person writes from
+# jane.doe@company and her name is not the company's domain. Read from the
+# address, never from a list of companies. Same rule as CM044
+# compiler/pwg_data.py _name_is_its_senders_domain and ostler_fda
+# machine_senders.domain_brand_names.
+_BRAND_SKIP_LABELS = frozenset({
+    "e", "em", "email", "emails", "news", "newsletter", "newsletters",
+    "notification", "notifications", "notify", "alerts", "mailer", "mailing",
+    "bounce", "bounces", "marketing", "campaign", "campaigns", "updates",
+    "reply", "noreply", "no-reply", "donotreply", "info", "communications",
+    "comms", "go", "click", "events", "www", "mail",
+})
+_BRAND_LABEL_AFFIXES = frozenset({
+    "mail", "email", "news", "notify", "notifications", "events", "app",
+    "hq", "team", "updates", "alerts", "invites", "calendar",
+})
+
+
+def _domain_brand_names(domain):
+    """Every way a domain spells its owner's name. See the block above."""
+    labels = [l for l in (domain or "").lower().strip(".").split(".") if l]
+    if len(labels) < 2:
+        return set()
+    body = labels[:-1]
+    if len(body) >= 2 and body[-1] in _COMMON_SECOND_LEVEL:
+        body = body[:-1]
+    names = set()
+    for label in body:
+        if label in _BRAND_SKIP_LABELS:
+            continue
+        names.add(re.sub(r"[^a-z0-9]", "", label))
+        toks = [t for t in label.split("-") if t]
+        if len(toks) > 1 and all(t in _BRAND_LABEL_AFFIXES for t in toks[1:]):
+            names.add(re.sub(r"[^a-z0-9]", "", toks[0]))
+        for affix in _BRAND_LABEL_AFFIXES:
+            if label.endswith(affix) and len(label) - len(affix) >= 3:
+                names.add(re.sub(r"[^a-z0-9]", "", label[: -len(affix)]))
+    names.add(re.sub(r"[^a-z0-9]", "", "".join(labels)))
+    return {n for n in names if len(n) >= 3}
+
+
+def _name_is_sender_domain(name, emails):
+    """The email whose domain this ONE-WORD name merely repeats, else None.
+    "Jane Doe" on her own janedoe domain is two words and never touched."""
+    n = (name or "").strip()
+    if not n or len(n.split()) != 1 or "@" in n:
+        return None
+    key = re.sub(r"[^a-z0-9]", "", n.lower())
+    if len(key) < 3:
+        return None
+    for e in emails or ():
+        a = (e or "").strip().lower()
+        if _is_plausible_email(a) and key in _domain_brand_names(a.rpartition("@")[2]):
+            return e
+    return None
+
+
+def _name_parts_echo_address(given, family, address):
+    """True when every supplied given/family part is spelled inside the address,
+    i.e. the naming path echoed the address back rather than a human typing it."""
+    parts = [x for x in (given, family) if x]
+    addr = re.sub(r"[^a-z0-9]", "", (address or "").lower())
+    return bool(parts) and bool(addr) and all(
+        re.sub(r"[^a-z0-9]", "", x.lower()) in addr for x in parts)
 
 
 # F7: HIDE BY EVIDENCE, NEVER BY A SURNAME WORD ALONE. People whose surname
@@ -398,7 +470,13 @@ def _is_non_human_person(payload, name, phones=None, emails=None, linkedin=None)
     if (_ORG_NAME_RE.search(nm) or _ORG_SHORT_FORM_RE.match(nm) or _ORG_FINAL_WORD_RE.match(nm)
             or _ORG_INSTITUTION_OF_RE.match(nm) or _ORG_THE_GROUP_RE.match(nm)):
         return "organisation_name"
-    if (p.get("given_name") or "").strip() or (p.get("family_name") or "").strip():
+    given = (p.get("given_name") or "").strip()
+    family = (p.get("family_name") or "").strip()
+    em_all = [x for x in (emails if emails is not None else (p.get("emails") or [])) if x]
+    echoed = _name_is_sender_domain(nm, em_all)
+    if echoed and (not (given or family) or _name_parts_echo_address(given, family, echoed)):
+        return "automated_address" if _address_is_automated(echoed) else "name_is_sender_domain"
+    if given or family:
         return None
     why = _junk_name_reason(nm)
     if why:
