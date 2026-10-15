@@ -52,6 +52,7 @@ on:
       - 'tests/test_cannot_run_is_a_third_state.sh'
       - 'tests/test_hydrate_sentinel_change_fields.sh'
       - 'tests/test_source_status_contract.sh'
+      - 'tests/test_source_count_labels_state_the_right_noun.sh'
       - 'tests/test_source_status_canonical_matches_recorders.sh'
       - 'tests/test_e1_source_readout_emits.sh'
       - 'tests/test_ostler_home_root_is_one_class.sh'
@@ -193,6 +194,10 @@ jobs:
         if: always()
         run: bash tests/test_source_status_contract.sh
 
+      - name: Data sources rows state the right noun and a real total (Ostler #30)
+        if: always()
+        run: bash tests/test_source_count_labels_state_the_right_noun.sh
+
       # G3 (a)/(c): the served set (_SOURCE_KINDS in the vendored reader) must be
       # EXACTLY the sources install.sh writes a recorder for -- no phantom row
       # (served-not-written = not_run forever), no missing row. That equivalence
@@ -319,6 +324,7 @@ jobs:
           bash -n tests/test_cannot_run_is_a_third_state.sh
           bash -n tests/test_hydrate_sentinel_change_fields.sh
           bash -n tests/test_source_status_contract.sh
+          bash -n tests/test_source_count_labels_state_the_right_noun.sh
           bash -n tests/test_source_status_canonical_matches_recorders.sh
           bash -n tests/test_e1_source_readout_emits.sh
           bash -n tests/test_imessage_zero_is_declared_not_undeclared.sh
