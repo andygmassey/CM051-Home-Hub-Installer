@@ -1206,3 +1206,23 @@ WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
 with `degraded: false` while it could not read Messages at all. Guarded by
 `tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
 same change, or the next re-sync reverts it.
+
+---
+
+## Brief calendar and mail read the local ingested stores (brief #29 empty sections)
+
+`vendor/cm041/assistant_api/ical-server.py`. `/calendar` and `/calendar/today`
+(`build_calendar_response`) read `~/.ostler/imports/fda/calendar_events.json`
+first; iCloud CalDAV and Google are optional extras. `/api/v1/email/recent`
+(`fetch_recent_emails`) reads `apple_mail.json` from the same directory: `count`
+is mail RECEIVED in the window, `unread_total` is the measured unread figure,
+and the old gws Gmail path survives only as `_fetch_recent_emails_gws`, used
+when the local file is absent. A failed read returns 503 `degraded`, never
+200 with an empty list. Customer installs have no CalDAV pairing and no gws
+credential, so the old paths always answered empty.
+
+### What a future sync must preserve
+
+The local-first order and the 503 on failure. Guarded by
+`vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py`. Retire by
+upstreaming to CM041 and re-pinning.
