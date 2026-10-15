@@ -1206,3 +1206,16 @@ WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
 with `degraded: false` while it could not read Messages at all. Guarded by
 `tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
 same change, or the next re-sync reverts it.
+
+## assert-spool sweep: one bad row no longer aborts the pass (walk #29 F1)
+
+`_assert_spool_sweep` in `assistant_api/ical-server.py` now wraps each row. A
+data-shaped error (ValueError, TypeError, KeyError, AttributeError,
+UnicodeError) counts an attempt against that row and moves it to state
+`quarantined` after `OSTLER_ASSERT_SPOOL_MAX_ATTEMPTS` (5), keeping it, with a
+reason of exception type and file:line only. Outage-shaped errors count against
+nobody. `assert_spool_status.json` gains `quarantined`; the Doctor
+(`diagnostic_rules.check_parked_facts`) shows it. WHY: an unparseable
+`asserted_at` raised out of the loop every 20 s, 1,032+ times, and starved the
+rows behind it. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py`.
+CM041 and Doctor upstream need the same change, or the next re-sync reverts it.

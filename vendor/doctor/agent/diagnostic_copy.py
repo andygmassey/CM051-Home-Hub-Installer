@@ -937,6 +937,15 @@ PENDING_FACTS_FIX = (
     "Leave the assistant idle for a few minutes. If this stays, restart the "
     "Assistant API from Doctor."
 )
+QUARANTINED_FACTS_TITLE_FMT = "{n} saved fact{s} could not be read and were set aside"
+QUARANTINED_FACTS_DETAIL = (
+    "Your assistant saved these facts, but they could not be processed after "
+    "several tries, so it stopped retrying them. They are kept safely and "
+    "nothing else is held up."
+)
+QUARANTINED_FACTS_FIX = (
+    "Tell your assistant the fact again and it will be saved afresh."
+)
 
 # ── Time Machine exclusion (status-honesty sweep I1, walk #28) ────────────
 TM_SECRETS_NOT_EXCLUDED_TITLE = "Ostler's secrets folder is NOT excluded from Time Machine"

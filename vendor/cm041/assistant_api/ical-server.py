@@ -3522,7 +3522,29 @@ ASSERT_SPOOL_SWEEP_SECONDS = float(
 ASSERT_SPOOL_RESOLVE_BUDGET_S = float(
     os.environ.get("OSTLER_ASSERT_SPOOL_RESOLVE_BUDGET_S", "30")
 )
+# A row that raises a data-shaped error this many times is poison, not an
+# outage: it is moved to state 'quarantined' (kept, encrypted, with a reason)
+# so it stops being retried every sweep and cannot starve the rows behind it.
+ASSERT_SPOOL_MAX_ATTEMPTS = int(
+    os.environ.get("OSTLER_ASSERT_SPOOL_MAX_ATTEMPTS", "5")
+)
+# Errors that name a bad ROW (malformed timestamp, missing field, bad level).
+# Anything else (graph or model down, timeout) is an outage and counts
+# against nobody.
+_ASSERT_POISON_ERRORS = (ValueError, TypeError, KeyError, AttributeError,
+                         UnicodeError)
 _ASSERT_SPOOL_LOCK = threading.Lock()
+
+
+def _redacted_exc(exc):
+    """Exception type plus the file:line frames; NEVER the message, which can
+    carry a subject, a fact or a URL."""
+    import traceback
+    frames = traceback.extract_tb(exc.__traceback__)
+    where = " <- ".join(
+        "%s:%s" % (os.path.basename(f.filename), f.lineno)
+        for f in reversed(frames[-4:]))
+    return "%s @ %s" % (type(exc).__name__, where or "?")
 _ASSERT_SPOOL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS assert_spool (
     spool_id      TEXT PRIMARY KEY,
@@ -3581,7 +3603,8 @@ def _write_assert_spool_status(conn):
     """
     rows = conn.execute(
         "SELECT state, COUNT(*), MIN(created_at) FROM assert_spool "
-        "WHERE state IN ('pending', 'needs_disambiguation') GROUP BY state"
+        "WHERE state IN ('pending', 'needs_disambiguation', 'quarantined') "
+        "GROUP BY state"
     ).fetchall()
     got = {r[0]: (r[1], r[2]) for r in rows}
     status = {
@@ -3589,6 +3612,7 @@ def _write_assert_spool_status(conn):
         "oldest_pending_at": got.get("pending", (0, None))[1],
         "needs_disambiguation": got.get("needs_disambiguation", (0, None))[0],
         "oldest_parked_at": got.get("needs_disambiguation", (0, None))[1],
+        "quarantined": got.get("quarantined", (0, None))[0],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     ASSERT_SPOOL_STATUS.parent.mkdir(parents=True, exist_ok=True)
@@ -3655,7 +3679,7 @@ def _assert_spool_sweep(budget=None, limit=50):
     if budget is None:
         budget = ASSERT_SPOOL_RESOLVE_BUDGET_S
     counts = {"pending": 0, "written": 0, "already": 0, "still_pending": 0,
-              "needs_disambiguation": 0, "failed": 0}
+              "needs_disambiguation": 0, "failed": 0, "quarantined": 0}
     if not _ASSERT_SPOOL_LOCK.acquire(blocking=False):
         counts["skipped"] = 1
         return counts
@@ -3683,46 +3707,77 @@ def _assert_spool_sweep(budget=None, limit=50):
                 conn.commit()
 
             for r in rows:
-                (spool_id, subject, fact_text, relationship, asserted_via,
-                 level, asserted_at, fact_id, person_id) = tuple(r)
+                spool_id = r[0]
                 try:
-                    existing = _assert_fact_person(fact_id)
-                except Exception:
+                    (spool_id, subject, fact_text, relationship, asserted_via,
+                     level, asserted_at, fact_id, person_id) = tuple(r)
+                    try:
+                        existing = _assert_fact_person(fact_id)
+                    except Exception:
+                        counts["failed"] += 1
+                        continue
+                    if existing:
+                        close(spool_id, existing, _wiki_slug(subject or ""))
+                        counts["already"] += 1
+                        continue
+                    if level not in _ASSERT_PRIVACY_LEVELS:
+                        raise ValueError("unknown privacy level")
+                    body, status = _assert_resolve_and_write(
+                        subject, fact_text, relationship, asserted_via,
+                        now=datetime.fromisoformat(asserted_at), budget=budget,
+                        spool_on_timeout=False, fact_id=fact_id,
+                        person_id=person_id, privacy_level=level,
+                    )
+                    if status == 200 and body.get("status") in ("stored", "created_person"):
+                        close(spool_id, body.get("person_uri"),
+                              body.get("person_slug"),
+                              1 if body.get("status") == "created_person" else 0)
+                        counts["written"] += 1
+                    elif body.get("status") == "needs_disambiguation":
+                        # Two plausible people. Not guessed: kept, with the
+                        # candidates, for the assistant or the owner to settle.
+                        conn.execute(
+                            "UPDATE assert_spool SET state = "
+                            "'needs_disambiguation', last_reason = ? "
+                            "WHERE spool_id = ?",
+                            (json.dumps(body.get("candidates") or []), spool_id))
+                        conn.commit()
+                        counts["needs_disambiguation"] += 1
+                    else:
+                        conn.execute(
+                            "UPDATE assert_spool SET attempts = attempts + 1, "
+                            "last_reason = ? WHERE spool_id = ?",
+                            (str(body.get("reason") or body.get("status"))[:200],
+                             spool_id))
+                        conn.commit()
+                        counts["still_pending" if status == 0 else "failed"] += 1
+                except _ASSERT_POISON_ERRORS as exc:
+                    # A bad ROW. One bad row must not abort the sweep (it
+                    # used to: the rows behind it were never reached and it
+                    # was retried every 20 s forever). Count it against the
+                    # row, and quarantine it after N attempts.
+                    reason = "exception: " + _redacted_exc(exc)
+                    print("[memory/assert] spool row error: %s" % reason,
+                          file=sys.stderr, flush=True)
+                    prior = conn.execute(
+                        "SELECT attempts FROM assert_spool WHERE spool_id = ?",
+                        (spool_id,)).fetchone()
+                    n = (prior[0] if prior else 0) + 1
+                    new_state = ("quarantined"
+                                 if n >= ASSERT_SPOOL_MAX_ATTEMPTS
+                                 else "pending")
+                    conn.execute(
+                        "UPDATE assert_spool SET attempts = ?, last_reason = ?,"
+                        " state = ? WHERE spool_id = ?",
+                        (n, reason[:200], new_state, spool_id))
+                    conn.commit()
+                    counts["quarantined" if new_state == "quarantined"
+                           else "failed"] += 1
+                except Exception as exc:
+                    # Outage-shaped: counts against nobody, next row.
+                    print("[memory/assert] spool row not processed: %s"
+                          % _redacted_exc(exc), file=sys.stderr, flush=True)
                     counts["failed"] += 1
-                    continue
-                if existing:
-                    close(spool_id, existing, _wiki_slug(subject or ""))
-                    counts["already"] += 1
-                    continue
-                body, status = _assert_resolve_and_write(
-                    subject, fact_text, relationship, asserted_via,
-                    now=datetime.fromisoformat(asserted_at), budget=budget,
-                    spool_on_timeout=False, fact_id=fact_id,
-                    person_id=person_id, privacy_level=level,
-                )
-                if status == 200 and body.get("status") in ("stored", "created_person"):
-                    close(spool_id, body.get("person_uri"),
-                          body.get("person_slug"),
-                          1 if body.get("status") == "created_person" else 0)
-                    counts["written"] += 1
-                elif body.get("status") == "needs_disambiguation":
-                    # Two plausible people. Not guessed: kept, with the
-                    # candidates, for the assistant or the owner to settle.
-                    conn.execute(
-                        "UPDATE assert_spool SET state = "
-                        "'needs_disambiguation', last_reason = ? "
-                        "WHERE spool_id = ?",
-                        (json.dumps(body.get("candidates") or []), spool_id))
-                    conn.commit()
-                    counts["needs_disambiguation"] += 1
-                else:
-                    conn.execute(
-                        "UPDATE assert_spool SET attempts = attempts + 1, "
-                        "last_reason = ? WHERE spool_id = ?",
-                        (str(body.get("reason") or body.get("status"))[:200],
-                         spool_id))
-                    conn.commit()
-                    counts["still_pending" if status == 0 else "failed"] += 1
             try:
                 _write_assert_spool_status(conn)
             except Exception as exc:
@@ -3746,7 +3801,7 @@ def _assert_spool_loop():
                 print("[memory/assert] spool sweep %s" % json.dumps(c),
                       file=sys.stderr, flush=True)
         except Exception as exc:  # never let the resolver die
-            print(f"[memory/assert] spool sweep error: {type(exc).__name__}",
+            print("[memory/assert] spool sweep error: %s" % _redacted_exc(exc),
                   file=sys.stderr, flush=True)
         time_mod.sleep(ASSERT_SPOOL_SWEEP_SECONDS)
 
