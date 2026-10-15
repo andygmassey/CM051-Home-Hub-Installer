@@ -459,7 +459,8 @@ allowed_senders = ["{OWNER}"]
                   len(new) == 1 and new[0]["rcpt"] == [OWNER], str([(x["rcpt"], str(x["msg"]["Subject"])) for x in new]))
             if new:
                 body = new[0]["msg"].get_body(preferencelist=("plain",))
-                text = (body.get_content() if body is not None else "").strip()
+                # The assistant-send marker is invisible zero-width characters.
+                text = (body.get_content() if body is not None else "").strip().strip("\u2063\u2064\u2062\u200b")
                 check(f"(g) {label}: the body is the fixed generic line and nothing else",
                       text == GENERIC, repr(text[:200]))
                 check(f"(g) {label}: no error detail anywhere in the mail",
