@@ -307,7 +307,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -596,9 +602,14 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
     "emails",
     "error",
-    "hours"
+    "hours",
+    "local_store_age_seconds",
+    "source",
+    "unread_total"
    ],
    "source": "install.sh"
   },
@@ -3073,7 +3084,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -4762,7 +4779,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -5045,9 +5068,14 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
     "emails",
     "error",
-    "hours"
+    "hours",
+    "local_store_age_seconds",
+    "source",
+    "unread_total"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5855,7 +5883,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -5898,7 +5932,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],

@@ -11088,7 +11088,7 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/calendar/today":
                 days = 1
 
-            status, body = build_calendar_response(days)
+            status, result = build_calendar_response(days)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
