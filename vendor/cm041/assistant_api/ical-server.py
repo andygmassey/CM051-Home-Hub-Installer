@@ -1286,6 +1286,77 @@ def _safe_float(params, key, default):
         return default, {"error": f"Invalid float value for '{key}': {raw!r}"}
 
 
+# ── Optional pagination for the two big list endpoints ───────────────────
+# /api/v1/preferences (tens of thousands of rows) and /api/v1/people. ADDITIVE:
+# a request with none of `cursor` / `fields` (and, for people, `limit`) gets
+# exactly the response it always got. `limit`, `cursor` and `fields` are the
+# only knobs. `cursor=start` asks for the first page. The cursor is opaque (base64url JSON of an offset into the
+# endpoint's own stable order, plus a version token of the set it was issued
+# for); if the set has changed since, the server answers 409 rather than
+# serve a page with gaps or duplicates, and the client restarts.
+_PAGE_MAX = 5000
+
+
+def _page_version(items, key_fn):
+    import hashlib
+    h = hashlib.sha1()
+    for it in items:
+        h.update(key_fn(it).encode("utf-8", "replace"))
+        h.update(b"\n")
+    return h.hexdigest()[:16]
+
+
+def _page_wanted(params, *, limit_counts=True):
+    """True when the request asks for any pagination feature."""
+    if params.get("cursor") or params.get("fields"):
+        return True
+    return bool(limit_counts and params.get("limit"))
+
+
+def _paginate(items, params, version):
+    """Return (page_items, meta, error_response_or_None).
+
+    limit: 1.._PAGE_MAX (default 200 once pagination is requested);
+    cursor: opaque token from a previous page; fields: comma list of keys to
+    keep on each item (unknown keys are ignored).
+    """
+    import base64
+    if not params.get("limit") and not params.get("cursor"):
+        # `fields` alone projects the whole set; it does not paginate.
+        params = dict(params, limit=[str(max(len(items), 1))])
+        unbounded = True
+    else:
+        unbounded = False
+    limit, err = _safe_int(params, "limit", 200)
+    if err or limit < 1 or (limit > _PAGE_MAX and not unbounded):
+        return None, None, ({"error": "limit must be an integer 1..%d" % _PAGE_MAX}, 400)
+    offset = 0
+    raw = (params.get("cursor") or [""])[0]
+    if raw == "start":
+        raw = ""  # explicit first page (a bare `limit` on preferences is legacy)
+    if raw:
+        try:
+            tok = json.loads(base64.urlsafe_b64decode(raw.encode() + b"=" * (-len(raw) % 4)))
+            offset, ver = int(tok["o"]), tok["v"]
+            if offset < 0:
+                raise ValueError
+        except Exception:
+            return None, None, ({"error": "invalid cursor"}, 400)
+        if ver != version:
+            return None, None, ({"error": "cursor is stale: the list changed; restart without a cursor"}, 409)
+    page = items[offset:offset + limit]
+    nxt = offset + len(page)
+    next_cursor = None
+    if nxt < len(items):
+        next_cursor = base64.urlsafe_b64encode(
+            json.dumps({"o": nxt, "v": version}).encode()).decode().rstrip("=")
+    fields = [f.strip() for f in ((params.get("fields") or [""])[0]).split(",") if f.strip()]
+    if fields:
+        page = [{k: it[k] for k in fields if isinstance(it, dict) and k in it}
+                for it in page]
+    return page, {"next_cursor": next_cursor, "page_size": len(page)}, None
+
+
 def _to_iso8601(raw):
     """Convert one of the date-ish strings we emit into ISO-8601.
 
@@ -10958,12 +11029,23 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/people":
             params = parse_qs(parsed.query)
             sort = params.get("sort", [None])[0]
+            status = 200
             try:
                 result = people_list(sort=sort)
             except Exception as e:
                 result = {"people": [], "total": 0, "degraded": True,
                           "reason": str(e), "error": str(e)}
-            self.send_response(200)
+            if _page_wanted(params) and isinstance(result.get("people"), list):
+                everyone = result["people"]
+                page, meta, perr = _paginate(
+                    everyone, params,
+                    _page_version(everyone, lambda p: str(p.get("id", ""))
+                                  if isinstance(p, dict) else str(p)))
+                if perr:
+                    result, status = perr
+                else:
+                    result = dict(result, people=page, **meta)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(result, indent=2).encode())
@@ -11673,11 +11755,14 @@ class Handler(BaseHTTPRequestHandler):
             domain = domain_vals[0].strip() if domain_vals else None
             polarity_vals = params.get("polarity") or []
             polarity = polarity_vals[0].strip() if polarity_vals else None
+            paged = bool(params.get("cursor") or params.get("fields"))
+            status = 200
             try:
                 result = api_preferences(
                     domain=domain or None,
                     min_confidence=min_conf,
-                    limit=limit,
+                    # Cursor/fields paginate the whole filtered set themselves.
+                    limit=0 if paged else limit,
                     polarity=polarity or None,
                 )
             except Exception as exc:
@@ -11687,7 +11772,25 @@ class Handler(BaseHTTPRequestHandler):
                     "degraded": True,
                     "reason": str(exc)[:200],
                 }
-            self.send_response(200)
+            if paged and isinstance(result.get("interests"), list):
+                allrows = result["interests"]
+                # The artefact's own stamp plus the filter, and the length,
+                # name the set a cursor was issued for.
+                version = "%s|%s|%s|%s|%s|%d" % (
+                    result.get("generated_at"), domain, polarity, min_conf,
+                    result.get("schema_version"), len(allrows))
+                pparams = dict(params)
+                if limit and limit > 0:
+                    pparams["limit"] = [str(limit)]
+                else:
+                    pparams.pop("limit", None)
+                page, meta, perr = _paginate(allrows, pparams, version)
+                if perr:
+                    result, status = perr
+                else:
+                    result = dict(result, interests=page, count=len(page),
+                                  total=len(allrows), **meta)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(result, indent=2).encode())

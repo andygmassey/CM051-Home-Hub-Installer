@@ -22,6 +22,8 @@ on:
       - 'vendor/doctor/agent/diagnostic_copy.py'
       - 'scripts/box_walk_probes/probes/people_seed_and_retrieval.sh'
       - 'tests/test_memory_assert_answers_inside_the_probe_timeout.py'
+      - 'tests/test_api_list_pagination_is_additive.py'
+      - 'tests/fixtures/pagination_golden_*.json'
       - '.github/workflows/memory-assert-answers-under-load.yml'
   push:
     branches: [main]
@@ -46,3 +48,5 @@ jobs:
         run: python3 -m pip install --quiet cryptography httpx pytest pyoxigraph
       - name: memory/assert answers inside the probe's timeout while the model is busy
         run: python3 -m pytest -v tests/test_memory_assert_answers_inside_the_probe_timeout.py
+      - name: preferences and people pagination is additive
+        run: python3 -m pytest -v tests/test_api_list_pagination_is_additive.py
