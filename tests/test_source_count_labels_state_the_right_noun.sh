@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ostler #30 walk: Doctor Data sources rows named the wrong thing.
+# The count shown on a Data sources row must state the right unit.
 #   Mail: "28 emails (most recent check)" shown as if it were the total
 #   WhatsApp: DM-chat count labelled "messages"
 #   Safari: visits labelled "web pages"; Photos: events labelled "photos"
