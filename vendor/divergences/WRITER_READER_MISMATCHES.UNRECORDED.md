@@ -1279,3 +1279,19 @@ Tree `ostler_fda`. `vendor/ostler_fda/apple_music.py`: `read_native_library` is 
 ### What a future sync must preserve
 
 `library_from_helper_output` in `apple_music.py` and its single call at the end of `read_native_library`. Losing it leaves `apple_music_refresh.py` importing a name that does not exist, and the scheduled refresh logs `could not look` forever.
+
+---
+
+## doctor: live Time Machine exclusion rule (walk #28, sweep I1)
+
+`vendor/doctor/agent/diagnostic_rules.py` gains `_tm_isexcluded()` and
+`check_time_machine_exclusion()` (registered last in `ALL_RULES`);
+`vendor/doctor/agent/diagnostic_copy.py` gains the `TM_*` copy. The rule asks
+`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Documents/Ostler`
+and `~/.colima` (each only if it exists): "[Excluded]" is silent, "[Included]"
+is a warning naming the folder ("Ostler's secrets folder is NOT excluded from
+Time Machine" for `~/.ostler`), anything else is an info "could not check",
+never a pass. Not applicable off macOS when tmutil is absent. The installer
+half is in install.sh `_ostler_harden_at_rest`. `doctor.patch` is NOT
+regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
+`tests/test_time_machine_exclusion_is_measured.sh` (vendor-integrity.yml).

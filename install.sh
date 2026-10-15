@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8456) captures the path BY
+    # _ostler_write_store_curl_config (defined :8504) captures the path BY
     # VALUE and never re-reads it:
-    #     :8457   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8502   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8511 and :15558, both of which run
+    #     :8505   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8550   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8559 and :15606, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16338, where the note reads
+    # WhatsApp Web session path did it again at :16386, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16355 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16403 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5964 against a definition at :8456. Top-level
+    # writer's own definition: :5964 against a definition at :8504. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8511, :15558) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8559, :15606) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18497 / :18675 / :18832 / :19259 path. There the
+    # :18549 / :18727 / :18884 / :19311 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8104,16 +8104,64 @@ fi
 # ~/.colima is added to the exclusion set (FIX-RT2-F4); the Colima
 # image as a whole is otherwise rebuildable state.
 #
-# All best-effort + idempotent: a marker that already exists or an
-# exclusion already set is a no-op, and a tmutil / touch failure
-# must never abort the install.
+# Idempotent, and a failure never aborts the install. But it is no longer
+# silent: this used to be `tmutil addexclusion ... 2>/dev/null || true`
+# followed by an unconditional green "excluded from ... Time Machine
+# backups", so a refused exclusion sent the secrets folder, the .env and
+# the plaintext graph to a backup disk while the install said it had not.
+# Each exclusion is now READ BACK with `tmutil isexcluded`, and only a
+# "[Excluded]" answer counts. Measured output, macOS 26: "[Excluded]  <p>",
+# "[Included]  <p>", "[UNKNOWN]   <p>" (missing path), all exit 0, so the
+# exit code alone cannot answer it.
+#
+# _ostler_tm_excluded <path>: 0 excluded, 1 measured as [Included], 2 tmutil
+# absent, 4 could not be checked (tmutil errored, or answered [UNKNOWN] or
+# something unrecognised; its text is left in _OSTLER_TM_ANSWER). Only 1 means
+# "still included"; 4 must never be reported as a measurement.
+_OSTLER_TM_ANSWER=""
+_ostler_tm_excluded() {
+    local _out _rc=0
+    _OSTLER_TM_ANSWER=""
+    command -v tmutil >/dev/null 2>&1 || return 2
+    _out="$(tmutil isexcluded "$1" 2>&1)" || _rc=$?
+    if [[ $_rc -ne 0 ]]; then _OSTLER_TM_ANSWER="$_out"; return 4; fi
+    case "$_out" in
+        "[Excluded]"*) return 0 ;;
+        "[Included]"*) return 1 ;;
+        *) _OSTLER_TM_ANSWER="$_out"; return 4 ;;
+    esac
+}
+# _ostler_harden_at_rest <dir>: 0 when BOTH the Spotlight marker and the
+# Time Machine exclusion are measured in place, 1 otherwise, 3 when the
+# directory does not exist (nothing to exclude). On 1, _OSTLER_HARDEN_PROBLEM
+# says which half failed and what tmutil said.
+_OSTLER_HARDEN_PROBLEM=""
 _ostler_harden_at_rest() {
-    local _dir="$1"
-    [[ -d "$_dir" ]] || return 0
+    local _dir="$1" _add_err="" _rc=0
+    _OSTLER_HARDEN_PROBLEM=""
+    [[ -d "$_dir" ]] || return 3
     # Spotlight opt-out marker.
     touch "${_dir}/.metadata_never_index" 2>/dev/null || true
+    if [[ ! -f "${_dir}/.metadata_never_index" ]]; then
+        _OSTLER_HARDEN_PROBLEM="Spotlight marker could not be written"
+        _rc=1
+    fi
     # Time Machine exclusion (per-path xattr form -- no root needed).
-    tmutil addexclusion "$_dir" 2>/dev/null || true
+    if command -v tmutil >/dev/null 2>&1; then
+        _add_err="$(tmutil addexclusion "$_dir" 2>&1)" || true
+    fi
+    local _tm=0
+    _ostler_tm_excluded "$_dir" || _tm=$?
+    case $_tm in
+        0) ;;
+        2) _OSTLER_HARDEN_PROBLEM="${_OSTLER_HARDEN_PROBLEM:+${_OSTLER_HARDEN_PROBLEM}; }tmutil is not available, so the exclusion could not be set or checked"
+           _rc=1 ;;
+        1) _OSTLER_HARDEN_PROBLEM="${_OSTLER_HARDEN_PROBLEM:+${_OSTLER_HARDEN_PROBLEM}; }Time Machine still includes it${_add_err:+ (tmutil: ${_add_err})}"
+           _rc=1 ;;
+        *) _OSTLER_HARDEN_PROBLEM="${_OSTLER_HARDEN_PROBLEM:+${_OSTLER_HARDEN_PROBLEM}; }whether Time Machine includes it could not be checked${_OSTLER_TM_ANSWER:+ (tmutil: ${_OSTLER_TM_ANSWER})}${_add_err:+ (addexclusion: ${_add_err})}"
+           _rc=1 ;;
+    esac
+    return "$_rc"
 }
 # FIX-RT2-F3 (v1.0.10 red-team wave 2): the at-rest hardening call
 # used to live HERE, but at this point in the fresh-install flow
@@ -17020,8 +17068,12 @@ except Exception as e:
             # some harnesses, and a missing exclusion is not a reason to
             # fail an otherwise good install. The at-rest boundary is
             # still FileVault either way.
+            # Read back, never assumed: a refused exclusion is named.
             if command -v tmutil &>/dev/null; then
                 tmutil addexclusion "$DB_KEY_FILE" &>/dev/null || true
+            fi
+            if ! _ostler_tm_excluded "$DB_KEY_FILE"; then
+                warn "$(printf "$MSG_WARN_DB_KEY_NOT_EXCLUDED" "$DB_KEY_FILE")"
             fi
 
             # ── UPGRADE PATH: what already exists is still plaintext ──
@@ -19288,10 +19340,36 @@ _ostler_stage_assistant_daemon
 # copies off-box. Colima has already been started (docker bring-up
 # above) so ~/.colima exists here; the helper no-ops harmlessly if not.
 info "Applying at-rest hardening (Spotlight + Time Machine exclusions) to the Ostler data trees..."
-_ostler_harden_at_rest "$OSTLER_DIR"
-_ostler_harden_at_rest "$USER_FACING_ROOT"
-_ostler_harden_at_rest "${HOME}/.colima"
-ok "At-rest hardening applied: ${OSTLER_DIR}, ${USER_FACING_ROOT} and ${HOME}/.colima are excluded from Spotlight indexing and Time Machine backups."
+# Say only what was MEASURED: the green line lists the folders whose
+# exclusion was read back, and every other folder is named in a warning.
+# The Doctor re-checks the same folders live (check_time_machine_exclusion),
+# so a failure here is still visible after the install log scrolls away.
+_harden_done=()
+# `|| _harden_rc=$?` and not a bare call: this runs under set -e and an ERR
+# trap, and a folder that could not be excluded must be reported, not abort
+# the install. One call per folder, kept as separate lines on purpose
+# (tests/test_v1010_at_rest_exclusions.sh pins each call and its position).
+_harden_note() {
+    case "$2" in
+        0) _harden_done+=("$1") ;;
+        3) info "$(printf "$MSG_INFO_AT_REST_FOLDER_ABSENT" "$1")" ;;
+        *) warn "$(printf "$MSG_WARN_AT_REST_NOT_EXCLUDED" "$1" "$_OSTLER_HARDEN_PROBLEM")" ;;
+    esac
+}
+_harden_rc=0
+_ostler_harden_at_rest "$OSTLER_DIR" || _harden_rc=$?
+_harden_note "$OSTLER_DIR" "$_harden_rc"
+_harden_rc=0
+_ostler_harden_at_rest "$USER_FACING_ROOT" || _harden_rc=$?
+_harden_note "$USER_FACING_ROOT" "$_harden_rc"
+_harden_rc=0
+_ostler_harden_at_rest "${HOME}/.colima" || _harden_rc=$?
+_harden_note "${HOME}/.colima" "$_harden_rc"
+if [[ ${#_harden_done[@]} -gt 0 ]]; then
+    ok "$(printf "$MSG_OK_AT_REST_EXCLUDED" "$(printf '%s, ' "${_harden_done[@]}" | sed 's/, $//')")"
+fi
+unset _harden_done _harden_rc
+unset -f _harden_note
 # TRADEOFF (surfaced for Andy/Archie): excluding ${USER_FACING_ROOT}
 # from Time Machine means the customer's generated wiki + Obsidian
 # vault + transcripts are NOT captured by TM. That is deliberate --

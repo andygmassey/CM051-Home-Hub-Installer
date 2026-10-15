@@ -27,6 +27,15 @@ from typing import Any
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    TM_SECRETS_NOT_EXCLUDED_TITLE,
+    TM_FOLDER_NOT_EXCLUDED_TITLE_FMT,
+    TM_NOT_EXCLUDED_DETAIL_FMT,
+    TM_NOT_EXCLUDED_FIX,
+    TM_NOT_EXCLUDED_FIX_COMMAND_FMT,
+    TM_CANNOT_CHECK_TITLE,
+    TM_CANNOT_CHECK_DETAIL_FMT,
+    TM_CANNOT_CHECK_FIX,
+    TM_CANNOT_CHECK_FIX_COMMAND,
     MEMORY_UNREADABLE_TITLE,
     MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
     MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
@@ -2416,6 +2425,86 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _tm_isexcluded(path: str) -> "tuple[str, str]":
+    """Query tmutil about one path, LIVE.
+
+    Returns ("excluded" | "included" | "cannot", detail). Measured output on
+    macOS 26: "[Excluded]  <p>", "[Included]  <p>", "[UNKNOWN]   <p>", all
+    exit 0, so only the leading tag answers the question. Anything that is
+    not a readable tag is "cannot": a check that did not run is not a pass.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(["tmutil", "isexcluded", path],
+                              capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        return "cannot", "tmutil not found"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "cannot", f"{type(exc).__name__}"
+    out = (proc.stdout or "").strip()
+    if out.startswith("[Excluded]"):
+        return "excluded", out
+    if out.startswith("[Included]"):
+        return "included", out
+    return "cannot", (out or (proc.stderr or "").strip() or f"exit {proc.returncode}")[:120]
+
+
+def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
+    """The folders the installer excludes from Time Machine are STILL excluded.
+
+    Status-honesty sweep I1: the installer used to print "excluded from Time
+    Machine backups" after `tmutil addexclusion ... 2>/dev/null || true`, so a
+    refused exclusion was reported as done. The installer now reads it back,
+    and this rule asks again on every Doctor run, so a failure (or an
+    exclusion removed later) stays visible. A folder that does not exist has
+    nothing to back up and is skipped.
+    """
+    import shutil
+    import sys
+    if sys.platform != "darwin" and shutil.which("tmutil") is None:
+        # No Time Machine on this platform at all: not applicable, rather
+        # than a check that failed to run. On a Mac tmutil is part of the OS,
+        # so its absence there IS reported (as "could not check") below.
+        return []
+    home = os.path.expanduser("~")
+    secrets_dir = os.path.join(home, ".ostler")
+    folders = [secrets_dir, os.path.join(home, "Documents", "Ostler"),
+               os.path.join(home, ".colima")]
+    findings: list[dict] = []
+    cannot: list[str] = []
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue
+        state, detail = _tm_isexcluded(folder)
+        if state == "excluded":
+            continue
+        if state == "cannot":
+            cannot.append(detail)
+            continue
+        findings.append({
+            "severity": "warning",
+            "title": (TM_SECRETS_NOT_EXCLUDED_TITLE if folder == secrets_dir
+                      else TM_FOLDER_NOT_EXCLUDED_TITLE_FMT.format(folder=folder)),
+            "detail": TM_NOT_EXCLUDED_DETAIL_FMT.format(folder=folder),
+            "fix": TM_NOT_EXCLUDED_FIX,
+            "fix_command": TM_NOT_EXCLUDED_FIX_COMMAND_FMT.format(folder=folder),
+            "risk": "low",
+            "category": "privacy",
+            "folder": folder,
+        })
+    if cannot:
+        findings.append({
+            "severity": "warning",
+            "title": TM_CANNOT_CHECK_TITLE,
+            "detail": TM_CANNOT_CHECK_DETAIL_FMT.format(reason=cannot[0]),
+            "fix": TM_CANNOT_CHECK_FIX,
+            "fix_command": TM_CANNOT_CHECK_FIX_COMMAND,
+            "risk": "low",
+            "category": "privacy",
+        })
+    return findings
+
+
 def _ostler_subscription_state_path() -> str:
     """Returns the canonical ~/.ostler/state/subscription_state.json path.
 
@@ -2597,6 +2686,7 @@ ALL_RULES = [
     check_conversation_dispatch_failures,
     check_licence_expiry,
     check_parked_facts,
+    check_time_machine_exclusion,
 ]
 
 
