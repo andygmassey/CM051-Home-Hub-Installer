@@ -1,0 +1,38 @@
+name: exact-identifier-merge
+
+# Two nodes that share an exact email, E.164 mobile or canonical LinkedIn URL,
+# and carry the same full name, are one person even when they are two Contacts
+# cards. Runs the REAL BatchResolver (detect, execute, converge, undo) against
+# an in-memory rdflib store. Synthetic data only. See
+# vendor/cm041/identity_resolver/exact_identifier.py for the rule.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/cm041/identity_resolver/**'
+      - 'tests/test_exact_identifier_merge.py'
+      - '.github/workflows/exact-identifier-merge.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  exact-identifier-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the resolver's declared dependencies plus the test store
+        run: |
+          python3 -m pip install --quiet --break-system-packages --ignore-installed \
+            -r vendor/cm041/identity_resolver/requirements.txt rdflib pytest pyyaml \
+          || python3 -m pip install --quiet --ignore-installed \
+            -r vendor/cm041/identity_resolver/requirements.txt rdflib pytest pyyaml
+      - name: Exact shared identifier merges, with vetoes, guard, journal and undo
+        run: python3 -m pytest -q tests/test_exact_identifier_merge.py
