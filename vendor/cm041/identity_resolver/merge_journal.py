@@ -13,8 +13,11 @@ node. ``undo_merge`` upserts those points back and deletes any point for the
 pair that was not in the snapshot, THEN restores the graph. Qdrant goes first
 because upsert is idempotent; if it fails nothing in the graph has changed and
 the undo can simply be run again. The one honest limit: if Qdrant was
-unreachable when the merge ran, no vector snapshot exists, and ``undo_merge``
-says so (``qdrant_restored: False`` with the reason) rather than claiming it.
+unreachable, ``record_merge`` raises SnapshotUnavailable and the pair is NOT
+merged (journalled as a ``skip`` with reason ``qdrant_unavailable``; the next
+converge retries it). So every merge written by this code has a vector
+snapshot. ``qdrant_restored: False`` can now only come from a journal written
+by older code, and ``undo_merge`` says so rather than claiming otherwise.
 Cosine collections re-normalise stored vectors, so a restored vector can differ
 from the snapshot in the last float bit; ids and payloads are exact.
 
@@ -56,6 +59,13 @@ ObjTriple = Tuple[str, str]          # (subject, predicate)
 
 class UndoError(Exception):
     """The undo was refused; nothing was written."""
+
+
+class SnapshotUnavailable(Exception):
+    """The pre-merge Qdrant snapshot could not be taken. No snapshot, no
+    merge: the caller skips the pair (reason ``qdrant_unavailable``) and the
+    next converge retries it. Not a refusal, not a pin."""
+    reason = "qdrant_unavailable"
 
 
 # -- SPARQL plumbing ---------------------------------------------------------
@@ -111,6 +121,11 @@ def snapshot_qdrant(qdrant_url: str, collection: str, uris: List[str]) -> Dict[s
         from qdrant_client import QdrantClient, models
         client = QdrantClient(url=qdrant_url, timeout=30)
         ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, u)) for u in uris]
+        if not client.collection_exists(collection):
+            # Reachable, but no people collection yet: there are no vectors
+            # to lose, so an empty snapshot is a true one.
+            return {"status": "ok", "collection": collection, "pair_ids": ids,
+                    "points": []}
         found: Dict[str, Any] = {}
         for r in client.retrieve(collection_name=collection, ids=ids,
                                  with_payload=True, with_vectors=True):
@@ -197,11 +212,17 @@ def record_merge(
     proceed (the caller treats the exception as a refusal)."""
     _private_dir(journal_dir)
     _private_dir(os.path.join(journal_dir, SNAP_DIR))
+    qsnap = None
+    if qdrant_url:
+        # Take the vector snapshot FIRST: if it cannot be taken nothing has
+        # been written, not even a snapshot file.
+        qsnap = snapshot_qdrant(qdrant_url, qdrant_collection, [keep_uri, discard_uri])
+        if qsnap["status"] != "ok":
+            raise SnapshotUnavailable(qsnap.get("reason", ""))
     merge_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
     snap: Dict[str, Any] = {"keep": keep_uri, "discard": discard_uri, "nodes": {}}
-    if qdrant_url:
-        snap["qdrant"] = snapshot_qdrant(qdrant_url, qdrant_collection,
-                                         [keep_uri, discard_uri])
+    if qsnap is not None:
+        snap["qdrant"] = qsnap
     for uri in (keep_uri, discard_uri):
         subj, obj = read_node(url, client, uri)
         snap["nodes"][uri] = {
@@ -222,6 +243,16 @@ def record_merge(
     _write_private(os.path.join(journal_dir, JOURNAL_NAME),
                    json.dumps(entry) + "\n", append=True)
     return merge_id
+
+
+def record_skip(journal_dir: str, keep_uri: str, discard_uri: str, reason: str,
+                detail: str = "") -> None:
+    """Journal a pair that was NOT merged and why. Carries no identifier values."""
+    _private_dir(journal_dir)
+    _write_private(os.path.join(journal_dir, JOURNAL_NAME), json.dumps({
+        "kind": "skip", "reason": reason, "detail": detail,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "keep": keep_uri, "discard": discard_uri}) + "\n", append=True)
 
 
 def read_journal(journal_dir: str) -> List[Dict[str, Any]]:
