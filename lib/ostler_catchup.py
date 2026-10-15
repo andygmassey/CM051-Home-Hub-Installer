@@ -367,6 +367,18 @@ def read_all_watermarks(directory: Optional[Path] = None) -> List[dict]:
 
 # ── adapter contract ─────────────────────────────────────────────────────────
 
+class CannotRun(Exception):
+    """Raised by an adapter's ``next_batch`` or ``process`` when the source
+    cannot be READ right now (permission refused, store unreadable, schema not
+    recognised). Not an item failure: it is never counted as an attempt, never
+    quarantines anything, never marks the walk complete, and the Doctor says so.
+    ``reason`` is a short code, never content."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = str(reason)
+
+
 @dataclass
 class Batch:
     items: list
@@ -457,6 +469,12 @@ def run(
                     # cannot even find its edge must not end the whole tick.
                     cursor = wm.cursor if wm.has_cursor else a.start_cursor()
                     batch = a.next_batch(cursor, max(1, int(a.batch_size or DEFAULT_BATCH_SIZE)))
+                except CannotRun as exc:
+                    st["reason"] = "cannot_run:" + exc.reason
+                    wm.cannot_run = exc.reason
+                    active.remove(a)
+                    wm.save()
+                    continue
                 except Exception as exc:  # noqa: BLE001 - one source never stops the others
                     logger.warning("catch-up %s: reading the next batch failed (%s)",
                                    a.source, type(exc).__name__)
@@ -474,6 +492,7 @@ def run(
                 wm.cannot_run = None
 
                 finished = True
+                blocked: Optional[str] = None
                 for item in batch.items:
                     if out_of_time():
                         stop, finished = "budget", False
@@ -491,6 +510,9 @@ def run(
                         continue
                     try:
                         ok = bool(a.process(item))
+                    except CannotRun as exc:
+                        blocked, finished = exc.reason, False
+                        break
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("catch-up %s: an item failed (%s)", a.source, type(exc).__name__)
                         ok = False
@@ -511,6 +533,13 @@ def run(
                     ledger.add(a.source, k)
                     st["items"] += 1
                     wm.items_done += 1
+
+                if blocked is not None:
+                    st["reason"] = "cannot_run:" + blocked
+                    wm.cannot_run = blocked
+                    active.remove(a)
+                    wm.save()
+                    continue
 
                 if not finished:
                     # The cursor stays put: the next tick re-reads this batch
