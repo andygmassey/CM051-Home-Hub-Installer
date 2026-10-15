@@ -99,55 +99,6 @@ def noreply_reason(addr: Optional[str]) -> Optional[str]:
     return None
 
 
-# Well-known event, calendar, messaging, commerce and professional-services
-# names (Ostler #30: "Luma", "Mckinsey" listed as people). Single tokens only;
-# ambiguous surnames and words are deliberately absent. MIRRORED in CM044
-# compiler/org_names.py (the wiki reader); keep the two in step.
-ORG_SERVICE_TOKENS = frozenset({
-    "luma", "eventbrite", "meetup", "calendly", "doodle", "zoom", "webex",
-    "gotomeeting", "whereby", "cal",
-    "linkedin", "facebook", "instagram", "twitter", "github", "gitlab",
-    "slack", "notion", "figma", "canva", "trello", "asana", "atlassian",
-    "dropbox", "docusign", "zapier", "typeform", "mailchimp", "hubspot",
-    "substack", "airtable", "shopify", "squarespace", "wix", "paypal",
-    "airbnb", "uber", "deliveroo", "spotify", "netflix", "revolut", "monzo",
-    "mckinsey", "deloitte", "pwc", "kpmg", "accenture", "capgemini",
-    "gartner", "forrester", "salesforce", "oracle", "microsoft", "google",
-    "amazon", "apple",
-})
-
-
-# Service domains whose first label is not the service's name.
-_SERVICE_DOMAINS = frozenset({"lu.ma"})
-
-_GENERIC_MAILBOXES = frozenset({
-    "hello", "hi", "hey", "team", "events", "event", "invite", "invites",
-    "calendar", "calendar-invite", "info", "support", "help", "news",
-    "newsletter", "updates", "contact", "community", "members", "host",
-})
-
-
-def organisation_reason(addr: Optional[str]) -> Optional[str]:
-    """Why this ADDRESS belongs to an organisation or service rather than a
-    person, or None. Distinct from ``noreply_reason``: the sender is real and
-    worth keeping, but as an Organisation (contactType "organisation"), never
-    as a Person. Two shapes: the local part IS a known name (a firm's name before the at sign),
-    or a generic mailbox sits on a known service's own domain."""
-    a = _norm(addr)
-    if not a:
-        return None
-    local, _, domain = a.partition("@")
-    local = re.sub(r"[-._]?\d+$", "", local.split("+", 1)[0])
-    if local in ORG_SERVICE_TOKENS:
-        return "known-organisation"
-    # A person can work AT a known firm, so the domain
-    # alone proves nothing; it counts only for a generic mailbox on it.
-    if local in _GENERIC_MAILBOXES and (
-            domain.split(".", 1)[0] in ORG_SERVICE_TOKENS or domain in _SERVICE_DOMAINS):
-        return "service-domain"
-    return None
-
-
 def header_reason(headers: Mapping[str, str]) -> Optional[str]:
     """Why a message with these headers is machine mail, or None."""
     h = {str(k).lower(): (v or "").strip() for k, v in (headers or {}).items()}

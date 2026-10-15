@@ -383,13 +383,6 @@ def _is_kinship_composed_label(value: str) -> bool:
     return parts[0] in words and parts[0] not in _KINSHIP_AMBIGUOUS
 
 
-def _contact_type_for(address: str) -> str:
-    """"organisation" when the address is a known organisation or service
-    (Ostler #30: "Luma", "Mckinsey" were minted as people), else "person".
-    The node is kept, not dropped: the sender is real, just not a human."""
-    return "organisation" if _machine_senders.organisation_reason(address) else "person"
-
-
 def _creation_name_triples(person_uri: str, value: str) -> list:
     """The displayName triples for a person node being CREATED.
 
@@ -1441,7 +1434,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
                 elif not exists:
                     triples = [
                         f"<{uri}> a pwg:Person",
-                        f'<{uri}> pwg:contactType "{_contact_type_for(attendee)}"',
+                        f'<{uri}> pwg:contactType "person"',
                         f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                         f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                         f'<{uri}> pwg:source "calendar_fda"',
@@ -1850,7 +1843,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         elif not exists:
             triples = [
                 f"<{uri}> a pwg:Person",
-                f'<{uri}> pwg:contactType "{_contact_type_for(email)}"',
+                f'<{uri}> pwg:contactType "person"',
                 f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                 f'<{uri}> pwg:source "apple_mail_fda"',
             ]

@@ -447,7 +447,7 @@ note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py
 
 [[tree]]
 name             = "ostler_fda"
-  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.  # 2026-10-15 Ostler #30: see the section appended to this file
+  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh ostler_fda was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
 expires = "2026-10-15"
 owner = "archie"
