@@ -22,6 +22,12 @@ them (builtins.open, io.open, os.open, pathlib, sqlite3). The positive control
 proves it fires on a deliberate open of the synthetic chat.db, so a quiet
 hook cannot pass the suite.
 
+THREE STATES (review of the first cut): a Mac where install.sh never set the
+iMessage feed up (third-party consent not accepted, or no chat.db, so no feed
+LaunchAgent) never gets a snapshot, and must say "Messages isn't connected",
+never "couldn't check, will check again shortly". The decision is read from
+what the install wrote (the consent registry and the feed's LaunchAgent).
+
 Synthetic data only: every handle is an example.invalid address or a
 reserved 555 number, every name a cast placeholder.
 """
@@ -114,6 +120,38 @@ def make_chat_db(path: Path, now: datetime) -> None:
         conn.execute("INSERT INTO chat_message_join VALUES (?, ?)", (chat, rowid))
     conn.commit()
     conn.close()
+
+
+FEED_PLIST = "com.creativemachines.ostler.imessage-bundle.plist"
+
+_RECORD_CONSENT = textwrap.dedent(
+    r"""
+    import sys
+    from ostler_security import consent
+    consent.record_consent("third_party_data_personal_records", "synthetic wording",
+                           "test-1", sys.argv[1], "uk", wording_hash="0" * 64)
+    """
+)
+
+
+def record_consent(home: Path, decision: str) -> None:
+    env = {"HOME": str(home), "PATH": os.environ.get("PATH", ""),
+           "PYTHONDONTWRITEBYTECODE": "1"}
+    proc = subprocess.run([sys.executable, "-c", _RECORD_CONSENT, decision],
+                          env=env, capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+
+
+def install_feed_plist(home: Path) -> None:
+    la = home / "Library" / "LaunchAgents"
+    la.mkdir(parents=True, exist_ok=True)
+    (la / FEED_PLIST).write_text("<plist/>", encoding="utf-8")
+
+
+def connect(home: Path) -> None:
+    """What install.sh leaves when it installs the iMessage feed."""
+    record_consent(home, "accepted")
+    install_feed_plist(home)
 
 
 def snapshot_path(home: Path) -> Path:
@@ -229,6 +267,7 @@ def test_control_the_audit_hook_sees_a_chat_db_open(home, now):
 
 def test_reply_debt_never_opens_chat_db_even_when_it_is_readable(home, now):
     """A readable chat.db is the most tempting case: main reads it."""
+    connect(home)
     make_chat_db(home / "Library" / "Messages" / "chat.db", now)
     write_snapshot(home, ok_snapshot(now))
     out = run_endpoint(home)
@@ -240,6 +279,7 @@ def test_reply_debt_never_opens_chat_db_even_when_it_is_readable(home, now):
 
 
 def test_reply_debt_never_opens_chat_db_when_no_snapshot(home, now):
+    connect(home)
     make_chat_db(home / "Library" / "Messages" / "chat.db", now)
     out = run_endpoint(home)
     assert out["opened"] == [], f"ical-server opened protected paths: {out['opened']}"
@@ -263,6 +303,7 @@ def test_unreadable_messages_is_degraded_not_all_clear(home, now):
     it (chmod 000 stands in for the TCC denial), and no snapshot yet."""
     if os.geteuid() == 0:
         pytest.skip("root ignores chmod 000; the denial cannot be staged")
+    connect(home)
     db = home / "Library" / "Messages" / "chat.db"
     make_chat_db(db, now)
     db.chmod(0)
@@ -274,6 +315,7 @@ def test_unreadable_messages_is_degraded_not_all_clear(home, now):
 
 
 def test_feed_that_could_not_read_messages_is_degraded(home, now):
+    connect(home)
     write_snapshot(home, {"schema": 1, "status": "unreadable",
                           "generated_at": now.isoformat(),
                           "reason": "Cannot read iMessage history."})
@@ -281,11 +323,13 @@ def test_feed_that_could_not_read_messages_is_degraded(home, now):
 
 
 def test_stale_snapshot_is_degraded(home, now):
+    connect(home)
     write_snapshot(home, ok_snapshot(now, generated=now - timedelta(hours=30)))
     _assert_degraded(run_endpoint(home)["payload"], "imessage_snapshot_stale")
 
 
 def test_malformed_snapshot_is_degraded(home, now):
+    connect(home)
     p = snapshot_path(home)
     p.parent.mkdir(parents=True)
     p.write_text("{not json", encoding="utf-8")
@@ -295,12 +339,34 @@ def test_malformed_snapshot_is_degraded(home, now):
 def test_genuinely_nothing_owed_is_still_the_all_clear(home, now):
     """The control for the degraded arm: a readable source with no debt
     still says caught up, so the tests above discriminate."""
+    connect(home)
     snap = ok_snapshot(now)
     snap["threads"] = snap["threads"][1:]  # only the owner-last thread
     write_snapshot(home, snap)
     p = run_endpoint(home)["payload"]
     assert p["degraded"] is False and p["count"] == 0, p
     assert ALL_CLEAR in p["brief_line"].lower(), p
+
+
+def test_no_consent_is_not_connected_not_couldnt_check(home, now):
+    """Third-party consent never accepted: install.sh skipped the feed, so
+    there will never be a snapshot. Not "couldn't check"."""
+    make_chat_db(home / "Library" / "Messages" / "chat.db", now)
+    out = run_endpoint(home)
+    assert out["opened"] == [], out["opened"]
+    _assert_degraded(out["payload"], "imessage_not_connected")
+
+
+def test_declined_consent_is_not_connected(home, now):
+    record_consent(home, "declined")
+    install_feed_plist(home)  # a leftover agent does not override a decline
+    _assert_degraded(run_endpoint(home)["payload"], "imessage_not_connected")
+
+
+def test_consent_without_the_feed_is_not_connected(home, now):
+    """Consent accepted but no chat.db at install: no feed LaunchAgent."""
+    record_consent(home, "accepted")
+    _assert_degraded(run_endpoint(home)["payload"], "imessage_not_connected")
 
 
 # ---------------------------------------------------------------------------
@@ -326,9 +392,10 @@ def _adapters():
     return reply_debt_adapters, reply_debt_service
 
 
-def test_feed_writes_a_snapshot_the_endpoint_can_score(tmp_path, now):
+def test_feed_writes_a_snapshot_the_endpoint_can_score(tmp_path, now, monkeypatch):
     pipeline = _pipeline()
     adapters, service = _adapters()
+    monkeypatch.setattr(adapters, "imessage_connection_state", lambda: ("connected", ""))
     db = tmp_path / "chat.db"
     make_chat_db(db, now)
     out = tmp_path / "state" / "imessage_threads.json"
@@ -339,11 +406,12 @@ def test_feed_writes_a_snapshot_the_endpoint_can_score(tmp_path, now):
     assert [d.person_name for d in debts] == ["Pat Example"]
 
 
-def test_feed_records_an_unreadable_chat_db_rather_than_an_empty_list(tmp_path, now):
+def test_feed_records_an_unreadable_chat_db_rather_than_an_empty_list(tmp_path, now, monkeypatch):
     if os.geteuid() == 0:
         pytest.skip("root ignores chmod 000; the denial cannot be staged")
     pipeline = _pipeline()
     adapters, _ = _adapters()
+    monkeypatch.setattr(adapters, "imessage_connection_state", lambda: ("connected", ""))
     db = tmp_path / "chat.db"
     make_chat_db(db, now)
     db.chmod(0)
@@ -362,7 +430,8 @@ def test_service_shim_degrades_too(tmp_path, monkeypatch):
     import io
 
     monkeypatch.setenv("OSTLER_REPLY_DEBT_SNAPSHOT", str(tmp_path / "absent.json"))
-    _, service = _adapters()
+    adapters, service = _adapters()
+    monkeypatch.setattr(adapters, "imessage_connection_state", lambda: ("connected", ""))
 
     class H:
         def __init__(self):
@@ -400,7 +469,11 @@ def _editor():
 
 
 DEGRADED = {"count": 0, "brief_line": "", "debts": [], "degraded": True,
-            "reason": "imessage_snapshot_missing", "privacy_level": "L2"}
+            "reason": "imessage_snapshot_stale", "privacy_level": "L2"}
+NOT_CONNECTED = {"count": 0, "brief_line": "", "debts": [], "degraded": True,
+                 "reason": "imessage_not_connected", "privacy_level": "L2"}
+OWED = {"count": 1, "brief_line": "You owe a reply to 1 person:", "degraded": False,
+        "debts": [{"person_name": "Pat Example"}], "privacy_level": "L2"}
 CAUGHT_UP = {"count": 0, "brief_line": "No replies owed  -  you're all caught up.",
              "debts": [], "degraded": False, "privacy_level": "L2"}
 
@@ -426,3 +499,36 @@ def test_front_page_feed_and_html_carry_couldnt_check(now):
     html = render_frontpage.render(feed)
     assert "Couldn&#x27;t check" in html or "Couldn't check" in html
     assert ALL_CLEAR not in html.lower()
+
+
+def _card_text(cards) -> list[str]:
+    return [((c.get("title") or "") + " " + (c.get("body") or "")).lower() for c in cards]
+
+
+@pytest.mark.parametrize("state", ["connected", "stale", "not_connected"])
+def test_editor_three_states(now, state):
+    """connected: the normal card (or none at zero); stale: "couldn't check,
+    will check again"; not connected: plainly not connected, no retry promise."""
+    _, _, signals = _editor()
+    raw = {"connected": OWED, "stale": DEGRADED, "not_connected": NOT_CONNECTED}[state]
+    texts = _card_text(signals.build_signal_cards({"reply_debt": raw}, now))
+    assert len(texts) == 1, texts
+    t = texts[0]
+    if state == "connected":
+        assert "waiting on you" in t and "couldn't" not in t and "isn't connected" not in t, t
+    elif state == "stale":
+        assert "couldn't check" in t and "again shortly" in t, t
+        assert "isn't connected" not in t, t
+    else:
+        assert "messages isn't connected" in t, t
+        assert "again" not in t and "shortly" not in t and "couldn't" not in t, t
+    assert ALL_CLEAR not in t, t
+
+
+def test_front_page_html_says_not_connected(now):
+    frontpage, render_frontpage, _ = _editor()
+    feed = frontpage.build_frontpage({"interests": []}, now=now,
+                                     signals={"reply_debt": NOT_CONNECTED})
+    html = render_frontpage.render(feed)
+    assert "Messages isn&#x27;t connected" in html or "Messages isn't connected" in html
+    assert "again shortly" not in html and ALL_CLEAR not in html.lower()

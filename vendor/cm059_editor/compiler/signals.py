@@ -69,6 +69,12 @@ _STRINGS = {
     "reply_debt_unchecked_body": ("Ostler could not read your messages just "
                                   "now, so this is not an all-clear. It will "
                                   "check again shortly."),
+    # Messages was never set up as a source on this Mac (no consent, or no
+    # Messages history at install). Plain, and no promise to retry.
+    "reply_debt_not_connected_title": "Messages isn't connected",
+    "reply_debt_not_connected_body": ("Ostler isn't reading Messages on this "
+                                      "Mac, so it can't tell who is waiting "
+                                      "on a reply there."),
     "gone_quiet_title": "You and {name} have gone quiet",
     "gone_quiet_body": ("No contact for {span}. A short message keeps "
                         "the thread alive."),
@@ -418,18 +424,32 @@ def reply_debt_degraded(raw) -> bool:
     return isinstance(raw, dict) and bool(raw.get("degraded"))
 
 
-def reply_debt_unchecked_card(now: datetime, ledger=None):
-    """The "couldn't check" card. Names nobody and quotes nothing, so it is
-    safe at L2. No action: there is no list to open."""
-    cid = fp.card_id("signal", "reply_debt_unchecked")
+# Reasons that mean "the install never set Messages up", as opposed to a
+# connected source that could not be read this time.
+_REPLY_DEBT_NOT_CONNECTED_REASONS = {"imessage_not_connected"}
+
+
+def reply_debt_not_connected(raw) -> bool:
+    return (reply_debt_degraded(raw)
+            and str(raw.get("reason") or "") in _REPLY_DEBT_NOT_CONNECTED_REASONS)
+
+
+def reply_debt_unchecked_card(now: datetime, ledger=None, not_connected=False):
+    """The "couldn't check" card, or, when Messages was never connected, the
+    plain "Messages isn't connected" card (no "will check again" promise).
+    Names nobody and quotes nothing, so it is safe at L2. No action."""
+    key = "reply_debt_not_connected" if not_connected else "reply_debt_unchecked"
+    cid = fp.card_id("signal", key)
     created = _ledger_created(ledger, cid, now)
     card = fp._make_card(
-        "signal", "reply_debt_unchecked",
-        title=_STRINGS["reply_debt_unchecked_title"],
-        body=_STRINGS["reply_debt_unchecked_body"], now=now,
-        domain="people", priority=fp.BAND_REPLY_DEBT * 0.25,
+        "signal", key,
+        title=_STRINGS[key + "_title"],
+        body=_STRINGS[key + "_body"], now=now,
+        domain="people",
+        priority=fp.BAND_REPLY_DEBT * (0.1 if not_connected else 0.25),
         action=None, source="ostler:conversations", privacy="L2",
-        signal={"type": "reply_debt", "unchecked": True})
+        signal={"type": "reply_debt", "unchecked": True,
+                "not_connected": bool(not_connected)})
     card["created_utc"] = fp._iso(created)
     return card
 
@@ -550,7 +570,9 @@ def build_signal_cards(raw: dict | None, now: datetime, ledger=None) -> list:
     cards: list = []
 
     if reply_debt_degraded(raw.get("reply_debt")):
-        cards.append(reply_debt_unchecked_card(now, ledger=ledger))
+        cards.append(reply_debt_unchecked_card(
+            now, ledger=ledger,
+            not_connected=reply_debt_not_connected(raw.get("reply_debt"))))
     else:
         rd = _normalise_reply_debt(raw.get("reply_debt"))
         card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)

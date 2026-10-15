@@ -142,6 +142,48 @@ def imessage_snapshot_path() -> Path:
     return base / "state" / "reply_debt" / "imessage_threads.json"
 
 
+# The iMessage feed exists only when install.sh decided to install it
+# (install.sh, "iMessage body feed"): chat.db present AND the third-party
+# consent (tickbox ``third_party_data_personal_records``) accepted. A Mac
+# without it never gets a snapshot, and reporting that as "couldn't check,
+# will try again" would be a promise nothing keeps. So the decision is read
+# from what the install WROTE, never inferred from the missing snapshot:
+#   * the durable consent registry (ostler_security.consent, the same
+#     record ``consent_cli check`` answers for the installer), and
+#   * the feed's LaunchAgent, which install.sh renders only on that branch.
+IMESSAGE_CONSENT_TICKBOX = "third_party_data_personal_records"
+IMESSAGE_FEED_LABEL = "com.creativemachines.ostler.imessage-bundle"
+
+
+def imessage_feed_plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{IMESSAGE_FEED_LABEL}.plist"
+
+
+def imessage_connection_state() -> tuple[str, str]:
+    """``("connected" | "not_connected" | "unknown", detail)``.
+
+    ``unknown`` means the consent registry could not be consulted; the caller
+    then reports "couldn't check", because guessing "not connected" would
+    hide a broken feed and guessing "connected" is what this replaces.
+    """
+    # The recorded DECISION, not wording-hash currency: a wording update
+    # flags renewal but does not uninstall a feed that is still running, and
+    # calling that "not connected" would hide a live source. Not consent_cli:
+    # it sys.exit()s when the ``legal`` package is absent, which would take
+    # the whole server down from inside a request.
+    try:
+        from ostler_security import consent as _consent
+        record = _consent.read_consent(IMESSAGE_CONSENT_TICKBOX)
+    except Exception as exc:  # noqa: BLE001 -- recorded as unknown, never guessed
+        return "unknown", f"consent registry unreadable: {type(exc).__name__}"
+    consented = isinstance(record, dict) and record.get("decision") == "accepted"
+    if not consented:
+        return "not_connected", "third-party data consent not accepted"
+    if not imessage_feed_plist_path().is_file():
+        return "not_connected", "the iMessage feed is not installed on this Mac"
+    return "connected", ""
+
+
 def _snapshot_max_age_hours() -> float:
     raw = (os.environ.get("OSTLER_REPLY_DEBT_MAX_AGE_HOURS") or "").strip()
     if not raw:
@@ -163,13 +205,20 @@ def load_imessage_threads(
 ) -> list[Thread]:
     """Return normalised threads from the iMessage reply-debt snapshot.
 
-    Raises ``ReplyDebtSourceUnavailable`` when the snapshot is absent,
+    Raises ``ReplyDebtSourceUnavailable`` with reason
+    ``imessage_not_connected`` when the install never set the iMessage feed up
+    (no consent, or no feed), and otherwise when the snapshot is absent,
     unreadable, malformed, stale, or records that the feed itself could not
     read Messages. A snapshot whose feed found no chat.db at all
     (``status: absent``) is a true zero and returns ``[]``.
     """
     path = snapshot_path or imessage_snapshot_path()
     now = now or datetime.now(timezone.utc)
+    state, why = imessage_connection_state()
+    if state == "not_connected":
+        raise ReplyDebtSourceUnavailable("imessage_not_connected", why)
+    if state == "unknown":
+        raise ReplyDebtSourceUnavailable("imessage_connection_unknown", why)
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -352,5 +401,6 @@ __all__ = [
     "load_imessage_threads",
     "imessage_snapshot_path",
     "ReplyDebtSourceUnavailable",
+    "imessage_connection_state",
     "thread_from_email_transcript",
 ]

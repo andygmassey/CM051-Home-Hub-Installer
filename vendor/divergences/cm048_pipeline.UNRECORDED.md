@@ -330,6 +330,15 @@ and `vendor/cm048_pipeline/src/reply_debt_service.py`.
   malformed, stale (default 6h, `OSTLER_REPLY_DEBT_MAX_AGE_HOURS`) or
   `status: unreadable` snapshots RAISE; `status: absent` (no chat.db on the Mac)
   is a true zero.
+- `reply_debt_adapters.py`, review follow-up: NEW `imessage_connection_state()`
+  (+ `IMESSAGE_CONSENT_TICKBOX`, `IMESSAGE_FEED_LABEL`,
+  `imessage_feed_plist_path()`). Before the snapshot is read, the install's
+  own decision is read: the durable consent record
+  (`ostler_security.consent.read_consent("third_party_data_personal_records")`,
+  decision `accepted`) and the feed LaunchAgent
+  `~/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist`.
+  Either missing raises reason `imessage_not_connected` (never "couldn't
+  check"); an unreadable registry raises `imessage_connection_unknown`.
 - `reply_debt_service.py`: `compute_reply_debts` no longer logs and skips a
   failing source (that is what turned "could not look" into "nothing owed");
   it re-raises as `ReplyDebtSourceUnavailable`. `reply_debt_payload` carries

@@ -76,6 +76,10 @@ Tree `cm059_editor`, file `vendor/cm059_editor/compiler/signals.py`.
   when the reply-debt payload is `degraded: true`, instead of no card, which
   read exactly like nobody waiting. The Hub's Front Page renders the same
   feed, so it shows the same card.
+- review follow-up: NEW strings `reply_debt_not_connected_title` /
+  `_body`, `reply_debt_not_connected(raw)`; `reply_debt_unchecked_card` gains
+  `not_connected=` and, for reason `imessage_not_connected`, renders "Messages
+  isn't connected" with no retry promise (signal `not_connected: true`).
 
 Guarded by `tests/test_reply_debt_never_opens_protected_data.py`. CM059
 upstream needs the same change, or a re-sync reverts it.
