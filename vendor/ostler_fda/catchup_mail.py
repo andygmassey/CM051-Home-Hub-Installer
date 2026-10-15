@@ -183,8 +183,12 @@ class MailContacts(oc.Adapter):
         res = pwg_ingest.ingest_mail_contacts(batch_dir) or {}
         if res.get("status") != "ok":
             return False
-        # A lookup that could not run is not an answer: retry next tick.
-        return not res.get("people_lookup_failed")
+        if res.get("people_lookup_failed"):
+            # The people store could not be asked: an outage, not a verdict on
+            # this correspondent. ConnectionError keeps it out of the poison
+            # count (lib/ostler_catchup.py); the item is retried next tick.
+            raise ConnectionError("people store unavailable")
+        return True
 
 
 class MailBodies(oc.Adapter):

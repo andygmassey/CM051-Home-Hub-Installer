@@ -379,3 +379,24 @@ def test_install_registers_the_mail_runner_after_the_helper_exists():
     from ostler_fda import catchup_mail
     names = sorted(a.source for a in catchup_mail.adapters())
     assert names == ["mail_bodies", "mail_contacts"], names
+
+
+# ── an outage of the sink is not a poison attempt (Archie re-review of #2903) ─
+
+@pytest.mark.parametrize("result,expect", [
+    ({"status": "ok", "people_created": 1, "people_lookup_failed": 2}, "outage"),
+    ({"status": "ok", "people_created": 1, "people_lookup_failed": 0}, True),
+    ({"status": "error"}, False),
+])
+def test_an_unreachable_people_store_is_an_outage_not_a_failed_item(tmp_path, monkeypatch, result, expect):
+    monkeypatch.setenv("OSTLER_HOME", str(tmp_path / "home"))
+    from ostler_fda import catchup_mail, pwg_ingest
+    monkeypatch.setattr(pwg_ingest, "ingest_mail_contacts", lambda d: result)
+    fda = tmp_path / "fda"
+    fda.mkdir()
+    a = catchup_mail.MailContacts(envelope_index=tmp_path / "unused", fda_dir=fda)
+    if expect == "outage":
+        with pytest.raises(ConnectionError):
+            a.process("someone@example.com")
+    else:
+        assert a.process("someone@example.com") is expect
