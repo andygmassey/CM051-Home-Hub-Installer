@@ -212,7 +212,7 @@ def test_each_refresh_is_recorded_in_source_activity_for_the_doctor(box):
     box.run()
     f = box.dir / "state" / "source_activity" / "apple_music.tsv"
     t = f.read_text()
-    assert "source=apple_music" in t and "last_status=skipped" in t and "last_success_at=\n" in t
+    assert "source=apple_music" in t and "last_status=cannot_run" in t and "last_success_at=\n" in t
     box.helper_said(payload())
     box.run()
     t = f.read_text()
@@ -220,9 +220,69 @@ def test_each_refresh_is_recorded_in_source_activity_for_the_doctor(box):
     box.helper_said(DENIED)
     box.run()
     t2 = f.read_text()
-    assert "last_status=skipped" in t2
+    assert "last_status=cannot_run" in t2
     assert [l for l in t.splitlines() if l.startswith("last_success_at")] == \
            [l for l in t2.splitlines() if l.startswith("last_success_at")], "success carried forward"
+
+
+def _tsv(o):
+    return (Path(o) / "state" / "source_activity" / "apple_music.tsv").read_text()
+
+
+def test_trashed_installer_is_cannot_run_with_a_reason_not_silence(box, monkeypatch):
+    """Armed, scheduled, then the customer trashes the installer: the daily
+    launchd job fails silently. The apply job (no dependency on the app) must
+    say so."""
+    monkeypatch.setenv("OSTLER_MUSIC_APP_EXEC", str(box.dir / "gone" / "OstlerInstaller"))
+    res = box.run()
+    assert res["outcome"] == "cannot_run" and res["reason"] == "installer_app_missing"
+    t = _tsv(box.dir)
+    assert "last_status=cannot_run" in t and "installer_app_missing" in t
+    # control: the app is present and recently armed -> nothing to report
+    app = box.dir / "app"
+    app.write_text("x")
+    app.chmod(0o755)
+    monkeypatch.setenv("OSTLER_MUSIC_APP_EXEC", str(app))
+    assert box.run()["outcome"] == "nothing_to_do"
+
+
+def test_a_refresh_that_never_answers_is_reported_after_36h(box, monkeypatch):
+    import os, time
+    app = box.dir / "app"
+    app.write_text("x")
+    app.chmod(0o755)
+    monkeypatch.setenv("OSTLER_MUSIC_APP_EXEC", str(app))
+    old = time.time() - 40 * 3600
+    os.utime(box.sdir / r.ARMED_NAME, (old, old))
+    res = box.run()
+    assert res["outcome"] == "cannot_run" and "36h" in res["reason"]
+    assert "cannot_run" in _tsv(box.dir)
+
+
+def test_dont_move_install_is_cannot_run_with_a_reason_not_silence(tmp_path, monkeypatch):
+    """The installer was left on the DMG / in Downloads ("Don't Move"): the
+    agent is refused and the reason is recorded."""
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "o"))
+    agents = tmp_path / "LA"
+    rc = r.main(["install-agents", "--app-executable",
+                 "/Volumes/Ostler/OstlerInstaller.app/Contents/MacOS/OstlerInstaller",
+                 "--python", "/py", "--fda-parent", "/f", "--agents-dir", str(agents)])
+    assert rc == 0 and not agents.exists()
+    t = _tsv(tmp_path / "o")
+    assert "last_status=cannot_run" in t and "installer_not_in_applications" in t
+
+
+def test_install_sh_records_cannot_run_for_every_unscheduled_case():
+    for reason in ("install_read_not_native", "installer_not_in_applications",
+                   "agent_did_not_load", "agents_not_installed"):
+        assert f'_am_cannot "{reason}"' in INSTALL, reason
+    assert "apple_music_refresh cannot-run" in INSTALL
+
+
+def test_apply_agent_runs_daily_and_at_load_so_silence_is_noticed():
+    p = r.render_apply_plist("/py", "/f", "/o", "/l", "u", APP)
+    assert p["RunAtLoad"] is True and "Hour" in p["StartCalendarInterval"]
+    assert p["EnvironmentVariables"]["OSTLER_MUSIC_APP_EXEC"] == APP
 
 
 def test_uninstaller_names_both_agents_in_its_teardown():

@@ -133,8 +133,13 @@ def render_run_plist(app_executable: str, logs_dir: str,
 
 
 def render_apply_plist(python: str, fda_parent: str, ostler_dir: str,
-                       logs_dir: str, user: str) -> dict:
-    """The no-TCC job that stores what the app read."""
+                       logs_dir: str, user: str, app_executable: str = "") -> dict:
+    """The no-TCC job that stores what the app read.
+
+    It also runs at load and daily (05:17, after the 04:17 refresh), so a
+    refresh that cannot run (installer trashed or moved, app never launched)
+    is noticed and recorded as cannot_run instead of failing in silence.
+    """
     sdir = state_dir(Path(ostler_dir))
     return {
         "Label": LABEL_APPLY,
@@ -144,7 +149,10 @@ def render_apply_plist(python: str, fda_parent: str, ostler_dir: str,
             "PYTHONPATH": str(fda_parent),
             "OSTLER_DIR": str(ostler_dir),
             "OSTLER_USER": str(user),
+            "OSTLER_MUSIC_APP_EXEC": str(app_executable),
         },
+        "RunAtLoad": True,
+        "StartCalendarInterval": {"Hour": DEFAULT_HOUR + 1, "Minute": DEFAULT_MINUTE},
         "WatchPaths": [str(sdir / HELPER_OUT_NAME)],
         # Consuming the file removes it, which is itself a path event: the
         # throttle keeps that echo to one cheap no-op run.
@@ -378,7 +386,7 @@ def _apply(ostler_dir: Path, user: str = "ostler",
     try:
         raw = src.read_bytes()
     except FileNotFoundError:
-        return {"outcome": "nothing_to_do"}
+        return _check_can_run(ostler_dir)
     except OSError as exc:
         logger.warning("music-refresh: could not look (%s)", type(exc).__name__)
         return {"outcome": "could_not_look", "reason": type(exc).__name__}
@@ -445,6 +453,43 @@ def _apply(ostler_dir: Path, user: str = "ostler",
     return dict(summary, outcome="stored")
 
 
+STALE_AFTER_S = 36 * 3600
+
+
+def _file_age_s(path: Path) -> Optional[float]:
+    try:
+        return datetime.now(timezone.utc).timestamp() - Path(path).stat().st_mtime
+    except OSError:
+        return None
+
+
+def _check_can_run(ostler_dir: Path) -> dict:
+    """Nothing to apply: is the refresh still able to run at all?
+
+    Only when armed. The program is the signed installer app; if the customer
+    trashed or moved it, launchd fails every day without a word. Say so here
+    (this job has no TCC need and no dependency on that app). A refresh that
+    started and stopped (helper missing, timeout, app crash) writes no answer
+    file either, so a stale last run is reported too.
+    """
+    if not is_armed(ostler_dir):
+        return {"outcome": "nothing_to_do"}
+    app = os.environ.get("OSTLER_MUSIC_APP_EXEC", "").strip()
+    if app and not os.access(app, os.X_OK):
+        return {"outcome": "cannot_run", "reason": "installer_app_missing"}
+    sdir = state_dir(ostler_dir)
+    ages = [a for a in (_file_age_s(sdir / ARMED_NAME), _file_age_s(sdir / STATE_NAME))
+            if a is not None]
+    if ages and min(ages) > STALE_AFTER_S:
+        return {"outcome": "cannot_run", "reason": "refresh_did_not_run_in_36h"}
+    return {"outcome": "nothing_to_do"}
+
+
+def note_cannot_run(ostler_dir: Path, reason: str) -> None:
+    """Record, for the Doctor, that the scheduled refresh is not running."""
+    record_activity(Path(ostler_dir), {"outcome": "cannot_run", "reason": reason})
+
+
 def record_activity(ostler_dir: Path, result: dict) -> None:
     """Write this refresh's outcome to state/source_activity/apple_music.tsv.
 
@@ -459,7 +504,8 @@ def record_activity(ostler_dir: Path, result: dict) -> None:
         if outcome == "nothing_to_do":
             return
         status = {"stored": "ok", "unchanged": "ok",
-                  "could_not_look": "skipped",
+                  "could_not_look": "cannot_run",
+                  "cannot_run": "cannot_run",
                   "could_not_store": "error"}.get(outcome, "error")
         now = _now_iso()
         act = Path(ostler_dir) / "state" / "source_activity"
@@ -512,6 +558,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     a.add_argument("--run-summary", default="-",
                    help="file holding this run's FDA output ('-' = stdin)")
     sub.add_parser("disarm")
+    c = sub.add_parser("cannot-run", help="record why the refresh is not scheduled")
+    c.add_argument("--reason", required=True)
     i = sub.add_parser("install-agents", help="write both LaunchAgent plists")
     i.add_argument("--app-executable", required=True)
     i.add_argument("--python", required=True)
@@ -530,11 +578,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             ok = arm(odir, Path(args.export), parse_run_summary(text))
             print("armed" if ok else "not armed")
             return 0
+        if args.cmd == "cannot-run":
+            note_cannot_run(odir, args.reason)
+            return 0
         if args.cmd == "disarm":
             disarm(odir)
             return 0
         if args.cmd == "install-agents":
             if not stable_app_executable(args.app_executable):
+                note_cannot_run(odir, "installer_not_in_applications")
                 print("not installed: app executable is not at a stable path")
                 return 0
             logs = odir / "logs"
@@ -544,7 +596,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                                         render_run_plist(args.app_executable, str(logs)))
             c2 = write_plist_if_changed(
                 adir / f"{LABEL_APPLY}.plist",
-                render_apply_plist(args.python, args.fda_parent, str(odir), str(logs), args.user))
+                render_apply_plist(args.python, args.fda_parent, str(odir), str(logs), args.user,
+                                   args.app_executable))
             print(f"run_changed={int(c1)} apply_changed={int(c2)}")
             return 0
     except Exception as exc:  # noqa: BLE001 - never a non-zero exit from a background job
