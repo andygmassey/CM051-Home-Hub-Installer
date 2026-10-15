@@ -86,7 +86,36 @@ def _is_provisional_phone_name(display_name):
     return _is_bare_phone_shape(s) and _digit_count(s) >= 7
 
 
-def _is_nameless_name(display_name):
+# SHARED RULE (Hub, wiki compiler/nameless.py, iOS PersonNameFilter; all three
+# cite this block and must stay byte-identical in behaviour):
+#   A. A sender-ID exclusion (shape: one token of 2-11 chars from A-Z 0-9 . _ -,
+#      no lowercase, 2+ letters, and a digit or separator) applies ONLY to a
+#      sender with NO contact card. A CARDED name always shows: "JEAN-LUC",
+#      "MARY-JANE" and "J.R." are people. The other exclusions (empty, JID,
+#      short code) are shapes no card makes a person, and apply regardless.
+#   B. Display-name ladder, upward only: human name (given/family) > email >
+#      phone. A phone-shaped stored name yields to an email, and any
+#      identifier-shaped stored name yields to a given/family name, in EVERY
+#      path (list, search, stale, recent, birthdays): ``_best_display_name``.
+
+
+def _best_display_name(stored, given="", family="", emails=()):
+    """SHARED RULE B. Return the name to show for a person: human name >
+    email > phone. ``stored`` wins unless it is itself just an identifier."""
+    stored = stored or ""
+    human = " ".join(x for x in ((given or "").strip(), (family or "").strip()) if x)
+    if human and _looks_like_bare_email_or_phone(stored):
+        return human
+    s = stored.strip()
+    if s and "@" not in s and _is_bare_phone_shape(s):
+        for e in emails or ():
+            e = (e or "").strip()
+            if "@" in e:
+                return e
+    return stored
+
+
+def _is_nameless_name(display_name, has_card=False):
     """True when ``display_name`` must NOT be listed as a person.
 
     A phone-only person is NOT nameless any more (ruling 2026-08-10, tier 0):
@@ -96,7 +125,8 @@ def _is_nameless_name(display_name):
       1. empty / whitespace-only (no name at all);
       2. a WhatsApp JID (``@s.whatsapp.net`` / ``@lid``): a transport id;
       3. a short code, 6 digits or fewer (``_is_short_code``);
-      4. an alphanumeric sender ID (``_is_alphanumeric_sender_id``).
+      4. an alphanumeric sender ID (``_is_alphanumeric_sender_id``), ONLY
+         when ``has_card`` is False (SHARED RULE A: a carded name always shows).
 
     Rows are hidden at render time only; the Qdrant point / graph node is
     never deleted.
@@ -111,7 +141,7 @@ def _is_nameless_name(display_name):
         return True
     if _is_short_code(s):
         return True
-    if _is_alphanumeric_sender_id(s):
+    if not has_card and _is_alphanumeric_sender_id(s):
         return True
     return False
 

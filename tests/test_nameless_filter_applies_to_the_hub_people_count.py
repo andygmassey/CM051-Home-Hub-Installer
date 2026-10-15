@@ -73,7 +73,7 @@ body = ical_text[ical_text.index("def people_list("):]
 body = body[: body.index("\ndef ", 10)]
 check(
     "people_list calls _is_nameless_name on the display name (not just `if not name`)",
-    "_is_nameless_name(name)" in body,
+    "_is_nameless_name(name" in body,
 )
 
 print(f"\n{'PASS' if fails == 0 else 'FAIL'}: {fails} failed")

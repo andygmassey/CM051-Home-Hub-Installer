@@ -420,6 +420,7 @@ from people_rules import (  # noqa: E402
     _ROLE_ADDRESS_LOCAL_RE,
     _is_role_address_name,
     _is_nameless_name,
+    _best_display_name,
     _is_provisional_phone_name,
     _looks_like_bare_email_or_phone,
     _SERVICE_NAME_SUFFIX_WORDS,
@@ -820,6 +821,56 @@ def _load_carded_uris(uris):
     except Exception:
         return set()
     return {r["person"] for r in rows if r.get("person")}
+
+
+def _qdrant_payloads_by_uri(uris):
+    """Best-effort {person_uri: Qdrant payload} for the given URIs, so the
+    SPARQL-fed paths (recent, birthdays) can apply the same SHARED RULE B
+    name ladder and card test as the Qdrant-fed paths. Any failure returns {}
+    (names then stay as stored, never hidden by the failure)."""
+    uris = sorted({u for u in uris if u})
+    if not uris:
+        return {}
+    out = {}
+    try:
+        for i in range(0, len(uris), 200):
+            body = {
+                "filter": {"must": [{"key": "person_uri",
+                                     "match": {"any": uris[i:i + 200]}}]},
+                "limit": 1000, "with_payload": True, "with_vector": False,
+            }
+            req = urllib.request.Request(
+                QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                pts = (json.loads(resp.read()).get("result", {}) or {}).get("points", [])
+            for pt in pts:
+                pl = pt.get("payload", {}) or {}
+                if pl.get("person_uri"):
+                    out[pl["person_uri"]] = pl
+    except Exception:
+        return {}
+    return out
+
+
+def _apply_name_ladder_to_rows(rows):
+    """SHARED RULE B for SPARQL rows ({'p','name',...}): rewrite an
+    identifier-shaped name to the better name on the person's Qdrant payload.
+    Only rows whose name is a bare phone/email are looked up. Returns the
+    payload map (also used for the card test)."""
+    need = [r.get("p") for r in rows
+            if r.get("p") and _looks_like_bare_email_or_phone(r.get("name", ""))]
+    hints = _qdrant_payloads_by_uri(need)
+    for r in rows:
+        pl = hints.get(r.get("p") or "")
+        if pl:
+            r["name"] = _best_display_name(
+                r.get("name", ""), pl.get("given_name"), pl.get("family_name"),
+                pl.get("emails") or [],
+            )
+    return hints
 
 
 def _event_has_human_attendee(event):
@@ -2070,12 +2121,16 @@ def people_search(query, limit=10, timeout=30):
     results = []
     for pt in data.get("result", []):
         p = pt.get("payload", {})
-        dn = p.get("display_name", "")
-        # Hide WhatsApp JIDs, short codes and alphanumeric sender IDs from
-        # the People list / search results (a phone-only person is SHOWN,
-        # provisional). Render-time filter only; the Qdrant point is never
-        # deleted. Ref #664.
-        if _is_nameless_name(dn):
+        # SHARED RULE B: human name > email > phone, same as people_list.
+        dn = _best_display_name(
+            p.get("display_name", ""), p.get("given_name"), p.get("family_name"),
+            p.get("emails") or [],
+        )
+        # Hide WhatsApp JIDs, short codes and (uncarded) alphanumeric sender
+        # IDs from the People list / search results (a phone-only person is
+        # SHOWN, provisional). SHARED RULE A: a carded name always shows.
+        # Render-time filter only; the Qdrant point is never deleted. Ref #664.
+        if _is_nameless_name(dn, has_card=bool((p.get("icloud_uid") or "").strip())):
             continue
         # F7 (walk #16): the same human-evidence test people_list applies, so a
         # sender id or bulk mailbox is not found by search either.
@@ -7094,8 +7149,12 @@ def people_list(sort=None, ceiling=10000):
         # nameless/automated checks below -- a bare-phone fallback is
         # exactly what _is_nameless_name hides outright, so upgrading
         # first is the only way this row ever reaches the list at all.
-        if (given or family) and _looks_like_bare_email_or_phone(name):
-            name = " ".join(x for x in (given, family) if x)
+        # SHARED RULE B (people_rules.py): human name > email > phone, so a
+        # phone-only stored name also yields to an email on the same record.
+        name = _best_display_name(
+            name, given, family,
+            list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", [])),
+        )
 
         # CM051 #2568: this used to be `if not name: continue`, which only
         # catches an EMPTY name (case 1 of _is_nameless_name's three). A
@@ -7105,7 +7164,8 @@ def people_list(sort=None, ceiling=10000):
         # the Hub/wiki count gap. Reuse the LOCKED predicate rather than a
         # second filter: it is explicitly byte-identical across all three
         # surfaces for exactly this reason (Ref #664).
-        if _is_nameless_name(name):
+        # SHARED RULE A: a carded name always shows (JEAN-LUC, J.R.).
+        if _is_nameless_name(name, has_card=bool((p.get("icloud_uid") or "").strip())):
             continue
         # v1.0.106 walk: a record whose ONLY name is a role or automation
         # mailbox ("support@...", "promotions@...") is not a person to list.
@@ -7376,13 +7436,18 @@ def people_stale(months=3, limit=5):
     candidates = []
     for pt in result.get("result", {}).get("points", []):
         p = pt.get("payload", {})
-        name = p.get("display_name", "")
+        # SHARED RULE B: human name > email > phone, same as people_list.
+        name = _best_display_name(
+            p.get("display_name", ""), p.get("given_name"), p.get("family_name"),
+            p.get("emails") or [],
+        )
         lc_ts = p.get("last_contact_ts", 0)
         if not name or not lc_ts:
             continue
         # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
-        # Stale / reconnect list. Render-time filter only. Ref #664.
-        if _is_nameless_name(name):
+        # Stale / reconnect list. SHARED RULE A: a carded name always shows.
+        # Render-time filter only. Ref #664.
+        if _is_nameless_name(name, has_card=bool((p.get("icloud_uid") or "").strip())):
             continue
         if _is_non_human_person(p, name):
             continue
@@ -7598,6 +7663,7 @@ def people_recent(days=7, limit=5):
     # here. Brought up to the same standard as the other two producers,
     # plus the new People-list-derived checks.
     self_uris = _load_people_list_self_uris()
+    _apply_name_ladder_to_rows(rows)
     carded_uris = _load_carded_uris(r.get("p") for r in rows)
 
     seen = set()
@@ -7610,7 +7676,7 @@ def people_recent(days=7, limit=5):
         # give one person several rows; the first that passes the screens wins.
         if not name or name in seen or (uri and uri in seen_uris):
             continue
-        if _is_nameless_name(name):
+        if _is_nameless_name(name, has_card=uri in carded_uris):
             continue
         if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
@@ -7680,6 +7746,7 @@ def people_birthdays(days=7):
     for r in sorted(rows, key=_pick_rank):
         per_uri.setdefault(r.get("p") or "", r)
     rows = [r for u, r in per_uri.items() if u]
+    _apply_name_ladder_to_rows(rows)
 
     # Walk #6 candidate #10 (Archie): a SECOND, complementary layer on top
     # of _is_not_a_person_to_suggest / _is_service_sender below -- see the
@@ -7698,7 +7765,7 @@ def people_birthdays(days=7):
         # Birthdays surface, same render-time filter the People search / stale /
         # recent endpoints use. Ref #664. The Qdrant point / graph node is never
         # deleted -- only withheld from this listing.
-        if _is_nameless_name(name):
+        if _is_nameless_name(name, has_card=uri in carded_uris):
             continue
         # Shared suggestion screen: no shortcodes, no bare addresses, and never
         # the operator's own birthday. See _is_not_a_person_to_suggest.
