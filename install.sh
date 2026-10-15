@@ -20367,6 +20367,12 @@ services:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
       - WIKI_OUTPUT_DIR=/wiki
+      # Public look-ups (OpenStreetMap, MusicBrainz, Wikipedia) are OFF unless the
+      # launcher sets OSTLER_PUBLIC_LOOKUPS=agreed from the recorded consent in
+      # config/.env, which install.sh and wiki-recompile-tick.sh do on every
+      # compile (Ostler #30). Unset defaults to off, and the compiler treats
+      # anything but "agreed" as off.
+      - OSTLER_PUBLIC_LOOKUPS=${OSTLER_PUBLIC_LOOKUPS:-off}
       # Owner's IANA zone, exported by wiki-recompile-tick.sh / the install-time
       # compile. Empty -> the compiler labels its times UTC.
       - OSTLER_TZ=${OSTLER_TZ:-}
@@ -37725,12 +37731,32 @@ cd "$OSTLER_DIR"
 #      skeletons as they land. Its exit code NEVER gates the install -- a
 #      background failure leaves the already-serving baseline wiki intact.
 #
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES (Ostler #30). The wiki compiler
+# looks places up on OpenStreetMap (name AND coordinates), artists on
+# MusicBrainz and Wikipedia, organisations on Wikipedia, and does none of it
+# unless the container sees OSTLER_PUBLIC_LOOKUPS=agreed (CM044
+# compiler/public_lookups.py). Byte-identical to the function in
+# wiki-recompile-tick.sh (tests/test_wiki_compile_honours_public_lookup_consent.sh
+# holds them together) and the same reader as ostler-import's
+# _public_lookups_agreed: the answer in config/.env, re-read at every compile,
+# and anything but "accepted" (missing, unreadable, empty) is OFF. Exported so
+# the detached summary compile below re-reads it when it starts.
+ostler_public_lookups_flag() {
+    local f="${1:-${OSTLER_DIR:-$HOME/.ostler}}/config/.env" v=""
+    if [ -r "$f" ]; then
+        v="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$f" | tail -n 1)" || v=""
+        v="${v%\"}"; v="${v#\"}"
+    fi
+    if [ "$v" = "accepted" ]; then printf 'agreed'; else printf 'off'; fi
+}
+export -f ostler_public_lookups_flag
+
 # `-T </dev/null` cures the `compose run --rm` exit-hang (see the
 # wiki-recompile LaunchAgent). The baseline pipe is wrapped in set +e so
 # its real exit code (PIPESTATUS[0], not tail's) gates the install under
 # `set -euo pipefail`.
 set +e
-docker compose --profile compile run --rm -T \
+OSTLER_PUBLIC_LOOKUPS="$(ostler_public_lookups_flag "$OSTLER_DIR")" docker compose --profile compile run --rm -T \
     -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
@@ -37960,6 +37986,12 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             set -u
             _slot="$1"; _wd="$2"; _lib="$3"
             cd "$_wd" || exit 1
+            # Re-read the recorded public look-up answer NOW, when this compile
+            # starts (Ostler #30). Function missing (an older caller): off.
+            _lookups="$(ostler_public_lookups_flag "$_wd" || true)"
+            [ "$_lookups" = "agreed" ] || _lookups=off
+            OSTLER_PUBLIC_LOOKUPS="$_lookups"; export OSTLER_PUBLIC_LOOKUPS
+            printf "%s wiki-summaries: public look-ups for this compile: %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lookups"
             printf "%s wiki-summaries: starting, slot %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_slot"
 
             # THE SHAPE HERE IS wiki-recompile-tick.sh:477-504, DELIBERATELY.
