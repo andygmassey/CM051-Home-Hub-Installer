@@ -7927,7 +7927,202 @@ def people_birthdays(days=7):
 
 
 
+FDA_IMPORT_DIR = os.environ.get(
+    "OSTLER_FDA_IMPORT_DIR",
+    os.path.expanduser("~/.ostler/imports/fda"),
+)
+
+
+class LocalStoreError(Exception):
+    """A local ingest file could not be read. Never mapped to an empty list."""
+
+
+def _parse_store_dt(raw):
+    """Parse a datetime string the FDA extractors wrote (json default=str).
+
+    Naive values are the Hub's local time. Returns an aware datetime or None.
+    """
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return dt
+
+
+def _read_fda_json(name):
+    """Read a JSON list written by the FDA extractor. Raises LocalStoreError
+    when the file is absent or unreadable, so the caller can say so instead
+    of reporting an empty day. Returns (rows, age_seconds)."""
+    path = os.path.join(FDA_IMPORT_DIR, name)
+    try:
+        st = os.stat(path)
+        with open(path, "r", encoding="utf-8") as fh:
+            rows = json.load(fh)
+    except FileNotFoundError:
+        raise LocalStoreError(f"{name} not found in {FDA_IMPORT_DIR}")
+    except (OSError, ValueError) as exc:
+        raise LocalStoreError(f"{name} unreadable: {exc}")
+    if not isinstance(rows, list):
+        raise LocalStoreError(f"{name} is not a list")
+    return rows, max(0, int(time.time() - st.st_mtime))
+
+
+def read_local_calendar_events(days=1, now=None):
+    """Events from the ingested Apple Calendar store (calendar_events.json)
+    overlapping [local midnight today, +days). Raises LocalStoreError."""
+    rows, age = _read_fda_json("calendar_events.json")
+    now = now or datetime.now().astimezone()
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=days)
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        s_dt = _parse_store_dt(r.get("start_date"))
+        if s_dt is None:
+            continue
+        e_dt = _parse_store_dt(r.get("end_date")) or s_dt
+        if not (s_dt < end and (e_dt > start or s_dt >= start)):
+            continue
+        attendees = [a for a in (r.get("attendees") or []) if isinstance(a, str)]
+        out.append({
+            "summary": r.get("title") or "(no title)",
+            "start": s_dt.isoformat(timespec="seconds"),
+            "end": e_dt.isoformat(timespec="seconds"),
+            "location": r.get("location") or "",
+            "all_day": bool(r.get("is_all_day")),
+            "attendees": [{"name": a} for a in attendees],
+            "calendar": r.get("calendar_name") or "",
+            "source": "Apple Calendar",
+        })
+    return out, age
+
+
+def build_calendar_response(days, now=None):
+    """(http_status, body) for /calendar and /calendar/today.
+
+    Local store first; iCloud CalDAV and Google are optional extras that add
+    events when configured. A failed local read is reported (degraded, or 503
+    when nothing else answered), never returned as a 200 with no events.
+    """
+    all_events, sources, errors = [], [], []
+    try:
+        local, age = read_local_calendar_events(days, now=now)
+        all_events.extend(local)
+        sources.append("Apple Calendar")
+    except LocalStoreError as exc:
+        errors.append(str(exc))
+        age = None
+
+    extra_ok = False
+    try:
+        result = subprocess.run(
+            [ICAL_SCRIPT, str(days)], capture_output=True, text=True, timeout=30)
+        extra = parse_ical_output(result.stdout)
+        if extra:
+            all_events.extend(extra)
+            sources.append("iCloud")
+            extra_ok = True
+    except Exception:
+        pass  # optional extra
+    try:
+        extra = query_google_calendar(days)
+        if extra:
+            all_events.extend(extra)
+            sources.append("Google Calendar")
+            extra_ok = True
+    except Exception:
+        pass  # optional extra
+
+    if errors and not extra_ok:
+        return 503, {"error": "calendar unavailable", "detail": errors,
+                     "degraded": True, "events": [], "count": 0,
+                     "period_days": days, "sources": []}
+
+    all_events.sort(key=lambda e: e.get("start", ""))
+    all_events = [e for e in all_events if not _is_personal_admin_event(e)]
+    seen, deduped = set(), []
+    for e in all_events:
+        key = (e.get("summary", ""), e.get("start", ""))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(e)
+    for e in deduped:
+        if "summary" in e and "title" not in e:
+            e["title"] = e["summary"]
+        if "start" in e:
+            e["start_iso"] = _to_iso8601(e["start"])
+        if "end" in e:
+            e["end_iso"] = _to_iso8601(e["end"])
+        attendees = e.get("attendees")
+        if isinstance(attendees, list) and attendees:
+            names = []
+            for a in attendees:
+                if isinstance(a, dict):
+                    nm = a.get("name") or a.get("email") or ""
+                    if nm:
+                        names.append(nm)
+                elif isinstance(a, str):
+                    names.append(a)
+            if names:
+                e["attendee_names"] = names
+    body = {"events": deduped, "count": len(deduped), "period_days": days,
+            "sources": sources}
+    if age is not None:
+        body["local_store_age_seconds"] = age
+    if errors:
+        body["degraded"] = True
+        body["errors"] = errors
+    return 200, body
+
+
 def fetch_recent_emails(hours=24, limit=20):
+    """(http_status, body): mail received in the last ``hours``, from the
+    ingested Apple Mail store (apple_mail.json). Subject/sender only, no body.
+
+    ``count`` is RECEIVED in the window. ``unread_total`` is the measured
+    unread figure from the same snapshot. Falls back to Gmail via gws only
+    when the local store is absent. Any failure is a non-200 with an error,
+    never ``count: 0``.
+    """
+    try:
+        rows, age = _read_fda_json("apple_mail.json")
+    except LocalStoreError as local_exc:
+        legacy = _fetch_recent_emails_gws(hours, limit)
+        if legacy.get("error"):
+            return 503, {"error": "mail unavailable", "degraded": True,
+                         "detail": [str(local_exc), legacy["error"]],
+                         "emails": [], "hours": hours}
+        legacy["source"] = "gmail"
+        return 200, legacy
+    cutoff = datetime.now().astimezone() - timedelta(hours=hours)
+    window, unread_total = [], 0
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if r.get("is_read") is False:
+            unread_total += 1
+        dt = _parse_store_dt(r.get("date_received"))
+        if dt is not None and dt >= cutoff:
+            window.append((dt, r))
+    window.sort(key=lambda t: t[0], reverse=True)
+    emails = [{
+        "subject": r.get("subject") or "(no subject)",
+        "from": r.get("sender") or "",
+        "date": dt.isoformat(timespec="seconds"),
+        "snippet": "",
+        "unread": r.get("is_read") is False,
+    } for dt, r in window[:min(limit, 50)]]
+    return 200, {"emails": emails, "count": len(window), "hours": hours,
+                 "unread_total": unread_total, "source": "apple_mail",
+                 "local_store_age_seconds": age}
+
+
+def _fetch_recent_emails_gws(hours=24, limit=20):
     """Fetch recent emails via gws CLI. Returns subjects/snippets only (no body)."""
     query = f"newer_than:{hours}h"
     try:
@@ -10880,79 +11075,11 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/calendar/today":
                 days = 1
 
-            all_events = []
-
-            # 1. iCloud Calendar
-            try:
-                result = subprocess.run(
-                    [ICAL_SCRIPT, str(days)],
-                    capture_output=True, text=True, timeout=30
-                )
-                all_events.extend(parse_ical_output(result.stdout))
-            except Exception as e:
-                pass  # iCloud failure shouldn't break response
-
-            # 2. Google Calendar
-            try:
-                all_events.extend(query_google_calendar(days))
-            except Exception:
-                pass
-
-            # Sort all events by start time
-            all_events.sort(key=lambda e: e.get("start", ""))
-
-            # Drop personal-admin entries (all-day, attendee-less holidays /
-            # deliveries / reminders) so the calendar surface shows meetings,
-            # not "Father's Day" / "M&S Delivery". Conservative: timed events
-            # and all-day events with attendees are kept. See #v152.
-            all_events = [
-                e for e in all_events if not _is_personal_admin_event(e)
-            ]
-
-            # Deduplicate by summary + start (in case same event in both)
-            seen = set()
-            deduped = []
-            for e in all_events:
-                key = (e.get("summary", ""), e.get("start", ""))
-                if key not in seen:
-                    seen.add(key)
-                    deduped.append(e)
-
-            # CM031 PWG Companion's CalendarEvent decodes `title` and ISO
-            # timestamps. Add the iOS-friendly aliases without removing
-            # the legacy `summary` / iCal-style `start` / `end` fields
-            # used by Marvin and the wiki tools. attendee_names is the
-            # CM031 `attendees: [String]` shape; legacy `attendees` (list
-            # of {name, email, role} dicts) is left alone.
-            for e in deduped:
-                if "summary" in e and "title" not in e:
-                    e["title"] = e["summary"]
-                if "start" in e:
-                    e["start_iso"] = _to_iso8601(e["start"])
-                if "end" in e:
-                    e["end_iso"] = _to_iso8601(e["end"])
-                attendees = e.get("attendees")
-                if isinstance(attendees, list) and attendees:
-                    names = []
-                    for a in attendees:
-                        if isinstance(a, dict):
-                            nm = a.get("name") or a.get("email") or ""
-                            if nm:
-                                names.append(nm)
-                        elif isinstance(a, str):
-                            names.append(a)
-                    if names:
-                        e["attendee_names"] = names
-
-            self.send_response(200)
+            status, body = build_calendar_response(days)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({
-                "events": deduped,
-                "count": len(deduped),
-                "period_days": days,
-                "sources": ["iCloud", "Google Calendar"],
-            }, indent=2).encode())
+            self.wfile.write(json.dumps(body, indent=2).encode())
             return
 
         if parsed.path == "/people":
@@ -11125,14 +11252,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(err).encode())
                 return
             try:
-                result = fetch_recent_emails(hours=hours, limit=limit)
+                status, result = fetch_recent_emails(hours=hours, limit=limit)
             except Exception as e:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode())
                 return
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(result, indent=2).encode())
