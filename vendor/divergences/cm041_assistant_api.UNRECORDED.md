@@ -1293,3 +1293,15 @@ and notebook set). `browsing_enrich.py`: `build_knowledge_point` takes optional
 `source`/`notebook`; `parse_level`; quick-note constants; an empty summary no
 longer renders an empty section. Guarded by
 `tests/test_quick_note_reaches_knowledge_store.py`. CM041 upstream needs the same.
+
+## 2026-10-15 EnrichQueue retries through a store outage instead of dropping (fix/quick-note-into-knowledge-drain)
+
+`browsing_enrich.py` `EnrichQueue`: the job file is removed only after `store`
+succeeds. A store failure while `store_up()` is False keeps the file and backs
+off (30 s doubling, cap 900 s, `next_retry_at`/`outage_retries` in the file,
+so a restart resumes it) and counts against nobody; with the store up it counts
+`store_attempts` and quarantines at 3 to `<spool>/quarantine/` with a reason.
+Knowledge jobs no longer age out. `ical-server.py` `_knowledge_store_up` calls
+`ostler_fda.sink_health.stores_answer` (the `--probe-ports` predicate), falling
+back to a Qdrant reachability check. Guarded by
+`tests/test_enrichqueue_retries_not_drops.py`. CM041 upstream needs the same.

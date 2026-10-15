@@ -558,6 +558,9 @@ MAX_QUEUE = int(os.environ.get("OSTLER_BROWSING_QUEUE_MAX", "100"))
 MIN_INTERVAL_S = float(os.environ.get("OSTLER_BROWSING_SUMMARY_INTERVAL_S", "20"))
 MAX_ATTEMPTS = 3
 MAX_JOB_AGE_S = 24 * 3600
+MAX_STORE_ATTEMPTS = 3           # item-specific store failures before quarantine
+OUTAGE_BACKOFF_BASE_S = 30.0     # doubles per outage retry, capped below
+OUTAGE_BACKOFF_MAX_S = 900.0
 MAX_YIELD_S = 120.0  # never wait longer than this on the lease per job
 
 
@@ -574,6 +577,7 @@ class EnrichQueue:
                  store: Callable[[dict, Optional[dict]], bool], *,
                  min_interval_s: float = MIN_INTERVAL_S, max_queue: int = MAX_QUEUE,
                  is_user_active: Callable[[], bool] = user_active,
+                 store_up: Callable[[], bool] = lambda: True,
                  sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.time):
         self.dir = Path(spool_dir)
@@ -582,6 +586,10 @@ class EnrichQueue:
         self.min_interval_s = min_interval_s
         self.max_queue = max_queue
         self.is_user_active = is_user_active
+        # "Is the store reachable?" (the catch-up predicate in the product).
+        # A store failure while this is False is an OUTAGE: the job is kept
+        # and retried with backoff, counted against nobody.
+        self.store_up = store_up
         self._sleep = sleep
         self._clock = clock
         self._lock = threading.Lock()
@@ -653,8 +661,59 @@ class EnrichQueue:
         if not jobs:
             return None
         # Explicit user saves first, then oldest first.
+        now = self._clock()
+        jobs = [j for j in jobs if j.get("next_retry_at", 0) <= now]
+        if not jobs:
+            return None
         jobs.sort(key=lambda j: (0 if j.get("kind") == KIND_KNOWLEDGE else 1, j.get("queued_at", 0)))
         return jobs[0]
+
+    def _persist(self, job: dict) -> None:
+        with self._lock:
+            fd = os.open(str(self._path(job["id"])), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(job, fh)
+
+    def quarantined(self) -> int:
+        try:
+            return len(list((self.dir / "quarantine").glob("*.json")))
+        except Exception:
+            return 0
+
+    def _quarantine(self, job: dict, reason: str) -> None:
+        """Park a job whose own content is at fault, with a reason. Never a
+        silent drop. The text stays (it is the owner's data) in a 0600 file."""
+        qdir = self.dir / "quarantine"
+        qdir.mkdir(parents=True, exist_ok=True)
+        job = dict(job, quarantine_reason=reason, quarantined_at=self._clock())
+        fd = os.open(str(qdir / self._path(job["id"]).name),
+                     os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(job, fh)
+        self._drop(job["id"])
+
+    def _store_failed(self, job: dict, exc: Optional[Exception]) -> None:
+        """The store did not take the job. Outage: keep it, back off, count
+        nothing. Item-specific: count, and quarantine at the cap."""
+        try:
+            up = bool(self.store_up())
+        except Exception:
+            up = False   # cannot judge: the sink's fault, delays only
+        if not up:
+            n = job.get("outage_retries", 0)
+            job["outage_retries"] = n + 1
+            job["next_retry_at"] = self._clock() + min(
+                OUTAGE_BACKOFF_BASE_S * (2 ** min(n, 10)), OUTAGE_BACKOFF_MAX_S)
+            self._persist(job)
+            return
+        n = job.get("store_attempts", 0) + 1
+        job["store_attempts"] = n
+        reason = "store_rejected_item:" + (type(exc).__name__ if exc else "returned_false")
+        if n >= MAX_STORE_ATTEMPTS:
+            self._quarantine(job, reason)
+            return
+        job["next_retry_at"] = self._clock() + OUTAGE_BACKOFF_BASE_S
+        self._persist(job)
 
     # -- worker ------------------------------------------------------
     def _yield_to_chat(self) -> None:
@@ -671,7 +730,8 @@ class EnrichQueue:
         if job is None:
             return False
         jid = job["id"]
-        if self._clock() - job.get("queued_at", 0) > MAX_JOB_AGE_S:
+        if (job.get("kind") != KIND_KNOWLEDGE
+                and self._clock() - job.get("queued_at", 0) > MAX_JOB_AGE_S):
             self._drop(jid)
             self.store(job_without_text(job), None)
             return True
@@ -697,12 +757,18 @@ class EnrichQueue:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     json.dump(job, fh)
             return True
-        # Final: success, or out of attempts. Either way the raw text goes.
-        self._drop(jid)
+        # Final: success, or out of summary attempts. The job file (and its raw
+        # text) goes ONLY once the store has taken it; a store outage keeps it.
+        err: Optional[Exception] = None
+        stored = False
         try:
-            self.store(job_without_text(job), result)
-        except Exception:
-            pass
+            stored = self.store(job_without_text(job), result) is not False
+        except Exception as exc:
+            err = exc
+        if stored:
+            self._drop(jid)
+        else:
+            self._store_failed(job, err)
         return True
 
     def start(self) -> None:

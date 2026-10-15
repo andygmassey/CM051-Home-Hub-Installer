@@ -9729,6 +9729,28 @@ def _bn():
     return browsing_enrich
 
 
+def _knowledge_store_up():
+    """The catch-up predicate: the supervisor's --probe-ports verdict, via
+    ostler_fda.sink_health.stores_answer (Qdrant AND Oxigraph through the
+    proxy credential). If that module is not importable here, fall back to a
+    bounded Qdrant reachability check. Unjudgeable means DOWN (retry, never
+    quarantine)."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for up in ("..", "../..", "../../.."):
+            cand = os.path.normpath(os.path.join(here, up))
+            if os.path.isfile(os.path.join(cand, "ostler_fda", "sink_health.py")) \
+                    and cand not in sys.path:
+                sys.path.insert(0, cand)
+        from ostler_fda import sink_health
+        return bool(sink_health.stores_answer())
+    except ImportError:
+        try:
+            return _bn()._q(QDRANT_URL, "/collections") is not None
+        except Exception:
+            return False
+
+
 def _enrich_summarise(job):
     bn = _bn()
     text = job.get("text") or ""
@@ -9808,7 +9830,8 @@ def _enrich_queue():
     with _ENRICH_QUEUE_LOCK:
         if _ENRICH_QUEUE is None:
             bn = _bn()
-            _ENRICH_QUEUE = bn.EnrichQueue(bn.SPOOL_DIR, _enrich_summarise, _enrich_store)
+            _ENRICH_QUEUE = bn.EnrichQueue(bn.SPOOL_DIR, _enrich_summarise, _enrich_store,
+                                           store_up=_knowledge_store_up)
             _ENRICH_QUEUE.start()
         return _ENRICH_QUEUE
 

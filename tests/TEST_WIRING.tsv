@@ -1000,3 +1000,4 @@ scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
 test_quick_note_reaches_knowledge_store.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
+test_enrichqueue_retries_not_drops.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
