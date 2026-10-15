@@ -180,10 +180,14 @@
     "no_label": "No",
     "_meta_yes_no_per_prompt_overrides": "CX-96 (DMG #48g+1, 2026-05-29): per-prompt-id overrides for the yes/no toggle's row label. The OnboardingQuestionView.yesLabel(_:) lookup tries onboarding_question.yes_label_per_prompt.<prompt_id> first and falls back to the generic onboarding_question.yes_label when absent. reuse_settings is the customer-facing 'use my previous answers' branch on the re-run path, where the generic Yes/No is too cryptic.",
     "yes_label_per_prompt": {
-      "reuse_settings": "Use my previous answers"
+      "reuse_settings": "Use my previous answers",
+      "calendar_review": "Yes, these look right",
+      "calendar_set_aside_include": "Use it for my brief"
     },
     "no_label_per_prompt": {
-      "reuse_settings": "Start over from the first question"
+      "reuse_settings": "Start over from the first question",
+      "calendar_review": "Let me change something",
+      "calendar_set_aside_include": "Keep it set aside"
     },
     "secret_review_placeholder": "(hidden)",
     "error_empty_text": "Please enter a value to continue.",
