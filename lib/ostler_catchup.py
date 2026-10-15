@@ -616,6 +616,10 @@ def run(
         if own_ledger:
             ledger.close()
 
+    if reason.startswith("busy:"):
+        # A skipped run must say why (#30: the first-48-hours cadence fires every
+        # 30 minutes, so a busy Mac is a normal reason, not an anomaly).
+        logger.info("catch-up skipped, machine busy (%s)", reason[len("busy:"):])
     summary = {"reason": reason, "seconds": seconds, "sources": {}}
     for a in adapters:
         st, wm = stats[a.source], wms[a.source]

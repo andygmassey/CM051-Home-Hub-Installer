@@ -170,6 +170,7 @@ test_canonicalise_syncs_qdrant.py	WIRED	.github/workflows/walk6-people-list-corr
 test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_catchup_browser.py	WIRED	.github/workflows/catchup-browser.yml
 test_catchup_core.py	WIRED	.github/workflows/catchup-machinery.yml
+test_catchup_first_48h_cadence.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_catchup_mail.py	WIRED	.github/workflows/catchup-mail.yml
 test_catchup_messages.py	WIRED	.github/workflows/catchup-messages.yml
 test_catchup_photos_ai.py	WIRED	.github/workflows/catchup-photos-ai.yml
@@ -361,6 +362,8 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml
+test_first_window_end_to_end.py	WIRED	.github/workflows/catchup-machinery.yml
 test_followup_keys_probe.sh	WIRED	.github/workflows/followup-keys-probe.yml
 test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml

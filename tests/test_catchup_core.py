@@ -159,6 +159,15 @@ def test_a_busy_machine_spends_nothing_and_moves_nothing(oc):
     assert wm["last_tick"]["reason"] == "busy:load"
 
 
+def test_a_busy_skip_logs_why(oc, caplog):
+    """#30: a firing that skips because the Mac is busy says so, with the reason."""
+    import logging
+    caplog.set_level(logging.INFO, logger="ostler_catchup")
+    adapter = _make_adapter(oc, [])
+    oc.run([adapter], budget_seconds=1e9, busy=lambda: "load")
+    assert "catch-up skipped, machine busy (load)" in caplog.text, caplog.text
+
+
 def test_busy_mid_batch_leaves_the_cursor_and_resumes_without_duplicates(oc):
     sink = {}
     calls = {"n": 0}

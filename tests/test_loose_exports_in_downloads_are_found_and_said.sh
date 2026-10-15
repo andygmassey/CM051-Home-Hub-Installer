@@ -61,7 +61,12 @@ EOF
     printf '%s\n' "$h"
 }
 _scan() {  # $1 = home
+    # Each call is one launchd firing, 4 h after the last (#30: the script
+    # decides whether a firing is due, so the clock must move between them).
+    local _n=$(( $(cat "$1/.scan_n" 2>/dev/null || echo 0) + 1 ))
+    echo "$_n" > "$1/.scan_n"
     HOME="$1" NOTIFY_LOG="$1/notify.log" PATH="$SB/shim:$PATH" \
+        OSTLER_CADENCE_NOW=$(( 2000000000 + _n * 14400 )) \
         OSTLER_CATCHUP_BUDGET_SECONDS="${OSTLER_CATCHUP_BUDGET_SECONDS:-600}" \
         /bin/bash "$SCAN" >/dev/null 2>"$1/scan.err"
 }
