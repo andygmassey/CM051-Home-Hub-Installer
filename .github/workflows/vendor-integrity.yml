@@ -139,6 +139,8 @@ on:
       # the only workflow that checks it.
       - 'tests/test_a_dead_wiki_announces_itself.py'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
+      - 'tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh'
+      - 'bin/ostler-engine-supervisor.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
       # The vendor-pair drift gate (#449): the copy that RUNS vs the copy that
       # is REVIEWED. Watched because the step below RUNS it -- a run: with no
@@ -677,6 +679,10 @@ jobs:
       - name: The container engine is supervised, and recovery actually fires
         if: always()
         run: bash tests/test_container_engine_liveness_and_recovery.sh
+
+      - name: The engine supervisor judges the store ports, not colima list
+        if: always()
+        run: bash tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #
