@@ -23586,10 +23586,78 @@ import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from ostler_fda.pwg_ingest import ingest_all
+from ostler_fda import pwg_ingest as _pwg
 from pathlib import Path
 fda_dir = Path('${OSTLER_DIR}/imports/fda')
-run_all(fda_dir)
+_summary = run_all(fda_dir)
+
+# ── A REFUSED EXTRACT IS NOT A FRESH SOURCE (G1, TCC sweep 2026-10-15) ────
+#
+# run_all's per-source result used to be thrown away. When macOS refused a
+# read (no Full Disk Access), extract_all recorded status no_fda and left the
+# PREVIOUS JSON on disk. ingest_all then re-loaded that old file, called it ok,
+# and the activity record below stamped last_success_at = now. So the Doctor
+# said 'Up to date, just now' for a source nothing had been able to read.
+#
+# Now: every ingest key is mapped to the extract keys that feed it. If any of
+# them was refused (no_fda) or failed (error), the source is recorded as
+# cannot_run (or error), last_success_at is NOT moved, and the tick exits
+# non-zero. Its ingest is SKIPPED when none of its feeds produced a fresh
+# file, so the stale JSON is never re-loaded. A source with one fresh feed
+# and one refused one (Chrome readable, Safari refused) still ingests the
+# fresh half, but is still recorded as refused: half a source is not fresh.
+#
+# not_found and disabled_by_user are NOT refusals: the app is absent or the
+# owner said no, and both behave exactly as before.
+_extract = {}
+if isinstance(_summary, dict) and isinstance(_summary.get('sources'), dict):
+    _extract = _summary['sources']
+_FEEDS = {
+    'imessage': ('imessage',),
+    'social': ('imessage',),
+    'whatsapp': ('whatsapp_history',),
+    'calendar': ('calendar',),
+    'photos': ('photos',),
+    'apple_mail': ('apple_mail',),
+    'browser_history': ('safari_history', 'chrome_history'),
+    'bookmarks': ('safari_bookmarks',),
+}
+# Read by the hourly tick but loaded by no ingest key: a refusal still has to
+# be visible, so these get a record of their own.
+_EXTRACT_ONLY = ('apple_notes', 'reminders')
+_REFUSALS = ('no_fda', 'error')
+
+def _xstatus(key):
+    rec = _extract.get(key)
+    return rec.get('status') if isinstance(rec, dict) else None
+
+_refused = {}
+for _name, _keys in list(_FEEDS.items()) + [(k, (k,)) for k in _EXTRACT_ONLY]:
+    _bad = dict((k, _xstatus(k)) for k in _keys if _xstatus(k) in _REFUSALS)
+    if _bad:
+        _refused[_name] = _bad
+_skip = set(n for n in _refused if n in _FEEDS
+            and not any(_xstatus(k) == 'ok' for k in _FEEDS[n]))
+if _skip:
+    _dispatch = getattr(_pwg, '_INGEST_DISPATCH', None)
+    if not isinstance(_dispatch, tuple):
+        sys.stderr.write('[ingest] CANNOT-RUN: pwg_ingest has no _INGEST_DISPATCH, '
+                         'so refused sources could not be held back; nothing was loaded' + chr(10))
+        sys.exit(1)
+    _pwg._INGEST_DISPATCH = tuple(e for e in _dispatch if e[0] not in _skip)
 results = ingest_all(fda_dir) or {}
+if isinstance(results, dict) and results.get('status') != 'error':
+    for _name in sorted(_refused):
+        _why = 'no_fda' if 'no_fda' in _refused[_name].values() else 'extract_error'
+        _prior = results.get(_name)
+        results[_name] = {
+            'status': 'cannot_run' if _why == 'no_fda' else 'error',
+            'reason': _why,
+            'error': _why,
+            'refused_extracts': _refused[_name],
+            'ingest': 'skipped' if (_name in _skip or _name in _EXTRACT_ONLY)
+                      else (_prior.get('status') if isinstance(_prior, dict) else str(_prior)),
+        }
 print('[ingest] ' + json.dumps(results, default=str))
 
 # ── ONGOING ACTIVITY RECORD (#W018) ──────────────────────────────────────
@@ -23643,6 +23711,18 @@ try:
             'last_detail=' + _detail[:400] + chr(10) +
             'writer=ostler-fda' + chr(10),
             encoding='utf-8')
+    # An extract-only source has no ingest to vouch for it, so a later good
+    # read must not be stamped fresh here either. It clears the refusal this
+    # writer left, and the Doctor falls back to the sources that really
+    # measure it. Only a record THIS writer wrote, and only a refusal.
+    for _name in _EXTRACT_ONLY:
+        if _name in _refused or _xstatus(_name) != 'ok':
+            continue
+        _f = _act / (_name + '.tsv')
+        if _f.is_file():
+            _txt = _f.read_text(encoding='utf-8', errors='replace').splitlines()
+            if 'writer=ostler-fda' in _txt and 'last_status=ok' not in _txt:
+                _f.unlink()
 except Exception as _exc:
     sys.stderr.write('[activity] could not record ongoing status: ' +
                      type(_exc).__name__ + ': ' + str(_exc) + chr(10))
@@ -23658,9 +23738,18 @@ else:
         res = results[name]
         if isinstance(res, dict) and res.get('status') == 'error':
             failed.append(name + ': ' + str(res.get('error', 'error')))
+# A refusal is not a failure of this code, but it is not a success either:
+# the tick exits 75 (EX_TEMPFAIL, the same code meeting-brief-sender uses for
+# CANNOT-DELIVER) so launchd, routine_status and the Doctor all see it.
+cannot = sorted(n for n in results if isinstance(results.get(n), dict)
+                and results[n].get('status') == 'cannot_run')
 if failed:
     sys.stderr.write('[ingest] FAILED: ' + '; '.join(failed) + chr(10))
     sys.exit(1)
+if cannot:
+    sys.stderr.write('[ingest] CANNOT-RUN, macOS refused the read (Full Disk Access): ' +
+                     ', '.join(cannot) + chr(10))
+    sys.exit(75)
 " || _fda_rc=$?
 # ── APPLE NOTES: RE-OPEN AN EMPTY STORE, EMBED WHEN THE EXTRACT CHANGES ────
 #

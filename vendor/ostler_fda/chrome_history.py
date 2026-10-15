@@ -32,6 +32,8 @@ from __future__ import annotations
 import logging
 import shutil
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -191,7 +193,7 @@ def extract_history(
             conn = sqlite3.connect(f"file:{tmp_path}?mode=ro", uri=True)
         except sqlite3.OperationalError as exc:
             msg = str(exc).lower()
-            if "authorization denied" in msg or "permission" in msg:
+            if is_fda_refusal(exc, tmp_path) or "authorization denied" in msg or "permission" in msg:
                 raise PermissionError(
                     "Cannot read Chrome history. Grant Full Disk Access "
                     "(System Settings > Privacy & Security > Full Disk Access)."

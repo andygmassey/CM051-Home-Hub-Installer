@@ -3050,8 +3050,15 @@ def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     merged = max(recs, key=lambda r: r.get("last_run_at", ""))
     if any(r.get("last_status") != "ok" for r in recs):
         merged = dict(merged)
-        merged["last_status"] = "error"
+        # A refusal in any half keeps its own word (G1): folding it into
+        # "error" would send the customer to a restart instead of a grant.
+        refused = any(r.get("last_status") == "cannot_run" for r in recs)
+        merged["last_status"] = "cannot_run" if refused else "error"
         merged["last_detail"] = "one or more contributing extracts did not succeed"
+        # last_success_at is the OLDEST of the halves: a source is only as
+        # fresh as its stalest part.
+        succ = [r.get("last_success_at", "") for r in recs]
+        merged["last_success_at"] = min(succ) if all(succ) else ""
     return merged
 
 
@@ -3160,10 +3167,27 @@ def read_source_status(hydrate_dir: Path | None = None,
         direct_activity = bool(act)
         if act:
             last_status = act.get("last_status", "unknown")
-            row["ongoing"] = "active" if last_status == "ok" else "failing"
+            # Only a tick that errored or could not run is failing. skipped
+            # and no_data are a tick that ran and found nothing to do, which
+            # is what a healthy Mac reports hourly (Mail read "Not working"
+            # on exactly that).
+            # An unrecognised word stays failing: fail safe, never fail open.
+            row["ongoing"] = ("active" if last_status in ("ok", "skipped", "no_data")
+                              else "failing")
             row["last_run_at"] = act.get("last_run_at") or None
             row["last_success_at"] = act.get("last_success_at") or None
             row["ongoing_detail"] = act.get("last_detail") or None
+            # G1 (TCC sweep 2026-10-15): macOS refused the last read. The
+            # install-time verdict is no longer the truth about this source,
+            # and leaving it "ok" made the panel say "Up to date". The row
+            # takes the refusal; the install verdict is kept beside it.
+            if last_status == "cannot_run":
+                row["install_status"] = row["status"]
+                row["status"] = "cannot_run"
+                row["detail"] = ("macOS stopped the Ostler assistant reading "
+                                 "this, so it has not been updated. Turn on "
+                                 "Full Disk Access for the Ostler assistant in "
+                                 "System Settings, Privacy & Security.")
         else:
             row["ongoing"] = "never"
             row["last_run_at"] = None

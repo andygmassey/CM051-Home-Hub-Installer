@@ -1205,3 +1205,25 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+## A refused read is not a fresh source (G1, TCC sweep 2026-10-15) -- `doctor`
+
+Tree `doctor`, three files. NEW CM051-side behaviour, paired with the `ostler-fda` wrapper in `install.sh`, which now records `last_status=cannot_run` (and keeps `last_success_at`) for a source macOS refused, and exits 75.
+
+- `vendor/doctor/agent/web_ui.py`, `read_source_status`: when a source's activity record says `cannot_run`, the row's `status` becomes `cannot_run`, the install verdict moves to `install_status`, and `detail` is plain customer copy naming Full Disk Access. `_read_source_activity`: a multi-key source (browsing) with any `cannot_run` half is `cannot_run`, not `error`, and its `last_success_at` is the OLDEST half's.
+- `vendor/doctor/agent/diagnostic_copy.py`: new `SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION` (75) and the `SCHEDULED_AGENT_NEEDS_PERMISSION_*` title, detail, fix and fix command.
+- `vendor/doctor/agent/diagnostic_rules.py`, `check_scheduled_agents`: a failing agent whose last exit is 75 gets the needs-permission card (`agent_state=needs_permission`) instead of "restart the job".
+
+WHY: install-time `status=ok` plus a refused tick made the panel read "Up to date, just now" for a source nothing could read. The HR015 twin is OWED; `vendor/divergences/doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The `cannot_run` branch in `read_source_status`, the refusal-aware merge in `_read_source_activity`, and the exit-75 card. Guarded by `tests/test_fda_refusal_is_not_fresh.sh` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `doctor/` and re-pinning.
+## A refusal is classified by errno and sqlite code, not by one message (CM051 G1 follow-up, sweep V26) -- `ostler_fda`
+
+Tree `ostler_fda`. NEW vendor-only `vendor/ostler_fda/tcc_refusal.py` (`is_fda_refusal`, registered in `vendor/VENDOR_ONLY.tsv`). The connect-time `except sqlite3.OperationalError` in `apple_mail.py`, `apple_notes.py`, `calendar.py`, `imessage.py` (2 sites), `photos_metadata.py` (2 sites), `reminders.py` and `safari_history.py` now raise PermissionError when `is_fda_refusal(e, <db path>)`, in place of the literal `"authorization denied"` test. `chrome_history.py` and `whatsapp_history.py` add the same check ahead of their existing text test. `extract_all.py`: every per-source catch-all now goes through `_failure_status(e)`, which reports `no_fda` for an escaped refusal.
+
+WHY: a refused open() reaches Python as SQLITE_CANTOPEN "unable to open database file" (code 14), which the literal test missed, so a refusal was reported as `error` and #2908 could not record `cannot_run`. Measured with a chmod-000 fixture: every reader above raised OperationalError, and Calendar returned normally (an empty result). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`tcc_refusal.py`, the eleven `is_fda_refusal` call sites, and `_failure_status`. Guarded by `tests/test_fda_refusal_surfaces.py` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.

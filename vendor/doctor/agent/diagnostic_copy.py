@@ -787,6 +787,28 @@ SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT = (
     "launchctl kickstart -k gui/$(id -u)/{label}"
 )
 
+# G1 (TCC sweep 2026-10-15). A tick that exits 75 was REFUSED by macOS, not
+# broken: ostler-fda exits 75 when the only problem was a read macOS would not
+# allow. "Restart the job" is the wrong advice for that, so it gets its own
+# card that points at the permission instead.
+SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION = 75
+SCHEDULED_AGENT_NEEDS_PERMISSION_TITLE_FMT = (
+    "Ostler needs Full Disk Access to keep {feeds} up to date"
+)
+SCHEDULED_AGENT_NEEDS_PERMISSION_DETAIL_FMT = (
+    "Since {since}, macOS has stopped the Ostler assistant reading some of "
+    "your Mac's own apps, so nothing new has been added from them. What "
+    "Ostler already holds is kept, but it is not being refreshed."
+)
+SCHEDULED_AGENT_NEEDS_PERMISSION_FIX = (
+    "Open System Settings, Privacy & Security, Full Disk Access, and turn it "
+    "on for the Ostler assistant. The next hourly update picks it up."
+)
+SCHEDULED_AGENT_NEEDS_PERMISSION_FIX_COMMAND = (
+    "open 'x-apple.systempreferences:com.apple.preference.security?"
+    "Privacy_AllFiles'"
+)
+
 # NEVER-RAN. Deliberately a different title, different severity and a
 # different fix from FAILING, because it is a different fault: the job is
 # registered and launchd has simply never started it. Reporting this as
