@@ -5390,6 +5390,304 @@
      "id": "notes/notes",
      "source": "notes",
      "unit": "notes"
+    },
+    {
+     "category": "birthdays",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "exclusions": [
+      {
+       "count": 3,
+       "reason": "type 'birthdays' has no entry in the ICS privacy map, written at L3 and withheld by design today (google_calendar.py)",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "shown": 0,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=birthdays|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=birthdays|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/birthdays.ics",
+     "id": "calendar/birthdays",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "family",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 4,
+     "expected": {
+      "shown": 4,
+      "stored": 4
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=family|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=family|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/family.ics",
+     "id": "calendar/family",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "holidays",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 4,
+     "exclusions": [
+      {
+       "count": 4,
+       "reason": "type 'holidays' has no entry in the ICS privacy map, written at L3 and withheld by design today (google_calendar.py)",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "shown": 0,
+      "stored": 4
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=holidays|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=holidays|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/holidays.ics",
+     "id": "calendar/holidays",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "other",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "expected": {
+      "shown": 3,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=other|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=other|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/other.ics",
+     "id": "calendar/other",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "personal",
+     "chain": false,
+     "duplicates_collapsed": 1,
+     "events_in_file": 6,
+     "expected": {
+      "shown": 5,
+      "stored": 5
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=personal|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=personal|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/personal.ics",
+     "id": "calendar/personal",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "shared",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "expected": {
+      "shown": 3,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=shared|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=shared|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/shared.ics",
+     "id": "calendar/shared",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "unconfirmed",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "exclusions": [
+      {
+       "count": 3,
+       "reason": "type 'unconfirmed' has no entry in the ICS privacy map, written at L3 and withheld by design today (google_calendar.py)",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "shown": 0,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/unconfirmed.ics",
+     "id": "calendar/unconfirmed",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "work",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 5,
+     "expected": {
+      "shown": 5,
+      "stored": 5
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=work|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=work|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/work.ics",
+     "id": "calendar/work",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "history",
+     "chain": false,
+     "exclusions": [
+      {
+       "count": 5,
+       "reason": "sensitive-domain blocklist (5) and non-http/localhost visits, pwg_ingest.py:1930",
+       "stage": "stored"
+      }
+     ],
+     "expected": {
+      "in": 30,
+      "stored": 25
+     },
+     "facts": {
+      "in": "log.safari_visits",
+      "stored": {
+       "key": "q.safari_history.total",
+       "zero_if": "q.safari_history.total"
+      }
+     },
+     "id": "safari/visits",
+     "source": "safari",
+     "unit": "visits"
+    },
+    {
+     "category": "all",
+     "chain": false,
+     "expected": {
+      "in": 12,
+      "stored": 12
+     },
+     "facts": {
+      "in": "log.reminders_total",
+      "stored": {
+       "key": "q.reminders_knowledge.total",
+       "zero_if": "q.reminders_knowledge.total"
+      }
+     },
+     "id": "reminders/items",
+     "note": "blank-title row skipped by design; macOS 26 shape lists_reported 0 and a deleted row's title present are candidate extractor defects (see expected_extra.json)",
+     "source": "reminders",
+     "unit": "reminders"
+    },
+    {
+     "category": "all",
+     "chain": false,
+     "expected": {
+      "in": 6
+     },
+     "facts": {
+      "in": "log.notes_notes"
+     },
+     "id": "apple_notes/notes",
+     "note": "2 password-locked and 2 marked-for-deletion notes are excluded by design (apple_notes.py:529)",
+     "source": "apple_notes",
+     "unit": "notes"
+    },
+    {
+     "category": "apple_mail",
+     "chain": false,
+     "expected": {
+      "in": 31
+     },
+     "facts": {
+      "in": "log.mail_messages"
+     },
+     "id": "mail/apple_mail",
+     "source": "mail",
+     "unit": "messages"
+    },
+    {
+     "category": "extra_vcf",
+     "chain": false,
+     "expected": {
+      "in": 14
+     },
+     "facts": {
+      "in": "log.contacts_vcards"
+     },
+     "id": "contacts/extra",
+     "note": "classified person 7 business 4 unclassified 3",
+     "source": "contacts",
+     "unit": "cards"
     }
    ]
   }
