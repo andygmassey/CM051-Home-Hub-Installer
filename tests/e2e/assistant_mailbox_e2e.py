@@ -288,6 +288,13 @@ allowed_senders = ["{OWNER}"]
               row0.get("selftest_result") is None and "Not run yet" in am.render_html(row0))
 
         # ---------------------------------------------------------------- (b)
+        def gw_up():
+            try:
+                socket.create_connection(("127.0.0.1", gw_port), timeout=1).close()
+                return True
+            except OSError:
+                return False
+        check("the daemon's gateway is listening", wait(gw_up, 90))
         os.environ["OSTLER_CHAT_ADMIN_TOKEN_FILE"] = str(ostler / "secrets" / "zeroclaw_admin_token")
         good = am.test_now()
         check("(b) Doctor 'Test now' -> daemon endpoint -> self-test round trip passes",
