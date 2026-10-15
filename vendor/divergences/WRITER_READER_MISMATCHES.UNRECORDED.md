@@ -1212,3 +1212,7 @@ Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, a
 ### What a future sync must preserve
 
 The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).
+
+## `ostler_fda/sink_health.py`: one Ollama health probe for the catch-up (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side file, no upstream. `ollama_healthy()` GETs `/api/tags` (unproxied, 5 s). The iMessage and WhatsApp catch-up adapters call it when a dispatch times out (exit 124): a healthy sink means the document hung and the attempt counts toward quarantine; an unhealthy sink raises `ConnectionError` and counts nothing. Guarded by `tests/test_catchup_messages.py::test_a_hanging_item_with_a_healthy_sink_is_quarantined_and_the_rest_proceeds` and `::test_a_timeout_with_a_dead_sink_counts_no_attempt`.

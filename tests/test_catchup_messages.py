@@ -545,3 +545,81 @@ def test_a_cm048_exit_75_is_an_outage_never_a_failed_item(env, which):
     assert rejects.process(_first_item(rejects)) is False
     ok = mk(_exit_script(env["tmp"], 0))
     assert ok.process(_first_item(ok)) is True
+
+
+# ── a dispatch TIMEOUT (124) is a hung item OR a dead sink; a probe decides ──
+
+HANG_PWG_CONVO = r"""#!/bin/sh
+# Like the fake CM048, but the conversation named by $HANG_ID never returns.
+[ "$1" = "process" ] || exit 64
+id="$(sed -n 's/.*"conversation_id": "\([^"]*\)".*/\1/p' "$3" | head -1)"
+[ -n "$id" ] || exit 65
+if [ "$id" = "$HANG_ID" ]; then sleep 30; exit 0; fi
+mkdir -p "$FAKE_SINK/$id"
+cp "$2" "$FAKE_SINK/$id/transcript.md"
+exit 0
+"""
+
+
+def _small(cls, n):
+    """The real adapter, truncated to its first ``n`` sessions in one batch."""
+    class Small(cls):
+        def next_batch(self, cursor, limit):
+            import ostler_catchup as oc
+            items, cur = [], cursor
+            for _ in range(200):
+                b = super().next_batch(cur, limit)
+                items += b.items
+                cur = b.next_cursor
+                if len(items) >= n or b.exhausted:
+                    break
+            return oc.Batch(items=items[:n], next_cursor=cur, oldest_at=b.oldest_at, exhausted=True)
+    return Small
+
+
+def _hang_setup(env, monkeypatch, which):
+    script = env["tmp"] / "pwg-convo-hang"
+    script.write_text(HANG_PWG_CONVO)
+    script.chmod(0o755)
+    monkeypatch.setenv("OSTLER_DISPATCH_TIMEOUT_SECS", "1")
+    if which == "imessage":
+        db = env["tmp"] / "chat.db"
+        build_chat_db(db)
+        cu = _catchup_module("imessage_source.catchup")
+        cls = _small(cu.IMessageCatchup, 3)
+    else:
+        db = env["tmp"] / "ChatStorage.sqlite"
+        build_chatstorage(db)
+        cu = _catchup_module("whatsapp_source.catchup")
+        cls = _small(cu.WhatsAppCatchup, 3)
+    make = lambda: cls(db_path=db, state_path=env["ws"] / "none.json", pwg_convo_cmd=[str(script)])
+    return cu, make
+
+
+@pytest.mark.parametrize("which", ["imessage", "whatsapp"])
+def test_a_hanging_item_with_a_healthy_sink_is_quarantined_and_the_rest_proceeds(env, monkeypatch, which):
+    import ostler_catchup as oc
+    cu, make = _hang_setup(env, monkeypatch, which)
+    monkeypatch.setattr(cu, "ollama_healthy", lambda *a, **k: True)
+    probe = make()   # a throwaway instance: next_batch is stateful
+    items = probe.next_batch(probe.start_cursor(), probe.batch_size).items
+    ad = make()
+    assert len(items) == 3
+    monkeypatch.setenv("HANG_ID", ad.key(items[1]))
+    for tick in range(oc.MAX_ITEM_ATTEMPTS):
+        s = oc.run([ad], budget_seconds=1e9, busy=lambda: None)
+    row = s["sources"][ad.source]
+    assert row["quarantined"] == 1 and row["complete"], row
+    delivered = {d.name for d in env["sink"].iterdir()}
+    assert delivered == {ad.key(items[0]), ad.key(items[2])}, "the rest of the source did not proceed"
+
+
+@pytest.mark.parametrize("which", ["imessage", "whatsapp"])
+def test_a_timeout_with_a_dead_sink_counts_no_attempt(env, monkeypatch, which):
+    cu, make = _hang_setup(env, monkeypatch, which)
+    monkeypatch.setattr(cu, "ollama_healthy", lambda *a, **k: False)
+    ad = make()
+    items = ad.next_batch(ad.start_cursor(), ad.batch_size).items
+    monkeypatch.setenv("HANG_ID", ad.key(items[0]))
+    with pytest.raises(ConnectionError):
+        ad.process(items[0])
