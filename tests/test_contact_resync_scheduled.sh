@@ -88,7 +88,10 @@ fi
 # Axis 5 (REWRITTEN for G3). The reader is scheduled on EVERY install: still
 # announced from the pending branches, and quietly after the hydrate when the
 # install read worked, so contacts added after today are read too.
-if ! grep -B3 '_schedule_contact_resync$' "$INSTALL_SH" | grep -q 'MSG_HYDRATE_CONTACTS_PENDING'; then
+# Herestring, not `| grep -q`: grep -q exits on first match and SIGPIPEs the
+# producer, which pipefail reads as a failed match (the ratchet's rule).
+_pending_ctx="$(grep -B3 '_schedule_contact_resync$' "$INSTALL_SH")"
+if ! grep -q 'MSG_HYDRATE_CONTACTS_PENDING' <<<"$_pending_ctx"; then
     failure "_schedule_contact_resync is no longer announced from the contacts-pending state"
 fi
 if ! grep -q '^    _schedule_contact_resync quiet$' "$INSTALL_SH"; then

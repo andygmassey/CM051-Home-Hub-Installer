@@ -23911,8 +23911,8 @@ rm -f "${STATE_DIR}/contact-resync.tries"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
-# record <status> <detail>: the ongoing record the Doctor reads.
-record() {
+# _resync_record <status> <detail>: the ongoing record the Doctor reads.
+_resync_record() {
     local status="$1" detail="$2" now prev="" f="${ACT_DIR}/contacts.tsv"
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     [[ -f "$f" ]] && prev="$(sed -n 's/^last_success_at=//p' "$f" | head -1)"
@@ -23925,7 +23925,7 @@ PY="$PIPELINE_PY"
 [[ -x "$PY" ]] || PY="$(command -v python3 || true)"
 if [[ -z "$PY" ]]; then
     log "CANNOT-RUN: no python to read the address book with"
-    record error "no_python"
+    _resync_record error "no_python"
     exit 1
 fi
 
@@ -23996,29 +23996,29 @@ sig="$(field sig)"
 case "$state" in
     refused)
         log "CANNOT-RUN: macOS refused the address book read ($(field why)); grant Full Disk Access to the Ostler assistant"
-        record cannot_run "no_fda"
+        _resync_record cannot_run "no_fda"
         exit 75 ;;
     ok|absent) ;;
     *)
         log "could not read the address book (${state:-no answer}: $(field why))"
-        record error "probe_${state:-failed}"
+        _resync_record error "probe_${state:-failed}"
         exit 1 ;;
 esac
 
 if [[ -n "$sig" && "$sig" == "$(cat "$SIG_FILE" 2>/dev/null || true)" ]]; then
-    record ok "unchanged,rows=${rows}"
+    _resync_record ok "unchanged,rows=${rows}"
     exit 0
 fi
 if [[ "$rows" -eq 0 ]]; then
     log "address book is readable and holds no contacts yet"
     printf '%s\n' "$sig" > "$SIG_FILE"
-    record ok "rows=0"
+    _resync_record ok "rows=0"
     exit 0
 fi
 
 if [[ ! -x "$PIPELINE_PY" ]]; then
     log "import-pipeline venv missing at ${PIPELINE_PY}; the next tick retries"
-    record error "pipeline_venv_missing"
+    _resync_record error "pipeline_venv_missing"
     exit 1
 fi
 
@@ -24045,14 +24045,14 @@ except Exception:
 
 if [[ "$sync_rc" -ne 0 || ! "$count" =~ ^[0-9]+$ ]]; then
     log "contact sync failed (rc=${sync_rc}); the next tick retries"
-    record error "sync_failed,rc=${sync_rc}"
+    _resync_record error "sync_failed,rc=${sync_rc}"
     exit 1
 fi
 if [[ "$count" -eq 0 ]]; then
     # The store HAS rows and the syncer read none: a read failure, never a
     # quiet success (the silent-zero shape the install step also refuses).
     log "the address book holds ${rows} rows but the sync read 0; the next tick retries"
-    record error "read_zero_of_${rows}"
+    _resync_record error "read_zero_of_${rows}"
     exit 1
 fi
 
@@ -24060,7 +24060,7 @@ first=0
 [[ -f "${STATE_DIR}/contact-resync.imported" ]] || first=1
 printf '%s\n' "$sig" > "$SIG_FILE"
 : > "${STATE_DIR}/contact-resync.imported"
-record ok "imported=${count}"
+_resync_record ok "imported=${count}"
 log "contact sync read ${count} contact(s)"
 if [[ "$first" -eq 1 ]]; then
     # The first contacts to land after install. The install-time wiki compile
