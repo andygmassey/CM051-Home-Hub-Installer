@@ -440,18 +440,35 @@ allowed_senders = ["{OWNER}"]
               wait(lambda: len(replies_to(OWNER)) == n_rep + 1, 60))
 
         # ---------------------------------------------------------------- (g)
-        # A failed model turn is never mailed, whatever shape the failure takes.
+        # A failed model turn is never mailed as the failure: the owner's own 1:1
+        # gets ONE fixed generic line with no detail, whatever shape the failure
+        # takes, and the failure is recorded as model_failed.
+        GENERIC = "I couldn't answer that just now. Please try again in a moment."
         for mode, label in (("badshape", "a bad payload shape"), ("error", "an HTTP 500 error"),
                             ("empty", "an empty answer")):
             LLM_MODE["mode"] = mode
             n_sent, n_fail = len(sim.submission.sent), drops().get("model_failed", 0)
-            deliver(mail(OWNER, f"Question while the model is down ({mode})", f"<g-{mode}@example.test>"))
+            subj = f"Question while the model is down ({mode})"
+            deliver(mail(OWNER, subj, f"<g-{mode}@example.test>"))
             counted = wait(lambda: drops().get("model_failed", 0) == n_fail + 1, 90)
+            wait(lambda: len(sim.submission.sent) > n_sent, 30)
             time.sleep(3)
+            new = sim.submission.sent[n_sent:]
             check(f"(g) {label}: the failure is recorded as model_failed", counted, str(drops()))
-            check(f"(g) {label}: nothing at all was sent to anyone",
-                  len(sim.submission.sent) == n_sent,
-                  str([(x['rcpt'], str(x['msg']['Subject'])) for x in sim.submission.sent[n_sent:]]))
+            check(f"(g) {label}: exactly one mail went out, to the owner",
+                  len(new) == 1 and new[0]["rcpt"] == [OWNER], str([(x["rcpt"], str(x["msg"]["Subject"])) for x in new]))
+            if new:
+                body = new[0]["msg"].get_body(preferencelist=("plain",))
+                text = (body.get_content() if body is not None else "").strip()
+                check(f"(g) {label}: the body is the fixed generic line and nothing else",
+                      text == GENERIC, repr(text[:200]))
+                check(f"(g) {label}: no error detail anywhere in the mail",
+                      not any(w in new[0]["raw"].decode(errors="replace").lower()
+                              for w in ("choices", "500", "internal server", "crashed", "payload", "error:")))
+                check(f"(g) {label}: from the assistant, threaded, Auto-Submitted",
+                      ASSISTANT in str(new[0]["msg"]["From"]).lower()
+                      and new[0]["msg"]["In-Reply-To"] == f"<g-{mode}@example.test>"
+                      and bool(new[0]["msg"]["Auto-Submitted"]))
         LLM_MODE["mode"] = "ok"
         n_rep = len(replies_to(OWNER))
         deliver(mail(OWNER, "Model is back", "<g-back@example.test>"))
