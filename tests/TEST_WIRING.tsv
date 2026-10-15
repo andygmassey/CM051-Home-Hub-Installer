@@ -125,6 +125,7 @@ test_appcast_debt_is_collected.sh	WIRED	.github/workflows/cut.yml
 test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_appcast_publish_is_fail_closed.sh	WIRED	.github/workflows/appcast-fail-closed.yml
 test_apple_is_registered_before_appletv.py	WIRED	.github/workflows/parser-claim-separation.yml
+test_apple_mail_refused_walk_is_not_complete.py	WIRED	.github/workflows/status-honesty-ingest.yml
 test_apple_music_library_reader.py	WIRED	.github/workflows/apple-music-library.yml
 test_apple_music_scheduled_refresh.py	WIRED	.github/workflows/apple-music-library.yml
 test_appletv_parser.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml

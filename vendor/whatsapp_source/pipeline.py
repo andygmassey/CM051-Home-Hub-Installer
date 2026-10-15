@@ -318,6 +318,16 @@ def _latest_ts_iso(conv: WhatsAppConversation) -> str:
     return ended.isoformat().replace("+00:00", "Z") if ended else ""
 
 
+# A chat with no recorded window is re-read once by a tick whose window is at
+# least this wide; the 2-day daytime clamp is far below it.
+LEGACY_REBACKFILL_MIN_DAYS = 30
+
+
+def _rank(days: int) -> float:
+    """since_days <= 0 means "no limit", i.e. the widest window of all."""
+    return float("inf") if days <= 0 else float(days)
+
+
 def process_whatsapp(
     *,
     db_path: Optional[Path] = None,
@@ -339,6 +349,11 @@ def process_whatsapp(
     state_file = state_path or _state_path()
     state = _load_state(state_file)
     chat_state: dict[str, str] = state.setdefault("chats", {})
+    # The read window (days) each chat was last dispatched with. The newest-
+    # message watermark alone cannot tell "bundled the whole year" from
+    # "bundled the daytime 2-day clamp": both leave the watermark at the
+    # newest message, so the busiest chats kept 2 days for ever.
+    chat_windows: dict[str, int] = state.setdefault("windows", {})
 
     contacts = _load_contacts_map(contacts_path)
     contact_labels = _load_label_map(contacts_path, "contacts", "contact_label")
@@ -362,8 +377,21 @@ def process_whatsapp(
         # Re-dispatch only when this chat carries a message newer than
         # the last bundled one (a fresh reply, or a brand-new chat).
         if last_bundled and latest and latest <= last_bundled:
-            skipped += 1
-            continue
+            recorded = chat_windows.get(conv.chat_id)
+            if recorded is None:
+                # Written before windows were recorded: unknown. Re-read once
+                # on a real (non-clamp) window, never on a daytime clamp tick.
+                widened = _rank(since_days) >= LEGACY_REBACKFILL_MIN_DAYS
+            else:
+                widened = _rank(since_days) > _rank(recorded)
+            if not widened:
+                skipped += 1
+                continue
+            logger.info(
+                "re-dispatching %s: read window widened %s -> %s days",
+                conv.chat_id, recorded if recorded is not None else "unknown",
+                since_days,
+            )
 
         # Resolve operator labels + explicit privacy, keyed on the chat's
         # identity (DM partner JID for T1, "group:<id>" for groups).
@@ -400,6 +428,7 @@ def process_whatsapp(
             dispatched += 1
             if not dry_run and latest:
                 chat_state[conv.chat_id] = latest
+                chat_windows[conv.chat_id] = since_days
         else:
             failed += 1
             # Leave the watermark untouched so the next tick retries.

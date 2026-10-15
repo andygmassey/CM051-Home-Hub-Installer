@@ -1329,3 +1329,20 @@ again while every screen read "not paused".
 The reconcile on the expiry branch of `read_state`, and the non-swallowing
 mirror. Guarded by `tests/test_pause_expiry_reenables_cron.py` (workflow
 `status-honesty-pause.yml`).
+
+---
+
+## ostler_fda: a refused Apple Mail walk is not a complete one (status-honesty sweep V1)
+
+`vendor/ostler_fda/apple_mail_mbox.py`: `discover_emlx_files()` raises when the
+mail ROOT cannot be read (previously logged and walked as empty, so the tick
+wrote `backfill_complete=true` and exited 0), and collects sub-directory errors
+into an optional `errors` list. `emit_mbox()` holds the forward edge, the
+backward edge and `backfill_complete` when any directory was unreadable, logs an
+ERROR, and records posture `mailbox_unreadable` instead of `success`.
+
+### What a future sync must preserve
+
+The root-raise and the held edges. Guarded by
+`tests/test_apple_mail_refused_walk_is_not_complete.py` (workflow
+`status-honesty-ingest.yml`).
