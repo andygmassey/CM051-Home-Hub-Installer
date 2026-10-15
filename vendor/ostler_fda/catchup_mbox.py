@@ -605,6 +605,10 @@ class MailboxAdapter:
         if kind == "contacts":
             from .universal_import import _persist_mail_contacts
             r = _persist_mail_contacts(dict(item[1]), source="mbox_catchup")
+            if r.get("persist_status") == "no_graph":
+                # The people graph could not be reached: an outage, never a
+                # poison attempt (lib/ostler_catchup.py reads ConnectionError so).
+                raise ConnectionError("people graph unavailable")
             return r.get("persist_status") == "ok"
         return self._dispatch(item[1])
 
@@ -724,6 +728,8 @@ class MailboxAdapter:
         payload = ui._email_thread_to_payload(thread, user_email=user)
         payload["metadata"]["privacy_level"] = ui._EMAIL_PRIVACY_LEVEL
         r = ui._persist_conversations([payload], source="email_mbox_catchup")
+        if r.get("persist_unavailable"):
+            raise ConnectionError("pwg-convo: sink unavailable (exit 75)")
         return r.get("persisted") == 1
 
 

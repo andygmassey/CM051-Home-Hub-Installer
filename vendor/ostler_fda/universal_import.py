@@ -783,6 +783,7 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
 
     persisted = 0
     failed = 0
+    unavailable = 0
     for payload in payloads:
         conv_id = payload.get("conversation_id")
         transcript = payload.get("transcript")
@@ -810,6 +811,10 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
                     "conversation (exit %s)", source, proc.returncode
                 )
                 failed += 1
+                if proc.returncode == 75:
+                    # EX_TEMPFAIL: pwg-convo could not reach its model or
+                    # gateway. An outage, not a verdict on this thread.
+                    unavailable += 1
         except (OSError, ValueError) as exc:  # noqa: BLE001 -- type only (privacy)
             logger.warning(
                 "universal_import: pwg-convo exec failed for %s (%s)",
@@ -824,6 +829,7 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
         "persist_status": status,
         "persisted": persisted,
         "persist_failed": failed,
+        "persist_unavailable": unavailable,
     }
 
 

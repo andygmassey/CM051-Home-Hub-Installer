@@ -723,3 +723,76 @@ def test_extraction_stops_when_busy_resumes_from_the_part_and_never_runs_out_of_
     monkeypatch.setattr(cm.shutil, "disk_usage", lambda p: type("U", (), {"free": 1024})())
     with pytest.raises(oc.CannotRun):
         cm.extract_member(zm, busy=lambda: None)
+
+
+# ── an outage of the sink is not a poison attempt (Archie re-review of #2903) ─
+
+def _tiny_mailbox(home):
+    rows = [(NOW.timestamp() - 86400 * 40 + i * 60, 2, i, "Topic 00002", "pal0002@example.com", 2)
+            for i in range(5)]
+    rows += [(NOW.timestamp() - 86400 * 60 + i * 60, 3, i, "Topic 00003", "pal0002@example.com", 2)
+             for i in range(5)]
+    mbox = home / "imports" / "takeout" / "loose" / "one.mbox"
+    mbox.parent.mkdir(parents=True)
+    _write_mbox(mbox, rows)
+
+
+def _process_first(ad, want):
+    """Walk the adapter by hand to its first item of kind ``want`` ('contacts'
+    or 'thread') and process it, returning ('raised', exc) or ('returned', v)."""
+    cursor = None
+    for _ in range(80):
+        b = ad.next_batch(cursor, 5)
+        for it in b.items:
+            kind = "thread" if it[0] not in ("index", "contacts") else it[0]
+            if kind == want:
+                try:
+                    return "returned", ad.process(it)
+                except Exception as exc:  # noqa: BLE001
+                    return "raised", exc
+            ad.process(it)
+        cursor = b.next_cursor
+        if b.exhausted:
+            break
+    raise AssertionError(f"no {want} item reached")
+
+
+def _adapter(tmp_path, monkeypatch, contacts, convos):
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    monkeypatch.setattr(ui, "_persist_mail_contacts", lambda c, *, source: contacts)
+    monkeypatch.setattr(ui, "_persist_conversations", lambda p, *, source: convos)
+    _tiny_mailbox(home)
+    from ostler_fda import catchup_mbox
+    return catchup_mbox.adapters()[0]
+
+
+def test_an_unreachable_people_graph_is_an_outage_a_rejected_batch_is_a_failure(tmp_path, monkeypatch):
+    ad = _adapter(tmp_path, monkeypatch, {"persist_status": "no_graph", "people_created": 0}, {})
+    how, v = _process_first(ad, "contacts")
+    assert how == "raised" and isinstance(v, ConnectionError), (how, v)
+    ad = _adapter(tmp_path / "b", monkeypatch, {"persist_status": "error", "people_created": 0}, {})
+    assert _process_first(ad, "contacts") == ("returned", False)
+
+
+def test_a_pwg_convo_exit_75_is_an_outage_a_rejected_thread_is_a_failure(tmp_path, monkeypatch):
+    ok = {"persist_status": "ok", "people_created": 0}
+    down = {"persist_status": "error", "persisted": 0, "persist_failed": 1, "persist_unavailable": 1}
+    ad = _adapter(tmp_path, monkeypatch, ok, down)
+    how, v = _process_first(ad, "thread")
+    assert how == "raised" and isinstance(v, ConnectionError), (how, v)
+    rejected = {"persist_status": "error", "persisted": 0, "persist_failed": 1}
+    ad = _adapter(tmp_path / "b", monkeypatch, ok, rejected)
+    assert _process_first(ad, "thread") == ("returned", False)
+
+
+def test_persist_conversations_reports_exit_75_as_unavailable_not_just_failed(tmp_path, monkeypatch):
+    oc, ui = _load_modules(monkeypatch, tmp_path / "home")
+    for rc, unavailable in ((75, 1), (1, 0)):
+        s = tmp_path / f"pwg-convo-{rc}"
+        s.write_text(f"#!/bin/sh\nexit {rc}\n")
+        s.chmod(0o755)
+        monkeypatch.setattr(ui, "_pwg_convo_cmd", lambda s=s: [str(s)])
+        r = ui._persist_conversations([{"conversation_id": "c1", "transcript": "x", "metadata": {}}],
+                                      source="test")
+        assert r["persist_failed"] == 1 and r.get("persist_unavailable", 0) == unavailable, (rc, r)
