@@ -8843,6 +8843,16 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
         fi
     else
         ok "$MSG_OK_FDA_DEPENDENCIES_IMPORTABLE"
+        # v1.0.108 catch-up: Photos walks back past extract_all's 365-day
+        # window (vendor/ostler_fda/catchup_photos.py). Same venv and module
+        # path as the fda-rerun ingest, so it carries the store-auth .pth.
+        # slot=0: photo events are SPARQL inserts, no model and no embedding.
+        # The adapter itself does nothing unless Photos was chosen at install.
+        _ostler_catchup_register 30-photos \
+            "${OSTLER_FINAL_DIR:-${OSTLER_DIR}}/.venv/bin/python3" \
+            "ostler_fda.catchup_photos:adapters" 0 \
+            "${OSTLER_FINAL_DIR:-${OSTLER_DIR}}/fda-module" \
+            || warn "Photos history catch-up not registered; photos older than a year will not be read."  # i18n-exempt
     fi
 else
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
@@ -39240,6 +39250,20 @@ except Exception:
 </dict>
 </plist>
 AICONVPLIST
+            # v1.0.108 catch-up: AI chats older than the 365-day clamp
+            # (vendor/cm052_ai_conversations/src/cm052/catchup.py), same venv
+            # and the same environment as the aiconv agent above. slot=0: the
+            # wire QUEUES each conversation on the Hub's own processing
+            # endpoint, so the model work runs there, not in this process;
+            # the adapter keeps batches to five and the core stops on load.
+            _ostler_catchup_register 35-aichats \
+                "${OSTLER_FINAL_DIR:-${OSTLER_DIR}}/services/cm052/.venv/bin/python3" \
+                "src.cm052.catchup:adapters" 0 "" \
+                "CM052_USER_EMAIL=${USER_EMAIL:-}" \
+                "OSTLER_AI_CONVERSATIONS_DIR=${HOME}/Documents/Ostler/AI Conversations" \
+                "OSTLER_AI_CONV_TRANSCRIPT_PRIVACY=${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}" \
+                "OSTLER_AI_CONV_GIST_PRIVACY=${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
+                || warn "AI chats history catch-up not registered; chats older than a year will not be read."  # i18n-exempt
             launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || true
             if launchctl bootstrap "gui/$(id -u)" "$_AICONV_RESUME_PLIST" 2>/dev/null \
                || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
