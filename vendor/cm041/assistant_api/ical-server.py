@@ -8014,12 +8014,14 @@ def build_calendar_response(days, now=None):
     when nothing else answered), never returned as a 200 with no events.
     """
     all_events, sources, errors, not_connected = [], [], [], []
+    local_failed = False
     try:
         local, age = read_local_calendar_events(days, now=now)
         all_events.extend(local)
         sources.append("Apple Calendar")
     except LocalStoreError as exc:
         errors.append(str(exc))
+        local_failed = True
         age = None
 
     extra_ok = False
@@ -8047,7 +8049,7 @@ def build_calendar_response(days, now=None):
     except Exception:
         pass  # optional extra
 
-    if errors and not extra_ok:
+    if local_failed and not extra_ok:
         return 503, {"error": "calendar unavailable", "detail": errors,
                      "degraded": True, "events": [], "count": 0,
                      "period_days": days, "sources": []}
