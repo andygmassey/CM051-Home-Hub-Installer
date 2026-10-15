@@ -128,7 +128,7 @@ else
     fi
 fi
 svc="$(awk '/^  wiki-compiler:/{f=1} f&&/^  [a-z][a-z-]*:$/&&!/wiki-compiler/{exit} f' "$INSTALL_SH")"
-if printf '%s\n' "$svc" | grep -qF -- '- OSTLER_PUBLIC_LOOKUPS=${OSTLER_PUBLIC_LOOKUPS:-off}'; then
+if grep -qF -- '- OSTLER_PUBLIC_LOOKUPS=${OSTLER_PUBLIC_LOOKUPS:-off}' <<< "$svc"; then
     ok "compose wiki-compiler service maps OSTLER_PUBLIC_LOOKUPS, default off"
 else
     bad "compose wiki-compiler service does not map OSTLER_PUBLIC_LOOKUPS with a default of off ($(printf '%s\n' "$svc" | wc -l | tr -d ' ') lines read)"

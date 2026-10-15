@@ -138,6 +138,7 @@ jobs:
           /bin/bash tests/test_upgrade_path_can_wire_store_auth.sh install.sh
 
       - name: WhatsApp pwg_ingest step survives rc=1 under an armed ERR trap
+        if: always()
         run: /bin/bash tests/test_whatsapp_ingest_err_trap.sh
 
       - name: All three parse under /bin/bash 3.2
