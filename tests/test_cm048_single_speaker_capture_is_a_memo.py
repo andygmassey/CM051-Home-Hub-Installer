@@ -192,7 +192,11 @@ def _run(settings, cid, transcript, labels):
 
 def test_the_written_memo_has_one_participant_and_no_invented_setting(settings):
     state, text, fm = _run(settings, CID, MEMO, ["S1"])
-    assert [p["name"] for p in fm["participants"]] == ["S1"], fm["participants"]
+    # The one speaker is the owner (settings.user_display_name), not "S1".
+    assert fm["participants"] == [{"name": "Test User", "role": "user"}], fm["participants"]
+    transcript_section = text.split("## Cleaned transcript", 1)[1]
+    assert "Test User: Quick synthetic note" in transcript_section
+    assert "S1:" not in transcript_section
     assert "new acquaintance" not in text
     assert "location" not in fm, fm.get("location")
     assert "### Location" not in text
@@ -322,4 +326,56 @@ def test_the_classifier_prompt_no_longer_asks_to_skip_a_memo():
     text = (Path(processor.__file__).resolve().parent.parent / "prompts" / "01_classify.md").read_text()
     assert "solo voice memo, not a" not in text
     assert "voice memos, or conversations" not in text
+
+
+# ── no speech: never enriched, whatever the model says ───────────────
+
+SILENT = [
+    "S1:",
+    "S1: [BLANK_AUDIO]",
+    "[BLANK_AUDIO]",
+    "...",
+    "S1: Thank you.",
+    "S1: you",
+    # three more of the same shape
+    "S1: [BLANK_AUDIO]\nS1: Thank you.\nS1: you",
+    "**Speaker 1** (00:01):\n(silence)\n\n**Speaker 1** (00:04):\n♪ ♪",
+    "S1: Thanks for watching!\nS1: Bye.",
+]
+
+
+@pytest.mark.parametrize("model_depth", ["full", "none"])
+@pytest.mark.parametrize("transcript", SILENT)
+def test_a_capture_with_no_speech_is_never_enriched(settings, monkeypatch, transcript, model_depth):
+    monkeypatch.setattr(sys.modules[__name__], "CLASSIFIER_SAYS",
+                        dict(CLASSIFIER_SAYS, processing_depth=model_depth))
+    cid = "00000000-0000-4000-8000-0000000051e0"
+    state = processor.process(cid, transcript, _iphone_metadata(cid, ["S1"]), settings,
+                              ingest_sinks=False)
+    done = set(state.completed_steps)
+    assert not done & {"02_enrich", "05_fact_extraction", "09_bundle"}, done
+    assert ingest._write_conversation_md(
+        settings.processing_state_dir / cid, cid, settings, False) is None
+    assert not [p for p in _FakeOllama.prompts if "--- SECTION STRUCTURE REMINDER ---" in p]
+
+
+@pytest.mark.parametrize("model_depth", ["full", "none"])
+def test_a_real_short_memo_still_enriches(settings, monkeypatch, model_depth):
+    monkeypatch.setattr(sys.modules[__name__], "CLASSIFIER_SAYS",
+                        dict(CLASSIFIER_SAYS, processing_depth=model_depth))
+    cid = "00000000-0000-4000-8000-0000000005a0"
+    state = processor.process(cid, "S1: Call the plumber tomorrow.\n",
+                              _iphone_metadata(cid, ["S1"]), settings, ingest_sinks=False)
+    assert {"02_enrich", "05_fact_extraction", "09_bundle"} <= set(state.completed_steps)
+
+
+def test_speech_predicate_shapes():
+    from src import capture_truth as ct
+
+    assert ct.speech_words("S1: Thank you. Thank you so much.") == []
+    assert ct.speech_words("[00:01] S1: Call Mum") == ["call", "mum"]
+    assert ct.has_speech("S1: Call Mum")  # two real words is a memo
+    assert not ct.has_speech("S1: Mum")   # one word is below the floor
+    # A silence phrase inside real speech removes only itself.
+    assert ct.speech_words("S1: thank you for the parcel") == ["for", "the", "parcel"]
 

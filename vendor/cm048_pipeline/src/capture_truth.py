@@ -116,6 +116,64 @@ def is_single_speaker_capture(transcript: str, metadata: dict) -> bool:
     return len(speaker_labels(transcript, metadata)) <= 1
 
 
+# ── no-speech predicate ──────────────────────────────────────────────
+#
+# Whisper does not return "" for silence. It returns markers
+# ("[BLANK_AUDIO]", "(silence)", "♪") or hallucinates a stock phrase it saw
+# a million times at the end of videos ("Thank you.", "you", "Thanks for
+# watching!"). A capture made of only those has no speech in it, and the
+# model will happily enrich it into a summary, facts and todos about
+# nothing. Decided here, in code, before any of that runs.
+
+MIN_SPEECH_WORDS = 2
+
+# Lower-case, punctuation-free. Longest first so "thank you for watching"
+# is removed whole before "thank you" could split it.
+WHISPER_SILENCE_PHRASES: tuple[str, ...] = tuple(sorted({
+    "thanks for watching", "thank you for watching", "thank you so much",
+    "please subscribe", "subscribe to my channel", "see you next time",
+    "thank you", "thanks", "you", "bye", "bye bye", "okay", "ok", "so",
+    "uh", "um", "hmm", "mm", "ah", "oh",
+}, key=lambda x: -len(x.split())))
+
+_MARKER = re.compile(r"\[[^\]\n]*\]|\([^)\n]*\)|\*[^*\n]*\*|[♪♫]")
+_WORD = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.UNICODE)
+
+
+def speech_words(transcript: str, metadata: dict | None = None) -> list[str]:
+    """The words that were SAID: speaker labels, timestamps, bracketed
+    markers and Whisper's silence phrases removed."""
+    words: list[str] = []
+    for line in (transcript or "").splitlines():
+        m = _UTTERANCE.match(line)
+        if m:
+            line = line[m.end():]
+        line = _MARKER.sub(" ", line)
+        words.extend(w.lower() for w in _WORD.findall(line))
+    out: list[str] = []
+    i = 0
+    phrases = [ph.split() for ph in WHISPER_SILENCE_PHRASES]
+    while i < len(words):
+        for ph in phrases:
+            if words[i:i + len(ph)] == ph:
+                i += len(ph)
+                break
+        else:
+            out.append(words[i])
+            i += 1
+    return out
+
+
+def has_speech(transcript: str, metadata: dict | None = None) -> bool:
+    return len(speech_words(transcript, metadata)) >= MIN_SPEECH_WORDS
+
+
+def is_spoken(metadata: dict) -> bool:
+    channel = str(metadata.get("channel") or "spoken").strip().lower()
+    source = str(metadata.get("source") or "").strip().lower()
+    return channel == "spoken" and source != "gateway"
+
+
 def as_memo(c: Classification) -> Classification:
     """The classification of a single-speaker capture, whatever the
     model guessed. Setting, stakes and sensitivity are kept (the model
@@ -190,6 +248,7 @@ def stamp_frontmatter(
     classification: Classification,
     retention_tier: str | None,
     solo: bool,
+    owner_name: str = "",
 ) -> str:
     """Overwrite every frontmatter field the pipeline knows; drop the
     ones nobody measured. A reply with no frontmatter gets one."""
@@ -218,7 +277,13 @@ def stamp_frontmatter(
     # The roster is the capture's, not the model's: the prompt's example
     # roster gives each person a role ("new acquaintance, ex-...") that the
     # model copies. Kept from the model only when no roster was sent.
-    if normalise_participants(metadata.get("participants")) or solo:
+    if solo:
+        fm = _set(fm, "participants", [
+            "participants:",
+            f"  - name: {_yaml_scalar(owner_label(owner_name))}",
+            "    role: user",
+        ])
+    elif normalise_participants(metadata.get("participants")):
         fm = _set(fm, "participants", _participants_block(metadata))
     return "---\n" + "\n".join(fm) + "\n---\n" + body.lstrip("\n")
 
@@ -236,10 +301,18 @@ def _participants_block(metadata: dict) -> list[str]:
     return ["participants:"] + block if block else ["participants: []"]
 
 
+def owner_label(owner_name: str) -> str:
+    """Who spoke a solo memo: the owner. The configured display name, else
+    "You" (the label the participants roster already uses for the owner)."""
+    return (owner_name or "").strip() or "You"
+
+
 _HEADING = re.compile(r"^#{2,3}\s+(.*?)\s*$")
 
 
-def scrub_solo_body(text: str, labels: Iterable[str], metadata: dict) -> str:
+def scrub_solo_body(
+    text: str, labels: Iterable[str], metadata: dict, owner_name: str = "",
+) -> str:
     """Body edits for a single-speaker capture.
 
     - a ``### Location`` subsection is removed unless the capture carried
@@ -248,8 +321,20 @@ def scrub_solo_body(text: str, labels: Iterable[str], metadata: dict) -> str:
       speaker's own label (with or without a copied role tag) is removed:
       the speaker is not someone they mentioned.
     """
-    own = {lab.strip().lower() for lab in labels if lab.strip()}
+    labels = [lab for lab in labels if lab.strip()]
+    own = {lab.strip().lower() for lab in labels}
     own |= _participant_names(metadata)
+    # A diarisation label ("S1", "Speaker 1") is the device's placeholder
+    # for the one person who spoke, which in a solo memo is the owner.
+    # A real name the producer already resolved is left alone.
+    who = owner_label(owner_name)
+    relabel = [lab for lab in labels if _DIARISATION_LABEL.match(lab.strip().lower())]
+    relabel_re = (
+        re.compile(
+            r"^(\s*(?:[-*]\s+)?(?:\*\*)?)(" + "|".join(re.escape(l) for l in relabel)
+            + r")((?:\*\*)?\s*(?:\(\d{1,2}:\d{2}(?::\d{2})?\))?\s*(?:\*\*)?:)"
+        ) if relabel else None
+    )
     keep_location = bool(str(metadata.get("location") or "").strip())
     out: list[str] = []
     section = ""
@@ -269,6 +354,8 @@ def scrub_solo_body(text: str, labels: Iterable[str], metadata: dict) -> str:
             continue
         if sub == "location" and not keep_location:
             continue
+        if relabel_re is not None and section.startswith("cleaned transcript"):
+            line = relabel_re.sub(lambda m: m.group(1) + who + m.group(3), line)
         if section.startswith("people") and "mentioned" in section:
             b = re.match(r"^\s*[-*]\s+(.*)$", line)
             if b:

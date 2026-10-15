@@ -154,14 +154,30 @@ def process(
     # A memo is ALWAYS kept. 01_classify.md used to tell the model to answer
     # processing_depth "none" for a solo voice memo, and "none" stops the
     # pipeline below: the memo was silently never written. Whether to skip
-    # is decided here, in code, from what we measured; the model's "none"
-    # stands only for a capture with no words in it.
-    if _capture_truth.is_single_speaker_capture(transcript, metadata):
+    # is decided here, in code, from what we measured: a capture with no
+    # speech (capture_truth.has_speech) is skipped, a memo with speech is
+    # kept.
+    if _capture_truth.is_spoken(metadata) and not _capture_truth.has_speech(
+        transcript, metadata
+    ):
+        # A spoken capture with no speech in it (silence markers, Whisper's
+        # "Thank you." hallucination, a bare label) is never enriched,
+        # whatever the model said: no summary, no facts, no bundle.
+        if classification.processing_depth != "none":
+            classification.processing_depth = "none"
+            classification.reasoning = (
+                "no speech: the pipeline found fewer than "
+                f"{_capture_truth.MIN_SPEECH_WORDS} spoken words. "
+                + (classification.reasoning or "")
+            )
+            write_json(state_dir / "01_classification.json", classification.to_dict())
+        logger.info("No speech in %s; nothing to enrich.", conversation_id)
+    elif _capture_truth.is_single_speaker_capture(transcript, metadata):
         changed = False
         if classification.shape != _capture_truth.MEMO_SHAPE:
             classification = _capture_truth.as_memo(classification)
             changed = True
-        if classification.processing_depth == "none" and (transcript or "").strip():
+        if classification.processing_depth == "none":  # has_speech held above
             classification.processing_depth = "full"
             classification.reasoning = (
                 "memo kept: the model said processing_depth none. "
@@ -859,6 +875,13 @@ def _step_enrich_inner(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # Pipeline-known facts overwrite the model's copies (capture_truth).
+        rendered = _stamp_capture_truth(
+            rendered, transcript, metadata, classification, settings,
+            prompt_version=f"{prompt_name}@1.0",
+            model=getattr(result, "model", None) or settings.ollama_enrich_model,
+            solo=solo,
+        )
         rendered = enrichment_validation.sanitise_participants_section(
             rendered,
             normalise_participants(metadata.get("participants")),
@@ -882,12 +905,6 @@ def _step_enrich_inner(
                 _sidecars,
                 metadata.get("conversation_id"),
             )
-        rendered = _stamp_capture_truth(
-            rendered, transcript, metadata, classification, settings,
-            prompt_version=f"{prompt_name}@1.0",
-            model=getattr(result, "model", None) or settings.ollama_enrich_model,
-            solo=solo,
-        )
         out_path.write_text(rendered)
         # Pre-meeting brief input: walk the enrichment's Action items
         # table and emit a per-participant outstanding_todos.json
@@ -983,6 +1000,13 @@ def _step_enrich_inner(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # Pipeline-known facts overwrite the model's copies (capture_truth).
+        rendered = _stamp_capture_truth(
+            rendered, transcript, metadata, classification, settings,
+            prompt_version=f"{prompt_name}+merge@1.0",
+            model=settings.ollama_enrich_model,
+            solo=solo,
+        )
         rendered = enrichment_validation.sanitise_participants_section(
             rendered,
             normalise_participants(metadata.get("participants")),
@@ -1006,12 +1030,6 @@ def _step_enrich_inner(
                 _sidecars,
                 metadata.get("conversation_id"),
             )
-        rendered = _stamp_capture_truth(
-            rendered, transcript, metadata, classification, settings,
-            prompt_version=f"{prompt_name}+merge@1.0",
-            model=settings.ollama_enrich_model,
-            solo=solo,
-        )
         out_path.write_text(rendered)
         # See note above (single-chunk branch) for the rationale on
         # extracting outstanding_todos here rather than during ingest.
@@ -1072,6 +1090,7 @@ def _stamp_capture_truth(
     if solo:
         rendered = _capture_truth.scrub_solo_body(
             rendered, _capture_truth.speaker_labels(transcript, metadata), metadata,
+            owner_name=getattr(settings, "user_display_name", "") or "",
         )
     return _capture_truth.stamp_frontmatter(
         rendered,
@@ -1083,6 +1102,7 @@ def _stamp_capture_truth(
         classification=classification,
         retention_tier=_retention_tier(classification),
         solo=solo,
+        owner_name=getattr(settings, "user_display_name", "") or "",
     )
 
 
