@@ -1224,3 +1224,7 @@ WHY: install.sh reads 1825 days of browsing and nothing ever read further back.
 ### What a future sync must preserve
 
 The two keyword bounds, `oldest_visit`, and `catchup_browser.py`. Guarded by `tests/test_catchup_browser.py` (red on origin/main, wired in `.github/workflows/catchup-browser.yml`).
+
+## `ingest_browser_history` flags a vector-store outage as `sink_unavailable` (catch-up, v1.0.108)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. The two `"status": "error"` returns of `ingest_browser_history` (the embed/upsert raised; or every chunk failed to land) gain `"sink_unavailable": True`. `catchup_browser` reads it and raises `ConnectionError`, so a Qdrant or Ollama outage is not counted as a poison attempt toward quarantine. A partial landing (0 < sent < total) is unchanged and still counts. Guarded by `tests/test_catchup_browser.py::test_an_embed_or_vector_store_outage_is_not_a_failed_window`.

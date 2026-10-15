@@ -442,3 +442,47 @@ def test_a_query_error_is_cannot_run_never_an_empty_window_or_a_finished_walk(en
     # CONTROL: the install-time default is unchanged (still [] on a query error).
     from ostler_fda import safari_history
     assert safari_history.extract_history(sdb, since_days=3650) == []
+
+
+# ── an outage of the sink is not a poison attempt (Archie re-review of #2903) ─
+
+def _dt(epoch):
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(epoch, tz=timezone.utc)
+
+
+def _a_window_with_visits(env, dbs):
+    pwg, sink = env
+    ad = _catchup_adapters(*dbs)[0]
+    cursor = ad.start_cursor()
+    for _ in range(200):
+        b = ad.next_batch(cursor, 2)
+        for item in b.items:
+            lo, hi = item
+            if len(ad.module.extract_history(ad.db_path, since=_dt(lo - 1), until=_dt(hi), strict=True)) >= 3:
+                return ad, item
+        cursor = b.next_cursor
+        if b.exhausted:
+            break
+    raise AssertionError("no window with visits in the fixture")
+
+
+def test_an_embed_or_vector_store_outage_is_not_a_failed_window(env, dbs, monkeypatch):
+    pwg, sink = env
+    ad, item = _a_window_with_visits(env, dbs)
+
+    def down(texts):
+        raise ConnectionRefusedError("synthetic")
+
+    monkeypatch.setattr(pwg, "_ollama_embed_batch", down)
+    with pytest.raises(ConnectionError):
+        ad.process(item)
+    # every chunk lost on the way in (store down): also an outage
+    monkeypatch.setattr(pwg, "_ollama_embed_batch", lambda texts: [[0.1, 0.2, 0.3] for _ in texts])
+    monkeypatch.setattr(pwg, "_qdrant_upsert_points", lambda c, pts: 0)
+    with pytest.raises(ConnectionError):
+        ad.process(item)
+    # control: half landed is a partial write, still a plain failure that counts
+    real = sink.upsert
+    monkeypatch.setattr(pwg, "_qdrant_upsert_points", lambda c, pts: real(c, pts[:-1]))
+    assert ad.process(item) is False

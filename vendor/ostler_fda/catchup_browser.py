@@ -142,6 +142,9 @@ class _BrowserAdapter(oc.Adapter):
         finally:
             shutil.rmtree(work, ignore_errors=True)
         status = res.get("status")
+        if res.get("sink_unavailable"):
+            # Embedder or vector store down: an outage, never a poison attempt.
+            raise ConnectionError("browsing vector store unavailable")
         if status == "no_data":
             return True       # every visit in it was sensitive or unusable
         ok = status == "ok" and res.get("sent") == res.get("total")
