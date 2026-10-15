@@ -2440,16 +2440,16 @@ def render_history(history_entries: list[dict]) -> str:
             warn = sum(1 for f in findings if f.get("severity") == "warning")
             finding_parts = []
             if crit:
-                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=f'{crit:,}')}</span>')
+                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
             if warn:
-                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=f'{warn:,}')}</span>')
+                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
             if not finding_parts:
                 finding_parts.append(f'<span style="color:#2C4A2C">{HISTORY_ALL_CLEAR}</span>')
 
             rows += f"""<tr>
                 <td>{ts}</td>
                 <td>{", ".join(svc_parts)}</td>
-                <td>{HISTORY_RUNNING_FMT.format(running=f'{running:,}', total=f'{total:,}')}</td>
+                <td>{HISTORY_RUNNING_FMT.format(running=f"{running:,}", total=f"{total:,}")}</td>
                 <td>{", ".join(finding_parts)}</td>
             </tr>"""
 
@@ -2540,7 +2540,7 @@ def render_history(history_entries: list[dict]) -> str:
 <body>
     <div class="container">
         <h1>{HISTORY_HEADING}</h1>
-        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=f'{len(history_entries):,}')}</div>
+        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=f"{len(history_entries):,}")}</div>
         <table>
             <thead>
                 <tr>
