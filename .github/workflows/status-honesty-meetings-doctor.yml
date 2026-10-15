@@ -44,6 +44,7 @@ jobs:
           check tests/test_reminders_tile_is_not_green_when_every_push_failed.py 5
           check tests/test_all_clear_counts_the_bundle_routines.py 4
       - name: Run
+        if: always()
         run: |
           python -m pytest tests/test_meeting_briefs_say_when_they_cannot_run.py tests/test_reminders_tile_is_not_green_when_every_push_failed.py tests/test_all_clear_counts_the_bundle_routines.py -v
           bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
