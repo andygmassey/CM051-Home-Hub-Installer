@@ -100,7 +100,11 @@ def test_behaviour_is_unchanged_by_the_move_for_every_golden_row():
         got = m._is_non_human_person(payload, name) if phones is None else m._is_non_human_person(payload, name, phones, emails)
         assert got == want, (name, payload, phones, emails)
         checked += 1
+    for name, has_card, handles, want in GOLDEN["by_handle"]:
+        assert m._is_nameless_name(name, has_card=has_card, handles=handles) == want, (name, has_card, handles)
+        checked += 1
     assert checked > 1000, checked
+    assert any(r[-1] for r in GOLDEN["by_handle"]) and any(not r[-1] for r in GOLDEN["by_handle"])
     assert any(r[-1] for r in GOLDEN["nonhuman"]) and any(not r[-1] for r in GOLDEN["nonhuman"])
 
 

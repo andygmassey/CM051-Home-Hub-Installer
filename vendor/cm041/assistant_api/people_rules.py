@@ -59,27 +59,30 @@ def _is_short_code(display_name):
     return _is_bare_phone_shape(s) and _digit_count(s) <= 6
 
 
-def _is_alphanumeric_sender_id(display_name):
-    """EXPLAINED EXCLUSION 2: an alphanumeric sender ID, by shape, applied only
-    to a sender with NO contact card. Two shapes: (i) a single all-caps
-    ALPHABETIC token of 3+ letters ("HSBCALERT", "AMAZON"), Archie's ruling;
-    (ii) ONE token of 2-11 characters from ``A-Z 0-9 . _ -``, no lowercase,
-    at least two letters, AND a digit or separator ("NHS-ALERT", "AMZN1").
-    A carded name is never excluded (a carded "ALEX" is a person). Mixed-case
-    words ("Marta") are never matched."""
-    s = (display_name or "").strip()
-    # Archie's ruling: a single all-caps ALPHABETIC token of 3+ letters
-    # ("HSBCALERT", "AMAZON") is a sender ID too, any length. Only ever applied
-    # with no card (see ``_is_nameless_name``): a carded "ALEX" is a person.
-    if len(s) >= 3 and s.isascii() and s.isalpha() and s.isupper():
-        return True
-    if not 2 <= len(s) <= 11:
+def _is_sender_id_handle(handle):
+    """True when ONE handle is a non-human sender handle, by shape: an
+    alphanumeric SMS sender ID ("HSBCALERT", "R2D2": one token of 1-11 chars
+    from ``A-Z a-z 0-9 . _ -`` with at least one letter, never an email
+    address and never a phone number) or a short code (6 digits or fewer).
+    A phone number (7+ digits) and an email address are NOT sender IDs."""
+    s = (handle or "").strip()
+    if not s or "@" in s:
         return False
-    if not all(c.isascii() and (c.isupper() or c.isdigit() or c in "._-") for c in s):
+    if _is_bare_phone_shape(s):
+        return _digit_count(s) <= 6
+    if not 1 <= len(s) <= 11:
         return False
-    if sum(c.isalpha() for c in s) < 2:
+    if not all(c.isascii() and (c.isalnum() or c in "._-") for c in s):
         return False
-    return any(c.isdigit() or c in "._-" for c in s)
+    return any(c.isalpha() for c in s)
+
+
+def _all_handles_are_sender_ids(handles):
+    """SHARED RULE A predicate: True only when the person has at least one
+    handle and EVERY handle is a sender ID or short code. No handles is no
+    evidence, so False (the display name is never consulted)."""
+    hs = [h for h in (handles or ()) if (h or "").strip()]
+    return bool(hs) and all(_is_sender_id_handle(h) for h in hs)
 
 
 def _is_provisional_phone_name(display_name):
@@ -93,13 +96,14 @@ def _is_provisional_phone_name(display_name):
 
 # SHARED RULE (Hub, wiki compiler/nameless.py, iOS PersonNameFilter; all three
 # cite this block and must stay byte-identical in behaviour):
-#   A. A sender-ID exclusion applies ONLY to a sender with NO contact card.
-#      Shapes (Archie's ruling): (i) a single all-caps ALPHABETIC token of 3+
-#      letters ("HSBCALERT", "AMAZON"); (ii) one token of 2-11 chars from
-#      A-Z 0-9 . _ -, no lowercase, 2+ letters, and a digit or separator
-#      ("NHS-ALERT", "AMZN1"). A CARDED name always shows: "JEAN-LUC",
-#      "MARY-JANE" and "J.R." are people. The other exclusions (empty, JID,
-#      short code) are shapes no card makes a person, and apply regardless.
+#   A. A person is a non-human sender (hidden) ONLY when they have NO contact
+#      card AND ALL their HANDLES are alphanumeric SMS sender IDs (not a phone
+#      number, not an email address) or short codes of 6 digits or fewer. The
+#      decision is by HANDLE, never by the display name: an uncarded "JOHN"
+#      with a phone handle and "R2D2" with an email handle are people. A
+#      CARDED person always shows. The other exclusions (empty, JID, short
+#      code as the NAME) are shapes no card makes a person, and apply
+#      regardless. Handles = phones + emails + identifier handles.
 #   B. Display-name ladder, upward only: human name (given/family) > email >
 #      phone. A phone-shaped stored name yields to an email, and any
 #      identifier-shaped stored name yields to a given/family name, in EVERY
@@ -122,7 +126,7 @@ def _best_display_name(stored, given="", family="", emails=()):
     return stored
 
 
-def _is_nameless_name(display_name, has_card=False):
+def _is_nameless_name(display_name, has_card=False, handles=None):
     """True when ``display_name`` must NOT be listed as a person.
 
     A phone-only person is NOT nameless any more (ruling 2026-08-10, tier 0):
@@ -132,8 +136,9 @@ def _is_nameless_name(display_name, has_card=False):
       1. empty / whitespace-only (no name at all);
       2. a WhatsApp JID (``@s.whatsapp.net`` / ``@lid``): a transport id;
       3. a short code, 6 digits or fewer (``_is_short_code``);
-      4. an alphanumeric sender ID (``_is_alphanumeric_sender_id``), ONLY
-         when ``has_card`` is False (SHARED RULE A: a carded name always shows).
+      4. every handle is a sender ID or short code
+         (``_all_handles_are_sender_ids(handles)``), ONLY when ``has_card`` is
+         False (SHARED RULE A: decided by handle, a carded person always shows).
 
     Rows are hidden at render time only; the Qdrant point / graph node is
     never deleted.
@@ -148,7 +153,7 @@ def _is_nameless_name(display_name, has_card=False):
         return True
     if _is_short_code(s):
         return True
-    if not has_card and _is_alphanumeric_sender_id(s):
+    if not has_card and _all_handles_are_sender_ids(handles):
         return True
     return False
 

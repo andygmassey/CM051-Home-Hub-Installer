@@ -2131,7 +2131,8 @@ def people_search(query, limit=10, timeout=30):
         # IDs from the People list / search results (a phone-only person is
         # SHOWN, provisional). SHARED RULE A: a carded name always shows.
         # Render-time filter only; the Qdrant point is never deleted. Ref #664.
-        if _is_nameless_name(dn, has_card=bool((p.get("icloud_uid") or "").strip())):
+        if _is_nameless_name(dn, has_card=bool((p.get("icloud_uid") or "").strip()),
+                             handles=list(p.get("phones") or []) + list(p.get("emails") or [])):
             continue
         # F7 (walk #16): the same human-evidence test people_list applies, so a
         # sender id or bulk mailbox is not found by search either.
@@ -7355,7 +7356,11 @@ def people_list(sort=None, ceiling=10000):
         # second filter: it is explicitly byte-identical across all three
         # surfaces for exactly this reason (Ref #664).
         # SHARED RULE A: a carded name always shows (JEAN-LUC, J.R.).
-        if _is_nameless_name(name, has_card=bool((p.get("icloud_uid") or "").strip())):
+        if _is_nameless_name(name,
+                has_card=bool((p.get("icloud_uid") or "").strip()),
+                handles=list(p.get("phones") or []) + list(p.get("emails") or [])
+                + list(ident_by_uri.get(uri, {}).get("phone", []))
+                + list(ident_by_uri.get(uri, {}).get("email", []))):
             continue
         # v1.0.106 walk: a record whose ONLY name is a role or automation
         # mailbox ("support@...", "promotions@...") is not a person to list.
@@ -7637,7 +7642,9 @@ def people_stale(months=3, limit=5):
         # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
         # Stale / reconnect list. SHARED RULE A: a carded name always shows.
         # Render-time filter only. Ref #664.
-        if _is_nameless_name(name, has_card=bool((p.get("icloud_uid") or "").strip())):
+        if _is_nameless_name(
+                name, has_card=bool((p.get("icloud_uid") or "").strip()),
+                handles=list(p.get("phones") or []) + list(p.get("emails") or [])):
             continue
         if _is_non_human_person(p, name):
             continue

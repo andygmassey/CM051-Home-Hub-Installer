@@ -168,7 +168,7 @@
 ["re: your order", false],
 ["your account update", false],
 ["alert", false],
-["ALERT", true],
+["ALERT", false],
 ["Jane Doe", false],
 ["JANE DOE", false],
 ["jane doe", false],
@@ -260,7 +260,7 @@
 ["acme delivery rewards", false],
 ["ACME EXECUTIVE SEARCH", false],
 ["ACME HOLDINGS", false],
-["ACME", true],
+["ACME", false],
 ["acme executive search", false],
 ["bank of acme", false],
 ["the acme group", false],
@@ -4241,5 +4241,22 @@
 ["apple", {"icloud_uid": "c1", "given_name": "", "family_name": ""}, [], [], null],
 ["apple", {"icloud_uid": "c1", "given_name": "", "family_name": ""}, ["5550100"], [], null],
 ["apple", {"icloud_uid": "c1", "given_name": "", "family_name": ""}, ["555010"], [], null]
+],
+"by_handle": [
+["JOHN", false, ["+447700900001"], false],
+["JOHN", false, [], false],
+["HSBCALERT", false, ["HSBCALERT"], true],
+["HSBCALERT", true, ["HSBCALERT"], false],
+["R2D2", false, ["r2d2@example.invalid"], false],
+["R2D2", false, ["R2D2"], true],
+["ALERT", false, ["ALERT"], true],
+["ALERT", true, ["ALERT"], false],
+["ACME", false, ["ACME"], true],
+["ACME", false, ["ACME", "+447700900002"], false],
+["NHS-ALERT", false, ["NHS-ALERT"], true],
+["Bank", false, ["87099"], true],
+["Bank", false, ["87099", "HSBCALERT"], true],
+["Bank", false, ["1234567"], false],
+["Bank", false, ["HSBCALERT", "bank@example.invalid"], false]
 ]
 }

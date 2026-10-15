@@ -62,13 +62,16 @@ POINTS = [
     pt(3, "JEAN-LUC", icloud_uid="c3"),
     pt(4, "MARY-JANE", icloud_uid="c4"),
     pt(5, "J.R.", icloud_uid="c5"),
-    pt(6, "HSBCALERT"),
+    pt(6, "HSBCALERT", phones=["HSBCALERT"]),
     pt(10, "ALEX", icloud_uid="c10"),
-    pt(7, "NHS-ALERT"),
-    pt(8, "JEAN-LUC"),
+    pt(7, "NHS-ALERT", phones=["NHS-ALERT"]),
+    pt(8, "JEAN-LUC", phones=["JEAN-LUC"]),
     pt(9, PH3),
+    pt(11, "JOHN", phones=[PH1[:-1] + "7"]),
+    pt(12, "R2D2", emails=["r2d2" + AT + "example.invalid"]),
+    pt(13, "ALERT", phones=["ALERT"], icloud_uid="c13"),
 ]
-CARDED = {"urn:t:3", "urn:t:4", "urn:t:5", "urn:t:1", "urn:t:10"}
+CARDED = {"urn:t:3", "urn:t:4", "urn:t:5", "urn:t:1", "urn:t:10", "urn:t:13"}
 
 
 class Resp(io.BytesIO):
@@ -115,9 +118,13 @@ print("--- rule A: pure predicate ---")
 f = m._is_nameless_name
 for n in ("JEAN-LUC", "MARY-JANE", "J.R."):
     check("carded %r shows" % n, not f(n, has_card=True))
-    check("uncarded %r keeps the shape exclusion" % n, f(n))
-check("a true sender ID (NHS-ALERT) with no card is hidden", f("NHS-ALERT"))
-check("uncarded HSBCALERT and AMAZON are hidden; carded ALEX shows", f("HSBCALERT") and f("AMAZON") and not f("ALEX", has_card=True))
+    check("uncarded %r with a phone handle is shown" % n, not f(n, handles=["+447700900001"]))
+check("a true sender ID (NHS-ALERT) with no card and only that handle is hidden", f("NHS-ALERT", handles=["NHS-ALERT"]))
+check("uncarded HSBCALERT (only handle HSBCALERT) hidden; carded ALEX shows",
+      f("HSBCALERT", handles=["HSBCALERT"]) and not f("ALEX", has_card=True, handles=["ALEX"]))
+check("uncarded JOHN with a phone handle is shown", not f("JOHN", handles=["+447700900001"]))
+check("R2D2 with an email handle is shown", not f("R2D2", handles=["r2d2@example.invalid"]))
+check("a carded ALERT is shown", not f("ALERT", has_card=True, handles=["ALERT"]))
 check("a short code is hidden even with a card", f("87099", has_card=True))
 
 print("--- people_list ---")
@@ -125,6 +132,8 @@ lst = names(m.people_list()["people"])
 for n in ("Alice Example", EM, "JEAN-LUC", "MARY-JANE", "J.R."):
     check("list shows %r" % n, n in lst, lst)
 check("list: carded single-token ALEX shows, uncarded HSBCALERT hidden", "ALEX" in lst and "HSBCALERT" not in lst, lst)
+check("list: uncarded JOHN (phone handle), R2D2 (email handle) and carded ALERT show",
+      all(n in lst for n in ("JOHN", "R2D2", "ALERT")), lst)
 check("list: no raw phone over a given name", PH1 not in lst)
 check("list: email beats phone", PH2 not in lst)
 check("list: phone-only shown when nothing better", PH3 in lst, lst)
@@ -136,7 +145,8 @@ res = names(m.people_search("anyone")["results"])
 check("search: carded given name over phone", "Alice Example" in res and PH1 not in res, res)
 check("search: email over phone", EM in res and PH2 not in res, res)
 check("search: carded all-caps shows", all(n in res for n in ("JEAN-LUC", "MARY-JANE", "J.R.")), res)
-check("search: true sender ID hidden", "NHS-ALERT" not in res, res)
+check("search: true sender ID hidden", "NHS-ALERT" not in res and "HSBCALERT" not in res, res)
+check("search: JOHN, R2D2 and carded ALERT show", all(n in res for n in ("JOHN", "R2D2", "ALERT")), res)
 
 print("--- people_stale ---")
 st = names(m.people_stale(limit=50)["contacts"])

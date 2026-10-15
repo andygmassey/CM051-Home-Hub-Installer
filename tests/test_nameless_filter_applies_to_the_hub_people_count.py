@@ -15,7 +15,7 @@ ICAL = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_
 # shared with cm048's reminders_push); people_list stays in ical-server.py.
 SRC = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/people_rules.py"
 WANT = {"_is_nameless_name", "_NAMELESS_BARE_ID_CHARS", "_digit_count",
-        "_is_bare_phone_shape", "_is_short_code", "_is_alphanumeric_sender_id",
+        "_is_bare_phone_shape", "_is_short_code", "_is_sender_id_handle", "_all_handles_are_sender_ids",
         "_is_provisional_phone_name"}
 
 try:
@@ -56,8 +56,16 @@ if f:
     # Excluded, each with its declared reason: empty, JID, short code (6
     # digits or fewer), alphanumeric sender ID.
     for nameless in (_lid_jid, "", None, "   ", "x@lid",
-                     "".join("87099"), "".join("123456"), "NHS-ALERT", "AMZN1", "HSBCALERT", "AMAZON"):
+                     "".join("87099"), "".join("123456")):
         check(f"nameless: {nameless!r}", f(nameless))
+    # Sender IDs are decided by HANDLE, never by the display name.
+    for nm, hs in (("HSBCALERT", ["HSBCALERT"]), ("NHS-ALERT", ["NHS-ALERT"]),
+                   ("Bank", ["87099", "AMZN1"])):
+        check(f"nameless by handle: {nm!r} {hs!r}", f(nm, handles=hs))
+    for nm, hs in (("JOHN", ["+447700900001"]), ("JOHN", None), ("R2D2", ["r2d2@example.invalid"]),
+                   ("HSBCALERT", None), ("AMAZON", [])):
+        check(f"NOT nameless without sender-ID-only handles: {nm!r} {hs!r}", not f(nm, handles=hs))
+    check("a carded ALERT with only a sender-ID handle is shown", not f("ALERT", has_card=True, handles=["ALERT"]))
     # A phone-only person is SHOWN (ruling 2026-08-10), never dropped.
     pf = ns.get("_is_provisional_phone_name")
     check("_is_provisional_phone_name exists", pf is not None)

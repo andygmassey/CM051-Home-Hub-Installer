@@ -1226,3 +1226,15 @@ WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
 with `degraded: false` while it could not read Messages at all. Guarded by
 `tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
 same change, or the next re-sync reverts it.
+
+## 2026-10-15 sender IDs are decided by HANDLE, not display name (fix/phone-only-people-shown)
+
+`people_rules.py`: `_is_alphanumeric_sender_id(name)` (the all-caps-name rule,
+which hid a real uncarded "JOHN" and "R2D2") is REPLACED by
+`_is_sender_id_handle` / `_all_handles_are_sender_ids`; `_is_nameless_name`
+takes `handles=`. A person is hidden only when uncarded AND every handle is an
+alphanumeric sender ID or a short code (6 digits or fewer); no handles is no
+evidence (shown). `ical-server.py`: people_search, people_list and
+people_stale pass phones + emails (+ identifier-table handles in the list).
+Golden: `tests/fixtures/people_rules_golden.json` (`by_handle`). CM041 upstream
+and CM044 `compiler/nameless.py` need the same change.
