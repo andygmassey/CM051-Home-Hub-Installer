@@ -430,6 +430,12 @@ def test_undo_restores_graph_and_qdrant_points_and_pins_distinct(tmp_path, monke
     entry = [e for e in merge_entries(tmp_path) if e["kind"] == "merge"][0]
     assert entry["qdrant_status"] == "ok" and entry["qdrant_points"] == 2
 
+    # A stray point for the pair that was not in the snapshot (e.g. written by
+    # a sync after the merge) must be gone after the undo.
+    mem.upsert("people", [models.PointStruct(
+        id=str(uuid.uuid4()), vector=[0, 0, 0, 1], payload={"person_uri": ka})])
+    assert len(qdump()) == len(q_before)
+
     res = r.undo_merge(entry["id"], backup_dir=str(tmp_path / "bk"))
     assert res["qdrant_restored"] is True and res["pinned_distinct"] is True
     assert qdump() == q_before                      # ids, payloads, vectors
