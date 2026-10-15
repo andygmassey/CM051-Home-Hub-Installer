@@ -1069,6 +1069,20 @@ entries:
       kind: box_walk_probe
       probe: "apple_music_library_reaches_preferences"
 
+  - id: box-walk-apple-music-refresh-runs-under-the-grant
+    title: the scheduled Apple Music refresh is armed, loaded, and its own read succeeded under the installer's grant
+    incident: >-
+      Andy 2026-10-15, "please don't let that slip". Apple Music refreshed at
+      install only, because a launchd job cannot hold the Media and Apple
+      Music grant. The refresh is now a LaunchAgent that runs the signed
+      installer app, which runs the signed helper as a child. Whether macOS
+      answers that read from the existing grant is inferred, not measured
+      (docs/APPLE_MUSIC_REFRESH_TCC.md); this probe is the measurement. The
+      TCC arm is console-only (console_only_probes.tsv). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "apple_music_refresh_runs_under_the_grant"
+
   # ADVISORY (scripts/walk_promote_scope.tsv): v1.0.107 has no on-demand send
   # endpoint and no email delivery channel, so this probe measures only the
   # config-correctness shape (an enabled channel with a written recipient).

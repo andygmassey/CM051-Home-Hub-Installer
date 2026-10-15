@@ -3455,7 +3455,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:8511, :15558) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18497 / :18675 / :18832 / :19200 path. There the
+    # :18497 / :18675 / :18832 / :19240 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -19021,12 +19021,16 @@ print(json.dumps(summary, default=str))
     # with tracks): that is the only proof the customer clicked Allow, and a
     # background job must never be the thing that raises that dialog. Nothing
     # here can fail the install.
-    _AM_APP_EXEC="${SCRIPT_DIR:-}/../MacOS/OstlerInstaller"
-    if [[ -s "$_AM_EXPORT" && -x "$_AM_APP_EXEC" && -n "${OSTLER_PYTHON:-}" ]] \
-       && [[ "${SCRIPT_DIR:-}" != /Volumes/* ]]; then
-        _AM_APP_EXEC="$(cd "$(dirname "$_AM_APP_EXEC")" && pwd)/OstlerInstaller"
-        _AM_ARM="$(OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" \
-            "$OSTLER_PYTHON" -m ostler_fda.apple_music_refresh arm --export "$_AM_EXPORT" 2>/dev/null)" || _AM_ARM=""
+    # The program must be the INSTALLED app, at a path that survives this
+    # run: the DMG mount and the app's Resources dir both go away, and launchd
+    # fails silently on a moved program. Not installed (run from the DMG)
+    # means no agent this time; the next install from /Applications arms it.
+    _AM_APP_EXEC="/Applications/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"
+    if [[ -s "$_AM_EXPORT" && -x "$_AM_APP_EXEC" && -n "${OSTLER_PYTHON:-}" ]]; then
+        # THIS run's summary must show a native read with tracks. The export
+        # on disk is not proof: a refused read keeps the previous export.
+        _AM_ARM="$(printf '%s\n' "${FDA_OUTPUT:-}" | OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" \
+            "$OSTLER_PYTHON" -m ostler_fda.apple_music_refresh arm --export "$_AM_EXPORT" --run-summary - 2>/dev/null)" || _AM_ARM=""
         if [[ "$_AM_ARM" == "armed" ]]; then
             if OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" \
                  "$OSTLER_PYTHON" -m ostler_fda.apple_music_refresh install-agents \
@@ -25286,6 +25290,8 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.export-scan
     com.ostler.fda-rerun
     com.ostler.contact-resync
+    com.ostler.music-refresh
+    com.ostler.music-refresh-apply
     com.ostler.deferred-register-device
     com.ostler.aiconv-resume
     com.ostler.colima

@@ -156,16 +156,79 @@ def _export(tmp_path, reader, tracks=True):
     return f
 
 
+def _summary(reader="native", tracks=3, status="ok"):
+    return {"sources": {"apple_music": {"status": status, "reader": reader,
+                                        "total_tracks": tracks}}}
+
+
 def test_install_arms_only_after_a_native_read_succeeded(tmp_path):
     for n, (reader, tracks, want) in enumerate([("native", True, True), ("xml", True, False),
                                                 ("native", False, False), ("none", False, False)]):
         o = tmp_path / f"o{n}"
-        assert r.arm(o, _export(tmp_path, reader, tracks)) is want, (reader, tracks)
+        assert r.arm(o, _export(tmp_path, reader, tracks), _summary(reader, 3 if tracks else 0)) is want, (reader, tracks)
         assert r.is_armed(o) is want
-    assert r.arm(tmp_path / "o9", tmp_path / "missing.json") is False
+    assert r.arm(tmp_path / "o9", tmp_path / "missing.json", _summary()) is False
     bad = tmp_path / "bad.json"
     bad.write_text("{not json")
-    assert r.arm(tmp_path / "o9", bad) is False
+    assert r.arm(tmp_path / "o9", bad, _summary()) is False
+
+
+@pytest.mark.parametrize("summary", [
+    None,                                       # no proof offered at all
+    _summary("previous_export", 3),             # refused read: old export kept
+    _summary("native", 0),                      # 0-track read
+    _summary("native", 3, status="no_fda"),     # source did not run
+    {"sources": {}},
+])
+def test_a_stale_native_export_on_disk_does_not_arm_without_this_runs_proof(tmp_path, summary):
+    """Review item (a). extract_all keeps the previous export (reader native)
+    after a refused or empty read; only THIS run's summary tells the truth."""
+    o = tmp_path / "o"
+    stale = _export(tmp_path, "native", True)
+    assert r.arm(o, stale, summary) is False
+    assert r.is_armed(o) is False
+    assert r.arm(o, stale, _summary("native", 3)) is True      # control: same file, real proof
+
+
+def test_parse_run_summary_takes_the_last_json_line_of_the_fda_output():
+    out = '[ok] Apple Music: 3 tracks\n' + json.dumps(_summary()) + "\n"
+    assert r.parse_run_summary(out) == _summary()
+    assert r.parse_run_summary("[skip] nothing\n") is None
+
+
+def test_the_agent_is_only_installed_against_a_stable_app_path(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "o"))
+    agents = tmp_path / "LA"
+    for bad in ("/Volumes/Ostler/OstlerInstaller.app/Contents/MacOS/OstlerInstaller",
+                "/private/tmp/x/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"):
+        assert r.main(["install-agents", "--app-executable", bad, "--python", "/py",
+                       "--fda-parent", "/f", "--agents-dir", str(agents)]) == 0
+        assert not agents.exists()
+    assert r.stable_app_executable(APP)
+
+
+def test_each_refresh_is_recorded_in_source_activity_for_the_doctor(box):
+    box.helper_said(DENIED)
+    box.run()
+    f = box.dir / "state" / "source_activity" / "apple_music.tsv"
+    t = f.read_text()
+    assert "source=apple_music" in t and "last_status=skipped" in t and "last_success_at=\n" in t
+    box.helper_said(payload())
+    box.run()
+    t = f.read_text()
+    assert "last_status=ok" in t and "last_success_at=20" in t
+    box.helper_said(DENIED)
+    box.run()
+    t2 = f.read_text()
+    assert "last_status=skipped" in t2
+    assert [l for l in t.splitlines() if l.startswith("last_success_at")] == \
+           [l for l in t2.splitlines() if l.startswith("last_success_at")], "success carried forward"
+
+
+def test_uninstaller_names_both_agents_in_its_teardown():
+    body = INSTALL[INSTALL.index("OSTLER_LAUNCHAGENT_LABELS=("):]
+    body = body[:body.index(")")]
+    assert "com.ostler.music-refresh\n" in body and "com.ostler.music-refresh-apply\n" in body
 
 
 # ── 3. FAIL-OPEN ───────────────────────────────────────────────────────────
@@ -418,4 +481,7 @@ def test_install_arms_before_it_schedules_and_loads_through_the_verified_loader(
     c = INSTALL.index("com.ostler.music-refresh-apply.plist\" || true")
     d = INSTALL.index("com.ostler.music-refresh.plist\"; then")
     assert a < b < c < d
-    assert 'SCRIPT_DIR:-}" != /Volumes/*' in INSTALL, "never point an agent into a mounted DMG"
+    assert '_AM_APP_EXEC="/Applications/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"' in INSTALL, \
+        "the agent points at the installed app, never the DMG or Resources"
+    assert "SCRIPT_DIR:-}/../MacOS" not in INSTALL
+    assert "arm --export \"$_AM_EXPORT\" --run-summary -" in INSTALL

@@ -98,6 +98,17 @@ def _default_ostler_dir() -> Path:
 
 # ── scheduling: the two plists ─────────────────────────────────────────────
 
+STABLE_APP_PREFIXES = ("/Applications/", )
+
+
+def stable_app_executable(path: str) -> bool:
+    """True for an installed app (/Applications or ~/Applications), never a DMG
+    mount or a temp tree: launchd fails silently when such a path goes away."""
+    p = str(path)
+    home_apps = str(Path.home() / "Applications") + "/"
+    return p.startswith(STABLE_APP_PREFIXES + (home_apps,)) and ".app/Contents/MacOS/" in p
+
+
 def render_run_plist(app_executable: str, logs_dir: str,
                      hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINUTE) -> dict:
     """The agent that runs in the logged-in GUI session."""
@@ -166,13 +177,25 @@ def is_armed(ostler_dir: Path) -> bool:
     return (state_dir(ostler_dir) / ARMED_NAME).is_file()
 
 
-def arm(ostler_dir: Path, export_path: Path) -> bool:
-    """Arm the refresh iff the install's own native read succeeded.
+def arm(ostler_dir: Path, export_path: Path, run_summary: Optional[dict] = None) -> bool:
+    """Arm the refresh iff THIS run's own native read succeeded.
 
-    ``export_path`` is the full export the install wrote. Only a ``native``
-    reader with tracks proves the customer granted "Media & Apple Music";
-    an XML-fallback export proves nothing about the grant.
+    ``run_summary`` is the ``run_all`` summary of the run that just finished
+    (or its ``sources.apple_music`` entry). It must show ``reader`` native and
+    more than 0 tracks. The export on disk is NOT enough on its own: after a
+    refused or empty read, extract_all deliberately keeps the previous export
+    (reader still ``native``) and only the summary says ``previous_export``,
+    so trusting the file would arm without proof of the grant. No summary, no
+    arming.
     """
+    stats = _apple_music_stats(run_summary)
+    if stats is None or stats.get("reader") != "native":
+        return False
+    try:
+        if int(stats.get("total_tracks") or 0) <= 0:
+            return False
+    except (TypeError, ValueError):
+        return False
     try:
         data = json.loads(Path(export_path).read_text())
     except (OSError, ValueError):
@@ -184,6 +207,29 @@ def arm(ostler_dir: Path, export_path: Path) -> bool:
     sdir.mkdir(parents=True, exist_ok=True)
     (sdir / ARMED_NAME).write_text(_now_iso() + "\n")
     return True
+
+
+def _apple_music_stats(run_summary: Optional[dict]) -> Optional[dict]:
+    if not isinstance(run_summary, dict):
+        return None
+    src = run_summary.get("sources")
+    entry = src.get("apple_music") if isinstance(src, dict) else run_summary
+    if not isinstance(entry, dict) or entry.get("status") != "ok":
+        return None
+    return entry
+
+
+def parse_run_summary(text: str) -> Optional[dict]:
+    """The ``run_all`` JSON is the last JSON line of install.sh's FDA output."""
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                return None
+            return obj if isinstance(obj, dict) else None
+    return None
 
 
 def disarm(ostler_dir: Path) -> None:
@@ -308,6 +354,18 @@ def run_cm019_ingest(directory: Path, ostler_dir: Path, user: str) -> bool:
 
 def apply(ostler_dir: Path, user: str = "ostler",
           ingest: Optional[Callable[[Path, Path, str], bool]] = None) -> dict:
+    """Run one apply and record its outcome in source_activity. NEVER raises."""
+    try:
+        result = _apply(ostler_dir, user=user, ingest=ingest)
+    except Exception as exc:  # noqa: BLE001 - fail-open by contract
+        logger.warning("music-refresh: could not look (%s)", type(exc).__name__)
+        result = {"outcome": "could_not_look", "reason": type(exc).__name__}
+    record_activity(Path(ostler_dir), result)
+    return result
+
+
+def _apply(ostler_dir: Path, user: str = "ostler",
+           ingest: Optional[Callable[[Path, Path, str], bool]] = None) -> dict:
     """Consume ``helper_out.json`` once. NEVER raises. Returns a summary.
 
     ``outcome`` is one of: nothing_to_do, could_not_look, unchanged,
@@ -387,6 +445,49 @@ def apply(ostler_dir: Path, user: str = "ostler",
     return dict(summary, outcome="stored")
 
 
+def record_activity(ostler_dir: Path, result: dict) -> None:
+    """Write this refresh's outcome to state/source_activity/apple_music.tsv.
+
+    Same record, same fields, as the FDA tick writes for every other source,
+    so the Doctor shows when Apple Music last refreshed and when it last
+    worked. last_success_at is carried forward from the previous record when
+    this run was not a success. Best effort: bookkeeping must never fail the
+    run it describes.
+    """
+    try:
+        outcome = str(result.get("outcome", "unknown"))
+        if outcome == "nothing_to_do":
+            return
+        status = {"stored": "ok", "unchanged": "ok",
+                  "could_not_look": "skipped",
+                  "could_not_store": "error"}.get(outcome, "error")
+        now = _now_iso()
+        act = Path(ostler_dir) / "state" / "source_activity"
+        act.mkdir(parents=True, exist_ok=True)
+        f = act / "apple_music.tsv"
+        prev_success = ""
+        try:
+            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("last_success_at="):
+                    prev_success = line.split("=", 1)[1]
+        except OSError:
+            pass
+        detail = {k: v for k, v in result.items() if k != "outcome"}
+        detail["outcome"] = outcome
+        detail["via"] = "scheduled_refresh"
+        tmp = act / "apple_music.tsv.tmp"
+        tmp.write_text(
+            "source=apple_music\n"
+            f"last_run_at={now}\n"
+            f"last_status={status}\n"
+            f"last_success_at={now if status == 'ok' else prev_success}\n"
+            f"last_detail={json.dumps(detail, default=str)[:400]}\n"
+            "writer=ostler-music-refresh\n", encoding="utf-8")
+        os.replace(tmp, f)
+    except Exception as exc:  # noqa: BLE001 - bookkeeping only
+        logger.warning("music-refresh: could not record activity (%s)", type(exc).__name__)
+
+
 def _consume(path: Path) -> None:
     try:
         Path(path).unlink()
@@ -408,6 +509,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub.add_parser("apply", help="store what the app last read")
     a = sub.add_parser("arm", help="arm the refresh from the install's export")
     a.add_argument("--export", required=True)
+    a.add_argument("--run-summary", default="-",
+                   help="file holding this run's FDA output ('-' = stdin)")
     sub.add_parser("disarm")
     i = sub.add_parser("install-agents", help="write both LaunchAgent plists")
     i.add_argument("--app-executable", required=True)
@@ -422,12 +525,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             apply(odir, user=os.environ.get("OSTLER_USER", "ostler"))
             return 0
         if args.cmd == "arm":
-            print("armed" if arm(odir, Path(args.export)) else "not armed")
+            text = (sys.stdin.read() if args.run_summary == "-"
+                    else Path(args.run_summary).read_text())
+            ok = arm(odir, Path(args.export), parse_run_summary(text))
+            print("armed" if ok else "not armed")
             return 0
         if args.cmd == "disarm":
             disarm(odir)
             return 0
         if args.cmd == "install-agents":
+            if not stable_app_executable(args.app_executable):
+                print("not installed: app executable is not at a stable path")
+                return 0
             logs = odir / "logs"
             logs.mkdir(parents=True, exist_ok=True)
             adir = Path(args.agents_dir)
