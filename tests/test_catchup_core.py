@@ -191,6 +191,59 @@ def test_a_failed_item_holds_the_cursor_then_retries(oc):
     assert s2["sources"]["fx"]["skipped"] == 13, "the ledger did not skip the items already done"
 
 
+def test_a_poisoned_item_is_quarantined_after_n_ticks_and_the_cursor_passes_it(oc):
+    """One item the sink ALWAYS refuses must not hold its whole source for ever."""
+    sink = {}
+    adapter = _make_adapter(oc, sink, n=100)
+    real = adapter.process
+
+    def process(item):
+        return False if item == 13 else real(item)
+
+    adapter.process = process
+    seen = []
+    for tick in range(1, oc.MAX_ITEM_ATTEMPTS + 1):
+        s = oc.run([adapter], budget_seconds=1e9, busy=lambda: None)
+        seen.append(s["sources"]["fx"])
+        wm = json.loads((oc.state_dir() / "fx.json").read_text())
+        if tick < oc.MAX_ITEM_ATTEMPTS:
+            assert seen[-1]["reason"] == "item_failed"
+            assert wm.get("cursor", 0) == 0, "cursor moved past a poisoned item before N attempts"
+    last = seen[-1]
+    assert last["complete"], "the poisoned item still holds the cursor after N ticks"
+    assert last["quarantined"] == 1 and last["items_quarantined"] == 1
+    assert "fx:13" not in sink
+    assert len(sink) == 99, "the good items around the poisoned one were not all delivered"
+    # Reported where the Doctor reads it, and not counted again on a later tick.
+    assert json.loads((oc.state_dir() / "fx.json").read_text())["items_quarantined"] == 1
+    s = oc.run([adapter], budget_seconds=1e9, busy=lambda: None)
+    assert s["sources"]["fx"]["items_quarantined"] == 1
+
+
+def test_a_batch_that_cannot_run_is_never_complete_and_never_moves(oc):
+    class Denied(oc.Adapter):
+        source, doctor_row = "den", "den_row"
+
+        def start_cursor(self):
+            return 0
+
+        def next_batch(self, cursor, limit):
+            return oc.Batch(items=[], next_cursor=cursor, exhausted=True, cannot_run="read_denied")
+
+        def key(self, item):
+            return str(item)
+
+        def process(self, item):
+            return True
+
+    s = oc.run([Denied()], budget_seconds=1e9, busy=lambda: None)
+    row = s["sources"]["den"]
+    assert not row["complete"], "a read that could not run was reported as a finished walk"
+    assert row["reason"] == "cannot_run:read_denied"
+    wm = json.loads((oc.state_dir() / "den.json").read_text())
+    assert wm["complete"] is False and wm["cannot_run"] == "read_denied"
+
+
 def test_a_corrupt_watermark_restarts_the_walk_but_the_ledger_prevents_duplicates(oc):
     sink = {}
     adapter = _make_adapter(oc, sink)

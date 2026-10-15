@@ -77,6 +77,14 @@ SCHEMA = 1
 DEFAULT_BUDGET_SECONDS = 1800
 DEFAULT_BATCH_SIZE = 25
 
+# An item whose sink refuses it this many ticks running is QUARANTINED: skipped,
+# counted, and no longer allowed to hold the cursor. One tick makes one attempt
+# (a failure stops that source for the tick), so this is also "N ticks".
+# Without it a single item that always fails stops its whole source for good:
+# one rejected iMessage session would end all iMessage catch-up and the Doctor
+# would read "Catching up" for ever.
+MAX_ITEM_ATTEMPTS = 3
+
 # The same number, and the same predicate, as #2869's conversation retry
 # (vendor/cm041/assistant_api/ical-server.py CONVERSATION_RETRY_MAX_LOAD_PER_CORE).
 # tests/test_catchup_core.py reads that file and fails if the two differ.
@@ -200,7 +208,24 @@ class Ledger:
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS counts (source TEXT NOT NULL, key TEXT NOT NULL, "
             "n INTEGER NOT NULL, PRIMARY KEY (source, key))")
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS quarantined (source TEXT NOT NULL, key TEXT NOT NULL, "
+            "at INTEGER NOT NULL, PRIMARY KEY (source, key))")
         self._db.commit()
+
+    def is_quarantined(self, source: str, key: str) -> bool:
+        return self._db.execute(
+            "SELECT 1 FROM quarantined WHERE source = ? AND key = ?", (source, key)).fetchone() is not None
+
+    def quarantine(self, source: str, key: str) -> None:
+        with self._db:
+            self._db.execute(
+                "INSERT OR IGNORE INTO quarantined (source, key, at) VALUES (?, ?, ?)",
+                (source, key, int(time.time())))
+
+    def count_quarantined(self, source: str) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) FROM quarantined WHERE source = ?", (source,)).fetchone()[0]
 
     def has(self, source: str, key: str) -> bool:
         row = self._db.execute(
@@ -251,12 +276,14 @@ class Watermark:
     complete: bool = False
     items_done: int = 0
     items_skipped: int = 0
+    items_quarantined: int = 0
     batches: int = 0
     ticks: int = 0
     started_at: Optional[str] = None
     updated_at: Optional[str] = None
     completed_at: Optional[str] = None
     last_tick: dict = field(default_factory=dict)
+    cannot_run: Optional[str] = None
 
     @staticmethod
     def path_for(source: str) -> Path:
@@ -287,9 +314,10 @@ class Watermark:
         for name in ("oldest_at", "started_at", "updated_at", "completed_at"):
             setattr(wm, name, raw.get(name))
         wm.complete = bool(raw.get("complete"))
-        for name in ("items_done", "items_skipped", "batches", "ticks"):
+        for name in ("items_done", "items_skipped", "items_quarantined", "batches", "ticks"):
             v = raw.get(name)
             setattr(wm, name, v if isinstance(v, int) else 0)
+        wm.cannot_run = raw.get("cannot_run") if isinstance(raw.get("cannot_run"), str) else None
         wm.last_tick = raw.get("last_tick") if isinstance(raw.get("last_tick"), dict) else {}
         if doctor_row:
             wm.doctor_row = doctor_row
@@ -300,9 +328,11 @@ class Watermark:
             "schema": SCHEMA, "source": self.source, "doctor_row": self.doctor_row or self.source,
             "oldest_at": self.oldest_at, "complete": self.complete,
             "items_done": self.items_done, "items_skipped": self.items_skipped,
+            "items_quarantined": self.items_quarantined,
             "batches": self.batches, "ticks": self.ticks,
             "started_at": self.started_at, "updated_at": self.updated_at,
             "completed_at": self.completed_at, "last_tick": self.last_tick,
+            "cannot_run": self.cannot_run,
         }
         if self.has_cursor:
             d["cursor"] = self.cursor
@@ -348,6 +378,11 @@ class Batch:
     # that walk has reached and steps aside until the next tick. Exempt from
     # the no-progress guard, which would otherwise call it complete.
     pause: bool = False
+    # The source could not be READ at all this tick (permission refused, store
+    # unreadable, query error). Not done and not empty: the cursor stays put,
+    # the walk is never marked complete, and the Doctor says it could not run.
+    # A short reason code, never content.
+    cannot_run: Optional[str] = None
 
 
 class Adapter:
@@ -391,7 +426,8 @@ def run(
     own_ledger = ledger is None
     ledger = ledger or Ledger()
     wms = {a.source: Watermark.load(a.source, a.doctor_row or a.source) for a in adapters}
-    stats = {a.source: {"items": 0, "skipped": 0, "failed": 0, "batches": 0, "reason": None}
+    stats = {a.source: {"items": 0, "skipped": 0, "failed": 0, "quarantined": 0,
+                        "batches": 0, "reason": None}
              for a in adapters}
     for a in adapters:
         wm = wms[a.source]
@@ -428,6 +464,15 @@ def run(
                     active.remove(a)
                     continue
 
+                if batch.cannot_run:
+                    # Said out loud, never read as an empty or finished source.
+                    st["reason"] = "cannot_run:" + str(batch.cannot_run)
+                    wm.cannot_run = str(batch.cannot_run)
+                    active.remove(a)
+                    wm.save()
+                    continue
+                wm.cannot_run = None
+
                 finished = True
                 for item in batch.items:
                     if out_of_time():
@@ -438,6 +483,8 @@ def run(
                         stop, finished = "busy:" + why, False
                         break
                     k = a.key(item)
+                    if ledger.is_quarantined(a.source, k):
+                        continue
                     if ledger.has(a.source, k):
                         st["skipped"] += 1
                         wm.items_skipped += 1
@@ -448,6 +495,15 @@ def run(
                         logger.warning("catch-up %s: an item failed (%s)", a.source, type(exc).__name__)
                         ok = False
                     if not ok:
+                        tries = ledger.bump(a.source, "attempts:" + k)
+                        if tries >= int(getattr(a, "max_attempts", MAX_ITEM_ATTEMPTS) or MAX_ITEM_ATTEMPTS):
+                            # Poisoned: stop letting it hold the whole source.
+                            ledger.quarantine(a.source, k)
+                            st["quarantined"] += 1
+                            wm.items_quarantined += 1
+                            logger.warning("catch-up %s: an item failed %d ticks running; skipping it",
+                                           a.source, tries)
+                            continue
                         st["failed"] += 1
                         st["reason"] = "item_failed"
                         finished = False
@@ -491,7 +547,8 @@ def run(
                 st["reason"] = reason
             wm.ticks += 1
             wm.last_tick = {"at": _now_iso(), "items": st["items"], "skipped": st["skipped"],
-                            "failed": st["failed"], "batches": st["batches"],
+                            "failed": st["failed"], "quarantined": st["quarantined"],
+                            "batches": st["batches"],
                             "reason": st["reason"], "seconds": seconds}
             wm.save()
         if own_ledger:
@@ -501,7 +558,8 @@ def run(
     for a in adapters:
         st, wm = stats[a.source], wms[a.source]
         summary["sources"][a.source] = dict(st, complete=wm.complete, oldest_at=wm.oldest_at,
-                                            items_done=wm.items_done)
+                                            items_done=wm.items_done,
+                                            items_quarantined=wm.items_quarantined)
     logger.info("catch-up tick: %s", json.dumps(summary, sort_keys=True))
     return summary
 
