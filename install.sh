@@ -39251,28 +39251,103 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
     [[ -x "$_confirm_py" ]] || _confirm_py="$(command -v python3 2>/dev/null || true)"
 
     # ---- 1. Calendar owner/type confirmation ----
+    #
+    # ONE pre-filled screen, confirmed once. Andy's walk (2026-10-15) found the
+    # old shape, two questions per calendar, massive friction at the very end
+    # of install. Every calendar is now listed with its guessed owner and kind.
+    # Calendars nobody owns (holidays, birthdays, Siri suggestions,
+    # subscriptions, reminders) are classified by the helper from Calendar
+    # metadata and listed in their own "set aside" group, excluded by default.
+    # Answering no opens the per-calendar questions, so every default can still
+    # be changed. tests/test_calendar_review_is_one_screen.sh drives this block.
+    _ostler_cal_events_label() {
+        if [[ "${1:-0}" == "1" ]]; then
+            printf "$MSG_CONFIRM_CALENDAR_EVENTS_ONE" "$1"
+        else
+            printf "$MSG_CONFIRM_CALENDAR_EVENTS_MANY" "${1:-0}"
+        fi
+    }
+    _ostler_cal_kind_label() {
+        case "${1:-}" in
+            holiday)    printf '%s' "$MSG_CONFIRM_CALENDAR_KIND_HOLIDAY" ;;
+            birthday)   printf '%s' "$MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY" ;;
+            suggestion) printf '%s' "$MSG_CONFIRM_CALENDAR_KIND_SUGGESTION" ;;
+            subscribed) printf '%s' "$MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED" ;;
+            *)          printf '%s' "$MSG_CONFIRM_CALENDAR_KIND_REMINDERS" ;;
+        esac
+    }
     if [[ -n "$_confirm_py" && -f "$_confirm_cal_py" && -f "$_confirm_events" ]]; then
         _confirm_cal_rows="$("$_confirm_py" "$_confirm_cal_py" enumerate \
             --events "$_confirm_events" --owner-name "$_confirm_owner_name" \
             2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
         if [[ -n "$_confirm_cal_rows" ]]; then
-            info "$MSG_CONFIRM_CALENDARS_INTRO"
+            _cal_mine=""
+            _cal_aside=""
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples _caside; do
+                [[ -z "${_cmatch:-}" ]] && continue
+                _cevents="$(_ostler_cal_events_label "${_ccount:-0}")"
+                if [[ -n "${_caside:-}" ]]; then
+                    _cal_aside="${_cal_aside}$(printf "$MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW" \
+                        "$_cmatch" "$(_ostler_cal_kind_label "$_caside")" "$_cevents")"$'\n'
+                else
+                    _cwho="${_cowner:-You}"
+                    [[ "$_cwho" == "You" ]] && _cwho="$MSG_CONFIRM_CALENDAR_OWNER_YOU"
+                    _cal_mine="${_cal_mine}$(printf "$MSG_CONFIRM_CALENDAR_ROW" \
+                        "$_cmatch" "$_cwho" "${_ctype:-personal}" "$_cevents")"$'\n'
+                fi
+            done <<< "$_confirm_cal_rows"
+            _cal_body="${MSG_CONFIRM_CALENDARS_REVIEW_INTRO}"$'\n\n'"${_cal_mine}"
+            if [[ -n "$_cal_aside" ]]; then
+                _cal_body="${_cal_body}"$'\n'"${MSG_CONFIRM_CALENDARS_SET_ASIDE_HEADING}"$'\n'"${_cal_aside}"
+            fi
+            # gui_read's terminal fallback prints only the title, so the list
+            # is printed here; the GUI shows it as the screen's body.
+            gui_active || printf '\n%s\n' "$_cal_body"
+            _cal_ok="$(gui_read "$MSG_CONFIRM_CALENDARS_REVIEW_TITLE" \
+                yesno "yes" "$_cal_body" "" "calendar_review" "")"
+            _cal_edit=0
+            case "${_cal_ok:-}" in
+                n|N|no|No|NO|false) _cal_edit=1 ;;
+            esac
             _confirm_answers="$(mktemp -t ostler-cal-answers.XXXXXX)"
             : > "$_confirm_answers"
-            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples; do
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples _caside; do
                 [[ -z "${_cmatch:-}" ]] && continue
-                _chelp="$(printf "$MSG_CONFIRM_CALENDAR_HELP" "${_ccount:-0}" "${_csamples:-}")"
-                _ans_owner="$(gui_read \
-                    "$(printf "$MSG_CONFIRM_CALENDAR_OWNER_TITLE" "$_cmatch")" \
-                    text "${_cowner:-You}" "$_chelp" "" "calendar_owner" "")"
-                _ans_owner="${_ans_owner:-${_cowner:-You}}"
-                _ans_type="$(gui_read \
-                    "$(printf "$MSG_CONFIRM_CALENDAR_TYPE_TITLE" "$_cmatch")" \
-                    choice "${_ctype:-personal}" "$MSG_CONFIRM_CALENDAR_TYPE_HELP" \
-                    "personal,work,family,shared,other" "calendar_type" "")"
-                _ans_type="${_ans_type:-${_ctype:-personal}}"
-                printf '%s\t%s\t%s\n' "$_cmatch" "$_ans_owner" "$_ans_type" \
-                    >> "$_confirm_answers"
+                _ans_owner="${_cowner:-You}"
+                _ans_type="${_ctype:-personal}"
+                _ans_include=1
+                [[ -n "${_caside:-}" ]] && _ans_include=0
+                if [[ "$_cal_edit" == "1" ]]; then
+                    _cevents="$(_ostler_cal_events_label "${_ccount:-0}")"
+                    if [[ -n "${_caside:-}" ]]; then
+                        _iyn="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_CALENDAR_INCLUDE_TITLE" "$_cmatch")" \
+                            yesno "no" \
+                            "$(printf "$MSG_CONFIRM_CALENDAR_INCLUDE_HELP" "$(_ostler_cal_kind_label "$_caside")")" \
+                            "" "calendar_set_aside_include" "")"
+                        case "${_iyn:-}" in
+                            y|Y|yes|Yes|YES|true) _ans_include=1 ;;
+                        esac
+                    fi
+                    if [[ "$_ans_include" == "1" ]]; then
+                        if [[ -n "${_csamples:-}" ]]; then
+                            _chelp="$(printf "$MSG_CONFIRM_CALENDAR_HELP" "$_cevents" "$_csamples")"
+                        else
+                            _chelp="$_cevents"
+                        fi
+                        _ans_owner="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_CALENDAR_OWNER_TITLE" "$_cmatch")" \
+                            text "${_cowner:-You}" "$_chelp" "" "calendar_owner" "")"
+                        _ans_owner="${_ans_owner:-${_cowner:-You}}"
+                        _ans_type="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_CALENDAR_TYPE_TITLE" "$_cmatch")" \
+                            choice "${_ctype:-personal}" "$MSG_CONFIRM_CALENDAR_TYPE_HELP" \
+                            "personal,work,family,shared,other" "calendar_type" "")"
+                        _ans_type="${_ans_type:-${_ctype:-personal}}"
+                    fi
+                fi
+                printf '%s\t%s\t%s\t%s\t%s\n' "$_cmatch" "$_ans_owner" "$_ans_type" \
+                    "$_ans_include" "${_caside:-}" >> "$_confirm_answers"
             done <<< "$_confirm_cal_rows"
             if "$_confirm_py" "$_confirm_cal_py" write \
                     --answers "$_confirm_answers" \
@@ -39285,6 +39360,7 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
             rm -f "$_confirm_answers"
         fi
     fi
+    unset -f _ostler_cal_events_label _ostler_cal_kind_label 2>/dev/null || true
 
     # ---- 2. Identity collapse / namesake-split confirmation ----
     if [[ -n "$_confirm_py" && -f "$_confirm_id_py" ]]; then
@@ -39338,7 +39414,9 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
     unset _confirm_cal_py _confirm_id_py _confirm_events _confirm_corrections \
           _confirm_owner_name _confirm_py _confirm_cal_rows _confirm_answers \
           _confirm_id_props _cmatch _cowner _ctype _ccount _csamples _chelp \
-          _ans_owner _ans_type _ikind _iids _ievidence _iyn 2>/dev/null || true
+          _ans_owner _ans_type _ikind _iids _ievidence _iyn _caside _cevents \
+          _cwho _cal_mine _cal_aside _cal_body _cal_ok _cal_edit _ans_include \
+          2>/dev/null || true
 fi
 
 # ── Summary ────────────────────────────────────────────────────────
