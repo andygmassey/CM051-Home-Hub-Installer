@@ -33647,7 +33647,10 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         # whatsapp_conversations.json was just written, only
         # ingest_whatsapp will do work. Other ingests return their
         # "no data" skip status without touching Oxigraph.
-        set +e
+        # pwg_ingest now exits 1 on any source error. A bare `set +e` leaves
+        # the ERR trap armed (bash 3.2), which would abort the install here,
+        # so save and disarm it exactly as the extract step above does.
+        _wa_ingest_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.pwg_ingest \
             --fda-dir "${OSTLER_DIR}/imports/fda" \
             >>"$_HYDRATE_WHATSAPP_LOG" 2>&1
@@ -33662,7 +33665,7 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
             fi
         fi
         unset _wa_ingest_rc
-        set -e
+        set -e; eval "${_wa_ingest_saved_err_trap:-}"; unset _wa_ingest_saved_err_trap
 
         # Parse people_added for the customer-facing message. The CLI
         # contract guarantees this field exists in --json output.
