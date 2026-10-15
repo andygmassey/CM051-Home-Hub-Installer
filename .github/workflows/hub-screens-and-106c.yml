@@ -20,6 +20,10 @@ on:
       - 'vendor/doctor/agent/editor_feedback.py'
       - 'vendor/cm059_editor/compiler/frontpage.py'
       - 'vendor/cm059_editor/compiler/render_frontpage.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
+      - 'vendor/cm059_editor/compiler/scout_external.py'
+      - 'vendor/cm059_editor/compiler/scout_newsletters.py'
+      - 'tests/test_the_hunch_never_picks_prose.py'
       - 'tests/test_the_timeline_opens_on_today.py'
       - 'tests/test_the_hub_app_can_record_card_feedback.py'
       - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
@@ -138,6 +142,9 @@ jobs:
       - name: The Front Page cards only real interests
         if: always()
         run: python3 tests/test_the_front_page_cards_only_real_interests.py
+      - name: The hunch never picks a sentence (a LinkedIn recommendation on candidate 28)
+        if: always()
+        run: python3 tests/test_the_hunch_never_picks_prose.py
       - name: The vendored cm059_editor renders a real bodyless birthday card
         # v1.0.107 incident: #2535 made birthday_card() emit body=None, which
         # crashed the SHIPPED vendor/cm059_editor render_frontpage._card_html

@@ -570,6 +570,28 @@ def noise_flags(subject: str, category: str, source: str) -> list[str]:
     return flags
 
 
+# A subject that reads as a SENTENCE is never a thing someone is into.
+# Andy's console walk of v1.0.107 candidate #28: the Front Page hunch showed
+# a LinkedIn recommendation. "too_long" above caught it, but a flag is only a
+# confidence penalty, and no picker read it. Every picker that turns a profile
+# row into something the customer sees (a card, a scout query, a scout's
+# relevance match) asks this instead. The word ceiling mirrors the preference
+# producer's own (CM019 PreferenceFilter._MAX_PREFERENCE_WORDS), so a row
+# compiled before the flag existed is refused by its shape too. An interest
+# the owner confirmed (``corrected``) is theirs to keep.
+PROSE_FLAGS = frozenset({"too_long"})
+MAX_SUBJECT_WORDS = 12
+
+
+def reads_as_prose(it: dict) -> bool:
+    """True when a profile row's subject is a sentence, not a taste."""
+    if it.get("corrected"):
+        return False
+    if PROSE_FLAGS.intersection(it.get("flags") or ()):
+        return True
+    return len(str(it.get("subject") or "").split()) > MAX_SUBJECT_WORDS
+
+
 # penalty applied to confidence per distinct flag class
 _FLAG_PENALTY = {
     "empty": 1.0,

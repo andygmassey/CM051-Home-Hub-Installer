@@ -64,6 +64,7 @@ from urllib.parse import urlparse
 from compiler import card_ledger
 from compiler import corrections as corr_mod
 from compiler import frontpage as fp
+from compiler.interest_profile import reads_as_prose
 from compiler.scouts import Scout
 from compiler._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
 
@@ -304,6 +305,8 @@ def _profile_interests(profile: dict) -> list[dict]:
         for it in block.get("interests", []):
             if it.get("polarity") == "dislike":
                 continue
+            if reads_as_prose(it):
+                continue  # a sentence is not an interest to match stories to
             items.append(it)
     return items
 

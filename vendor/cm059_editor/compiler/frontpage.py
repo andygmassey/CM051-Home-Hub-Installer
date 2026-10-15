@@ -53,6 +53,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 
 from compiler import card_ledger
+from compiler.interest_profile import reads_as_prose
 
 SCHEMA_VERSION = "0.2"
 
@@ -944,6 +945,8 @@ def is_cardable_interest(it: dict) -> bool:
         return False
     if (it.get("privacy") or "").upper() == "L3":
         return False
+    if reads_as_prose(it):
+        return False  # a sentence (a recommendation, a subject line) is not a taste
     return True
 
 

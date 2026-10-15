@@ -1,6 +1,8 @@
+diff --git a/_vendor/ostler_usage_journal/usage_journal.py b/_vendor/ostler_usage_journal/usage_journal.py
+index 9da437f2..7c37b57f 100644
 --- a/_vendor/ostler_usage_journal/usage_journal.py
 +++ b/_vendor/ostler_usage_journal/usage_journal.py
-@@ -143,6 +143,7 @@
+@@ -143,6 +143,7 @@ def record_usage(
      session_id: str,
      *,
      journal_path: Optional[Path] = None,
@@ -8,7 +10,7 @@
  ) -> bool:
      """Append one MEASURED local-model usage record. Returns True if written.
  
-@@ -178,6 +179,8 @@
+@@ -178,6 +179,8 @@ def record_usage(
              .isoformat(timespec="seconds")
              .replace("+00:00", "Z"),
              "purpose": purpose,
@@ -17,7 +19,7 @@
          },
      }
  
-@@ -402,6 +405,7 @@
+@@ -402,6 +405,7 @@ class RollingUsageRecorder:
                  purpose=self._purpose,
                  session_id=self._session_id,
                  journal_path=self._journal_path,
@@ -25,9 +27,11 @@
              )
          except Exception:  # noqa: BLE001 - accounting must never raise
              logger.warning(
+diff --git a/corrections.py b/corrections.py
+index b33f69cb..a75ce107 100644
 --- a/corrections.py
 +++ b/corrections.py
-@@ -28,6 +28,8 @@
+@@ -28,6 +28,8 @@ from __future__ import annotations
  import json
  import os
  import urllib.request
@@ -36,7 +40,7 @@
  from datetime import datetime, timezone
  
  DEFAULT_STORE = os.path.expanduser("~/.ostler/editor/interest_corrections.json")
-@@ -117,9 +119,17 @@
+@@ -117,9 +119,17 @@ class CorrectionStore:
          payload = self._assert_payload(action, key, factor)
          try:
              url = self.ical_server_url.rstrip("/") + "/api/v1/memory/assert"
@@ -55,14 +59,22 @@
              with urllib.request.urlopen(req, timeout=10) as resp:
                  return 200 <= resp.status < 300
          except Exception:
+diff --git a/frontpage.py b/frontpage.py
+index 91a7d057..d1c42979 100644
 --- a/frontpage.py
 +++ b/frontpage.py
-@@ -355,6 +355,23 @@
-         source="ostler:editor",
-         privacy="L1",  # generic product copy; about the operator, no PII
+@@ -53,6 +53,7 @@ import hashlib
+ from datetime import datetime, timedelta, timezone
+ 
+ from compiler import card_ledger
++from compiler.interest_profile import reads_as_prose
+ 
+ SCHEMA_VERSION = "0.2"
+ 
+@@ -357,6 +358,134 @@ def pro_locked_card(now: datetime) -> dict:
      )
-+
-+
+ 
+ 
 +# Interest categories whose subject is an account handle stored WITHOUT its "@"
 +# (the Instagram parser keeps the bare username, often snake_case:
 +# category "instagram_creator"). Shown raw it reads as an internal key
@@ -70,27 +82,147 @@
 +_HANDLE_CATEGORIES = frozenset({"instagram_creator"})
 +
 +
++import re as _re_text
++
++_ROLE_TAG = _re_text.compile(
++    r"\s*\((?:user|owner|you|other_name|user_name|other(?::[\w-]+)?)\)", _re_text.I)
++_PLACEHOLDER = _re_text.compile(r"\{[a-z][a-z0-9_]*\}")
++_ISO_STAMP = _re_text.compile(
++    r"\b(20\d\d)-([01]\d)-([0-3]\d)(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?)?(?!\d)")
++_PHONE_SHAPE = _re_text.compile(r"^\+?[\d\s().\-\u00a0]{6,}$")
++_EMAIL_SHAPE = _re_text.compile(r"^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$")
++_SNAKE_KEY = _re_text.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
++_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
++           "Oct", "Nov", "Dec")
++
++
++def _human_iso(m) -> str:
++    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
++    if not 1 <= mo <= 12:
++        return m.group(0)
++    return "%d %s %d" % (d, _MONTHS[mo - 1], y)
++
++
++def clean_card_text(text) -> str:
++    """Customer-safe free text: role tags and template placeholders removed,
++    ISO dates/timestamps written as '30 Sep 2026'. Idempotent."""
++    out = _ROLE_TAG.sub("", str(text or ""))
++    out = _PLACEHOLDER.sub("", out)
++    out = _ISO_STAMP.sub(_human_iso, out)
++    return _re_text.sub(r"[ \t]{2,}", " ", out).strip()
++
++
++UNKNOWN_CONTACT = "an unknown contact"
++
++
++def person_label(name, fallback=None):
++    """The one display-name gate for card text. Returns a name a customer
++    would recognise, or None when there is none to show: a bare phone number,
++    an email address, an @handle, a snake_case key, or nothing but tags. An @handle is shown
++    only for creator/social interests (see display_subject), never for a
++    person. ``fallback`` is returned instead of None (UNKNOWN_CONTACT)."""
++    n = clean_card_text(name)
++    if not n or not any(ch.isalpha() for ch in n):
++        return fallback
++    if _PHONE_SHAPE.match(n) or _EMAIL_SHAPE.match(n) or "@" in n:
++        return fallback
++    if _SNAKE_KEY.match(n):
++        return fallback
++    return n
++
++
 +def display_subject(it: dict) -> str:
 +    """The label a customer sees for an interest: a handle-kind interest is
-+    shown as ``@handle``; every other subject is unchanged."""
++    shown as ``@handle``; a snake_case key is spoken as words; free text is
++    cleaned of tags, placeholders and ISO dates."""
 +    subject = it.get("subject") or ""
 +    if ((it.get("category") or "").lower() in _HANDLE_CATEGORIES
 +            and subject and not subject.startswith("@") and " " not in subject):
 +        return "@" + subject
++    subject = clean_card_text(subject)
++    if _SNAKE_KEY.match(subject):
++        subject = subject.replace("_", " ")
++        subject = subject[:1].upper() + subject[1:]
 +    return subject
- 
- 
++
++
++# The interest card's body says WHERE an interest came from, from the card's
++# own `sources` and `last_seen`, instead of one sentence on every card ("One of
++# the things Ostler reckons you're into."). Source keys measured on a walk box:
++# apple, twitter, linkedin, spotify, apple_tv, whatsapp, foursquare, uber, you.
++_SOURCE_NAMES = {
++    "apple": "Apple", "apple_music": "Apple Music", "apple_tv": "Apple TV",
++    "spotify": "Spotify", "twitter": "X", "x": "X", "instagram": "Instagram",
++    "facebook": "Facebook", "linkedin": "LinkedIn", "youtube": "YouTube",
++    "whatsapp": "WhatsApp", "foursquare": "Foursquare", "uber": "Uber",
++    "google": "Google", "netflix": "Netflix", "pinterest": "Pinterest",
++    "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon",
++}
++_SOCIAL_SOURCES = {"twitter", "x", "instagram", "facebook", "tiktok", "youtube", "reddit", "pinterest"}
++
++
++def _source_name(key: str, category: str) -> str:
++    k = (key or "").strip().lower()
++    if k == "apple" and category == "music":
++        return "Apple Music"
++    return _SOURCE_NAMES.get(k) or k.replace("_", " ").strip().title()
++
++
++def _join_names(names: list) -> str:
++    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
++
++
++def interest_provenance(it: dict, now: datetime) -> str:
++    """One plain sentence: what kind of signal this is and where it came from."""
++    category = (it.get("category") or "").lower()
++    keys = [s for s in (it.get("sources") or []) if isinstance(s, str) and s.strip()]
++    if any(k.lower() == "you" for k in keys):
++        return "You told Ostler about this."
++    keys = keys[:3]
++    if not keys:
++        line = "Picked up from your own data"
++    else:
++        names = list(dict.fromkeys(_source_name(k, category) for k in keys))
++        where = _join_names(names)
++        low = {k.lower() for k in keys}
++        if low == {"linkedin"}:
++            line = "On your LinkedIn profile"
++        elif category == "music":
++            line = f"From your {where} listening"
++        elif low <= _SOCIAL_SOURCES and category in ("interest", "creator", "social", "account", ""):
++            line = f"Followed on {where}"
++        elif category in ("movie", "tv", "film"):
++            line = f"Watched on {where}"
++        elif category == "place":
++            line = f"From your {where} check-ins"
++        else:
++            line = f"From your {where} data"
++    year = str(it.get("last_seen") or "")[:4]
++    if year.isdigit() and int(year) < now.year:
++        line += f", last seen in {year}"
++    return line + "."
++
++
  def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
-@@ -371,7 +388,7 @@
-     evidence = ev_list[0] if ev_list else None
+     """Phase C card: one inferred interest, with its evidence and the rate/
+     correct affordances. Priority is the interest's own score mapped into the
+@@ -368,12 +497,12 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
+         1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
+     # CM051 #2534: one evidence line per card, not two joined with " - ".
+     ev_list = it.get("evidence") or []
+-    evidence = ev_list[0] if ev_list else None
++    evidence = clean_card_text(ev_list[0]) if ev_list else None
      card = _make_card(
          "interest", it["id"],
 -        title=it["subject"],
 +        title=display_subject(it),
          body=("Something to avoid" if it.get("polarity") == "dislike"
-               else "One of the things Ostler reckons you're into."),
+-              else "One of the things Ostler reckons you're into."),
++              else interest_provenance(it, now)),
          now=now, domain=it.get("domain"),
-@@ -484,7 +501,7 @@
+         priority=base,
+         action={"label": "Spot on", "kind": "strengthen"},
+@@ -484,7 +613,7 @@ def exploration_card(it: dict, now: datetime, ledger=None) -> dict:
      created = fe or now
      card = _make_card(
          "interest", key,
@@ -99,12 +231,10 @@
          body=("A hunch, based on what Ostler already knows you're into - "
                "say if it lands."),
          now=now, domain=it.get("domain"),
-@@ -760,8 +777,83 @@
-             signals_kept += 1
-         kept.append(c)
+@@ -762,6 +891,85 @@ def _apply_feed_caps(cards: list[dict]) -> list[dict]:
      return kept[:MAX_FEED_CARDS]
-+
-+
+ 
+ 
 +# ---------------------------------------------------------------------------
 +# What may become an interest CARD (#106c, items h and i; Andy's walk
 +# 2026-09-28). The Front Page showed a raw social hashtag, including a
@@ -116,7 +246,7 @@
 +#   * a subject that is a page title loses its site suffix.
 +# ---------------------------------------------------------------------------
 +import re as _re
- 
++
 +_SENSITIVE_STEMS = (
 +    "politic", "election", "memorial", "campaign", "protest", "maga",
 +    "democrat", "republican", "conservative party", "labour party", "tory",
@@ -127,7 +257,7 @@
 +    "fertility", "abortion", "lgbt", "gay", "lesbian", "transgender",
 +    "sexual", "trade union",
 +)
- 
++
 +_SITE_SUFFIX = _re.compile(
 +    r"\s+[-|\u2013\u2014:]\s+(?:the\s+)?(?:best|official|home|homepage|"
 +    r"welcome|site|website|web site|online|[\w.-]+\.(?:com|org|net|co\.uk|io|hk))"
@@ -152,11 +282,15 @@
 +    subject = (it.get("subject") or "").strip()
 +    if not subject or subject.startswith("#"):
 +        return False
++    if not any(ch.isalpha() for ch in subject) or _EMAIL_SHAPE.match(subject):
++        return False  # a bare number or address is not a thing to be into
 +    low = subject.lower()
 +    if any(stem in low for stem in _SENSITIVE_STEMS):
 +        return False
 +    if (it.get("privacy") or "").upper() == "L3":
 +        return False
++    if reads_as_prose(it):
++        return False  # a sentence (a recommendation, a subject line) is not a taste
 +    return True
 +
 +
@@ -183,7 +317,7 @@
  def build_frontpage(profile: dict, *, now: datetime | None = None,
                      settling: dict | None = None,
                      card_states: dict | None = None,
-@@ -786,6 +878,7 @@
+@@ -786,6 +994,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
      ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
      anything else = fail-closed deny -> proactive families suppressed and one
      honest pro-locked card shown."""
@@ -191,9 +325,11 @@
      now = now or datetime.now(timezone.utc)
      phase = decide_phase(profile, settling)
      cards: list[dict] = []
+diff --git a/interest_profile.py b/interest_profile.py
+index 5eaf7c1e..2469a893 100644
 --- a/interest_profile.py
 +++ b/interest_profile.py
-@@ -5,7 +5,7 @@
+@@ -5,7 +5,7 @@ is a pure function of (raw preference rows, now, corrections) so it is testable
  without a live graph. The I/O layer (fetch_preferences) talks read-only to
  Oxigraph; nothing here ever writes to the graph.
  
@@ -202,7 +338,7 @@
    ?s a pwg:LikePreference | pwg:DislikePreference
       pwg:subject            "Web Development"
       pwg:category           "professional"
-@@ -29,11 +29,12 @@
+@@ -29,11 +29,12 @@ import os
  import re
  import sys
  import unicodedata
@@ -216,7 +352,7 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -409,18 +410,128 @@
+@@ -409,18 +410,128 @@ _HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
  _ANCIENT_YEARS = 15
  
  
@@ -346,7 +482,36 @@
      s = re.sub(r"\s+", " ", s)
      return s
  
-@@ -814,7 +925,46 @@
+@@ -459,6 +570,28 @@ def noise_flags(subject: str, category: str, source: str) -> list[str]:
+     return flags
+ 
+ 
++# A subject that reads as a SENTENCE is never a thing someone is into.
++# Andy's console walk of v1.0.107 candidate #28: the Front Page hunch showed
++# a LinkedIn recommendation. "too_long" above caught it, but a flag is only a
++# confidence penalty, and no picker read it. Every picker that turns a profile
++# row into something the customer sees (a card, a scout query, a scout's
++# relevance match) asks this instead. The word ceiling mirrors the preference
++# producer's own (CM019 PreferenceFilter._MAX_PREFERENCE_WORDS), so a row
++# compiled before the flag existed is refused by its shape too. An interest
++# the owner confirmed (``corrected``) is theirs to keep.
++PROSE_FLAGS = frozenset({"too_long"})
++MAX_SUBJECT_WORDS = 12
++
++
++def reads_as_prose(it: dict) -> bool:
++    """True when a profile row's subject is a sentence, not a taste."""
++    if it.get("corrected"):
++        return False
++    if PROSE_FLAGS.intersection(it.get("flags") or ()):
++        return True
++    return len(str(it.get("subject") or "").split()) > MAX_SUBJECT_WORDS
++
++
+ # penalty applied to confidence per distinct flag class
+ _FLAG_PENALTY = {
+     "empty": 1.0,
+@@ -814,7 +947,46 @@ def apply_corrections(interests: list[dict], corrections: dict | None,
  
  def compile_profile(raws: list[dict], now: datetime | None = None,
                      corrections: dict | None = None,
@@ -394,7 +559,7 @@
                      contact_lexicon: frozenset = frozenset()) -> dict:
      """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
      ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-@@ -834,8 +984,16 @@
+@@ -834,8 +1006,16 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
      domains: dict[str, list[dict]] = {}
      dislikes: list[dict] = []
      suppressed = 0
@@ -411,7 +576,7 @@
          if not corrected and it["confidence"] < min_confidence:
              suppressed += 1
              continue
-@@ -861,6 +1019,9 @@
+@@ -861,6 +1041,9 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
              "interests": sum(len(b["interests"]) for b in domain_blocks),
              "dislikes": len(dislikes),
              "suppressed_low_confidence": suppressed,
@@ -421,11 +586,10 @@
              "domains": len(domain_blocks),
          },
          "domains": domain_blocks,
-@@ -871,16 +1032,77 @@
- # ---------------------------------------------------------------------------
+@@ -872,15 +1055,76 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
  # I/O layer (read-only Oxigraph)
  # ---------------------------------------------------------------------------
-+
+ 
 +def _oxigraph_credential() -> tuple[str, str] | None:
 +    """The Oxigraph loopback credential, or None when none is configured.
 +
@@ -453,7 +617,7 @@
 +        except OSError:
 +            val = ""
 +    return ("Authorization", "Bearer " + val) if val else None
- 
++
 +
  def _sparql_select(oxigraph_url: str, query: str, timeout: float = 30.0) -> list[dict]:
 +    """Read-only SPARQL SELECT against Oxigraph.
@@ -503,6 +667,9 @@
      rows = list(csv.DictReader(io.StringIO(body)))
      return rows
  
+diff --git b/project_preferences.py b/project_preferences.py
+new file mode 100644
+index 00000000..b20355b0
 --- /dev/null
 +++ b/project_preferences.py
 @@ -0,0 +1,272 @@
@@ -778,3 +945,123 @@
 +    print(f"projected {r['nodes']} preference nodes "
 +          f"({r['triples']} triples) from {r['points']} Qdrant points; "
 +          f"{r['skipped']} skipped as unqueryable")
+diff --git a/render_frontpage.py b/render_frontpage.py
+index bc49c6c4..aa287cbd 100644
+--- a/render_frontpage.py
++++ b/render_frontpage.py
+@@ -625,7 +625,7 @@ def _masthead(feed: dict) -> str:
+         '<div class="masthead"><h1>Your Front Page</h1>'
+         f'{date_html}</div>'
+         '<p class="lede">What Ostler thinks is worth your attention today, drawn '
+-        'from across your whole life — and ranked, not dumped.</p>')
++        'from across your whole life, and ranked, not dumped.</p>')
+ 
+ 
+ def render(feed: dict) -> str:
+@@ -633,7 +633,7 @@ def render(feed: dict) -> str:
+     cards = feed.get("cards", [])
+     bands = _bands_html(cards)
+     if not bands:
+-        bands = ('<p class="empty">Nothing on your Front Page yet — Ostler is '
++        bands = ('<p class="empty">Nothing on your Front Page yet. Ostler is '
+                  'still settling in.</p>')
+     return (
+         '<!doctype html><html><head><meta charset="utf-8"><meta name="lang" content="en-GB">'
+@@ -651,7 +651,7 @@ def render(feed: dict) -> str:
+         '</div></div></div>'
+         f'<div class="fp">{_masthead(feed)}<div id="bands">{bands}</div></div>'
+         '<p class="gfoot">The Editor · compiled '
+-        f'{html.escape(str(feed.get("generated_utc", "")))} · '
++        f'{html.escape(_human_date(feed.get("generated_utc")))} · '
+         'this preview renders the same JSON the Hub and iOS apps consume.</p>'
+         f'<script>{_JS}</script>'
+         '</body></html>')
+@@ -664,7 +664,7 @@ def render_fragment(feed: dict) -> str:
+     cards = feed.get("cards", [])
+     bands = _bands_html(cards)
+     if not bands:
+-        bands = ('<p class="empty">Nothing on your Front Page yet — Ostler is '
++        bands = ('<p class="empty">Nothing on your Front Page yet. Ostler is '
+                  'still settling in.</p>')
+     return (f'<style>{_CSS}</style>{_ICON_DEFS}'
+             f'<div class="fp"><div id="bands">{bands}</div></div>'
+diff --git a/scout_external.py b/scout_external.py
+index 95a4e26c..616d5aac 100644
+--- a/scout_external.py
++++ b/scout_external.py
+@@ -56,7 +56,7 @@ import sys
+ from datetime import datetime, timezone
+ 
+ from compiler import scouts as sc
+-from compiler.interest_profile import (names_person_or_org,
++from compiler.interest_profile import (names_person_or_org, reads_as_prose,
+                                        subject_names_known_contact)
+ from compiler.scouts import Scout
+ 
+@@ -165,6 +165,8 @@ def l1_interests(profile: dict, domain: str | None = None) -> list[dict]:
+                 continue
+             if _interest_privacy(it) not in QUERYABLE_LEVELS:
+                 continue
++            if reads_as_prose(it):
++                continue  # a sentence never seeds an outbound query
+             out.append(it)
+     return out
+ 
+diff --git a/scout_newsletters.py b/scout_newsletters.py
+index 78a1b74f..177f04f7 100644
+--- a/scout_newsletters.py
++++ b/scout_newsletters.py
+@@ -64,6 +64,7 @@ from urllib.parse import urlparse
+ from compiler import card_ledger
+ from compiler import corrections as corr_mod
+ from compiler import frontpage as fp
++from compiler.interest_profile import reads_as_prose
+ from compiler.scouts import Scout
+ from compiler._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
+ 
+@@ -304,6 +305,8 @@ def _profile_interests(profile: dict) -> list[dict]:
+         for it in block.get("interests", []):
+             if it.get("polarity") == "dislike":
+                 continue
++            if reads_as_prose(it):
++                continue  # a sentence is not an interest to match stories to
+             items.append(it)
+     return items
+ 
+diff --git a/signals.py b/signals.py
+index 9b8bd19a..df9841d6 100644
+--- a/signals.py
++++ b/signals.py
+@@ -379,7 +379,7 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
+         return None
+     cid = fp.card_id("signal", "reply_debt")
+     created = _ledger_created(ledger, cid, now)
+-    shown = [n for n in (names or []) if n][:2]
++    shown = [fp.person_label(x, fp.UNKNOWN_CONTACT) for x in (names or []) if x][:2]
+     if count == 1:
+         title = _STRINGS["reply_debt_title_one"]
+     else:
+@@ -406,6 +406,7 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
+ 
+ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
+                     privacy: str = "L2"):
++    name = fp.person_label(name)
+     if not name:
+         return None
+     # Upper bound (CM051 walk #5; fp.GONE_QUIET_IGNORE_AFTER_MONTHS's own
+@@ -450,6 +451,7 @@ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
+ 
+ def birthday_card(name: str, days_until: int, now: datetime, ledger=None,
+                   privacy: str = "L2"):
++    name = fp.person_label(name)
+     if not name or days_until is None:
+         return None
+     du = int(days_until)
+@@ -485,6 +487,7 @@ def commitment_card(what: str, days_until: int, who, now: datetime, ledger=None,
+     if days_until is None:
+         return None
+     du = int(days_until)
++    who = fp.person_label(who, fp.UNKNOWN_CONTACT) if who else None
+     key = f"commitment::{who or ''}::{what}"
+     cid = fp.card_id("signal", key)
+     created = _ledger_created(ledger, cid, now)

@@ -56,7 +56,7 @@ import sys
 from datetime import datetime, timezone
 
 from compiler import scouts as sc
-from compiler.interest_profile import (names_person_or_org,
+from compiler.interest_profile import (names_person_or_org, reads_as_prose,
                                        subject_names_known_contact)
 from compiler.scouts import Scout
 
@@ -165,6 +165,8 @@ def l1_interests(profile: dict, domain: str | None = None) -> list[dict]:
                 continue
             if _interest_privacy(it) not in QUERYABLE_LEVELS:
                 continue
+            if reads_as_prose(it):
+                continue  # a sentence never seeds an outbound query
             out.append(it)
     return out
 
