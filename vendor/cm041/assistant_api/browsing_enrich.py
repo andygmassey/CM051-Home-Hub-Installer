@@ -405,7 +405,7 @@ def _slug(text: str) -> str:
 def render_knowledge_markdown(title: str, url: str, result: Optional[dict],
                               user_tags: List[str], note: str) -> str:
     parts: List[str] = []
-    if result:
+    if result and result["summary"]:
         parts.append("## Summary\n\n" + result["summary"])
         if result["key_points"]:
             parts.append("## Key points\n\n" + "\n".join("- " + p for p in result["key_points"]))
@@ -420,7 +420,8 @@ def render_knowledge_markdown(title: str, url: str, result: Optional[dict],
 def build_knowledge_point(*, url: str, title: str, timestamp: str, device: str,
                           visit_id: str, result: Optional[dict],
                           user_tags: List[str], note: str,
-                          failure_reason: str = "") -> dict:
+                          failure_reason: str = "",
+                          source: str = "", notebook: str = "") -> dict:
     """Return the Qdrant payload (no vector) for a Saved web page.
 
     Field names are the union the real writers and the real reader use:
@@ -446,8 +447,8 @@ def build_knowledge_point(*, url: str, title: str, timestamp: str, device: str,
         "content": content,
         "tags": tags,
         "user_tags": list(user_tags),
-        "notebook": KNOWLEDGE_NOTEBOOK,
-        "source": KNOWLEDGE_SOURCE,
+        "notebook": notebook or KNOWLEDGE_NOTEBOOK,
+        "source": source or KNOWLEDGE_SOURCE,
         "author": "",
         "source_url": url,
         "created": timestamp,
@@ -528,6 +529,27 @@ def qdrant_upsert(base: str, collection: str, point_id: str, vector: List[float]
 # ── Queue and worker ────────────────────────────────────────────────
 KIND_VISIT = "visit"
 KIND_KNOWLEDGE = "knowledge"
+
+# iOS Quick Note (CM031 payload type "quick_note"). The owner's own note, so
+# it is levelled like the other Notes-style Knowledge sources: level 2 is the
+# floor (the iOS app declares L1, which is raised, never lowered). L3 is the
+# writer-side short-circuit: it is never queued, so it never reaches Qdrant.
+QUICK_NOTE_SOURCE = "ios_quick_note"
+QUICK_NOTE_NOTEBOOK = "Quick Notes"
+QUICK_NOTE_TEXT_CAP_CHARS = 20 * 1024
+
+
+def parse_level(value: Any) -> Optional[int]:
+    """'L0'..'L3' (or 0..3) to an int; None when unreadable."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if 0 <= value <= 3 else None
+    if isinstance(value, str):
+        m = re.fullmatch(r"[Ll]?([0-3])", value.strip())
+        if m:
+            return int(m.group(1))
+    return None
 
 SPOOL_DIR = os.environ.get(
     "OSTLER_BROWSING_QUEUE_DIR", os.path.expanduser("~/.ostler/state/browsing_queue")
