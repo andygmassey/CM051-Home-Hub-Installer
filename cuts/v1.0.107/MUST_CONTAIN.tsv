@@ -482,3 +482,9 @@ pin(daemon): 0.5.17 Wiki Back/Forward follow instant navigation from the top bar
 pin(daemon): 0.5.17 The morning brief carries every catch-up item the model dropped	CM051	da56d31f	no	oa_brief_carries_dropped_catchup_items	TBD	oa #527
 pin(daemon): 0.5.17 Every assistant send carries the invisible marker the Hub readers drop	CM051	da56d31f	no	oa_assistant_send_carries_marker	TBD	oa #528
 pin(daemon): 0.5.17 A populated graph never holds the morning brief in settle grace	CM051	da56d31f	no	oa_brief_not_held_on_populated_graph	TBD	oa #529
+# 2026-10-15 (ORM, candidate #29): CM051 #2912 (7d211203) only; #28 is no-ship (P1 privacy: look-ups ran after a declined consent). #2874 (f0f2ac2f) is harness only, not payload.
+ostler-import: public look-ups gated on a recorded yes	CM051	7d211203	no	ostler_import_public_lookups_need_recorded_yes	TBD	CM051 #2912
+ostler-import: the look-up pass sits behind the consent check	CM051	7d211203	no	ostler_import_lookups_sit_behind_the_gate	TBD	CM051 #2912
+enrich tick: stands down without a recorded yes	CM051	7d211203	no	enrich_tick_stands_down_without_yes	TBD	CM051 #2912
+enrich cli.py: consent backstop reads the recorded answer	CM051	7d211203	no	enrich_cli_consent_backstop	TBD	CM051 #2912
+enrich cli.py: enrich and parallel both call the consent backstop	CM051	7d211203	no	enrich_cli_both_commands_gated	TBD	CM051 #2912

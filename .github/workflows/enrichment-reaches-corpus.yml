@@ -31,6 +31,7 @@ on:
       - 'tests/test_no_unbounded_enrich_invocation.sh'
       - 'tests/test_an_enrichment_miss_is_not_an_import_error.py'
       - 'tests/test_ostler_import_exit_code_separates_misses_from_failures.sh'
+      - 'tests/test_enrichment_honours_a_decline.sh'
   push:
     branches: [main]
 
@@ -106,3 +107,16 @@ jobs:
         # driving the real vendored CLI. Exit 2 is CANNOT-RUN and fails the step.
         if: always()
         run: bash tests/test_ostler_import_exit_code_separates_misses_from_failures.sh
+
+      - name: A "no" to public look-ups means nothing is looked up (walk #28, privacy)
+        # ostler-import ran `enrich --all` on every import whatever the
+        # customer answered to consent_enrichment, so a decline followed by a
+        # dropped export still sent titles and artists to Wikidata and
+        # MusicBrainz. RUNS the generated ostler-import, the enrich tick and
+        # the vendored enrich CLI under accepted / declined / key absent / no
+        # .env: only "accepted" may enrich, and the CLI arm guards every
+        # socket so a declined run must make zero attempts while an accepted
+        # one must make at least one (the guard's own control). Exit 2 is
+        # CANNOT-RUN and fails the step. if: always() -- independent axis.
+        if: always()
+        run: bash tests/test_enrichment_honours_a_decline.sh

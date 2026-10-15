@@ -63,3 +63,15 @@ on X, last seen in 2019.", "From your Apple Music and Spotify listening.", "On
 your LinkedIn profile.", "You told Ostler about this."). Pinned by
 `tests/test_interest_card_says_what_and_where.py`. CM059 upstream needs the
 same change, or the next re-pin reverts it.
+
+## 2026-10-15 Ostler #30 console walk: the hunch card never offers a flagged interest; Neutral reaches the profile
+
+Tree: `cm059_editor`. `scripts/regenerate_divergence_patch.sh` was not run: no local CM059 checkout is pinned to 85c87924 in this worktree; this file is the sanctioned fallback.
+
+Edits under `vendor/cm059_editor/compiler/`:
+
+- `frontpage.py`: new `_UNFIT_FOR_A_CARD_FLAGS` / `_fit_for_a_card`; `exploration_pick`, `_rotation_picks` and `_top_interests` skip an interest carrying too_long, too_short, empty, url_only, email_reply_prefix, email_thread or dated_subject.
+- `project_preferences.py`: `_POLARITY` gains `neutral -> NeutralPreference`, so a Neutral play row is projected instead of skipped.
+- `interest_profile.py`: `fetch_preferences` also reads `NeutralPreference` (polarity "neutral", ranked with likes, never as a dislike).
+
+Proof: `tests/test_hunch_card_never_shows_a_flagged_interest.py` (fails on origin/main), `tests/test_passive_plays_are_not_likes.py::test_neutral_survives_into_the_graph_and_the_profile`.

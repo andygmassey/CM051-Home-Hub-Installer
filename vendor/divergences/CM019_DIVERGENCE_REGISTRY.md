@@ -184,6 +184,24 @@ never set the exit code. Test: tests/test_an_enrichment_miss_is_not_an_import_er
 **Upstream status:** not ported. Owed upstream (personal-world-graph
 services/enrich), same shape.
 
+### Walk #28 -- public look-ups only on a recorded yes (cli.py)
+
+Setup asks consent_enrichment (default no) and writes the answer to
+`~/.ostler/config/.env` as `OSTLER_CONSENT_ENRICHMENT_DECISION`. The enrich CLI
+had no consent reference at all, so any caller that forgot to check sent
+preference subjects to Wikidata, MusicBrainz and Open Library regardless.
+`require_public_lookup_consent()` (cli.py) now runs before `enrich` (not
+`--dry-run`, which calls no external API) and before `parallel`. It reads the
+FILE, never the inherited environment; "accepted" proceeds, "declined" exits 0
+with a plain sentence, and a missing file, missing key or any other value exits
+3 having sent nothing. `stats`, `normalize` and `test-connections` touch only
+the local stores and are not gated. This is the backstop: install.sh's
+ostler-import and enrich tick check the same value first. Test:
+tests/test_enrichment_honours_a_decline.sh (arm C, socket-guarded).
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph
+services/enrich), same shape: upstream has no consent gate either.
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
