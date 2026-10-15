@@ -420,6 +420,7 @@ from people_rules import (  # noqa: E402
     _ROLE_ADDRESS_LOCAL_RE,
     _is_role_address_name,
     _is_nameless_name,
+    _is_provisional_phone_name,
     _looks_like_bare_email_or_phone,
     _SERVICE_NAME_SUFFIX_WORDS,
     _SERVICE_NAME_PHRASE_RE,
@@ -2070,9 +2071,10 @@ def people_search(query, limit=10, timeout=30):
     for pt in data.get("result", []):
         p = pt.get("payload", {})
         dn = p.get("display_name", "")
-        # Hide raw-handle "people" (WhatsApp JIDs, bare phone numbers) from
-        # the People list / search results. Render-time filter only; the
-        # Qdrant point is never deleted. Ref #664.
+        # Hide WhatsApp JIDs, short codes and alphanumeric sender IDs from
+        # the People list / search results (a phone-only person is SHOWN,
+        # provisional). Render-time filter only; the Qdrant point is never
+        # deleted. Ref #664.
         if _is_nameless_name(dn):
             continue
         # F7 (walk #16): the same human-evidence test people_list applies, so a
@@ -2093,6 +2095,8 @@ def people_search(query, limit=10, timeout=30):
             "score": round(pt.get("score", 0), 3),
             "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(dn)}/",
         }
+        if _is_provisional_phone_name(dn):
+            entry["provisional_name"] = True
         # Emit the stable person_uri so consumers (pwg_people dedup #6, the
         # citation slug->uri chain #4) can key on identity, not display name.
         if p.get("person_uri"):
@@ -7223,6 +7227,10 @@ def people_list(sort=None, ceiling=10000):
             "slug": slug,
             "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
         }
+        # Phone-only person (tier 0 name): shown with the number as the name,
+        # marked provisional until a better name arrives. Ruling 2026-08-10.
+        if _is_provisional_phone_name(name):
+            row["provisional_name"] = True
         role = p.get("job_title") or p.get("organization") or ""
         if role:
             row["role"] = role

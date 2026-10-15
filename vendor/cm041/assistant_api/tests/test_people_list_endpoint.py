@@ -273,13 +273,14 @@ class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
     (PersonNameFilter) both hid the same row -- the Hub/wiki count gap.
     """
 
-    def test_jid_and_bare_phone_shaped_names_are_excluded_from_the_count(self) -> None:
+    def test_jid_is_excluded_and_a_phone_only_person_is_shown_provisional(self) -> None:
         points = [
             _point("p1", "Alice Example", organization="Example Corp"),
             # Case 2: a WhatsApp JID literally stored as the display name.
             _point("p2", ("15550101234" + "@s.whatsapp.net")),
-            # Case 3: a bare phone-shaped handle (>= 6 digits, only
-            # 0-9+-(). and space characters).
+            # Case 3: a phone-only person (7+ digits). Andy's ruling
+            # 2026-08-10: SHOWN with the number as the name, marked
+            # provisional, never dropped.
             _point("p3", _PHONE_SHAPED_FIXTURE),
             _point("p4", "Bob Example", job_title="Builder"),
         ]
@@ -298,10 +299,42 @@ class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
         # the test above it is measuring a predicate change, not this
         # endpoint, and must not be read as a people_list regression.
         self.assertTrue(server._is_nameless_name(("15550101234" + "@s.whatsapp.net")))
-        self.assertTrue(server._is_nameless_name(_PHONE_SHAPED_FIXTURE))
-        self.assertEqual(body["total"], 2, body)
+        self.assertFalse(server._is_nameless_name(_PHONE_SHAPED_FIXTURE))
+        self.assertEqual(body["total"], 3, body)
         names = {row["name"] for row in body["people"]}
-        self.assertEqual(names, {"Alice Example", "Bob Example"})
+        self.assertEqual(names, {"Alice Example", "Bob Example", _PHONE_SHAPED_FIXTURE})
+        row = next(r for r in body["people"] if r["name"] == _PHONE_SHAPED_FIXTURE)
+        self.assertIs(row.get("provisional_name"), True, row)
+        alice = next(r for r in body["people"] if r["name"] == "Alice Example")
+        self.assertFalse(alice.get("provisional_name"), alice)
+
+    def test_short_codes_and_alphanumeric_senders_are_explained_exclusions(self) -> None:
+        """The ONLY legitimate exclusions, by shape: a short code (6 digits or
+        fewer) and an alphanumeric sender ID. A first name in mixed case is
+        NOT one, and a 7-digit number is not one."""
+        points = [
+            _point("p1", "Alice Example", organization="Example Corp"),
+            _point("p2", "".join(["8", "7", "0", "9", "9"])),
+            _point("p3", "AMAZON"),
+            _point("p4", "NHS-ALERT"),
+            _point("p5", "Marta"),
+            _point("p6", "".join(str(d) for d in (4, 4, 7, 7, 0, 0, 9))),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertNotIn("".join(["8", "7", "0", "9", "9"]), names)
+        self.assertNotIn("AMAZON", names)
+        self.assertNotIn("NHS-ALERT", names)
+        self.assertIn("Marta", names)
+        self.assertIn("".join(str(d) for d in (4, 4, 7, 7, 0, 0, 9)), names)
 
     def test_an_empty_name_is_still_excluded(self) -> None:
         """CONTROL: the pre-existing empty-name behaviour is not lost by

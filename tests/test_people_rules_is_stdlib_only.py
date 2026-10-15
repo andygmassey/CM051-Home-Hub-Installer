@@ -54,7 +54,7 @@ def test_it_runs_in_an_interpreter_with_nothing_else_on_the_path():
         [sys.executable, "-I", "-c",
          "import importlib.util,sys;s=importlib.util.spec_from_file_location('r',sys.argv[1]);"
          "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
-         "print(m._is_nameless_name('+15550100'), m._is_nameless_name('Jane Doe'))",
+         "print(m._is_nameless_name('12345'), m._is_nameless_name('Jane Doe'))",
          str(RULES)],
         capture_output=True, text=True, timeout=60,
     )

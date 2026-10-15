@@ -1166,3 +1166,23 @@ Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
 in one busy hour; a retry run in that hour joins the same model queue.
 CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
 extends), or the next re-sync of this tree reverts it.
+
+## 2026-10-15 phone-only people are shown, provisional (fix/phone-only-people-shown)
+
+`people_rules.py`:
+- `_is_nameless_name` no longer hides a bare phone number (7+ digits). It now
+  excludes only: empty, WhatsApp JID, short code (6 digits or fewer), and an
+  alphanumeric sender ID (one upper-case token with a digit or separator).
+  NEW `_is_short_code`, `_is_alphanumeric_sender_id`,
+  `_is_provisional_phone_name`, `_is_bare_phone_shape`, `_digit_count`.
+- `_is_non_human_person` returns None for a provisional phone name (the
+  `no_letters` / `handle_no_channel` junk shapes used to drop it).
+
+`ical-server.py`: People list and search rows carry `provisional_name: true`
+when the name is the phone number.
+
+Why: Andy's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
+human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
+people; the 9 missing were phone-only. CM041 upstream and CM044
+`compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
+predicate and need the same change, or the surfaces drift again.
