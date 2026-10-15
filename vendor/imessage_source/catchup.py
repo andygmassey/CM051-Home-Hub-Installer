@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Optional
 
 import ostler_catchup as oc
-from ostler_fda.sink_health import ollama_healthy
+from ostler_fda.sink_health import sink_healthy
 
 from .pipeline import (
     _dispatch_to_cm048,
@@ -274,7 +274,7 @@ class IMessageCatchup(oc.Adapter):
             # out of the poison-attempt count (lib/ostler_catchup.py).
             raise ConnectionError("pwg-convo: sink unavailable (exit 75)")
         if rc == DISPATCH_TIMEOUT_RC:
-            if not ollama_healthy():
+            if not sink_healthy():
                 raise ConnectionError("pwg-convo timed out and the sink is unhealthy")
             # Sink answers: this document hung. Item-specific, counts as an
             # attempt and is quarantined after N like any poisoned item.

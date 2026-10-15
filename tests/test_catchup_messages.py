@@ -581,7 +581,7 @@ def _hang_setup(env, monkeypatch, which):
     script = env["tmp"] / "pwg-convo-hang"
     script.write_text(HANG_PWG_CONVO)
     script.chmod(0o755)
-    monkeypatch.setenv("OSTLER_DISPATCH_TIMEOUT_SECS", "1")
+    monkeypatch.setenv("OSTLER_DISPATCH_TIMEOUT_SECS", "5")  # generous: a loaded CI box must not time out the healthy items
     if which == "imessage":
         db = env["tmp"] / "chat.db"
         build_chat_db(db)
@@ -600,7 +600,7 @@ def _hang_setup(env, monkeypatch, which):
 def test_a_hanging_item_with_a_healthy_sink_is_quarantined_and_the_rest_proceeds(env, monkeypatch, which):
     import ostler_catchup as oc
     cu, make = _hang_setup(env, monkeypatch, which)
-    monkeypatch.setattr(cu, "ollama_healthy", lambda *a, **k: True)
+    monkeypatch.setattr(cu, "sink_healthy", lambda *a, **k: True)
     probe = make()   # a throwaway instance: next_batch is stateful
     items = probe.next_batch(probe.start_cursor(), probe.batch_size).items
     ad = make()
@@ -617,9 +617,77 @@ def test_a_hanging_item_with_a_healthy_sink_is_quarantined_and_the_rest_proceeds
 @pytest.mark.parametrize("which", ["imessage", "whatsapp"])
 def test_a_timeout_with_a_dead_sink_counts_no_attempt(env, monkeypatch, which):
     cu, make = _hang_setup(env, monkeypatch, which)
-    monkeypatch.setattr(cu, "ollama_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(cu, "sink_healthy", lambda *a, **k: False)
     ad = make()
     items = ad.next_batch(ad.start_cursor(), ad.batch_size).items
     monkeypatch.setenv("HANG_ID", ad.key(items[0]))
     with pytest.raises(ConnectionError):
         ad.process(items[0])
+
+
+# ── Ollama up but the STORES down (colima VM dead) must not read as healthy ──
+
+def _ollama_stub():
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def _fake_supervisor(tmp: Path, rc: int) -> str:
+    s = tmp / f"supervisor-rc{rc}.sh"
+    s.write_text(f'#!/bin/sh\n[ "$1" = "--probe-ports" ] || exit 99\nexit {rc}\n')
+    s.chmod(0o755)
+    return str(s)
+
+
+def test_sink_healthy_needs_ollama_and_the_stores(env, monkeypatch):
+    from ostler_fda import sink_health
+    srv = _ollama_stub()
+    try:
+        monkeypatch.setenv("OSTLER_OLLAMA_URL", f"http://127.0.0.1:{srv.server_port}")
+        monkeypatch.setenv("OSTLER_ENGINE_SUPERVISOR", _fake_supervisor(env["tmp"], 0))
+        assert sink_health.sink_healthy() is True
+        monkeypatch.setenv("OSTLER_ENGINE_SUPERVISOR", _fake_supervisor(env["tmp"], 1))
+        assert sink_health.sink_healthy() is False, "Ollama up + stores down read as healthy"
+        monkeypatch.setenv("OSTLER_ENGINE_SUPERVISOR", _fake_supervisor(env["tmp"], 2))
+        assert sink_health.sink_healthy() is False, "an unjudgeable store check read as healthy"
+        monkeypatch.setenv("OSTLER_ENGINE_SUPERVISOR", str(env["tmp"] / "absent.sh"))
+        assert sink_health.sink_healthy() is False
+    finally:
+        srv.shutdown()
+    monkeypatch.setenv("OSTLER_ENGINE_SUPERVISOR", _fake_supervisor(env["tmp"], 0))
+    monkeypatch.setenv("OSTLER_OLLAMA_URL", "http://127.0.0.1:1")
+    assert sink_health.sink_healthy() is False, "stores up + Ollama down read as healthy"
+
+
+@pytest.mark.parametrize("which", ["imessage", "whatsapp"])
+def test_a_timeout_with_ollama_up_and_stores_down_counts_no_attempt(env, monkeypatch, which):
+    """The day-one outage: the colima VM is dead, Ollama is fine. The real
+    probe (not a stub of it) must call this an outage."""
+    cu, make = _hang_setup(env, monkeypatch, which)
+    srv = _ollama_stub()
+    try:
+        monkeypatch.setenv("OSTLER_OLLAMA_URL", f"http://127.0.0.1:{srv.server_port}")
+        monkeypatch.setenv("OSTLER_ENGINE_SUPERVISOR", _fake_supervisor(env["tmp"], 1))
+        ad = make()
+        items = ad.next_batch(ad.start_cursor(), ad.batch_size).items
+        monkeypatch.setenv("HANG_ID", ad.key(items[0]))
+        with pytest.raises(ConnectionError):
+            ad.process(items[0])
+        # control: stores answer too, so the hang is the document's: it counts
+        monkeypatch.setenv("OSTLER_ENGINE_SUPERVISOR", _fake_supervisor(env["tmp"], 0))
+        assert ad.process(items[0]) is False
+    finally:
+        srv.shutdown()
