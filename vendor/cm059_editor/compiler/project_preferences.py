@@ -65,7 +65,8 @@ _PAGE = 512
 # module exists to fix.
 PROJECTOR_ID = "ostler:cm059:preference-projection"
 
-_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference"}
+_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference",
+             "neutral": "NeutralPreference"}
 
 
 def _secret(env_var: str, filename: str) -> str:

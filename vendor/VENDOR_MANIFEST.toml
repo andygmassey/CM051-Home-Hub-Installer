@@ -447,7 +447,7 @@ note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py
 
 [[tree]]
 name             = "ostler_fda"
-  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
+  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.  # 2026-10-15 Ostler #30: see the section appended to this file
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh ostler_fda was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
 expires = "2026-10-15"
 owner = "archie"
@@ -662,7 +662,7 @@ source_repo      = "$CM019"
 source_path      = "."
 pinned_sha       = "f2a305f17a5239ddc8c178aacb56671020b194ca"
 divergence_patch = ""
-unrecorded_divergence = "vendor/divergences/cm019_preferences_usage_journal.UNRECORDED.md"
+unrecorded_divergence = "vendor/divergences/cm019_preferences_usage_journal.UNRECORDED.md"  # 2026-10-15 Ostler #30: see the section appended to this file
 exclude          = ["__pycache__/"]
 verify           = "skip"
 unverifiable_ack = true
@@ -845,7 +845,7 @@ source_repo      = "$CM059"
 source_path      = "compiler"
   pinned_sha = "85c8792465f1a540a4e7c7725c39968d64c17988"
   divergence_patch = "vendor/divergences/cm059_editor.patch"
-unrecorded_divergence = "vendor/divergences/cm059_editor_calls_field.UNRECORDED.md"
+unrecorded_divergence = "vendor/divergences/cm059_editor_calls_field.UNRECORDED.md"  # 2026-10-15 Ostler #30: see the section appended to this file
   hold_ack_shas            = "1935dba08c4478e898b84bff49cb783c931dc80a"
   hold_ack_reason          = "2026-10-02 (Archie, v1.0.107): 1935dba0 is the squash merge of CM059-Ostler-Editor #29 (render_frontpage treats a None title or body as empty and omits the empty body element). Its change is ALREADY GRAFTED into this tree by CM051 #2602 and carried in vendor/divergences/cm059_editor.patch; pinned to the graft by tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py, which fails (rc=1) against the pre-graft renderer and passes (rc=0) on this tree. Acked, not re-pinned, because the source is one further commit ahead on an unrelated change. SCOPE: this sha only."
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]

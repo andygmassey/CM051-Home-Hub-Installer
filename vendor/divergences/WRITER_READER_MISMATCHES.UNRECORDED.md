@@ -1205,3 +1205,16 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+
+## 2026-10-15 Ostler #30 console walk: an organisation or service is not a Person
+
+Tree: `ostler_fda`. Regeneration not attempted: this tree has a standing UNRECORDED register (above) and its content gate hangs against the local $HR015 checkout (see the manifest note); this is the sanctioned fallback.
+
+Edits under `vendor/ostler_fda/`:
+
+- `machine_senders.py`: new `ORG_SERVICE_TOKENS`, `_SERVICE_DOMAINS`, `_GENERIC_MAILBOXES` and `organisation_reason(addr)`. A local part that IS a known platform or firm name is an organisation; a generic mailbox on a known service domain is too; a person AT a known firm is not.
+- `pwg_ingest.py`: new `_contact_type_for(address)`; `ingest_calendar` and `ingest_mail_contacts` write `pwg:contactType "organisation"` for such a sender instead of "person". The node is kept; the wiki's contact-type filter already hides organisations from People.
+
+Mirrored on the reader side by CM044 `compiler/org_names.py` (a defence for nodes already written).
+
+Proof: `tests/test_org_senders_are_organisations.py` (fails on origin/main).
