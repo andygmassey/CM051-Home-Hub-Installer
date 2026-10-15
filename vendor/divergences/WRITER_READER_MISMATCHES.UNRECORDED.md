@@ -1205,3 +1205,12 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+## Doctor source rows: one honest total, in a declared unit (v1.0.107 walk #28)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour. New `_SOURCE_TOTAL_UNITS`, `_SENTINEL_COUNT_IN_UNIT`, `_SETTLING_DONE_FILES`, `_EXTRACT_SUMMARY_KEYS`, `_BROWSING_EXTRACTS`, `_PAGES_CACHE` and helpers `_ostler_state_root`, `_positive_int`, `_settling_done`, `_extract_summary_count`, `_distinct_pages`, `_canonical_total`, all inside the reader block. `read_source_status` now sets, per row, `item_count` = the total in `item_unit` (or None), `item_count_from`, `install_item_count` (the raw sentinel figure, kept) and `last_run_count_from` (`routine` or `settling_progress`). `render_source_status` prints `<n> <unit>`, drops the old `max(item_count, last_run_count)` override, and shows a routine's per-run figure only when there is no total, worded "in the last check".
+
+WHY: Andy's console walk of candidate #28 read Mail as the last tick's delta, WhatsApp people (one per DM chat) as messages, Safari visits as pages, Photos with no unit and Notes as four numbers. The HR015 twin (`doctor/agent/web_ui.py`) is OWED; `doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The unit table, `_canonical_total` and the render change. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.
