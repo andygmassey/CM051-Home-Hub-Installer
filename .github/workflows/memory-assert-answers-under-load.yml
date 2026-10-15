@@ -22,6 +22,7 @@ on:
       - 'vendor/doctor/agent/diagnostic_copy.py'
       - 'scripts/box_walk_probes/probes/people_seed_and_retrieval.sh'
       - 'tests/test_memory_assert_answers_inside_the_probe_timeout.py'
+      - 'tests/test_spool_sweep_quarantines_a_bad_row.py'
       - '.github/workflows/memory-assert-answers-under-load.yml'
   push:
     branches: [main]
@@ -46,3 +47,5 @@ jobs:
         run: python3 -m pip install --quiet cryptography httpx pytest pyoxigraph
       - name: memory/assert answers inside the probe's timeout while the model is busy
         run: python3 -m pytest -v tests/test_memory_assert_answers_inside_the_probe_timeout.py
+      - name: a bad spool row is quarantined, not retried forever
+        run: python3 -m pytest -v tests/test_spool_sweep_quarantines_a_bad_row.py
