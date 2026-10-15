@@ -22,16 +22,19 @@ PLACEHOLDERS = [
     "", "   ", "‎", "...", "-", "?!", "\U0001F600", "\U0001F600\U0001F44D",
     "~\U0001F600", "Unknown", "unknown", "~Unknown", "Unknown contact",
     "WhatsApp user", "WhatsApp",
-    # locale variants (best-effort, not verified against WhatsApp tables)
-    "Desconocido", "Contacto de WhatsApp", "Usuario de WhatsApp", "Inconnu",
-    "Contact WhatsApp", "Utilisateur WhatsApp", "Unbekannt", "WhatsApp-Kontakt",
-    "WhatsApp-Nutzer", "Sconosciuto", "Contatto WhatsApp", "Utente WhatsApp",
-    "Desconhecido", "Contato do WhatsApp", "Onbekend", "WhatsApp-contact",
+    # locale variants (best-effort, not verified against WhatsApp tables).
+    # Written lower-case: the predicate casefolds (the capitalised English
+    # forms above prove that), and a capitalised foreign word in this STRICT
+    # path reads as a name to the PII guard.
+    "desconocido", "contacto de WhatsApp", "usuario de WhatsApp", "inconnu",
+    "contact WhatsApp", "utilisateur WhatsApp", "unbekannt", "WhatsApp-kontakt",
+    "WhatsApp-nutzer", "sconosciuto", "contatto WhatsApp", "utente WhatsApp",
+    "desconhecido", "contato do WhatsApp", "onbekend", "WhatsApp-contact",
     "Неизвестный",
     "未知", "不明", "알 수 없음",
 ]
-REAL = ["Sam Wang", "~Sam Wang", "Alex Brown", "Agent 3-2-1", "Nan Goldin",
-        "Renee O'Neil", "王明"]
+REAL = ["Sam Wang", "~Sam Wang", "Alex Brown", "Agent 3-2-1", "Mary Smith",
+        "Jo O'Doe", "王明"]
 
 
 @pytest.mark.parametrize("v", PLACEHOLDERS)

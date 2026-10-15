@@ -1248,6 +1248,8 @@ The local-first order and the 503 on failure. Guarded by
 upstreaming to CM041 and re-pinning.
 ## assert-spool sweep: one bad row no longer aborts the pass (walk #29 F1)
 
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py` (the Doctor half is recorded in `WRITER_READER_MISMATCHES.UNRECORDED.md`, tree `doctor`).
+
 `_assert_spool_sweep` in `assistant_api/ical-server.py` now wraps each row. A
 data-shaped error (ValueError, TypeError, KeyError, AttributeError,
 UnicodeError) counts an attempt against that row and moves it to state
@@ -1259,6 +1261,8 @@ nobody. `assert_spool_status.json` gains `quarantined`; the Doctor
 rows behind it. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py`.
 CM041 and Doctor upstream need the same change, or the next re-sync reverts it.
 ## optional pagination on /api/v1/preferences and /api/v1/people (walk #29)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
 
 `ical-server.py` gains `_paginate` and optional `limit`, `cursor` (opaque; `start`
 for page one) and `fields` on both list routes (`/api/v1/people` is aliased to
