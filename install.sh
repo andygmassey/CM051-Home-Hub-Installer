@@ -21010,6 +21010,21 @@ if [[ ! -x "$CM019_PY" ]]; then
     exit 0
 fi
 
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES, checked on EVERY tick and not
+# only when the installer decides whether to create this agent. An agent
+# created by an earlier install where the answer was yes survives a later
+# install where it was no, and nothing else stops it. Same reader as
+# ostler-import: the answer in config/.env, and anything but "accepted"
+# (missing, unreadable, empty) is a NO.
+_ENV_FILE="${OSTLER_DIR}/config/.env"
+_decision=""
+[[ -r "$_ENV_FILE" ]] && _decision="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$_ENV_FILE" | tail -n 1)"
+_decision="${_decision%\"}"; _decision="${_decision#\"}"
+if [[ "$_decision" != "accepted" ]]; then
+    log "public look-ups not agreed (recorded answer: ${_decision:-none}); standing down, nothing sent"
+    exit 0
+fi
+
 # Counts-only readback, before and after. This is what makes the log
 # EVIDENCE rather than noise: a tick that enriched nothing and a tick that
 # never ran print differently, which is the whole lesson of every silent
@@ -22818,6 +22833,23 @@ fi
 if [[ -f "${OSTLER_DIR}/config/.env" ]]; then
     set -a; source "${OSTLER_DIR}/config/.env"; set +a
 fi
+
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES. Setup asks consent_enrichment
+# (default no) and writes the answer to config/.env as
+# OSTLER_CONSENT_ENRICHMENT_DECISION. Until this gate the enrich pass below ran
+# on every import regardless, so a customer who said no and later dropped an
+# export into Downloads had its titles and artists sent to Wikidata and
+# MusicBrainz anyway. The answer is read from the FILE, not from the
+# environment this script inherited: a variable left over in a caller is not
+# the customer's recorded answer. Missing file, unreadable file, missing key,
+# empty, or anything but "accepted" is a NO.
+_public_lookups_agreed() {
+    local f="${OSTLER_DIR}/config/.env" v
+    [[ -r "$f" ]] || return 1
+    v="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$f" | tail -n 1)"
+    v="${v%\"}"; v="${v#\"}"
+    [[ "$v" == "accepted" ]]
+}
 # CM019 tags points by user slug; prefer an explicit flag, then the
 # installed-user env, then a neutral default.
 CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
@@ -22887,6 +22919,13 @@ for d in "${DIRS[@]}"; do
         #
         # It stays non-zero rather than being removed so a manual
         # `ostler-import` still shows something happening.
+        #
+        # Everything from here to the kickstart sends things to public
+        # reference sources, so all of it sits behind the customer's answer.
+        # The local ingest above is not a look-up and always runs.
+        if ! _public_lookups_agreed; then
+            echo "Public look-ups are off (you said no during setup), so nothing was looked up in Wikidata, MusicBrainz or Open Library."
+        else
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
             "$CM019_PY" -m services.enrich.src.cli enrich --all \
                 --budget-seconds "${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}" \
@@ -22940,6 +22979,7 @@ for d in "${DIRS[@]}"; do
             # site is where the 23h56m wedge was measured; _ks_bounded carries
             # the evidence and the bound.
             _ks_bounded "gui/$(id -u)/com.ostler.enrich"
+        fi
         fi
     fi
 
@@ -23546,10 +23586,78 @@ import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from ostler_fda.pwg_ingest import ingest_all
+from ostler_fda import pwg_ingest as _pwg
 from pathlib import Path
 fda_dir = Path('${OSTLER_DIR}/imports/fda')
-run_all(fda_dir)
+_summary = run_all(fda_dir)
+
+# ── A REFUSED EXTRACT IS NOT A FRESH SOURCE (G1, TCC sweep 2026-10-15) ────
+#
+# run_all's per-source result used to be thrown away. When macOS refused a
+# read (no Full Disk Access), extract_all recorded status no_fda and left the
+# PREVIOUS JSON on disk. ingest_all then re-loaded that old file, called it ok,
+# and the activity record below stamped last_success_at = now. So the Doctor
+# said 'Up to date, just now' for a source nothing had been able to read.
+#
+# Now: every ingest key is mapped to the extract keys that feed it. If any of
+# them was refused (no_fda) or failed (error), the source is recorded as
+# cannot_run (or error), last_success_at is NOT moved, and the tick exits
+# non-zero. Its ingest is SKIPPED when none of its feeds produced a fresh
+# file, so the stale JSON is never re-loaded. A source with one fresh feed
+# and one refused one (Chrome readable, Safari refused) still ingests the
+# fresh half, but is still recorded as refused: half a source is not fresh.
+#
+# not_found and disabled_by_user are NOT refusals: the app is absent or the
+# owner said no, and both behave exactly as before.
+_extract = {}
+if isinstance(_summary, dict) and isinstance(_summary.get('sources'), dict):
+    _extract = _summary['sources']
+_FEEDS = {
+    'imessage': ('imessage',),
+    'social': ('imessage',),
+    'whatsapp': ('whatsapp_history',),
+    'calendar': ('calendar',),
+    'photos': ('photos',),
+    'apple_mail': ('apple_mail',),
+    'browser_history': ('safari_history', 'chrome_history'),
+    'bookmarks': ('safari_bookmarks',),
+}
+# Read by the hourly tick but loaded by no ingest key: a refusal still has to
+# be visible, so these get a record of their own.
+_EXTRACT_ONLY = ('apple_notes', 'reminders')
+_REFUSALS = ('no_fda', 'error')
+
+def _xstatus(key):
+    rec = _extract.get(key)
+    return rec.get('status') if isinstance(rec, dict) else None
+
+_refused = {}
+for _name, _keys in list(_FEEDS.items()) + [(k, (k,)) for k in _EXTRACT_ONLY]:
+    _bad = dict((k, _xstatus(k)) for k in _keys if _xstatus(k) in _REFUSALS)
+    if _bad:
+        _refused[_name] = _bad
+_skip = set(n for n in _refused if n in _FEEDS
+            and not any(_xstatus(k) == 'ok' for k in _FEEDS[n]))
+if _skip:
+    _dispatch = getattr(_pwg, '_INGEST_DISPATCH', None)
+    if not isinstance(_dispatch, tuple):
+        sys.stderr.write('[ingest] CANNOT-RUN: pwg_ingest has no _INGEST_DISPATCH, '
+                         'so refused sources could not be held back; nothing was loaded' + chr(10))
+        sys.exit(1)
+    _pwg._INGEST_DISPATCH = tuple(e for e in _dispatch if e[0] not in _skip)
 results = ingest_all(fda_dir) or {}
+if isinstance(results, dict) and results.get('status') != 'error':
+    for _name in sorted(_refused):
+        _why = 'no_fda' if 'no_fda' in _refused[_name].values() else 'extract_error'
+        _prior = results.get(_name)
+        results[_name] = {
+            'status': 'cannot_run' if _why == 'no_fda' else 'error',
+            'reason': _why,
+            'error': _why,
+            'refused_extracts': _refused[_name],
+            'ingest': 'skipped' if (_name in _skip or _name in _EXTRACT_ONLY)
+                      else (_prior.get('status') if isinstance(_prior, dict) else str(_prior)),
+        }
 print('[ingest] ' + json.dumps(results, default=str))
 
 # ── ONGOING ACTIVITY RECORD (#W018) ──────────────────────────────────────
@@ -23603,6 +23711,18 @@ try:
             'last_detail=' + _detail[:400] + chr(10) +
             'writer=ostler-fda' + chr(10),
             encoding='utf-8')
+    # An extract-only source has no ingest to vouch for it, so a later good
+    # read must not be stamped fresh here either. It clears the refusal this
+    # writer left, and the Doctor falls back to the sources that really
+    # measure it. Only a record THIS writer wrote, and only a refusal.
+    for _name in _EXTRACT_ONLY:
+        if _name in _refused or _xstatus(_name) != 'ok':
+            continue
+        _f = _act / (_name + '.tsv')
+        if _f.is_file():
+            _txt = _f.read_text(encoding='utf-8', errors='replace').splitlines()
+            if 'writer=ostler-fda' in _txt and 'last_status=ok' not in _txt:
+                _f.unlink()
 except Exception as _exc:
     sys.stderr.write('[activity] could not record ongoing status: ' +
                      type(_exc).__name__ + ': ' + str(_exc) + chr(10))
@@ -23618,9 +23738,18 @@ else:
         res = results[name]
         if isinstance(res, dict) and res.get('status') == 'error':
             failed.append(name + ': ' + str(res.get('error', 'error')))
+# A refusal is not a failure of this code, but it is not a success either:
+# the tick exits 75 (EX_TEMPFAIL, the same code meeting-brief-sender uses for
+# CANNOT-DELIVER) so launchd, routine_status and the Doctor all see it.
+cannot = sorted(n for n in results if isinstance(results.get(n), dict)
+                and results[n].get('status') == 'cannot_run')
 if failed:
     sys.stderr.write('[ingest] FAILED: ' + '; '.join(failed) + chr(10))
     sys.exit(1)
+if cannot:
+    sys.stderr.write('[ingest] CANNOT-RUN, macOS refused the read (Full Disk Access): ' +
+                     ', '.join(cannot) + chr(10))
+    sys.exit(75)
 " || _fda_rc=$?
 # ── APPLE NOTES: RE-OPEN AN EMPTY STORE, EMBED WHEN THE EXTRACT CHANGES ────
 #
@@ -29018,7 +29147,16 @@ else
     # log entry from racing the LaunchAgent.
     sleep 2
 
-    if [[ -f "$_imessage_chat_db_path" ]]; then
+    # ASKED ON EVERY INSTALL (TCC sweep 2026-10-15). This whole block used to
+    # sit inside `if [[ -f chat.db ]]`, so a Mac with no Messages history never
+    # asked for the assistant's Full Disk Access at all, and printed "can read
+    # Messages history" on the way past. But every brokered feed (fda-rerun,
+    # contacts, email, WhatsApp, voice notes, AI chats, exports) runs as the
+    # assistant and needs that one grant, Messages or not. The daemon-identity
+    # check below reads TCC.db, not chat.db, so it never needed the file.
+    _imessage_has_history=false
+    [[ -f "$_imessage_chat_db_path" ]] && _imessage_has_history=true
+
         # ── CX-90 (fresh-install P0): daemon-identity test is FIRST ──
         #
         # The authoritative test is whether the *daemon*
@@ -29054,7 +29192,7 @@ else
             # identity, not the daemon's), so it must NOT set
             # needed=false nor print the "channel will work" line. We
             # keep its outcome to a non-committal log only.
-            if sqlite3 -readonly \
+            if [[ "$_imessage_has_history" == true ]] && sqlite3 -readonly \
                     "file:${_imessage_chat_db_path}?mode=ro" \
                     "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
                 : # installer identity can read chat.db; not authoritative for the daemon
@@ -29731,13 +29869,16 @@ else
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
-    else
-        # No chat.db on this Mac at all (e.g. Messages.app never
-        # signed in to iMessage). Card would be a false positive --
-        # default to false so it stays quiet.
+
+    # The iMessage Doctor card is keyed on chat.db: it auto-dismisses by
+    # opening chat.db, so on a Mac with no Messages history it could never
+    # clear. There it stays off, and says nothing about the grant either way.
+    # The grant itself was still asked for above, and a refusal still shows:
+    # the hourly fda-rerun tick exits 75 and the Doctor names Full Disk Access.
+    if [[ "$_imessage_has_history" != true ]]; then
         _imessage_fda_needed="false"
-        info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
     fi
+    unset _imessage_has_history
 
     # Re-resolve the writer + sidecar path. The mail-content probe
     # already mkdir'd PIPELINE_SIGNALS_DIR earlier in Phase 3, but

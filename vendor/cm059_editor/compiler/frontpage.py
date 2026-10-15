@@ -550,6 +550,7 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
     bench = [it for block in (profile.get("domains") or [])
              for it in (block.get("interests") or [])
              if it.get("polarity") != "dislike"
+             and _fit_for_a_card(it)
              and it.get("id") not in chosen_ids]
     if not bench:
         return picked[-n:] if n else []
@@ -577,6 +578,20 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
     return out or (picked[-n:] if n else [])
 
 
+# Flags that mean "this is not a clean statement of an interest": prose, a
+# bare link, nothing, or a mail/calendar subject line. The profile already
+# sinks their confidence; the hunch and rotation selectors must not surface
+# them at all (Ostler #30: a LinkedIn recommendation paragraph became "A hunch").
+_UNFIT_FOR_A_CARD_FLAGS = frozenset({
+    "too_long", "too_short", "empty", "url_only",
+    "email_reply_prefix", "email_thread", "dated_subject",
+})
+
+
+def _fit_for_a_card(it: dict) -> bool:
+    return not (_UNFIT_FOR_A_CARD_FLAGS & set(it.get("flags") or ()))
+
+
 def exploration_pick(profile: dict, picked: list[dict],
                      exclude_ids: set | None = None) -> dict | None:
     """The E4 anti-filter-bubble pick: the strongest liked interest that did
@@ -588,6 +603,7 @@ def exploration_pick(profile: dict, picked: list[dict],
     pool = [it for block in profile.get("domains", [])
             for it in block.get("interests", [])
             if it.get("polarity") != "dislike"
+            and _fit_for_a_card(it)
             and it.get("id") not in picked_ids]
     if not pool:
         return None
@@ -721,7 +737,7 @@ def _top_interests(profile: dict, exclude_ids: set | None = None) -> list[dict]:
             pool.append(it)
     pool.sort(key=lambda it: it.get("score", 0.0), reverse=True)
     for it in pool:
-        if it.get("id") in exclude_ids:
+        if it.get("id") in exclude_ids or not _fit_for_a_card(it):
             continue
         dom = it.get("domain", "Other")
         if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:

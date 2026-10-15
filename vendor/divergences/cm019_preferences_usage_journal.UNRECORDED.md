@@ -251,3 +251,31 @@ Test: `tests/test_music_services_score_on_one_scale.py`.
 `tests/test_pref_noise_source_cap.py` (updated: all rows kept, head first).
 
 **Upstream status:** not ported; owed to personal-world-graph `services/ingest`.
+
+## Walk #28 -- cm019_preferences enrich CLI consent backstop (extended in place)
+
+- vendored file: `vendor/cm019_preferences/services/enrich/src/cli.py`
+- edit: `require_public_lookup_consent()` plus its two readers
+  (`consent_env_file()`, `public_lookups_decision()`), defined under
+  `DEFAULT_USER_ID`, called in `enrich` before the non-dry-run branch and at the
+  top of `parallel`. Reads `OSTLER_CONSENT_ENRICHMENT_DECISION` from
+  `~/.ostler/config/.env`; only "accepted" proceeds.
+- why no patch: same reason as above, this row's `divergence_patch` is
+  deliberately empty and turning it on would take on the whole reconciliation
+  gap. Upstream has no consent gate, so the edit is owed upstream as well.
+- detail: `vendor/divergences/CM019_DIVERGENCE_REGISTRY.md`, "Walk #28".
+- proven by execution: `tests/test_enrichment_honours_a_decline.sh` (arm C).
+
+## 2026-10-15 Ostler #30 console walk: a play is not a like; recommendations are not tastes
+
+Tree: `cm019_preferences`. Regeneration was not attempted: this tree is `verify = "skip"` (see the manifest row), so there is no reconstructible baseline to diff against; this is the sanctioned fallback.
+
+Edits, all under `vendor/cm019_preferences/services/ingest/src/`:
+
+- `parsers/apple.py`: the three music play parsers (track play history, play activity, daily tracks) write `preference_type="Neutral"` and `extra["passive_play"]=True`; strength is UNCHANGED (0.10) so nothing is down-weighted. `_parse_music_favorites` maps the `Preference` column: LIKE/LOVE -> Like, DISLIKE -> Dislike (strength -0.45), anything else -> Neutral at 0.0.
+- `parsers/apple_music_library.py`: `score_track` returns Neutral for a library-only row (evidence "library").
+- `parsers/spotify.py`: music stream plays write Neutral with `passive_play`, identical to Apple.
+- `filters.py`: `get_aggregated_preferences` labels a passive-play row Neutral instead of deriving Like from the positive strength; `is_duplicate` lets an explicit signal replace an already-seen passive row for the same key (`_is_passive`).
+- `parsers/linkedin.py`: `recommendations_given.csv` / `recommendations_received.csv` are claimed (so the generic CSV parser cannot read the Text column as a taste) and yield nothing (`NO_PREFERENCE_FILES`).
+
+Proof: `tests/test_passive_plays_are_not_likes.py`, `tests/test_linkedin_recommendations_are_not_preferences.py`; both fail on origin/main.

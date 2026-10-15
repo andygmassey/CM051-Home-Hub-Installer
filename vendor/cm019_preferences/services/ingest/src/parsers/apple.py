@@ -542,13 +542,22 @@ class AppleParser(BaseParser):
                         logger.warning(f"Could not parse date: {last_modified}")
 
                 # Determine strength based on favorite type
-                strength = 0.8 if preference == 'LIKE' else 0.5
-                if fav_type == 'Artist':
-                    strength = 0.85  # Artists are stronger signals than playlists
+                pref_word = preference.upper()
+                if pref_word == 'DISLIKE':
+                    # Explicit dislike: a negative, not a like (Ostler #30).
+                    preference_type, strength = "Dislike", -0.45
+                elif pref_word in ('LIKE', 'LOVE', 'LOVED', 'FAVORITE'):
+                    preference_type = "Like"
+                    strength = 0.8
+                    if fav_type == 'Artist':
+                        strength = 0.85  # Artists are stronger signals than playlists
+                else:
+                    # A row that says neither: not evidence of a like.
+                    preference_type, strength = "Neutral", 0.0
 
                 yield ParsedPreference(
                     subject=item_desc,
-                    preference_type="Like",
+                    preference_type=preference_type,
                     category="music",
                     strength=strength,
                     observed_at=timestamp,
@@ -632,7 +641,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=track_name,
-                preference_type="Like",
+                preference_type="Neutral",
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -642,6 +651,7 @@ class AppleParser(BaseParser):
                 extra={
                     "play_count": data['count'],
                     "content_type": "track",
+                    "passive_play": True,
                 }
             )
 
@@ -750,7 +760,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=subject,
-                preference_type="Like",
+                preference_type="Neutral",
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -761,6 +771,7 @@ class AppleParser(BaseParser):
                     "play_count": data['count'],
                     "total_duration_ms": data['total_duration_ms'],
                     "content_type": "song",
+                    "passive_play": True,
                     "album": data['album_name'],
                 }
             )
@@ -853,7 +864,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=track_desc,
-                preference_type="Like",
+                preference_type="Neutral",
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -865,6 +876,7 @@ class AppleParser(BaseParser):
                     "skip_count": skip_count,
                     "skip_ratio": round(skip_ratio, 2),
                     "content_type": "song",
+                    "passive_play": True,
                 }
             )
 

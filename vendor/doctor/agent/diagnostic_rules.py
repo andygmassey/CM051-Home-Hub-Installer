@@ -68,6 +68,11 @@ from diagnostic_copy import (
     SCHEDULED_AGENT_FAILING_DETAIL_FMT,
     SCHEDULED_AGENT_FAILING_FIX,
     SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT,
+    SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_TITLE_FMT,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_DETAIL_FMT,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_FIX,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_FIX_COMMAND,
     SCHEDULED_AGENT_NEVER_RAN_TITLE_FMT,
     SCHEDULED_AGENT_NEVER_RAN_DETAIL_FMT,
     SCHEDULED_AGENT_NEVER_RAN_FIX,
@@ -2228,6 +2233,20 @@ def check_scheduled_agents(snapshot: Any) -> list[dict]:
                 else "warning"
             )
             since = _format_upgrade_applied(obs.get("failing_since")) or "recently"
+            if obs.get("last_exit") == SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION:
+                findings.append({
+                    "severity": severity,
+                    "title": SCHEDULED_AGENT_NEEDS_PERMISSION_TITLE_FMT.format(feeds=feeds),
+                    "detail": SCHEDULED_AGENT_NEEDS_PERMISSION_DETAIL_FMT.format(since=since),
+                    "fix": SCHEDULED_AGENT_NEEDS_PERMISSION_FIX,
+                    "fix_command": SCHEDULED_AGENT_NEEDS_PERMISSION_FIX_COMMAND,
+                    "risk": "low",
+                    "category": "ingest",
+                    "agent_state": "needs_permission",
+                    "agent_label": label,
+                    "agent_failed_ticks": ticks,
+                })
+                continue
             findings.append({
                 "severity": severity,
                 "title": SCHEDULED_AGENT_FAILING_TITLE_FMT.format(feeds=feeds),

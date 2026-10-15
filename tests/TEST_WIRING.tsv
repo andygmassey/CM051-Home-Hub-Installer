@@ -134,6 +134,7 @@ test_assistant_config_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_assistant_fda_is_asked_on_every_mac.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_assistant_identity_belt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_sandbox_is_pinned_to_seatbelt.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
@@ -294,6 +295,7 @@ test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/wor
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
+test_enrichment_honours_a_decline.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
@@ -335,6 +337,8 @@ test_fda_listed_has_one_writer.sh	WIRED	.github/workflows/fda-listed.yml
 test_fda_modal_names_a_path_a_human_can_reach.sh	WIRED	.github/workflows/fda-dialog-truth.yml
 test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
 test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_fda_refusal_is_not_fresh.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
+test_fda_refusal_surfaces.py	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
@@ -367,6 +371,7 @@ test_hub_payload_seed_refuses_a_wrong_interpreter.sh	WIRED	.github/workflows/cut
 test_hub_screens_calls_summing.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_hub_screens_people_judges_every_row.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_hub_screens_real_person_name_never_printed.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_hunch_card_never_shows_a_flagged_interest.py	WIRED	.github/workflows/misclassified-things.yml
 test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_browsing_skip_is_corroborated_at_the_store.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_counters_survive_a_failed_producer.sh	WIRED	.github/workflows/hydrate-sentinel.yml
@@ -427,6 +432,7 @@ test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_linkedin_recommendations_are_not_preferences.py	WIRED	.github/workflows/misclassified-things.yml
 test_local_stores_do_not_route_through_a_proxy.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_loopback_property_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_machine_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
@@ -512,6 +518,7 @@ test_owner_node_is_minted_and_read.py	WIRED	.github/workflows/owner-node-is-mint
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
+test_passive_plays_are_not_likes.py	WIRED	.github/workflows/misclassified-things.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_hydrate_partial_landing_sentinel.sh	WIRED	.github/workflows/people-sweep-partial-landing.yml
