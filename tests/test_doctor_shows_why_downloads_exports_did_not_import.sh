@@ -48,12 +48,12 @@ _run() { HOME="$1" PATH="$SB/shim:$PATH" OSTLER_CATCHUP_BUDGET_SECONDS=0 /bin/ba
 
 # Box A: only a loose contact card, which no importer reads -> not_imported.
 A="$(_box vcf 0)"
-printf 'BEGIN:VCARD\nVERSION:3.0\nFN:Pat Example\nEMAIL:pat@example.com\nEND:VCARD\n' > "$A/Downloads/contacts.vcf"
+printf 'BEGIN:VCARD\nVERSION:3.0\nFN:Jane Doe\nEMAIL:pat@example.com\nEND:VCARD\n' > "$A/Downloads/contacts.vcf"
 touch -t 202601010000 "$A/Downloads/contacts.vcf"
 _run "$A"
 # Box B: a mailbox whose import fails -> error, with the exit code.
 B="$(_box failing 3)"
-printf 'From pat@example.com Thu Jan  1 00:00:00 2026\nFrom: Pat Example <pat@example.com>\n\nhello\n' > "$B/Downloads/emails.mbox"
+printf 'From pat@example.com Thu, 01 Jan 2026 00:00:00 +0000\nFrom: Jane Doe <pat@example.com>\n\nhello\n' > "$B/Downloads/emails.mbox"
 touch -t 202601010000 "$B/Downloads/emails.mbox"
 _run "$B"
 # Box C: the watcher has never run (no record at all).

@@ -75,14 +75,14 @@ _lastlog() { tail -n 1 "$1/.ostler/logs/export-scan.log" 2>/dev/null; }
 _act() { sed -n "s/^$2=//p" "$1/.ostler/state/source_activity/downloads_exports.tsv" 2>/dev/null; }
 
 # Synthetic fixtures. example.com and invented names only.
-_mbox() { printf 'From pat@example.com Thu Jan  1 00:00:00 2026\nFrom: Pat Example <pat@example.com>\nSubject: synthetic\n\nhello\n' > "$1"; }
+_mbox() { printf 'From pat@example.com Thu, 01 Jan 2026 00:00:00 +0000\nFrom: Jane Doe <pat@example.com>\nSubject: synthetic\n\nhello\n' > "$1"; }
 _ics() {
     { printf 'BEGIN:VCALENDAR\nVERSION:2.0\n'
       i=0; while [ "$i" -lt 40 ]; do
           printf 'BEGIN:VEVENT\nSUMMARY:synthetic fixture event %s\nEND:VEVENT\n' "$i"; i=$((i+1)); done
       printf 'END:VCALENDAR\n'; } > "$1"
 }
-_vcf() { printf 'BEGIN:VCARD\nVERSION:3.0\nFN:Pat Example\nEMAIL:pat@example.com\nEND:VCARD\n' > "$1"; }
+_vcf() { printf 'BEGIN:VCARD\nVERSION:3.0\nFN:Jane Doe\nEMAIL:pat@example.com\nEND:VCARD\n' > "$1"; }
 _settle() { touch -t 202601010000 "$1"/* 2>/dev/null; }   # older than the growing-file check cares about
 
 echo "=== A LOOSE EXPORT IN DOWNLOADS IS FOUND, IMPORTED ONCE, AND SAID ==="
@@ -213,7 +213,7 @@ else
     printf 'BEGIN:VCALENDAR\nEND:VCALENDAR\n' > "$D/tiny.ics"
     : > "$D/empty.mbox"
     printf '<?xml version="1.0"?><en-export><note><title>synthetic</title></note></en-export>\n' > "$D/notes/export.enex"
-    printf '[01/01/2026, 09:00:00] Pat Example: hello\n' > "$D/WhatsApp Chat with Pat Example.txt"
+    printf '[01/01/2026, 09:00:00] Jane Doe: hello\n' > "$D/WhatsApp Chat with Jane Doe.txt"
     _ics "$D/Some App.app/Contents/bundled.ics"
     printf 'not an export\n' > "$D/readme.txt"
     _settle "$D"
@@ -261,7 +261,7 @@ if ! grep -q 'Connect your accounts' "$NS"; then
     echo "CANNOT-RUN: could not extract the Next steps block from install.sh" >&2; exit 2
 fi
 printf 'fi\n' >> "$NS"
-OUT="$( BOLD='\033[1m'; NC='\033[0m'; USER_NAME="Pat Example"; EXPORTS_DIR=""
+OUT="$( BOLD='\033[1m'; NC='\033[0m'; USER_NAME="Jane Doe"; EXPORTS_DIR=""
         # shellcheck source=/dev/null
         . "$NS" 2>&1 )"
 if printf '%s' "$OUT" | grep -qF '\033'; then
