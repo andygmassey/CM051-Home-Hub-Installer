@@ -1205,3 +1205,13 @@ WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) c
 ### What a future sync must preserve
 
 The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+
+## Data sources rows state the right noun and a real total (Ostler #30)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. New `_payload_counts`, `_read_source_totals`, `_source_count_label` (inserted directly above `read_source_status`); `read_source_status` now adds `payload_counts` per row from the sentinel payload and, at the end, `count_label` / `count_kind` per row; `render_source_status` prefers `count_label` in the Items column. The upstream HR015 `doctor/agent/web_ui.py` has no `read_source_status` at all (the panel has no upstream, see `regenerate_forbidden_reason`), so there is nothing to port.
+
+WHY: measured on a real box, Mail printed the last tick's delta as if it were the total, WhatsApp printed its DM-chat count as messages, Safari visits as web pages, Photos events as photos, and Notes read 913 here against 971 in the wiki.
+
+### What a future sync must preserve
+
+The three helpers, the two additive row fields and the Items-column preference. Guarded by `tests/test_source_count_labels_state_the_right_noun.sh`. Notes reads `state/source_totals.json`, written by the CM044 compiler (`compiler/source_totals.py`).
