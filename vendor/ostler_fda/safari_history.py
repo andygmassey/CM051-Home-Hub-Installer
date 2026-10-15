@@ -73,6 +73,7 @@ def extract_history(
     *,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
+    strict: bool = False,
 ) -> list[HistoryEntry]:
     """Extract browsing history entries from Safari.
 
@@ -85,6 +86,10 @@ def extract_history(
             one fixed window at a time. None keeps since_days.
         until: Absolute upper bound (exclusive). None = no upper bound,
             which is the install-time behaviour, unchanged.
+        strict: Re-raise a query error (sqlite3.OperationalError, or
+            PermissionError when macOS refused the read) instead of
+            returning []. The catch-up needs "could not read" to differ
+            from "no visits"; the default keeps the install-time [].
 
     Returns:
         List of HistoryEntry objects, most recent first.
@@ -137,6 +142,11 @@ def extract_history(
         """, tuple(params)).fetchall()
     except sqlite3.OperationalError as e:
         logger.error("Failed to query Safari history: %s", e)
+        if strict:
+            conn.close()
+            if "authorization denied" in str(e).lower():
+                raise PermissionError("Cannot read browser history: Full Disk Access") from e
+            raise
         conn.close()
         return []
 

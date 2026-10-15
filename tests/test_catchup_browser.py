@@ -406,3 +406,39 @@ def test_install_registers_the_browser_runner_in_the_venv_that_has_ostler_fda():
         assert var in block, var
     # Registered only after ostler_fda installed into that venv.
     assert src.rfind('ok "$MSG_OK_OSTLER_FDA_INSTALLED_VENV"', 0, i) > src.rfind("_ostler_pip_install_pkg \"$EMAIL_INGEST_VENV/bin/pip\"", 0, i) > 0
+
+
+def test_a_query_error_is_cannot_run_never_an_empty_window_or_a_finished_walk(env, tmp_path):
+    """oldest_visit reads, but the history query then fails (a layout this code
+    does not know, a locked or damaged file). extract_history used to return []
+    for that, which the adapter read as an empty window: every window was
+    written down as done and the Doctor said all history was read."""
+    import ostler_catchup as oc
+    from ostler_fda import catchup_browser
+    old = time.time() - 7 * 365 * 86400
+    sdb, cdb = tmp_path / "S.db", tmp_path / "C.db"
+    con = sqlite3.connect(sdb)
+    con.executescript("CREATE TABLE history_items (id INTEGER PRIMARY KEY, url TEXT);"      # no visit_count
+                      "CREATE TABLE history_visits (id INTEGER PRIMARY KEY, history_item INTEGER,"
+                      " visit_time REAL, title TEXT, redirect_source INTEGER);")
+    con.execute("INSERT INTO history_items VALUES (1, 'https://example.com/a')")
+    con.execute("INSERT INTO history_visits VALUES (1, 1, ?, 'A', NULL)", (old - MAC_EPOCH,))
+    con.commit(); con.close()
+    con = sqlite3.connect(cdb)
+    con.executescript("CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT);"     # no visit_count
+                      "CREATE TABLE visits (id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER,"
+                      " from_visit INTEGER);")
+    con.execute("INSERT INTO urls VALUES (1, 'https://example.com/b', 'B')")
+    con.execute("INSERT INTO visits VALUES (1, 1, ?, 0)", (int((old + CHROME_EPOCH) * 1_000_000),))
+    con.commit(); con.close()
+    adapters = [catchup_browser.SafariAdapter(db_path=sdb), catchup_browser.ChromeAdapter(db_path=cdb)]
+    s = oc.run(adapters, budget_seconds=1e9, busy=lambda: None)
+    for src in ("browsing_safari", "browsing_chrome"):
+        row = s["sources"][src]
+        assert not row["complete"], f"{src}: a query error finished the walk"
+        assert row["reason"] == "cannot_run:query_failed", row
+    n = sqlite3.connect(oc.state_dir() / "ledger.sqlite").execute("SELECT COUNT(*) FROM done").fetchone()[0]
+    assert n == 0, f"{n} windows were written down as done over a failed query"
+    # CONTROL: the install-time default is unchanged (still [] on a query error).
+    from ostler_fda import safari_history
+    assert safari_history.extract_history(sdb, since_days=3650) == []

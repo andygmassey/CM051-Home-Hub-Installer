@@ -34,6 +34,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -119,7 +120,15 @@ class _BrowserAdapter(oc.Adapter):
     def process(self, item):
         from . import pwg_ingest
         lo, hi = item
-        entries = self.module.extract_history(self.db_path, since=_dt(lo - 1), until=_dt(hi))
+        try:
+            entries = self.module.extract_history(self.db_path, since=_dt(lo - 1), until=_dt(hi),
+                                                  strict=True)
+        except (sqlite3.OperationalError, PermissionError) as exc:
+            # A query error is not an empty window. extract_history used to
+            # return [] for it, which fell through to "no entries -> done" and
+            # let the walk finish over history it never read.
+            reason = "read_denied" if isinstance(exc, PermissionError) else "query_failed"
+            raise oc.CannotRun(reason) from exc
         # extract_history's lower bound is exclusive; lo-1 makes the window
         # [lo, hi) so a visit exactly on a boundary lands in one window only.
         entries = [e for e in entries if e.visit_time.timestamp() >= lo]

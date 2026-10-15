@@ -153,6 +153,7 @@ def extract_history(
     *,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
+    strict: bool = False,
 ) -> list[HistoryEntry]:
     """Extract browsing history entries from Chrome.
 
@@ -169,6 +170,10 @@ def extract_history(
             Used by the full-history catch-up (catchup_browser.py).
         until: Absolute upper bound (exclusive). None = no upper bound,
             the install-time behaviour, unchanged.
+        strict: Re-raise a query error (sqlite3.OperationalError, or
+            PermissionError when macOS refused the read) instead of
+            returning []. The catch-up needs "could not read" to differ
+            from "no visits"; the default keeps the install-time [].
 
     Returns:
         List of HistoryEntry, most-recent visit first.
@@ -233,6 +238,11 @@ def extract_history(
             ).fetchall()
         except sqlite3.OperationalError as exc:
             logger.error("Failed to query Chrome history: %s", exc)
+            if strict:
+                conn.close()
+                if "authorization denied" in str(exc).lower():
+                    raise PermissionError("Cannot read browser history: Full Disk Access") from exc
+                raise
             conn.close()
             return []
         conn.close()
