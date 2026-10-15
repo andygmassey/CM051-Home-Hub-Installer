@@ -398,6 +398,14 @@ Tree `cm048_pipeline`:
   to `full`. `prompts/01_classify.md` no longer tells the model to skip a solo
   voice memo (it did, so a memo the model obeyed on was silently never
   written).
+- `src/capture_truth.py` `has_speech` / `speech_words`: a spoken capture
+  with fewer than two spoken words once labels, markers and Whisper's
+  silence phrases are stripped is held at `processing_depth: none` by
+  `process()`, whatever the model said. A solo memo's speaker is written as
+  the owner (`settings.user_display_name`, else "You"), not "S1".
+- `_stamp_capture_truth` runs right after heading validation, so the
+  placeholder strip stays within 15 lines of each write
+  (`tests/test_placeholder_strip.sh`).
 
 WHY: a one-speaker iPhone voice memo on Mini16 was written to
 `~/Documents/Ostler/Conversations/<id>.md` (verbatim copy of 02_enrichment.md
