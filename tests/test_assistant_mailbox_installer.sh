@@ -203,7 +203,7 @@ grep -q "$SECRET" <<< "$o" && pass "mutant caught: password leaked to output" ||
 
 # ---- 3b. the golden contract fixture: the writer reproduces it exactly -------
 FIXTURE="$REPO_ROOT/tests/fixtures/assistant_mailbox_contract.json"
-FIXTURE_SHA256="e5af7a769db9d032686e295075b96790543229ab3572babb1ef85be4abfdf6e1"
+FIXTURE_SHA256="d6280d098abba12b8035253d4210b0d8f0369489efa4dd07a4dc10259395b138"
 [ -f "$FIXTURE" ] || { echo "FAIL: contract fixture missing"; exit 1; }
 got_sha="$(shasum -a 256 "$FIXTURE" | cut -d' ' -f1)"
 [ "$got_sha" = "$FIXTURE_SHA256" ] && pass "contract fixture matches the pinned digest (same bytes as ostler-assistant)" \

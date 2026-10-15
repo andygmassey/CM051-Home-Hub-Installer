@@ -13,7 +13,8 @@
     "not_listed",
     "failed_auth",
     "automated",
-    "rate_limited"
+    "rate_limited",
+    "model_failed"
   ],
   "self_test_results": [
     "ok",
@@ -30,7 +31,8 @@
     "last_reply_at": "2026-10-15T09:31:10+00:00",
     "drops_24h": {
       "not_listed": 2,
-      "automated": 1
+      "automated": 1,
+      "model_failed": 1
     },
     "drop_events": [
       {
@@ -44,6 +46,10 @@
       {
         "at": "2026-10-15T09:40:00+00:00",
         "reason": "not_listed"
+      },
+      {
+        "at": "2026-10-15T09:50:00+00:00",
+        "reason": "model_failed"
       }
     ],
     "self_test_result": "ok",

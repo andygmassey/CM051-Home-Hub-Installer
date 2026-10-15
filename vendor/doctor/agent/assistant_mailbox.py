@@ -203,6 +203,7 @@ DROP_REASONS = {
     "failed_auth": "sender could not be authenticated",
     "automated": "automatic or bulk mail",
     "rate_limited": "too many messages at once",
+    "model_failed": "the assistant's model failed, so nothing was sent",
 }
 
 # What the daemon's self-test can report, beyond ERRORS' keys.

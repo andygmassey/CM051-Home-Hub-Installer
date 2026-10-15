@@ -410,7 +410,7 @@ class HelloMessageId(unittest.TestCase):
 FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "assistant_mailbox_contract.json"
 # Pinned digest. ostler-assistant pins the SAME value in its own test. Change
 # the fixture in BOTH repos together, then update this constant and that one.
-FIXTURE_SHA256 = "e5af7a769db9d032686e295075b96790543229ab3572babb1ef85be4abfdf6e1"
+FIXTURE_SHA256 = "d6280d098abba12b8035253d4210b0d8f0369489efa4dd07a4dc10259395b138"
 
 
 class Contract(unittest.TestCase):
