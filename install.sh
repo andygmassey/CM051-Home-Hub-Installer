@@ -21010,6 +21010,21 @@ if [[ ! -x "$CM019_PY" ]]; then
     exit 0
 fi
 
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES, checked on EVERY tick and not
+# only when the installer decides whether to create this agent. An agent
+# created by an earlier install where the answer was yes survives a later
+# install where it was no, and nothing else stops it. Same reader as
+# ostler-import: the answer in config/.env, and anything but "accepted"
+# (missing, unreadable, empty) is a NO.
+_ENV_FILE="${OSTLER_DIR}/config/.env"
+_decision=""
+[[ -r "$_ENV_FILE" ]] && _decision="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$_ENV_FILE" | tail -n 1)"
+_decision="${_decision%\"}"; _decision="${_decision#\"}"
+if [[ "$_decision" != "accepted" ]]; then
+    log "public look-ups not agreed (recorded answer: ${_decision:-none}); standing down, nothing sent"
+    exit 0
+fi
+
 # Counts-only readback, before and after. This is what makes the log
 # EVIDENCE rather than noise: a tick that enriched nothing and a tick that
 # never ran print differently, which is the whole lesson of every silent
@@ -22818,6 +22833,23 @@ fi
 if [[ -f "${OSTLER_DIR}/config/.env" ]]; then
     set -a; source "${OSTLER_DIR}/config/.env"; set +a
 fi
+
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES. Setup asks consent_enrichment
+# (default no) and writes the answer to config/.env as
+# OSTLER_CONSENT_ENRICHMENT_DECISION. Until this gate the enrich pass below ran
+# on every import regardless, so a customer who said no and later dropped an
+# export into Downloads had its titles and artists sent to Wikidata and
+# MusicBrainz anyway. The answer is read from the FILE, not from the
+# environment this script inherited: a variable left over in a caller is not
+# the customer's recorded answer. Missing file, unreadable file, missing key,
+# empty, or anything but "accepted" is a NO.
+_public_lookups_agreed() {
+    local f="${OSTLER_DIR}/config/.env" v
+    [[ -r "$f" ]] || return 1
+    v="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$f" | tail -n 1)"
+    v="${v%\"}"; v="${v#\"}"
+    [[ "$v" == "accepted" ]]
+}
 # CM019 tags points by user slug; prefer an explicit flag, then the
 # installed-user env, then a neutral default.
 CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
@@ -22887,6 +22919,13 @@ for d in "${DIRS[@]}"; do
         #
         # It stays non-zero rather than being removed so a manual
         # `ostler-import` still shows something happening.
+        #
+        # Everything from here to the kickstart sends things to public
+        # reference sources, so all of it sits behind the customer's answer.
+        # The local ingest above is not a look-up and always runs.
+        if ! _public_lookups_agreed; then
+            echo "Public look-ups are off (you said no during setup), so nothing was looked up in Wikidata, MusicBrainz or Open Library."
+        else
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
             "$CM019_PY" -m services.enrich.src.cli enrich --all \
                 --budget-seconds "${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}" \
@@ -22940,6 +22979,7 @@ for d in "${DIRS[@]}"; do
             # site is where the 23h56m wedge was measured; _ks_bounded carries
             # the evidence and the bound.
             _ks_bounded "gui/$(id -u)/com.ostler.enrich"
+        fi
         fi
     fi
 
