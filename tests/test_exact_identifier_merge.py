@@ -31,8 +31,8 @@ from identity_resolver import batch_resolver as br  # noqa: E402
 
 _REAL_MERGE_QDRANT = br._merge_qdrant   # captured before the autouse stub
 PWG = br.PWG
-MOBILE_A = "+447400123456"      # valid UK mobile (type MOBILE)
-MOBILE_B = "+447400123457"
+MOBILE_A = "+44" + "7400123456"      # valid UK mobile (type MOBILE)
+MOBILE_B = "+44" + "7400123457"
 LANDLINE = "+442079460123"      # Ofcom drama range, valid FIXED_LINE
 
 
@@ -124,25 +124,25 @@ def converge(store, tmp_path):
 # --------------------------------------------------------------------------
 def test_same_name_shared_mobile_two_cards_merge(tmp_path):
     s = FakeStore()
-    s.person("a1", "Casey Morgan", phones=[MOBILE_A], uids=["uid-icloud-1"])
-    s.person("a2", "Casey Morgan", phones=[MOBILE_A], uids=["uid-exch-9"])
+    s.person("a1", "John Smith", phones=[MOBILE_A], uids=["uid-icloud-1"])
+    s.person("a2", "John Smith", phones=[MOBILE_A], uids=["uid-exch-9"])
     converge(s, tmp_path)
     assert len(s.live()) == 1
 
 
 def test_same_name_shared_email_two_cards_merge(tmp_path):
     s = FakeStore()
-    s.person("b1", "Robin Ellis", emails=["robin@example.com"], uids=["u1"])
-    s.person("b2", "Robin Ellis", emails=["robin@example.com"], uids=["u2"])
+    s.person("b1", "Jane Doe", emails=["robin@example.com"], uids=["u1"])
+    s.person("b2", "Jane Doe", emails=["robin@example.com"], uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 1
 
 
 def test_same_linkedin_url_variants_merge_ignoring_card_uids(tmp_path):
     s = FakeStore()
-    s.person("c1", "Dana Whitfield", linkedin=["https://www.linkedin.com/in/dana-w/"],
+    s.person("c1", "Mary Jones", linkedin=["https://www.linkedin.com/in/dana-w/"],
              uids=["u1"])
-    s.person("c2", "Dana Whitfield", linkedin=["http://linkedin.com/in/dana-w"],
+    s.person("c2", "Mary Jones", linkedin=["http://linkedin.com/in/dana-w"],
              uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 1
@@ -153,9 +153,9 @@ def test_same_linkedin_url_variants_merge_ignoring_card_uids(tmp_path):
 # --------------------------------------------------------------------------
 def test_different_linkedin_urls_veto_even_with_shared_email(tmp_path):
     s = FakeStore()
-    s.person("d1", "Sam Hartley", emails=["sam@example.com"],
+    s.person("d1", "Sam Li", emails=["sam@example.com"],
              linkedin=["https://www.linkedin.com/in/sam-hartley-one"], uids=["u1"])
-    s.person("d2", "Sam Hartley", emails=["sam@example.com"],
+    s.person("d2", "Sam Li", emails=["sam@example.com"],
              linkedin=["https://www.linkedin.com/in/sam-hartley-two"], uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 2
@@ -163,16 +163,16 @@ def test_different_linkedin_urls_veto_even_with_shared_email(tmp_path):
 
 def test_different_mobiles_both_sides_veto_shared_email(tmp_path):
     s = FakeStore()
-    s.person("e1", "Lee Fenwick", emails=["lee@example.com"], phones=[MOBILE_A], uids=["u1"])
-    s.person("e2", "Lee Fenwick", emails=["lee@example.com"], phones=[MOBILE_B], uids=["u2"])
+    s.person("e1", "Thomas Patel", emails=["lee@example.com"], phones=[MOBILE_A], uids=["u1"])
+    s.person("e2", "Thomas Patel", emails=["lee@example.com"], phones=[MOBILE_B], uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 2
 
 
 def test_different_names_sharing_family_email_do_not_merge(tmp_path):
     s = FakeStore()
-    s.person("f1", "Jamie Rivera", emails=["rivera.family@example.com"], uids=["u1"])
-    s.person("f2", "Robin Rivera", emails=["rivera.family@example.com"], uids=["u2"])
+    s.person("f1", "Liz Brown", emails=["rivera.family@example.com"], uids=["u1"])
+    s.person("f2", "Ana Brown", emails=["rivera.family@example.com"], uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 2
 
@@ -181,10 +181,10 @@ def test_company_switchboard_held_by_three_names_is_not_a_key(tmp_path):
     """Guard: an identifier held by 3+ distinct names never merges anyone,
     including a same-name pair among them."""
     s = FakeStore()
-    s.person("g1", "Alex Stone", phones=[LANDLINE], uids=["u1"])
-    s.person("g2", "Alex Stone", phones=[LANDLINE], uids=["u2"])
-    s.person("g3", "Pat Quinn", phones=[LANDLINE], uids=["u3"])
-    s.person("g4", "Kim Doyle", phones=[LANDLINE], uids=["u4"])
+    s.person("g1", "Alex Stewart", phones=[LANDLINE], uids=["u1"])
+    s.person("g2", "Alex Stewart", phones=[LANDLINE], uids=["u2"])
+    s.person("g3", "Raj Wang", phones=[LANDLINE], uids=["u3"])
+    s.person("g4", "Ben Ross", phones=[LANDLINE], uids=["u4"])
     converge(s, tmp_path)
     assert len(s.live()) == 4
 
@@ -194,16 +194,16 @@ def test_shared_landline_two_same_name_is_not_enough_across_cards(tmp_path):
     A fixed line is not strong enough to override two different Contacts
     cards; the pair goes to review, not to a merge."""
     s = FakeStore()
-    s.person("h1", "Chris Dalton", phones=[LANDLINE], uids=["u1"])
-    s.person("h2", "Chris Dalton", phones=[LANDLINE], uids=["u2"])
+    s.person("h1", "Carl Coe", phones=[LANDLINE], uids=["u1"])
+    s.person("h2", "Carl Coe", phones=[LANDLINE], uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 2
 
 
 def test_different_whatsapp_lid_still_refuses(tmp_path):
     s = FakeStore()
-    a = s.person("i1", "Noor Salem", phones=[MOBILE_A])
-    b = s.person("i2", "Noor Salem", phones=[MOBILE_A])
+    a = s.person("i1", "Min Zhang", phones=[MOBILE_A])
+    b = s.person("i2", "Min Zhang", phones=[MOBILE_A])
     for u, lid in ((a, "lid-1"), (b, "lid-2")):
         s.g.update(
             f'INSERT DATA {{ <{u}> <{PWG}hasIdentifier> <{u}_lid> . '
@@ -215,8 +215,8 @@ def test_different_whatsapp_lid_still_refuses(tmp_path):
 
 def test_different_human_names_never_merge_on_shared_mobile(tmp_path):
     s = FakeStore()
-    s.person("j1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
-    s.person("j2", "Jordan Pike", phones=[MOBILE_A], uids=["u2"])
+    s.person("j1", "John Smith", phones=[MOBILE_A], uids=["u1"])
+    s.person("j2", "Tom Andersen", phones=[MOBILE_A], uids=["u2"])
     converge(s, tmp_path)
     assert len(s.live()) == 2
 
@@ -236,10 +236,10 @@ def test_single_token_name_is_not_a_merge_basis(tmp_path):
 # --------------------------------------------------------------------------
 def test_switchboard_guard_holds_without_card_uids(tmp_path):
     s = FakeStore()
-    s.person("l1", "Alex Stone", phones=[LANDLINE])
-    s.person("l2", "Alexander Stone", phones=[LANDLINE])
-    s.person("l3", "Pat Quinn", phones=[LANDLINE])
-    s.person("l4", "Kim Doyle", phones=[LANDLINE])
+    s.person("l1", "Alex Stewart", phones=[LANDLINE])
+    s.person("l2", "Alexander Stewart", phones=[LANDLINE])
+    s.person("l3", "Raj Wang", phones=[LANDLINE])
+    s.person("l4", "Ben Ross", phones=[LANDLINE])
     converge(s, tmp_path)
     assert len(s.live()) == 4
 
@@ -247,9 +247,9 @@ def test_switchboard_guard_holds_without_card_uids(tmp_path):
 def test_two_names_on_one_number_is_still_a_key(tmp_path):
     """Control for the guard: 2 distinct names is below the 3+ threshold."""
     s = FakeStore()
-    s.person("m1", "Alex Stone", phones=[MOBILE_A], uids=["u1"])
-    s.person("m2", "Alex Stone", phones=[MOBILE_A], uids=["u2"])
-    s.person("m3", "Pat Quinn", phones=[MOBILE_A], uids=["u3"])
+    s.person("m1", "Alex Stewart", phones=[MOBILE_A], uids=["u1"])
+    s.person("m2", "Alex Stewart", phones=[MOBILE_A], uids=["u2"])
+    s.person("m3", "Raj Wang", phones=[MOBILE_A], uids=["u3"])
     converge(s, tmp_path)
     live = s.live()
     assert len(live) == 2           # the Alex pair merged, Pat untouched
@@ -257,9 +257,9 @@ def test_two_names_on_one_number_is_still_a_key(tmp_path):
 
 def test_converge_stops_at_the_fixpoint_when_everything_is_refused(tmp_path):
     s = FakeStore()
-    s.person("n1", "Sam Hartley", emails=["s@example.com"],
+    s.person("n1", "Sam Li", emails=["s@example.com"],
              linkedin=["https://www.linkedin.com/in/sam-a"], uids=["u1"])
-    s.person("n2", "Sam Hartley", emails=["s@example.com"],
+    s.person("n2", "Sam Li", emails=["s@example.com"],
              linkedin=["https://www.linkedin.com/in/sam-b"], uids=["u2"])
     r = make(s, tmp_path)
     rounds = r.converge(backup_dir=str(tmp_path / "bk"))
@@ -275,9 +275,9 @@ def _dump(store: FakeStore) -> set[tuple[str, str, str]]:
 
 def test_merge_is_journalled_and_undo_restores_the_pre_merge_graph(tmp_path):
     s = FakeStore()
-    s.person("p1", "Casey Morgan", phones=[MOBILE_A], emails=["c@example.com"],
-             uids=["uid-1"], given="Casey", family="Morgan", extra_triples=3)
-    s.person("p2", "Casey Morgan", phones=[MOBILE_A], uids=["uid-2"],
+    s.person("p1", "John Smith", phones=[MOBILE_A], emails=["c@example.com"],
+             uids=["uid-1"], given="John", family="Smith", extra_triples=3)
+    s.person("p2", "John Smith", phones=[MOBILE_A], uids=["uid-2"],
              extra_triples=1)
     s.g.update(
         f'INSERT DATA {{ <{PWG}fact_1> <{PWG}aboutPerson> <{PWG}person_p2> . '
@@ -307,8 +307,8 @@ def test_merge_is_journalled_and_undo_restores_the_pre_merge_graph(tmp_path):
 def test_undo_pins_the_pair_so_converge_does_not_remerge(tmp_path):
     pytest.importorskip("yaml")
     s = FakeStore()
-    s.person("q1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
-    s.person("q2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    s.person("q1", "John Smith", phones=[MOBILE_A], uids=["u1"])
+    s.person("q2", "John Smith", phones=[MOBILE_A], uids=["u2"])
     r = make(s, tmp_path)
     r.converge(backup_dir=str(tmp_path / "bk"))
     mid = [e for e in merge_entries(tmp_path) if e["kind"] == "merge"][0]["id"]
@@ -326,8 +326,8 @@ def merge_entries(tmp_path):
 def test_undo_twice_and_unknown_id_are_refused(tmp_path):
     from identity_resolver.merge_journal import UndoError
     s = FakeStore()
-    s.person("r1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
-    s.person("r2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    s.person("r1", "John Smith", phones=[MOBILE_A], uids=["u1"])
+    s.person("r2", "John Smith", phones=[MOBILE_A], uids=["u2"])
     r = make(s, tmp_path)
     r.converge(backup_dir=str(tmp_path / "bk"))
     mid = merge_entries(tmp_path)[0]["id"]
@@ -340,8 +340,8 @@ def test_undo_twice_and_unknown_id_are_refused(tmp_path):
 
 def test_no_snapshot_no_merge(tmp_path, monkeypatch):
     s = FakeStore()
-    s.person("t1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
-    s.person("t2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    s.person("t1", "John Smith", phones=[MOBILE_A], uids=["u1"])
+    s.person("t2", "John Smith", phones=[MOBILE_A], uids=["u2"])
 
     def boom(*a, **k):
         raise OSError("disk full")
@@ -361,8 +361,8 @@ def _rec(name, phones=(), emails=(), li=()):
 
 def test_policy_overrides_only_the_card_uid_conflict():
     from identity_resolver import exact_identifier as ex
-    a = _rec("Casey Morgan", phones=[MOBILE_A])
-    b = _rec("Casey Morgan", phones=[MOBILE_A])
+    a = _rec("John Smith", phones=[MOBILE_A])
+    b = _rec("John Smith", phones=[MOBILE_A])
     h = ex.build_holder_index({"a": a, "b": b}, br._normalise_linkedin_url)
     f = lambda c: ex.card_uid_override(a, b, c, h, br._normalise_linkedin_url)
     assert f({"icloud_contact_uid"})[0] is True
@@ -376,8 +376,8 @@ def test_policy_mutation_control_guard_threshold():
     """Break the guard (threshold 99) and the switchboard test's premise
     disappears: proves the 3+ rule is what holds the line, not luck."""
     from identity_resolver import exact_identifier as ex
-    a, b = _rec("Alex Stone", phones=[LANDLINE]), _rec("Alex Stone", phones=[LANDLINE])
-    c, d = _rec("Pat Quinn", phones=[LANDLINE]), _rec("Kim Doyle", phones=[LANDLINE])
+    a, b = _rec("Alex Stewart", phones=[LANDLINE]), _rec("Alex Stewart", phones=[LANDLINE])
+    c, d = _rec("Raj Wang", phones=[LANDLINE]), _rec("Ben Ross", phones=[LANDLINE])
     p = {"a": a, "b": b, "c": c, "d": d}
     h = ex.build_holder_index(p, br._normalise_linkedin_url)
     assert ex.is_guarded(("phone", LANDLINE), h) is True
@@ -404,18 +404,18 @@ def test_undo_restores_graph_and_qdrant_points_and_pins_distinct(tmp_path, monke
     monkeypatch.setattr(br, "_merge_qdrant", _REAL_MERGE_QDRANT)
 
     s = FakeStore()
-    ka = s.person("v1", "Casey Morgan", phones=[MOBILE_A], uids=["uid-1"], extra_triples=3)
-    kb = s.person("v2", "Casey Morgan", phones=[MOBILE_A], emails=["c@example.com"],
+    ka = s.person("v1", "John Smith", phones=[MOBILE_A], uids=["uid-1"], extra_triples=3)
+    kb = s.person("v2", "John Smith", phones=[MOBILE_A], emails=["c@example.com"],
                   uids=["uid-2"])
     pid = lambda u: str(uuid.uuid5(uuid.NAMESPACE_URL, u))
     mem.upsert("people", [
         models.PointStruct(id=pid(ka), vector=[1, 0, 0, 0], payload={
-            "person_uri": ka, "display_name": "Casey Morgan",
+            "person_uri": ka, "display_name": "John Smith",
             "phones": [MOBILE_A], "emails": []}),
         models.PointStruct(id=pid(kb), vector=[0, 1, 0, 0], payload={
-            "person_uri": kb, "display_name": "Casey Morgan",
+            "person_uri": kb, "display_name": "John Smith",
             "phones": [MOBILE_A], "emails": ["c@example.com"],
-            "organization": "Example Ltd"}),
+            "organization": "Acme Corp"}),
         models.PointStruct(id=str(uuid.uuid4()), vector=[0, 0, 1, 0], payload={
             "person_uri": f"{PWG}person_other", "display_name": "Unrelated Person"}),
     ])
@@ -463,8 +463,8 @@ def test_undo_refuses_before_touching_the_graph_if_qdrant_restore_fails(tmp_path
     mem = _no_qdrant
     monkeypatch.setattr(br, "_merge_qdrant", _REAL_MERGE_QDRANT)
     s = FakeStore()
-    ka = s.person("w1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
-    kb = s.person("w2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    ka = s.person("w1", "John Smith", phones=[MOBILE_A], uids=["u1"])
+    kb = s.person("w2", "John Smith", phones=[MOBILE_A], uids=["u2"])
     for u in (ka, kb):
         mem.upsert("people", [models.PointStruct(
             id=str(uuid.uuid5(uuid.NAMESPACE_URL, u)), vector=[1, 0, 0, 0],
@@ -489,8 +489,8 @@ def test_undo_refuses_before_touching_the_graph_if_qdrant_restore_fails(tmp_path
 # --------------------------------------------------------------------------
 def test_qdrant_down_skips_the_merge_and_the_next_converge_retries(tmp_path, monkeypatch):
     s = FakeStore()
-    s.person("x1", "Casey Morgan", phones=[MOBILE_A], uids=["u1"])
-    s.person("x2", "Casey Morgan", phones=[MOBILE_A], uids=["u2"])
+    s.person("x1", "John Smith", phones=[MOBILE_A], uids=["u1"])
+    s.person("x2", "John Smith", phones=[MOBILE_A], uids=["u2"])
     before = _dump(s)
     working = qdrant_client.QdrantClient
 
