@@ -294,6 +294,63 @@ _NAME_TIER_HANDLE = 1
 _NAME_TIER_NAME = 2
 
 
+# CM051 #30 batch 3. WhatsApp's own default / unknown-name tokens. A chat-only
+# contact with no real name reaches us as one of these (or as a "~"-prefixed
+# push name, or as nothing legible), and "WhatsApp contact" was being written
+# as a NAME: 13 people on one box shared it. Matched by SHAPE: strip "~",
+# bidi/zero-width marks and punctuation, then either nothing is left, or the
+# whole label is an "unknown" word, or it is "<WhatsApp|contact|user> <filler>"
+# in any listed locale. Locale strings are best-effort, NOT verified against
+# WhatsApp's string tables; the shape rules catch the unlisted ones.
+_WA_UNKNOWN_WORDS = frozenset({
+    "unknown", "unknown contact", "unknown user", "unknown number", "unnamed",
+    "no name", "none", "null", "nil", "n a", "na", "anonymous",
+    "desconocido", "desconocida", "inconnu", "inconnue", "unbekannt",
+    "sconosciuto", "sconosciuta", "desconhecido", "desconhecida",
+    "onbekend", "okand", "ukendt", "tuntematon", "nieznany", "nieznana",
+    "bilinmeyen", "necunoscut", "neznamy", "ismeretlen",
+    "неизвестный", "неизвестно", "неизвестная", "невідомий",
+    "غير معروف", "לא ידוע", "不明", "未知", "未知联系人", "不明な連絡先",
+    "알 수 없음", "अज्ञात",
+})
+_WA_FILLER_WORDS = frozenset({
+    "whatsapp", "contact", "contacts", "user", "member", "person", "number",
+    "contacto", "contato", "contatto", "kontakt", "nutzer", "benutzer",
+    "utilisateur", "utente", "usuario", "usuário", "gebruiker", "kontakter",
+    "de", "do", "da", "del", "di", "von", "du", "of", "van", "på",
+    "联系人", "用户", "連絡先", "ユーザー", "контакт", "пользователь",
+    "جهة اتصال", "מישהו",
+})
+
+
+def _is_whatsapp_placeholder_name(value: Optional[str]) -> bool:
+    """True when ``value`` is WhatsApp's stand-in for "no real name".
+
+    Covers: empty/whitespace, names made only of punctuation/emoji/marks,
+    a bare "~" or "~"-prefixed placeholder, WhatsApp's unknown-name words
+    and "WhatsApp contact"-shaped labels in any locale. A real name, with or
+    without a "~" push-name prefix, is False.
+    """
+    import unicodedata
+    if value is None:
+        return True
+    v = unicodedata.normalize("NFKC", str(value))
+    v = "".join(c for c in v if unicodedata.category(c) not in ("Cf", "Cc"))
+    v = v.replace("~", " ")
+    # keep letters and digits of any script; everything else is a separator
+    n = "".join(c if c.isalnum() else " " for c in v.casefold())
+    words = n.split()
+    if not words:
+        return True
+    if not any(c.isalpha() for c in n) and not any(c.isdigit() for c in n):
+        return True
+    joined = " ".join(words)
+    if joined in _WA_UNKNOWN_WORDS:
+        return True
+    return len(words) <= 4 and all(w in _WA_FILLER_WORDS for w in words)
+
+
+
 def _display_name_tier(value: str) -> int:
     """Rank a candidate displayName. See the tier table above."""
     if not value:
@@ -306,6 +363,9 @@ def _display_name_tier(value: str) -> int:
     digits = sum(c.isdigit() for c in v)
     phoneish = all(c in "+()-. \t0123456789" for c in v)
     if phoneish and digits >= 5:
+        return _NAME_TIER_PLACEHOLDER
+    # CM051 #30 b3: WhatsApp's default / unknown-name token is not a name.
+    if _is_whatsapp_placeholder_name(v):
         return _NAME_TIER_PLACEHOLDER
     # v1018-D659. Checked LAST, and only against something already
     # name-shaped: a kinship word outranks nothing, so it must not be
@@ -438,6 +498,10 @@ def _creation_name_triples(person_uri: str, value: str) -> list:
             "Refused %r as a displayName for %s at creation: it is a "
             "relationship, not a name (v1018-D659)", value, person_uri,
         )
+        return [flag]
+    if _is_whatsapp_placeholder_name(value):
+        # CM051 #30 b3: a placeholder is flagged, never written as a name.
+        # The person (and its phone identifier) is still created.
         return [flag]
     triples = [f'<{person_uri}> pwg:displayName "{_escape(value)}"']
     if tier < _NAME_TIER_NAME:
@@ -685,7 +749,7 @@ def _whatsapp_jid_is_genuine_phone(local: str) -> bool:
     return phonenumbers.is_valid_number(parsed)
 
 
-def _whatsapp_display_name(jid: str) -> str:
+def _whatsapp_display_name(jid: str, push_name: Optional[str] = None) -> str:
     """Placeholder display name for an un-named WhatsApp contact.
 
     The local-part of an `@s.whatsapp.net` JID is USUALLY an E.164 number.
@@ -698,11 +762,15 @@ def _whatsapp_display_name(jid: str) -> str:
     replaces any of these once contact_syncer or CM046 email enrichment
     supplies one.
     """
+    # CM051 #30 b3: a real push name (leading "~" stripped) is used; a
+    # placeholder one falls back to the phone handle below.
+    if push_name is not None and not _is_whatsapp_placeholder_name(push_name):
+        return push_name.strip().lstrip("~").strip()
     local = jid.split("@", 1)[0] if "@" in jid else jid
     if _whatsapp_jid_is_genuine_phone(local):
         return "+" + local
     if local.isdigit():
-        return "WhatsApp contact"
+        return "WhatsApp contact"  # placeholder: creation writes flag only
     return local
 
 
@@ -1054,6 +1122,9 @@ def _upsert_display_name(person_uri: str, value: str) -> None:
     both flagged and the flag cannot tell them apart.
     """
     tier = _display_name_tier(value)
+    if _is_whatsapp_placeholder_name(value):
+        logger.debug("Refused placeholder as a displayName for %s", person_uri)
+        return
     if _is_kinship_composed_label(value):
         logger.debug(
             "Refused %r as a displayName for %s on upsert: a kinship word "
