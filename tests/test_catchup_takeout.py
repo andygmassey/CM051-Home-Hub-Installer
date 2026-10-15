@@ -482,7 +482,7 @@ def test_sigkill_in_index_and_dispatch_never_duplicates_or_loses(tmp_path):
           f"each one bundle; repeated keyed sends={repeats}")
 
 
-def test_discovery_finds_every_part_once_and_does_not_re_extract(takeout, tmp_path, monkeypatch):
+def test_discovery_finds_every_part_once_and_extracts_nothing(takeout, tmp_path, monkeypatch):
     home = tmp_path / "home"
     _load_modules(monkeypatch, home)
     monkeypatch.setenv("OSTLER_TAKEOUT_HOME", str(takeout["user"]))
@@ -491,15 +491,16 @@ def test_discovery_finds_every_part_once_and_does_not_re_extract(takeout, tmp_pa
     assert [p.name.rsplit("-", 1)[-1] for p in parts] == ["001.zip", "002.zip", "003.zip"]
     a1 = catchup_mbox.adapters()
     assert len(a1) == 2
-    mt = {p: p.stat().st_mtime_ns for p in (home / "imports" / "takeout").rglob("*.mbox")}
-    # the same mailbox also queued by the importer at another path: still one walk
-    copy = home / "imports" / "takeout" / "elsewhere" / "copy.mbox"
-    copy.parent.mkdir(parents=True)
-    copy.write_bytes(takeout["arch"].read_bytes())
-    catchup_mbox.queue_mailbox(copy)
+    # Setup is outside the time budget and the busy check, so it must write
+    # nothing: no mailbox bytes are extracted until a budgeted tick asks.
+    assert not list((home / "imports" / "takeout").rglob("*.mbox")) if (home / "imports").exists() else True
+    # the install's own extraction of a member is the SAME mailbox, one walk
+    inst = home / "imports" / "takeout" / "Takeout" / "Mail" / "Archive.mbox"
+    inst.parent.mkdir(parents=True)
+    inst.write_bytes(takeout["arch"].read_bytes())
+    catchup_mbox.queue_mailbox(inst)
     a2 = catchup_mbox.adapters()
-    assert sorted(a.source for a in a1) == sorted(a.source for a in a2)
-    assert all(p.stat().st_mtime_ns == m for p, m in mt.items()), "a mailbox was extracted twice"
+    assert sorted(a.source for a in a1) == sorted(a.source for a in a2), "the install's copy became a second walk"
     # CONTROL: a declined Takeout on the Desktop is not read
     desk = takeout["user"] / "Desktop"
     desk.mkdir(exist_ok=True)
@@ -542,3 +543,183 @@ def test_a_thread_the_install_cut_short_is_finished_by_one_continuation(tmp_path
     print(f"\n[continuation] install sent {sum(sent_install.values())} of 15 messages; "
           f"catch-up added {sum(sinks.bundles.values()) - sum(sent_install.values())} in "
           f"{len(sinks.bundles) - len(sent_install)} continuation bundle(s)")
+
+
+# ── lazy, bounded extraction; unreadable metadata; consent (Archie's review) ──
+
+def _two_mailbox_takeout(tmp_path, n_threads=60):
+    user = tmp_path / "user"
+    dl = user / "Downloads"
+    dl.mkdir(parents=True)
+    rng = random.Random(3)
+    for part, name in ((1, "Mail/One.mbox"), (2, "Mail/Two.mbox")):
+        rows = []
+        for t in range(n_threads):
+            start = NOW.timestamp() - rng.uniform(40 * 86400, 3 * YEAR)
+            for i in range(3):
+                rows.append((start + i * 900, t + part * 1000, i, f"Topic {part}{t:04d}",
+                             f"pal{t % 7:04d}@example.com", t))
+        mb = tmp_path / f"m{part}.mbox"
+        _write_mbox(mb, rows)
+        with zipfile.ZipFile(dl / f"takeout-2026100{part}T000000Z-1-00{part}.zip", "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(mb, "Takeout/" + name)
+    return user
+
+
+def _sinks(monkeypatch, home, ui):
+    sinks = Sinks(home)
+    monkeypatch.setattr(ui, "_persist_conversations", sinks.persist_conversations)
+    monkeypatch.setattr(ui, "_persist_mail_contacts", sinks.persist_contacts)
+    return sinks
+
+
+def test_extraction_is_lazy_one_mailbox_at_a_time_and_deleted_once_consumed(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    user = _two_mailbox_takeout(tmp_path)
+    monkeypatch.setenv("OSTLER_TAKEOUT_HOME", str(user))
+    monkeypatch.setenv("OSTLER_CATCHUP_MBOX_SLICE", "20")
+    sinks = _sinks(monkeypatch, home, ui)
+    from ostler_fda import catchup_mbox
+    adapters = catchup_mbox.adapters()
+    root = home / "imports" / "takeout"
+    on_disk = lambda: [p for p in root.rglob("*.mbox")] if root.exists() else []
+    assert len(adapters) == 2 and on_disk() == [], "adapters() extracted mailbox bytes outside a budgeted tick"
+    # A busy machine: the tick spends nothing, so nothing may be extracted.
+    s = oc.run(adapters, budget_seconds=1e9, busy=lambda: "load")
+    assert on_disk() == [], "a mailbox was extracted on a busy machine"
+    assert all(v["reason"].startswith("busy") for v in s["sources"].values())
+    # A quiet machine: never more than one extracted mailbox at a time.
+    peak = [0]
+
+    def quiet():
+        peak[0] = max(peak[0], len(on_disk()))
+        return None
+
+    for _ in range(30):
+        s = oc.run(adapters, budget_seconds=1e9, busy=quiet)
+        if all(v["complete"] for v in s["sources"].values()):
+            break
+    assert all(v["complete"] for v in s["sources"].values()), s
+    assert peak[0] == 1, f"{peak[0]} extracted mailboxes on disk at once (want exactly 1 at a time)"
+    assert on_disk() == [], f"extracted mailboxes were not deleted once consumed: {on_disk()}"
+    assert not list(root.rglob("*.part"))
+    assert len(sinks.bundles) == 2 * 60 and all(c == 1 for c in sinks.calls.values())
+    assert len(list(user.joinpath("Downloads").glob("takeout-*.zip"))) == 2, "the customer's zips must be untouched"
+
+
+def test_a_customers_own_mailbox_is_read_in_place_and_never_deleted(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    sinks = _sinks(monkeypatch, home, ui)
+    mb = tmp_path / "user" / "Downloads" / "Takeout" / "mine.mbox"
+    mb.parent.mkdir(parents=True)
+    _write_mbox(mb, [(NOW.timestamp() - 86400 * (50 + i), 1, i, "Topic 0001", "pal0001@example.com", 1) for i in range(3)])
+    monkeypatch.setenv("OSTLER_TAKEOUT_HOME", str(tmp_path / "user"))
+    from ostler_fda import catchup_mbox
+    s = oc.run(catchup_mbox.adapters(), budget_seconds=1e9, busy=lambda: None)
+    assert all(v["complete"] for v in s["sources"].values()) and sinks.bundles
+    assert mb.is_file(), "catch-up deleted a file it did not extract"
+
+
+def test_an_installed_thread_with_unreadable_metadata_is_retried_then_quarantined_and_counted(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    sinks = _sinks(monkeypatch, home, ui)
+    start = NOW.timestamp() - 5.4 * YEAR
+    rows = [(start + i * (0.2 * YEAR), 1, i, "Topic 00001", "pal0001@example.com", 1) for i in range(10)]
+    rows += [(NOW.timestamp() - 86400 * 40 + i * 60, 2, i, "Topic 00002", "pal0002@example.com", 2) for i in range(5)]
+    mbox = home / "imports" / "takeout" / "loose" / "one.mbox"
+    mbox.parent.mkdir(parents=True)
+    _write_mbox(mbox, rows)
+    ui._dispatch_mbox(ui.Detection("mbox", 1.0, "fixture", route_path=mbox), output_dir=tmp_path / "fda")
+    # Corrupt the metadata of every installed conversation: the older half of
+    # the cut-short thread can then not be located.
+    for d in sinks.proc.iterdir():
+        (d / "00_metadata.json").write_text("{not json")
+    before = sum(sinks.bundles.values())
+    from ostler_fda import catchup_mbox
+    ad = catchup_mbox.adapters()
+    first = oc.run(ad, budget_seconds=1e9, busy=lambda: None)
+    assert not next(iter(first["sources"].values()))["complete"], "an unreadable thread was marked done on the first try"
+    for _ in range(3 * oc.MAX_ITEM_ATTEMPTS):
+        s = oc.run(ad, budget_seconds=1e9, busy=lambda: None)
+        row = next(iter(s["sources"].values()))
+        if row["complete"]:
+            break
+    assert row["complete"], row
+    assert row["items_quarantined"] >= 1, f"the unreadable thread was neither retried nor counted: {row}"
+    assert sum(sinks.bundles.values()) == before, "nothing may be double-sent on the way"
+
+
+def _run_install_takeout_blocks(answer, tmp_path):
+    """Run the SHIPPED 9.4 consent block and the 70-takeout registration block
+    from install.sh with the prompt answered ``answer``; return the register calls."""
+    src = INSTALL.read_text(encoding="utf-8")
+    a = src.index('OSTLER_TAKEOUT_PATH=""\n# 1 only when the customer said yes')
+    b = src.index("# ── 9.5 Mac data sources picker")
+    block94 = src[a:b]
+    c = src.index("# ── v1.0.108 catch-up: every Takeout part, every mailbox, all of it")
+    d = src.index("# ── 3.12b Install-time import (shared fan-out)")
+    block70 = src[c:d]
+    log = tmp_path / "register.log"
+    harness = f"""
+set -u
+MSG_INFO_FOUND_GOOGLE_TAKEOUT_ZIP_MB="%s %s"; MSG_INFO_FOUND_GMAIL_MBOX_MB="%s %s"
+MSG_PROMPT_TAKEOUT_CONFIRM_TITLE=t; MSG_PROMPT_TAKEOUT_CONFIRM_HELP=h
+MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP=x; MSG_OK_EXTRACTED="%s"
+MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM=w
+OSTLER_DIR="{tmp_path}/ostler"; mkdir -p "$OSTLER_DIR/bin/catchup.d"
+touch "$OSTLER_DIR/bin/catchup.d/70-takeout.sh"
+info() {{ :; }}; ok() {{ :; }}; warn() {{ :; }}
+gui_read() {{ printf '%s' "{answer}"; }}
+_ostler_catchup_register() {{ echo "REGISTER $1" >> "{log}"; }}
+TAKEOUT_ZIP_PATH="{tmp_path}/none.zip"
+{block94}
+{block70}
+"""
+    r = subprocess.run(["/bin/bash", "-c", harness], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-600:]
+    calls = log.read_text().split("\n") if log.exists() else []
+    return [c for c in calls if c], (tmp_path / "ostler" / "bin" / "catchup.d" / "70-takeout.sh").exists()
+
+
+@pytest.mark.parametrize("answer,registered", [("n", False), ("N", False), ("y", True), ("", True)])
+def test_the_takeout_catchup_is_registered_only_when_the_customer_said_yes(answer, registered, tmp_path):
+    calls, runner_left = _run_install_takeout_blocks(answer, tmp_path)
+    assert (calls == ["REGISTER 70-takeout"]) is registered, f"answer {answer!r}: {calls}"
+    if not registered:
+        assert not runner_left, "a runner from an earlier yes survived a decline"
+
+
+def test_no_takeout_offered_means_no_takeout_catchup(tmp_path):
+    src = INSTALL.read_text(encoding="utf-8")
+    c = src.index("# ── v1.0.108 catch-up: every Takeout part, every mailbox, all of it")
+    d = src.index("# ── 3.12b Install-time import (shared fan-out)")
+    log = tmp_path / "r.log"
+    harness = (f'set -u; OSTLER_DIR="{tmp_path}/o"; mkdir -p "$OSTLER_DIR/bin/catchup.d"; warn(){{ :; }}; '
+               f'_ostler_catchup_register() {{ echo R >> "{log}"; }}\n' + src[c:d])
+    r = subprocess.run(["/bin/bash", "-c", harness], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-400:]
+    assert not log.exists(), "registered with no Takeout offered / no consent"
+
+
+def test_extraction_stops_when_busy_resumes_from_the_part_and_never_runs_out_of_room(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    oc, ui = _load_modules(monkeypatch, home)
+    from ostler_fda import catchup_mbox as cm
+    payload = b"From a@example.com Mon Jan 01 00:00:00 2026\n" + os.urandom(20 * 1024 * 1024)
+    z = tmp_path / "takeout-20261003T000000Z-1-001.zip"
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("Takeout/Mail/Big.mbox", payload)
+    zm = cm.list_zip_members([z], dest_root=home / "imports" / "takeout")[0]
+    assert cm.extract_member(zm, busy=lambda: "load") == "busy"
+    part = zm.ours.with_name(zm.ours.name + ".part")
+    assert part.is_file() and not zm.ours.exists(), "a busy machine must leave a resumable part, not a mailbox"
+    assert cm.extract_member(zm, busy=lambda: None) == "done"
+    assert zm.ours.read_bytes() == payload and not part.exists()
+    # no room: said out loud as cannot-run, never skipped silently
+    zm.ours.unlink()
+    monkeypatch.setattr(cm.shutil, "disk_usage", lambda p: type("U", (), {"free": 1024})())
+    with pytest.raises(oc.CannotRun):
+        cm.extract_member(zm, busy=lambda: None)

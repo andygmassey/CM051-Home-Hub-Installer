@@ -11311,6 +11311,9 @@ fi
 # This is the "structural moat" path: read full Gmail content
 # without ever holding Google OAuth credentials. See policy §2.
 OSTLER_TAKEOUT_PATH=""
+# 1 only when the customer said yes below. The background Takeout catch-up
+# (70-takeout) is registered only on a yes: a declined Takeout is never read.
+TAKEOUT_CATCHUP_OK=0
 if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
     echo ""
     if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
@@ -11327,6 +11330,7 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
     echo ""
     TAKEOUT_CONFIRM="$(gui_read "$MSG_PROMPT_TAKEOUT_CONFIRM_TITLE" yesno "" "$MSG_PROMPT_TAKEOUT_CONFIRM_HELP" "" "takeout_confirm")"
     if [[ "${TAKEOUT_CONFIRM:-y}" != "n" && "${TAKEOUT_CONFIRM:-y}" != "N" ]]; then
+        TAKEOUT_CATCHUP_OK=1
         if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
             OSTLER_TAKEOUT_PATH="${TAKEOUT_MBOX_PATH}"
         elif [[ -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
@@ -23056,7 +23060,12 @@ chmod +x "$IMPORT_SCRIPT"
 # slot=1: threads go through pwg-convo to the model. The confirmed Takeout's
 # zip is passed only when the customer said yes at 9.4, so its sibling parts
 # are found; a declined Takeout is never read from Desktop or Documents.
-if declare -F _ostler_catchup_register >/dev/null 2>&1; then
+if [[ "${TAKEOUT_CATCHUP_OK:-0}" != "1" ]]; then
+    # Declined, or no Takeout was offered: nothing is registered, and a runner
+    # left by an earlier install that did say yes is removed so it cannot read
+    # a Takeout the customer has since declined.
+    rm -f "${OSTLER_DIR}/bin/catchup.d/70-takeout.sh" 2>/dev/null || true
+elif declare -F _ostler_catchup_register >/dev/null 2>&1; then
     _ct_env=("OSTLER_USER_EMAIL=${USER_EMAIL:-}")
     if [[ -n "${OSTLER_TAKEOUT_PATH:-}" ]]; then
         _ct_env+=("OSTLER_TAKEOUT_PATH=${OSTLER_TAKEOUT_PATH}" "OSTLER_TAKEOUT_ZIP_PATH=${TAKEOUT_ZIP_PATH:-}")

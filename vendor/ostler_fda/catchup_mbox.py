@@ -42,6 +42,19 @@ whole thread. Everything else is new and goes once. The catch-up ledger plus
 CM048's per-id state dir make a kill at any point repeat at most one keyed
 write.
 
+EXTRACTION IS LAZY AND BOUNDED
+==============================
+``adapters()`` only LISTS the members of each Takeout part (no bytes are
+extracted at setup, outside the time budget and the busy-machine check). A
+member is extracted inside the budgeted tick, when its adapter's batch runs
+(the core has already checked the budget and the busy predicate), ONE mailbox
+at a time machine-wide, in 1 MiB chunks that re-check the busy predicate and a
+time cap and resume from a ``.part`` file, and only if there is room for it
+plus a 2 GiB margin (otherwise cannot-run, said out loud). The extracted file
+is DELETED the moment its walk has consumed every thread. A mailbox the
+customer put there (a loose .mbox, the install's own extraction) is read in
+place and never deleted.
+
 KEPT AS IT IS: the 4,000-character per-message body clamp
 (``OSTLER_EMAIL_BODY_CHARS``). It bounds one prompt, not how far back history
 goes, and the install path uses the same value.
@@ -51,6 +64,7 @@ logs.
 """
 from __future__ import annotations
 
+import contextlib
 import email
 import hashlib
 import json
@@ -60,6 +74,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -189,13 +204,38 @@ def _export_id(zip_path: Path) -> str:
     return m.group(1) if m else zip_path.stem
 
 
-def extract_mailboxes(zips: Iterable[Path], dest_root: Optional[Path] = None) -> List[Path]:
-    """Every .mbox member of every part, extracted once.
+class ZipMember:
+    """One .mbox inside a Takeout part. Listing it costs nothing; its bytes are
+    extracted only when its adapter's batch runs."""
 
-    Streamed in 1 MiB chunks to a temp name and renamed, so a kill leaves no
-    half-file under the real name. A member already present at the same size
-    (ours, or the install's own extraction of it) is not extracted again. A
-    member that would not fit with a 2 GiB margin is skipped and said so."""
+    def __init__(self, zip_path: Path, info, root: Path):
+        self.zip_path = Path(zip_path)
+        self.name = info.filename
+        self.size = int(info.file_size)
+        self.crc = int(info.CRC)
+        self.export_id = _export_id(self.zip_path)
+        member = Path(info.filename)
+        self.ours = root / self.export_id / member
+        self.installs = root / member       # install.sh 9.4's extract layout
+
+    @property
+    def identity(self) -> str:
+        raw = "%s|%s|%d|%d" % (self.export_id, self.name, self.crc, self.size)
+        return "zip" + hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+    def existing(self) -> Optional[Path]:
+        """A complete copy already on disk (ours, or the install's own)."""
+        for p in (self.ours, self.installs):
+            try:
+                if p.is_file() and p.stat().st_size == self.size:
+                    return p
+            except OSError:
+                continue
+        return None
+
+
+def list_zip_members(zips: Iterable[Path], dest_root: Optional[Path] = None) -> List[ZipMember]:
+    """Every .mbox member of every part, LISTED and not extracted."""
     root = dest_root or (_home() / "imports" / "takeout")
     out = []
     for z in zips:
@@ -211,36 +251,79 @@ def extract_mailboxes(zips: Iterable[Path], dest_root: Optional[Path] = None) ->
                 member = Path(info.filename)
                 if member.is_absolute() or ".." in member.parts:
                     continue
-                ours = root / _export_id(z) / member
-                installs = root / member     # install.sh 9.4's extract layout
-                done = next((p for p in (ours, installs)
-                             if p.is_file() and p.stat().st_size == info.file_size), None)
-                if done is not None:
-                    out.append(done)
-                    continue
-                ours.parent.mkdir(parents=True, exist_ok=True)
-                free = shutil.disk_usage(ours.parent).free
-                if free < info.file_size + _FREE_SPACE_MARGIN:
-                    logger.warning("catch-up: a %d MB mailbox was not extracted: not enough free space",
-                                   info.file_size // (1024 * 1024))
-                    continue
-                part = ours.with_name(ours.name + ".part")
-                try:
-                    with zf.open(info) as src, open(part, "wb") as dst:
-                        shutil.copyfileobj(src, dst, 1024 * 1024)
-                    os.replace(part, ours)
-                except (OSError, zipfile.BadZipFile) as exc:
-                    part.unlink(missing_ok=True)
-                    logger.info("catch-up: a mailbox member could not be extracted (%s)",
-                                type(exc).__name__)
-                    continue
-                out.append(ours)
+                out.append(ZipMember(z, info, root))
     return out
+
+
+_CHUNK = 1024 * 1024
+_BUSY_EVERY_CHUNKS = 16
+
+
+def _extract_seconds() -> float:
+    raw = os.environ.get("OSTLER_CATCHUP_EXTRACT_SECONDS", "").strip()
+    try:
+        return max(1.0, float(raw)) if raw else 300.0
+    except ValueError:
+        return 300.0
+
+
+def extract_member(zm: ZipMember, *, busy=None, max_seconds: Optional[float] = None,
+                   clock=None) -> str:
+    """Extract one member to ``zm.ours``. Returns "done", "partial" (time cap)
+    or "busy" (the machine stopped being quiet); both leave a ``.part`` file the
+    next call resumes. Raises oc.CannotRun when the part cannot be read or
+    there is no room.
+
+    Resume re-decompresses and discards the bytes already written (a deflate
+    stream cannot be entered part-way), then appends; the stream's CRC is
+    checked as it is read through, so a damaged part never becomes a mailbox."""
+    import ostler_catchup as oc
+    import time as _time
+    clock = clock or _time.monotonic
+    busy = busy or oc.busy_reason
+    cap = _extract_seconds() if max_seconds is None else max_seconds
+    t0 = clock()
+    zm.ours.parent.mkdir(parents=True, exist_ok=True)
+    part = zm.ours.with_name(zm.ours.name + ".part")
+    have = part.stat().st_size if part.is_file() else 0
+    if have > zm.size:
+        part.unlink(missing_ok=True)
+        have = 0
+    if shutil.disk_usage(zm.ours.parent).free < (zm.size - have) + _FREE_SPACE_MARGIN:
+        raise oc.CannotRun("no_space")
+    try:
+        with zipfile.ZipFile(zm.zip_path) as zf, zf.open(zm.name) as src, open(part, "ab") as dst:
+            skipped = 0
+            while skipped < have:
+                chunk = src.read(min(_CHUNK, have - skipped))
+                if not chunk:
+                    raise zipfile.BadZipFile("part shorter than the bytes already extracted")
+                skipped += len(chunk)
+            n = 0
+            while True:
+                chunk = src.read(_CHUNK)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                n += 1
+                if n % _BUSY_EVERY_CHUNKS == 0:
+                    if busy():
+                        return "busy"
+                    if clock() - t0 >= cap:
+                        return "partial"
+        os.replace(part, zm.ours)
+        return "done"
+    except (OSError, zipfile.BadZipFile, EOFError) as exc:
+        # A damaged or vanished part: start over next time rather than resume
+        # from bytes that may be wrong.
+        part.unlink(missing_ok=True)
+        raise oc.CannotRun("part_unreadable") from exc
 
 
 def _loose_mailboxes() -> List[Path]:
     home = Path(os.environ.get("OSTLER_TAKEOUT_HOME", "") or Path.home())
-    roots = [home / "Downloads" / "Takeout", _home() / "imports" / "takeout",
+    imports_takeout = _home() / "imports" / "takeout"
+    roots = [home / "Downloads" / "Takeout", imports_takeout,
              _home() / "imports" / "preferences"]
     confirmed = os.environ.get("OSTLER_TAKEOUT_PATH", "").strip()
     out = []
@@ -249,10 +332,35 @@ def _loose_mailboxes() -> List[Path]:
     for r in roots:
         try:
             if r.is_dir():
-                out.extend(p for p in r.rglob("*.mbox") if p.is_file())
+                for p in r.rglob("*.mbox"):
+                    if not p.is_file():
+                        continue
+                    if r == imports_takeout:
+                        # Our own lazy extractions live under <export id>/ and
+                        # are walked by their zip member's adapter, not as a
+                        # second, loose mailbox.
+                        rel = p.relative_to(r)
+                        if rel.parts and _EXPORT_ID_RE.match(rel.parts[0]):
+                            continue
+                    out.append(p)
         except OSError:
             continue
     return out
+
+
+def _same_as_member(path: Path, zm: ZipMember) -> bool:
+    """Is this loose file the Takeout member's bytes (same size, same first
+    64 KiB)? A cheap test that needs no extraction, so a copy of a mailbox the
+    importer already read is not walked a second time under a second identity."""
+    try:
+        if path.stat().st_size != zm.size:
+            return False
+        with open(path, "rb") as fh:
+            head = fh.read(65536)
+        with zipfile.ZipFile(zm.zip_path) as zf, zf.open(zm.name) as src:
+            return src.read(65536) == head
+    except (OSError, zipfile.BadZipFile, EOFError):
+        return False
 
 
 def mailbox_identity(path: Path) -> str:
@@ -325,12 +433,89 @@ class MailboxAdapter:
     doctor_row = DOCTOR_ROW
     batch_size = 25
 
-    def __init__(self, path: Path, identity: str):
-        self.path = Path(path)
+    def __init__(self, path: Path, identity: str, zip_member: Optional[ZipMember] = None):
+        self.zip_member = zip_member
+        existing = zip_member.existing() if zip_member is not None else None
+        self.path = Path(existing) if existing is not None else Path(path)
         self.identity = identity
         self.source = "mbox_" + identity[:10]
         self._db = None
         self._sent = None
+
+    # lazy extraction -------------------------------------------------------
+    @property
+    def owned(self) -> bool:
+        """True when the file at ``self.path`` is one WE extract (and so delete
+        once consumed), never the customer's own or the install's copy."""
+        zm = self.zip_member
+        return zm is not None and self.path == zm.ours
+
+    def _marker(self) -> Path:
+        return _catchup_state() / "mbox-extracting" / self.source
+
+    def _another_extraction_is_live(self) -> bool:
+        d = _catchup_state() / "mbox-extracting"
+        try:
+            others = [m for m in d.iterdir() if m.name != self.source]
+        except OSError:
+            return False
+        for m in others:
+            try:
+                wm = json.loads((_catchup_state() / (m.name + ".json")).read_text(encoding="utf-8"))
+                finished = bool(wm.get("complete"))
+            except (OSError, ValueError):
+                finished = False
+            try:
+                stale = time.time() - m.stat().st_mtime > 7 * 86400
+            except OSError:
+                stale = True
+            if finished or stale:
+                with contextlib.suppress(OSError):
+                    m.unlink()
+                continue
+            return True
+        return False
+
+    def _ensure_file(self, cursor):
+        """None when the mailbox is ready to read, else a Batch that steps
+        aside this tick. Extraction happens here, i.e. inside the budgeted tick
+        after the core's busy check, one mailbox at a time."""
+        import ostler_catchup as oc
+        zm = self.zip_member
+        if zm is None:
+            return None
+        found = zm.existing()
+        if found is not None:
+            self.path = found
+            return None
+        if self._another_extraction_is_live():
+            return oc.Batch(items=[], next_cursor=cursor, pause=True)
+        m = self._marker()
+        m.parent.mkdir(parents=True, exist_ok=True)
+        m.touch()
+        self.path = zm.ours
+        state = extract_member(zm)
+        if state == "done":
+            return None
+        return oc.Batch(items=[], next_cursor=cursor, pause=True)
+
+    def _release(self) -> None:
+        """Every thread of this mailbox is consumed: delete what we extracted."""
+        if self.owned:
+            zm = self.zip_member
+            for f in (zm.ours, zm.ours.with_name(zm.ours.name + ".part")):
+                with contextlib.suppress(OSError):
+                    f.unlink()
+            root = _home() / "imports" / "takeout"
+            d = zm.ours.parent
+            while d != root and root in d.parents:
+                try:
+                    d.rmdir()
+                except OSError:
+                    break
+                d = d.parent
+        with contextlib.suppress(OSError):
+            self._marker().unlink()
 
     # index store ---------------------------------------------------------
     def db(self) -> sqlite3.Connection:
@@ -366,6 +551,9 @@ class MailboxAdapter:
         cursor = cursor or self.start_cursor()
         phase = cursor.get("phase")
         if phase == "index":
+            wait = self._ensure_file(cursor)
+            if wait is not None:
+                return wait
             per = _slice_messages()
             offs, nxt, eof = scan_boundaries(self.path, int(cursor["off"]), per * max(1, limit))
             items = [("index", offs[i:i + per]) for i in range(0, len(offs), per)]
@@ -392,12 +580,23 @@ class MailboxAdapter:
             "ORDER BY newest DESC, key ASC LIMIT ?",
             (cursor["newest"], cursor["newest"], cursor["key"], n)).fetchall()
         if not rows:
+            # Every earlier batch finished (the cursor only moves past a batch
+            # whose items were all sent or quarantined), so the mailbox is
+            # fully consumed. Delete what we extracted. No file access above,
+            # so a kill after this and before the watermark says complete
+            # re-enters here and does not re-extract.
+            self._release()
             return oc.Batch(items=[], next_cursor=cursor, oldest_at=None, exhausted=True)
+        wait = self._ensure_file(cursor)
+        if wait is not None:
+            return wait
         last_key, last_newest = rows[-1]
         oldest = oc.to_iso(last_newest) if last_newest > -1e17 else None
+        # Never exhausted WITH items: the final, empty call is what proves the
+        # last batch was consumed and releases the extracted file.
         return oc.Batch(items=[("thread", k) for k, _ in rows],
                         next_cursor={"phase": "threads", "newest": last_newest, "key": last_key},
-                        oldest_at=oldest, exhausted=len(rows) < n)
+                        oldest_at=oldest, exhausted=False)
 
     def process(self, item) -> bool:
         kind = item[0]
@@ -499,7 +698,13 @@ class MailboxAdapter:
             # as one continuation, never the whole thread a second time.
             lo, hi = _parse_iso(sent.get("started_at")), _parse_iso(sent.get("ended_at"))
             if lo is None or hi is None:
-                return True
+                # The install sent this thread but its metadata is unreadable,
+                # so which messages it cut off cannot be known. Returning True
+                # marked the thread done and its capped messages were never
+                # sent. Fail instead: the core retries it, then quarantines it
+                # and counts it where the Doctor shows it.
+                logger.info("catch-up mbox: an installed thread's metadata is unreadable; not done")
+                return False
 
             def _outside(m):
                 if m.date is None:
@@ -534,23 +739,31 @@ def _parse_iso(v) -> Optional[datetime]:
 
 # ── the factory ──────────────────────────────────────────────────────────────
 
-def discover_mailboxes() -> List[Path]:
-    paths = list(extract_mailboxes(find_takeout_parts()))
-    paths += _loose_mailboxes()
-    paths += _queued_paths()
-    return paths
-
-
 def adapters() -> list:
     """One adapter per distinct mailbox found right now. Runs at every tick,
-    so a Takeout dropped next month is found next month."""
+    so a Takeout dropped next month is found next month. Nothing is extracted
+    here: Takeout members are only listed (see EXTRACTION IS LAZY AND BOUNDED)."""
+    out, claimed, seen = [], set(), set()
+    for zm in list_zip_members(find_takeout_parts()):
+        for p in (zm.ours, zm.installs):
+            claimed.add(p)
+        if zm.identity in seen:
+            continue
+        seen.add(zm.identity)
+        out.append(MailboxAdapter(zm.ours, zm.identity, zip_member=zm))
+    zms = [a.zip_member for a in out]
+    loose = []
+    for p in (_loose_mailboxes() + _queued_paths()):
+        if p in claimed or any(_same_as_member(p, zm) for zm in zms):
+            continue
+        loose.append(p)
     by_identity = {}
-    for p in discover_mailboxes():
+    for p in loose:
         try:
             ident = mailbox_identity(p)
         except OSError:
             continue
         by_identity.setdefault(ident, p)
-    out = [MailboxAdapter(p, ident) for ident, p in sorted(by_identity.items())]
+    out += [MailboxAdapter(p, ident) for ident, p in sorted(by_identity.items())]
     logger.info("catch-up takeout: %d mailbox(es) found", len(out))
     return out
