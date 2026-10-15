@@ -723,8 +723,17 @@ def run_all(
                 if prev:
                     stats["total_tracks"] = prev
                     stats["reader"] = "previous_export"
+            # ok means tracks were read. Zero tracks is "could not look" when
+            # the Music framework refused (same word install.sh already maps
+            # to cannot_run) and "nothing there" otherwise (maps to no_data).
+            if stats["total_tracks"] > 0:
+                music_status = "ok"
+            elif stats["native_status"] == "unavailable":
+                music_status = "media_library_not_granted"
+            else:
+                music_status = "not_found"
             summary["sources"]["apple_music"] = {
-                "status": "ok",
+                "status": music_status,
                 **stats,
             }
             logger.info(

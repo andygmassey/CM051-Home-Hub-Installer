@@ -186,6 +186,33 @@ try:
             got = "raised %r" % e2
         check("%s -> %s" % (label, want), got == want, "got %s" % got)
     rem.extract_reminders = real
+
+    print("== D. Apple Music: ok-with-nothing-read is not ok ==")
+    import ostler_fda.apple_music as am
+    real_lib = am.extract_library
+    real_prev = am.previous_export_track_count
+    am.previous_export_track_count = lambda *_a, **_k: 0
+    fake_track = am.Track(track_id="1", name="Synthetic Song", artist="Synthetic Artist", album=None, genre=None, play_count=1, last_played=None, rating=None, loved=False)
+    for label, lib, want in [
+        ("0 tracks, reader none, native unavailable -> media_library_not_granted",
+         am.MusicLibrary(reader="none", native_status="unavailable"), "media_library_not_granted"),
+        ("0 tracks, native empty (framework answered) -> not_found",
+         am.MusicLibrary(reader="none", native_status="empty"), "not_found"),
+        ("0 tracks, no helper tried -> not_found",
+         am.MusicLibrary(reader="none", native_status="not_tried"), "not_found"),
+        ("CONTROL 1 track read natively -> ok",
+         am.MusicLibrary(tracks=[fake_track], reader="native", native_status="ok"), "ok"),
+    ]:
+        am.extract_library = lambda *a, _l=lib, **k: _l
+        out = tmp / ("music-" + str(abs(hash(label))))
+        try:
+            summary = ea.run_all(output_dir=out, enabled_sources={"apple_music"})
+            got = summary["sources"]["apple_music"]["status"]
+        except Exception as e3:  # noqa: BLE001
+            got = "raised %r" % e3
+        check(label, got == want, "got %s" % got)
+    am.extract_library = real_lib
+    am.previous_export_track_count = real_prev
 finally:
     os.chmod(locked, 0o600)
 

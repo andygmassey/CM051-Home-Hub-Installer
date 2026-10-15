@@ -3167,7 +3167,13 @@ def read_source_status(hydrate_dir: Path | None = None,
         direct_activity = bool(act)
         if act:
             last_status = act.get("last_status", "unknown")
-            row["ongoing"] = "active" if last_status == "ok" else "failing"
+            # Only a tick that errored or could not run is failing. skipped
+            # and no_data are a tick that ran and found nothing to do, which
+            # is what a healthy Mac reports hourly (Mail read "Not working"
+            # on exactly that).
+            # An unrecognised word stays failing: fail safe, never fail open.
+            row["ongoing"] = ("active" if last_status in ("ok", "skipped", "no_data")
+                              else "failing")
             row["last_run_at"] = act.get("last_run_at") or None
             row["last_success_at"] = act.get("last_success_at") or None
             row["ongoing_detail"] = act.get("last_detail") or None

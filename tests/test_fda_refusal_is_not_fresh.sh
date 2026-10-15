@@ -185,6 +185,76 @@ F="${X}/.ostler/state/source_activity/calendar.tsv"
     || bad "calendar last_success_at moved on an extract error"
 [[ "$rc" == "1" ]] && ok "the tick exits 1" || bad "the tick exited ${rc} on an extract error"
 
+echo "== 5b. ONE source erroring does not make the others read failing =="
+Y="${WORK}/oneerror"; build_root "$Y"; seed "$Y" calendar; seed "$Y" photos
+rc="$(tick "$Y" '{"calendar":{"status":"error","error":"boom"},"photos":{"status":"ok"}}')"
+FC="${Y}/.ostler/state/source_activity/calendar.tsv"; FP="${Y}/.ostler/state/source_activity/photos.tsv"
+[[ "$(field "$FC" last_status)" == "error" ]] && ok "the erroring source (calendar) reads error" \
+    || bad "calendar last_status=$(field "$FC" last_status), want error"
+[[ "$(field "$FP" last_status)" == "ok" ]] && ok "the healthy source (photos) keeps its own status ok" \
+    || bad "photos last_status=$(field "$FP" last_status) inherited the tick's failure"
+s="$(field "$FP" last_success_at)"
+[[ -n "$s" && "$s" != "$OLD_SUCCESS" ]] && ok "photos last_success_at advanced despite calendar erroring" \
+    || bad "photos last_success_at did not advance ('${s}')"
+D2="${WORK}/doctor2"; mkdir -p "${D2}/state/hydrate" "${D2}/state/source_activity"
+for s in calendar photos; do
+    printf 'source=%s\nstatus=ok\nitem_count=12\nrecorded_at=%s\n' "$s" "$OLD_SUCCESS" > "${D2}/state/hydrate/${s}.done"
+    cp "${Y}/.ostler/state/source_activity/${s}.tsv" "${D2}/state/source_activity/${s}.tsv"
+done
+rows_out="$(OSTLER_DIR="$D2" AGENT_DIR="$AGENT_DIR" "$PY" - <<'PYEOF' 2>&1
+import ast, json, os, pathlib
+src = pathlib.Path(os.environ["AGENT_DIR"], "web_ui.py").read_text(encoding="utf-8")
+tree = ast.parse(src)
+ns = {"Path": pathlib.Path, "os": os, "json": json}
+for kinds in ((ast.Assign, ast.AnnAssign), (ast.FunctionDef,)):
+    for node in tree.body:
+        if isinstance(node, kinds):
+            try:
+                exec(compile(ast.Module([node], []), "<n>", "exec"), ns)
+            except Exception:
+                pass
+rows = {r["source"]: r for r in ns["read_source_status"]()}
+print(json.dumps({k: {"ongoing": rows[k].get("ongoing")} for k in ("calendar", "photos") if k in rows}))
+PYEOF
+)"
+rowf() { "$PY" -c 'import json,sys; print(json.loads(sys.argv[1])[sys.argv[2]]["ongoing"])' "$rows_out" "$1" 2>/dev/null; }
+[[ "$(rowf calendar)" == "failing" ]] && ok "Doctor: the erroring source reads failing" \
+    || bad "Doctor: calendar ongoing=$(rowf calendar || echo "${rows_out:0:200}")"
+[[ "$(rowf photos)" == "active" ]] && ok "Doctor: the healthy source does NOT read failing (rc=${rc} on the tick)" \
+    || bad "Doctor: photos ongoing=$(rowf photos || echo "${rows_out:0:200}")"
+
+echo "== 5c. only error and cannot_run read failing; skipped and no_data do not =="
+D3="${WORK}/doctor3"; mkdir -p "${D3}/state/hydrate" "${D3}/state/source_activity"
+for pair in "calendar:skipped" "photos:no_data" "apple_mail:skipped" "imessage:error" "whatsapp:cannot_run" "apple_notes:ok"; do
+    s="${pair%%:*}"; st="${pair##*:}"
+    printf 'source=%s\nstatus=ok\nitem_count=12\nrecorded_at=%s\n' "$s" "$OLD_SUCCESS" > "${D3}/state/hydrate/${s}.done"
+    printf 'source=%s\nlast_run_at=2026-10-15T00:00:00Z\nlast_status=%s\nlast_success_at=%s\nlast_detail={}\nwriter=ostler-fda\n' \
+        "$s" "$st" "$OLD_SUCCESS" > "${D3}/state/source_activity/${s}.tsv"
+done
+rows3="$(OSTLER_DIR="$D3" AGENT_DIR="$AGENT_DIR" "$PY" - <<'PYEOF' 2>&1
+import ast, json, os, pathlib
+src = pathlib.Path(os.environ["AGENT_DIR"], "web_ui.py").read_text(encoding="utf-8")
+tree = ast.parse(src)
+ns = {"Path": pathlib.Path, "os": os, "json": json}
+for kinds in ((ast.Assign, ast.AnnAssign), (ast.FunctionDef,)):
+    for node in tree.body:
+        if isinstance(node, kinds):
+            try:
+                exec(compile(ast.Module([node], []), "<n>", "exec"), ns)
+            except Exception:
+                pass
+rows = {r["source"]: r for r in ns["read_source_status"]()}
+print(json.dumps({k: {"ongoing": rows[k].get("ongoing")} for k in rows}))
+PYEOF
+)"
+r3() { "$PY" -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],{}).get("ongoing"))' "$rows3" "$1" 2>/dev/null; }
+[[ "$(r3 calendar)" == "active" ]] && ok "skipped does not read failing (calendar: $(r3 calendar))" || bad "skipped (calendar) reads $(r3 calendar)"
+[[ "$(r3 email)" == "active" ]] && ok "skipped does not read failing (Mail/email: $(r3 email))" || bad "skipped (Mail) reads $(r3 email)"
+[[ "$(r3 photos)" == "active" ]] && ok "no_data does not read failing (photos: $(r3 photos))" || bad "no_data (photos) reads $(r3 photos)"
+[[ "$(r3 imessage)" == "failing" ]] && ok "control: error reads failing" || bad "control: error ongoing=$(r3 imessage || echo "${rows3:0:200}")"
+[[ "$(r3 whatsapp)" == "failing" ]] && ok "control: cannot_run reads failing" || bad "control: cannot_run ongoing=$(r3 whatsapp)"
+[[ "$(r3 apple_notes)" == "active" ]] && ok "control: ok reads active" || bad "control: ok ongoing=$(r3 apple_notes)"
+
 echo "== 6. the Doctor reads a refusal as cannot_run, not Up to date =="
 D="${WORK}/doctor"; mkdir -p "${D}/state/hydrate" "${D}/state/source_activity"
 for s in calendar browsing; do
@@ -248,6 +318,13 @@ echo "== 7. the Doctor card for a refused tick points at the permission, not a r
 card="$(AGENT_DIR="$AGENT_DIR" OSTLER_STATE_DIR="${WORK}/st" "$PY" - <<'PYEOF' 2>&1
 import json, os, sys
 sys.path.insert(0, os.environ["AGENT_DIR"])
+# status_collector imports httpx at module scope and a CI runner has none. The
+# card rules never call it, so a stand-in module is enough when it is absent.
+try:
+    import httpx  # noqa: F401
+except ImportError:
+    import types
+    sys.modules["httpx"] = types.ModuleType("httpx")
 import diagnostic_rules as d
 real = d._scheduled_agent_observe
 out = {}
