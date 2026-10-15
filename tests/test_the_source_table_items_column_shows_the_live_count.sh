@@ -70,7 +70,8 @@ wanted = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir"
           "_settling_progress_total",
           # walk #28: one honest total per row, in a declared unit.
           "_ostler_state_root", "_positive_int", "_settling_done",
-          "_extract_summary_count", "_distinct_pages", "_canonical_total"}
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label"}
 ns = {"Path": pathlib.Path, "os": os, "json": json, "html": html}
 for node in tree.body:
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -186,7 +187,7 @@ _ROUTINE_ROWS["at"] = [{
 page2 = render_source_status()
 row2 = cells(page2)
 
-if row2.get("email") == "9,000 emails":
+if row2.get("email") == "9,000 emails read":
     ok("CONTROL: the sentinel's 9,000 beats a SMALLER live count (500) -- "
        "the override only ever says MORE, never less")
 else:

@@ -71,7 +71,8 @@ wanted = {"_source_activity_dir", "_read_source_activity",
           "_best_routine_count", "_settling_progress_total",
           # walk #28: one honest total per row, in a declared unit.
           "_ostler_state_root", "_positive_int", "_settling_done",
-          "_extract_summary_count", "_distinct_pages", "_canonical_total"}
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label"}
 ns = {"Path": pathlib.Path, "os": __import__("os"), "json": __import__("json")}
 # Module-level constants the reader depends on (_SOURCE_KINDS and the field
 # coercion tables). Taken verbatim, best-effort: any assignment that needs an

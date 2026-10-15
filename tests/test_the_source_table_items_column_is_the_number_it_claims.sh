@@ -246,7 +246,7 @@ esac
 # people count in an email-unit fraction shipped as a defect.
 V="$(items email)"
 case "$V" in
-    "20,114 emails") ok  "E  positive control: email keeps its MESSAGE count (20,114 emails); real counts are not being blanked" ;;
+    "20,114 emails read") ok  "E  positive control: email keeps its MESSAGE count (20,114 emails read); real counts are not being blanked" ;;
     "430"*)   bad "E  email now renders 430, a PEOPLE count, in a column the settling-numerator decision says is messages" ;;
     *)        bad "E  email renders '${V}'; expected the message count 20,114" ;;
 esac

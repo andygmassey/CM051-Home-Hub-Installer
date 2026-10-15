@@ -63,6 +63,8 @@ on:
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/ostler_fda/apple_mail.py'
+      - 'vendor/ostler_fda/extract_all.py'
       - 'vendor/divergences/doctor.patch'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'

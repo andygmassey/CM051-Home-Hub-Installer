@@ -275,6 +275,44 @@ def extract_messages(
     return messages
 
 
+def envelope_index_total(db_path: Optional[Path] = None) -> Optional[int]:
+    """How many messages the Mail store on this Mac holds, or None.
+
+    The DENOMINATOR for the Doctor's Mail row ("4,321 of 353,842 emails
+    read", v1.0.107 walk #28): extract_messages reads a windowed, capped
+    subset, so its length is never the size of the mailbox. This is a plain
+    COUNT over the same Envelope Index, opened the same read-only way, with
+    rows Mail has marked deleted left out when the schema carries that flag.
+
+    None, never 0, whenever the count cannot be taken (no database, no Full
+    Disk Access, an unrecognised schema): a reader shows only what Ostler
+    holds when this is None, and "of 0" would be a fabricated number.
+    """
+    try:
+        if db_path is None:
+            db_path = _find_envelope_index()
+        if not db_path.exists():
+            return None
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except (OSError, sqlite3.Error) as e:
+        logger.info("Mail store size not readable: %s", e)
+        return None
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
+        if not cols:
+            return None
+        sql = "SELECT COUNT(*) FROM messages"
+        if "deleted" in cols:
+            sql += " WHERE COALESCE(deleted, 0) = 0"
+        (n,) = conn.execute(sql).fetchone()
+    except sqlite3.Error as e:
+        logger.info("Mail store size not readable: %s", e)
+        return None
+    finally:
+        conn.close()
+    return n if isinstance(n, int) and n > 0 else None
+
+
 def email_stats(messages: list[EmailMessage]) -> dict:
     """Compute summary statistics for extracted emails."""
     senders: dict[str, int] = {}

@@ -1377,47 +1377,22 @@ def render_source_status() -> str:
         when = r.get("last_update_at") or r.get("recorded_at")
         n = r.get("item_count")
 
-        # ONE HONEST TOTAL (walk #28). read_source_status now puts the
-        # row's total, in its declared unit, in item_count, or None when no
-        # producer measures that unit. This cell used to take
-        # max(item_count, last_run_count), and last_run_count is a PER-RUN
-        # figure for Mail (email-ingest's "emitted" on its last tick): on
-        # Andy's walk the Mail row printed the last tick's delta as if it
-        # were the mailbox. A per-run figure is still shown when it is the
-        # only evidence, but it SAYS it is one.
-        unit = r.get("item_unit")
-        last_run_count = r.get("last_run_count")
-        per_run = None
-        if (
-            n is None
-            and r.get("last_run_count_from") == "routine"
-            and isinstance(last_run_count, int)
-            and not isinstance(last_run_count, bool)
-            and last_run_count > 0
-        ):
-            per_run = last_run_count
-
-        # None and 0 are different answers and must not print the same.
+        # ONE HONEST TOTAL (walk #28). read_source_status builds the cell's
+        # words once, as count_label, with count_kind saying what KIND of
+        # number it is: "total" (what Ostler holds, in the row's unit) or
+        # "last_check" (a per-run figure, the only evidence there is, and
+        # labelled as one). The table prints that label and nothing else, so
+        # the Doctor table and /api/v1/sources can never disagree. This cell
+        # used to take max(item_count, last_run_count), and on Andy's walk
+        # the Mail row printed the last tick's delta as if it were the
+        # mailbox.
         #
-        # AND A STATE THAT TOOK NO MEASUREMENT MUST NOT PRINT ONE (#1587).
-        # _hydrate_sentinel_record_cannot_run writes `item_count=0`, because
-        # the change-detection helper it shares with the other recorders
-        # needs a number to compare against the previous record. That 0 is
-        # bookkeeping, not a count: the whole meaning of cannot_run is that
-        # nothing looked. Printing it beside "could not look" would put a
-        # fabricated zero in the one column a customer reads as "how much of
-        # mine did you find", which is the same shape as the return code
-        # that used to print there (#946).
-        if st in ("cannot_run", "not_run", "unreadable"):
-            n = None
-            per_run = None
-        if n is not None:
-            count = f"{n:,} {html.escape(unit)}" if unit else f"{n:,}"
-        elif per_run is not None:
-            count = (f"{per_run:,} {html.escape(unit)} in the last check"
-                     if unit else f"{per_run:,} in the last check")
-        else:
-            count = "&mdash;"
+        # None and 0 are different answers and must not print the same, and
+        # a state that took no measurement must not print one (#1587):
+        # _source_count_label returns no label for cannot_run / not_run /
+        # unreadable, whose item_count=0 is bookkeeping, not a count.
+        label = r.get("count_label")
+        count = html.escape(label) if label else "&mdash;"
         body.append(
             '<tr>'
             f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
@@ -3208,6 +3183,59 @@ def _canonical_total(source: str, sentinel_count, status: str | None = None) -> 
     return None, None
 
 
+def _mail_available_total(fda_dir: Path | None = None) -> int | None:
+    """How many messages the Mac's Mail store holds, or None when unknown.
+
+    Recorded at EXTRACT time by vendor/ostler_fda (apple_mail.
+    envelope_index_total, written by extract_all as apple_mail.mailbox_total),
+    which already opens the Envelope Index read-only. The Doctor never opens
+    Mail's database itself: it has no Full Disk Access of its own and must not
+    need it. None (no summary, no field, or a non-positive value) means the
+    row shows only what Ostler holds, with no "of", never "of 0".
+    """
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    try:
+        doc = json.loads((base / "extraction_summary.json").read_text(
+            encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    rec = (doc.get("sources") or {}).get("apple_mail") if isinstance(doc, dict) else None
+    if not isinstance(rec, dict):
+        return None
+    return _positive_int(rec.get("mailbox_total"))
+
+
+def _source_count_label(row: dict) -> tuple:
+    """(count_label, count_kind) for one row, or (None, None).
+
+    count_kind is "total" when the number is what Ostler holds in the row's
+    unit, and "last_check" when the only figure is a per-run one: that is
+    labelled "in the last check", never passed off as a total (walk #28, and
+    the count_kind flag from the closed duplicate #2922).
+    """
+    if (row.get("status") or "not_run") in ("cannot_run", "not_run", "unreadable"):
+        return None, None
+    unit = row.get("item_unit")
+    n = row.get("item_count")
+    if isinstance(n, int) and not isinstance(n, bool):
+        if row.get("source") == "email":
+            of = _positive_int(row.get("item_of"))
+            # "of" only when the denominator was read AND is not smaller than
+            # what Ostler holds; a held count above the mailbox would mean the
+            # two were measured on different stores, and "500 of 300" is
+            # worse than no denominator.
+            if of is not None and of >= n:
+                return "{:,} of {:,} emails read".format(n, of), "total"
+            return "{:,} emails read".format(n), "total"
+        return ("{:,} {}".format(n, unit) if unit else "{:,}".format(n)), "total"
+    per_run = row.get("last_run_count")
+    if (row.get("last_run_count_from") == "routine"
+            and _positive_int(per_run) is not None):
+        return (("{:,} {} in the last check".format(per_run, unit) if unit
+                 else "{:,} in the last check".format(per_run)), "last_check")
+    return None, None
+
+
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     """The ongoing-activity record for one source, or {} when absent.
 
@@ -3451,6 +3479,11 @@ def read_source_status(hydrate_dir: Path | None = None,
                 and row["status"] in ("no_data", "not_run", "unreadable")):
             row["status"] = "ok"
             row["detail"] = "the store holds %d" % total
+        # Mail also says how much there is to read (Andy, walk #28): the
+        # Mac's Mail store size, recorded at extract time.
+        if row["source"] == "email":
+            row["item_of"] = _mail_available_total()
+        row["count_label"], row["count_kind"] = _source_count_label(row)
     return rows
 
 

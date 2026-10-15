@@ -19,7 +19,8 @@
 # the REAL vendored renderer (the "Where your data came from" Items cell).
 #
 #   Mail      emails.json done=4321 (cumulative)  vs  tick emitted=37,
-#             install messages=300                     -> 4,321 emails
+#             install messages=300; Mail store 353,842
+#                                     -> 4,321 of 353,842 emails read
 #   WhatsApp  messages.whatsapp.json done=9876    vs  people_added=58 -> 9,876 messages
 #   Safari    5 distinct urls over 13 visits      vs  sent=13         -> 5 web pages
 #   Photos    extraction_summary photo_events=55  vs  install 40      -> 55 photos
@@ -28,6 +29,17 @@
 #
 # Controls: calendar keeps its sentinel figure (500 events), and imessage's
 # people=6719 is never printed as messages.
+#
+# MAIL'S DENOMINATOR (follow-up on #2920). The Mail store size is counted at
+# EXTRACT time by vendor/ostler_fda apple_mail.envelope_index_total over a
+# synthetic Envelope Index (deleted rows left out), recorded by extract_all as
+# apple_mail.mailbox_total, and read by the Doctor. When it cannot be read, or
+# is smaller than what Ostler holds, the row shows only the held count: no
+# "of", never "of 0".
+#
+# COUNT KIND (from the closed duplicate #2922). Every row with a figure says
+# count_kind "total" or "last_check"; a row whose only figure is a per-run
+# delta is labelled "in the last check", never as a total.
 #
 # Fixture values are FABRICATED. No real person, url or message appears.
 #
@@ -81,6 +93,7 @@ def visits(fname, urls):
 # ── the fixture: known totals, each distinct from its wrong population ──
 sentinel("email", "people=12,messages=300", 300)
 ledger("emails.json", 4321, 5000)
+MAIL_STORE = 353842
 sentinel("whatsapp", "people_added=58", 58)
 ledger("messages.whatsapp.json", 9876, 12000)
 sentinel("browsing", "sent=13,skipped=0", 13)
@@ -95,6 +108,7 @@ ledger("notes.json", 999, 999)          # Evernote's channel, NOT Apple Notes
 (fda / "extraction_summary.json").write_text(json.dumps({"sources": {
     "photos": {"status": "ok", "recognised_people": 0, "photo_events": 55},
     "apple_notes": {"status": "ok", "notes": 23, "total_words": 4100},
+    "apple_mail": {"status": "ok", "total_messages": 4400, "mailbox_total": MAIL_STORE},
 }}), encoding="utf-8")
 sentinel("calendar", "events=500", 500)
 sentinel("imessage", "people=6719", 6719)
@@ -138,7 +152,7 @@ if len(cells) < 10:
     print("CANNOT-RUN: the renderer produced %d rows" % len(cells), file=sys.stderr)
     sys.exit(2)
 
-def check(label, source, cell_name, want_n, want_unit, wrong):
+def check(label, source, cell_name, want_n, want_unit, wrong, want_cell=None):
     r = rows.get(source) or {}
     n, unit = r.get("item_count"), r.get("item_unit")
     if n == want_n and unit == want_unit:
@@ -146,7 +160,11 @@ def check(label, source, cell_name, want_n, want_unit, wrong):
     else:
         bad("%s: /api/v1/sources says item_count=%r item_unit=%r, expected %r %r (%s)"
             % (label, n, unit, want_n, want_unit, wrong))
-    want_cell = "{:,} {}".format(want_n, want_unit)
+    want_cell = want_cell or "{:,} {}".format(want_n, want_unit)
+    if r.get("count_kind") == "total":
+        ok("%s: count_kind is total" % label)
+    else:
+        bad("%s: count_kind=%r, expected 'total'" % (label, r.get("count_kind")))
     got = cells.get(cell_name)
     if got == want_cell:
         ok("%s: the Doctor table reads '%s'" % (label, want_cell))
@@ -154,7 +172,8 @@ def check(label, source, cell_name, want_n, want_unit, wrong):
         bad("%s: the Doctor table reads %r, expected %r (%s)" % (label, got, want_cell, wrong))
 
 check("Mail", "email", "email", 4321, "emails",
-      "37 is the last tick's delta, 300 the install-time run")
+      "37 is the last tick's delta, 300 the install-time run",
+      want_cell="4,321 of 353,842 emails read")
 check("WhatsApp", "whatsapp", "whatsapp", 9876, "messages",
       "58 is people added, one per DM chat")
 check("Safari", "browsing", "browsing", 5, "web pages",
@@ -174,8 +193,91 @@ else:
     bad("CONTROL imessage: people=6719 shown as the message total (%r / %r)"
         % (im.get("item_count"), cells.get("imessage")))
 
+# ── Mail's denominator: produced at extract time, read by the Doctor ──
+import importlib.util, sqlite3
+am_path = Path(sys.argv[1]).parents[2] / "ostler_fda" / "apple_mail.py"
+spec = importlib.util.spec_from_file_location("apple_mail_under_test", am_path)
+am = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = am  # @dataclass resolves its module by name
+try:
+    spec.loader.exec_module(am)
+    count_fn = am.envelope_index_total
+except Exception as exc:  # noqa: BLE001
+    _why = "NOT IMPORTABLE (%s: %s)" % (type(exc).__name__, exc)
+    count_fn = lambda _db: _why  # every extractor case below then FAILS, by name
+
+def envelope(name, rows, with_deleted=True):
+    db = root / name
+    c = sqlite3.connect(db)
+    if with_deleted:
+        c.execute("CREATE TABLE messages (ROWID INTEGER PRIMARY KEY, subject INTEGER, deleted INTEGER)")
+        c.executemany("INSERT INTO messages (subject, deleted) VALUES (?, ?)", rows)
+    else:
+        c.execute("CREATE TABLE messages (ROWID INTEGER PRIMARY KEY, subject INTEGER)")
+        c.executemany("INSERT INTO messages (subject) VALUES (?)", [(r[0],) for r in rows])
+    c.commit(); c.close()
+    return db
+
+seven = [(1, 0), (2, 0), (3, 1), (4, 0), (5, 1), (6, 0), (7, None)]
+for what, got, want in (
+    ("deleted rows left out (7 rows, 2 deleted)", count_fn(envelope("ei_a", seven)), 5),
+    ("no deleted flag in the schema: every row", count_fn(envelope("ei_b", seven, False)), 7),
+    ("an empty store is unknown, not 0", count_fn(envelope("ei_c", [])), None),
+    ("a missing store is unknown, not 0", count_fn(root / "no_such_envelope"), None),
+):
+    if got == want:
+        ok("extractor: %s -> %r" % (what, got))
+    else:
+        bad("extractor: %s -> %r, expected %r" % (what, got, want))
+
+ea = (Path(sys.argv[1]).parents[2] / "ostler_fda" / "extract_all.py").read_text(encoding="utf-8")
+if 'stats["mailbox_total"] = mailbox_total' in ea and "envelope_index_total()" in ea:
+    ok("extract_all records apple_mail.mailbox_total in the extraction summary")
+else:
+    bad("extract_all does not record apple_mail.mailbox_total")
+
+def mail_after(summary_mail, sentinel_count=300, keep_ledger=True):
+    doc = json.loads((fda / "extraction_summary.json").read_text(encoding="utf-8"))
+    if summary_mail is None:
+        doc["sources"].pop("apple_mail", None)
+    else:
+        doc["sources"]["apple_mail"] = summary_mail
+    (fda / "extraction_summary.json").write_text(json.dumps(doc), encoding="utf-8")
+    sentinel("email", "people=12,messages=%d" % sentinel_count, sentinel_count)
+    if not keep_ledger:
+        (settle / "emails.json").unlink(missing_ok=True)
+    r = {x["source"]: x for x in ns["read_source_status"]()}["email"]
+    pg = ns["render_source_status"]()
+    cell = None
+    for tr in re.findall(r"<tr>(.*?)</tr>", pg, re.S):
+        tds = [re.sub(r"<[^>]+>", "", c).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+        if len(tds) >= 3 and tds[0] == "email":
+            cell = tds[2]
+    return r, cell
+
+for what, mail, want in (
+    ("no mailbox_total recorded", {"status": "ok", "total_messages": 4400}, "4,321 emails read"),
+    ("mailbox_total 0", {"status": "ok", "mailbox_total": 0}, "4,321 emails read"),
+    ("no apple_mail record at all", None, "4,321 emails read"),
+    ("store smaller than what Ostler holds", {"status": "ok", "mailbox_total": 4000}, "4,321 emails read"),
+):
+    r, cell = mail_after(mail)
+    if cell == want and r.get("count_label") == want and " of " not in (cell or ""):
+        ok("Mail, %s: '%s', no 'of'" % (what, cell))
+    else:
+        bad("Mail, %s: cell %r label %r, expected %r with no 'of'" % (what, cell, r.get("count_label"), want))
+
+# Only a per-run figure left: labelled as the last check, never as a total.
+r, cell = mail_after({"status": "ok", "mailbox_total": MAIL_STORE}, sentinel_count=0, keep_ledger=False)
+want = "37 emails in the last check"
+if r.get("count_kind") == "last_check" and cell == want and r.get("item_count") is None:
+    ok("Mail, only the tick's delta: count_kind last_check, '%s'" % cell)
+else:
+    bad("Mail, only the tick's delta: kind %r cell %r item_count %r, expected last_check %r"
+        % (r.get("count_kind"), cell, r.get("item_count"), want))
+
 print("\nCONCLUSION HISTOGRAM\n  PASS : %d\n  FAIL : %d\n  TOTAL: %d" % (PASS, FAIL, PASS + FAIL))
-if PASS + FAIL < 13:
+if PASS + FAIL < 29:
     print("CANNOT-RUN: only %d assertions ran" % (PASS + FAIL), file=sys.stderr)
     sys.exit(2)
 sys.exit(1 if FAIL else 0)
