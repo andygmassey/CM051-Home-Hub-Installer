@@ -39303,8 +39303,21 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
             # gui_read's terminal fallback prints only the title, so the list
             # is printed here; the GUI shows it as the screen's body.
             gui_active || printf '\n%s\n' "$_cal_body"
+            # WALK-AWAY: this screen is asked after the Phase-3 boundary
+            # (it needs the hydrated calendar_events.json, which only exists
+            # here), so it carries a timeout. Nobody answering means nobody
+            # is there: the pre-filled list is saved as shown, and the
+            # identity questions below are skipped for the same reason
+            # (they are re-surfaced later). Allowlisted, with this reason, in
+            # tests/test_walkaway_no_phase2_input_leak.sh.
+            _cal_timed_out=0
             _cal_ok="$(gui_read "$MSG_CONFIRM_CALENDARS_REVIEW_TITLE" \
-                yesno "yes" "$_cal_body" "" "calendar_review" "")"
+                yesno "yes" "$_cal_body" "" "calendar_review" "" \
+                "${OSTLER_CALENDAR_REVIEW_TIMEOUT_S:-300}")" || _cal_timed_out=1
+            if [[ "$_cal_timed_out" == "1" ]]; then
+                _confirm_unattended=1
+                gui_log info "calendar_review: no answer in ${OSTLER_CALENDAR_REVIEW_TIMEOUT_S:-300}s; pre-filled list saved"
+            fi
             _cal_edit=0
             case "${_cal_ok:-}" in
                 n|N|no|No|NO|false) _cal_edit=1 ;;
@@ -39363,7 +39376,13 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
     unset -f _ostler_cal_events_label _ostler_cal_kind_label 2>/dev/null || true
 
     # ---- 2. Identity collapse / namesake-split confirmation ----
-    if [[ -n "$_confirm_py" && -f "$_confirm_id_py" ]]; then
+    # Skipped when the calendar screen went unanswered (_confirm_unattended):
+    # these prompts have no timeout, and an install nobody is watching must
+    # reach DONE. It also stops a late answer to the calendar screen being
+    # read as the answer to the first identity question.
+    if [[ "${_confirm_unattended:-0}" == "1" ]]; then
+        gui_log info "identity confirmation skipped: install is unattended"
+    elif [[ -n "$_confirm_py" && -f "$_confirm_id_py" ]]; then
         _confirm_id_props="$("$_confirm_py" "$_confirm_id_py" propose \
             --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
             --user-id "${USER_ID:-}" 2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
@@ -39416,6 +39435,7 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
           _confirm_id_props _cmatch _cowner _ctype _ccount _csamples _chelp \
           _ans_owner _ans_type _ikind _iids _ievidence _iyn _caside _cevents \
           _cwho _cal_mine _cal_aside _cal_body _cal_ok _cal_edit _ans_include \
+          _cal_timed_out _confirm_unattended \
           2>/dev/null || true
 fi
 

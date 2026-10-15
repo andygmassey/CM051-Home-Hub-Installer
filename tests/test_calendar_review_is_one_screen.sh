@@ -187,6 +187,54 @@ d = {c['match']: c for c in json.load(open('$J'))['calendars']}
 assert d['Geburtstage'].get('include') is False
 "
 
+# ── 3. Nobody there: the REAL gui_read must time out, not block ──────
+# Walk-away invariant (tests/test_walkaway_no_phase2_input_leak.sh allowlists
+# calendar_review only because of this). Uses lib/progress_emitter.sh's own
+# gui_read in GUI mode, reading from a FIFO the "GUI" never writes to.
+echo "== nobody answers (real gui_read, GUI mode, 2s timeout) =="
+rm -f "$J"
+mkfifo "$TMP/gui.fifo"
+cat > "$TMP/harness_timeout.sh" <<HARNESS
+set -eu
+source "$STRINGS"
+source "$REPO_ROOT/lib/progress_emitter.sh"
+info() { :; }; ok() { echo "ok: \$*"; }; warn() { echo "warn: \$*"; }
+exec 7<>"$TMP/gui.fifo"
+OSTLER_GUI=1
+OSTLER_GUI_FD=7
+OSTLER_CALENDAR_REVIEW_TIMEOUT_S=2
+OSTLER_DIR="$TMP/ostler"
+OSTLER_DIAG_DIR="$TMP/diag"
+_confirm_py="$PY"
+_confirm_cal_py="$CAL_PY"
+_confirm_events="$TMP/ostler/imports/fda/calendar_events.json"
+_confirm_owner_name="Jane Doe"
+if true; then
+$(cat "$BLOCK")
+fi
+echo "UNATTENDED=\${_confirm_unattended:-0}"
+HARNESS
+t0="$(date +%s)"
+HOME="$TMP/fakehome" "$BASH_BIN" "$TMP/harness_timeout.sh" > "$TMP/timeout.out" 2>&1 &
+hpid=$!
+# Watchdog: if gui_read ignores the timeout this harness would hang forever.
+( sleep 30; kill "$hpid" 2>/dev/null ) &
+wpid=$!
+wait "$hpid"; hrc=$?
+kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
+elapsed=$(( $(date +%s) - t0 ))
+printf '  harness rc=%s after %ss\n' "$hrc" "$elapsed"
+expect "unanswered calendar screen does not block (finished, rc 0, under 30s)" \
+    test "$hrc" = "0" -a "$elapsed" -lt 30
+expect "exactly one PROMPT was emitted" test "$(grep -c 'PROMPT' "$TMP/timeout.out")" = "1"
+expect "defaults saved when nobody answers" "$PY" -c "
+import json
+d = {c['match']: c for c in json.load(open('$J'))['calendars']}
+assert d['Personal']['type'] == 'personal' and d['Geburtstage'].get('include') is False
+"
+expect "timeout marks the run unattended (identity prompts skipped)" \
+    grep -q '^UNATTENDED=1$' "$TMP/timeout.out"
+
 echo
 printf 'passed %s, failed %s\n' "$pass" "$fails"
 [[ "$fails" -eq 0 ]] || exit 1
