@@ -25266,6 +25266,14 @@ else
 fi
 
 echo ""
+# DELIBERATE-STOP MARKER, written FIRST, before any bootout or file removal.
+# The assistant LaunchAgent is KeepAlive PathState on this file (job stays
+# alive while it is ABSENT), so a SIGTERM respawns it. An uninstall is a
+# deliberate stop: without the marker, anything that kills the daemon before
+# its plist is gone (docker teardown, the find below) races a respawn.
+# Removed again at the very end with ~/.ostler so a reinstall starts clean.
+mkdir -p "${HOME}/.ostler" 2>/dev/null || true
+: > "${HOME}/.ostler/deliberate-stop" 2>/dev/null || true
 echo "  Stopping services..."
 # WHAT WAS REMOVED IS NOT WHAT WAS REPORTED.
 #
@@ -25813,6 +25821,10 @@ if [[ -d "${HOME}/.ostler" ]]; then
     # If power.conf wasn't there, the directory is now empty - drop it too.
     rmdir "${HOME}/.ostler" 2>/dev/null || true
 fi
+# The marker must not outlive the uninstall (the find above already sweeps it;
+# this is explicit so a future change to that find cannot strand it and leave
+# a reinstalled daemon un-respawnable).
+rm -f "${HOME}/.ostler/deliberate-stop" 2>/dev/null || true
 
 # Legacy email checkpoint OUTSIDE ~/.ostler. Older email-ingest ticks handed
 # ostler-fda OSTLER_HOME=$HOME, which appends /state, so the checkpoint landed
