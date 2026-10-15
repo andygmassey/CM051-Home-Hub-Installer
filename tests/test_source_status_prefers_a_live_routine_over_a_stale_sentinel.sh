@@ -72,7 +72,8 @@ sys.modules["routine_status"] = fake_routine_mod
 tree = ast.parse(src)
 wanted = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
           "_parse_source_sentinel", "read_source_status", "_routine_evidence",
-          "_routine_run_count", "_best_routine_count", "_settling_progress_total"}
+          "_routine_run_count", "_best_routine_count", "_settling_progress_total",
+          "_payload_counts", "_read_source_totals", "_source_count_label"}
 ns = {"Path": pathlib.Path, "os": __import__("os"), "json": __import__("json")}
 for node in tree.body:
     if isinstance(node, (ast.Assign, ast.AnnAssign)):

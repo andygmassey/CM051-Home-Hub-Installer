@@ -1412,6 +1412,11 @@ def render_source_status() -> str:
         if st in ("cannot_run", "not_run", "unreadable"):
             n = None
         count = "&mdash;" if n is None else f"{n:,}"
+        # The typed label states the noun and whether it is a total; prefer it
+        # over a bare number whose unit differs per source (Ostler #30).
+        _lbl = r.get("count_label")
+        if isinstance(_lbl, str) and _lbl and st not in ("cannot_run", "not_run", "unreadable"):
+            count = html.escape(_lbl)
         body.append(
             '<tr>'
             f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
@@ -3055,6 +3060,115 @@ def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     return merged
 
 
+# ── WHAT A SOURCE ROW'S COUNT MEANS, STATED WITH THE RIGHT NOUN (Ostler #30) ──
+#
+# Measured on a real box: Mail read "28 emails (most recent check)" (the last
+# tick's delta, not what Ostler holds); WhatsApp printed its DM-chat count
+# labelled "messages"; Safari printed visits labelled "web pages"; Photos
+# printed events labelled "photos"; Notes read 913 here and 971 in the wiki.
+#
+# `item_count` is an install-time, per-source quantity whose UNIT differs per
+# source (it is the LAST numeric field of the sentinel payload). The unit is
+# recoverable from the payload keys, so this reads them rather than guessing a
+# noun from the source name. Every figure carries `count_kind`:
+#   "total"       what Ostler holds (or held at install, where no later total
+#                 exists)
+#   "last_check"  what the most recent check added; NEVER shown as a total
+# and a source with no trustworthy figure yields (None, None): a dash, not a
+# stand-in number.
+
+def _payload_counts(payload) -> dict:
+    """``k=v,k=v`` -> {k: int} for the integer fields only."""
+    out: dict = {}
+    if not isinstance(payload, str):
+        return out
+    for field in payload.split(","):
+        key, sep, val = field.partition("=")
+        if sep and val.strip().isdigit():
+            out[key.strip()] = int(val.strip())
+    return out
+
+
+def _read_source_totals(base: Path | None = None) -> dict:
+    """Totals the wiki compiler MEASURES (compiler/source_totals.py): the ONE
+    source for Notes, read here and by the wiki's own tables."""
+    root = base if base is not None else Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+    try:
+        data = json.loads((root / "state" / "source_totals.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items()
+            if isinstance(v, int) and not isinstance(v, bool)}
+
+
+def _source_count_label(row: dict, totals: dict | None = None):
+    """(label, kind) for one source row, or (None, None)."""
+    totals = totals or {}
+    src = row.get("source")
+    if row.get("status") in ("cannot_run", "not_run", "unreadable", "error", "timeout"):
+        return None, None
+
+    def pos(v):
+        return isinstance(v, int) and not isinstance(v, bool) and v > 0
+
+    def noun(n, one, many):
+        return "%s %s" % (format(n, ","), one if n == 1 else many)
+
+    item = row.get("item_count")
+    last = row.get("last_run_count")
+    pc = row.get("payload_counts") or {}
+
+    if src == "apple_notes":
+        n = totals.get("notes_apple_notes")
+        if not pos(n):
+            n = item
+        return (noun(n, "note", "notes"), "total") if pos(n) else (None, None)
+    if src == "email":
+        if pos(item):
+            return noun(item, "email", "emails"), "total"
+        if pos(last):
+            return noun(last, "email", "emails") + " in the last check", "last_check"
+        return None, None
+    if src == "imessage":
+        # `people=` is the sentinel's quantity, not messages.
+        return (noun(last, "message", "messages"), "total") if pos(last) else (None, None)
+    if src == "whatsapp":
+        chats = pc.get("people_added", item)
+        parts = []
+        if pos(chats):
+            parts.append(noun(chats, "chat", "chats"))
+        if pos(last):
+            parts.append(noun(last, "message", "messages"))
+        return (", ".join(parts), "total") if parts else (None, None)
+    if src == "browsing":
+        visits = pc.get("sent", item)
+        pages = pc.get("collection_points")
+        parts = []
+        if pos(visits):
+            parts.append(noun(visits, "visit", "visits"))
+        if pos(pages):
+            parts.append(noun(pages, "page saved", "pages saved"))
+        return (", ".join(parts), "total") if parts else (None, None)
+    if src == "photos":
+        return (noun(item, "photo event", "photo events"), "total") if pos(item) else (None, None)
+    if src == "calendar":
+        n = pc.get("events", item)
+        return (noun(n, "event", "events"), "total") if pos(n) else (None, None)
+    if src == "contacts":
+        n = pc.get("imported", item)
+        return (noun(n, "contact", "contacts"), "total") if pos(n) else (None, None)
+    if src in ("reminders", "reminders_knowledge"):
+        n = pc.get("reminders", item)
+        return (noun(n, "reminder", "reminders"), "total") if pos(n) else (None, None)
+    if src == "ai_conversations":
+        n = pc.get("written", item)
+        return (noun(n, "chat", "chats"), "total") if pos(n) else (None, None)
+    return None, None
+
+
+
 def read_source_status(hydrate_dir: Path | None = None,
                        activity_dir: Path | None = None) -> list:
     """One typed row per canonical source, read from the .done sentinels.
@@ -3106,6 +3220,7 @@ def read_source_status(hydrate_dir: Path | None = None,
             "recorded_at": rec.get("recorded_at"),
             "last_update_at": rec.get("last_update_at"),
             "detail": rec.get("detail") or rec.get("payload"),
+            "payload_counts": _payload_counts(rec.get("payload")),
         })
 
     # ── ONGOING STATUS, MERGED IN (#W018) ────────────────────────────────
@@ -3228,6 +3343,13 @@ def read_source_status(hydrate_dir: Path | None = None,
             if row["status"] in ("no_data", "not_run", "unreadable"):
                 row["status"] = "ok"
                 row["detail"] = "the store holds %d" % count
+
+    # Typed, correctly-nouned count for each row (Ostler #30). Added beside
+    # item_count / last_run_count, which keep their meaning for old readers.
+    totals = _read_source_totals()
+    for row in rows:
+        row.setdefault("payload_counts", {})
+        row["count_label"], row["count_kind"] = _source_count_label(row, totals)
     return rows
 
 

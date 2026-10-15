@@ -68,7 +68,8 @@ wanted = {"_source_activity_dir", "_read_source_activity",
           # #2562-C round 2: a routine's count is no longer taken only from
           # the freshest mapped routine, and a store-ledger fallback exists
           # for sources no routine ever logs a count for.
-          "_best_routine_count", "_settling_progress_total"}
+          "_best_routine_count", "_settling_progress_total",
+          "_payload_counts", "_read_source_totals", "_source_count_label"}
 ns = {"Path": pathlib.Path, "os": __import__("os"), "json": __import__("json")}
 # Module-level constants the reader depends on (_SOURCE_KINDS and the field
 # coercion tables). Taken verbatim, best-effort: any assignment that needs an
