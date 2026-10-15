@@ -172,5 +172,39 @@ else
     pass "the supervisor does not run 'colima start' itself"
 fi
 
+# 8. --probe-ports: the ONE canonical store-port check. Other tools (the
+# catch-up adapters, via ostler_fda/sink_health.py) call it instead of
+# re-implementing it, so the two cannot drift. rc 0 both answer 2xx through the
+# proxy credential, 1 a store did not, 2 no credential (could not judge).
+mkdir -p "${WORK}/fakecurl"
+cat > "${WORK}/fakecurl/curl" <<'STUB'
+#!/bin/sh
+for a in "$@"; do u="$a"; done
+case "$u" in
+  *6333*) printf '%s' "${FAKE_QDRANT:-200}" ;;
+  *7878*) printf '%s' "${FAKE_OXIGRAPH:-200}" ;;
+esac
+STUB
+chmod +x "${WORK}/fakecurl/curl"
+: > "${WORK}/store-curl.conf"
+probe() {
+    FAKE_QDRANT="$1" FAKE_OXIGRAPH="$2" OSTLER_ENGINE_STORE_CURL_CONF="${3:-${WORK}/store-curl.conf}" \
+    OSTLER_STATE_DIR="${WORK}/pstate" OSTLER_LOGS_DIR="${WORK}/plogs" OSTLER_DIR="${WORK}/ostler" \
+    OSTLER_ENGINE_BREW_PREFIX="${WORK}/hung" OSTLER_ENGINE_ALT_PREFIX="${WORK}/hung" \
+    PATH="${WORK}/fakecurl:/usr/bin:/bin" bash "$SUP" --probe-ports >/dev/null 2>&1
+}
+probe 200 200; r_ok=$?
+probe 200 502; r_ox=$?
+probe 000 200; r_qd=$?
+probe 200 200 "${WORK}/no-such.conf"; r_nocred=$?
+# A pure probe: it must judge and exit, not run the recovery flow, so it
+# leaves no supervisor state and no kickstart behind.
+side_effects="$(find "${WORK}/pstate" -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [[ $r_ok -eq 0 && $r_ox -eq 1 && $r_qd -eq 1 && $r_nocred -eq 2 && "$side_effects" == "0" ]]; then
+    pass "--probe-ports: both 2xx=0, oxigraph down=1, qdrant down=1, no credential=2"
+else
+    failure "--probe-ports rcs wrong: ok=${r_ok} oxigraph_down=${r_ox} qdrant_down=${r_qd} no_cred=${r_nocred} (want 0 1 1 2) state_files=${side_effects} (want 0)"
+fi
+
 echo; echo "=== ${PASS} passed / ${FAIL} failed ==="
 [[ "$FAIL" -eq 0 ]]

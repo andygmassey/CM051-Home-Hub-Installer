@@ -254,6 +254,17 @@ if [ "$classify_rc" -eq 2 ]; then
     exit 2
 fi
 
+# --probe-ports: the ONE canonical store-port check, callable on its own.
+# rc 0 = Qdrant and Oxigraph both answered 2xx through the proxy with the
+# install credential; 1 = a store did not; 2 = could not judge (no credential).
+# Prints nothing, touches no state, restarts nothing. The catch-up adapters
+# (vendor/ostler_fda/sink_health.py) call THIS rather than re-implementing the
+# check, so the supervisor's verdict and theirs cannot drift.
+if [ "${1:-}" = "--probe-ports" ]; then
+    ports_answer
+    exit $?
+fi
+
 # An install in progress owns the runtime: its own colima start, image pulls
 # and container creates look exactly like an outage from outside.
 if install_running; then
