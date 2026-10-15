@@ -89,6 +89,20 @@ class Llm(BaseHTTPRequestHandler):  # stub model, as in the v1.0.107 email probe
         req = json.loads(self.rfile.read(n) or b"{}")
         msg = {"role": "assistant", "content": "Synthetic reply from the loopback model."}
         base = {"model": req.get("model", "stub"), "created_at": "2026-10-15T00:00:00Z"}
+        if self.path.rstrip("/").endswith("/chat/completions"):  # OpenAI shape (what the daemon speaks)
+            text = msg["content"]
+            if req.get("stream"):
+                self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.end_headers()
+                chunk = {"id": "c1", "object": "chat.completion.chunk", "model": "stub",
+                         "choices": [{"index": 0, "delta": {"role": "assistant", "content": text}, "finish_reason": None}]}
+                end = {"id": "c1", "object": "chat.completion.chunk", "model": "stub",
+                       "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                self.wfile.write(f"data: {json.dumps(chunk)}\n\ndata: {json.dumps(end)}\n\ndata: [DONE]\n\n".encode())
+                return
+            self._json({"id": "c1", "object": "chat.completion", "model": "stub",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+            return
         if req.get("stream", True) and self.path.endswith("/api/chat"):
             self.send_response(200); self.send_header("Content-Type", "application/x-ndjson"); self.end_headers()
             self.wfile.write((json.dumps({**base, "message": msg, "done": False}) + "\n").encode())
@@ -351,6 +365,10 @@ allowed_senders = ["{OWNER}"]
             check("(d) reply is threaded: Re: subject, In-Reply-To and References carry the inbound id",
                   rep["Subject"] == "Re: Lunch plans" and rep["In-Reply-To"] == mid
                   and mid in str(rep["References"]).split(), f"{rep['Subject']} {rep['In-Reply-To']} {rep['References']}")
+            body = rep.get_body(preferencelist=("plain",))
+            text = body.get_content() if body is not None else ""
+            check("(d) reply body is the model's answer, not an error message",
+                  "Synthetic reply from the loopback model." in text and "error" not in text.lower(), text[:120])
             check("(d) reply carries Auto-Submitted", bool(rep["Auto-Submitted"]), str(rep["Auto-Submitted"]))
             check("(d) the reply went out through the authenticated submission door",
                   replies_to(OWNER)[0]["auth_user"] == ASSISTANT)
