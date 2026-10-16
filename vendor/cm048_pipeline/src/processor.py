@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import attribution
+from . import capture_truth as _capture_truth
 from . import prompts
 from . import enrichment_validation
 from . import bulk_classifier as _bulk_classifier
@@ -143,6 +144,53 @@ def process(
     if classification is None:
         logger.error("No classification available; aborting.")
         return state
+
+    # Mini16 2026-10-15: a one-speaker iPhone voice memo was classified
+    # social/one-on-one and enriched as a call with an invented second
+    # person. The speaker count is a fact the pipeline measures, so it
+    # overrides the model's shape and is persisted, so every later step
+    # (and a resume) reads the same classification.
+    #
+    # A memo is ALWAYS kept. 01_classify.md used to tell the model to answer
+    # processing_depth "none" for a solo voice memo, and "none" stops the
+    # pipeline below: the memo was silently never written. Whether to skip
+    # is decided here, in code, from what we measured: a capture with no
+    # speech (capture_truth.has_speech) is skipped, a memo with speech is
+    # kept.
+    if _capture_truth.is_spoken(metadata) and not _capture_truth.has_speech(
+        transcript, metadata
+    ):
+        # A spoken capture with no speech in it (silence markers, Whisper's
+        # "Thank you." hallucination, a bare label) is never enriched,
+        # whatever the model said: no summary, no facts, no bundle.
+        if classification.processing_depth != "none":
+            classification.processing_depth = "none"
+            classification.reasoning = (
+                "no speech: the pipeline found fewer than "
+                f"{_capture_truth.MIN_SPEECH_WORDS} spoken words. "
+                + (classification.reasoning or "")
+            )
+            write_json(state_dir / "01_classification.json", classification.to_dict())
+        logger.info("No speech in %s; nothing to enrich.", conversation_id)
+    elif _capture_truth.is_single_speaker_capture(transcript, metadata):
+        changed = False
+        if classification.shape != _capture_truth.MEMO_SHAPE:
+            classification = _capture_truth.as_memo(classification)
+            changed = True
+        if classification.processing_depth == "none":  # has_speech held above
+            classification.processing_depth = "full"
+            classification.reasoning = (
+                "memo kept: the model said processing_depth none. "
+                + (classification.reasoning or "")
+            )
+            changed = True
+        if changed:
+            write_json(state_dir / "01_classification.json", classification.to_dict())
+            logger.info(
+                "Single-speaker capture %s: classified as %s, depth %s",
+                conversation_id, classification.suggested_type_slug,
+                classification.processing_depth,
+            )
 
     if classification.processing_depth == "none":
         logger.info("processing_depth=none  –  pipeline stops here.")
@@ -375,6 +423,8 @@ def _should_run(
 def _should_run_relationship(c: Classification) -> bool:
     if c.processing_depth != "full":
         return False
+    if c.shape == _capture_truth.MEMO_SHAPE:
+        return False  # one speaker: there is no relationship to signal
     if c.setting in ("public", "service"):
         return False
     if c.sensitivity.level == "highly-sensitive":
@@ -385,6 +435,8 @@ def _should_run_relationship(c: Classification) -> bool:
 def _should_run_coach(c: Classification) -> bool:
     if c.processing_depth != "full":
         return False
+    if c.shape == _capture_truth.MEMO_SHAPE:
+        return False  # one speaker: no exchange to coach
     if c.setting in ("family", "service"):
         return False
     if c.sensitivity.level in ("sensitive", "highly-sensitive"):
@@ -768,6 +820,9 @@ def _step_enrich_inner(
     sidecar_path,
 ) -> None:
 
+    solo = _capture_truth.is_single_speaker_capture(transcript, metadata)
+    if solo:
+        classification = _capture_truth.as_memo(classification)
     prompt_name = prompts.enrichment_prompt_name_for(
         classification.suggested_type_slug
     )
@@ -819,6 +874,13 @@ def _step_enrich_inner(
             prompt_name=prompt_name,
             expected_headings=expected_headings,
             settings=settings,
+        )
+        # Pipeline-known facts overwrite the model's copies (capture_truth).
+        rendered = _stamp_capture_truth(
+            rendered, transcript, metadata, classification, settings,
+            prompt_version=f"{prompt_name}@1.0",
+            model=getattr(result, "model", None) or settings.ollama_enrich_model,
+            solo=solo,
         )
         rendered = enrichment_validation.sanitise_participants_section(
             rendered,
@@ -938,6 +1000,13 @@ def _step_enrich_inner(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # Pipeline-known facts overwrite the model's copies (capture_truth).
+        rendered = _stamp_capture_truth(
+            rendered, transcript, metadata, classification, settings,
+            prompt_version=f"{prompt_name}+merge@1.0",
+            model=settings.ollama_enrich_model,
+            solo=solo,
+        )
         rendered = enrichment_validation.sanitise_participants_section(
             rendered,
             normalise_participants(metadata.get("participants")),
@@ -991,6 +1060,50 @@ def _step_enrich_inner(
                 },
             },
         )
+
+
+def _retention_tier(classification: Classification) -> str | None:
+    """The tier the Qdrant sink stamps, so the frontmatter cannot disagree
+    with it. Absent (not guessed) when the sink module cannot load."""
+    try:
+        from .ingest import _retention_tier_for
+
+        return _retention_tier_for(classification)
+    except Exception as exc:  # ingest hard-requires ostler_security
+        logger.warning("retention_tier left absent: %s", type(exc).__name__)
+        return None
+
+
+def _stamp_capture_truth(
+    rendered: str,
+    transcript: str,
+    metadata: dict,
+    classification: Classification,
+    settings: Settings,
+    *,
+    prompt_version: str,
+    model: str,
+    solo: bool,
+) -> str:
+    """Last edit before 02_enrichment.md is written (and copied verbatim
+    to ~/Documents/Ostler/Conversations/<id>.md). See capture_truth."""
+    if solo:
+        rendered = _capture_truth.scrub_solo_body(
+            rendered, _capture_truth.speaker_labels(transcript, metadata), metadata,
+            owner_name=getattr(settings, "user_display_name", "") or "",
+        )
+    return _capture_truth.stamp_frontmatter(
+        rendered,
+        conversation_id=str(metadata.get("conversation_id") or ""),
+        prompt_version=prompt_version,
+        model=str(model or ""),
+        completed_at=_capture_truth.utc_now_iso(),
+        metadata=metadata,
+        classification=classification,
+        retention_tier=_retention_tier(classification),
+        solo=solo,
+        owner_name=getattr(settings, "user_display_name", "") or "",
+    )
 
 
 def _validate_document(
@@ -1290,8 +1403,18 @@ def _build_enrichment_input(
         ),
         "other",
     )
+    if c.shape == _capture_truth.MEMO_SHAPE:
+        # Without this the line read "Other name: other", and the prompt's
+        # roster example gave that "other" a role and a former employer.
+        other_name = "none (one speaker; this is a memo, not a conversation)"
     user_name = settings.user_display_name
     chunk_note = metadata.get("chunk_note")
+    # The reminder used to hard-code work_one-on-one's eight headings for
+    # EVERY variant, contradicting the variant's own system prompt.
+    _headings = enrichment_validation.expected_headings_for(
+        prompts.enrichment_prompt_name_for(c.suggested_type_slug)
+    )
+    heading_lines = "\n".join(f"## {h}" for h in _headings)
 
     body = f"""
 --- CLASSIFICATION ---
@@ -1319,17 +1442,10 @@ You MUST use EXACTLY these section headings in this order. Do NOT
 invent your own headings. Do NOT skip sections. If a section has no
 content, write the heading followed by "_Nothing to report._"
 
-## Summary
-## Key topics
-## Decisions
-## Action items
-## Key quotes
-## Key insights
-## Next steps
-## Cleaned transcript
+{heading_lines}
 
 Start your response with the YAML frontmatter block (---), then
-## Summary. No preamble.
+## {_headings[0]}. No preamble.
 
 --- TRANSCRIPT ---
 {transcript_chunk}

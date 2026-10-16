@@ -44,6 +44,11 @@ on:
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'vendor/imessage_source/threader.py'
+      - 'tests/test_cm048_single_speaker_capture_is_a_memo.py'
+      - 'vendor/cm048_pipeline/src/capture_truth.py'
+      - 'vendor/cm048_pipeline/src/prompts.py'
+      - 'vendor/cm048_pipeline/src/schemas.py'
+      - 'vendor/cm048_pipeline/prompts/**'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
     paths:
@@ -82,6 +87,11 @@ on:
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'vendor/imessage_source/threader.py'
+      - 'tests/test_cm048_single_speaker_capture_is_a_memo.py'
+      - 'vendor/cm048_pipeline/src/capture_truth.py'
+      - 'vendor/cm048_pipeline/src/prompts.py'
+      - 'vendor/cm048_pipeline/src/schemas.py'
+      - 'vendor/cm048_pipeline/prompts/**'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
 concurrency:
@@ -246,3 +256,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_third_party_facts_keep_their_subject.py -v
+      - name: A one-speaker capture is written as a memo, with the real time and the model that ran (Mini16 2026-10-15)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_single_speaker_capture_is_a_memo.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 39 ]; then
+            echo "REFUSING: expected at least 39 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_single_speaker_capture_is_a_memo.py -v
