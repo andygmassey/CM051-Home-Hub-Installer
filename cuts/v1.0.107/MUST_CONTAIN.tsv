@@ -490,7 +490,7 @@ enrich cli.py: consent backstop reads the recorded answer	CM051	7d211203	no	enri
 enrich cli.py: enrich and parallel both call the consent backstop	CM051	7d211203	no	enrich_cli_both_commands_gated	TBD	CM051 #2912
 # 2026-10-15 (ORM, candidate #30, DRAFT): wiki v0.1.55 (CM044 c20db124) re-pinned by CM051 #2932 (4da5434b); oa #537. Hub-v0.5.18 and CM051 rows follow.
 repin(wiki): both wiki images at CM044 v0.1.55 (c20db124)	CM051	4da5434b	no	wiki_images_pinned_at_cm044_v0155	TBD	CM051 #2932
-wiki: Junk Discovered topics are rejected by shape at the producer (CM044 #343)	CM051	4da5434b	no	wiki_v0155_discovered_topics_by_shape	TBD	CM044 #343
+wiki: junk discovered-topics are rejected by shape at the producer (CM044 #343)	CM051	4da5434b	no	wiki_v0155_discovered_topics_by_shape	TBD	CM044 #343
 wiki: An organisation sender is not a person (CM044 #344)	CM051	4da5434b	no	wiki_v0155_org_sender_not_a_person	TBD	CM044 #344
 wiki: One Notes figure and a uniform page-intro size (CM044 #345)	CM051	4da5434b	no	wiki_v0155_one_notes_figure	TBD	CM044 #345
 wiki: Honest empty states: processing, organising, nothing found, no source (CM044 #347)	CM051	4da5434b	no	wiki_v0155_empty_state_honesty	TBD	CM044 #347
@@ -527,7 +527,7 @@ a WhatsApp placeholder is not a name (CM051 b3-whatsapp-placeholder)	CM051	c868c
 phone-only people are shown (CM051 b3-phone-only-people)	CM051	c868c3a9	no	cm051_c30_phone_only_people_are_shown	TBD	CM051 b3-phone-only-people
 a play is not a like (passive signals) (CM051 #2921)	CM051	cdd268d3	no	cm051_c30_a_play_is_not_a_like_passive_signals	TBD	CM051 #2921
 a refused macOS read is cannot_run, never fresh (CM051 #2908)	CM051	0dde7f3a	no	cm051_c30_a_refused_macos_read_is_cannot_run_never_fresh	TBD	CM051 #2908
-iOS Quick Notes reach the Hub (CM051 #2929)	CM051	b8c4d3a1	no	cm051_c30_ios_quick_notes_reach_the_hub	TBD	CM051 #2929
+iOS quick notes reach the hub (CM051 #2929)	CM051	b8c4d3a1	no	cm051_c30_ios_quick_notes_reach_the_hub	TBD	CM051 #2929
 an expired pause is reconciled (CM051 b1-honesty-pause)	CM051	c2ffec96	no	cm051_c30_an_expired_pause_is_reconciled	TBD	CM051 b1-honesty-pause
 WhatsApp legacy re-backfill window (CM051 b1-honesty-ingest)	CM051	c2ffec96	no	cm051_c30_whatsapp_legacy_re_backfill_window	TBD	CM051 b1-honesty-ingest
 meeting syncer reads the service token (CM051 b1-honesty-meetings-doctor)	CM051	c2ffec96	no	cm051_c30_meeting_syncer_reads_the_service_token	TBD	CM051 b1-honesty-meetings-doctor
