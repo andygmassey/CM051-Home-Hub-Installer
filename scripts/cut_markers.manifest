@@ -228,3 +228,36 @@ wiki_image_grep|wiki-site:/docs/overrides/javascripts/local_time.js|function day
 wiki_image_grep|wiki-compiler:/app/compiler/locale.py|^def token_words\(|CM044 #338 display names use one acronym/brand-aware token fallback. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/compile.py|^def write_corrections_page\(|CM044 #341 the corrections page is always emitted. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/commitment_pages.py|^def _shorten_urls\(|CM044 #342 a bare URL in a commitment renders as a short site link, tracking dropped. 0 -> 1.
+# --- v1.0.107 #30 hub-v0.5.18 (oa 9d2c9491). Each 0 at hub-v0.5.17 (bab3dc7a), >=1 at 9d2c9491 (measured in the full clone).
+assistant_tag_grep|src/main.rs|fn fda_sentinels\(home: &std::path::Path\)|oa #531 run-source --self-test falls through to a Full Disk Access sentinel every Mac has. 0 -> 1.
+assistant_tag_grep|web/src/pages/Cost.tsx|const unattributedTokens = work\.by_purpose\.unattributed\?\.total_tokens \?\? 0;|oa #536 Bursar dashboard reports attributed vs unattributed tokens. 0 -> 1.
+assistant_tag_grep|web/src/contexts/ThemeContext.tsx|export function brandTokensForScheme\(|oa #539 dark theme rebinds the brand shell tokens. 0 -> 1.
+assistant_tag_grep|Cargo.lock|^version = "0\.23\.46"|oa #537 rustls 0.23.46 clears RUSTSEC-2026-0346..0349. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-gateway/src/wiki_proxy.rs|const NAV_BRIDGE_PATH: &str = "/__ostler_nav_bridge\.js";|oa #535 wiki Back/Forward bridge in the Tauri shell + gateway health-poll hysteresis. 0 -> 1.
+assistant_tag_grep|web/src/lib/dataSources.ts|sourceRow\.count_label !== undefined|oa #538 Data sources show the Doctor's typed count_label. 0 -> 1.
+assistant_tag_grep|web/src/lib/formatNumber.ts|^export function formatCount\(|oa #540 thousands separators on every rendered count. 0 -> 1.
+assistant_tag_grep|web/src/components/SourceAwareEmpty.tsx|export function SourceAwareEmpty\(|oa #541 honest empty states for People and Timeline. 0 -> 1.
+assistant_tag_grep|web/src/lib/citations.ts|^export function toCitationChips\(|oa #542 preference citations reach Hub chat. 0 -> 1.
+assistant_tag_grep|web/src/lib/timeline.ts|const shown = new Map<string, number>\(\);|oa #543 timeline merge keeps distinct same-day rows. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-gateway/src/api_sources.rs|^fn canonical_source_id\(raw: &str\) -> String|oa #544 Apple Mail row kept in Overview sources (one id space). 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|const HEALTH_MISSED_POLLS: u64 = 10;|oa #545 status honesty: suppressed brief, degraded Hub, iMessage health. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-runtime/src/stop_marker.rs|^pub fn marker_path\(home: &Path\) -> PathBuf|oa ee696005 daemon restarts after SIGTERM unless a deliberate-stop marker exists. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-runtime/src/brief/fallback.rs|No emails in the last 24 hours\.|oa ed031d83 brief mail count is windowed (last 24 hours). 0 -> 2.
+assistant_tag_grep|crates/ostler-reminders/src/watcher.rs|mapping DB not openable yet|oa 1027a88c Reminders watcher waits and retries when reminders_map.db is missing. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-channels/src/orchestrator/mod.rs|I couldn't answer that just now\. Please try again in a moment\.|oa #548 model error text never reaches a chat; an owner 1:1 gets a generic line. 0 -> 1.
+# --- v1.0.107 #30 wiki v0.1.55 (CM044 c20db124). Each 0 in the v0.1.54 compiler image (2265d9e1), >=1 in v0.1.55 (094e2e46); measured in-image 2026-10-15.
+wiki_image_grep|wiki-compiler:/app/compiler/pwg_data.py|^_AUTOMATION_LOCAL_RE = re\.compile|CM044 #344 an organisation sender is not a person. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|^def _knowledge_row_count\(|CM044 #345 one Notes figure. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/preference_filter.py|^CATEGORY_PAGE_MAX_POINTS = 250_000|CM044 #349 the preference gate denies named junk instead of allowing listed sources. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/empty_state.py|^ORGANISING = "organising"|CM044 #347 honest empty states. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/public_lookups.py|^CONSENT_ENV = "OSTLER_PUBLIC_LOOKUPS"|CM044 #355 venue, music and wiki enrichers send nothing public without OSTLER_PUBLIC_LOOKUPS=agreed (fail-closed). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/music_enricher.py|public_lookups\.consent_given\(\)|CM044 #355 the music enricher is behind the public look-ups consent. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/gap_pages.py|^def _topic_shape\(|CM044 #343 junk Discovered topics rejected by shape at the producer. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/year_pages.py|# A store error is not "no data": re-raise so the page fails visibly\.|CM044 #352 a store error fails the page, not Nothing here yet. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/person_slug.py|^RESERVED_SLUGS = frozenset|CM044 #356 every Person gets a unique slug (no collisions). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/nameless.py|^def is_sender_id_handle\(|CM044 #357 a sender-ID handle is nameless by rule (not a person name). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/lint.py|lint_orphans_intro'\)\.format\(count=f'\*\*\{_locale\.number\(orphan_count\)\}\*\*'\)|CM044 #348 page-generator counts use thousands grouping. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/compile.py|^def failed_section_names\(results\) -> list:|CM044 #350 a failed section exits 2, complete:false, rebuilt next run. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|^SOURCE_ACTIVITY_DIRNAME = "source_activity"|CM044 #351 Data freshness reads source_activity. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/nameless.py|^def is_short_code\(|CM044 #354 People pages show phone-only contacts (provisional). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/category_pages.py|^_HELD_FOR_ENRICHER_CONSENT = \(|CM044 #353 Life pages read every writer category, polarity and signal. 0 -> 1.
