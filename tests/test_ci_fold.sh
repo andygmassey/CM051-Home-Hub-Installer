@@ -323,6 +323,45 @@ PY
 tok 2 "an executed gh call on DEFAULT permissions is refused" "" "gh api repos/o/r/pulls"
 tok 0 "the same call under an explicit contents: read is folded" "contents: read" "gh api repos/o/r/pulls"
 tok 0 "a comment mentioning gh on default permissions is not a call" "" "true  # gh pr list fails when the token expires"
+# SHARDS: a plain family as N parallel legs, every block in exactly one.
+printf 'plain-a.yml::pa\t200\nplain-b.yml::pb\t10\n' > "$T/weights.tsv"
+rm -rf "$T/ps"; cp -R "$T/pbase" "$T/ps"
+if python3 "$TOOL" generate px --shards 2 --weights "$T/weights.tsv" --dir "$T/ps/wf" --spec "$T/pspec.tsv" >/dev/null 2>&1 \
+   && python3 "$TOOL" check --base-dir "$T/pbase/wf" --tree "$T/ps/wf" --spec "$T/pspec.tsv" >/dev/null 2>&1; then
+    pass "a 2-shard plain family is generated and proven"
+else
+    bad "sharded family not generated or not proven"
+fi
+python3 - "$T/ps/wf/fold-px.yml" <<'PY' && pass "shards: matrix 1..2, the heavy block alone in one leg" || bad "shard layout wrong"
+import re, sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+j = next(iter(d["jobs"].values()))
+ok = j["strategy"] == {"fail-fast": False, "matrix": {"shard": [1, 2]}}
+ks = {}
+for st in j["steps"]:
+    m = re.match(r"(b\d\d)_", str(st.get("id", "")))
+    if m:
+        ks.setdefault(m.group(1), set()).update(re.findall(r"matrix\.shard == (\d+)", str(st.get("if", ""))))
+ok = ok and ks.get("b01") == {"1"} and ks.get("b02") == {"2"}
+sys.exit(0 if ok else 1)
+PY
+shmut() {  # shmut <label> <want> <python-edit>
+    rm -rf "$T/pm"; cp -R "$T/ps" "$T/pm"
+    python3 - "$T/pm/wf/fold-px.yml" "$3" <<'PY'
+import re, sys
+p, code = sys.argv[1], sys.argv[2]
+s = open(p).read()
+exec(code)
+open(p, "w").write(s)
+PY
+    if diff -rq "$T/ps" "$T/pm" >/dev/null 2>&1; then bad "shard mutation was a NO-OP: $1"; return; fi
+    OUT="$(python3 "$TOOL" check --base-dir "$T/pbase/wf" --tree "$T/pm/wf" --spec "$T/pspec.tsv" 2>&1)"; RC=$?
+    if [ "$RC" -eq 1 ] && grep -qF -- "$2" <<< "$OUT"; then pass "refused: $1"; else bad "NOT refused ($RC): $1 -- $OUT"; fi
+}
+shmut "a block step that lost its shard (it would run in every leg)" "not in exactly one shard" \
+'s = s.replace(" && matrix.shard == 2", "", 1)'
+shmut "a block sent to a shard the matrix does not have" "not in exactly one shard" \
+'s = s.replace("matrix.shard == 2", "matrix.shard == 3")'
 
 # ---- the selector: GitHub's glob semantics, and it FAILS OPEN -------------
 python3 - "$TOOL" <<'PY' && pass "glob table matches GitHub's filter semantics" || bad "glob table"
