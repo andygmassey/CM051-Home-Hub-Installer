@@ -165,14 +165,14 @@ class TestPeopleResolve(unittest.TestCase):
     def test_resolves_phone_and_email_to_names(self):
         fake = _fake(
             phone_rows=[{"p": P1, "n": "Jane Doe", "value": "+44 7700 900001"}],
-            email_rows=[{"p": P2, "n": "Tom Reid", "value": "Tom.Reid@Example.com"}],
+            email_rows=[{"p": P2, "n": "Tom Jones", "value": "Tom.Jones@Example.com"}],
         )
-        status, body = _get("?handle=%2B447700900001&handle=tom.reid%40example.com", fake)
+        status, body = _get("?handle=%2B447700900001&handle=tom.jones%40example.com", fake)
         self.assertEqual(status, 200)
         self.assertEqual(body["count"], 2)
         self.assertEqual(body["resolved"]["+447700900001"]["name"], "Jane Doe")
         self.assertEqual(body["resolved"]["+447700900001"]["slug"], "jane-doe")
-        self.assertEqual(body["resolved"]["tom.reid@example.com"]["name"], "Tom Reid")
+        self.assertEqual(body["resolved"]["tom.jones@example.com"]["name"], "Tom Jones")
 
     def test_phone_match_tolerates_country_code_formatting(self):
         fake = _fake(phone_rows=[{"p": P1, "n": "Jane Doe", "value": "07700 900001"}])

@@ -7634,7 +7634,9 @@ def people_resolve(handles):
     for kind, r in rows:
         name = (r.get("n") or "").strip()
         value = (r.get("value") or "").strip()
-        if not name or _is_nameless_name(name):
+        # _is_nameless_name (people_rules) no longer hides a bare phone, so
+        # the identifier-as-name check rides beside it, as in people_list.
+        if not name or _is_nameless_name(name) or _looks_like_bare_email_or_phone(name):
             continue
         if kind == "email":
             handle = wanted_email.get(value.lower())

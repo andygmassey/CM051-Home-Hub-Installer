@@ -1,4 +1,4 @@
-# Lane 8 (Follow-Up Detector, Reconnect Cadence): the vendored ical-server
+# Lane 8 (the follow-up detector and reconnect cadence): the vendored ical-server
 # carries the Hub half. Mirrors CM041 PR #199. Pins the commitments extension
 # (id/person/channel/origin/confidence, low confidence hidden by default), the
 # detector write routes (validated upsert, sticky dismissal, detector nodes
