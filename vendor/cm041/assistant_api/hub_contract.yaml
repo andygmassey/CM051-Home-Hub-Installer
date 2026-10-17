@@ -1371,6 +1371,28 @@
   },
   {
    "auth": [
+    "none"
+   ],
+   "body_limit_bytes": null,
+   "cross_site_refusal": false,
+   "id": "doctor POST /api/v1/people/{slug}/suppress-suggestions",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/suppress-suggestions",
+   "ports": [
+    8089
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "detail",
+    "error"
+   ],
+   "source": "vendor/doctor/agent/web_ui.py"
+  },
+  {
+   "auth": [
     "device_bearer"
    ],
    "body_limit_bytes": null,
