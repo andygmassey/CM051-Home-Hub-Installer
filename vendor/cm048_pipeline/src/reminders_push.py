@@ -54,8 +54,11 @@ re-rendered ``todos.md`` reflects reality and the CM044 wiki
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
+import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -926,6 +929,72 @@ def _upsert_pending(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Rule 0.8 subscription gate (v1.0.108 licence hardening)
+# ---------------------------------------------------------------------------
+#
+# The proactive Apple Reminders push is ONGOING INTELLIGENCE: creating new
+# reminders from freshly-ingested conversations is a Pro feature, so it must
+# pause when the subscription is neither active nor in grace. Already-pushed
+# reminders stay in Reminders.app regardless (Apple-restraint: we never
+# delete the customer's data).
+#
+# This runs in the cm048 venv, which cannot import subscription_gate, so it
+# uses the module's own shell seam -- the same `--check` CLI the five tick
+# wrappers call -- run with THIS interpreter (the gate is pure stdlib). The
+# gate is staged at ${OSTLER_DIR}/services/ical-server/subscription_gate.py,
+# resolved via ostler_paths.ostler_root() (honours $OSTLER_DIR like install.sh).
+#
+# FAIL-OPEN on a missing module / a non-{0,3} exit, exactly like the tick
+# wrappers' original posture: a customer who has paid must never be stopped
+# because we could not ask, and a packaging slip must not wear the costume of
+# a lapsed subscription. The fail-CLOSED line for a genuinely missing gate is
+# the tick wrapper upstream (it will not have run pwg-convo at all); this is
+# the defence-in-depth guard for a DIRECT pwg-convo call, where the gate is
+# present. Exit 3 is the only code that pauses.
+_GATE_EXIT_PAUSED = 3
+
+
+def _gate_path() -> Path:
+    return ostler_paths.ostler_root() / "services" / "ical-server" / "subscription_gate.py"
+
+
+def _subscription_paused() -> bool:
+    """True only when the gate unambiguously reports a lapsed subscription.
+
+    Missing module, interpreter failure, or any exit code other than 3 ->
+    False (fail open). Never raises.
+    """
+    gate = _gate_path()
+    if not gate.is_file():
+        return False
+    try:
+        rc = subprocess.run(
+            [sys.executable, str(gate), "--check"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=os.environ.copy(),
+        ).returncode
+    except (OSError, ValueError) as exc:
+        log.warning(
+            "reminders_push: subscription gate check could not run (%s); "
+            "continuing to push. A customer is never paused because we "
+            "could not ask.",
+            exc,
+        )
+        return False
+    if rc == _GATE_EXIT_PAUSED:
+        return True
+    if rc != 0:
+        log.warning(
+            "reminders_push: subscription gate check exited %d (expected 0 "
+            "or 3); continuing to push. A customer is never paused because "
+            "we could not ask.",
+            rc,
+        )
+    return False
+
+
 def apply_push_status_to_todos(
     todos: tuple,
     bundle: "ConversationBundle",
@@ -964,6 +1033,20 @@ def apply_push_status_to_todos(
         log.info(
             "reminders_push: demo mode -- skipping push pipeline for "
             "%s (%d todos)",
+            bundle.conversation_id, len(todos),
+        )
+        return todos
+
+    # Rule 0.8 (v1.0.108): pause the proactive reminders push when Ostler
+    # Pro is inactive. Checked here, after demo mode and BEFORE the mapping
+    # DB is opened, so an inactive Hub writes no new `pending` rows -- the
+    # exact "stop before touching new data" the five tick wrappers enforce.
+    # Already-pushed reminders are untouched.
+    if _subscription_paused():
+        log.info(
+            "reminders_push: Ostler Pro is not active -- pausing the "
+            "reminders push for %s (%d todos). Reminders already created "
+            "stay in Reminders; no new ones are added until Pro resumes.",
             bundle.conversation_id, len(todos),
         )
         return todos

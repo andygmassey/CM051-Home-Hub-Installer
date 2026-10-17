@@ -490,9 +490,10 @@ fi
 # ---------------------------------------------------------------------
 # Limb F -- the Rule 0.8 remainder, as a ratchet rather than a comment
 # ---------------------------------------------------------------------
-# Rule 0.8 names eleven surfaces. Seven are enforced (the pre-meeting brief
-# joined at cut #16, at its sender: Limb C2). The other
-# four are listed HERE, by file and symbol, and re-checked on every CI
+# Rule 0.8 names eleven surfaces. Eight are enforced (the pre-meeting brief
+# joined at cut #16 at its sender: Limb C2; the Apple Reminders push joined
+# at v1.0.108, gated inside apply_push_status_to_todos). The other
+# three are listed HERE, by file and symbol, and re-checked on every CI
 # run, because the alternative is a paragraph in a markdown file that
 # says "tracked" and is read by nobody -- which is what the rule already
 # was for four months.
@@ -506,7 +507,6 @@ echo "--- Limb F: the Rule 0.8 remainder (ratchet) ---"
 
 REMAINDER="
 vendor/cm048_pipeline/src/processor.py|def process(|the pwg-convo enrichment engine; every source funnels through it. Gated upstream at each tick wrapper today, but a direct pwg-convo call bypasses that.
-vendor/cm048_pipeline/src/reminders_push.py|def apply_push_status_to_todos(|Apple Reminders push. Has a demo_mode short-circuit to mirror.
 vendor/ostler_fda/extract_all.py|def run_all(|calendar pulls AND photo intelligence, hourly under com.ostler.fda-rerun.
 vendor/imessage_bridge/bin/bridge.py|def poll_once(|the live iMessage/SMS chat bridge (KeepAlive), separate from the 15-minute bundle tick.
 "
@@ -523,7 +523,6 @@ done
 # nothing can read it.
 for entry in \
   "vendor/cm048_pipeline/src/processor.py|def process(" \
-  "vendor/cm048_pipeline/src/reminders_push.py|def apply_push_status_to_todos(" \
   "vendor/ostler_fda/extract_all.py|def run_all(" \
   "vendor/imessage_bridge/bin/bridge.py|def poll_once("
 do
@@ -552,19 +551,19 @@ else
     fail "F:control" "the predicate cannot find is_active_or_grace in wire.py, where it demonstrably is. Every 'UNGATED' verdict above is meaningless."
 fi
 
-echo "  Rule 0.8: 7 of 11 surfaces enforced, $remaining ungated surfaces remain in this repo."
+echo "  Rule 0.8: 8 of 11 surfaces enforced, $remaining ungated surfaces remain in this repo."
 echo "  Two further surfaces (daily briefs, local AI chat about new data) live in"
 echo "  the prebuilt ostler-assistant daemon and CANNOT be gated from this repo:"
 echo "  zero Cargo.toml and zero .rs files here, against 515 .py as a control."
-if [ "$remaining" -ne 4 ]; then
-    fail "F" "expected 4 ungated surfaces, counted $remaining. Update the list deliberately; do not let the number drift."
+if [ "$remaining" -ne 3 ]; then
+    fail "F" "expected 3 ungated surfaces, counted $remaining. Update the list deliberately; do not let the number drift."
 else
-    pass "F" "the remainder is 4, each still present and still ungated"
+    pass "F" "the remainder is 3, each still present and still ungated"
 fi
 
 echo
 if [ "$fails" -eq 0 ]; then
-    echo "ALL PASS: the trial ends, the paid-once rule holds, and seven surfaces stop for an unpaid Hub."
+    echo "ALL PASS: the trial ends, the paid-once rule holds, and eight surfaces stop for an unpaid Hub."
     exit 0
 fi
 echo "$fails check(s) FAILED"
