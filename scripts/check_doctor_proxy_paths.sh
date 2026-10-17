@@ -74,14 +74,6 @@ REQUIRED_PROXY_PATHS=(
     "/api/v1/conversation/status/{id}"
     "/api/v1/ingest/ios"
     "/api/v1/people/{slug}/forget"
-    # CM041 #216 -- owner-settable do-not-suggest ("stop suggesting" /
-    # "mark as deceased"), the gentle counterpart to /forget. The wiki
-    # person-page button, the iOS person card and the assistant POST it;
-    # the handler (api_people_suppress_suggestions) is on the ical-server
-    # :8090. Without this template the wiki button 404s at the Doctor and
-    # the suppression never persists. Same {slug} path-parameter shape as
-    # /forget above, so it needs its own template entry for the same reason.
-    "/api/v1/people/{slug}/suppress-suggestions"
     "/api/v1/email/recent"
     "/api/v1/recording/active"
     "/api/v1/coach/recent"
@@ -113,7 +105,7 @@ REQUIRED_PROXY_PATHS=(
 # array silently shrinks and the gate silently checks less while still
 # printing PASS. Removing a required endpoint is a real decision and it has
 # to be made in two places, deliberately.
-EXPECTED_REQUIRED_COUNT=23
+EXPECTED_REQUIRED_COUNT=22
 
 INSTALL_SH="${1:-}"
 if [[ -z "$INSTALL_SH" ]]; then

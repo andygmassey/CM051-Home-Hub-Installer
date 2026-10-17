@@ -5,36 +5,35 @@ CM041 #216 loopback half (v1.0.108). The ical-server (:8090) carries the
 owner-settable do-not-suggest handler api_people_suppress_suggestions
 (POST /api/v1/people/{slug}/suppress-suggestions, body
 {"suppressed": bool, "reason": str}). The wiki person-page "Stop
-suggesting" button, the iOS person card and the assistant all POST it to
-the DOCTOR (:8089), which is the single client-facing auth boundary. For
-the button to PERSIST, the Doctor must forward that POST to the
-loopback-bound ical-server with the per-install service token
-substituted for the caller's paired bearer -- exactly as it already does
-for the sibling POST /api/v1/people/{slug}/forget.
+suggesting" button POSTs it.
 
-That forwarding is done by vendor/doctor/agent/proxy.py:proxy_request for
-every path listed in DOCTOR_PROXY_PATHS (install.sh). This PR adds the
-suppress-suggestions template to that list. This test proves the suppress
-path flows through the REAL proxy_request and inherits its
-validate-then-substitute service-token behaviour:
+THE TRUST MODEL IS THE POINT. That button is an UNPAIRED browser on the
+wiki page, exactly like the correction pencil that POSTs
+/api/v1/wiki/correct (CM044 correction_overlay.js: POST, Content-Type
+application/json, NO Authorization, cross-origin to the Doctor on :8089).
+It holds no paired-iOS bearer, so it CANNOT use the DOCTOR_PROXY_PATHS
+reverse proxy -- that proxy validates a paired bearer and 401s an
+unpaired caller (OSTLER_DOCTOR_ORACLE_FALLBACK=0 on every install). So the
+fix is a Doctor-NATIVE handler in vendor/doctor/agent/web_ui.py, the same
+trust model as /api/v1/wiki/correct: unauthenticated, browser-reachable,
+the loopback bind is its boundary. It forwards to the ical-server WITH the
+per-install service token -- the token the browser neither has nor needs.
 
-  * a paired caller's request is forwarded to the ical-server with the
-    SERVICE token, not the caller's bearer, and the endpoint's result is
-    returned verbatim;
-  * an unpaired caller is refused 401 and nothing is forwarded;
-  * the service token, when configured, REPLACES the client bearer on the
-    wire (the security property; its red is watched in the brief handback
-    by unsetting the token so the proxy becomes a transparent pass-through
-    and the client bearer reaches the store).
+This test imports the REAL web_ui.py (not a reimplementation) and drives:
 
-Imports the real proxy.py via importlib rather than reimplementing the
-forward, so a future edit to the proxy is caught here, not just in prose.
-proxy_request takes injectable gateway_url / validator_url / client, so
-no socket is opened: a fake async client answers the validator oracle and
-captures the forwarded request.
+  * the native handler -- an unpaired/no-bearer request is ACCEPTED (not
+    401) and its body forwarded; a malformed slug or body is rejected 400
+    and nothing is forwarded; the handler is registered natively on the
+    app, not behind the bearer proxy;
+  * the forward helper -- the per-install service token is attached on the
+    server-side forward to the ical-server, and a NEGATIVE CONTROL proves
+    that with no service token configured no credential is fabricated (the
+    exact state the attach defends against; its watched red is dropping the
+    attach so the forward goes out with no service token).
 
 Exit codes: 0 pass, 1 a case was wrong, 2 CANNOT-RUN (module import or a
-missing dependency -- NOT a pass).
+missing dependency -- NOT a pass). CI installs fastapi + httpx; see
+.github/workflows/suppress-suggestions-loopback.yml.
 """
 from __future__ import annotations
 
@@ -47,14 +46,10 @@ import unittest
 from pathlib import Path
 
 SLUG = "a-synthetic-person"
-SUPPRESS_PATH = "/api/v1/people/%s/suppress-suggestions" % SLUG
+BAD_SLUG = "Not A Slug!"
 GATEWAY_URL = "http://ical.invalid:8090"
-VALIDATOR_URL = "http://gateway.invalid:8000"
 SERVICE_TOKEN = "s" * 64          # stands in for the per-install PWG_SERVICE_TOKEN
-CLIENT_BEARER = "c" * 64          # the caller's paired zeroclaw bearer
-# The endpoint's own result shape (api_people_suppress_suggestions), echoed
-# back by the fake ical-server so we can prove the proxy returns it verbatim.
-ENDPOINT_RESULT = {
+UPSTREAM_RESULT = {
     "slug": SLUG,
     "suppressed": True,
     "reason": "deceased",
@@ -63,142 +58,155 @@ ENDPOINT_RESULT = {
 }
 
 
-def _load_proxy_module():
-    repo_root = Path(__file__).resolve().parent.parent
-    proxy_path = repo_root / "vendor" / "doctor" / "agent" / "proxy.py"
-    if not proxy_path.is_file():
-        print("CANNOT-RUN: %s not found" % proxy_path, file=sys.stderr)
+def _load_web_ui():
+    agent_dir = (Path(__file__).resolve().parent.parent
+                 / "vendor" / "doctor" / "agent")
+    web_ui_path = agent_dir / "web_ui.py"
+    if not web_ui_path.is_file():
+        print("CANNOT-RUN: %s not found" % web_ui_path, file=sys.stderr)
         sys.exit(2)
-    spec = importlib.util.spec_from_file_location("ostler_doctor_proxy", proxy_path)
+    # proxy.py (imported by web_ui and by the forward helper) sits alongside.
+    if str(agent_dir) not in sys.path:
+        sys.path.insert(0, str(agent_dir))
+    spec = importlib.util.spec_from_file_location("ostler_web_ui", web_ui_path)
     if spec is None or spec.loader is None:
-        print("CANNOT-RUN: could not build an import spec for %s" % proxy_path,
-              file=sys.stderr)
+        print("CANNOT-RUN: no import spec for %s" % web_ui_path, file=sys.stderr)
         sys.exit(2)
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
     except ModuleNotFoundError as exc:
-        # fastapi / httpx absent (the shipped Doctor venv has them; a bare
-        # checkout may not). This is CANNOT-RUN, never a pass. CI installs
-        # them: see .github/workflows/*.yml `pip install fastapi httpx`.
-        print("CANNOT-RUN: importing proxy.py needs a dependency that is not "
+        print("CANNOT-RUN: importing web_ui.py needs a dependency that is not "
               "installed (%s). Run `python3 -m pip install fastapi httpx`."
               % exc, file=sys.stderr)
         sys.exit(2)
     except Exception as exc:  # pragma: no cover - defensive
-        print("CANNOT-RUN: importing proxy.py raised %r" % exc, file=sys.stderr)
+        print("CANNOT-RUN: importing web_ui.py raised %r" % exc, file=sys.stderr)
         sys.exit(2)
     return module
 
 
-PROXY = _load_proxy_module()
+WEB_UI = _load_web_ui()
+SUPPRESS_PATH_TEMPLATE = "/api/v1/people/{slug}/suppress-suggestions"
 
 
 # --------------------------------------------------------------------------
-# Minimal fakes: proxy_request only touches these attributes.
+# Fakes. The native handler reads only request.body(); it does NOT look at
+# any Authorization header -- that absence is the whole point.
 # --------------------------------------------------------------------------
-
-class _FakeURL:
-    def __init__(self, path, query=""):
-        self.path = path
-        self.query = query
-
-
-class _FakeReqClient:
-    def __init__(self, host):
-        self.host = host
-
 
 class _FakeRequest:
-    """Stands in for a starlette Request. proxy_request reads .method,
-    .url.path, .url.query, .headers (.items()/.get()), .client.host and
-    awaits .body()."""
-
-    def __init__(self, method, path, headers, body=b"", host="127.0.0.1"):
-        self.method = method
-        self.url = _FakeURL(path)
-        self.headers = headers
+    def __init__(self, body: bytes):
         self._body = body
-        self.client = _FakeReqClient(host)
 
     async def body(self):
         return self._body
 
 
-class _FakeResponse:
-    def __init__(self, status_code, content=b"", headers=None):
+class _UpstreamResponse:
+    def __init__(self, status_code, content, headers=None):
         self.status_code = status_code
         self.content = content
         self.headers = headers or {"content-type": "application/json"}
 
 
-class _FakeAsyncClient:
-    """One injected client serves BOTH the bearer-validation oracle call
-    (.post to /internal/validate-bearer) and the upstream forward
-    (.request). It records every forward so the test can inspect the exact
-    headers and body that reached the ical-server."""
+class _ForwardRecorder:
+    """Replaces the module forward helper so the handler test needs no
+    socket. Records (slug, body) and returns a canned upstream result."""
 
-    def __init__(self, validate_status):
-        self._validate_status = validate_status
-        self.validate_calls = []
-        self.forwarded = []
+    def __init__(self, status_code=200, result=None):
+        self.calls = []
+        self._status = status_code
+        self._result = UPSTREAM_RESULT if result is None else result
 
-    async def post(self, url, json=None, timeout=None):
-        self.validate_calls.append({"url": url, "json": json})
-        return _FakeResponse(self._validate_status, b"")
-
-    async def request(self, method, url, headers, content):
-        self.forwarded.append(
-            {"method": method, "url": url, "headers": dict(headers),
-             "content": content}
-        )
-        return _FakeResponse(
-            200, json.dumps(ENDPOINT_RESULT).encode("utf-8"),
-            {"content-type": "application/json"},
-        )
+    async def __call__(self, slug, body, gateway_url=None, client=None):
+        self.calls.append({"slug": slug, "body": body})
+        return _UpstreamResponse(
+            self._status, json.dumps(self._result).encode("utf-8"))
 
 
-def _request_headers():
-    # Lowercase key: _extract_bearer_token reads .get("authorization").
-    return {
-        "authorization": "Bearer %s" % CLIENT_BEARER,
-        "content-type": "application/json",
-    }
+class _CapturingClient:
+    """An injected async client for the forward-helper test: captures the
+    exact POST the helper puts on the wire to the ical-server."""
+
+    def __init__(self):
+        self.posts = []
+
+    async def post(self, url, content=None, headers=None, timeout=None):
+        self.posts.append({"url": url, "content": content,
+                           "headers": dict(headers or {})})
+        return _UpstreamResponse(200, json.dumps(UPSTREAM_RESULT).encode("utf-8"))
 
 
-def _body_bytes(suppressed=True, reason="deceased"):
-    return json.dumps({"suppressed": suppressed, "reason": reason}).encode("utf-8")
-
-
-def _run_proxy(client, body=None):
-    req = _FakeRequest(
-        "POST", SUPPRESS_PATH, _request_headers(),
-        body=body if body is not None else _body_bytes(),
-    )
+def _call_handler(slug, body_bytes):
     return asyncio.run(
-        PROXY.proxy_request(
-            req, SUPPRESS_PATH,
-            gateway_url=GATEWAY_URL, validator_url=VALIDATOR_URL, client=client,
-        )
-    )
+        WEB_UI.api_people_suppress_suggestions(slug, _FakeRequest(body_bytes)))
 
 
-class SuppressLoopbackReachesTheStore(unittest.TestCase):
+class TheRouteIsDoctorNativeNotProxied(unittest.TestCase):
+    def test_registered_as_a_native_post_route(self):
+        paths = {}
+        for r in WEB_UI.app.routes:
+            if getattr(r, "path", "") == SUPPRESS_PATH_TEMPLATE:
+                paths[r.path] = sorted(getattr(r, "methods", []) or [])
+        self.assertIn(SUPPRESS_PATH_TEMPLATE, paths,
+                      "the suppress route is not registered on the Doctor app")
+        self.assertIn("POST", paths[SUPPRESS_PATH_TEMPLATE])
+
+    def test_not_served_by_the_paired_bearer_proxy(self):
+        # The proxy only registers the DOCTOR_PROXY_PATHS templates. The
+        # suppress path must NOT be one of them, or it would inherit the
+        # paired-bearer gate that 401s the unpaired wiki browser.
+        registered = getattr(WEB_UI, "_registered_proxy_paths", [])
+        self.assertNotIn(SUPPRESS_PATH_TEMPLATE, registered,
+                         "suppress must be a native route, not a proxied one")
+
+
+class TheUnpairedBrowserRequestIsAccepted(unittest.TestCase):
     def setUp(self):
-        # Service token configured -> upstream is the ical-server and the
-        # validate-then-substitute path applies (proxy.py _resolve_service_token).
+        self._recorder = _ForwardRecorder()
+        self._orig = WEB_UI._forward_suppress_suggestions
+        WEB_UI._forward_suppress_suggestions = self._recorder
+
+    def tearDown(self):
+        WEB_UI._forward_suppress_suggestions = self._orig
+
+    def test_no_bearer_request_is_accepted_and_forwarded(self):
+        # The exact shape the wiki button sends: a JSON body, NO Authorization.
+        body = json.dumps({"suppressed": True, "reason": "deceased"}).encode()
+        resp = _call_handler(SLUG, body)
+        self.assertEqual(resp.status_code, 200,
+                         "an unpaired no-bearer request must be accepted, not 401")
+        self.assertEqual(len(self._recorder.calls), 1,
+                         "the accepted request must be forwarded to the store")
+        self.assertEqual(self._recorder.calls[0]["slug"], SLUG)
+        self.assertEqual(json.loads(self._recorder.calls[0]["body"]),
+                         {"suppressed": True, "reason": "deceased"})
+        self.assertEqual(json.loads(bytes(resp.body)), UPSTREAM_RESULT)
+
+    def test_the_undo_body_is_forwarded(self):
+        body = json.dumps({"suppressed": False, "reason": "user_request"}).encode()
+        _call_handler(SLUG, body)
+        self.assertEqual(json.loads(self._recorder.calls[0]["body"]),
+                         {"suppressed": False, "reason": "user_request"})
+
+    def test_a_malformed_slug_is_rejected_and_not_forwarded(self):
+        resp = _call_handler(BAD_SLUG, b'{"suppressed": true}')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(len(self._recorder.calls), 0,
+                         "a bad slug must never be forwarded to the store")
+
+    def test_a_non_boolean_suppressed_is_rejected(self):
+        resp = _call_handler(SLUG, b'{"suppressed": "yes"}')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(len(self._recorder.calls), 0)
+
+
+class TheForwardCarriesTheServiceToken(unittest.TestCase):
+    def setUp(self):
         self._env = {}
-        for k in ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN",
-                  "OSTLER_EXTENSION_TOKEN", "OSTLER_ADMIN_TOKEN",
-                  "OSTLER_MACHINE_ADMIN_TOKEN"):
+        for k in ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN"):
             self._env[k] = os.environ.pop(k, None)
-        os.environ["OSTLER_SERVICE_TOKEN"] = SERVICE_TOKEN
-        # The oracle-absent fallback is a different test's concern; keep it off
-        # so an unpaired bearer is a clean 401 here.
-        self._env["OSTLER_DOCTOR_ORACLE_FALLBACK"] = \
-            os.environ.get("OSTLER_DOCTOR_ORACLE_FALLBACK")
-        os.environ["OSTLER_DOCTOR_ORACLE_FALLBACK"] = "0"
-        PROXY._ORACLE_STATE["absent"] = False
 
     def tearDown(self):
         for k, v in self._env.items():
@@ -207,57 +215,34 @@ class SuppressLoopbackReachesTheStore(unittest.TestCase):
             else:
                 os.environ[k] = v
 
-    def test_paired_caller_is_forwarded_with_the_service_token(self):
-        client = _FakeAsyncClient(validate_status=204)  # gateway says: paired
-        resp = _run_proxy(client)
-
-        self.assertEqual(len(client.forwarded), 1,
-                         "a paired suppress POST must be forwarded exactly once")
-        fwd = client.forwarded[0]
-        self.assertEqual(fwd["method"], "POST")
-        # The concrete {slug} is substituted into the upstream URL.
-        self.assertEqual(fwd["url"], GATEWAY_URL + SUPPRESS_PATH)
-        # The service token REPLACES the caller's bearer on the wire.
-        self.assertEqual(fwd["headers"].get("authorization"),
+    def test_service_token_is_attached_on_the_forward(self):
+        os.environ["OSTLER_SERVICE_TOKEN"] = SERVICE_TOKEN
+        client = _CapturingClient()
+        body = json.dumps({"suppressed": True, "reason": "deceased"}).encode()
+        asyncio.run(WEB_UI._forward_suppress_suggestions(
+            SLUG, body, gateway_url=GATEWAY_URL, client=client))
+        self.assertEqual(len(client.posts), 1)
+        post = client.posts[0]
+        self.assertEqual(post["url"],
+                         GATEWAY_URL + "/api/v1/people/" + SLUG + "/suppress-suggestions")
+        self.assertEqual(post["headers"].get("authorization"),
                          "Bearer %s" % SERVICE_TOKEN)
-        self.assertNotIn(CLIENT_BEARER, fwd["headers"].get("authorization", ""),
-                         "the caller's bearer must not reach the ical-server")
-        # The owner's choice is preserved end to end.
-        self.assertEqual(json.loads(fwd["content"]),
-                         {"suppressed": True, "reason": "deceased"})
-        # The endpoint's result is returned verbatim (same status + body).
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(json.loads(bytes(resp.body)), ENDPOINT_RESULT)
+        self.assertEqual(post["content"], body)
 
-    def test_the_undo_body_is_forwarded_unchanged(self):
-        # suppressed:false is the "resume suggesting" undo; the proxy must not
-        # mangle it (it is purely plumbing).
-        client = _FakeAsyncClient(validate_status=204)
-        _run_proxy(client, body=_body_bytes(suppressed=False, reason="user_request"))
-        self.assertEqual(json.loads(client.forwarded[0]["content"]),
-                         {"suppressed": False, "reason": "user_request"})
-
-    def test_unpaired_caller_is_refused_and_nothing_is_forwarded(self):
-        client = _FakeAsyncClient(validate_status=401)  # gateway says: not paired
-        resp = _run_proxy(client)
-        self.assertEqual(resp.status_code, 401)
-        self.assertEqual(len(client.forwarded), 0,
-                         "an unpaired bearer must never reach the ical-server")
-
-    def test_without_a_service_token_the_client_bearer_would_leak(self):
-        """The negative control the security property rests on. With NO
-        service token configured proxy_request is a transparent pass-through
-        (its documented pre-lockdown posture), so the caller's own bearer --
-        not a service token -- is what reaches upstream. This is the exact
-        state the substitution defends against; asserting it here means the
-        'service token replaces the client bearer' assertion above is not
-        green by construction."""
+    def test_no_service_token_fabricates_no_credential(self):
+        # Negative control. The browser's bearer is absent by design; with no
+        # service token configured the forward must carry NO Authorization at
+        # all, never a fabricated or leaked one. This is the state the attach
+        # defends against, so the positive assertion above is not green by
+        # construction. Watched red: dropping the attach in
+        # _forward_suppress_suggestions leaves this green but fails the
+        # positive test, and vice-versa.
         os.environ.pop("OSTLER_SERVICE_TOKEN", None)
         os.environ.pop("PWG_SERVICE_TOKEN", None)
-        client = _FakeAsyncClient(validate_status=204)
-        _run_proxy(client)
-        self.assertEqual(client.forwarded[0]["headers"].get("authorization"),
-                         "Bearer %s" % CLIENT_BEARER)
+        client = _CapturingClient()
+        asyncio.run(WEB_UI._forward_suppress_suggestions(
+            SLUG, b'{"suppressed": true}', gateway_url=GATEWAY_URL, client=client))
+        self.assertNotIn("authorization", client.posts[0]["headers"])
 
 
 if __name__ == "__main__":

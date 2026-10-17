@@ -1326,20 +1326,19 @@ Tree: `cm041/assistant_api`. Pin HELD; 8aca5ccc added to `hold_ack_shas` (grafte
 - Proof: `tests/test_cm041_deceased_excluded_from_proactive_surfaces.py` (18). Scenarios: a deceased person is excluded from reconnect, follow-up and birthdays; a living relative sharing the family landline and family email stays visible; a new node minted after suppression stays excluded; a merge survivor stays excluded. Also covered: the endpoint record and clear, and fixed-line classification. 17 of 18 fail on the pre-graft file.
 - Retire: re-pin `cm041/assistant_api` past 8aca5ccc.
 
-## hub_contract.yaml regenerated for the Doctor suppress-suggestions loopback (CM051, 2026-10-17)
+## hub_contract.yaml regenerated for the Doctor-native suppress-suggestions route (CM051, 2026-10-17)
 
 Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/hub_contract.yaml`
 only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
 <ostler-assistant main>` added one route, `doctor POST
-/api/v1/people/{slug}/suppress-suggestions` (source `install.sh`, derived from
-the new `DOCTOR_PROXY_PATHS` entry), taking the file from 263 to 264 routes.
-`--check` against assistant main reports current. This is the loopback half of
-CM041 #216 (the 8aca5ccc graft above): the ical handler
-`api_people_suppress_suggestions` already shipped on :8090, but the Doctor
-(:8089) did not proxy the path, so the wiki "Stop suggesting" button, the iOS
-card and the assistant 404'd at the Doctor and the suppression never persisted.
-The new doctor route mirrors `doctor POST /api/v1/people/{slug}/forget` exactly
-(proxy_to `ical:POST:/api/v1/people/{slug}/suppress-suggestions`, device_bearer
-auth, service token substituted by `vendor/doctor/agent/proxy.py` on the
-forward). No ical-server.py change; the handler is the #216 graft above.
+/api/v1/people/{slug}/suppress-suggestions` (source `vendor/doctor/agent/web_ui.py`,
+`auth: none`), taking the file from 263 to 264 routes. `--check` against
+assistant main reports current. This is the loopback half of CM041 #216 (the
+8aca5ccc graft above): the ical handler `api_people_suppress_suggestions`
+already shipped on :8090, but the wiki "Stop suggesting" button is an unpaired
+browser that cannot use the paired-bearer `DOCTOR_PROXY_PATHS` proxy, so the
+Doctor now serves it as a NATIVE unauthenticated route (same trust model as
+`/api/v1/wiki/correct`) that forwards to the ical endpoint with the service
+token. The new route is recorded against the `doctor` tree in
+`WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
 Regenerate the contract after any sync.
