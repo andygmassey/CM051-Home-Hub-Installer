@@ -719,8 +719,8 @@ def test_places_a_raw_phone_never_prints(env):
 # The v1.0.108 cut generator, pinned: the build walk #31 measured.
 _PREFIX_SHA_LAST_CONTACT = "56a5ed21f708e517bc812fa03b6ff49b01bc2fc8"
 XSD = "http://www.w3.org/2001/XMLSchema#"
-STALE_CONTACT = "Olga Stale"          # last in touch 200 days ago
-L3_CONTACT = "Priya Private"          # L3 person, recent contact
+STALE_CONTACT = "Wei Zhang"          # last in touch 200 days ago
+L3_CONTACT = "Lizzie Li"          # L3 person, recent contact
 PLACEHOLDER_PHONE = "+447700900199"   # displayName still the phone handle
 
 
@@ -760,8 +760,8 @@ def _messaging_only_store() -> ox.Store:
     person("mary", "Mary Smith", lastContactIMessage=day(1), lastContactEmail=stamp(3))
     person("bob", "Bob Jones", lastContactWhatsApp=day(4))
     person("sam", "Sam Patel", lastContactEmail=stamp(20))
-    person("olga", STALE_CONTACT, lastContactIMessage=day(200))
-    person("priya", L3_CONTACT, level="L3", lastContactIMessage=day(2))
+    person("stale", STALE_CONTACT, lastContactIMessage=day(200))
+    person("private", L3_CONTACT, level="L3", lastContactIMessage=day(2))
     person("handle", PLACEHOLDER_PHONE, lastContactIMessage=day(2))
     # The owner's own node can carry a last-contact (a self-thread).
     add(owner, "lastContactIMessage", day(1))
@@ -831,7 +831,7 @@ def test_counted_interactions_still_outrank_last_contact_only(env):
     store = _seed_store()
     newcomer = ox.NamedNode("https://schema.ostler.ai/ontology#person_newcomer")
     rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
-    for p, o in ((rdf_type, _n("Person")), (_n("displayName"), _lit("Nina Newcomer")),
+    for p, o in ((rdf_type, _n("Person")), (_n("displayName"), _lit("Robbie Wang")),
                  (_n("lastContactIMessage"), ox.Literal(
                      datetime.now(timezone.utc).date().isoformat(),
                      datatype=ox.NamedNode(XSD + "date")))):
@@ -840,7 +840,7 @@ def test_counted_interactions_still_outrank_last_contact_only(env):
     rows = [ln for ln in _section(digest, "People you interact with most").splitlines()
             if ln.startswith("- ")]
     assert rows[0].startswith("- Mary Smith, Acme Corp"), rows
-    names = [r for r in rows if "Nina Newcomer" in r]
+    names = [r for r in rows if "Robbie Wang" in r]
     assert not names or rows.index(names[0]) > rows.index(
         next(r for r in rows if r.startswith("- Bob Jones"))), rows
 
