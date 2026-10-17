@@ -151,6 +151,7 @@ test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-
 test_beta_licence_expiry_warns_before_and_is_read_only.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
 test_bom_ref_is_not_the_cut_pin.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bom_verdict_gate_is_wired_into_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_book_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_bootstrap_prelude.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_brew_failure_writes_the_log_it_promises.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -179,13 +180,16 @@ test_catchup_takeout.py	WIRED	.github/workflows/catchup-takeout.yml
 test_chat_wait_is_sized_from_measured_turns.py	WIRED	.github/workflows/walk-record-gate.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm019_bundle_accepts_the_payload_root.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_cm019_local_store_ignores_proxy.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_email_summarizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm041_deceased_excluded_from_proactive_surfaces.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_exit_75_when_the_sink_is_unreachable.py	WIRED	.github/workflows/catchup-machinery.yml
 test_cm048_gateway_extracts_owner_turns_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_handle_resolver.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_participants_as_strings.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_participants_line_display_names_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -365,6 +369,7 @@ test_fda_refusal_surfaces.py	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
+test_film_tv_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml
 test_first_window_end_to_end.py	WIRED	.github/workflows/catchup-machinery.yml
@@ -504,6 +509,7 @@ test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_main_body_call_to_a_heredoc_only_symbol.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_parser_labels_sensitive_data_publishable.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
+test_no_patch_backup_files_tracked.sh	WIRED	.github/workflows/test-wiring.yml
 test_no_path_is_frozen_across_the_promote.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_probe_lives_outside_the_walk_glob.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_no_probe_shadows_the_dispatcher.sh	WIRED	.github/workflows/every-probe-is-collected.yml

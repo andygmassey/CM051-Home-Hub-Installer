@@ -424,3 +424,16 @@ divergences (v108 BOARD row "port #30 vendor divergences upstream").
 All of the above. Guarded by `tests/test_cm048_single_speaker_capture_is_a_memo.py`
 (drives `processor.process` and `ingest._write_conversation_md`), wired into
 `.github/workflows/cm048-participants-as-strings.yml`.
+
+## 2026-10-17 v1.0.108 batch 1: cm048_pipeline handle resolution (CM048 #87, ec77efbb), grafted with synthetic examples
+
+Tree: `cm048_pipeline`. RETIRED 2026-10-17 (batch 2): pin moved to 0190f448 (CM048 #88) through `sync_vendor.sh`; the vendored files now equal upstream, the patch carries no handle_resolver hunk, and the hold and the do-not-sync warning are removed (see the manifest note). Kept as history. Original record:
+
+Pin HELD at 436c89c1; ec77efbb added to `hold_ack_shas` (grafted, pin held).
+
+- new file `vendor/cm048_pipeline/src/handle_resolver.py`: upstream `src/handle_resolver.py` at ec77efbb, except two docstring values.
+- `vendor/cm048_pipeline/src/processor.py`: the upstream ec77efbb hunk (import plus the post-privacy, non-L3 `_handle_resolver.resolve` call) applied with patch(1), except two comment values.
+- The replaced values are a real contact's name and phone number that upstream quotes as its motivating example. This repo is public, so they are the approved cast name and an Ofcom drama-range number. No code token differs from upstream.
+- Why not `sync_vendor.sh`: a sync to ec77efbb would copy the real values into this public tree, and the regenerated patch would carry them on its minus side.
+- Retire: CM048 #88 makes the same substitution upstream. When it merges, the vendored files equal upstream byte-for-byte; re-pin past #88 and this section is history.
+- Proof: `tests/test_cm048_handle_resolver.py` (15 tests: synthetic port of upstream's 13 plus a real-HTTP arm against a loopback store, 200 and 401). Red on the pre-graft tree: collection error without `handle_resolver.py`, and the non-L3 resolution test fails without the processor hook.
