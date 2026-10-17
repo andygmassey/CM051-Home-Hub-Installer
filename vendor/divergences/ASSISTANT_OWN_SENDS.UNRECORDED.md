@@ -129,3 +129,16 @@ Tree `email_source`, `vendor/email_source/pipeline.py`: new `_widen_first_window
 ### What a future sync must preserve
 
 `_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change upstream and re-pinning.
+
+## v1.0.108 licence hardening (DECLARED 2026-10-17)
+
+Three trees that point here also diverge for v1.0.108 in their bundle tick
+wrappers (Rule 0.8 now FAILS CLOSED on a missing/erroring gate + writes a
+Doctor-red gate_posture marker; the answered-pause exit-3 path is unchanged):
+
+- email_source -- bin/email-bundle-tick.sh
+- imessage_source -- bin/imessage-bundle-tick.sh
+- whatsapp_source -- bin/whatsapp-bundle-tick.sh
+
+Patch not regenerable on the PR runner (#1961). Full record + shape:
+vendor/divergences/v1_0_108_licence_hardening.UNRECORDED.md.

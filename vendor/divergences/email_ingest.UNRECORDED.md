@@ -35,3 +35,11 @@ Not instrumented (review of #2766): when the reader fails, the tick exits
 before reporting, and the Mail source row comes from the install-time
 `state/hydrate/email.done`, so it does not show the failure. Reading the
 ongoing activity record into that row is a v1.0.108 row.
+
+## v1.0.108 licence hardening (DECLARED 2026-10-17)
+
+email_ingest also diverges for v1.0.108: `bin/email-ingest-tick.sh` Rule 0.8
+block now FAILS CLOSED on a missing/erroring gate (was fail-open) and writes a
+Doctor-red gate_posture marker, before the mbox read. Patch not regenerable on
+the PR runner (#1961). Full record + shape:
+vendor/divergences/v1_0_108_licence_hardening.UNRECORDED.md.
