@@ -251,7 +251,7 @@ echo
 # If the durable path cannot be created we fall back to mktemp and SAY SO,
 # rather than silently returning to the old behaviour.
 PROBE_LOG=""
-_walk_logdir="${HOME}/.ostler/walks"
+_walk_logdir="${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}"
 if mkdir -p "$_walk_logdir" 2>/dev/null; then
     PROBE_LOG="${_walk_logdir}/${CUT_VERSION:-unversioned}-$(date -u +%Y%m%dT%H%M%SZ).log"
     : > "$PROBE_LOG" 2>/dev/null || PROBE_LOG=""
@@ -288,6 +288,10 @@ fi
 # below reads it instead of running the script again after the forgets.
 OSTLER_PHASE1_VERDICTS="$(mktemp -t ostler-phase1-verdicts)"
 export OSTLER_PHASE1_VERDICTS
+# This walk's own log exists by now; the runner's previous-FAIL promotion must not
+# mistake it for an unrecorded earlier walk. (Separate line: tests anchor on the
+# OSTLER_BOX_HOST= line below at column 0.)
+export OSTLER_CURRENT_WALK_LOG="$PROBE_LOG"
 OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
@@ -326,7 +330,11 @@ probe_rc="${PIPESTATUS[0]}"
 count_of() { awk -v k="$1" '$1 == k && NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }' "$PROBE_LOG"; }
 n_pass="$(count_of PASS)";       n_fail="$(count_of FAIL)"
 n_cannot="$(count_of CANNOT-RUN)"; n_broken="$(count_of BROKEN)"
-for v in n_pass n_fail n_cannot n_broken; do
+# ADVISORY: a probe whose walk_promote_scope.tsv row is `advisory` reported a red
+# it may report without making the walk unclean. It is a measurement (so it is in
+# `measured`) but is not a FAIL. Absent on an older runner: stays empty -> 0.
+n_advisory="$(count_of ADVISORY)"
+for v in n_pass n_fail n_cannot n_broken n_advisory; do
     [[ "${!v}" =~ ^[0-9]+$ ]] || printf -v "$v" '%s' ""
 done
 
@@ -887,6 +895,10 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'fail\t%s\n'        "${n_fail:-0}"
         printf 'cannot_run\t%s\n'  "${n_cannot:-0}"
         printf 'broken\t%s\n'      "${n_broken:-0}"
+        printf 'advisory\t%s\n'    "${n_advisory:-0}"
+        for _adv in $(awk '$1=="ADVISORY" && NF==2 && $2 !~ /^[0-9]+$/ {print $2}' "$PROBE_LOG"); do
+            printf 'advisory_probe\t%s\n' "$_adv"
+        done
         # COVERAGE, WHICH THE FOUR COUNTS ABOVE DO NOT CARRY.
         #
         # A BROKEN probe is counted in `broken` and then SKIPPED in phase 2 --
@@ -916,7 +928,7 @@ if [[ -n "$CUT_VERSION" ]]; then
         # silently converts measurements into non-measurements while the sum
         # stays perfect. Found by TNM 2026-08-30, sharpening my own reading of
         # the same reconciliation.
-        _measured=$(( ${n_pass:-0} + ${n_fail:-0} + ${n_cannot:-0} ))
+        _measured=$(( ${n_pass:-0} + ${n_fail:-0} + ${n_cannot:-0} + ${n_advisory:-0} ))
         if [ -n "$n_probes" ]; then
             # Reconcile IN THE FILE. If the buckets ever stop partitioning the
             # suite, the record says so instead of a reader assuming they did.
@@ -925,7 +937,7 @@ if [[ -n "$CUT_VERSION" ]]; then
             else
                 _recon="DOES NOT RECONCILE -- $(( _measured + ${n_broken:-0} )) bucketed vs ${n_probes} probes"
             fi
-            printf 'measured\t%s of %s (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- %s\n' \
+            printf 'measured\t%s of %s (pass+fail+cannot_run+advisory; a broken probe is SKIPPED in phase 2 and measures nothing) -- %s\n' \
                    "$_measured" "$n_probes" "$_recon"
         else
             printf 'measured\t%s of UNKNOWN (probe total not parseable from the run log, so coverage cannot be stated -- this is not a claim that coverage was full)\n' \

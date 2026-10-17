@@ -100,6 +100,12 @@ def _ensure_httpx_importable() -> None:
 
 
 def load(path: pathlib.Path, name: str):
+    # dedupe_merge imports its sibling person_audit by bare name when it is not
+    # loaded as a package. Mutants and controls are copied to a temp dir, so the
+    # sibling is found from the vendored tree, the same file the product ships.
+    sibling_dir = str((REPO / MODULE_REL).parent)
+    if sibling_dir not in sys.path:
+        sys.path.insert(0, sibling_dir)
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         cannot_run(f"could not load {path}")

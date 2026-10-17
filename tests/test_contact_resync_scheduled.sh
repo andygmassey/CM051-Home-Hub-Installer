@@ -58,13 +58,19 @@ if ! grep -q 'contact_syncer.syncer' "$INSTALL_SH"; then
     failure "wrapper does not invoke contact_syncer.syncer"
 fi
 
-# Axis 3: the wrapper must be self-removing AND bounded, so a Mac that
-# never finishes syncing can never keep the agent alive forever.
-if ! grep -q 'remove_self' "$INSTALL_SH"; then
-    failure "wrapper does not self-remove its agent on success"
+# Axis 3 (REWRITTEN for G3, TCC sweep 2026-10-15). This used to require a
+# self-removing, bounded agent. That design is what left Contacts with NO
+# recurring reader on most Macs: it was scheduled only after a failed install
+# read and removed itself on first success. The reader is now permanent, so
+# the axis asserts the opposite: it must NOT remove itself, and it must stay
+# cheap by syncing only when the address book's signature changes. Its
+# behaviour is proven by tests/test_contacts_and_reminders_are_reread.sh.
+RESYNC_BODY="$(awk '/bin\/ostler-contact-resync" <</{p=1;next} p&&/^CRSEOF$/{exit} p' "$INSTALL_SH")"
+if grep -qE 'launchctl (bootout|unload)' <<<"$RESYNC_BODY"; then
+    failure "the contact reader still removes its own agent, so contacts stop being read"
 fi
-if ! grep -q 'CONTACT_RESYNC_MAX_TRIES' "$INSTALL_SH"; then
-    failure "wrapper does not bound its retries -- could run indefinitely"
+if ! grep -q 'contact-resync.sig' <<<"$RESYNC_BODY"; then
+    failure "the contact reader has no change signature, so it would re-sync every contact every tick"
 fi
 
 # Axis 4: install.sh must define the scheduler and create the
@@ -79,16 +85,17 @@ if ! grep -q 'StartInterval' "$INSTALL_SH"; then
     failure "the re-sync agent has no StartInterval -- it would never retry"
 fi
 
-# Axis 5: the scheduler must be GATED on the pending state, i.e. called
-# from inside a branch, not unconditionally at top level. Assert it is
-# invoked next to the pending message, never on the success branch.
-if ! grep -B3 '_schedule_contact_resync$' "$INSTALL_SH" | grep -q 'MSG_HYDRATE_CONTACTS_PENDING'; then
-    failure "_schedule_contact_resync is not gated on the contacts-pending state"
+# Axis 5 (REWRITTEN for G3). The reader is scheduled on EVERY install: still
+# announced from the pending branches, and quietly after the hydrate when the
+# install read worked, so contacts added after today are read too.
+# Herestring, not `| grep -q`: grep -q exits on first match and SIGPIPEs the
+# producer, which pipefail reads as a failed match (the ratchet's rule).
+_pending_ctx="$(grep -B3 '_schedule_contact_resync$' "$INSTALL_SH")"
+if ! grep -q 'MSG_HYDRATE_CONTACTS_PENDING' <<<"$_pending_ctx"; then
+    failure "_schedule_contact_resync is no longer announced from the contacts-pending state"
 fi
-# Guard against scheduling on the happy path: the DONE branch must not
-# schedule a re-sync.
-if grep -A2 'MSG_HYDRATE_CONTACTS_DONE' "$INSTALL_SH" | grep -q '_schedule_contact_resync'; then
-    failure "re-sync is scheduled even when contacts imported successfully"
+if ! grep -q '^    _schedule_contact_resync quiet$' "$INSTALL_SH"; then
+    failure "the contact reader is not scheduled when the install read succeeded, so nothing re-reads contacts"
 fi
 
 # Axis 6: the customer-facing string must exist.
@@ -132,4 +139,4 @@ if [[ "$FAILED" -ne 0 ]]; then
     echo "test_contact_resync_scheduled: FAILED" >&2
     exit 1
 fi
-echo "test_contact_resync_scheduled: contact re-sync wired (wrapper + abcddb fallback + self-removing/bounded agent + pending-gated + string + uninstaller)"
+echo "test_contact_resync_scheduled: contact reader wired (wrapper + abcddb fallback + permanent change-signature agent + scheduled on every install + string + uninstaller)"

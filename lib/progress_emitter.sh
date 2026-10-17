@@ -608,6 +608,15 @@ gui_step_end() {
 #   $7  error_text        (optional, surfaced as a banner above the
 #                          input on the GUI side; used by validation
 #                          retry loops -- see CX-97 below)
+#   $8  timeout_s         (optional, whole seconds). For a prompt asked
+#                          AFTER the Phase-3 walk-away boundary, so an
+#                          unattended install never blocks on it: when no
+#                          answer arrives in time, the default is printed
+#                          and gui_read RETURNS 124. Callers that pass a
+#                          timeout must consume that status (`|| rc=$?`),
+#                          which also keeps `set -e` from aborting on it.
+#                          Without $8 gui_read waits forever and always
+#                          returns 0, exactly as before.
 #
 # The answer is echoed on stdout, so callers can do:
 #
@@ -634,6 +643,8 @@ gui_read() {
     local choices_csv="${5:-}"
     local id="${6:-}"
     local error_text="${7:-}"
+    local timeout_s="${8:-}"
+    [[ "$timeout_s" =~ ^[1-9][0-9]*$ ]] || timeout_s=""
 
     # Slugify a default id from the title if none provided.
     #
@@ -670,7 +681,15 @@ gui_read() {
         # variable for the fd. Falls back to default_value if the GUI
         # closed the pipe (read returns non-zero on EOF).
         local answer=""
-        if ! IFS= read -r -u "${OSTLER_GUI_FD}" answer; then
+        if [[ -n "$timeout_s" ]]; then
+            # bash 3.2 accepts -t (whole seconds) together with -u. A
+            # timeout and an EOF both return non-zero; either way nobody
+            # answered, so the default stands and the caller is told.
+            if ! IFS= read -r -t "$timeout_s" -u "${OSTLER_GUI_FD}" answer; then
+                printf '%s' "$default_value"
+                return 124
+            fi
+        elif ! IFS= read -r -u "${OSTLER_GUI_FD}" answer; then
             answer="$default_value"
         fi
         printf '%s' "$answer"
@@ -711,6 +730,12 @@ gui_read() {
         read -r answer || true
         if [[ -z "$answer" && -n "$default_value" ]]; then
             answer="$default_value"
+        fi
+    elif [[ -n "$timeout_s" ]]; then
+        if ! read -r -t "$timeout_s" -p "$user_prompt" answer; then
+            printf '\n' >&2
+            printf '%s' "$default_value"
+            return 124
         fi
     else
         read -r -p "$user_prompt" answer || true

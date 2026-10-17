@@ -245,6 +245,17 @@ entries:
           # re-reds this gate, which is the property that makes it safe.
           - 3464215ba5  # fix(channels): parallel-dispatch deadline sat below the fixture's own floor [cfg(test) only]
           - d9ea32dd18  # fix(channels): put the parallel-dispatch test on a paused clock [cfg(test) + dev-dependencies only]
+          # (v1.0.107 cut #15, 2026-10-09 Archie) daemon pin hub-v0.5.7 @3140e252. The six commits below are oa #486
+          # (Lane 11/18 gateway routes behind the device bearer, no loopback or service-token
+          # exemption) and oa #490 (optional tailnet QR field, DEFAULT OFF, plus its keyset test).
+          # HELD to cut #16 so #486 ships as one unit with RemoteCapture 0.1.6 and CM051 #2678.
+          # Same decision as scripts/daemon_hold_ack.tsv row 3140e252 (CM051 #2738).
+          - 244b244b31  # gateway: close the Hub route gaps the contract tests found (Lane 11)
+          - b4ab804dc8  # gateway: reject the loopback no-auth exemption for speakers/identify (Lane 18)
+          - b97a5b9bd4  # gateway: remove SERVICE_TOKEN_PATHS; the service token is rejected on the gateway
+          - ec8200f59f  # gateway tests: serve_mock not webauthn-gated (test-only)
+          - 125094c5f5  # feat(pairing): optional hub_tailnet_addr in the pairing QR, default off
+          - 6f5c6d9aac  # test(pairing): default config QR keys equal the spec v1 set (test-only)
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch
@@ -271,6 +282,16 @@ entries:
         - "^docs:"
         - "^chore\\(docs\\)"
         - "^chore\\(release\\)"
+      # (v1.0.107 cut #15, 2026-10-09 Archie) RC pin 0.1.5. 1f47b619 is CM042 #30 (speakers/identify
+      # sends the Hub service token to ical-server :8090). It is HELD to cut #16, where RemoteCapture
+      # 0.1.6 (tag remote-capture-v0.1.6 -> 247fb8fd, CM051 #2735/#2736) ships with oa #486 and #2678
+      # as one unit; #30 alone would call a :8090 route that #15 does not serve.
+      hold_ack:
+        reason: "v1.0.107 cut #15: CM042 #30 (Lane 18 identify via the Hub service token) is HELD to cut #16, shipping as RemoteCapture 0.1.6 together with oa #486 and CM051 #2678. c2deba90 is the 0.1.6 version bump and 247fb8fd its merge. Re-pin to 0.1.6 at #16 retires this."
+        shas:
+          - 1f47b619b4  # speakers/identify: send the Hub service token (Lane 18) (#30)
+          - c2deba9083  # RemoteCapture 0.1.6: version bump
+          - 247fb8fdd9  # Merge pull request #31 (0.1.6 bump)
 
   # Note on wiki-recompile artefacts:
   # CM044's dedupe-decision chrome (dup_decision.js) is EMITTED at wiki
@@ -978,6 +999,15 @@ entries:
       kind: box_walk_probe
       probe: "owner_digest_knows_the_owner"
 
+  - id: box-walk-email-channel-round-trip
+    title: an allowed sender's email gets a threaded reply from the assistant; backlog, unlisted and automated mail get none
+    incident: >-
+      v1.0.107 #10 (Andy ruling): the email channel ships. Nothing on any walk
+      had sent the assistant an email. BLOCKING in walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: "email_channel_round_trip"
+
   - id: box-walk-conversation-capture-end-to-end
     title: iPhone/Watch conversation capture works end to end on a real Hub install
     incident: >-
@@ -1025,6 +1055,34 @@ entries:
       kind: box_walk_probe
       probe: "todos_reach_reminders"
 
+  - id: box-walk-apple-music-library-reaches-preferences
+    title: the Apple Music reader saw the owner's library and apple_music preference points exist in the store
+    incident: >-
+      Walk #27, 2026-10-14. Music showed only Spotify likes for an owner who
+      mostly uses Apple Music: the reader read only the Music app's optional
+      library XML, and the source was in no preset. The reader now uses the
+      bundled ostler-music-library helper (iTunesLibrary, Media & Apple Music
+      permission). An ssh-driven install cannot answer that permission, so
+      the TCC arm is console-only (console_only_probes.tsv); an empty library
+      is its own CANNOT-RUN. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "apple_music_library_reaches_preferences"
+
+  - id: box-walk-apple-music-refresh-runs-under-the-grant
+    title: the scheduled Apple Music refresh is armed, loaded, and its own read succeeded under the installer's grant
+    incident: >-
+      Andy 2026-10-15, "please don't let that slip". Apple Music refreshed at
+      install only, because a launchd job cannot hold the Media and Apple
+      Music grant. The refresh is now a LaunchAgent that runs the signed
+      installer app, which runs the signed helper as a child. Whether macOS
+      answers that read from the existing grant is inferred, not measured
+      (docs/APPLE_MUSIC_REFRESH_TCC.md); this probe is the measurement. The
+      TCC arm is console-only (console_only_probes.tsv). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "apple_music_refresh_runs_under_the_grant"
+
   # ADVISORY (scripts/walk_promote_scope.tsv): v1.0.107 has no on-demand send
   # endpoint and no email delivery channel, so this probe measures only the
   # config-correctness shape (an enabled channel with a written recipient).
@@ -1036,6 +1094,17 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "assistant_sends_over_whatsapp_and_email"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, owner_knowledge_score row): a
+  # usefulness score, not an install check. Declared here because every probe
+  # on disk must be invoked by the cut; the promote scope decides it never
+  # refuses a promote.
+  - id: box-walk-owner-knowledge-score
+    title: "advisory: the assistant answers a stratified sample of owner-knowledge questions over /ws/chat at or above the target"
+    incident: "Lane 17: no measure existed of whether the assistant knows the owner it was installed for"
+    proof:
+      kind: box_walk_probe
+      probe: "owner_knowledge_score"
 
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
@@ -1163,3 +1232,139 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "no_store_port_is_tcp_reachable"
+
+  - id: box-walk-meeting-brief-text-is-grounded
+    title: the pre-meeting brief the sender posts names the last topic and the open promise, says "no meetings logged" never "first meeting", and is short and honest when the contact is thin
+    incident: >-
+      ostler-ai/ostler-assistant#471. The live brief turned "no previous
+      meetings logged" into "this is your first face-to-face meeting" and was
+      padded with generic advice; the sender that produced it also crashed
+      reading its own stdin on every tick, so nothing was ever sent. The better
+      composer (#470) read Hub fields that were guesses. This probe seeds three
+      fictional contacts, runs the INSTALLED sender against the box's real Hub
+      and assistant binary, and grades the TEXT it posts to /announce. Spec:
+      docs/specs/meeting_brief_text_is_grounded.md. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "meeting_brief_text_is_grounded"
+
+  - id: box-walk-reply-debt-is-answered
+    title: asked "who do I owe a reply to?" in chat, the assistant names the people the Hub reports as waiting, from an undegraded reply-debt source
+    incident: >-
+      v1.0.108 wow moment 1 (launch/WOW_MOMENTS_GATE.md). Reply debt reached
+      the iOS Today tab only; chat had no tool for it (ostler-assistant #497
+      adds pwg_reply_debt). iMessage only today. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "reply_debt_is_answered"
+
+  - id: box-walk-followup-keys-match-chat-threads
+    title: the reminders map's thread keys match chat.db threads, so a reminder can be completed when the owner follows up
+    incident: >-
+      ostler-assistant #509 marks a reminder done when the owner messages its
+      thread, matching CM048's thread_key (CM051 #2802) against the same hash
+      of each chat.db chat's handles. Keys built from display names would
+      match nothing and the feature would be silently dead. Read-only: reads
+      the daemon's own census in GET /api/status -> followup, never seeds.
+      CANNOT-RUN until a hub pin carries #509. ADVISORY until then (walk_promote_scope.tsv); flips to BLOCKING in the PR that re-pins a hub carrying #509.
+    proof:
+      kind: box_walk_probe
+      probe: "followup_keys_match_chat_threads"
+
+  - id: box-walk-morning-brief-catches-me-up
+    title: the morning brief names the owner's open promises (never another person's), who is waiting on a reply and today's meetings
+    incident: >-
+      v1.0.108 wow moment 7. The 09:00 brief prompt asked only about
+      yesterday and the job was given no replies owed, promises or today's
+      meetings (ostler-assistant #497 prepends them; install.sh's prompt now
+      leads with today). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "morning_brief_catches_me_up"
+  - id: box-walk-scheduled-brief-reaches-messages
+    title: every ok morning brief and evening wrap run either reached chat.db or was withheld on purpose, and the daemon never logs DELIVERED for a message that never arrived
+    incident: >-
+      Walk #27. cron_runs said ok for the 01:00Z brief and chat.db held
+      nothing near it; ok is also written for a withheld or (best_effort)
+      failed delivery, so brief delivery was not instrumented. Joins each run
+      to the daemon's delivery= line and an assistant-marked chat.db row.
+      ADVISORY for its first cut (walk_promote_scope.tsv).
+    proof:
+      kind: box_walk_probe
+      probe: "scheduled_brief_reaches_messages"
+  - id: box-walk-qdrant-has-fd-headroom-and-writes-land
+    title: ostler-qdrant runs with nofile >= 65535 and under half of it open, and every hydrate step with input wrote, by its own counts
+    incident: >-
+      v1.0.107 cut #16 console walk. ostler-qdrant ran with nofile=1024 (no
+      ulimits in compose); 751 RocksDB .sst files were open (reminders 394,
+      apple notes 276) and Places then wrote 0 of 979 while printing
+      status=ok. The walk replays a synthetic scale fixture
+      (scripts/box_walk_probes/lib/scale_fixture.py) through the installed
+      hydrate first; scripts/qdrant_fd_scale_proof.sh is the RED/GREEN proof
+      on the pinned image. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "qdrant_has_fd_headroom_and_writes_land"
+
+  - id: box-walk-assistant-self-description-is-clean
+    title: the assistant describes itself without internal tool names and never addresses the user by its own name
+    incident: >-
+      Asked what it can do, the assistant listed internal tool names and
+      addressed the owner by the assistant's own name. Names read from the
+      box config. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_self_description_is_clean"
+
+  - id: box-walk-pair-endpoints-refuse-off-window
+    title: from the LAN with no pairing window open, the pair endpoints are refused at the router without a code being checked
+    incident: >-
+      Security (#17). POST /api/pair and POST /pair on the companion listener
+      evaluate any code from any LAN host at any time. Asserted from the walk
+      driver against the box. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "pair_endpoints_refuse_off_window"
+
+  - id: box-walk-companion-listener-refuses-unauthenticated
+    title: from the LAN, the companion listener on 8443 refuses a request with no or a made-up bearer, and the shipped config states pairing and its rate limit
+    incident: >-
+      Red team DMG #27 F4-4. The companion listener binds 0.0.0.0:8443 and
+      the shipped [gateway] config never stated require_pairing or a pair rate
+      limit. Asserted from the walk driver against the box. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "companion_listener_refuses_unauthenticated"
+
+  - id: box-walk-listener-watchdog-recovers-a-wedged-listener
+    title: with the daemon SIGSTOPped (process alive, 8443 silent), the listener watchdog captures sample and lsof, restarts it and 8443 answers 401 again within 300 s
+    incident: >-
+      Andy's box, 2026-10-17. The daemon ran at 0% CPU for 4 h with its 8443
+      listener dead; launchd saw a live process, nothing respawned it, and the
+      iPhone app showed Hub unreachable until a manual kickstart. An absent
+      watchdog is FAIL. Core of the #31 hotfix re-cut. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "listener_watchdog_recovers_a_wedged_listener"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, chat_latency_baseline row): a
+  # baseline measurement, not an install check. Declared here because every
+  # probe on disk must be invoked by the cut; the promote scope decides it
+  # never refuses a promote.
+  - id: box-walk-chat-latency-baseline
+    title: "advisory: time to first token and total time on /ws/chat for five fixed questions, with the model and the RAM tier"
+    incident: "Andy: chat replies took a while, and Hub-side LLM latency was NOT INSTRUMENTED"
+    proof:
+      kind: box_walk_probe
+      probe: "chat_latency_baseline"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, data_conservation row): per
+  # source, importer IN vs stores STORED vs wiki/Doctor SHOWN. Declared here
+  # because every probe on disk must be invoked by the cut; the promote scope
+  # keeps it advisory until the first golden-loaded walk calibrates `full`.
+  - id: box-walk-data-conservation
+    title: "advisory: what an importer saw, what the stores hold and what the wiki shows agree per source, or the loss is named"
+    incident: "the 2026-10-15 sweep found about eleven silent drops, e.g. most music preferences hidden by one missing allow-list entry"
+    proof:
+      kind: box_walk_probe
+      probe: "data_conservation"

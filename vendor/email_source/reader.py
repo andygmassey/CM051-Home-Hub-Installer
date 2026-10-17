@@ -259,6 +259,7 @@ def read_messages(
     mail_dir: Optional[Path] = None,
     since_days: int = 365,
     now: Optional[datetime] = None,
+    user_address: str = "",
 ) -> list[EmailMessage]:
     """Read Apple Mail ``.emlx`` files into a flat ``EmailMessage`` list.
 
@@ -268,11 +269,20 @@ def read_messages(
         since_days: only messages received within the last N days
             (``0`` disables the cutoff). The fresh-install clamp.
         now: override for "now" (tests).
+        user_address: the owner's own address; the robot-emoji prefix
+            marks an assistant send only on mail from it.
 
     Raises:
         PermissionError: if the Mail tree exists but FDA is denied.
     """
     from ostler_fda.apple_mail_mbox import discover_emlx_files, parse_emlx
+    from ostler_fda.imessage import is_assistant_send
+
+    dropped_assistant = 0
+    # The robot-emoji prefix rule applies only to mail FROM the owner's own
+    # address; mail from anyone else is kept unless it carries the invisible
+    # marker. No address configured: marker rule only.
+    owner = (user_address or "").strip().lower()
 
     mail_dir = mail_dir or _default_mail_dir()
     now = now or datetime.now(tz=timezone.utc)
@@ -304,11 +314,21 @@ def read_messages(
         message = _parse_one(parsed.rfc822_bytes, emlx_path)
         if message is None:
             continue
+        # The assistant's own sends are not the owner's words: an email the
+        # assistant sent lands in the owner's mailbox (Sent, or the inbox
+        # when addressed to the owner). Same rule as the iMessage reader,
+        # defined once in ostler_fda.imessage.
+        from_owner = bool(owner) and message.from_address == owner
+        if is_assistant_send(message.body, from_owner=from_owner):
+            dropped_assistant += 1
+            continue
         # parse_emlx already resolved received_at (Date header or mtime);
         # prefer the body-parsed Date but fall back so ordering holds.
         if message.timestamp is None:
             message.timestamp = parsed.received_at
         out.append(message)
 
+    if dropped_assistant:
+        logger.info("Dropped %d assistant-sent email(s)", dropped_assistant)
     logger.info("Read %d email messages from %s", len(out), mail_dir)
     return out

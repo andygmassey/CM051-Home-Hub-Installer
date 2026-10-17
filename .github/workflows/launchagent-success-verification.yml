@@ -60,9 +60,13 @@ on:
       - 'tests/test_ollama_watchdog_heals_only_a_wedge.sh'
       - 'tests/test_promote_keeps_open_logs_linked.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_uninstall_writes_deliberate_stop_marker.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_doctor_proxy_paths_predicate.sh'
+      - 'tests/test_doctor_oracle_fallback_is_off.sh'
+      - 'tests/test_every_installer_plist_parses.sh'
+      - 'vendor/doctor/agent/proxy.py'
       - 'tests/test_v1010_ical_doctor_service_auth.sh'
       - 'tests/test_upgrade_reloads_the_launchagent_it_rewrote.sh'
       # An upgrade must not carry a customer's OLD PATH over the template's.
@@ -115,6 +119,13 @@ jobs:
           sw_vers | head -2
       - name: The gate
         run: /bin/bash tests/test_launchagent_success_requires_verification.sh
+
+      # Moved here from launchd-plist-paths (ubuntu), where its axis C (a real
+      # launchd job must stay down while the deliberate-stop marker is present)
+      # could only report CANNOT-RUN: no launchctl. This job is macOS.
+      - name: Assert the uninstaller writes the deliberate-stop marker first and removes it last
+        if: always()
+        run: /bin/bash tests/test_uninstall_writes_deliberate_stop_marker.sh
 
       # THE OTHER HALF OF #876. The helper above stops the installer CLAIMING a
       # LaunchAgent loaded when it did not. It could not say WHY, because both
@@ -252,6 +263,14 @@ jobs:
       - name: The promote merges logs/ so a running service's log keeps its path (#2434)
         if: always()
         run: bash tests/test_promote_keeps_open_logs_linked.sh
+
+      - name: Every plist install.sh renders parses with plistlib
+        if: always()
+        run: /bin/bash tests/test_every_installer_plist_parses.sh
+
+      - name: The Doctor's tokenless loopback fallback is off on every install
+        if: always()
+        run: /bin/bash tests/test_doctor_oracle_fallback_is_off.sh
 
       - name: The existing LaunchAgent guards must still hold
         if: always()

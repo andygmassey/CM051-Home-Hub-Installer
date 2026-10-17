@@ -229,8 +229,12 @@ install(dead2)
 res6 = m.ingest_calendar(tmp6)
 check(res6.get("people_lookup_failed") == 1,
       "the run REPORTS that a lookup could not run")
-check(res6.get("people_created") == 1 and res6.get("people_matched") == 0,
-      "and still creates the person rather than dropping them silently")
+# DMG #27 shape sweep S2: FAIL CLOSED. A store that cannot be asked must not
+# mint a person (that is how an outage, or a merge tombstone the check could
+# not see, made duplicates). The attendee is not dropped silently: the run
+# reports the failed lookup above, and the next run picks the attendee up.
+check(res6.get("people_created") == 0 and res6.get("people_matched") == 0,
+      "and creates NOBODY while the store cannot be read (fail closed)")
 
 # The counts must stay honest in the ordinary case too, or the field above
 # is noise that nobody can act on.

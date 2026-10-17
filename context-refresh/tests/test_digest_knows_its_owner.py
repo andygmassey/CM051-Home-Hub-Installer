@@ -54,6 +54,22 @@ SERVICE_TOKEN = "synthetic-service-token-0000"
 OWNER_ID = "jane"
 OWNER_NAME = "Jane Doe"
 OWNER_EMAIL = "jane@example.com"
+NEIGHBOUR_PLACE = "Sam Patel is based in Lyonville."
+# #27: UNTAGGED legacy location facts. A contact's must go; the owner as explicit subject stays.
+UNTAGGED_CONTACT_PLACES = ("Lizzie Li lives in Harborview", "Is based in Robbieton")
+UNTAGGED_OWNER_PLACE = "Jane Doe lives in Seaford"
+PLACE_WITH_PHONE = "Office line " + "".join(["5550", "1991", "11"]) + " in Seaford"   # owner-tagged, but a raw phone never prints
+_PHONE_DIGITS = "".join(["5550", "1990", "00"])  # composed: no phone literal in source
+CONTACT_PHONE_FACT = f"+{_PHONE_DIGITS} has a son"
+OWNER_END_FACT = "Liz Doe is the sister of Jane Doe"
+# #25: UNTAGGED legacy facts about OTHER people (walk #24 shapes), cast names.
+UNTAGGED_OTHERS = (
+    "Sam Patel met Robbie Wang, Lizzie Li, Wei Zhang at a party",
+    "Sam Patel mentioned Robbie Wang got a job",
+    "Sam Patel has a son",
+    "Jane Doe met Sam Patel at a party",        # owner is the subject but it is not kinship
+)
+UNTAGGED_OWNER_DAUGHTER = "Jane Doe has a daughter Lizzie Li"
 
 # Strings that must NEVER reach the digest (L3, or not a person).
 FORBIDDEN = (
@@ -75,7 +91,11 @@ def _lit(v) -> ox.Literal:
 
 
 def _seed_store(*, mecard_org: str | None = "ExampleCo",
-                linkedin_current: str | None = None) -> ox.Store:
+                linkedin_current: str | None = None,
+                neighbour_place: bool = False,
+                contact_family: bool = False,
+                untagged_places: bool = False,
+                phone_place: bool = False) -> ox.Store:
     store = ox.Store()
     dg = ox.DefaultGraph()
     rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
@@ -125,8 +145,10 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     # Conversation-mined facts in the owner's named graph.
     ug = ox.NamedNode(f"urn:ostler:user/{OWNER_ID}")
 
-    def ufact(fid, text, ftype, domain, level="L0"):
+    def ufact(fid, text, ftype, domain, level="L0", about=None):
         f = ox.NamedNode(f"urn:ostler:fact/{fid}")
+        if about:
+            add(f, ox.NamedNode("urn:ostler:about"), ox.NamedNode(about), ug)
         add(f, rdf_type, ox.NamedNode("urn:ostler:Fact"), ug)
         add(f, ox.NamedNode("urn:ostler:text"), _lit(text), ug)
         add(f, ox.NamedNode("urn:ostler:userId"), _lit(OWNER_ID), ug)
@@ -145,9 +167,39 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
     add(af, "belongsToUser", owner)
     add(af, "createdAt", _lit(stamp(-1)))
 
-    ufact("u1", "Lives in Fictionville", "location", "general")
-    ufact("u2", "Has a sister called Liz Doe", "relationship", "family")
+    ufact("u1", "Lives in Fictionville", "location", "general",
+          about=f"urn:ostler:user/{OWNER_ID}")
+    ufact("u2", "Has a sister called Liz Doe", "relationship", "family",
+          about=f"urn:ostler:user/{OWNER_ID}")
     ufact("u3", "L3 SECRET FAMILY FACT", "relationship", "family", level="L3")
+    if neighbour_place:
+        # F12: the CM048 writer's real shape. The owner's own place carries
+        # about=urn:ostler:user/<id>; a contact's carries their person URN.
+        # Both sit in the OWNER's graph with the owner's userId.
+        ufact("u4", "Works from Harbourtown on Fridays", "location", "general",
+              about=f"urn:ostler:user/{OWNER_ID}")
+        ufact("u5", NEIGHBOUR_PLACE, "location", "general",
+              about="urn:ostler:person/sam_patel")
+
+    if contact_family:
+        # A fact ABOUT a contact (their person URN), phone handle as subject.
+        ufact("u6", CONTACT_PHONE_FACT, "relationship", "family",
+              about="urn:ostler:person/sam_patel")
+        # A relationship fact linking the owner to that contact: owner is one end.
+        ufact("u7", OWNER_END_FACT, "relationship", "family",
+              about="urn:ostler:person/liz_doe")
+
+    if contact_family:
+        for i, t in enumerate(UNTAGGED_OTHERS):
+            ufact(f"x{i}", t, "relationship", "family")          # no urn:ostler:about
+        ufact("x9", UNTAGGED_OWNER_DAUGHTER, "relationship", "family")
+
+    if phone_place:
+        ufact("y8", PLACE_WITH_PHONE, "location", "general", about=f"urn:ostler:user/{OWNER_ID}")
+    if untagged_places:
+        for i, t in enumerate(UNTAGGED_CONTACT_PLACES):
+            ufact(f"y{i}", t, "location", "general")                 # no urn:ostler:about
+        ufact("y9", UNTAGGED_OWNER_PLACE, "location", "general")
 
     # People the owner interacts with.
     def person(pid, name, org=None, level="L2"):
@@ -539,3 +591,125 @@ def test_digest_is_capped_on_a_busy_graph(env):
     store = _seed_store()
     _, digest = _build(env, _SCRIPT, store)
     assert len(digest) <= 6000 + 80
+
+
+# ── F12: a contact's place is not the owner's ────────────────────────────────
+#
+# Cut #17 device walk: asked "what do you know about me", the assistant listed
+# another contact's "is based in <city>" as the owner's. On the box the fact
+# was a CM048 urn:ostler:Fact with userId = the owner and urn:ostler:about =
+# that contact's person URN, and CONTEXT.md's About you Places line had it.
+
+def _about_places(digest: str) -> str:
+    about = _section(digest, "About you")
+    return "\n".join(ln for ln in about.splitlines() if ln.startswith("- Places:"))
+
+
+def test_f12_control_the_seed_holds_both_places():
+    store = _seed_store(neighbour_place=True)
+    texts = {r["t"].value for r in store.query(
+        "SELECT ?t WHERE { GRAPH ?g { ?f <urn:ostler:type> \"location\" ; "
+        "<urn:ostler:text> ?t ; <urn:ostler:userId> ?u } }")}
+    assert NEIGHBOUR_PLACE in texts and "Works from Harbourtown on Fridays" in texts
+
+
+def test_f12_a_contacts_place_is_absent_from_about_you(env):
+    """STRAIGHT arm: FAILS on the generator at 23555fa7 (main before this fix),
+    passes with it."""
+    _, digest = _build(env, _SCRIPT, _seed_store(neighbour_place=True), name="gen_f12")
+    places = _about_places(digest)
+    print(f"\n[F12] {places}")
+    assert NEIGHBOUR_PLACE not in places, f"a contact's place is on the owner's Places line: {places}"
+    assert NEIGHBOUR_PLACE not in _section(digest, "About you")
+
+
+def test_f12_control_the_owners_own_places_still_render(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(neighbour_place=True), name="gen_f12c")
+    places = _about_places(digest)
+    # Control: the owner's own places, tagged and legacy-untagged, still show.
+    assert "Works from Harbourtown on Fridays" in places
+    assert "Lives in Fictionville" in places
+
+
+# ── A contact's family fact is not the owner's family ────────────────────────
+#
+# DMG #23 walk: "Family and close people: <raw phone> has a son". A fact ABOUT a
+# contact (about = their person URN) sat on the owner's family line, with a raw
+# phone handle as its subject.
+
+def _about_family(digest: str) -> str:
+    about = _section(digest, "About you")
+    return "\n".join(ln for ln in about.splitlines() if ln.startswith("- Family and close people:"))
+
+
+def test_family_control_the_seed_holds_the_contact_fact():
+    store = _seed_store(contact_family=True)
+    texts = {r["t"].value for r in store.query(
+        "SELECT ?t WHERE { GRAPH ?g { ?f <urn:ostler:type> \"relationship\" ; "
+        "<urn:ostler:text> ?t ; <urn:ostler:userId> ?u } }")}
+    assert CONTACT_PHONE_FACT in texts and OWNER_END_FACT in texts
+
+
+def test_family_a_contacts_fact_and_its_phone_are_absent(env):
+    """RED on main before this fix, green with it."""
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam")
+    fam = _about_family(digest)
+    print(f"\n[FAMILY] {fam}")
+    assert "has a son" not in fam, f"a contact's fact is on the owner's family line: {fam}"
+    assert _PHONE_DIGITS not in digest
+
+
+def test_family_owner_relations_survive(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_famc")
+    fam = _about_family(digest)
+    assert "Has a sister called Liz Doe" in fam      # tagged to the owner
+    assert OWNER_END_FACT in fam                      # owner is one end of the relation
+
+
+def test_family_location_bucket_unchanged(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True, neighbour_place=True), name="gen_famp")
+    places = _about_places(digest)
+    assert "Works from Harbourtown on Fridays" in places and "Lives in Fictionville" in places
+    assert NEIGHBOUR_PLACE not in places
+
+
+def test_family_untagged_facts_about_other_people_are_dropped(env):
+    """#25 RED on the #2833 generator: untagged legacy facts about OTHER people
+    (walk #24 shapes) still sat on the owner's family line."""
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam25")
+    fam = _about_family(digest)
+    for t in UNTAGGED_OTHERS:
+        assert t not in fam, f"untagged other-people fact on the owner's family line: {t!r}"
+    assert "Sam Patel" not in fam
+
+
+def test_family_untagged_owner_relation_with_owner_as_subject_stays(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam25c")
+    fam = _about_family(digest)
+    assert UNTAGGED_OWNER_DAUGHTER in fam
+    assert "Has a sister called Liz Doe" in fam and OWNER_END_FACT in fam
+
+
+# ── #27: untagged location facts leave the Places line ───────────────────────
+
+def test_places_untagged_contact_locations_are_dropped(env):
+    """RED on the #2841 generator: the Places bucket kept untagged location facts."""
+    _, digest = _build(env, _SCRIPT, _seed_store(untagged_places=True), name="gen_pl27")
+    places = _about_places(digest)
+    for t in UNTAGGED_CONTACT_PLACES:
+        assert t not in places, f"untagged location fact on the owner's Places line: {t!r}"
+
+
+def test_places_owner_tagged_and_owner_subject_stay(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(untagged_places=True, neighbour_place=True), name="gen_pl27c")
+    places = _about_places(digest)
+    assert "Lives in Fictionville" in places            # tagged to the owner
+    assert "Works from Harbourtown on Fridays" in places
+    assert UNTAGGED_OWNER_PLACE in places               # owner is the explicit subject
+    assert NEIGHBOUR_PLACE not in places
+
+
+def test_places_a_raw_phone_never_prints(env):
+    _, digest = _build(env, _SCRIPT, _seed_store(phone_place=True), name="gen_pl27p")
+    assert "55501991" not in digest
+    assert "Lives in Fictionville" in _about_places(digest)      # the control: places do render here

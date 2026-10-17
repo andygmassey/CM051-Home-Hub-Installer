@@ -78,9 +78,16 @@ def load_shipped(repo: pathlib.Path) -> dict:
     # actually call it when this gate executes the rule in isolation.
     composed_fn = re.search(r"^def _is_kinship_composed_label\(.*?(?=^def |\Z)",
                             src, re.S | re.M)
+    # CM051 #30 batch 3: WhatsApp's unknown-name token. Called by
+    # _display_name_tier (tier PLACEHOLDER, which repair_placeholder_names does
+    # NOT delete) and kept OUTSIDE the rule slice, so it is extracted on its
+    # own: its constants and the function, up to _display_name_tier.
+    wa_fn = re.search(r"^_WA_UNKNOWN_WORDS = .*?(?=^def _display_name_tier\()",
+                      src, re.S | re.M)
     for name, m in (("the name-rule block", rule), ("_display_name_tier", tier_fn),
                     ("_is_provisional_display_name", prov_fn),
                     ("_is_kinship_composed_label", composed_fn),
+                    ("_is_whatsapp_placeholder_name", wa_fn),
                     ("_upsert_display_name", upsert)):
         if not m:
             fail(f"{name} is gone from the shipped module (v1018-D658/D659)")
@@ -108,7 +115,9 @@ def load_shipped(repo: pathlib.Path) -> dict:
         "json": json,
         "re": re,
     }
-    exec(rule.group(0) + "\n" + tier_fn.group(0) + "\n" + prov_fn.group(0)
+    if re.findall(r"^def (\w+)\(", wa_fn.group(0), re.M) != ["_is_whatsapp_placeholder_name"]:
+        fail("the WhatsApp placeholder extraction ran away or lost its function")
+    exec(rule.group(0) + "\n" + wa_fn.group(0) + "\n" + tier_fn.group(0) + "\n" + prov_fn.group(0)
          + "\n" + composed_fn.group(0) + "\n" + upsert.group(0), ns)
     ns["_captured"] = captured
     return ns
