@@ -1600,7 +1600,7 @@ Tree `ostler_fda`, `vendor/ostler_fda/imessage.py`: new `ChatDbSchemaError`, `_S
 
 ### Why
 
-Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness scored 0 of 80, because the synthetic chat.db lacked `account_login` (which both readers SELECT) and the readers swallowed `no such column: c.account_login` into `[]`. A schema-shaped OperationalError is only ever a reader/schema fault, never a benign empty (which returns zero rows with no exception), so it is refused rather than reported as 0 messages. The HR015 `ostler_fda` twin is OWED; `ostler_fda.patch` is NOT regenerated (no HR015 checkout here, the same refusal this file already records).
+Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness scored 0 of 80, because the synthetic chat.db lacked `account_login` (which both readers SELECT) and the readers swallowed `no such column: c.account_login` into `[]`. A schema-shaped OperationalError is only ever a reader/schema fault, never a benign empty (which returns zero rows with no exception), so it is refused rather than reported as 0 messages. The HR015 `ostler_fda` twin is OWED; Since CM051 #2969 this tree's grafts are recorded in `ostler_fda.patch`, so the edit is spliced into its `imessage.py` section: re-diffed against the source reconstructed by reverse-applying main's patch, and the PR tree minus the new patch reproduces that source exactly. This note is context; the patch is the record.
 
 ### What a future sync must preserve
 

@@ -141,3 +141,5 @@ Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness
 ### What a future sync must preserve
 
 `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`. Retire by landing the change upstream (andygmassey/conversation-memory, services/imessage_source) and re-pinning.
+
+Recorded in `imessage_source.patch` (its `reader.py` section), spliced the same way as the `ostler_fda` twin: since CM051 #2969 that patch, not this file, is the tree's record.
