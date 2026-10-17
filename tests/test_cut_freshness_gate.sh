@@ -572,6 +572,114 @@ else
 fi
 
 # ===========================================================================
+# (o) unverifiable_ack (complete) -> EXEMPT here too (shared vocabulary)
+# ===========================================================================
+# unverifiable_ack was the SIBLING gate's word; this gate only knew
+# verify_exempt. After unification a tree ack'd in writing (reason + owner) is
+# honoured by BOTH -- the fix for cm019_preferences, ack'd in one gate and red
+# in this one for the same manifest. verify=skip is unchanged: scenario (g)
+# above still REDs a fetchable skip-tree, because skip is not a reasoned
+# exemption.
+reset_defaults
+T2_EXTRA=$'unverifiable_ack = true\nunverifiable_ack_reason = "genuinely unverifiable in this env"\nunverifiable_ack_owner  = "self-test"'
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && grep -q "EXEMPT" <<< "$OUT" && grep -q "GATE: GREEN" <<< "$OUT"; then
+    ok "(o) complete unverifiable_ack -> exit 0, EXEMPT (honoured by this gate too)"
+else
+    bad "(o) unverifiable_ack not honoured: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (p) unverifiable_ack WITHOUT an owner -> exit 1, RED ack-incomplete
+# ===========================================================================
+reset_defaults
+T2_EXTRA=$'unverifiable_ack = true\nunverifiable_ack_reason = "a reason with nobody\'s name on it"'
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && grep -q "RED ack-incomplete" <<< "$OUT"; then
+    ok "(p) incomplete unverifiable_ack -> exit 1, RED ack-incomplete"
+else
+    bad "(p) incomplete-ack: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (q) TOKEN PREFLIGHT -- a missing per-owner token fails LOUD, not as fake REDs
+# ===========================================================================
+# With no usable credential for andygmassey, the gate must say so up front and
+# exit 3 (CANNOT-VERIFY) naming the exact env var -- NOT emit a pile of per-tree
+# "unreadable-source" REDs that look like content problems.
+reset_defaults
+build_fixture
+OUT="$(run_gate FRESHNESS_MOCK_NO_TOKEN="andygmassey" 2>&1)"; RC=$?
+if [ "$RC" -eq 3 ] \
+   && grep -q "CANNOT VERIFY" <<< "$OUT" \
+   && grep -q "OSTLER_GH_TOKEN_ANDYGMASSEY" <<< "$OUT"; then
+    ok "(q) missing per-owner token -> exit 3 at preflight, names OSTLER_GH_TOKEN_ANDYGMASSEY"
+else
+    bad "(q) token preflight did not fire loud: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (r) NET-CONTENT short-circuit: +N commits but EMPTY net diff -> FRESH
+# ===========================================================================
+# Source is +3 past the pin, but the net file diff under the vendored path is
+# empty (delete-then-restore). No hold_ack. The pin is content-current, so the
+# gate must reclassify it FRESH -- not demand a hold_ack for commits that
+# changed nothing that ships.
+reset_defaults; T1_PIN="$SHA_OLD"
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
+  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
+  MOCK_CMP_22222222_11111111="ahead 3 0" \
+  MOCK_FILES_22222222_11111111="5 0" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && grep -q "FRESH net-zero" <<< "$OUT" && grep -q "GATE: GREEN" <<< "$OUT"; then
+    ok "(r) +3 commits, empty net diff under path -> FRESH net-zero (exit 0)"
+else
+    bad "(r) net-content short-circuit did not fire: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (s) POSITIVE CONTROL for (r): a REAL net change under the path stays RED
+# ===========================================================================
+# Same +3, but the net diff has 2 files under the path. The short-circuit must
+# NOT fire -- it stays STALE, and with no hold_ack that is RED. Proves (r) keys
+# off the net content, not merely off being asked.
+reset_defaults; T1_PIN="$SHA_OLD"
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
+  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
+  MOCK_CMP_22222222_11111111="ahead 3 0" \
+  MOCK_FILES_22222222_11111111="3 2" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && grep -q "RED STALE" <<< "$OUT" && ! grep -q "net-zero" <<< "$OUT"; then
+    ok "(s) +3 with a real net change under path -> still RED (short-circuit did NOT fire)"
+else
+    bad "(s) a real net change was short-circuited to FRESH: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (t) TRUNCATION FAIL-SAFE: a possibly-truncated file list is NOT short-circuited
+# ===========================================================================
+# GitHub caps compare files at 300. A 300-file response may be truncated, so a
+# "0 under path" reading could be a false zero. The gate must treat that as
+# UNKNOWN and fall through to the ladder (RED here, no hold_ack) -- never a
+# false FRESH.
+reset_defaults; T1_PIN="$SHA_OLD"
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
+  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
+  MOCK_CMP_22222222_11111111="ahead 3 0" \
+  MOCK_FILES_22222222_11111111="300 0" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && ! grep -q "net-zero" <<< "$OUT"; then
+    ok "(t) possibly-truncated (300-file) compare -> UNKNOWN, not short-circuited (stays RED)"
+else
+    bad "(t) a truncated file list was trusted as net-zero: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
 # (j) STALE tree, hold_ack covers the WHOLE delta + grafted=true -> exit 0 HELD
 # ===========================================================================
 reset_defaults; T1_PIN="$SHA_OLD"

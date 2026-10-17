@@ -183,31 +183,37 @@ checkout_drift() {
 #   0 = complete ack   (declared, with BOTH a reason and an owner)
 #   1 = no ack declared
 #   2 = declared but incomplete (missing reason and/or owner) -> RED
+# Delegates to the ONE reasoned-exemption reader in _vendor_lib.sh, so this gate
+# now honours verify_exempt as well as unverifiable_ack -- the two words the two
+# freshness gates had each learned only half of. Numeric contract unchanged:
+#   0 = a complete reasoned exemption (verify_exempt+reason, or ack+reason+owner)
+#   1 = none declared
+#   2 = declared but incomplete (missing its required reason/owner) -> RED
 ack_state() {
-    local tree="$1" declared reason owner
-    declared="$(vlib_field "$tree" unverifiable_ack)"
-    [ "$declared" = "true" ] || return 1
-    reason="$(vlib_field "$tree" unverifiable_ack_reason)"
-    owner="$(vlib_field "$tree" unverifiable_ack_owner)"
-    [ -n "$reason" ] && [ -n "$owner" ] || return 2
-    return 0
+    local st; st="$(vlib_reasoned_exemption "$1" | cut -f1)"
+    case "$st" in
+        exempt|ack) return 0 ;;
+        incomplete) return 2 ;;
+        *)          return 1 ;;
+    esac
 }
 
 # The ONE place an unverifiable tree is reported, so the ack rules cannot be
 # applied at one call site and forgotten at the other. Increments exactly one
 # of ackd / fail / warn.
 report_unverifiable() {
-    local tree="$1" detail="$2" st=0
+    local tree="$1" detail="$2" st=0 exdetail
     ack_state "$tree" || st=$?
+    exdetail="$(vlib_reasoned_exemption "$tree" | cut -f2-)"
     case "$st" in
         0)
-            echo "ACK   $tree -- UNVERIFIABLE, acknowledged in writing (owner: $(vlib_field "$tree" unverifiable_ack_owner))"
-            echo "        NOT VERIFIED. Declared, with a reason and an owner: $(vlib_field "$tree" unverifiable_ack_reason)"
+            echo "ACK   $tree -- UNVERIFIABLE, acknowledged in writing"
+            echo "        NOT VERIFIED. Declared, with a reason/owner: $exdetail"
             ackd=$((ackd + 1))
             ;;
         2)
-            echo "FAIL  $tree -- unverifiable_ack is declared but INCOMPLETE." >&2
-            echo "        It requires BOTH unverifiable_ack_reason and unverifiable_ack_owner." >&2
+            echo "FAIL  $tree -- reasoned exemption is declared but INCOMPLETE." >&2
+            echo "        $exdetail" >&2
             echo "        An exemption with nobody's name on it is how a temporary gap becomes" >&2
             echo "        permanent, so an incomplete one is refused rather than honoured." >&2
             fail=$((fail + 1))
@@ -306,6 +312,22 @@ while IFS= read -r tree; do
     src_ref="$(compare_ref "$src_repo")"
     src_drift="$(checkout_drift "$src_repo" "$src_ref" || true)"
     behind="$(unshipped_commits "$tree" "$src_ref" || true)"
+
+    # NET-CONTENT short-circuit. `behind` is a COMMIT count, but the question
+    # that decides what ships is whether the vendored CONTENT moved. If source
+    # at the pin and source at the ref render a byte-identical vendored file-set,
+    # the intervening commits net to zero (e.g. a delete-then-restore
+    # round-trip) and the pin is content-current -- clear `behind` so the
+    # hold_ack ladder is not asked to acknowledge commits that changed nothing
+    # that ships. This can only ever turn a false "advanced" into "clean": if
+    # the content truly differs the hashes differ and nothing is cleared.
+    if [ -n "$behind" ]; then
+        _pin_sha="$(vlib_field "$tree" pinned_sha)"
+        if vlib_net_content_equal "$tree" "$_pin_sha" "$src_ref"; then
+            echo "      note: $tree -- $(printf '%s\n' "$behind" | grep -c .) commit(s) past the pin net to ZERO content change for the vendored subset (delete-then-restore); pin is content-current."
+            behind=""
+        fi
+    fi
 
     # A pin sitting behind source HEAD is allowed ONLY via a hold_ack that
     # acknowledges EVERY commit in the delta, records WHY, and asserts the

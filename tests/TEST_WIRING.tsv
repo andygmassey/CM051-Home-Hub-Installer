@@ -302,6 +302,7 @@ test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.
 test_documents_access_doctor_denied_row.py	WIRED	.github/workflows/consent-data-handling.yml
 test_documents_tcc_pre_explain_before_first_write.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_download_currency_gate_is_wired.sh	WIRED	.github/workflows/customer-download-path.yml
+test_drain_pr_exemptions.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_e1_source_readout_emits.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_editor_feedback_accepts_the_real_client_action_strings.py	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -586,6 +587,7 @@ test_port_preflight_recognises_own_colima_567.sh	WIRED	.github/workflows/colima-
 test_port_preflight_survives_a_held_port.sh	WIRED	.github/workflows/colima-autostart.yml
 test_post_walk_qa_measures_the_artefact.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_pr_age_live_exemption_cap.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pr_gate_aggregate.sh	WIRED	.github/workflows/ci-required-gate.yml
 test_precondition_one_settles_like_every_later_opening.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_pref_noise_source_cap.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
