@@ -263,7 +263,7 @@ MUTS=0
 mutate fail_threshold   '[ "$n" -lt "$FAIL_N" ]'           '[ "$n" -lt 1 ]'; MUTS=$((MUTS+1))
 mutate alive_check      'if [ "$LAST_CODE" != "000" ]; then' 'if false; then'; MUTS=$((MUTS+1))
 mutate stop_marker      'if [ -e "$STOP_MARKER" ]; then'     'if false; then'; MUTS=$((MUTS+1))
-mutate install_guard    'if install_running; then'           'if false; then'; MUTS=$((MUTS+1))
+mutate install_guard    'if lwd_install_running; then'           'if false; then'; MUTS=$((MUTS+1))
 mutate not_loaded_guard '*"Could not find service"*)'        '*"never-matches"*)'; MUTS=$((MUTS+1))
 mutate hourly_backoff   'if [ "$rlh" -ge "$MAX_PER_HOUR" ]; then' 'if false; then'; MUTS=$((MUTS+1))
 mutate capture_sample   'sample "$PID" "$SAMPLE_S"'          'true "$PID" "$SAMPLE_S"'; MUTS=$((MUTS+1))

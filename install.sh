@@ -15201,34 +15201,34 @@ LOCK="${STATE_DIR}/listener_watchdog.lock"
 
 mkdir -p "$STATE_DIR" "$LOGS_DIR" 2>/dev/null || true
 # stdout IS the log: the plist points StandardOutPath at ${LOGS_DIR}/listener-watchdog.log.
-log() { printf '%s listener-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
-now() { date +%s; }
-iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1"; }
+lwd_log() { printf '%s listener-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+lwd_now() { date +%s; }
+lwd_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1"; }
 
 # A lock that survives a SIGKILL must not wedge the watchdog for ever: one
 # older than 10 minutes is taken over (a run is bounded well under that).
 if ! mkdir "$LOCK" 2>/dev/null; then
-    _lk_age=$(( $(now) - $(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null || now) ))
+    _lk_age=$(( $(lwd_now) - $(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null || lwd_now) ))
     if [ "$_lk_age" -lt 600 ]; then
-        log "previous run still in progress; skipping"
+        lwd_log "previous run still in progress; skipping"
         exit 0
     fi
-    log "taking over a stale lock (${_lk_age}s old)"
+    lwd_log "taking over a stale lock (${_lk_age}s old)"
     rmdir "$LOCK" 2>/dev/null; mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 LAST_RESTART_AT=""; LAST_CAPTURE=""; LAST_CODE=""
-read_state_field() {
+lwd_read_state_field() {
     [ -f "$STATE_FILE" ] || return 0
     sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" "$STATE_FILE" | head -1
 }
-LAST_RESTART_AT="$(read_state_field last_restart_at)"
-LAST_CAPTURE="$(read_state_field last_capture)"
+LAST_RESTART_AT="$(lwd_read_state_field last_restart_at)"
+LAST_CAPTURE="$(lwd_read_state_field last_capture)"
 
-restarts_last_hour() {
+lwd_restarts_last_hour() {
     local cutoff n=0 t
-    cutoff=$(( $(now) - 3600 ))
+    cutoff=$(( $(lwd_now) - 3600 ))
     [ -f "$RESTARTS" ] || { echo 0; return; }
     : > "${RESTARTS}.tmp"
     while IFS= read -r t; do
@@ -15239,23 +15239,23 @@ restarts_last_hour() {
     echo "$n"
 }
 
-# write_state <state> <failures> <detail>
-write_state() {
+# lwd_write_state <state> <failures> <detail>
+lwd_write_state() {
     local d
     d="$(printf '%s' "$3" | tr -d '"\\' | tr '\n\t' '  ' | cut -c1-300)"
     printf '{"state": "%s", "consecutive_failures": %s, "last_restart_at": "%s", "restarts_last_hour": %s, "last_capture": "%s", "last_http_code": "%s", "detail": "%s", "url": "%s", "updated_at": "%s"}\n' \
-        "$1" "$2" "$LAST_RESTART_AT" "$(restarts_last_hour)" "$LAST_CAPTURE" "$LAST_CODE" "$d" "$URL" "$(iso "$(now)")" \
+        "$1" "$2" "$LAST_RESTART_AT" "$(lwd_restarts_last_hour)" "$LAST_CAPTURE" "$LAST_CODE" "$d" "$URL" "$(lwd_iso "$(lwd_now)")" \
         > "${STATE_FILE}.tmp" && mv -f "${STATE_FILE}.tmp" "$STATE_FILE"
 }
 
-probe() {
+lwd_probe() {
     # Echoes the HTTP status, 000 when no status line arrived.
     local c
     c="$(curl -sk --noproxy '*' --connect-timeout "$CONNECT_S" --max-time "$MAX_S" -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null)"
     case "$c" in ''|000) echo 000 ;; *) echo "$c" ;; esac
 }
 
-install_running() {
+lwd_install_running() {
     if [ -n "$INSTALL_RUNNING_CMD" ]; then eval "$INSTALL_RUNNING_CMD"; return $?; fi
     pgrep -f '/install\.sh' >/dev/null 2>&1 && return 0
     pgrep -f 'ostler-uninstall' >/dev/null 2>&1 && return 0
@@ -15268,19 +15268,19 @@ case "$prev_fails" in ''|*[!0-9]*) prev_fails=0 ;; esac
 # ── Is the daemon supposed to be running at all? ─────────────────────
 if [ -e "$STOP_MARKER" ]; then
     rm -f "$FAILS"
-    log "deliberate-stop marker present (${STOP_MARKER}); the daemon is meant to be down, no probe, no restart"
-    write_state "stopped_deliberately" 0 "deliberate-stop marker present"
+    lwd_log "deliberate-stop marker present (${STOP_MARKER}); the daemon is meant to be down, no probe, no restart"
+    lwd_write_state "stopped_deliberately" 0 "deliberate-stop marker present"
     exit 0
 fi
-if install_running; then
+if lwd_install_running; then
     rm -f "$FAILS"
-    log "an install or uninstall is running; not judging or restarting the daemon"
-    write_state "install_running" 0 "installer or uninstaller running"
+    lwd_log "an install or uninstall is running; not judging or restarting the daemon"
+    lwd_write_state "install_running" 0 "installer or uninstaller running"
     exit 0
 fi
 if [ -r "$ASSISTANT_CONFIG" ] && grep -Eq '^[[:space:]]*companion_enabled[[:space:]]*=[[:space:]]*false' "$ASSISTANT_CONFIG"; then
     rm -f "$FAILS"
-    write_state "disabled" 0 "companion_enabled = false in the assistant config; nothing should listen"
+    lwd_write_state "disabled" 0 "companion_enabled = false in the assistant config; nothing should listen"
     exit 0
 fi
 lc_out="$("$LAUNCHCTL" print "gui/$(id -u)/${LABEL}" 2>&1)"; lc_rc=$?
@@ -15288,42 +15288,42 @@ if [ "$lc_rc" -ne 0 ]; then
     case "$lc_out" in
         *"Could not find service"*)
             rm -f "$FAILS"
-            log "${LABEL} is not loaded in launchd; it was booted out on purpose or never installed, no restart"
-            write_state "not_loaded" 0 "${LABEL} not loaded in launchd"
+            lwd_log "${LABEL} is not loaded in launchd; it was booted out on purpose or never installed, no restart"
+            lwd_write_state "not_loaded" 0 "${LABEL} not loaded in launchd"
             exit 0 ;;
     esac
-    log "CANNOT-RUN: launchctl print ${LABEL} rc=${lc_rc}: $(printf '%s' "$lc_out" | head -1)"
-    write_state "cannot_run" "$prev_fails" "launchctl print rc=${lc_rc}"
+    lwd_log "CANNOT-RUN: launchctl print ${LABEL} rc=${lc_rc}: $(printf '%s' "$lc_out" | head -1)"
+    lwd_write_state "cannot_run" "$prev_fails" "launchctl print rc=${lc_rc}"
     exit 2
 fi
 PID="$(printf '%s\n' "$lc_out" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -1)"
 
 # ── Probe ────────────────────────────────────────────────────────────
-LAST_CODE="$(probe)"
+LAST_CODE="$(lwd_probe)"
 if [ "$LAST_CODE" != "000" ]; then
-    [ "$prev_fails" -gt 0 ] && log "listener answering again (HTTP ${LAST_CODE}) after ${prev_fails} failed probe(s)"
+    [ "$prev_fails" -gt 0 ] && lwd_log "listener answering again (HTTP ${LAST_CODE}) after ${prev_fails} failed probe(s)"
     rm -f "$FAILS"
-    write_state "ok" 0 "listener answered HTTP ${LAST_CODE}"
+    lwd_write_state "ok" 0 "listener answered HTTP ${LAST_CODE}"
     exit 0
 fi
 n=$((prev_fails + 1))
 echo "$n" > "$FAILS"
-log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})"
+lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})"
 if [ "$n" -lt "$FAIL_N" ]; then
-    write_state "failing" "$n" "no HTTP status from the listener"
+    lwd_write_state "failing" "$n" "no HTTP status from the listener"
     exit 0
 fi
 
 # ── Backoff ──────────────────────────────────────────────────────────
-rlh="$(restarts_last_hour)"
+rlh="$(lwd_restarts_last_hour)"
 if [ "$rlh" -ge "$MAX_PER_HOUR" ]; then
-    log "DEGRADED: listener dead for ${n} probes but ${rlh} restarts already in the last hour (limit ${MAX_PER_HOUR}); NOT restarting"
-    write_state "degraded" "$n" "listener dead; ${rlh} restarts in the last hour reached the limit of ${MAX_PER_HOUR}, automatic restarts paused"
+    lwd_log "DEGRADED: listener dead for ${n} probes but ${rlh} restarts already in the last hour (limit ${MAX_PER_HOUR}); NOT restarting"
+    lwd_write_state "degraded" "$n" "listener dead; ${rlh} restarts in the last hour reached the limit of ${MAX_PER_HOUR}, automatic restarts paused"
     exit 1
 fi
 
 # ── Capture BEFORE the restart destroys the state ────────────────────
-cap_file() { # cap_file <file>: keep at most CAPTURE_FILE_MAX bytes
+lwd_cap_file() { # lwd_cap_file <file>: keep at most CAPTURE_FILE_MAX bytes
     [ -f "$1" ] || return 0
     local sz
     sz=$(wc -c < "$1" | tr -d ' ')
@@ -15336,7 +15336,7 @@ ts="$(date -u +%Y%m%dT%H%M%SZ)"
 CAP="${CAPTURE_ROOT}/${ts}"
 mkdir -p "$CAP"
 {
-    echo "captured_at=$(iso "$(now)") pid=${PID:-none} url=${URL} consecutive_failures=${n} restarts_last_hour=${rlh}"
+    echo "captured_at=$(lwd_iso "$(lwd_now)") pid=${PID:-none} url=${URL} consecutive_failures=${n} restarts_last_hour=${rlh}"
     printf '%s\n' "$lc_out"
 } > "$CAP/launchctl.txt" 2>&1
 if [ -n "$PID" ]; then
@@ -15360,9 +15360,9 @@ tail -n 200 "$DAEMON_ERR" > "$CAP/daemon-err-tail.txt" 2>&1 || true
     echo "== memory_pressure -Q"; memory_pressure -Q 2>&1
     echo "== hw.memsize"; sysctl -n hw.memsize 2>&1
 } > "$CAP/memory.txt"
-for _f in "$CAP"/*; do cap_file "$_f"; done
+for _f in "$CAP"/*; do lwd_cap_file "$_f"; done
 LAST_CAPTURE="$CAP"
-log "CAPTURE ${CAP}"
+lwd_log "CAPTURE ${CAP}"
 ls -1d "$CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -rf "$_old"; done
 
 # ── Restart ──────────────────────────────────────────────────────────
@@ -15370,29 +15370,29 @@ ls -1d "$CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" 'NR>k
 # on the SIGTERM that `kickstart -k` sends, so launchd would sit out its exit
 # timeout before the SIGKILL.
 [ -n "$PID" ] && kill -CONT "$PID" 2>/dev/null
-t0="$(now)"
+t0="$(lwd_now)"
 echo "$t0" >> "$RESTARTS"
-LAST_RESTART_AT="$(iso "$t0")"
+LAST_RESTART_AT="$(lwd_iso "$t0")"
 rm -f "$FAILS"
 ks_out="$("$LAUNCHCTL" kickstart -k "gui/$(id -u)/${LABEL}" 2>&1)"; ks_rc=$?
-log "RESTART ${LABEL}: kickstart -k rc=${ks_rc} ${ks_out}"
+lwd_log "RESTART ${LABEL}: kickstart -k rc=${ks_rc} ${ks_out}"
 if [ "$ks_rc" -ne 0 ]; then
-    write_state "restart_failed" 0 "kickstart -k rc=${ks_rc}: ${ks_out}"
+    lwd_write_state "restart_failed" 0 "kickstart -k rc=${ks_rc}: ${ks_out}"
     exit 1
 fi
 waited=0
 while [ "$waited" -lt "$VERIFY_S" ]; do
     sleep "$VERIFY_POLL_S"
     waited=$((waited + VERIFY_POLL_S))
-    LAST_CODE="$(probe)"
+    LAST_CODE="$(lwd_probe)"
     if [ "$LAST_CODE" != "000" ]; then
-        log "RECOVERED: listener answered HTTP ${LAST_CODE} ${waited}s after the restart"
-        write_state "recovered" 0 "restarted after ${n} failed probes; answered HTTP ${LAST_CODE} ${waited}s later"
+        lwd_log "RECOVERED: listener answered HTTP ${LAST_CODE} ${waited}s after the restart"
+        lwd_write_state "recovered" 0 "restarted after ${n} failed probes; answered HTTP ${LAST_CODE} ${waited}s later"
         exit 0
     fi
 done
-log "NOT RECOVERED: listener still silent ${VERIFY_S}s after the restart"
-write_state "restart_unverified" 0 "restarted after ${n} failed probes; still no HTTP status ${VERIFY_S}s later"
+lwd_log "NOT RECOVERED: listener still silent ${VERIFY_S}s after the restart"
+lwd_write_state "restart_unverified" 0 "restarted after ${n} failed probes; still no HTTP status ${VERIFY_S}s later"
 exit 1
 LISTENERWDEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-listener-watchdog"
