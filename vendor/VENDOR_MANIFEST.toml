@@ -828,6 +828,7 @@ source_repo      = "$HR015"
 source_path      = "spoken_source"
 pinned_sha       = "d06d80e398af7eace303611a10528164f4c632c3"
   divergence_patch = "vendor/divergences/spoken_source.patch"
+unrecorded_divergence = "vendor/divergences/v1_0_108_licence_hardening.UNRECORDED.md"  # DECLARED 2026-10-17 (v1.0.108 licence hardening): the Rule 0.8 fail-closed edit in bin/spoken-bundle-tick.sh. The divergence patch cannot be regenerated on the PR runner (the HR015 source is not resolvable there, #1961), so it is recorded here per route (c).
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
 verify_exempt    = true

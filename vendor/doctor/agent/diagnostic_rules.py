@@ -2722,8 +2722,84 @@ def check_licence_expiry(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _ostler_gate_posture_dir() -> str:
+    """Directory of per-surface gate-posture markers (v1.0.108 Leak C).
+
+    The five ingestion tick wrappers write ``<surface>.json`` here when
+    they FAIL CLOSED on a subscription gate they could not run (missing
+    module / crashed interpreter). Keyed on ``$OSTLER_HOME`` (falling back
+    to the home dir) exactly as the wrappers resolve it, and as
+    observability_posture.py does, so a test can redirect both sides.
+    """
+    import os
+
+    base = os.environ.get("OSTLER_HOME") or os.path.expanduser("~")
+    return os.path.join(base, ".ostler", "state", "gate_posture")
+
+
+def check_subscription_gate_health(snapshot: Any) -> list[dict]:
+    """RED when an ingestion surface could not run the subscription gate.
+
+    The counterpart to v1.0.108 Leak C: the tick wrappers now fail CLOSED
+    (stop ingesting) when the gate module is missing or its interpreter
+    will not start, and they drop a marker here so the stop is LOUD rather
+    than a line in a log nobody reads. This rule turns that marker into a
+    red Doctor row.
+
+    It is deliberately NOT the lapsed-subscription surface -- a customer
+    who simply is not paying is a steady state handled (amber/info) by
+    check_licence_expiry. This fires only on ``gate_unavailable``: a
+    packaging or runtime FAULT that is pausing a paying customer's
+    ingestion and needs a human. ``ok`` markers and an absent directory
+    return nothing, so a healthy Hub is silent.
+    """
+    import json
+    import os
+
+    findings: list[dict] = []
+    gate_dir = _ostler_gate_posture_dir()
+    try:
+        names = sorted(os.listdir(gate_dir))
+    except OSError:
+        return findings  # no directory yet: nothing has failed closed
+
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(gate_dir, name), encoding="utf-8") as fh:
+                marker = json.load(fh)
+        except (OSError, ValueError):
+            continue  # unreadable marker: cannot assert a fault from it
+        if not isinstance(marker, dict):
+            continue
+        if marker.get("status") != "gate_unavailable":
+            continue  # "ok" and anything else is not a fault
+        surface = marker.get("surface") or name[:-5]
+        detail = marker.get("detail") or "the subscription gate could not be run"
+        findings.append({
+            "severity": "critical",
+            "title": "Ingestion paused: the subscription gate is unavailable ({s})".format(s=surface),
+            "detail": (
+                "The {s} tick could not run the Ostler Pro subscription gate "
+                "({d}), so it FAILED CLOSED and stopped ingesting rather than "
+                "run unenforced. This is a packaging or runtime fault, not a "
+                "lapsed subscription. Your existing data is untouched."
+            ).format(s=surface, d=detail),
+            "fix": (
+                "Re-run the Ostler installer to re-stage the gate module "
+                "(it belongs beside ical-server.py), then check Doctor again."
+            ),
+            "fix_command": "",
+            "risk": "medium",
+            "category": "ingest",
+        })
+    return findings
+
+
 ALL_RULES = [
     check_scheduled_agents,
+    check_subscription_gate_health,
     check_hydrate_ingest,
     check_first_install,
     check_container_health,

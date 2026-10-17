@@ -17,3 +17,11 @@ WHY: both production invocations pass `--since-days 365`, so history older than 
 ### What a future sync must preserve
 
 `process_one`, its use in `run`, and `catchup.py`. Guarded by `tests/test_catchup_photos_ai.py` (red on origin/main, wired in `.github/workflows/catchup-photos-ai.yml`). Registered by install.sh as `bin/catchup.d/35-aichats.sh`.
+
+## v1.0.108 licence hardening (DECLARED 2026-10-17)
+
+cm052_ai_conversations also diverges for v1.0.108: its
+`src/cm052/subscription_gate.py` copy gains the shared "Pro paused" signal file
+and the Leak B unverified-install refusal, kept byte-identical to the cm041
+twin. Full record + shape:
+vendor/divergences/v1_0_108_licence_hardening.UNRECORDED.md.

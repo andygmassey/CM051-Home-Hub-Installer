@@ -36,6 +36,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -1072,3 +1073,85 @@ def test_detached_compile_survives_a_launchd_process_group_kill(stub_env, tmp_pa
         "process-group kill sent the instant the wrapper exited -- it is "
         "still a member of the wrapper's process group (v1.0.107 walk #4)"
     )
+
+
+# ---------------------------------------------------------------------------
+# v1.0.108 Rule 0.8: a FRESH recompile is Pro; the VIEW stays free.
+# ---------------------------------------------------------------------------
+def _stage_subscription_gate(ostler_dir: Path, *, days_ago: int) -> Path:
+    """Stage the shipped gate and write state via its own writer.
+
+    ``days_ago`` 1 -> active (inside the free month); 31 -> trial ended.
+    Returns the state-file path for the wrapper env.
+    """
+    gate_dir = ostler_dir / "services" / "ical-server"
+    gate_dir.mkdir(parents=True, exist_ok=True)
+    src = REPO_ROOT / "vendor" / "cm041" / "assistant_api" / "subscription_gate.py"
+    (gate_dir / "subscription_gate.py").write_text(src.read_text())
+    state = ostler_dir / "state" / "subscription_state.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]);"
+         "from subscription_gate import activate_first_month_free;"
+         "from datetime import datetime, timezone, timedelta;"
+         "activate_first_month_free((datetime.now(timezone.utc)-timedelta(days=int(sys.argv[2])))"
+         ".isoformat().replace('+00:00','Z'))",
+         str(gate_dir), str(days_ago)],
+        env={**os.environ, "OSTLER_SUBSCRIPTION_STATE": str(state)},
+        check=True, capture_output=True, text=True,
+    )
+    return state
+
+
+@_skip_if_real_docker
+def test_pro_inactive_pauses_the_compile_but_keeps_the_view(stub_env):
+    """A lapsed owner: no fresh compile, but wiki-site is kept up so the
+    last-compiled wiki stays viewable (the compiled volume is untouched)."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    state = _stage_subscription_gate(stub_env["ostler_dir"], days_ago=31)
+
+    result = _run_wrapper(
+        {"OSTLER_DIR": str(stub_env["ostler_dir"]),
+         "OSTLER_SUBSCRIPTION_STATE": str(state),
+         "OSTLER_PYTHON": sys.executable},
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, (
+        f"paused tick must exit 0: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    invocations = log.read_text().splitlines() if log.exists() else []
+
+    # The REFRESH is skipped: no wiki-compiler run at all (neither phase).
+    assert not any("wiki-compiler" in line for line in invocations), (
+        f"a lapsed owner triggered a fresh compile: {invocations}"
+    )
+    # The VIEW is kept alive: wiki-site is brought up.
+    assert any("compose up -d wiki-site" in line for line in invocations), (
+        f"paused tick must still keep the view up: {invocations}"
+    )
+
+
+@_skip_if_real_docker
+def test_pro_active_still_recompiles(stub_env):
+    """The other direction: an active subscription still gets a fresh
+    compile. A gate that always paused would be as wrong as none."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    state = _stage_subscription_gate(stub_env["ostler_dir"], days_ago=1)
+
+    result = _run_wrapper(
+        {"OSTLER_DIR": str(stub_env["ostler_dir"]),
+         "OSTLER_SUBSCRIPTION_STATE": str(state),
+         "OSTLER_PYTHON": sys.executable},
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, (
+        f"active tick failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    invocations = log.read_text().splitlines()
+    assert any(
+        "compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler" in line
+        for line in invocations
+    ), f"active subscription did not trigger the baseline compile: {invocations}"

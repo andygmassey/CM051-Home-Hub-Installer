@@ -424,3 +424,11 @@ divergences (v108 BOARD row "port #30 vendor divergences upstream").
 All of the above. Guarded by `tests/test_cm048_single_speaker_capture_is_a_memo.py`
 (drives `processor.process` and `ingest._write_conversation_md`), wired into
 `.github/workflows/cm048-participants-as-strings.yml`.
+
+## v1.0.108 licence hardening (DECLARED 2026-10-17)
+
+cm048_pipeline also diverges for v1.0.108: `src/reminders_push.py`
+(`apply_push_status_to_todos` + `_subscription_paused`) gains the Rule 0.8
+subscription gate so the proactive Apple Reminders push pauses when Ostler Pro
+is inactive. Patch not regenerable on the PR runner (#1961). Full record +
+shape: vendor/divergences/v1_0_108_licence_hardening.UNRECORDED.md.

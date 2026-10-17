@@ -46,11 +46,18 @@ sys.path.insert(0, str(ASSISTANT_API_DIR))
 
 import subscription_gate  # noqa: E402
 from subscription_gate import (  # noqa: E402
+    GATED_FEATURES_PAUSED,
+    GATED_REASON,
+    GATED_SIGNAL_FILENAME,
     GRACE_DAYS,
     OFFLINE_GRACE_DAYS,
+    SOURCE_UNLICENSED,
     STATUS_ACTIVE,
     STATUS_GRACE,
     STATUS_INACTIVE,
+    TIER_STATE_ABSENT,
+    TIER_STATE_KNOWN,
+    TIER_STATE_UNVERIFIED,
     activate_first_month_free,
     expire_check,
     is_active_or_grace,
@@ -611,6 +618,207 @@ class TestTheCustomerOnDayThirtyOne(SubscriptionGateTestCase):
         finally:
             os.chmod(self.state_path.parent, 0o755)
             os.chmod(self.state_path, 0o644)
+
+
+class TestLeakBUnverifiedInstallGetsNoFreeMonth(SubscriptionGateTestCase):
+    """v1.0.108 Leak B: --allow-unlicensed / OSTLER_DEV=1 is no longer a
+    free-Pro switch. Both directions: unverified is refused, every VERIFIED
+    tier still gets the month.
+    """
+
+    def test_unverified_install_is_refused(self) -> None:
+        """The escape path (tier_state 'unverified') writes inactive."""
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc)),
+            licence_tier=None,
+            licence_tier_state=TIER_STATE_UNVERIFIED,
+        )
+        snap = state_dict()
+        self.assertEqual(snap["status"], STATUS_INACTIVE)
+        self.assertEqual(snap["source"], SOURCE_UNLICENSED)
+        self.assertFalse(snap["has_ever_paid"])
+        self.assertFalse(
+            is_active_or_grace(),
+            "An --allow-unlicensed install got the free Pro month. That is "
+            "the leak: the dev escape hatch was a free-Pro switch.",
+        )
+
+    def test_verified_hub_absent_tier_still_gets_the_month(self) -> None:
+        """A real Hub licence with no tier field (legacy) keeps the grant."""
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc)),
+            licence_tier=None,
+            licence_tier_state=TIER_STATE_ABSENT,
+        )
+        self.assertEqual(state_dict()["status"], STATUS_ACTIVE)
+        self.assertTrue(is_active_or_grace())
+
+    def test_verified_known_tier_still_gets_the_month(self) -> None:
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc)),
+            licence_tier="hub",
+            licence_tier_state=TIER_STATE_KNOWN,
+        )
+        self.assertEqual(state_dict()["status"], STATUS_ACTIVE)
+        self.assertTrue(is_active_or_grace())
+
+    def test_legacy_no_tier_caller_still_gets_the_month(self) -> None:
+        """tier_state None (in-process/legacy caller) is NOT the escape and
+        must keep the old grant -- or every test that calls
+        activate_first_month_free(date) breaks and so does the receipt path.
+        """
+        activate_first_month_free(_iso(datetime.now(timezone.utc)))
+        self.assertEqual(state_dict()["status"], STATUS_ACTIVE)
+        self.assertTrue(is_active_or_grace())
+
+    def test_unverified_reinstall_does_not_demote_a_payer(self) -> None:
+        """A customer who has paid, re-running install unlicensed, keeps Pro.
+
+        Their receipt is the authority, not the installer. has_ever_paid is
+        carried, so the refusal does not apply.
+        """
+        now = datetime.now(timezone.utc)
+        refresh_from_companion("cmVjZWlwdA==", _iso(now + timedelta(days=20)))
+        self.assertTrue(state_dict()["has_ever_paid"])
+        activate_first_month_free(
+            _iso(now),
+            licence_tier=None,
+            licence_tier_state=TIER_STATE_UNVERIFIED,
+        )
+        self.assertTrue(state_dict()["has_ever_paid"])
+        self.assertTrue(
+            is_active_or_grace(),
+            "Re-running the installer unlicensed demoted a paying customer.",
+        )
+
+    def test_unverified_install_preserves_a_prior_verified_tier(self) -> None:
+        """A verified install recorded a tier; a later unlicensed re-run
+        must not erase it (support reads it)."""
+        now = datetime.now(timezone.utc)
+        activate_first_month_free(
+            _iso(now), licence_tier="hub", licence_tier_state=TIER_STATE_KNOWN
+        )
+        self.assertEqual(state_dict()["licence_tier"], "hub")
+        activate_first_month_free(
+            _iso(now), licence_tier=None, licence_tier_state=TIER_STATE_UNVERIFIED
+        )
+        snap = state_dict()
+        self.assertEqual(snap["status"], STATUS_INACTIVE)
+        self.assertEqual(snap["licence_tier"], "hub")
+
+
+class TestGatedSignalFile(SubscriptionGateTestCase):
+    """The shared 'Pro paused' signal (v1.0.108, Archie render contract).
+
+    Both directions, because a signal that is always gated is as useless
+    to the banner as one that never fires: an ACTIVE customer must get
+    {"gated": false} so the banner clears, and a lapsed one must get the
+    full record so the banner can show WHY the wiki stopped refreshing.
+    """
+
+    def _signal_path(self) -> Path:
+        return self.state_path.with_name(GATED_SIGNAL_FILENAME)
+
+    def _signal(self) -> dict:
+        return json.loads(self._signal_path().read_text())
+
+    def test_active_customer_writes_gated_false(self) -> None:
+        self._install_days_ago_helper(1)
+        self.assertTrue(is_active_or_grace())
+        self.assertEqual(self._signal(), {"gated": False})
+
+    def test_trial_ended_writes_full_gated_record(self) -> None:
+        """Day 31, never paid: gated true, with the exact contract keys."""
+        self._install_days_ago_helper(31)
+        self.assertFalse(is_active_or_grace())
+        sig = self._signal()
+        self.assertEqual(sig["gated"], True)
+        self.assertEqual(sig["reason"], GATED_REASON)
+        self.assertEqual(sig["reason"], "trial_ended")
+        self.assertEqual(sig["features_paused"], list(GATED_FEATURES_PAUSED))
+        # The contract is exactly these four keys, nothing the banner
+        # would choke on.
+        self.assertEqual(
+            set(sig.keys()), {"gated", "since", "reason", "features_paused"}
+        )
+
+    def test_since_is_the_window_end_not_now(self) -> None:
+        """'since' must be the free-month expiry, not the wall clock.
+
+        A 'since' pinned to now() would march forward every tick and the
+        banner would read 'ended today' forever. For a never-paid
+        trialist installed 31 days ago the access-ended date is ~1 day
+        ago (expiry), not now.
+        """
+        self._install_days_ago_helper(31)
+        self.assertFalse(is_active_or_grace())
+        since = datetime.fromisoformat(self._signal()["since"].replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        age = now - since
+        # Install was 31 days ago, free month is 30 days -> ended ~1 day
+        # ago. Comfortably more than an hour (would catch a now()-anchor).
+        self.assertGreater(age, timedelta(hours=12))
+        self.assertLess(age, timedelta(days=3))
+
+    def test_paid_then_lapsed_past_grace_since_is_grace_end(self) -> None:
+        """A customer who paid once then cancelled: 'since' is grace end."""
+        now = datetime.now(timezone.utc)
+        refresh_from_companion(
+            "cmVjZWlwdA==", _iso(now - timedelta(days=GRACE_DAYS + 2))
+        )
+        self.assertFalse(is_active_or_grace())
+        sig = self._signal()
+        self.assertEqual(sig["gated"], True)
+        since = datetime.fromisoformat(sig["since"].replace("Z", "+00:00"))
+        # expiry was GRACE_DAYS+2 ago; grace end = expiry + GRACE_DAYS =
+        # ~2 days ago. Must be in the past, not now.
+        self.assertLess(since, now)
+        self.assertGreater(since, now - timedelta(days=4))
+
+    def test_reactivation_clears_the_banner(self) -> None:
+        """Lapse then a fresh receipt: the signal flips back to not-gated."""
+        self._install_days_ago_helper(31)
+        self.assertFalse(is_active_or_grace())
+        self.assertTrue(self._signal()["gated"])
+
+        refresh_from_companion(
+            "cmVjZWlwdA==", _iso(datetime.now(timezone.utc) + timedelta(days=30))
+        )
+        self.assertTrue(is_active_or_grace())
+        self.assertEqual(self._signal(), {"gated": False})
+
+    def test_signal_is_idempotent_and_never_raises(self) -> None:
+        """Repeated calls do not churn or crash; content is stable."""
+        self._install_days_ago_helper(31)
+        for _ in range(4):
+            self.assertFalse(is_active_or_grace())
+        self.assertEqual(self._signal()["gated"], True)
+
+    def test_gate_decision_survives_an_unwritable_signal(self) -> None:
+        """A read-only state dir must not break the gate, only the banner.
+
+        The signal is a companion file; if it cannot be written the gate
+        must still return the right answer. (Mirrors the state-file
+        read-only test for the gate itself.)
+        """
+        # Install writes the state file but NOT the signal (only
+        # is_active_or_grace writes the signal). Make the dir read-only so
+        # the signal write below genuinely fails and must be swallowed.
+        self._install_days_ago_helper(31)
+        self.assertFalse(self._signal_path().exists())
+        os.chmod(self.state_path.parent, 0o555)
+        try:
+            # Gate still answers correctly; the unwritable signal write is
+            # swallowed rather than raised.
+            self.assertFalse(is_active_or_grace())
+            self.assertFalse(self._signal_path().exists())
+        finally:
+            os.chmod(self.state_path.parent, 0o755)
+
+    def _install_days_ago_helper(self, days: int) -> None:
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc) - timedelta(days=days))
+        )
 
 
 class TestConstants(unittest.TestCase):

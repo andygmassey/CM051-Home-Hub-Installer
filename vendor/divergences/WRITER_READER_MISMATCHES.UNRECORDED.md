@@ -1531,3 +1531,11 @@ Tree `doctor`, two files. `vendor/doctor/agent/diagnostic_rules.py`, `check_park
 ### What a future sync must preserve
 
 The quarantined branch in `check_parked_facts` and the three copy constants. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py` (memory-assert-answers-under-load.yml).
+
+## v1.0.108 licence hardening (DECLARED 2026-10-17)
+
+The doctor tree also diverges for v1.0.108: `agent/diagnostic_rules.py` gains
+`check_subscription_gate_health` (registered in ALL_RULES), which turns a
+gate_posture `gate_unavailable` marker into a critical Doctor row. doctor is
+regenerate_forbidden, so the patch cannot carry it. Full record + shape:
+vendor/divergences/v1_0_108_licence_hardening.UNRECORDED.md.

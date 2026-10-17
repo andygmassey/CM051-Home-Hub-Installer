@@ -39303,6 +39303,46 @@ else
     fi
 fi
 
+# --- Ostler activation anchor (v1.0.108 Leak A) ---------------------
+# A durable, login-keychain record of the FIRST free-month activation on this
+# Mac. It SURVIVES deletion of ~/.ostler, so deleting the Hub state and
+# reinstalling cannot farm a fresh 30-day free month: the reinstall reuses the
+# ORIGINAL activation date, whose window has already passed. A PAID customer is
+# unaffected -- their iOS receipt restores Pro via the Companion regardless of
+# this anchor (has_ever_paid is set by the receipt, never by the anchor).
+#
+# OSTLER_ANCHOR_KEYCHAIN / OSTLER_ANCHOR_SERVICE are TEST SEAMS only; shipped
+# installs use the login keychain and the default service. Never aborts the
+# install (a keychain we cannot reach just falls back to now()).
+_ostler_activation_anchor_date() {
+    local _svc="${OSTLER_ANCHOR_SERVICE:-com.ostler.activation-anchor}"
+    local _acct="${USER_ID:-${USER:-ostler}}"
+    local _kc="${OSTLER_ANCHOR_KEYCHAIN:-}"
+    local _existing="" _now=""
+    if [ -n "$_kc" ]; then
+        _existing="$(security find-generic-password -s "$_svc" -a "$_acct" -w "$_kc" 2>/dev/null || true)"
+    else
+        _existing="$(security find-generic-password -s "$_svc" -a "$_acct" -w 2>/dev/null || true)"
+    fi
+    if [ -n "$_existing" ]; then
+        printf '%s\n' "$_existing"
+        return 0
+    fi
+    _now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if [ -n "$_kc" ]; then
+        security add-generic-password -U -s "$_svc" -a "$_acct" -w "$_now" "$_kc" >/dev/null 2>&1 || true
+    else
+        security add-generic-password -U -s "$_svc" -a "$_acct" -w "$_now" >/dev/null 2>&1 || true
+    fi
+    printf '%s\n' "$_now"
+}
+# The free month's purchase date is the anchor date, NOT today -- see above.
+# Only meaningful on the grant path; the unverified path refuses the month
+# regardless (Leak B), so the date it carries does not matter there.
+OSTLER_FREE_MONTH_PURCHASE_DATE="$(_ostler_activation_anchor_date)"
+export OSTLER_FREE_MONTH_PURCHASE_DATE
+# --- end activation anchor ------------------------------------------
+
 # ── First-month-free subscription activation (G2) ─────────────────
 #
 # The GUI verified the customer's Ed25519-signed licence file before
@@ -39320,7 +39360,17 @@ fi
 # install MUST continue. The customer can re-activate via the iOS
 # Companion once paired. We never block a legitimate customer on a
 # subscription-state write failure.
-info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
+if [[ "$OSTLER_LICENCE_TIER_STATE" == "unverified" ]]; then
+    # Leak B (v1.0.108): an install whose Ed25519 licence gate did not run
+    # (--allow-unlicensed / OSTLER_DEV=1) does NOT get the free Pro month.
+    # We still call the gate below so it RECORDS the withheld state
+    # (source=unlicensed_install) for Doctor + support; the gate refuses the
+    # active window itself. Keeping the call (rather than skipping it) means
+    # the state file always exists and honestly says why Pro is off.
+    warn "UNLICENSED INSTALL: Ostler Pro is NOT activated. Ongoing intelligence stays paused until a verified licence or a subscription is present. NOT A SUPPORTED INSTALL."  # i18n-exempt
+else
+    info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
+fi
 if python3 -c "
 import sys, os
 # The .app build (gui/project.yml postBuildScript L487-514) intentionally
@@ -39357,14 +39407,25 @@ if _tier_state == 'unverified':
 _lic_expiry = os.environ.get('OSTLER_LICENCE_EXPIRES_AT') or None
 if _lic_expiry == 'unparseable':
     _lic_expiry = None
+# v1.0.108 Leak A: the purchase date is the durable ACTIVATION ANCHOR, so a
+# delete-and-reinstall reuses the original (already-expired) window instead of
+# minting a fresh 30 days. Falls back to now() if the anchor is unset/garbage
+# (activate_first_month_free also defends against an unparseable date).
+_purchase = os.environ.get('OSTLER_FREE_MONTH_PURCHASE_DATE') or \
+    datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 activate_first_month_free(
-    datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+    _purchase,
     licence_tier=_tier,
     licence_tier_state=_tier_state,
     licence_expires_at=_lic_expiry,
 )
 " 2>&1; then
-    ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
+    if [[ "$OSTLER_LICENCE_TIER_STATE" == "unverified" ]]; then
+        # Withheld-and-recorded is the success path for an unlicensed install.
+        warn "UNLICENSED INSTALL: free month withheld (state recorded). Subscribe in the Ostler app or install a verified licence to enable Ostler Pro."  # i18n-exempt
+    else
+        ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
+    fi
 else
     # NON-FATAL: install continues. Customer can re-activate via
     # Companion later. Per fail-open: never block install on

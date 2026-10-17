@@ -1,0 +1,82 @@
+# v1.0.108 licence hardening ("Pro = Proactive, Hub = base"). The five tests
+# below each prove one gate BOTH directions -- it fires when it should and
+# leaves a paid/active customer working -- because a gate that always denies is
+# as wrong as one that never fires.
+#
+# macOS, deliberately: the customer's Hub is macOS, the tick wrappers and
+# install.sh run under /bin/bash there, and the activation anchor uses the
+# macOS keychain. A pass on a GNU runner would not be a pass on the box that
+# ships. NO paths: filter -- the gate is reachable from the installer, five
+# tick wrappers, the wiki recompile tick, cm048, cm052, the daemon and the
+# Doctor, and a change to any of them can move enforcement without touching a
+# path an allowlist would have named.
+
+name: licence-hardening
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  licence-hardening:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Name the tools, so a verdict can be attributed
+        run: |
+          set -euo pipefail
+          echo "bash:    $(/bin/bash --version | head -1)"
+          echo "python3: $(command -v python3) -- $(python3 --version)"
+          echo "uname:   $(uname -s)"
+
+      # Leak B: --allow-unlicensed / OSTLER_DEV=1 no longer grants the free
+      # month; a verified licence still does. Lifts the shipped install.sh
+      # activation snippet and runs it against the real gate.
+      - name: An unlicensed install gets no Pro; a verified one does
+        run: /bin/bash tests/test_unlicensed_install_gets_no_pro.sh
+
+      # Leak A: deleting ~/.ostler and reinstalling cannot farm a fresh free
+      # month. macOS keychain anchor; fully exercised here (it self-skips only
+      # off-Darwin).
+      - name: The free-month window is anchored durably against reinstall farming
+        if: always()
+        run: /bin/bash tests/test_activation_anchor_blocks_reinstall_farming.sh
+
+      # Hole 3: a fresh wiki recompile pauses for a lapsed owner; the VIEW
+      # stays up. Forces a fake docker ahead of any real one on PATH.
+      - name: The wiki REFRESH is gated; the VIEW is not
+        if: always()
+        run: /bin/bash tests/test_wiki_recompile_gate.sh
+
+      # Hole 2: the proactive Apple Reminders push pauses when Pro is inactive.
+      # Pure stdlib + sqlite3; no extra dependency.
+      - name: The Apple Reminders push pauses for an inactive subscription
+        if: always()
+        run: python3 tests/test_reminders_push_subscription_gate.py
+
+      # Leak C: a tick that fails CLOSED on a missing/erroring gate lights
+      # Doctor red. The rule imports diagnostic_rules, which pulls in httpx
+      # transitively; install it in a venv (macos python3 is PEP 668
+      # externally managed, so a bare pip install is refused) and prove it
+      # landed before grading the arm.
+      - name: Install the Doctor rule's transitive dependency
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/lh-doctor-venv
+          /tmp/lh-doctor-venv/bin/python -m pip install --quiet 'httpx==0.28.1'
+          /tmp/lh-doctor-venv/bin/python -c "import httpx; print('httpx', httpx.__version__)"
+
+      - name: A fail-closed ingestion tick lights Doctor red
+        if: always()
+        run: PATH="/tmp/lh-doctor-venv/bin:$PATH" python3 tests/test_subscription_gate_doctor_red.py
