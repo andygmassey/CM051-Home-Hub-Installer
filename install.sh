@@ -3416,7 +3416,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8587   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8632   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8641 and :16057, both of which run
+    # Its two top-level arming calls are :8641 and :16104, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16837, where the note reads
+    # WhatsApp Web session path did it again at :16884, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16854 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16901 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3453,9 +3453,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8641, :16057) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8641, :16104) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19000 / :19178 / :19335 / :19762 path. There the
+    # :19047 / :19225 / :19382 / :19827 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10735,15 +10735,62 @@ _ostler_slot_watchdog() {
     done
 }
 
+# --- background QoS for the payload (v1.0.108 first-run chat-settling) ---
+# Prints the token(s) that launch a command at macOS BACKGROUND QoS, or nothing
+# when neither tool is available or OSTLER_BG_QOS=0 disables it.
+#
+# WHY. The measured first-run storm (launch/DESIGN_first_run_resource_governor)
+# is a coincident spawn spike of FAT HOST PROCESSES -- the feed Pythons, the
+# pwg-convo subprocess each forks, the wiki client -- not a runaway LLM decode.
+# `taskpolicy -b` drops a process to the throttled background tier (and prefers
+# the efficiency cores on Apple Silicon); the policy is set via exec so the pid
+# is PRESERVED (the max-hold and tree-cpu watchdogs below read the same pid, and
+# are unaffected) and is inherited by the children it spawns (pwg-convo). That
+# makes interactive chat -- served by the separate `ollama serve` process and
+# the daemon, both at the default user tier -- outrank this enrichment on CPU
+# while first-run load is high, without stopping the enrichment: on an idle box
+# a background-tier process still runs at full speed.
+#
+# ABSOLUTE path for taskpolicy ON PURPOSE. A LaunchAgent's PATH is
+# /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin and EXCLUDES /usr/sbin, where
+# taskpolicy actually lives, so a bare `taskpolicy` would silently fail to
+# resolve in the sealed ticks and the prefix would vanish with no error.
+# OSTLER_TASKPOLICY_BIN overrides the path (the tests point it at a fake to
+# prove the payload is launched THROUGH it); `nice` is the portable fallback.
+#
+# LIMIT, stated honestly: this throttles OUR host processes only. It does NOT
+# reach a compiler container's work inside the Docker/Colima VM, nor the shared
+# `ollama serve`; those stay governed by the single-flight slot, the per-tier
+# WIKI_LLM_WORKERS cap and OLLAMA_NUM_PARALLEL=2, all unchanged. So for the wiki
+# backfill (a `docker compose run` client) the gain is small; for the feed
+# Pythons (real host rendering/orchestration cpu) it is the point.
+_ostler_slot_bg_prefix() {
+    [ "${OSTLER_BG_QOS:-1}" = "0" ] && return 0
+    local _tp="${OSTLER_TASKPOLICY_BIN:-/usr/sbin/taskpolicy}"
+    if [ -x "$_tp" ]; then
+        printf '%s -b' "$_tp"
+    elif command -v nice >/dev/null 2>&1; then
+        printf 'nice -n %s' "${OSTLER_BG_NICE:-10}"
+    fi
+    return 0
+}
+
 # --- public: run the payload ----------------------------------------
 ostler_slot_run() {
+    # Resolve the background-QoS launcher once. $_bg is an optional, known-safe
+    # command prefix; it is left UNQUOTED at the call sites below on purpose so
+    # that an empty value expands to nothing and a two-token prefix splits into
+    # its words.
+    local _bg
+    _bg="$(_ostler_slot_bg_prefix)"
+
     if [ "$_OSTLER_SLOT_HELD" != "1" ]; then
         # Not holding (arbitration disabled / caller used its own lock).
-        "$@"
+        $_bg "$@"
         return $?
     fi
 
-    "$@" &
+    $_bg "$@" &
     local work_pid=$!
     printf '%s\n' "$work_pid" > "$_OSTLER_SLOT_DIR/work_pid" 2>/dev/null || true
 
@@ -19661,6 +19708,7 @@ print(json.dumps(summary, default=str))
     FDA_RERUN_NEEDS_WRITE=0
     FDA_RERUN_WAS_LEGACY=0
     FDA_RERUN_WAS_PATHLESS=0
+    FDA_RERUN_WAS_UNBACKGROUNDED=0
     if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
         FDA_RERUN_NEEDS_WRITE=1
     elif grep -q 'StartCalendarInterval' "$FDA_RERUN_PLIST" 2>/dev/null; then
@@ -19669,6 +19717,19 @@ print(json.dumps(summary, default=str))
     elif ! grep -q '/opt/homebrew/bin' "$FDA_RERUN_PLIST" 2>/dev/null; then
         FDA_RERUN_NEEDS_WRITE=1
         FDA_RERUN_WAS_PATHLESS=1
+    # 2026-10-17 (v1.0.108): a FOURTH rewrite trigger, same reasoning as the
+    # PATH limb above. fda-rerun walks the 5-year window ENTIRELY in the
+    # background, but every plist written before today runs it at the default
+    # user QoS, so during first-run settling its ingest competed with live chat
+    # for CPU (the saturation Andy hit on his box). ProcessType=Background tells
+    # launchd to run the whole job on the throttled background tier, with Nice
+    # as belt-and-braces. Fixing only the heredoc below would leave every box
+    # that already carries the plist unthrottled forever -- exactly the
+    # #768/#769 shape this block already warns about -- so rewrite when the
+    # installed file lacks the key.
+    elif ! grep -q '<string>Background</string>' "$FDA_RERUN_PLIST" 2>/dev/null; then
+        FDA_RERUN_NEEDS_WRITE=1
+        FDA_RERUN_WAS_UNBACKGROUNDED=1
     fi
     if [[ "$FDA_RERUN_NEEDS_WRITE" == "1" ]]; then
         mkdir -p "${HOME}/Library/LaunchAgents"
@@ -19696,6 +19757,10 @@ print(json.dumps(summary, default=str))
     <string>${LOGS_DIR}/fda-rerun.log</string>
     <key>StandardErrorPath</key>
     <string>${LOGS_DIR}/fda-rerun.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
 </dict>
 </plist>
 FDARPEOF
@@ -19710,7 +19775,7 @@ FDARPEOF
         # already registered, and skipping the bootout there would leave the
         # box running the PATH-less job we just overwrote -- a fix that is on
         # disk and not in force, which reads on every surface as done.
-        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" || "$FDA_RERUN_WAS_PATHLESS" == "1" ]]; then
+        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" || "$FDA_RERUN_WAS_PATHLESS" == "1" || "$FDA_RERUN_WAS_UNBACKGROUNDED" == "1" ]]; then
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi
