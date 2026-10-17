@@ -87,6 +87,15 @@ what its own machine used to give it:
 - a fresh venv from the hoisted interpreter, so a "stdlib only" test cannot
   pass because an earlier block installed something
 - a fresh `HOME` and `TMPDIR`
+- **no process left over from an earlier block.** Each isolate step marks
+  every later step with `CI_FOLD_BLOCK=<tag>` (via `GITHUB_ENV`). A process
+  inherits the marker even once orphaned, so the next isolate step kills
+  exactly the processes that carry it, and nothing else on the machine does.
+  It reads `/proc/<pid>/environ` on Linux and `ps eww` on macOS. This was
+  found while measuring: `test_ingest_slot_fairness.sh` leaks a `sleep 300`
+  that outlives it. The self-test runs this for real: a block leaks a
+  process, and the next block must not see it. A control with the kill
+  removed must fail.
 
 **Step conditions are scoped to the block.** A step with no `if:` used to run
 only when every earlier step in its job had succeeded. It now runs when every
@@ -155,6 +164,8 @@ in each fold PR, and the PR body diffs the WIRED set: no test may leave it.
 - **A literal absolute path outside the checkout, `HOME` and `TMPDIR`** (for
   example `/tmp/foo`) can still see an earlier block's leftovers. Only a
   fresh machine isolates that.
+- **A process started as another user** (`sudo`) or inside a container
+  survives into the next block, because the runner's user cannot signal it.
 
 ## Rollout order, and the hazard each family carries
 
