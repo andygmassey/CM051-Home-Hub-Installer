@@ -216,7 +216,16 @@ def _place_label(blob: Optional[bytes]) -> Optional[str]:
         objects = arch["$objects"]
 
         def deref(v):
-            return objects[v.data] if isinstance(v, plistlib.UID) else v
+            # $objects[0] is the archiver's null sentinel, the literal string
+            # "$null": UID 0 is how an archive says "no value" (an address
+            # with no city points _city at it). Deref it, or a bare "$null",
+            # to None, or "$null" reads as a real city and the fallback to
+            # the state never runs ("$null, Indonesia").
+            if isinstance(v, plistlib.UID):
+                if v.data == 0:
+                    return None
+                v = objects[v.data]
+            return None if v == "$null" else v
 
         def classname(obj) -> str:
             cls = deref(obj.get("$class")) if isinstance(obj, dict) else None
