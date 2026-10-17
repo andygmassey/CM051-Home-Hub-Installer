@@ -444,6 +444,17 @@ Local macOS 26.4 library: 0 of 1291 events labelled before, 970 after.
 The edit above. Gate: `tests/test_photo_events_carry_place_names.py`, wired in
 privacy-spine.yml.
 
+FOLLOW-UP (v1.0.108): `_place_label.deref` returns None for UID 0 and for the
+literal string "$null". `$objects[0]` in an NSKeyedArchiver archive is that
+null sentinel, so an address with no city pointed `_city` at UID 0, deref gave
+"$null", the `_city or _subAdministrativeArea or _state` fallback never ran and
+the place was written as "$null, <country>" (CM044 #362 guards the reader
+side). Sweep: `_place_label` is the only NSKeyedArchiver decoder in this repo
+(git grep for `plistlib.UID` / `$objects` / `$top`: one file). Still no HR015
+twin owed: `_place_label` exists only here (HR015 main has 0 `def _place_label`
+in `ostler_fda/photos_metadata.py`). Same gate, which now builds archives with
+fields at UID 0.
+
 ## Added 2026-09-28, CM051 v1.0.106 (FIX106-B) -- `doctor`, routines and remote access
 
 Tool re-run on 2026-09-28: `scripts/regenerate_divergence_patch.sh doctor`
