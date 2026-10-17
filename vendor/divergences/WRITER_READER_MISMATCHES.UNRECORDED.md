@@ -1543,6 +1543,14 @@ Tree `doctor`, two files. `vendor/doctor/agent/diagnostic_rules.py`, `check_park
 
 The quarantined branch in `check_parked_facts` and the three copy constants. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py` (memory-assert-answers-under-load.yml).
 
+## doctor: the listener watchdog's state is a Doctor row (2026-10-17 incident, v1.0.108 / #31) -- `doctor`
+
+Tree `doctor`, two files. NEW CM051-side behaviour. `vendor/doctor/agent/diagnostic_rules.py`: new `check_listener_watchdog` (registered in `ALL_RULES` after `check_engine_supervisor_present`), with `_listener_state_path` and `_iso_age_s`. It reads `~/.ostler/state/listener_watchdog.json` (or `$OSTLER_STATE_DIR/listener_watchdog.json`), written by `ostler-listener-watchdog` (install.sh `LISTENERWDEOF` heredoc, LaunchAgent `com.ostler.listener-watchdog`). `degraded`, `restart_unverified` and `restart_failed` give a critical card; `ok`/`recovered` with a restart in the last 24 h an info card; a file that exists but does not parse a "couldn't check" warning; absent and transient states nothing. `vendor/doctor/agent/diagnostic_copy.py`: new `LISTENER_DEGRADED_*`, `LISTENER_UNVERIFIED_*`, `LISTENER_RECOVERED_*`, `LISTENER_STATE_UNREADABLE_*`. The HR015 doctor twin is OWED; `doctor.patch` is NOT regenerated (the tree is `regenerate_forbidden`).
+
+### What a future sync must preserve
+
+The rule, its `ALL_RULES` entry and the copy constants. Guarded by `tests/test_listener_watchdog_restarts_a_dead_listener.sh`, which feeds the state file the SHIPPED watchdog wrote to the SHIPPED `run_all_rules` and mutates the rule out of `ALL_RULES` (wired in `.github/workflows/vendor-integrity.yml`).
+
 ## doctor: the Documents-folder access tile is wired into the dashboard (launch-blocker install UX fix) -- `doctor`
 
 Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the Doctor Documents-access posture tile.
+"""Tests for the Documents-access posture tile in the Doctor dashboard.
 
 The launch-blocker this guards: Ostler's bundled interpreter writes the
 customer's wiki + conversation records under ~/Documents/Ostler, behind
