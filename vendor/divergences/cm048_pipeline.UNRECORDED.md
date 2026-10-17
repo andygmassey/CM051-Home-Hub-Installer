@@ -427,7 +427,9 @@ All of the above. Guarded by `tests/test_cm048_single_speaker_capture_is_a_memo.
 
 ## 2026-10-17 v1.0.108 batch 1: cm048_pipeline handle resolution (CM048 #87, ec77efbb), grafted with synthetic examples
 
-Tree: `cm048_pipeline`. Pin HELD at 436c89c1; ec77efbb added to `hold_ack_shas` (grafted, pin held).
+Tree: `cm048_pipeline`. RETIRED 2026-10-17 (batch 2): pin moved to 0190f448 (CM048 #88) through `sync_vendor.sh`; the vendored files now equal upstream, the patch carries no handle_resolver hunk, and the hold and the do-not-sync warning are removed (see the manifest note). Kept as history. Original record:
+
+Pin HELD at 436c89c1; ec77efbb added to `hold_ack_shas` (grafted, pin held).
 
 - new file `vendor/cm048_pipeline/src/handle_resolver.py`: upstream `src/handle_resolver.py` at ec77efbb, except two docstring values.
 - `vendor/cm048_pipeline/src/processor.py`: the upstream ec77efbb hunk (import plus the post-privacy, non-L3 `_handle_resolver.resolve` call) applied with patch(1), except two comment values.
