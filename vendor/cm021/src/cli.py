@@ -455,9 +455,9 @@ def _has_escaping_artefact(name: str) -> bool:
 
 def _is_gibberish_name(name: str) -> bool:
     """True when a name carries a token that is a letter+digit MASH inside one
-    word (``Hqn4828ra``, ``03thom``, ``Kzi6749lj``, ``Hjm2``, ``Xh6a``) --
+    word (``Qzr5531tb``, ``07alex``, ``Pvo2217sd``, ``Kjv3``, ``Wq7b``) --
     an extraction artefact, never a human-name token. Anchored on Andy's #30
-    walk examples ("03thom Hqn4828ra", "21ftcl Kzi6749lj", ...). The length>=4
+    walk-shaped examples ("07alex Qzr5531tb", "58mxtb Pvo2217sd", ...). The length>=4
     floor keeps real alphanumerics that are not names off the hook of a false
     positive the other way ("O2", "3M", "B2B" are short and not person names
     anyway); a human name token never interleaves letters and digits."""
@@ -535,7 +535,7 @@ def looks_like_subject_or_sender_id(name: str, email: Optional[str] = None) -> b
     lowered = probe.lower()
     if any(lowered.startswith(opener) for opener in _SUBJECT_LINE_OPENERS):
         return True
-    # (Andy #30) Gibberish: a letter+digit mash token ("Hqn4828ra", "03thom")
+    # (Andy #30) Gibberish: a letter+digit mash token ("Qzr5531tb", "07alex")
     # is an extraction artefact, not a human name. Multi-word, so it slips past
     # the single-token sender-id arm below; caught here.
     if _is_gibberish_name(probe):

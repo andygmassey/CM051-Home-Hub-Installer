@@ -7,15 +7,16 @@ Exercises the SHIPPED predicate vendor/cm021/src/cli.py
 the same module the email tick and the reclassify-subject-names migration use,
 so a pass here is a pass on the code that actually runs.
 
-Measured junk (People nodes seen on the walk box):
+Measured junk shapes (People nodes seen on the walk box, re-made synthetic):
   * ``~~\"Unusual sign-in on your iCloud.`` -- an Apple security-notification
     SUBJECT that became a Person, with escaping junk (``~~`` and a
     backslash-quote) leaked into the display name. The junk sat before the
     first word and shielded the sentence-opener arm; now the artefact is
     itself a refusal signal and the cleaned name is what the arms see.
-  * ``03thom Hqn4828ra``, ``1893964420 Hjm2 Xh6a Pezb Eht``,
-    ``21ftcl Kzi6749lj``, ``36rabb Lrsl2249udfc`` -- gibberish: a letter+digit
+  * ``07alex Qzr5531tb``, ``4410293387 Kjv3 Wq7b Acme Corp``,
+    ``58mxtb Pvo2217sd``, ``92jone Twkq8806ycm`` -- gibberish: a letter+digit
     mash inside one word is an extraction artefact, never a human-name token.
+    These keep the walk's shapes; the walk's own strings are not reproduced.
 
 Synthetic data only (PUBLIC repo).
 EXIT  0 all pass   1 a check failed   2 CANNOT-RUN
@@ -46,23 +47,23 @@ def check(label, ok):
 # The exact junk nodes from the walk. Each MUST be refused as not-a-name.
 JUNK = [
     '~~\\"Unusual sign-in on your iCloud.',
-    "03thom Hqn4828ra",
-    "1893964420 Hjm2 Xh6a Pezb Eht",
-    "21ftcl Kzi6749lj",
-    "36rabb Lrsl2249udfc",
+    "07alex Qzr5531tb",
+    "4410293387 Kjv3 Wq7b Acme Corp",
+    "58mxtb Pvo2217sd",
+    "92jone Twkq8806ycm",
 ]
 
-# Real human names (incl. accents, hyphens, apostrophes, a 2-char surname, a
-# suffix) MUST be kept -- the false-positive control. Deaglan is the carded
-# nephew from Andy's walk; he must never be refused.
+# Human-shaped names (incl. accents, hyphens, apostrophes, a three-part name,
+# a 2-char surname, a suffix) MUST be kept -- the false-positive control.
+# Synthetic, from the approved cast (PUBLIC repo).
 REAL = [
-    "Deaglan Joseph O'Neill",
+    "Samuel John Coe",
     "José García",
-    "Jean-Luc Picard",
+    "Raj Patel",
     "Mary-Jane O'Brien",
-    "Ng Wai",
+    "Li Wei",
     "Jane Doe",
-    "Robert Downey Jr.",
+    "Robert Smith Jr.",
 ]
 
 # Pre-existing positives must still fire (no regression of the #2544 behaviour).
