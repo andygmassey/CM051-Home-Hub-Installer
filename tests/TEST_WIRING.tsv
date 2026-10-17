@@ -299,6 +299,8 @@ test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
+test_documents_access_doctor_denied_row.py	WIRED	.github/workflows/consent-data-handling.yml
+test_documents_tcc_pre_explain_before_first_write.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_download_currency_gate_is_wired.sh	WIRED	.github/workflows/customer-download-path.yml
 test_e1_source_readout_emits.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-integrity.yml

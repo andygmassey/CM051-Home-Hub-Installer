@@ -82,6 +82,18 @@ MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .er
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="An earlier install had Ostler RemoteCapture starting at login. It has been stopped and will not start again."
 MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture was not installed: you chose to keep spoken transcription off. Turn it on in Settings and run the installer again if you change your mind."
 MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
+# Shown during setup to pre-explain the macOS Documents (Files and Folders)
+# consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
+# customer may meet it more than once and not always during setup: the
+# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# bundled python3.11 that organises the wiki writes here later from its own
+# launchd jobs, prompting separately and possibly the next day. The copy is
+# therefore honest about timing rather than promising an immediate prompt, and
+# it carries the System Settings remediation for a decline. Paired with the
+# live Documents-access tile in the dashboard
+# (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
+# whenever it happens.
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please click Allow whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"

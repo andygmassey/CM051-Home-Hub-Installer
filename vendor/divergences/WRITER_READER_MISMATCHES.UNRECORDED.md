@@ -1558,3 +1558,38 @@ Tree `doctor`, one file. NEW CM051-side behaviour. `vendor/doctor/agent/web_ui.p
 ### What a future sync must preserve
 
 The handler, the forward helper, the three module constants, and the pre-`register_proxy_routes` registration order. Guarded by `tests/test_suppress_suggestions_loopback_reaches_the_store.py` (workflow `suppress-suggestions-loopback.yml`), which drives the real handler and helper: an unpaired/no-bearer request is accepted and forwarded with the service token, and a negative control proves a missing service token leaks no credential.
+
+## doctor: the Documents-folder access tile is wired into the dashboard (launch-blocker install UX fix) -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level
+`from documents_access_posture import render_documents_access_posture`, one
+`documents_access_section = render_documents_access_posture()` call in the
+dashboard renderer beside the other permission-posture tiles, and one
+`{documents_access_section}` placeholder in the dashboard HTML between the
+Reminders install-time tile and the Reminders runtime tile.
+
+The render function, the live write probe and the customer copy live in a NEW
+vendor-only module, `vendor/doctor/agent/documents_access_posture.py`, declared
+in `vendor/VENDOR_ONLY.tsv` (route d), not here. This record covers only the
+`web_ui.py` wiring edit, which is a shared file the `doctor.patch` would
+otherwise own.
+
+### Why there is no patch, re-measured rather than inherited
+
+`scripts/regenerate_divergence_patch.sh doctor` was run on 2026-10-17 and
+REFUSED, exit non-zero, before any source checkout: "doctor is marked
+regenerate_forbidden in VENDOR_MANIFEST.toml." The ban's reason is the
+source-status panel that exists only in CM051 (Board #2219); regenerating from
+the lossy tree would record a re-pin as local edits, or a sync would delete a
+shipped customer surface. So the `doctor` tree's `web_ui.py` divergence cannot
+be recorded in `doctor.patch`, and this file is the record instead. A grep of
+`doctor.patch` for `render_documents_access_posture` returns nothing, and that
+means NOT RECORDED there, not NOT DIVERGED.
+
+### What a future sync must preserve
+
+The import, the `documents_access_section` call, and the
+`{documents_access_section}` placeholder in `web_ui.py`, plus the vendor-only
+module they depend on. Guarded by
+`tests/test_documents_access_doctor_denied_row.py` (workflow
+`consent-data-handling.yml`).
