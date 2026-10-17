@@ -819,7 +819,10 @@ source_repo      = "$CM040"
 source_path      = "services/imessage_source"
 pinned_sha       = "62a776a"
   divergence_patch = "vendor/divergences/imessage_source.patch"
-unrecorded_divergence = "vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md"  # 2026-10-14: assistant-send filter in reader.py; regen refused or would bless unrelated drift
+  # RECORDED 2026-10-18 (vendor drift reduction): the assistant-send filter, reply-debt snapshot and first-bundle window widening now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 62a776a; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
 verify_exempt    = true
