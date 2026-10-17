@@ -28,5 +28,5 @@ def test_bare_handle_stays_a_handle(rel):
 
 @pytest.mark.parametrize("rel", COPIES)
 def test_separated_handle_still_reads_as_a_name(rel):
-    assert _fn(rel)("alex.example") == "Alex Example"
-    assert _fn(rel)("alex.example.779") == "Alex Example"
+    assert _fn(rel)("alex.smith") == "Alex Smith"
+    assert _fn(rel)("alex.smith.779") == "Alex Smith"
