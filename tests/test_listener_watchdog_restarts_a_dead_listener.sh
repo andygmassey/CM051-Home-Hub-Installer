@@ -243,7 +243,7 @@ echo "$PASS passed, $FAIL failed"
 echo "== mutants: each guard removed must turn this suite red"
 mutate() { # mutate <name> <python-replace-old> <new> [occurrence]
     local m="$WORK/mut-$1"
-    python3 - "$SCRIPT" "$m" "$2" "$3" "${4:-1}" <<'EOF' || { echo "  MUTANT DID NOT APPLY: $1"; return 2; }
+    python3 - "$SCRIPT" "$m" "$2" "$3" "${4:-1}" <<'EOF' || { bad "mutant did not apply (its anchor moved): $1"; return 2; }
 import sys
 src, dst, old, new, occ = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
 s = open(src).read()
