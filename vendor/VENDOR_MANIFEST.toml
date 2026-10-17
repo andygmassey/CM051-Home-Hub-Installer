@@ -279,7 +279,11 @@ note             = "2026-10-02 (ORM, v1.0.107): PIN MOVED fce36b9e -> 5cb0c24a (
 [[tree]]
 name             = "cm041/meeting_syncer"
 vendor_path      = "vendor/cm041/meeting_syncer"
-unrecorded_divergence = "vendor/divergences/cm041_meeting_syncer.UNRECORDED.md"  # DECLARED 2026-10-08 (Lane 18): the forgotten-attendee skip, grafted from CM041 #200 before it has a merge sha
+  # RECORDED 2026-10-18 (vendor drift reduction): the two grafts the retired
+  # cm041_meeting_syncer.UNRECORDED.md declared (forgotten-attendee skip from CM041 #200;
+  # token-gated calendar API from #2926) are now in cm041_meeting_syncer.patch, written by
+  # scripts/regenerate_divergence_patch.sh against a CM041 checkout AT the pin, and the tool
+  # re-proved source@pin + patch == vendored tree. Grounds, verbatim: git show 992fb55f:vendor/divergences/cm041_meeting_syncer.UNRECORDED.md
 source_repo      = "$CM041"
 source_path      = "meeting_syncer"
 pinned_sha       = "b6ae1f91771f951a4a2cf3b96ce71e4bdd14cc1a"
@@ -407,12 +411,15 @@ source_repo      = "$CM048"
 source_path      = "."
   pinned_sha = "0190f448688481a3d5caf220c9f4a5a008ea495d"
   divergence_patch = "vendor/divergences/cm048_pipeline.patch"
-unrecorded_divergence = "vendor/divergences/cm048_pipeline.UNRECORDED.md"
-  # DECLARED 2026-10-01 (CM051 #2578, people-correctness agent): a
-  # single-function graft (_whatsapp_jid_is_genuine_phone +
-  # _normalise_chat_identifier's call site) not attempted against the
-  # regeneration tool -- see the dedicated file for the reasoning.
-  # verify_vendor_divergence_described.py route (c).
+  # RETIRED 2026-10-18 (vendor drift reduction): unrecorded_divergence pointer and
+  # vendor/divergences/cm048_pipeline.UNRECORDED.md removed. Measured: source@0190f448
+  # plus cm048_pipeline.patch reconstructs all 72 vendored files with ZERO diff
+  # (negative control: a one-line mutant in a vendored .py was flagged). The 16 grafts
+  # that file listed are native at the pin (CM048 #82-#88) or carried by the patch.
+  # RE-DECLARED (CM051 #2677, multilingual summaries and todos, Lane 9): that graft is
+  # NOT at the pin and NOT in the patch ($CM048 is not checked out, so the patch cannot
+  # be regenerated here); the stub now carries that one entry only.
+  unrecorded_divergence = "vendor/divergences/cm048_pipeline.UNRECORDED.md"
 exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production", "copy_de.py", "copy_es.py", "copy_fr.py", "i18n-promotion-guard.yml"]
 verify           = "skip"
 unverifiable_ack = true
@@ -443,7 +450,10 @@ note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py
 
 [[tree]]
 name             = "ostler_fda"
-  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
+  # RECORDED 2026-10-18 (vendor drift reduction): the writer/reader vocabulary fixes plus 27 further grafted files (12 -> 39 files in the patch) now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin c4e7396f; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh ostler_fda was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
 expires = "2026-11-14"
 owner = "archie"
@@ -617,7 +627,10 @@ source_repo      = "$HR015/email-ingest"
 source_path      = "."
 pinned_sha       = "86ca22223def9fd1f6af894825ec83ed4119a68e"  # 2026-10-17 (Archie, v1.0.108): RE-PINNED from 1bb0a0db, NO CONTENT CHANGE. 1bb0a0db is off main (gate: delta-DIVERGED); the path tree hash is identical at both refs (gh contents API), control SHIPPING_LEDGER.yaml differs between them.
   divergence_patch = "vendor/divergences/email_ingest.patch"
-unrecorded_divergence = "vendor/divergences/email_ingest.UNRECORDED.md"  # DECLARED 2026-10-10 (Archie, #17 F8): the tick writes the emails settling shard; regeneration refused (upstream past the pin).
+  # RECORDED 2026-10-18 (vendor drift reduction): the emails settling-progress shard written by the tick (walk #16) now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 86ca2222; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/email_ingest.UNRECORDED.md
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
 note             = "2026-08-15: divergence RE-RECORDED, because the graft moved on after the patch was last regenerated and the gate reported DIFFERS on INSTALL_SNIPPET.sh and the plist. TWO things are now captured that were not. (1) The plist's ProgramArguments[0] is OSTLER_ASSISTANT_BINARY with `run-source email-ingest`, not /bin/bash running the tick script, so the protected Apple Mail read is performed by a child of the SHIPPED, code-signed daemon and inherits its Full Disk Access. (2) INSTALL_SNIPPET.sh refuses to bootstrap when that binary is absent. That refusal is the fix for a MEASURED v1.0.15 box-walk failure, not a precaution: the plist has RunAtLoad=true, so bootstrapping against a missing ProgramArguments[0] makes launchd fail the exec and answer EX_CONFIG (78), which launchd treats as 'misconfigured' rather than as a retryable error. The job is then never started again, StartInterval included, and both log files stay 0 bytes because nothing ever executed to write to them, so it presents as total silence. An absent LaunchAgent that says so is strictly better than a present one that is permanently dead. Recorded via scripts/regenerate_divergence_patch.sh (dry run read, then --write, whose own post-write gate re-run reported OK). ZERO bytes under vendor/email_ingest/ changed. || 2026-07-20 (folds PR #415 bookkeeping): bin/email-ingest-tick.sh, INSTALL_SNIPPET.sh and the launchd plist carry a CM051-only graft (commit f16ae6e, 'silent 100% drop' fix) -- CM046->CM021 CLI rename comment cleanup plus PWG_EMAIL_INGEST absolute-path wiring + a LOUD guard so a harvested-but-unresolvable ingest binary fails the tick instead of silently dropping mail under launchd's minimal PATH. Pre-existing; was previously applied to the vendored tree WITHOUT being captured in email_ingest.patch, so the content gate flagged vendor != source@pin+patch. The regenerated patch (3 shared files diverge) records it correctly; no re-pin needed (email-ingest source at pin has not advanced -- freshness gate is FRESH). This graft is CM051-only and deliberately not destined for upstream HR015 email-ingest, so it stays a permanent vendor-side divergence, not a hold pending a source PR."
@@ -690,7 +703,10 @@ source_repo      = "$CM024"
 source_path      = "."
 pinned_sha       = "e0196b10308476eeeb4e29edc2eead6d47b9a4d7"
   divergence_patch = "vendor/divergences/cm024_knowledge.patch"
-unrecorded_divergence = "vendor/divergences/cm024_knowledge_calls_field.UNRECORDED.md"
+  # RECORDED 2026-10-18 (vendor drift reduction): the usage-journal calls field (#2603 follow-up) now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin e0196b10; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/cm024_knowledge_calls_field.UNRECORDED.md
 exclude          = ["tests/", "docs/", "scripts/", "__pycache__/", "*.egg-info/", ".gitignore", "CLAUDE.md", "HANDOFF.md", "TODO.md", "pytest.ini", "ostler_knowledge/query/"]
 # ostler_knowledge/query/ EXCLUDED 2026-09-03, and the reason is the point.
 # The 2026-09-02 re-vendor brought query/__init__.py but NOT the retriever.py it
@@ -790,7 +806,10 @@ source_repo      = "$HR015"
 source_path      = "email_source"
 pinned_sha       = "5d31073d9e28e9024cbb25b308809ef428a39944"
   divergence_patch = "vendor/divergences/email_source.patch"
-unrecorded_divergence = "vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md"  # 2026-10-14: assistant-send filter in reader.py; regen refused or would bless unrelated drift
+  # RECORDED 2026-10-18 (vendor drift reduction): the assistant-send filter and first-bundle window widening (reader.py, pipeline.py) now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 5d31073d; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
 verify_exempt    = true
@@ -807,7 +826,10 @@ source_repo      = "$CM040"
 source_path      = "services/imessage_source"
 pinned_sha       = "62a776a"
   divergence_patch = "vendor/divergences/imessage_source.patch"
-unrecorded_divergence = "vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md"  # 2026-10-14: assistant-send filter in reader.py; regen refused or would bless unrelated drift
+  # RECORDED 2026-10-18 (vendor drift reduction): the assistant-send filter, reply-debt snapshot and first-bundle window widening now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 62a776a; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
 verify_exempt    = true
@@ -858,7 +880,10 @@ source_repo      = "$CM059"
 source_path      = "compiler"
   pinned_sha = "85c8792465f1a540a4e7c7725c39968d64c17988"
   divergence_patch = "vendor/divergences/cm059_editor.patch"
-unrecorded_divergence = "vendor/divergences/cm059_editor_calls_field.UNRECORDED.md"  # 2026-10-15 Ostler #30: see the section appended to this file
+  # RECORDED 2026-10-18 (vendor drift reduction): the calls field plus the five later grafts that file listed (#2603, shape sweep, interest provenance, walks #29/#30) now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 85c87924; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/cm059_editor_calls_field.UNRECORDED.md
   hold_ack_shas            = "1935dba08c4478e898b84bff49cb783c931dc80a"
   hold_ack_reason          = "2026-10-02 (Archie, v1.0.107): 1935dba0 is the squash merge of CM059-Ostler-Editor #29 (render_frontpage treats a None title or body as empty and omits the empty body element). Its change is ALREADY GRAFTED into this tree by CM051 #2602 and carried in vendor/divergences/cm059_editor.patch; pinned to the graft by tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py, which fails (rc=1) against the pre-graft renderer and passes (rc=0) on this tree. Acked, not re-pinned, because the source is one further commit ahead on an unrelated change. SCOPE: this sha only."
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
@@ -877,8 +902,11 @@ vendor_path      = "vendor/cm052_ai_conversations"
 source_repo      = "$CM052"
 source_path      = "."
 pinned_sha       = "1ec05783be953314847c476d4b5013d40de53650"
-divergence_patch = ""
-unrecorded_divergence = "vendor/divergences/cm052_ai_conversations.UNRECORDED.md"
+  divergence_patch = "vendor/divergences/cm052_ai_conversations.patch"
+  # RECORDED 2026-10-18 (vendor drift reduction): the 365-day-clamp catch-up graft (catchup.py new file + cli.py), and divergence_patch was a false empty byte-identity claim now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 1ec05783; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/cm052_ai_conversations.UNRECORDED.md
 exclude          = ["tests/", "docs/", "prompts/", ".github/", ".claude/", "fixtures_private/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "PLAN.md", "README.md", ".env.example", ".gitignore"]
 verify           = "full"
 unverifiable_ack = true
