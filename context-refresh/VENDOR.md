@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `792d886b50f593597fa7679cd469a6e90b14655dfc391c7cb4c13130ebe7eae9` (post-graft, this repo, after item 10 and the owner brief) |
+| Current SHA-256 | `c355c30ddba9c3c02440dcec70305fd3d6b25fe5be78ad1f5fa5af3feff715e9` (post-graft, this repo, after item 11 and the owner brief, item 12) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-13 (untagged facts leave the family line and Places, DMG #25/#27, item 10); merged with the owner brief (Lane 7, 2026-10-07). NOT upstream: a graft, like items 1 to 5, 7 and 9. |
+| Last divergence | 2026-10-18 (people ranked from per-channel last-contact dates, walk #31, item 11); merged with the owner brief (Lane 7, 2026-10-07, item 12). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -187,7 +187,23 @@ the kind of blanket claim that goes stale one item at a time:
     `urn:ostler:Fact` reader is the only untagged-keep in About you; Work reads
     are anchored on the owner's URIs (`pwg:aboutPerson`) and need no change.
 
-11. **The owner brief** (2026-10-07, Lane 7). NOT upstream. Four sections
+11. **People ranked from the dates messaging ingest writes** (2026-10-18,
+   walk #31 on v1.0.108). NOT upstream. "People you interact with most" read
+   only `pwg:RelationshipSignal pwg:totalMessages` (written by the LinkedIn
+   messages importer alone) and `pwg:meetingAttendee` (calendar invites
+   only). The shipped iMessage / WhatsApp ingest
+   (`vendor/ostler_fda/pwg_ingest.py` `_update_last_contact`) and email ingest
+   (`vendor/cm021/src/cli.py`) store one `pwg:lastContact*` date per channel
+   and discard the message count, so a customer who texts and emails but
+   sends no invites got "nothing stored". A third arm now ranks anyone in
+   touch in the last `RECENT_CONTACT_DAYS` (90), below every counted
+   interaction, by recency then channel count; names with no letter (a phone
+   placeholder) are skipped. Pinned by `test_red_v1_0_108_*`,
+   `test_green_people_ranked_from_last_contact_dates` and the producer
+   contract `test_every_shipped_last_contact_predicate_is_read` in
+   `tests/test_digest_knows_its_owner.py`.
+
+12. **The owner brief** (2026-10-07, Lane 7). NOT upstream. Four sections
    added to the digest, each read from a shipped source: `Routines and
    priorities` (`pwg:Meeting` timing + `GET /api/v1/commitments`), `Tastes`
    (`GET /api/v1/preferences`, Food / Music / Film & TV, the profile's own

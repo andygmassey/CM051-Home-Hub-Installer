@@ -647,6 +647,27 @@ def _user_asserted_section() -> list[str]:
 MEETING_WEIGHT = 5
 _RANK_POOL = 200
 
+# THE SIGNAL A REAL CUSTOMER'S GRAPH ACTUALLY CARRIES (walk #31, v1.0.108).
+# The two counts above come from pwg:RelationshipSignal pwg:totalMessages,
+# which only the LinkedIn messages importer writes, and from
+# pwg:meetingAttendee, which only calendar events WITH invitees produce. The
+# shipped iMessage, WhatsApp and email ingests read each thread's message
+# count and discard it: what they store is ONE most-recent date per channel
+# per person (vendor/ostler_fda/pwg_ingest.py _SOURCE_PREDICATE and
+# _update_last_contact; vendor/cm021/src/cli.py for email). So a customer who
+# texts and emails but sends no calendar invites got "People you interact
+# with most: nothing stored" over hundreds of ingested messages. Those dates
+# are now a third arm: anyone in touch on any channel in the last
+# RECENT_CONTACT_DAYS ranks, below everyone with a counted interaction, by
+# most recent contact and then by how many channels they reach the owner on.
+RECENT_CONTACT_DAYS = 90
+_LAST_CONTACT_CHANNELS = (
+    ("lastContactIMessage", "iMessage"),
+    ("lastContactWhatsApp", "WhatsApp"),
+    ("lastContactEmail", "email"),
+    ("lastContactCalendar", "calendar"),
+)
+
 
 def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
     """People ranked by REAL interaction counts in the graph.
@@ -683,7 +704,19 @@ def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
         f"  OPTIONAL {{ ?m pwg:privacyLevel ?l }} {not_l3}\n"
         f"}} GROUP BY ?p ORDER BY DESC(?n) LIMIT {_RANK_POOL}"
     )
-    if msg_rows is None or meet_rows is None:
+    since = (_today().date() - timedelta(days=RECENT_CONTACT_DAYS)).isoformat()
+    channel_values = " ".join(
+        f'(pwg:{pred} "{label}")' for pred, label in _LAST_CONTACT_CHANNELS)
+    recent_rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT ?p (MAX(SUBSTR(STR(?d), 1, 10)) AS ?last) "
+        '(GROUP_CONCAT(DISTINCT ?ch; SEPARATOR="|") AS ?chs) WHERE {\n'
+        f"  VALUES (?pred ?ch) {{ {channel_values} }}\n"
+        "  ?p ?pred ?d .\n"
+        f'  FILTER(SUBSTR(STR(?d), 1, 10) >= "{since}")\n'
+        f"}} GROUP BY ?p ORDER BY DESC(?last) LIMIT {_RANK_POOL}"
+    )
+    if msg_rows is None or meet_rows is None or recent_rows is None:
         return None
 
     def _int(v) -> int:
@@ -702,11 +735,26 @@ def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
             if not _iri_ok(uri) or uri in owners:
                 continue
             tally.setdefault(uri, [0, 0])[idx] += _int(row.get("n"))
+    recency: dict[str, tuple[str, list[str]]] = {}
+    for row in recent_rows:
+        if not isinstance(row, dict):
+            continue
+        uri = (row.get("p") or "").strip()
+        last = (row.get("last") or "").strip()
+        if not _iri_ok(uri) or uri in owners or not last:
+            continue
+        chans = [c for c in (row.get("chs") or "").split("|") if c]
+        recency[uri] = (last, chans)
+        tally.setdefault(uri, [0, 0])
     if not tally:
         return []
-    ranked = sorted(tally.items(),
-                    key=lambda kv: kv[1][0] + MEETING_WEIGHT * kv[1][1],
-                    reverse=True)[:_RANK_POOL]
+
+    def _rank_key(kv):
+        uri, (msgs, meets) = kv
+        last, chans = recency.get(uri, ("", []))
+        return (msgs + MEETING_WEIGHT * meets, last, len(chans))
+
+    ranked = sorted(tally.items(), key=_rank_key, reverse=True)[:_RANK_POOL]
     detail = _sparql_select(
         f"PREFIX pwg: <{PWG_NS}>\n"
         "SELECT ?p ?name ?org ?l WHERE {\n"
@@ -734,15 +782,20 @@ def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
         if not row or _is_withheld({"level": row.get("l")}):
             continue
         name = (row.get("name") or "").strip()
-        if not name or "@" in name:
+        # A name with no letter in it is a phone number or handle the
+        # messaging ingest used as a placeholder until Contacts named the
+        # person; it is not a name to put in front of the model.
+        if not name or "@" in name or not any(c.isalpha() for c in name):
             continue
         if owner_norm and " ".join(name.lower().split()) == owner_norm:
             continue
+        last, chans = recency.get(uri, ("", []))
         out.append({
             "uri": uri, "name": name,
             "org": (row.get("org") or "").strip(),
             "messages": msgs, "meetings": meets,
             "score": msgs + MEETING_WEIGHT * meets,
+            "last_contact": last, "channels": chans,
         })
     return out
 
@@ -764,7 +817,10 @@ def _people_section() -> list[str]:
             counts.append(f"{p['messages']} messages")
         if p["meetings"]:
             counts.append(f"{p['meetings']} meetings")
-        lines.append(f"- {', '.join(bits)} ({', '.join(counts)})")
+        if not counts and p["last_contact"]:
+            via = f" via {', '.join(p['channels'])}" if p["channels"] else ""
+            counts.append(f"last in touch {p['last_contact']}{via}")
+        lines.append(f"- {', '.join(bits)}" + (f" ({', '.join(counts)})" if counts else ""))
     return lines
 
 
