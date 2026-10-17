@@ -702,3 +702,161 @@ def test_places_a_raw_phone_never_prints(env):
     _, digest = _build(env, _SCRIPT, _seed_store(phone_place=True), name="gen_pl27p")
     assert "55501991" not in digest
     assert "Lives in Fictionville" in _about_places(digest)      # the control: places do render here
+
+
+# ── People from the signal a messaging customer's graph actually carries ─────
+#
+# Walk #31 (v1.0.108): "People you interact with most: nothing stored" beside a
+# store holding people. The seed above ranks people by pwg:RelationshipSignal
+# pwg:totalMessages, a shape only the LinkedIn messages importer writes. The
+# shipped iMessage / WhatsApp ingest (vendor/ostler_fda/pwg_ingest.py
+# _update_last_contact) and email ingest (vendor/cm021/src/cli.py) store ONE
+# last-contact date per channel per person and discard the message count. This
+# store is built in exactly those shapes, with no RelationshipSignal and no
+# meeting attendee, which is a customer who texts and emails but sends no
+# calendar invites.
+
+# The v1.0.108 cut generator, pinned: the build walk #31 measured.
+_PREFIX_SHA_LAST_CONTACT = "56a5ed21f708e517bc812fa03b6ff49b01bc2fc8"
+XSD = "http://www.w3.org/2001/XMLSchema#"
+STALE_CONTACT = "Olga Stale"          # last in touch 200 days ago
+L3_CONTACT = "Priya Private"          # L3 person, recent contact
+PLACEHOLDER_PHONE = "+447700900199"   # displayName still the phone handle
+
+
+def _messaging_only_store() -> ox.Store:
+    store = ox.Store()
+    dg = ox.DefaultGraph()
+    rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+    today = datetime.now(timezone.utc).date()
+
+    def add(s, p, o):
+        store.add(ox.Quad(s, _n(p) if isinstance(p, str) else p, o, dg))
+
+    def day(n):  # pwg_ingest._update_last_contact: "YYYY-MM-DD"^^xsd:date
+        return ox.Literal((today - timedelta(days=n)).isoformat(),
+                          datatype=ox.NamedNode(XSD + "date"))
+
+    def stamp(n):  # cm021 email: ISO "..."^^xsd:dateTime
+        return ox.Literal(
+            (datetime.now(timezone.utc) - timedelta(days=n)).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+            datatype=ox.NamedNode(XSD + "dateTime"))
+
+    owner = _n(f"user_{OWNER_ID}")
+    add(owner, rdf_type, _n("Person"))
+    add(owner, "displayName", _lit(OWNER_NAME))
+
+    def person(local, name, level="L2", **last):
+        uri = ox.NamedNode(f"https://schema.ostler.ai/ontology#person_{local}")
+        add(uri, rdf_type, _n("Person"))
+        add(uri, "contactType", _lit("person"))
+        add(uri, "privacyLevel", _lit(level))
+        add(uri, "source", _lit("imessage_fda"))
+        add(uri, "displayName", _lit(name))
+        for pred, val in last.items():
+            add(uri, pred, val)
+        return uri
+
+    person("mary", "Mary Smith", lastContactIMessage=day(1), lastContactEmail=stamp(3))
+    person("bob", "Bob Jones", lastContactWhatsApp=day(4))
+    person("sam", "Sam Patel", lastContactEmail=stamp(20))
+    person("olga", STALE_CONTACT, lastContactIMessage=day(200))
+    person("priya", L3_CONTACT, level="L3", lastContactIMessage=day(2))
+    person("handle", PLACEHOLDER_PHONE, lastContactIMessage=day(2))
+    # The owner's own node can carry a last-contact (a self-thread).
+    add(owner, "lastContactIMessage", day(1))
+    return store
+
+
+def test_messaging_control_store_has_no_count_signal_and_has_dates():
+    """The RED below must be RED because the dates were ignored, not because
+    the store is empty."""
+    store = _messaging_only_store()
+
+    def count(q):
+        return int(next(iter(store.query(
+            "PREFIX pwg: <%s>\nSELECT (COUNT(*) AS ?n) WHERE { %s }" % (PWG, q)
+        )))["n"].value)
+
+    assert count("?s a pwg:RelationshipSignal") == 0
+    assert count("?m pwg:meetingAttendee ?p") == 0
+    assert count("?p pwg:lastContactIMessage ?d") == 5  # incl. the owner self-thread
+    assert count("?p pwg:lastContactEmail ?d") == 2
+    assert count("?p pwg:lastContactWhatsApp ?d") == 1
+
+
+@pytest.fixture()
+def prefix_module_last_contact(tmp_path) -> Path:
+    try:
+        src = subprocess.run(
+            ["git", "-C", str(_REPO), "show",
+             f"{_PREFIX_SHA_LAST_CONTACT}:context-refresh/bin/generate_pwg_context.py"],
+            capture_output=True, text=True, check=True, timeout=30,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError) as exc:
+        pytest.fail(f"CANNOT-RUN: v1.0.108 generator not readable at "
+                    f"{_PREFIX_SHA_LAST_CONTACT} (needs full history): {exc}")
+    out = tmp_path / "generate_pwg_context_v1_0_108.py"
+    out.write_text(src, encoding="utf-8")
+    return out
+
+
+def test_red_v1_0_108_says_nothing_stored_for_a_messaging_customer(
+        env, prefix_module_last_contact):
+    gen, digest = _build(env, prefix_module_last_contact, _messaging_only_store(),
+                         name="gen_v1_0_108")
+    assert digest is not None
+    assert ": COULD NOT BE READ" not in digest
+    assert _gap_line(digest, "People you interact with most").endswith(
+        "nothing stored.")
+
+
+def test_green_people_ranked_from_last_contact_dates(env):
+    gen, digest = _build(env, _SCRIPT, _messaging_only_store())
+    assert digest is not None
+    people = _section(digest, "People you interact with most")
+    rows = [ln for ln in people.splitlines() if ln.startswith("- ")]
+    assert [r.split(" (", 1)[0] for r in rows] == [
+        "- Mary Smith", "- Bob Jones", "- Sam Patel"], people
+    assert "via iMessage, email" in rows[0] or "via email, iMessage" in rows[0], rows[0]
+    assert "via WhatsApp" in rows[1], rows[1]
+    for absent in (STALE_CONTACT, L3_CONTACT, PLACEHOLDER_PHONE, OWNER_NAME):
+        assert absent not in people, f"{absent} must not rank: {people}"
+    assert _gap_line(digest, "People you interact with most") == ""
+
+
+def test_counted_interactions_still_outrank_last_contact_only(env):
+    """The original seed's ranking is unchanged: a person with counted
+    messages or meetings sits above anyone known only by a recent date."""
+    store = _seed_store()
+    newcomer = ox.NamedNode("https://schema.ostler.ai/ontology#person_newcomer")
+    rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+    for p, o in ((rdf_type, _n("Person")), (_n("displayName"), _lit("Nina Newcomer")),
+                 (_n("lastContactIMessage"), ox.Literal(
+                     datetime.now(timezone.utc).date().isoformat(),
+                     datatype=ox.NamedNode(XSD + "date")))):
+        store.add(ox.Quad(newcomer, p, o, ox.DefaultGraph()))
+    gen, digest = _build(env, _SCRIPT, store)
+    rows = [ln for ln in _section(digest, "People you interact with most").splitlines()
+            if ln.startswith("- ")]
+    assert rows[0].startswith("- Mary Smith, Acme Corp"), rows
+    names = [r for r in rows if "Nina Newcomer" in r]
+    assert not names or rows.index(names[0]) > rows.index(
+        next(r for r in rows if r.startswith("- Bob Jones"))), rows
+
+
+def test_every_shipped_last_contact_predicate_is_read():
+    """Producer contract: each per-channel last-contact predicate a shipped
+    writer emits is one the digest ranks by. A new channel added to the
+    ingest without the digest reading it goes RED here."""
+    import re
+    ingest = (_REPO / "vendor" / "ostler_fda" / "pwg_ingest.py").read_text(encoding="utf-8")
+    block = ingest.split("_SOURCE_PREDICATE = {", 1)[1].split("}", 1)[0]
+    written = set(re.findall(r'"pwg:(lastContact\w+)"', block))
+    email = (_REPO / "vendor" / "cm021" / "src" / "cli.py").read_text(encoding="utf-8")
+    written |= set(re.findall(r"pwg:(lastContact\w+) ", email))
+    assert {"lastContactIMessage", "lastContactWhatsApp",
+            "lastContactCalendar", "lastContactEmail"} <= written, written
+    gen = _load(_SCRIPT, "gen_contract")
+    read = {pred for pred, _label in gen._LAST_CONTACT_CHANNELS}
+    assert written <= read, f"written but never ranked: {sorted(written - read)}"
