@@ -1,0 +1,65 @@
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# =============================================================================
+# PWG SHACL Rules - Derived Preference Validation
+#
+# The sh:minCount 1 on pwg:derivedFrom is the STRUCTURAL explainability
+# guarantee: a derived node with no evidence link fails validation and is never
+# written. Its negative control (a node without derivedFrom MUST fail) is a
+# Chunk 1 acceptance test.
+# =============================================================================
+
+pwg:DerivedPreferenceShape a sh:NodeShape ;
+    sh:targetClass pwg:DerivedPreference ;
+    sh:name "Derived Preference Shape" ;
+
+    sh:property [
+        sh:path pwg:derivedFrom ;
+        sh:minCount 1 ;
+        sh:message "A derived preference MUST link at least one evidencing item" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:dimension ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A derived preference MUST carry exactly one dimension string" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:preferenceStrength ;
+        sh:datatype xsd:float ;
+        sh:minInclusive -1.0 ;
+        sh:maxInclusive 1.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "preferenceStrength must be a single float in [-1, 1]" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:confidence ;
+        sh:datatype xsd:float ;
+        sh:minInclusive 0.0 ;
+        sh:maxInclusive 1.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "confidence must be a single float in [0, 1]" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:source ;
+        sh:hasValue "inferred" ;
+        sh:minCount 1 ;
+        sh:message "A derived preference must declare source 'inferred'" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:evidenceCount ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "evidenceCount must be a single integer" ;
+    ] .

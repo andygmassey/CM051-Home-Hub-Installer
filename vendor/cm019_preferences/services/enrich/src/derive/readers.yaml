@@ -1,0 +1,31 @@
+# Reader registry (DATA). Each row registers a Reader the engine runs. Adding a
+# dimension = adding a row here, with no engine/scoring/write/SHACL change.
+#
+# kind: oxigraph_overlay  -> tag in the RDF overlay, strength joined from Qdrant
+#       qdrant_field      -> value+strength from a Qdrant payload field
+#
+# Film MVP: genre + director + actor. Qdrant categories for films are
+# movie / tv_show / movie_tv (measured on the real store, Chunk 1).
+
+- dimension: media.film.genre
+  domain: media.film
+  category: films
+  kind: oxigraph_overlay
+  select_categories: [movie, tv_show, movie_tv]
+  tag_predicate: hasGenre          # enrichment/ontology#hasGenre
+
+- dimension: media.film.director
+  domain: media.film
+  category: films
+  kind: oxigraph_overlay
+  select_categories: [movie, tv_show, movie_tv]
+  tag_predicate: hasEntity
+  tag_entity_type: director
+
+- dimension: media.film.actor
+  domain: media.film
+  category: films
+  kind: oxigraph_overlay
+  select_categories: [movie, tv_show, movie_tv]
+  tag_predicate: hasEntity
+  tag_entity_type: actor

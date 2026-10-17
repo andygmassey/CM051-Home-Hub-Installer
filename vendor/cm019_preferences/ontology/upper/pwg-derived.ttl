@@ -1,0 +1,136 @@
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# =============================================================================
+# PWG Derived-Preference Ontology (additive)
+#
+# New terms for the post-ingest derivation layer. ADDITIVE ONLY: it reuses the
+# existing pwg:preferenceStrength (-1..1), pwg:confidence (0..1) and pwg:source
+# ('inferred') from pwg-core.ttl and never redefines them. A derived node lives
+# in its own named graph (<https://schema.ostler.ai/derived/graph/preferences>)
+# and never touches literal data.
+# =============================================================================
+
+<https://schema.ostler.ai/ontology/derived> a owl:Ontology ;
+    rdfs:label "PWG Derived Preference Ontology"@en ;
+    owl:imports <https://schema.ostler.ai/ontology> ;
+    rdfs:comment "Terms for materialized, evidence-linked derived preferences."@en .
+
+pwg:DerivedPreference a owl:Class ;
+    rdfs:subClassOf pwg:Preference ;
+    rdfs:label "Derived Preference"@en ;
+    rdfs:comment "A preference INFERRED by aggregation over literal items, never stated directly. Every instance MUST carry pwg:derivedFrom provenance."@en .
+
+# --- Properties already EMITTED by writers but not previously declared -------
+pwg:belongsToUser a owl:ObjectProperty ;
+    rdfs:domain pwg:Preference ;
+    rdfs:range pwg:User ;
+    rdfs:label "belongs to user"@en ;
+    rdfs:comment "The owner this preference belongs to."@en .
+
+pwg:category a owl:DatatypeProperty ;
+    rdfs:domain pwg:Preference ;
+    rdfs:range xsd:string ;
+    rdfs:label "category"@en ;
+    rdfs:comment "Free-string domain bucket (films, music, food, people, ...) for cheap filtering."@en .
+
+# --- New derived-node properties --------------------------------------------
+pwg:dimension a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "dimension"@en ;
+    rdfs:comment "OPEN path, e.g. media.film.genre, commerce.brand, trait.novelty_seeking. Free string, NOT an enum."@en .
+
+pwg:valueQid a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "value QID"@en ;
+    rdfs:comment "Optional Wikidata QID for the abstract value, enabling cross-domain joins and hierarchy."@en .
+
+pwg:intensityTier a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "intensity tier"@en ;
+    rdfs:comment "casual / strong / passion, derived from strength + count + recency."@en .
+
+pwg:derivedFrom a owl:ObjectProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:label "derived from"@en ;
+    rdfs:comment "MANDATORY, repeatable. Each literal preference URI (or Qdrant point urn) that evidences this node. SHACL sh:minCount 1."@en .
+
+pwg:evidenceCount a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:integer ;
+    rdfs:label "evidence count"@en ;
+    rdfs:comment "Number of literal items rolled up."@en .
+
+pwg:evidenceSourceCount a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:integer ;
+    rdfs:label "evidence source count"@en ;
+    rdfs:comment "Distinct source platforms among the evidence."@en .
+
+pwg:firstObservedAt a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "first observed at"@en .
+
+pwg:lastObservedAt a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "last observed at"@en .
+
+pwg:derivedAt a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "derived at"@en ;
+    rdfs:comment "When this node was materialized."@en .
+
+pwg:derivationVersion a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "derivation version"@en ;
+    rdfs:comment "engine+config version that produced it (idempotency + audit)."@en .
+
+pwg:derivationMethod a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "derivation method"@en ;
+    rdfs:comment "Which deriver emitted it (rollup, novelty, contradiction, trait, ...)."@en .
+
+pwg:isContested a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "is contested"@en ;
+    rdfs:comment "Set when like/dislike evidence conflict materially."@en .
+
+pwg:isHardConstraint a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "is hard constraint"@en ;
+    rdfs:comment "True for allergies / hard avoidances the consumer must treat as a filter, not a lean."@en .
+
+pwg:trend a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "trend"@en ;
+    rdfs:comment "rising / falling / stable, from the evolution deriver."@en .
+
+pwg:supersededBy a owl:ObjectProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range pwg:DerivedPreference ;
+    rdfs:label "superseded by"@en ;
+    rdfs:comment "Optional, for trend/evolution chaining."@en .
+
+# --- Run marker: makes an EMPTY run PRESENT, distinguishable from ABSENT -----
+pwg:DerivationRun a owl:Class ;
+    rdfs:label "Derivation Run"@en ;
+    rdfs:comment "One materialization run. Written into the derived graph on EVERY successful swap (including an empty one), so a present-but-empty graph (ran, found nothing) is distinguishable from an absent graph (never ran). NOT a pwg:DerivedPreference, so it is never read as a preference row."@en .
+
+pwg:count a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivationRun ;
+    rdfs:range xsd:integer ;
+    rdfs:label "count"@en ;
+    rdfs:comment "Number of derived preferences this run materialized (0 on an empty run)."@en .
