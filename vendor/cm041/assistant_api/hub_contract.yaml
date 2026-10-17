@@ -5727,6 +5727,31 @@
     "service_token"
    ],
    "body_limit_bytes": null,
+   "id": "ical GET /api/v1/preferences/derived",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/preferences/derived",
+   "ports": [
+    8090
+   ],
+   "query_params": [
+    "limit"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "cannot_check",
+    "degraded",
+    "generated_at",
+    "items"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
    "id": "ical GET /api/v1/recording/active",
    "listener": "ical",
    "method": "GET",

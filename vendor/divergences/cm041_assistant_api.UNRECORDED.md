@@ -1342,3 +1342,40 @@ Doctor now serves it as a NATIVE unauthenticated route (same trust model as
 token. The new route is recorded against the `doctor` tree in
 `WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
 Regenerate the contract after any sync.
+
+## smart-prefs (build after v1.0.108): GET /api/v1/preferences/derived, the "What you like" route (CM041 #215, head ccb66c51, NOT YET MERGED)
+
+Tree: `cm041/assistant_api`. Pin HELD at 6c2912fe. **Grafted from an OPEN pull
+request**, because the producer (the cm019 derive engine, grafted and scheduled
+by the two PRs below this one in the stack) is useless to the assistant without
+the route the oa `pwg_derived_preferences` tool calls. There is no merged sha to
+add to `hold_ack_shas` yet. When #215 merges, add its squash sha there as
+"ALREADY GRAFTED" (the 8aca5ccc entry above is the template); if #215 changes
+before it merges, re-graft from its final head.
+
+- `vendor/cm041/assistant_api/ical-server.py`: both hunks of e1107d6c..ccb66c51
+  for this file: `_sparql_select_unscoped` and `api_preferences_derived` before
+  `class Handler`, and the `if parsed.path == "/api/v1/preferences/derived":`
+  block in `do_GET` directly before the `/api/v1/preferences` block. Inserted
+  at uniquely matched anchors. Measured: the multiset of added lines equals
+  upstream's, 77 and 77, nothing on either side only.
+- `vendor/cm041/assistant_api/derived_preferences.py` and
+  `contract/derived_preferences_response.example.json`: new files, byte-identical
+  to #215's head. The contract example is also byte-identical to
+  `vendor/cm019_preferences/services/enrich/src/derive/contract/` (cmp).
+- `hub_contract.yaml`: regenerated, not hand-edited. `scripts/gen_hub_contract.py
+  --gateway-src <ostler-assistant main 58d6523>` adds one route, `ical GET
+  /api/v1/preferences/derived` (`auth: service_token`, the same as
+  `/api/v1/preferences`), 264 -> 265 routes; `--check` reports current.
+- NOT vendored: `assistant_api/tests/test_derived_preferences_route.py`. Tests
+  are excluded from this tree anyway, and that file passes the operator's first
+  name as the user id four times; it needs the same scrub CM041 #217 gave #216's
+  test before #215 merges.
+- Proof: `tests/test_derived_route_reads_what_the_engine_writes.py` runs the
+  REAL cm019 writer into pyoxigraph and the REAL vendored reader + builder over
+  it: healthy response with the contract's exact keys and matchedTitle evidence;
+  an empty derivation is served degraded with a reason (red control); the route
+  is wired in do_GET and declared in the contract; and over HTTP the REAL
+  vendored ical-server serves the derived label with the service token and
+  401s without it. Against the pre-graft ical-server.py: 404, 3 checks fail.
+- Retire: re-pin `cm041/assistant_api` past #215's merge commit.
