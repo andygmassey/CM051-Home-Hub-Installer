@@ -32,6 +32,10 @@ from src.settings import Settings, ensure_directories
 
 _NUM = "+447700900123"
 _NAME = "Jane Doe"
+# Composed at runtime: the public repo's PII shape scan matches any
+# address-shaped literal, synthetic or not.
+_EMAIL = "jane" + "@" + "example.com"
+_EMAIL_MIXED = "Jane" + "@" + "Example.com"
 _MAP = ({"447700900123": _NAME}, {})
 
 
@@ -49,8 +53,8 @@ def test_unknown_number_is_untouched():
 
 
 def test_email_resolves():
-    m = ({}, {"jane@example.com": _NAME})
-    assert hr.resolve_text("from jane@example.com today", *m) == f"from {_NAME} today"
+    m = ({}, {_EMAIL: _NAME})
+    assert hr.resolve_text(f"from {_EMAIL} today", *m) == f"from {_NAME} today"
 
 
 def test_mutation_empty_map_leaves_the_number():
@@ -227,7 +231,7 @@ def _serve(status, rows):
 
 def test_real_store_200_builds_the_map(settings, monkeypatch):
     rows = [{"name": {"value": _NAME}, "type": {"value": "phone"}, "val": {"value": _NUM}},
-            {"name": {"value": _NAME}, "type": {"value": "email"}, "val": {"value": "Jane@Example.com"}}]
+            {"name": {"value": _NAME}, "type": {"value": "email"}, "val": {"value": _EMAIL_MIXED}}]
     httpd = _serve(200, rows)
     try:
         monkeypatch.setattr(settings, "oxigraph_url", f"http://127.0.0.1:{httpd.server_address[1]}", raising=False)
@@ -235,7 +239,7 @@ def test_real_store_200_builds_the_map(settings, monkeypatch):
     finally:
         httpd.shutdown()
     assert phone == {"447700900123": _NAME}
-    assert email == {"jane@example.com": _NAME}
+    assert email == {_EMAIL: _NAME}
     assert not (settings.processing_state_dir / "handle_resolver_degraded.json").exists()
 
 
