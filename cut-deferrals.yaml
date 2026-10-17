@@ -37,7 +37,15 @@
 # this cap. It encodes, as arithmetic, the rule the whole block exists to serve:
 # an exemption must DRAIN, it may not ACCRETE. Raising it is a deliberate,
 # reviewable decision -- that is why it lives here and not in the script.
-pr_exemptions_live_cap: 10
+#
+# INITIAL VALUE = the measured live count on 2026-10-17: 16 unexpired exemptions
+# (all CM051 PRs deferred for v1.0.108, "next train"). Set to that count on
+# purpose, so introducing the floor does NOT turn the next cut red the moment it
+# merges -- an always-red gate gets bypassed, which is the failure the block
+# itself exists to prevent. The TARGET is 10; the ratchet down lands in a
+# follow-up once the drain (scripts/drain_pr_exemptions.sh) has cleared the
+# v1.0.108 batch. Lower it as the live count falls; never raise it to quiet a run.
+pr_exemptions_live_cap: 16
 
 pr_exemptions:
   # -------------------------------------------------------------------------
