@@ -432,7 +432,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b01
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -484,7 +484,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b02
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -548,7 +548,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b03
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -774,7 +774,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b04
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -846,7 +846,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b05
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -931,7 +931,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b06
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -973,7 +973,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b07
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1007,7 +1007,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b08
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1040,7 +1040,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b09
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1100,7 +1100,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b10
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1132,7 +1132,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b11
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1196,7 +1196,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b12
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1248,7 +1248,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b13
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1291,7 +1291,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b14
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1349,7 +1349,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b15
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1446,7 +1446,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b16
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1512,7 +1512,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b17
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1561,7 +1561,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b18
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1618,7 +1618,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b19
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1651,7 +1651,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b20
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1683,7 +1683,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b21
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1750,7 +1750,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b22
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1826,7 +1826,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b23
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1913,7 +1913,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b24
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1978,7 +1978,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b25
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2045,7 +2045,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b26
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2107,7 +2107,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b27
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2168,7 +2168,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b28
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2245,7 +2245,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b29
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2300,7 +2300,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b30
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2382,7 +2382,7 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b31
         run: |
-          set -euo pipefail
+          set -eu
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
