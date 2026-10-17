@@ -166,9 +166,31 @@ def event_paths(doc, event):
     return paths
 
 
+ASSIGN_RE = re.compile(r"^\s*(?:export\s+|local\s+)?([A-Za-z_]\w*)="
+                       r"([\"']?)([\w./@+-]+)\2\s*(?:#.*)?$", re.M)
+CD_RE = re.compile(r"(?:^|[;&|]\s*|\(\s*)cd\s+([\"']?)([\w./-]+)\1", re.M)
+REL_RE = re.compile(r"(?<![\w./$-])([\w.-]+(?:/[\w.-]+)*\.(?:sh|py))\b")
+
+
 def scripts_in(text):
+    """Repo paths a run body executes or names. Best effort, and the SAME
+    effort on both sides of a diff, so a superset still means something.
+
+    Two indirections are followed because the estate uses them: a simple
+    variable (`d=vendor/x/tests; pytest $d/test_a.py`) and a relative path
+    after `cd DIR`. A path found after `cd` counts only if it exists under
+    that directory, so a relative token cannot invent an entry."""
     found = set()
     text = "" if text is None else str(text)
+    for m in ASSIGN_RE.finditer(text):
+        name, val = m.group(1), m.group(3)
+        text = re.sub(r"\$\{%s\}|\$%s\b" % (name, name), val, text)
+    for m in CD_RE.finditer(text):
+        d = m.group(2).rstrip("/")
+        for r in REL_RE.finditer(text[m.end():]):
+            cand = os.path.normpath(os.path.join(d, r.group(1)))
+            if os.path.isfile(os.path.join(REPO, cand)):
+                found.add(cand)
     for m in SCRIPT_RE.finditer(text):
         found.add(m.group(1) or m.group(2))
     for m in MAKE_RE.finditer(text):

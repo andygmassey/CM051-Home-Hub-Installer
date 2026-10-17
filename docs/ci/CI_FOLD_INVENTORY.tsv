@@ -897,7 +897,7 @@ kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guar
 lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	0	uses:actions/checkout@v4	-
 lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	1	uses:actions/setup-python@v5	-
 lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	2	run	-
-lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	3	run	-
+lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	3	run	vendor/cm041/assistant_api/tests/test_conversation_upload.py vendor/cm041/assistant_api/tests/test_lane11_routes.py vendor/cm041/assistant_api/tests/test_speaker_identify.py
 launchagent-pycache-guard.yml	guard	No LaunchAgent runs a python without a bytecode redirect	ubuntu-latest	1	pull_request,push	unfiltered	always	0	uses:actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5	-
 launchagent-pycache-guard.yml	guard	No LaunchAgent runs a python without a bytecode redirect	ubuntu-latest	1	pull_request,push	unfiltered	always	1	run	scripts/verify_launchagent_pycache_guard.py
 launchagent-pycache-guard.yml	guard	No LaunchAgent runs a python without a bytecode redirect	ubuntu-latest	1	pull_request,push	unfiltered	always	2	run	scripts/verify_launchagent_pycache_guard.py
@@ -1244,7 +1244,7 @@ slot-fairness.yml	fairness	fairness	ubuntu-latest	1	pull_request,push	unfiltered
 status-honesty-ingest.yml	ingest-honesty	ingest-honesty	ubuntu-latest	1	pull_request,push	4 paths	vendor	0	uses:actions/checkout@v4	-
 status-honesty-ingest.yml	ingest-honesty	ingest-honesty	ubuntu-latest	1	pull_request,push	4 paths	vendor	1	uses:actions/setup-python@v5	-
 status-honesty-ingest.yml	ingest-honesty	ingest-honesty	ubuntu-latest	1	pull_request,push	4 paths	vendor	2	run	-
-status-honesty-ingest.yml	ingest-honesty	ingest-honesty	ubuntu-latest	1	pull_request,push	4 paths	vendor	3	run	tests/test_apple_mail_refused_walk_is_not_complete.py vendor/whatsapp_source/tests/test_whatsapp_clamp_window.py
+status-honesty-ingest.yml	ingest-honesty	ingest-honesty	ubuntu-latest	1	pull_request,push	4 paths	vendor	3	run	tests/test_apple_mail_refused_walk_is_not_complete.py vendor/whatsapp_source/tests/test_whatsapp_clamp_window.py vendor/whatsapp_source/tests/test_whatsapp_source.py
 status-honesty-meetings-doctor.yml	honesty	honesty	ubuntu-latest	1	pull_request,push	7 paths	installer	0	uses:actions/checkout@v4	-
 status-honesty-meetings-doctor.yml	honesty	honesty	ubuntu-latest	1	pull_request,push	7 paths	installer	1	uses:actions/setup-python@v5	-
 status-honesty-meetings-doctor.yml	honesty	honesty	ubuntu-latest	1	pull_request,push	7 paths	installer	2	run	-
@@ -1633,7 +1633,7 @@ walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surface
 whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	0	uses:actions/checkout@v4	-
 whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	1	uses:actions/setup-python@v5	-
 whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	2	run	-
-whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	3	run	-
+whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	3	run	vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py
 wiki-compile-oracle.yml	wiki-compile-oracle	wiki-compile-oracle	ubuntu-latest	1	pull_request,push	3 paths	installer	0	uses:actions/checkout@v4	-
 wiki-compile-oracle.yml	wiki-compile-oracle	wiki-compile-oracle	ubuntu-latest	1	pull_request,push	3 paths	installer	1	run	tests/test_wiki_compile_has_a_page_count_oracle.sh
 wiki-tailnet-gate.yml	wiki-tailnet-gate	wiki-tailnet-gate	ubuntu-latest	1	pull_request,push	unfiltered	always	0	uses:actions/checkout@v4	-

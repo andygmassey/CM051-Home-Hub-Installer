@@ -133,7 +133,7 @@ unless all of the following hold:
 8. The set of **executed scripts** across all workflows is a superset of the
    base's.
 
-`tests/test_ci_fold.sh` (36 cases) proves the checker by **mutation**: 17
+`tests/test_ci_fold.sh` (37 cases) proves the checker by **mutation**: 17
 ways a fold can lose a gate, each of which must be refused for the named
 reason, plus the selector's glob table and fail-open paths. A guard makes a
 mutation that changes nothing count as a test failure, because a no-op
