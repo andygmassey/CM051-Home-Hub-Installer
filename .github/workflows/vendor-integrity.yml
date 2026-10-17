@@ -141,6 +141,12 @@ on:
       - 'tests/test_container_engine_liveness_and_recovery.sh'
       - 'tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh'
       - 'bin/ostler-engine-supervisor.sh'
+      # The listener watchdog (2026-10-17 incident) and its walk probe: both
+      # tests are RUN below, so both are watched here.
+      - 'tests/test_listener_watchdog_restarts_a_dead_listener.sh'
+      - 'tests/test_listener_watchdog_walk_probe.sh'
+      - 'scripts/box_walk_probes/probes/listener_watchdog_recovers_a_wedged_listener.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
       # The vendor-pair drift gate (#449): the copy that RUNS vs the copy that
       # is REVIEWED. Watched because the step below RUNS it -- a run: with no
@@ -683,6 +689,21 @@ jobs:
       - name: The engine supervisor judges the store ports, not colima list
         if: always()
         run: bash tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh
+
+      # THE DAEMON WAS ALIVE AND ITS :8443 LISTENER WAS DEAD FOR 4 HOURS.
+      #
+      # Andy's box, 2026-10-17: launchd saw a running process, so nothing
+      # respawned it, and the iPhone app sat on "Hub unreachable". The
+      # watchdog install.sh writes (LISTENERWDEOF) is driven against a fake
+      # :8443 the test SIGSTOPs; the Doctor reads the state file that run
+      # wrote; every guard is mutated out and must turn the suite red.
+      - name: The listener watchdog restarts a dead listener, and the Doctor shows it
+        if: always()
+        run: bash tests/test_listener_watchdog_restarts_a_dead_listener.sh
+
+      - name: The listener watchdog walk probe recovers a SIGSTOPped daemon (fake harness)
+        if: always()
+        run: bash tests/test_listener_watchdog_walk_probe.sh
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #
