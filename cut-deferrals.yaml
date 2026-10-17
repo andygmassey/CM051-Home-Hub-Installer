@@ -31,6 +31,14 @@
 # Deferred entries are still PRINTED on every run, so nothing goes quiet.
 # ============================================================================
 
+# Anti-accretion floor for the pr_exemptions: block below. scripts/verify_pr_age.sh
+# goes RED when the number of LIVE exemptions (unexpired review_by AND a PR that
+# is still open -- merged/closed rows are auto-retired from the count) exceeds
+# this cap. It encodes, as arithmetic, the rule the whole block exists to serve:
+# an exemption must DRAIN, it may not ACCRETE. Raising it is a deliberate,
+# reviewable decision -- that is why it lives here and not in the script.
+pr_exemptions_live_cap: 10
+
 pr_exemptions:
   # -------------------------------------------------------------------------
   # v1.0.108 PR-AGE EXEMPTIONS, added 2026-10-17 by Archie. Cut run
