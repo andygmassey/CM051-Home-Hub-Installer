@@ -161,6 +161,14 @@ jobs:
         if: always()
         run: bash tests/test_imessage_tcc_posture.sh
 
+      - name: the installer pre-explains the Documents prompt before the first write
+        if: always()
+        run: bash tests/test_documents_tcc_pre_explain_before_first_write.sh
+
+      - name: Doctor surfaces a denied Documents-folder permission, not a silent gap
+        if: always()
+        run: python3 tests/test_documents_access_doctor_denied_row.py
+
       - name: the vendored defect register carries no personal data
         if: always()
         run: bash tests/test_vendored_register_pii.sh

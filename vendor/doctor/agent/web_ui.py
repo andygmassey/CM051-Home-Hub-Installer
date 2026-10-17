@@ -64,6 +64,13 @@ from dashboard_components import (
     render_security_posture,
     render_whatsapp_keepalive,
 )
+# Documents-folder access posture (launch-blocker install UX fix). A
+# live write probe against ~/Documents/Ostler surfaced as a Doctor tile
+# so a macOS Files-and-Folders denial -- which otherwise fails the wiki
+# and conversation-record writes silently -- is never invisible. Lives
+# in its own vendor-only module (CM051 probes a layout HR015 Doctor has
+# no equivalent of); see vendor/VENDOR_ONLY.tsv.
+from documents_access_posture import render_documents_access_posture
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -307,7 +314,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
+SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@ostler.ai")
 
 
 # ── Cross-site refusal on the credential routes ──────────────────────
@@ -1575,6 +1582,18 @@ def render_dashboard(
     # the same productisation-posture story as the iMessage tile.
     reminders_section = render_reminders_posture()
 
+    # Documents-folder access posture (launch-blocker install UX fix):
+    # a live write probe against ~/Documents/Ostler. Ostler's bundled
+    # interpreter writes the customer's wiki and conversation records
+    # there, behind the macOS Files-and-Folders consent prompt (which
+    # reads as coming from "python3.11"). A customer who declines it
+    # leaves those writes failing silently. Amber when the probe write
+    # is refused; empty string on a fresh box where install.sh has not
+    # reached its first Documents write (not-yet-asked), so Doctor does
+    # not cry wolf. Catches a revoke-after-install the same way the
+    # Reminders runtime tile does, because the probe is live.
+    documents_access_section = render_documents_access_posture()
+
     # Reminders runtime push outcome (task #279, runtime half): reads
     # CM048's reminders_map SQLite table for what actually happened when
     # the assistant pushed extracted commitments to the Reminders app.
@@ -2155,6 +2174,8 @@ def render_dashboard(
         {imessage_tcc_section}
 
         {reminders_section}
+
+        {documents_access_section}
 
         {reminders_runtime_section}
 
@@ -3898,6 +3919,139 @@ async def api_wiki_correct(request: Request):
         )
 
     return result
+
+
+# -- People: owner-settable do-not-suggest (CM041 #216 loopback half) ----
+#
+# The ical-server (:8090) carries api_people_suppress_suggestions:
+# POST /api/v1/people/{slug}/suppress-suggestions, body
+# {"suppressed": bool, "reason": str}. It is the owner-settable do-not-suggest
+# control ("stop suggesting" / "mark as deceased") that keeps a deceased or
+# unwanted contact out of every proactive surface without deleting them.
+#
+# It is reached from the WIKI person page's "Stop suggesting" button -- an
+# UNPAIRED browser on localhost:8044, exactly like the correction pencil that
+# POSTs /api/v1/wiki/correct (CM044 correction_overlay.js: method POST,
+# Content-Type application/json, NO Authorization, cross-origin to :8089). That
+# surface holds no paired-iOS bearer, so it CANNOT use the DOCTOR_PROXY_PATHS
+# reverse proxy: proxy_request validates a paired bearer and 401s an unpaired
+# caller (OSTLER_DOCTOR_ORACLE_FALLBACK=0 on every install). So this is a
+# Doctor-NATIVE route with the SAME trust model as /api/v1/wiki/correct:
+# unauthenticated, browser-reachable, the loopback bind is its boundary.
+#
+# The one difference from wiki/correct is the write target. wiki/correct writes
+# Oxigraph directly; the suppression record lives in the ical-server's store,
+# and THAT endpoint requires the per-install service token. So we forward
+# server-side and attach PWG_SERVICE_TOKEN here -- the token the browser
+# neither has nor needs -- exactly the substitution the DOCTOR_PROXY_PATHS proxy
+# would do, minus its paired-bearer gate that the wiki surface cannot satisfy.
+#
+# Registered BEFORE register_proxy_routes(app) so this explicit handler wins
+# over the proxy catch-all (Starlette matches in registration order), the same
+# posture as the hydration-status passthrough below. Thin plumbing only: the
+# ical handler owns the suppression logic and re-validates; nothing here is a
+# reimplementation of it.
+
+_SUPPRESS_SUGGESTIONS_PATH = "/api/v1/people/{slug}/suppress-suggestions"
+_SUPPRESS_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS = 10.0
+
+
+async def _forward_suppress_suggestions(
+    slug: str,
+    body: bytes,
+    gateway_url: "str | None" = None,
+    client: "httpx.AsyncClient | None" = None,
+) -> httpx.Response:
+    """POST a suppress-suggestions request to the upstream ical-server,
+    attaching the per-install service token.
+
+    The browser never holds the service token (it is an unpaired wiki page);
+    the Doctor is the one place the token lives, so it is added here on the
+    server-side forward. Reuses ``proxy._gateway_base_url`` (the customer
+    install points ``DOCTOR_GATEWAY_URL`` at the loopback ical-server on :8090)
+    and ``proxy._resolve_service_token`` so the base and the token are read from
+    one place. With no service token configured the forward is a transparent
+    pass-through, matching ``proxy_request``'s documented posture.
+
+    ``gateway_url`` / ``client`` exist for tests that inject a destination or a
+    mocked transport; production callers pass neither.
+    """
+    from proxy import _gateway_base_url, _resolve_service_token
+
+    base = (gateway_url or _gateway_base_url()).rstrip("/")
+    url = base + "/api/v1/people/" + slug + "/suppress-suggestions"
+    headers = {"content-type": "application/json"}
+    service_token = _resolve_service_token()
+    if service_token:
+        headers["authorization"] = "Bearer " + service_token
+    if client is not None:
+        return await client.post(
+            url, content=body, headers=headers,
+            timeout=_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS,
+        )
+    async with httpx.AsyncClient(
+        timeout=_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS
+    ) as new_client:
+        return await new_client.post(url, content=body, headers=headers)
+
+
+@app.post(_SUPPRESS_SUGGESTIONS_PATH, response_class=JSONResponse)
+async def api_people_suppress_suggestions(slug: str, request: Request) -> Response:
+    """Owner's "stop suggesting" / "mark as deceased" control (CM041 #216).
+
+    Doctor-native, unauthenticated, browser-reachable -- the same trust model
+    as ``/api/v1/wiki/correct``, because the wiki "Stop suggesting" button is an
+    unpaired browser and cannot present a paired bearer. We forward to the
+    ical-server with the service token (see ``_forward_suppress_suggestions``)
+    and return its result verbatim, so the owner's choice persists. The ical
+    handler owns the suppression logic and re-validates; the checks here are a
+    thin, fast local guard, never a reimplementation.
+    """
+    if not _SUPPRESS_SLUG_RE.match(slug or ""):
+        return JSONResponse(
+            {"error": "Invalid slug. Expected lowercase ASCII letters, digits "
+                      "and hyphens (max 80 chars)."},
+            status_code=400,
+        )
+
+    raw = await request.body()
+    try:
+        parsed = json.loads(raw) if raw else {}
+    except Exception as exc:
+        return JSONResponse({"error": "invalid JSON: %s" % exc}, status_code=400)
+    if not isinstance(parsed, dict):
+        return JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400,
+        )
+    if "suppressed" in parsed and not isinstance(parsed["suppressed"], bool):
+        return JSONResponse(
+            {"error": "`suppressed` must be a boolean"}, status_code=400,
+        )
+    reason = parsed.get("reason")
+    if reason is not None and (not isinstance(reason, str) or len(reason) > 200):
+        return JSONResponse(
+            {"error": "`reason` must be a string (max 200 chars)"},
+            status_code=400,
+        )
+
+    # Forward exactly what we validated.
+    forward_body = json.dumps(parsed).encode("utf-8")
+    try:
+        upstream = await _forward_suppress_suggestions(slug, forward_body)
+    except (httpx.HTTPError, OSError) as exc:
+        # Upstream ical-server unreachable / timed out. Honest 502 so the
+        # button surfaces a retry rather than a fabricated success.
+        return JSONResponse(
+            {"error": "upstream suppress-suggestions unreachable",
+             "detail": exc.__class__.__name__},
+            status_code=502,
+        )
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
 
 
 @app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
