@@ -524,6 +524,24 @@ def cmd_generate(args):
     push_unfiltered = False
     blocks, total_timeout = [], 0
     removals = {}
+    # SHARDS: a plain family can run as N parallel legs of one matrix, each
+    # block in exactly one leg. Assigned longest-first to the least-loaded
+    # leg (LPT) by measured seconds from --weights (default 60 each), so one
+    # slow block does not serialise the rest behind it.
+    shards = int(args.shards or 1)
+    weights = {}
+    if args.weights:
+        for line in open(args.weights, encoding="utf-8"):
+            if line.strip() and not line.startswith("#"):
+                k, v = line.rstrip("\n").split("\t")[:2]
+                weights[k] = float(v)
+    assign, loads = {}, [0.0] * shards
+    for n, (wf, jid) in sorted(enumerate(members, 1),
+                               key=lambda t: (-weights.get(f"{t[1][0]}::{t[1][1]}", 60.0), t[0])):
+        k = min(range(shards), key=lambda i: (loads[i], i))
+        assign[n] = k + 1
+        loads[k] += weights.get(f"{wf}::{jid}", 60.0)
+    shard_timeout = [0] * shards
     for n, (wf, jid) in enumerate(members, 1):
         if wf not in wfs:
             raise CannotRun(f"ci_fold: {wf} does not exist")
@@ -615,6 +633,12 @@ def cmd_generate(args):
                              f"{len(items)} != parsed {len(job['steps'])}")
         tag = f"b{n:02d}"
         gate = f"steps.select.outputs.{tag} != 'false'"
+        if shards > 1:
+            if js != "plain":
+                raise CannotRun("ci_fold: --shards is modelled for plain "
+                                "families only (members with no matrix)")
+            gate += f" && matrix.shard == {assign[n]}"
+            shard_timeout[assign[n] - 1] += jt
         hl = hoist_len(js)
         rest = list(zip(items[hl:], job["steps"][hl:]))
         id_map = {st["id"]: f"{tag}_{st['id']}" for _, st in rest if "id" in st}
@@ -633,6 +657,7 @@ def cmd_generate(args):
                        "jobcomments": [l for l in lines[s:k] if l.strip()],
                        "steps": reindent(out_steps, delta),
                        "name": job.get("name", jid), "gate": gate,
+                       "shard": assign.get(n) if shards > 1 else None,
                        "own": own})
         removals.setdefault(wf, []).append(jid)
 
@@ -642,6 +667,9 @@ def cmd_generate(args):
             pr_paths.append(p)
     if push_branches is not None:
         push_paths.append(f"{WF_REL}/{fam_file}")
+    if shards > 1:
+        matrix = {"fail-fast": False, "matrix": {"shard": list(range(1, shards + 1))}}
+        total_timeout = max(shard_timeout)
     job_timeout = min(total_timeout, 70)
 
     o = []
@@ -671,8 +699,12 @@ def cmd_generate(args):
           "block.",
           "#",
           f"# Folded jobs ({len(blocks)}):"]
+    if shards > 1:
+        o.append(f"#   (shards, measured seconds per leg: "
+                 f"{', '.join(f'{x:.0f}' for x in loads)})")
     for b in blocks:
-        o.append(f"#   {b['tag']}  {b['wf']} :: {b['jid']}")
+        sh = f"  shard {b['shard']}" if b["shard"] else ""
+        o.append(f"#   {b['tag']}  {b['wf']} :: {b['jid']}{sh}")
     o += [f"name: {FAMILY_PREFIX}{args.family}", "", "on:"]
     if push_branches is not None:
         o += ["  push:", f"    branches: {flow(push_branches)}"]
@@ -1003,7 +1035,15 @@ def cmd_check(args):
                     problems.append(f"{wf}: its unfolded jobs changed")
             if fjob.get("runs-on") != bjob.get("runs-on"):
                 problems.append(f"{wf}::{jid} runs-on changed")
-            if (fjob.get("strategy") or {}) != (bjob.get("strategy") or {}):
+            fstrat, bstrat = fjob.get("strategy") or {}, bjob.get("strategy") or {}
+            fshards = []
+            if not bstrat and set(fstrat) == {"fail-fast", "matrix"} and \
+                    fstrat.get("fail-fast") is False and \
+                    list((fstrat.get("matrix") or {})) == ["shard"]:
+                fshards = list(fstrat["matrix"]["shard"])
+                if fshards != list(range(1, len(fshards) + 1)):
+                    problems.append(f"{fam_file}: shards must be 1..N")
+            elif fstrat != bstrat:
                 problems.append(f"{wf}::{jid} strategy/matrix changed")
             # triggers
             old_self = f"{WF_REL}/{wf}"
@@ -1065,6 +1105,15 @@ def cmd_check(args):
                 problems.append(f"{tag}_isolate can be skipped by another "
                                 f"block's failure")
             gate = f"steps.select.outputs.{tag} != 'false'"
+            if fshards:
+                ks = {m for st in block for m in
+                      re.findall(r"matrix\.shard == (\d+)", str(st.get("if", "")))}
+                every = all(re.search(r"matrix\.shard == \d+", str(st.get("if", "")))
+                            for st in block)
+                if len(ks) != 1 or not every or int(next(iter(ks))) not in fshards:
+                    problems.append(f"{wf}::{jid}: block {tag} is not in "
+                                    f"exactly one shard of {fshards} "
+                                    f"(found {sorted(ks) or 'none'})")
             for st in block:
                 if gate not in str(st.get("if", "")):
                     problems.append(f"{wf}::{jid}: step {st.get('id')} is "
@@ -1549,6 +1598,10 @@ def main(argv):
     g = sub.add_parser("generate")
     g.add_argument("family")
     g.add_argument("--spec")
+    g.add_argument("--shards", type=int, default=1, help="plain families: "
+                   "run as N parallel matrix legs, each block in one")
+    g.add_argument("--weights", help="TSV of workflow::job<TAB>seconds, "
+                   "measured, for balancing the shards")
     g.add_argument("--dir", help="workflows dir to fold in place (self-test "
                    "seam; default: this checkout's)")
     c = sub.add_parser("check")
