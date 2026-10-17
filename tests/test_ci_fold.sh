@@ -237,6 +237,23 @@ for b in bad:
 sys.exit(1 if bad else 0)
 PY
 
+# The executed-script extractor is what the before/after script diff is built
+# on. It must see through the two indirections the estate uses, and must not
+# invent a path that does not exist.
+python3 - "$TOOL" "$ROOT" <<'PY' && pass "script extractor follows \$var and cd, invents nothing" || bad "script extractor"
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ci_fold", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.scripts_in("d=tests\nbash $d/test_ci_fold.sh\nbash ${d}/test_ci_fold.sh")
+ok = got == {"tests/test_ci_fold.sh"}
+got2 = m.scripts_in("cd scripts\npython3 ci_fold.py check\npython3 no/such/thing.py")
+ok = ok and "scripts/ci_fold.py" in got2 and not any("no/such" in g for g in got2)
+got3 = m.scripts_in("make -C gui check-pr-age && bash tests/test_ci_fold.sh")
+ok = ok and {"make:gui:check-pr-age", "tests/test_ci_fold.sh"} <= got3
+print(got, got2, got3, file=sys.stderr) if not ok else None
+sys.exit(0 if ok else 1)
+PY
+
 sel() {  # sel <files-or-empty> <event> -> prints sorted outputs
     local o="$T/sel.out"; : > "$o"
     if [ -n "$1" ]; then printf '%s\n' $1 > "$T/files.txt"; else : > "$T/files.txt"; fi
