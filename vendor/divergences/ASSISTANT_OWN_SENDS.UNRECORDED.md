@@ -129,3 +129,15 @@ Tree `email_source`, `vendor/email_source/pipeline.py`: new `_widen_first_window
 ### What a future sync must preserve
 
 `_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change upstream and re-pinning.
+
+## A chat.db schema mismatch fails LOUD, never returns [] (walk #30, owner-knowledge 0/80) -- `imessage_source`
+
+Tree `imessage_source`, `vendor/imessage_source/reader.py`: new `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS` and `_raise_if_schema_mismatch()`. Both `extract_conversations` and `extract_messages` now call the helper in their `except sqlite3.OperationalError` arm: a schema-shaped error (`no such column` / `no such table` and siblings) is re-raised as `ChatDbSchemaError` instead of being logged and returned as `[]`; any other OperationalError (a transient lock while Messages writes) keeps the pre-existing degrade-to-empty. The same graft lands on the `ostler_fda` tree (`vendor/ostler_fda/imessage.py`), recorded in `WRITER_READER_MISMATCHES.UNRECORDED.md`; the two readers are kept in step.
+
+### Why
+
+Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness scored 0 of 80. The synthetic chat.db lacked `account_login`, which both readers SELECT; sqlite raised `no such column: c.account_login`, the readers logged it and returned `[]`, and a zero-message read is indistinguishable at the consumer (`ostler_fda.extract_all`, `imessage_source.pipeline.write_reply_debt_snapshot`) from "you have not messaged anyone". Every source still reported ok. On a real macOS schema drift this would silently zero a real user's message history with nothing going red. Raising makes the consumer record the source as `error` (Doctor-visible); a benign empty store raises nothing and still returns `[]`.
+
+### What a future sync must preserve
+
+`ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`. Retire by landing the change upstream (andygmassey/conversation-memory, services/imessage_source) and re-pinning.

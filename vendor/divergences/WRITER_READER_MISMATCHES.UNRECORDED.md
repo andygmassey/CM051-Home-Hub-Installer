@@ -1531,3 +1531,15 @@ Tree `doctor`, two files. `vendor/doctor/agent/diagnostic_rules.py`, `check_park
 ### What a future sync must preserve
 
 The quarantined branch in `check_parked_facts` and the three copy constants. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py` (memory-assert-answers-under-load.yml).
+
+## A chat.db schema mismatch fails LOUD, never returns [] (walk #30, owner-knowledge 0/80) -- `ostler_fda`
+
+Tree `ostler_fda`, `vendor/ostler_fda/imessage.py`: new `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS` and `_raise_if_schema_mismatch()`. Both `extract_conversations` and `extract_messages` call the helper in their `except sqlite3.OperationalError` arm: a schema-shaped error (`no such column` / `no such table` and siblings) is re-raised as `ChatDbSchemaError` instead of being logged and returned as `[]`; any other OperationalError (a transient lock) keeps the degrade-to-empty, with `conn.close()` moved ahead of the possible raise. The same graft lands on the `imessage_source` tree (`vendor/imessage_source/reader.py`), recorded in `ASSISTANT_OWN_SENDS.UNRECORDED.md`; the two readers are kept in step.
+
+### Why
+
+Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness scored 0 of 80, because the synthetic chat.db lacked `account_login` (which both readers SELECT) and the readers swallowed `no such column: c.account_login` into `[]`. A schema-shaped OperationalError is only ever a reader/schema fault, never a benign empty (which returns zero rows with no exception), so it is refused rather than reported as 0 messages. The HR015 `ostler_fda` twin is OWED; `ostler_fda.patch` is NOT regenerated (no HR015 checkout here, the same refusal this file already records).
+
+### What a future sync must preserve
+
+`ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`.
