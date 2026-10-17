@@ -1,9 +1,88 @@
 """Data models for enrichment results."""
 
+import logging
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
+
+logger = logging.getLogger(__name__)
+
+
+def turtle_literal(value) -> str:
+    """Escape ``value`` for the body of a double-quoted Turtle literal.
+
+    The same escapes are valid in a SPARQL string literal, and they have to
+    be: ``EnrichmentService._store_enrichment`` splits ``to_turtle`` output on
+    newlines and posts it as ``INSERT DATA``. A raw newline inside a literal
+    therefore does not just make bad Turtle, it splits one triple across two
+    lines and the whole INSERT for that title is rejected, so nothing about the
+    title reaches the graph. TMDB overviews routinely contain quotes and line
+    breaks, so this is the common case, not a corner.
+
+    Backslash first, so the escapes added afterwards are not doubled. Other
+    C0 control characters are legal raw in Turtle but not reliably in every
+    SPARQL endpoint, so they are written as ``\\uXXXX``.
+    """
+    s = str(value)
+    out = []
+    for ch in s:
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append("\\u%04X" % ord(ch))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+# Characters that may not appear inside an IRIREF (<...>) in Turtle or SPARQL.
+# Only these are percent-encoded, so every local id that was already valid
+# keeps exactly the IRI it had (no duplicate nodes for existing data); ids
+# that contained one of them used to make the whole INSERT fail.
+_IRI_FORBIDDEN = set('<>"{}|^`\\') | {chr(c) for c in range(0x21)}
+
+
+def iri_local(value: str) -> str:
+    """Make ``value`` safe as the local part of an IRI written as <...>."""
+    return "".join(
+        "%%%02X" % ord(ch) if ch in _IRI_FORBIDDEN else ch for ch in value
+    )
+
+
+# TMDB returns poster_path as a bare file path ("/abc123.jpg") to be joined to
+# its image CDN. Only that exact shape is accepted: anything else (a full URL,
+# a traversal, a value carrying whitespace or IRI syntax) is dropped and
+# logged, never written. The URL is DATA in the graph; whether a reader may
+# fetch it is the reader's consent decision (the wiki never hot-loads it).
+TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
+_TMDB_POSTER_PATH_RE = re.compile(r"^/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|webp)$")
+
+
+def tmdb_poster_url(poster_path: Optional[str]) -> Optional[str]:
+    """Full poster URL for a TMDB ``poster_path``, or None if not plain."""
+    if not poster_path:
+        return None
+    if not _TMDB_POSTER_PATH_RE.match(poster_path):
+        logger.info("TMDB poster_path rejected (not a plain file path): %r", poster_path)
+        return None
+    return TMDB_POSTER_BASE + poster_path
+
+
+def _positive_int(value) -> Optional[int]:
+    """``value`` if it is a real positive int (bool excluded), else None."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value > 0 else None
 
 
 class EnrichmentSource(str, Enum):
@@ -695,43 +774,73 @@ class EnrichmentResult:
         )
 
     def to_turtle(self, preference_uri: str) -> str:
-        """Generate Turtle format RDF triples for this enrichment."""
+        """Generate Turtle format RDF triples for this enrichment.
+
+        Every literal goes through :func:`turtle_literal` and every minted
+        IRI local part through :func:`iri_local`; see their docstrings for
+        why one bad character used to lose the whole title.
+        """
         triples = []
+        p = preference_uri
+        lit = turtle_literal
 
         # Enrichment metadata
-        triples.append(f'<{preference_uri}> pwg:enrichedAt "{self.enriched_at.isoformat()}"^^xsd:dateTime .')
-        triples.append(f'<{preference_uri}> pwg:enrichmentSource "{self.source.value}" .')
-        triples.append(f'<{preference_uri}> pwg:enrichmentConfidence "{self.confidence}"^^xsd:decimal .')
-        triples.append(f'<{preference_uri}> pwg:matchType "{self.match_type.value}" .')
+        triples.append(f'<{p}> pwg:enrichedAt "{self.enriched_at.isoformat()}"^^xsd:dateTime .')
+        triples.append(f'<{p}> pwg:enrichmentSource "{lit(self.source.value)}" .')
+        triples.append(f'<{p}> pwg:enrichmentConfidence "{self.confidence}"^^xsd:decimal .')
+        triples.append(f'<{p}> pwg:matchType "{lit(self.match_type.value)}" .')
         # Track whether we got actual topics/genres (for later re-processing if needed)
         has_semantic = "true" if self.has_semantic_value() else "false"
-        triples.append(f'<{preference_uri}> pwg:hasSemanticValue "{has_semantic}"^^xsd:boolean .')
+        triples.append(f'<{p}> pwg:hasSemanticValue "{has_semantic}"^^xsd:boolean .')
         if self.matched_title:
-            # Escape quotes in matched title
-            safe_title = self.matched_title.replace('"', '\\"')
-            triples.append(f'<{preference_uri}> pwg:matchedTitle "{safe_title}" .')
+            triples.append(f'<{p}> pwg:matchedTitle "{lit(self.matched_title)}" .')
 
         # Topics
         for topic in self.topics:
-            topic_uri = f"pwg:topic_{topic.normalized}"
-            triples.append(f'<{preference_uri}> pwg:hasTopic <{topic_uri}> .')
-            triples.append(f'<{topic_uri}> rdfs:label "{topic.name}" .')
+            topic_uri = f"pwg:topic_{iri_local(topic.normalized)}"
+            triples.append(f'<{p}> pwg:hasTopic <{topic_uri}> .')
+            triples.append(f'<{topic_uri}> rdfs:label "{lit(topic.name)}" .')
             triples.append(f'<{topic_uri}> a pwg:Topic .')
 
         # Genres
         for genre in self.genres:
-            genre_uri = f"pwg:genre_{genre.normalized}"
-            triples.append(f'<{preference_uri}> pwg:hasGenre <{genre_uri}> .')
-            triples.append(f'<{genre_uri}> rdfs:label "{genre.name}" .')
+            genre_uri = f"pwg:genre_{iri_local(genre.normalized)}"
+            triples.append(f'<{p}> pwg:hasGenre <{genre_uri}> .')
+            triples.append(f'<{genre_uri}> rdfs:label "{lit(genre.name)}" .')
             triples.append(f'<{genre_uri}> a pwg:Genre .')
 
         # Entities
         for entity in self.entities:
             entity_id = entity.name.lower().replace(" ", "_").replace(".", "")
-            entity_uri = f"pwg:entity_{entity_id}"
-            triples.append(f'<{preference_uri}> pwg:hasEntity <{entity_uri}> .')
-            triples.append(f'<{entity_uri}> rdfs:label "{entity.name}" .')
-            triples.append(f'<{entity_uri}> pwg:entityType "{entity.entity_type}" .')
+            entity_uri = f"pwg:entity_{iri_local(entity_id)}"
+            triples.append(f'<{p}> pwg:hasEntity <{entity_uri}> .')
+            triples.append(f'<{entity_uri}> rdfs:label "{lit(entity.name)}" .')
+            triples.append(f'<{entity_uri}> pwg:entityType "{lit(entity.entity_type)}" .')
             triples.append(f'<{entity_uri}> a pwg:Entity .')
+
+        # Film / TV detail (TMDB). The client has always fetched these; until
+        # now they were dropped here, so no reader could ever show them.
+        # Predicates (all under the enrichment namespace):
+        #   pwg:overview        plain literal, the TMDB synopsis
+        #   pwg:posterUrl       xsd:anyURI literal, TMDB CDN URL (DATA only)
+        #   pwg:runtimeMinutes  xsd:integer (film runtime, or mean TV episode)
+        #   pwg:seasonCount     xsd:integer (TV only)
+        #   pwg:episodeCount    xsd:integer (TV only)
+        movie = self.movie_metadata
+        if movie is not None:
+            overview = (movie.overview or "").strip()
+            if overview:
+                triples.append(f'<{p}> pwg:overview "{lit(overview)}" .')
+            poster = tmdb_poster_url(movie.poster_path)
+            if poster:
+                triples.append(f'<{p}> pwg:posterUrl "{lit(poster)}"^^xsd:anyURI .')
+            for pred, raw in (
+                ("runtimeMinutes", movie.runtime),
+                ("seasonCount", movie.season_count),
+                ("episodeCount", movie.episode_count),
+            ):
+                n = _positive_int(raw)
+                if n is not None:
+                    triples.append(f'<{p}> pwg:{pred} "{n}"^^xsd:integer .')
 
         return "\n".join(triples)
