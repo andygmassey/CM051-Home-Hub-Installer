@@ -341,6 +341,76 @@ shmut "a block step that lost its shard (it would run in every leg)" "not in exa
 's = s.replace(" && matrix.shard == 2", "", 1)'
 shmut "a block sent to a shard the matrix does not have" "not in exactly one shard" \
 's = s.replace("matrix.shard == 2", "matrix.shard == 3")'
+# ---- a block cannot leave a process running into the next ---------------
+# A fresh machine had no processes from another job; a family must not let
+# one block's leftovers serve the next. Run for real: block 1 leaks a
+# uniquely named sleep, block 2 asserts it is gone. Then the CONTROL: the
+# same family with the kill removed must FAIL, or the first result proves
+# nothing.
+PYV="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+if ! command -v "python$PYV" >/dev/null 2>&1; then
+    echo "test_ci_fold: CANNOT RUN the leak case -- no python$PYV on PATH" >&2
+    exit 2
+fi
+LK="$T/lk"; mkdir -p "$LK/.github/workflows" "$LK/scripts"
+cp "$TOOL" "$LK/scripts/ci_fold.py"
+for n in a b; do
+    if [ "$n" = a ]; then body='nohup sleep 3171 >/dev/null 2>&1 &'
+    else body='[ "$(ps -A -o args= | grep -c "^sleep 3171$")" -eq 0 ]'; fi
+    cat > "$LK/.github/workflows/lk-$n.yml" <<YML
+name: lk-$n
+on:
+  pull_request:
+    paths: ['src/$n.sh', '.github/workflows/lk-$n.yml']
+jobs:
+  lk$n:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python: ['$PYV']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: \${{ matrix.python }}
+      - name: step $n
+        run: |
+          $body
+YML
+done
+git -C "$LK" init -q && git -C "$LK" add -A \
+    && git -C "$LK" -c user.email=t@t -c user.name=t commit -qm fixture
+printf 'lk\tlk-a.yml\tlka\nlk\tlk-b.yml\tlkb\n' > "$T/lkspec.tsv"
+python3 "$TOOL" generate lk --dir "$LK/.github/workflows" --spec "$T/lkspec.tsv" >/dev/null 2>&1
+cp "$LK/.github/workflows/fold-lk.yml" "$T/fold-lk.yml"
+leak_run() {  # leak_run <family-file> -> rc of run-local
+    python3 "$TOOL" run-local "$1" --python "$PYV" --workspace "$LK" >/dev/null 2>&1
+}
+pkill -f '^sleep 3171$' 2>/dev/null
+leak_run "$T/fold-lk.yml"; rc=$?
+[ "$rc" -eq 0 ] && pass "a process leaked by block 1 is gone before block 2 runs" \
+    || bad "block 2 still saw block 1's leaked process (run-local rc=$rc)"
+python3 - "$T/fold-lk.yml" "$T/fold-lk-nokill.yml" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+s = s.replace('kill -KILL "$pid" 2>/dev/null || true', 'true  # kill removed')
+open(sys.argv[2], "w").write(s)
+PY
+pkill -f '^sleep 3171$' 2>/dev/null
+leak_run "$T/fold-lk-nokill.yml"; rc=$?
+[ "$rc" -ne 0 ] && pass "CONTROL: without the kill, block 2 DOES see the leak (the case discriminates)" \
+    || bad "CONTROL: block 2 passed with the kill removed -- the leak case tests nothing"
+pkill -f '^sleep 3171$' 2>/dev/null
+python3 - "$T/after/wf/fold-fx.yml" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+open(p + ".nomark", "w").write(s.replace('echo "CI_FOLD_BLOCK=b01" >> "$GITHUB_ENV"', 'true'))
+PY
+rm -rf "$T/nm"; cp -R "$T/after" "$T/nm"; mv "$T/nm/wf/fold-fx.yml.nomark" "$T/nm/wf/fold-fx.yml"
+OUT="$(python3 "$TOOL" check --base-dir "$T/base/wf" --tree "$T/nm/wf" --spec "$T/spec.tsv" 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && grep -qF 'does not mark its block' <<< "$OUT"; then pass "refused: an isolate step that no longer marks its block's processes"
+else bad "unmarked isolate step not refused ($RC)"; fi
 
 # ---- the selector: GitHub's glob semantics, and it FAILS OPEN -------------
 python3 - "$TOOL" <<'PY' && pass "glob table matches GitHub's filter semantics" || bad "glob table"
