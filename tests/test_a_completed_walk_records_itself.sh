@@ -56,6 +56,12 @@ cannot() { printf 'CANNOT-RUN: %s\n' "$*" >&2; exit 2; }
 
 TMP="$(mktemp -d)" || cannot "cannot create a scratch directory."
 trap 'rm -rf "$TMP"' EXIT
+# ISOLATION: record_walk.sh copies each record into the walk store, which
+# defaults to ~/.ostler/walks. These arms record fake v9.9.9 walks; HOME and the
+# store are scratch so none of it can reach the operator's real store.
+export HOME="${TMP}/home"; mkdir -p "$HOME"
+export OSTLER_WALK_STORE="${TMP}/store"
+export OSTLER_UNDER_TEST=1
 
 # ── THE NO-OP WRITER, AND WHY IT IS NOT /bin/true ────────────────────────
 #

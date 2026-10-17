@@ -39,9 +39,8 @@ from typing import Any, Callable, Dict, List, Optional
 # ── Caps ────────────────────────────────────────────────────────────
 TEXT_CAP_CHARS = 20 * 1024            # ordinary visit text
 KNOWLEDGE_TEXT_CAP_CHARS = 200 * 1024  # explicit Save to Knowledge
-# Only this much of the text is shown to the model: a 16 GB machine runs an
-# 8192 (or 4096 on the floor tier) context for enrichment, see
-# OSTLER_ENRICH_NUM_CTX in CM051 install.sh.
+# Only this much of the text is shown to the model. The prompt caps are
+# about prompt size, not the context window: see ``_num_ctx`` for that.
 PROMPT_CHARS_VISIT = 8000
 PROMPT_CHARS_KNOWLEDGE = 14000
 MAX_TAGS_USER = 20
@@ -227,14 +226,22 @@ def summary_model() -> Optional[str]:
             or None)
 
 
+# The daemon's chat context window (OLLAMA_NUM_CTX in the assistant plist).
+CHAT_NUM_CTX = 32768
+
+
 def _num_ctx() -> int:
-    # install.sh sets OSTLER_ENRICH_NUM_CTX per resource tier (4096 floor,
-    # 8192 low, empty on high). Browsing summaries never need more than 8192.
+    """Context window for a summary: OSTLER_ENRICH_NUM_CTX if the operator set
+    one, else the CHAT window, never a smaller default. Ollama keys a loaded
+    runner on (model, num_ctx), and summaries use the chat model, so any other
+    value unloads and reloads the chat model on every switch. That reload
+    thrash starved Ollama on a 16 GB walk box (CM051 #2804, which also leaves
+    OSTLER_ENRICH_NUM_CTX empty on every tier)."""
     try:
         n = int(os.environ.get("OSTLER_ENRICH_NUM_CTX") or 0)
     except ValueError:
         n = 0
-    return n if n > 0 else 8192
+    return n if n > 0 else CHAT_NUM_CTX
 
 
 def ollama_generate(prompt: str, *, timeout: float = 120.0) -> str:
@@ -398,7 +405,7 @@ def _slug(text: str) -> str:
 def render_knowledge_markdown(title: str, url: str, result: Optional[dict],
                               user_tags: List[str], note: str) -> str:
     parts: List[str] = []
-    if result:
+    if result and result["summary"]:
         parts.append("## Summary\n\n" + result["summary"])
         if result["key_points"]:
             parts.append("## Key points\n\n" + "\n".join("- " + p for p in result["key_points"]))
@@ -413,7 +420,8 @@ def render_knowledge_markdown(title: str, url: str, result: Optional[dict],
 def build_knowledge_point(*, url: str, title: str, timestamp: str, device: str,
                           visit_id: str, result: Optional[dict],
                           user_tags: List[str], note: str,
-                          failure_reason: str = "") -> dict:
+                          failure_reason: str = "",
+                          source: str = "", notebook: str = "") -> dict:
     """Return the Qdrant payload (no vector) for a Saved web page.
 
     Field names are the union the real writers and the real reader use:
@@ -439,8 +447,8 @@ def build_knowledge_point(*, url: str, title: str, timestamp: str, device: str,
         "content": content,
         "tags": tags,
         "user_tags": list(user_tags),
-        "notebook": KNOWLEDGE_NOTEBOOK,
-        "source": KNOWLEDGE_SOURCE,
+        "notebook": notebook or KNOWLEDGE_NOTEBOOK,
+        "source": source or KNOWLEDGE_SOURCE,
         "author": "",
         "source_url": url,
         "created": timestamp,
@@ -522,6 +530,27 @@ def qdrant_upsert(base: str, collection: str, point_id: str, vector: List[float]
 KIND_VISIT = "visit"
 KIND_KNOWLEDGE = "knowledge"
 
+# iOS Quick Note (CM031 payload type "quick_note"). The owner's own note, so
+# it is levelled like the other Notes-style Knowledge sources: level 2 is the
+# floor (the iOS app declares L1, which is raised, never lowered). L3 is the
+# writer-side short-circuit: it is never queued, so it never reaches Qdrant.
+QUICK_NOTE_SOURCE = "ios_quick_note"
+QUICK_NOTE_NOTEBOOK = "Quick notes"
+QUICK_NOTE_TEXT_CAP_CHARS = 20 * 1024
+
+
+def parse_level(value: Any) -> Optional[int]:
+    """'L0'..'L3' (or 0..3) to an int; None when unreadable."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if 0 <= value <= 3 else None
+    if isinstance(value, str):
+        m = re.fullmatch(r"[Ll]?([0-3])", value.strip())
+        if m:
+            return int(m.group(1))
+    return None
+
 SPOOL_DIR = os.environ.get(
     "OSTLER_BROWSING_QUEUE_DIR", os.path.expanduser("~/.ostler/state/browsing_queue")
 )
@@ -529,6 +558,9 @@ MAX_QUEUE = int(os.environ.get("OSTLER_BROWSING_QUEUE_MAX", "100"))
 MIN_INTERVAL_S = float(os.environ.get("OSTLER_BROWSING_SUMMARY_INTERVAL_S", "20"))
 MAX_ATTEMPTS = 3
 MAX_JOB_AGE_S = 24 * 3600
+MAX_STORE_ATTEMPTS = 3           # item-specific store failures before quarantine
+OUTAGE_BACKOFF_BASE_S = 30.0     # doubles per outage retry, capped below
+OUTAGE_BACKOFF_MAX_S = 900.0
 MAX_YIELD_S = 120.0  # never wait longer than this on the lease per job
 
 
@@ -545,6 +577,7 @@ class EnrichQueue:
                  store: Callable[[dict, Optional[dict]], bool], *,
                  min_interval_s: float = MIN_INTERVAL_S, max_queue: int = MAX_QUEUE,
                  is_user_active: Callable[[], bool] = user_active,
+                 store_up: Callable[[], bool] = lambda: True,
                  sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.time):
         self.dir = Path(spool_dir)
@@ -553,6 +586,10 @@ class EnrichQueue:
         self.min_interval_s = min_interval_s
         self.max_queue = max_queue
         self.is_user_active = is_user_active
+        # "Is the store reachable?" (the catch-up predicate in the product).
+        # A store failure while this is False is an OUTAGE: the job is kept
+        # and retried with backoff, counted against nobody.
+        self.store_up = store_up
         self._sleep = sleep
         self._clock = clock
         self._lock = threading.Lock()
@@ -624,8 +661,59 @@ class EnrichQueue:
         if not jobs:
             return None
         # Explicit user saves first, then oldest first.
+        now = self._clock()
+        jobs = [j for j in jobs if j.get("next_retry_at", 0) <= now]
+        if not jobs:
+            return None
         jobs.sort(key=lambda j: (0 if j.get("kind") == KIND_KNOWLEDGE else 1, j.get("queued_at", 0)))
         return jobs[0]
+
+    def _persist(self, job: dict) -> None:
+        with self._lock:
+            fd = os.open(str(self._path(job["id"])), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(job, fh)
+
+    def quarantined(self) -> int:
+        try:
+            return len(list((self.dir / "quarantine").glob("*.json")))
+        except Exception:
+            return 0
+
+    def _quarantine(self, job: dict, reason: str) -> None:
+        """Park a job whose own content is at fault, with a reason. Never a
+        silent drop. The text stays (it is the owner's data) in a 0600 file."""
+        qdir = self.dir / "quarantine"
+        qdir.mkdir(parents=True, exist_ok=True)
+        job = dict(job, quarantine_reason=reason, quarantined_at=self._clock())
+        fd = os.open(str(qdir / self._path(job["id"]).name),
+                     os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(job, fh)
+        self._drop(job["id"])
+
+    def _store_failed(self, job: dict, exc: Optional[Exception]) -> None:
+        """The store did not take the job. Outage: keep it, back off, count
+        nothing. Item-specific: count, and quarantine at the cap."""
+        try:
+            up = bool(self.store_up())
+        except Exception:
+            up = False   # cannot judge: the sink's fault, delays only
+        if not up:
+            n = job.get("outage_retries", 0)
+            job["outage_retries"] = n + 1
+            job["next_retry_at"] = self._clock() + min(
+                OUTAGE_BACKOFF_BASE_S * (2 ** min(n, 10)), OUTAGE_BACKOFF_MAX_S)
+            self._persist(job)
+            return
+        n = job.get("store_attempts", 0) + 1
+        job["store_attempts"] = n
+        reason = "store_rejected_item:" + (type(exc).__name__ if exc else "returned_false")
+        if n >= MAX_STORE_ATTEMPTS:
+            self._quarantine(job, reason)
+            return
+        job["next_retry_at"] = self._clock() + OUTAGE_BACKOFF_BASE_S
+        self._persist(job)
 
     # -- worker ------------------------------------------------------
     def _yield_to_chat(self) -> None:
@@ -642,7 +730,8 @@ class EnrichQueue:
         if job is None:
             return False
         jid = job["id"]
-        if self._clock() - job.get("queued_at", 0) > MAX_JOB_AGE_S:
+        if (job.get("kind") != KIND_KNOWLEDGE
+                and self._clock() - job.get("queued_at", 0) > MAX_JOB_AGE_S):
             self._drop(jid)
             self.store(job_without_text(job), None)
             return True
@@ -668,12 +757,18 @@ class EnrichQueue:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     json.dump(job, fh)
             return True
-        # Final: success, or out of attempts. Either way the raw text goes.
-        self._drop(jid)
+        # Final: success, or out of summary attempts. The job file (and its raw
+        # text) goes ONLY once the store has taken it; a store outage keeps it.
+        err: Optional[Exception] = None
+        stored = False
         try:
-            self.store(job_without_text(job), result)
-        except Exception:
-            pass
+            stored = self.store(job_without_text(job), result) is not False
+        except Exception as exc:
+            err = exc
+        if stored:
+            self._drop(jid)
+        else:
+            self._store_failed(job, err)
         return True
 
     def start(self) -> None:

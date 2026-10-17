@@ -32,17 +32,24 @@ def load(repo: pathlib.Path):
     # gate test the SHIPPED rule rather than a restatement of it.
     consts = re.search(r"^_KINSHIP_DEFAULT = .*?^_NAME_TIER_NAME = \d+$", ing, re.S | re.M)
     tier = re.search(r"^def _display_name_tier\(.*?(?=^def |\Z)", ing, re.S | re.M)
+    # CM051 #30 batch 3: _display_name_tier calls _is_whatsapp_placeholder_name,
+    # which lives OUTSIDE the name-rule slice (check_display_name_tiers.py
+    # requires that slice to hold exactly the two kinship functions).
+    wa = re.search(r"^_WA_UNKNOWN_WORDS = .*?(?=^def _display_name_tier\()", ing, re.S | re.M)
     fold = re.search(r"^def _fold\(.*?(?=^def |\Z)", rep, re.S | re.M)
     dec = re.search(r"^def decide\(.*?(?=^# ──|\Z)", rep, re.S | re.M)
     for name, m in (("the name-rule block", consts), ("_display_name_tier", tier),
+                    ("_is_whatsapp_placeholder_name", wa),
                     ("_fold", fold), ("decide", dec)):
         if not m:
             fail(f"{name} not found in the shipped source (v1018-D658/D659)")
 
     ns: dict = {"re": re, "os": os, "json": json, "Dict": dict, "List": list,
                 "Tuple": tuple, "Sequence": list}
+    if re.findall(r"^def (\w+)\(", wa.group(0), re.M) != ["_is_whatsapp_placeholder_name"]:
+        fail("the WhatsApp placeholder extraction ran away or lost its function")
     exec("from __future__ import annotations\n" + consts.group(0) + "\n"
-         + tier.group(0) + "\n" + fold.group(0) + "\n" + dec.group(0), ns)
+         + wa.group(0) + "\n" + tier.group(0) + "\n" + fold.group(0) + "\n" + dec.group(0), ns)
     return ns
 
 

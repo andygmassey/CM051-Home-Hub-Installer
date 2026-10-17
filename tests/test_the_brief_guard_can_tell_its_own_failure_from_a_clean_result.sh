@@ -60,6 +60,8 @@ run_case() {  # run_case <block> <python3-stub-body> <response> -> prints VERDIC
         printf 'PATH="%s/bin:$PATH"\n' "$d"
         printf 'LOG_FILE="%s/log"\n' "$d"
         printf 'RESPONSE=%q\n' "$resp"
+        # the sender's own helper: log, stderr, exit with the given code
+        printf 'cannot_deliver() { echo "CANNOT-DELIVER: $2" >> "${LOG_FILE}"; exit "$1"; }\n'
         cat "$blk"
         printf '\necho SENT_THE_BRIEF >> "%s/log"\n' "$d"
     } > "${d}/run.sh"

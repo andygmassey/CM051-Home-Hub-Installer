@@ -53,6 +53,29 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
 
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
 
+# >>> owner-tz (CM044 compiled timestamps are owner-local; see compiler/local_time.py)
+# Prints the Mac's IANA zone (e.g. Asia/Hong_Kong) from the /etc/localtime
+# symlink. Missing/unreadable/odd target -> prints NOTHING and says so on
+# stderr; the wiki then labels its times "UTC" rather than passing UTC off as
+# local. Re-derived every call because the owner may travel.
+ostler_owner_tz() {
+    local link="${1:-/etc/localtime}" target zone
+    if ! target="$(readlink "$link" 2>/dev/null)" || [[ -z "$target" ]]; then
+        echo "owner-tz: cannot read zone from $link; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    zone="${target#*zoneinfo/}"
+    if [[ "$zone" == "$target" || -z "$zone" || ! "$zone" =~ ^[A-Za-z0-9_+/-]+$ ]]; then
+        echo "owner-tz: unrecognised zone target '$target'; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    printf '%s\n' "$zone"
+}
+# <<< owner-tz
+
+OSTLER_TZ="$(ostler_owner_tz)"
+export OSTLER_TZ
+
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
@@ -102,6 +125,33 @@ if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
     fi
 fi
 # --------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES (Ostler #30).
+#
+# The wiki compiler can look places up on OpenStreetMap (name AND coordinates),
+# artists on MusicBrainz and Wikipedia, and organisations on Wikipedia. Each is
+# off unless the container sees OSTLER_PUBLIC_LOOKUPS=agreed (CM044
+# compiler/public_lookups.py). The compose service maps it from the caller's
+# environment with a default of off, and every compile below sets it from this
+# function on the command itself.
+#
+# The answer is read from the FILE, ~/.ostler/config/.env, on EVERY compile, so
+# a later change of mind takes effect at the next compile and a variable left
+# over in a caller is never mistaken for the customer's answer. Missing file,
+# unreadable file, missing key, empty, or anything but "accepted" is OFF.
+# Exported so the detached full-compile `bash -c` re-reads it at the moment
+# that compile starts, not when the tick did.
+# ---------------------------------------------------------------------------
+ostler_public_lookups_flag() {
+    local f="${1:-${OSTLER_DIR:-$HOME/.ostler}}/config/.env" v=""
+    if [ -r "$f" ]; then
+        v="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$f" | tail -n 1)" || v=""
+        v="${v%\"}"; v="${v#\"}"
+    fi
+    if [ "$v" = "accepted" ]; then printf 'agreed'; else printf 'off'; fi
+}
+export -f ostler_public_lookups_flag
 
 # ---------------------------------------------------------------------------
 # Sanity: compose file present?
@@ -274,7 +324,9 @@ log "wiki-recompile tick start (phase 1: fast baseline, OSTLER_WIKI_SKIP_LLM=1)"
 # still surfaces its last lines without holding a TTY.
 WIKI_COMPILE_TIMEOUT="${WIKI_COMPILE_TIMEOUT:-1800}"
 _compile_log="$(mktemp -t wiki-recompile.XXXXXX)"
-docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null >"$_compile_log" 2>&1 &
+_public_lookups="$(ostler_public_lookups_flag "$OSTLER_DIR")"
+log "public look-ups for this compile: ${_public_lookups}"
+OSTLER_PUBLIC_LOOKUPS="$_public_lookups" docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null >"$_compile_log" 2>&1 &
 _compile_pid=$!
 # Watchdog: stdio detached to /dev/null so it never holds a parent pipe
 # open. Killed the instant the compile returns, so it only ever fires on a
@@ -485,6 +537,12 @@ else
         set -u
         _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"; _complete_file="$5"
         cd "$_wd" || exit 1
+        # Re-read the recorded public look-up answer NOW, when this compile
+        # starts (Ostler #30). Function missing (an older caller): off.
+        _lookups="$(ostler_public_lookups_flag "$_wd" || true)"
+        [ "$_lookups" = "agreed" ] || _lookups=off
+        OSTLER_PUBLIC_LOOKUPS="$_lookups"; export OSTLER_PUBLIC_LOOKUPS
+        printf "%s wiki-summaries: public look-ups for this compile: %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lookups"
         exec </dev/null
         mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
 

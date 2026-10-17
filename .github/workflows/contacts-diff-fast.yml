@@ -1,0 +1,39 @@
+# F18: GET /api/v1/contacts/diff answers fast at 6,700 people (the Doctor
+# proxy's upstream timeout is 30s; the scan is O(n^2) and runs in the
+# background now, served from a cache with an as_of time).
+name: contacts-diff-fast
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'tests/test_contacts_diff_answers_fast_at_scale.py'
+      - '.github/workflows/contacts-diff-fast.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'tests/test_contacts_diff_answers_fast_at_scale.py'
+      - '.github/workflows/contacts-diff-fast.yml'
+
+jobs:
+  contacts-diff-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: |
+          python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml
+          python -m pip install --quiet ./vendor/ostler_security
+      - name: The Tidy report answers under 5s on a 6,700-person graph
+        run: |
+          n="$(python -m pytest tests/test_contacts_diff_answers_fast_at_scale.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 2 ] || { echo "REFUSING: expected 2 F18 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest tests/test_contacts_diff_answers_fast_at_scale.py -v -s

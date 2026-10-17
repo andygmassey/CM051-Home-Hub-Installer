@@ -129,14 +129,18 @@ RAW_TMP="$(count_in "$CODE" -E "/tmp/ostler-")"
 # different class (#1207's OSTLER_DIAG_DIR work) and are deliberately out
 # of scope here -- but they make a perfect positive control, because they
 # prove this pattern matches real /tmp paths in this very file.
-if [ "$RAW_TMP" -lt 1 ]; then
-    echo "FAIL: the '/tmp/ostler-' pattern matches NOTHING in install.sh." >&2
-    echo "      install.sh writes diagnostic logs there, so a zero means the" >&2
-    echo "      PATTERN is broken, not that the installer is clean." >&2
-    echo "      CANNOT-RUN." >&2
+#
+# RED TEAM DMG #27 F3-2 moved the LAST one (the pre-FDA staging tree,
+# /tmp/ostler-prelaunch-$$) under ~/.ostler, so install.sh can now hold none.
+# The control therefore also runs against a known-positive line: the pattern
+# must find a /tmp/ostler- path there, or a zero below means nothing.
+_CONTROL_LINE='OSTLER_PRELAUNCH_DIR="/tmp/ostler-prelaunch-$$"'
+if [ "$(count_in "$_CONTROL_LINE" -E "/tmp/ostler-")" -lt 1 ]; then
+    echo "FAIL: the '/tmp/ostler-' pattern cannot find a /tmp/ostler- path even in" >&2
+    echo "      a known-positive line, so the PATTERN is broken. CANNOT-RUN." >&2
     exit 1
 fi
-pass "control: the /tmp pattern matches ${RAW_TMP} real paths (the log class, out of scope)"
+pass "control: the /tmp pattern finds a known-positive line; install.sh holds ${RAW_TMP} such path(s)"
 
 # ── ASSERTION 1: NO DATA ARTEFACT ON A FIXED /tmp PATH ───────────────
 # Shape-based, not name-based, so a THIRD data artefact added later is

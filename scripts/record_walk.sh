@@ -255,6 +255,23 @@ if [[ -z "$REC_VERDICT" ]]; then
 fi
 
 status "RECORDED ${RECORD#${REPO_ROOT}/} verdict=${REC_VERDICT} walk_kind=${REC_KIND:-<absent>} writer_exit=${qa_rc}"
+# COPY TO THE OPERATOR'S WALK STORE, which persists across clones (the walk logs
+# already live there). scripts/early_repeat_fail_pass.sh reads the previous
+# walk's failures from HERE, not from the checkout's walks/, because records are
+# written into whichever checkout walked and never committed: a fresh clone's
+# walks/ holds some older build's record. A failed copy is announced, not fatal.
+STORE="${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}"
+STORE_COPY="${STORE}/${VERSION}-$(date -u +%Y%m%dT%H%M%SZ).tsv"
+# shellcheck source=lib_walk_store.sh
+. "${REPO_ROOT}/scripts/lib_walk_store.sh"
+if _why="$(walk_store_write_refusal "$VERSION")"; then
+    status "NOT COPIED to the walk store: ${_why}. The record at ${RECORD#${REPO_ROOT}/} is unaffected."
+elif mkdir -p "$STORE" 2>/dev/null && cp "$RECORD" "$STORE_COPY" 2>/dev/null; then
+    status "COPIED record to ${STORE_COPY}"
+else
+    status "WARNING could not copy the record to ${STORE}; the next walk's early pass will have no previous record to read"
+fi
+
 say ""
 say "  The walk is recorded. It is NOT committed: ${RECORD#${REPO_ROOT}/} is a"
 say "  tracked file and landing it is a PR, the same as every walk record"

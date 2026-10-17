@@ -29,6 +29,14 @@ on:
       # the only workflow that checks it.
       - 'tests/test_a_truncated_category_is_not_reported_complete.py'
       - 'tests/test_no_unbounded_enrich_invocation.sh'
+      - 'tests/test_an_enrichment_miss_is_not_an_import_error.py'
+      - 'tests/test_ostler_import_exit_code_separates_misses_from_failures.sh'
+      - 'tests/test_enrichment_honours_a_decline.sh'
+      - 'tests/test_film_tv_detail_reaches_the_graph.py'
+      - 'tests/fixtures/film_tv_enrichment_contract.json'
+      - 'tests/test_book_detail_reaches_the_graph.py'
+      - 'tests/fixtures/book_enrichment_contract.json'
+      - 'tests/test_cm019_local_store_ignores_proxy.py'
   push:
     branches: [main]
 
@@ -86,3 +94,66 @@ jobs:
         # customer runs. if: always() -- independent axis again.
         if: always()
         run: bash tests/test_no_unbounded_enrich_invocation.sh
+
+      - name: An enrichment miss is not an import error (walk #16)
+        # import_data went red over a fully successful import because three
+        # Wikidata look-ups found nothing and the enrich CLI counted them as
+        # failures. Drives the REAL _run_enrichment exit code over the REAL
+        # enrich_batch loop: three misses exit 0; a client exception, an
+        # unreachable source, and an unrecognised error message each still
+        # exit 1. if: always() -- independent axis.
+        if: always()
+        run: python3 tests/test_an_enrichment_miss_is_not_an_import_error.py
+
+      - name: ostler-import exits 0 on misses and non-zero on a parse failure (walk #16)
+        # The install.sh end of the same contract: install.sh picks ok vs warn
+        # on import_data from ostler-import's rc. Runs the REAL generated
+        # ostler-import (extracted from install.sh) with the CM019 leg's enrich
+        # driving the real vendored CLI. Exit 2 is CANNOT-RUN and fails the step.
+        if: always()
+        run: bash tests/test_ostler_import_exit_code_separates_misses_from_failures.sh
+
+      - name: A "no" to public look-ups means nothing is looked up (walk #28, privacy)
+        # ostler-import ran `enrich --all` on every import whatever the
+        # customer answered to consent_enrichment, so a decline followed by a
+        # dropped export still sent titles and artists to Wikidata and
+        # MusicBrainz. RUNS the generated ostler-import, the enrich tick and
+        # the vendored enrich CLI under accepted / declined / key absent / no
+        # .env: only "accepted" may enrich, and the CLI arm guards every
+        # socket so a declined run must make zero attempts while an accepted
+        # one must make at least one (the guard's own control). Exit 2 is
+        # CANNOT-RUN and fails the step. if: always() -- independent axis.
+        if: always()
+        run: bash tests/test_enrichment_honours_a_decline.sh
+
+      - name: Film/TV detail reaches the graph (v1.0.108, CM019 to_turtle)
+        # overview, poster URL, runtime, season and episode counts were
+        # fetched and then dropped by to_turtle. Drives the REAL vendored
+        # _store_enrichment (socket replaced by a capturing MockTransport),
+        # executes the posted INSERT DATA in pyoxigraph and compares the graph
+        # with the CM019/CM044 shared contract fixture. Carries its own red
+        # control. pyoxigraph is a test-only dependency, so it is installed
+        # here rather than added to the shipped requirements. Exit 2 is
+        # CANNOT-RUN and fails the step. if: always() -- independent axis.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_film_tv_detail_reaches_the_graph.py
+
+      - name: The enricher reaches the local stores with a proxy set (v1.0.108)
+        # httpx honoured HTTP(S)_PROXY, so loopback writes to Qdrant/Oxigraph
+        # went to the proxy and enrichment was lost. Dead proxy in the env,
+        # real loopback server, its own control, AST check of every local-store
+        # client. Exit 2 is CANNOT-RUN and fails the step. if: always().
+        if: always()
+        run: python3 tests/test_cm019_local_store_ignores_proxy.py
+
+      - name: Book detail reaches the graph (v1.0.108, CM019 #411)
+        # publish year and page count were fetched and never serialised. Same
+        # harness as the film/TV step: the REAL vendored _store_enrichment,
+        # pyoxigraph, the shared book contract fixture, and its own red
+        # control. Exit 2 is CANNOT-RUN and fails the step. if: always().
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_book_detail_reaches_the_graph.py

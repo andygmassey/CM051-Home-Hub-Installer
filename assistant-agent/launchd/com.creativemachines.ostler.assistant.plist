@@ -173,33 +173,44 @@
             a customer Mac). Proven live on the .153 box: at ctx 4096 the
             agent prompt returns empty; at 32768 it returns a real reply.
             KEEP_ALIVE pins the model resident so it does not cold-reload
-            between turns. These are fixed product constants (not
+            between turns. It is -1m (forever), matching the Ollama server's
+            OLLAMA_KEEP_ALIVE=-1: the daemon stamps it on every request, and
+            30m let the chat model expire on a quiet box, which is the cold
+            start that starved chat on walk #19. It MUST carry a unit: the
+            daemon sends it as a JSON string, and Ollama parses a string
+            with time.ParseDuration, which rejects a bare "-1" ("missing
+            unit in duration") and so fails every chat request. Measured
+            on Ollama 0.30.11. These are fixed product constants (not
             customer-variable), so they are hard-coded here rather than
             rendered by INSTALL_SNIPPET.
         -->
         <key>OLLAMA_NUM_CTX</key>
         <string>32768</string>
         <key>OLLAMA_KEEP_ALIVE</key>
-        <string>30m</string>
+        <string>-1m</string>
     </dict>
 
     <!--
         RunAtLoad: start the daemon at LaunchAgent load (login
         or post-install).
 
-        KeepAlive (dict form): only restart on abnormal exit. A
-        clean exit zero (e.g. SIGTERM during uninstall, or daemon
-        deciding to stop on a fatal config error it has already
-        surfaced) does not retry. SuccessfulExit=false matches
-        the launchd convention for "respawn on crash, leave alone
-        on intentional shutdown".
+        KeepAlive (PathState form): the job stays alive while the
+        marker OSTLER_HOME/.ostler/deliberate-stop is ABSENT. Only
+        `ostler-assistant service stop` writes that marker and the
+        daemon deletes it on start. A SIGTERM (which the daemon
+        answers with exit 0) therefore respawns, where the old
+        SuccessfulExit=false left it dead. PathState needs an
+        absolute path; install renders OSTLER_HOME to the real HOME.
     -->
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <dict>
-        <key>SuccessfulExit</key>
-        <false/>
+        <key>PathState</key>
+        <dict>
+            <key>OSTLER_HOME/.ostler/deliberate-stop</key>
+            <false/>
+        </dict>
     </dict>
 
     <!--

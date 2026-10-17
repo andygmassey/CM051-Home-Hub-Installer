@@ -46,22 +46,17 @@ Two halves, kept apart so the judge can be mutation-tested without a box:
               process, status/{id} and {id}/speakers) -- speakers is the
               best available "is this conversation still known to the Hub"
               instrument, not a claim that a search feature exists.
-          CONFIRMED FROM SOURCE (ostler-assistant crates/zeroclaw-gateway/
-          src/lib.rs, handle_pair(), bound to .route("/pair", post(handle_pair))):
-          a successful POST /pair with X-Pairing-Code returns
-          {"paired": true, "persisted": <bool>, "token": "<bearer>", ...},
-          and that bearer authenticates the proxied /api/v1/* calls this
-          probe needs via Authorization: Bearer <token>, same as the admin
-          token's own scheme. This probe mints its pairing code the same
-          way probes/pairing_recovers_without_a_repair_storm.sh does (admin
-          token at :8000 -> POST :8443/pair with X-Pairing-Code). NOT the
-          "device_token" field some WebAuthn-passkey documentation names:
-          that belongs to the separate POST /auth/pair/register endpoint
-          (ostler-assistant PR #461), which needs a real Secure Enclave
-          assertion no non-interactive probe can produce and whose response
-          has no "token" field at all -- checked directly against that PR's
-          source, not inferred. See lib/conversation_capture_seed.sh for the
-          writer.
+          The device bearer comes from the REAL companion flow
+          (lib/companion_pair.py, run by lib/conversation_capture_seed.sh):
+          the owner mints a QR pairing_token on the loopback admin port, then
+          /auth/pair/init + /auth/pair/register on :8443 with a software
+          passkey; PairRegisterResponse.device_token authenticates the proxied
+          /api/v1/* calls this probe needs. The legacy 6-digit POST
+          :8443/pair this used to describe is refused on :8443 by
+          ostler-assistant #492/#501, because the iPhone never calls it; and
+          "no non-interactive probe can produce the assertion" was wrong: a
+          software P-256 key produces exactly the ES256 assertion the Hub
+          verifies (measured against a gateway built from #501).
   judge(facts) -> rows    pure.
 
 Usage:
@@ -322,59 +317,42 @@ def _http(method, url, data=None, headers=None, timeout=30, insecure=False):
     return code, body
 
 
-def _mint_device_bearer(gateway_https_base, admin_token_path, pairing_code_url, insecure=True):
-    """Mint a pairing code (admin, :8000) and spend it at :8443/pair (same
-    mechanism as probes/pairing_recovers_without_a_repair_storm.sh). Returns
-    (token_or_None, detail_str).
+def _mint_device_bearer(gateway_https_base, admin_token_path, admin_base="http://127.0.0.1:8000",
+                        helper=None):
+    """Pair a synthetic companion the way the iPhone does and return
+    (device_token_or_None, detail_str).
 
-    CONFIRMED FROM SOURCE (ostler-assistant crates/zeroclaw-gateway/src/lib.rs,
-    handle_pair(), bound to `.route("/pair", post(handle_pair))`): a
-    successful POST /pair with X-Pairing-Code returns
-    {"paired": true, "persisted": <bool>, "token": "<bearer>", "message": ...}
-    -- the field is "token", used thereafter as `Authorization: Bearer
-    <token>`. That token lands in the SAME PairingGuard trusted-token set a
-    passkey-registered device's token does (api_auth_pair.rs's
-    handle_pair_register calls the identical state.pairing.trust_plaintext_
-    token()), so it authenticates the proxied /api/v1/* calls this probe
-    needs identically. Do NOT read this as the "device_token" field: that
-    name belongs to the SEPARATE WebAuthn passkey-registration endpoint
-    (POST /auth/pair/register, PairRegisterResponse.device_token,
-    ostler-assistant PR #461) which needs a real Secure Enclave assertion
-    signature no non-interactive probe can produce, and whose response has
-    no "token" field at all -- the two endpoints are not interchangeable and
-    do not share a response shape.
+    The OWNER opens a pairing window on the loopback admin port, then
+    /auth/pair/init + /auth/pair/register on the companion listener, via
+    lib/companion_pair.py (which needs a python with `cryptography`; the Ostler
+    venv has it). This used to spend a 6-digit code at :8443/pair, which the
+    iPhone never calls and ostler-assistant #492/#501 refuse on :8443.
     """
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    helper = helper or os.path.join(here, "companion_pair.py")
+    if not os.path.exists(helper):
+        return None, "companion_pair.py is not staged next to this file"
+    py = None
+    for cand in (os.environ.get("OSTLER_PAIR_PY", ""),
+                 os.path.expanduser("~/.ostler/.venv/bin/python3"), sys.executable, "python3"):
+        if cand and subprocess.run([cand, "-c", "import cryptography"],
+                                   capture_output=True).returncode == 0:
+            py = cand
+            break
+    if not py:
+        return None, "no python with `cryptography` to run the companion pairing"
+    out = subprocess.run([py, helper, "pair", "--admin-base", admin_base,
+                          "--gateway", gateway_https_base, "--admin-token-path", admin_token_path],
+                         capture_output=True, text=True, timeout=120).stdout
     try:
-        admin = open(os.path.expanduser(admin_token_path)).read().strip()
-    except OSError:
-        return None, "no readable admin token at {}".format(admin_token_path)
-    if not admin:
-        return None, "admin token file was empty"
-    try:
-        code_rc, code_body = _http("POST", pairing_code_url, data=b"",
-                                    headers={"Authorization": "Bearer {}".format(admin)}, timeout=10)
-    except Exception as exc:
-        return None, "could not reach {} ({})".format(pairing_code_url, str(exc)[:80])
-    try:
-        pairing_code = json.loads(code_body).get("pairing_code")
+        res = json.loads(out)
     except Exception:
-        pairing_code = None
-    if not pairing_code:
-        return None, "gateway did not issue a pairing code (http {}, body {} bytes)".format(code_rc, len(code_body))
-    try:
-        pair_rc, pair_body = _http("POST", gateway_https_base + "/pair", data=b"",
-                                    headers={"X-Pairing-Code": pairing_code}, timeout=10, insecure=insecure)
-    except Exception as exc:
-        return None, "no answer from {}/pair ({})".format(gateway_https_base, str(exc)[:80])
-    if '"paired":true' not in pair_body and '"paired": true' not in pair_body:
-        return None, "pair rejected the fresh code (http {}): {}".format(pair_rc, pair_body[:120])
-    try:
-        parsed = json.loads(pair_body)
-    except Exception:
-        parsed = {}
-    if parsed.get("token"):
-        return str(parsed["token"]), "field 'token' from /pair response (confirmed: lib.rs handle_pair())"
-    return None, "pair accepted (paired:true) but the response carried no 'token' field, which contradicts the confirmed handle_pair() response shape -- this is a real defect, not a naming guess"
+        return None, "the companion pairing printed no result"
+    if res.get("ok") and res.get("device_token"):
+        return str(res["device_token"]), "paired through /auth/pair/init + /auth/pair/register"
+    return None, "companion pairing stopped at {} (http {}): {}".format(
+        res.get("stage"), res.get("http"), (res.get("detail") or "")[:120])
 
 
 def _submit_conversation(gateway_https_base, device_token, transcript, metadata, insecure=True):
