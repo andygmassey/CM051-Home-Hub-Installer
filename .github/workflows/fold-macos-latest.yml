@@ -13,30 +13,30 @@
 # workflows' own header comments are carried verbatim above each block.
 #
 # Folded jobs (23):
-#   (shards, measured seconds per leg: 262, 261, 254)
-#   b01  cannot-run-branch-reachable.yml :: gate  shard 2
-#   b02  consent-contract.yml :: autologin-consent-opt-in  shard 1
-#   b03  cut-gate-wrappers.yml :: cut-gate-wrappers  shard 1
+#   (shards, measured seconds per leg: 1796, 284, 284)
+#   b01  cannot-run-branch-reachable.yml :: gate  shard 3
+#   b02  consent-contract.yml :: autologin-consent-opt-in  shard 3
+#   b03  cut-gate-wrappers.yml :: cut-gate-wrappers  shard 2
 #   b04  cut-manifest.yml :: people-probe-fires  shard 3
 #   b05  data-conservation-probe-tests.yml :: probe-tests  shard 2
-#   b06  downloads-watcher-survives-an-export.yml :: downloads-watcher-survives-an-export  shard 3
-#   b07  fda-deps-installed.yml :: gate  shard 2
+#   b06  downloads-watcher-survives-an-export.yml :: downloads-watcher-survives-an-export  shard 2
+#   b07  fda-deps-installed.yml :: gate  shard 3
 #   b08  fda-deps-installed.yml :: self-test  shard 2
 #   b09  fda-dialog-truth.yml :: fda-dialog-truth  shard 3
-#   b10  gdpr-export-detect.yml :: large-zip-detection-macos  shard 3
-#   b11  ingest-slot.yml :: shell-3-2  shard 2
-#   b12  install-sh-cannot-wedge-the-box.yml :: install-sh-behaviour  shard 1
-#   b13  keyless-store-probe-tests.yml :: probe-tests  shard 3
-#   b14  launchagent-success-verification.yml :: gate  shard 2
+#   b10  gdpr-export-detect.yml :: large-zip-detection-macos  shard 2
+#   b11  ingest-slot.yml :: shell-3-2  shard 3
+#   b12  install-sh-cannot-wedge-the-box.yml :: install-sh-behaviour  shard 2
+#   b13  keyless-store-probe-tests.yml :: probe-tests  shard 1
+#   b14  launchagent-success-verification.yml :: gate  shard 3
 #   b15  launchagent-success-verification.yml :: self-test  shard 3
-#   b16  launchagent-success-verification.yml :: neighbours  shard 2
+#   b16  launchagent-success-verification.yml :: neighbours  shard 3
 #   b17  people-sweep-partial-landing.yml :: partial-landing-sentinel  shard 3
-#   b18  safari-extension-paired-bearer.yml :: writer  shard 2
-#   b19  secrets-dir-mode.yml :: secrets-dir-mode  shard 1
-#   b20  symbol-regression.yml :: symbol-regression  shard 1
-#   b21  total-steps-denominator-ratchet.yml :: ratchet  shard 1
+#   b18  safari-extension-paired-bearer.yml :: writer  shard 3
+#   b19  secrets-dir-mode.yml :: secrets-dir-mode  shard 2
+#   b20  symbol-regression.yml :: symbol-regression  shard 2
+#   b21  total-steps-denominator-ratchet.yml :: ratchet  shard 3
 #   b22  zero-payload-is-not-ok.yml :: gate  shard 2
-#   b23  zero-payload-is-not-ok.yml :: self-test  shard 1
+#   b23  zero-payload-is-not-ok.yml :: self-test  shard 2
 name: fold-macos-latest
 
 on:
@@ -299,7 +299,7 @@ permissions:
 jobs:
   macos-latest:
     runs-on: macos-latest
-    # Sum of the folded jobs' own timeouts (218 min), capped at 70 so the
+    # Sum of the folded jobs' own timeouts (308 min), capped at 70 so the
     # CI Required Gate (75 min hard cap) still sees a verdict. Every step below
     # keeps its old job's timeout, so a hang is bounded where it always was.
     timeout-minutes: 70
@@ -340,7 +340,7 @@ jobs:
       # ========================================================================
       - id: b01_isolate
         name: "[b01] cannot-run-branch-reachable.yml :: gate -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b01 != 'false' && matrix.shard == 2 }}
+        if: ${{ !cancelled() && steps.select.outputs.b01 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b01
@@ -376,7 +376,7 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b01_s01
-        if: ${{ steps.select.outputs.b01 != 'false' && matrix.shard == 2 && !cancelled() && steps.b01_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b01 != 'false' && matrix.shard == 3 && !cancelled() && steps.b01_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: Environment, so a failure is attributable
         run: |
@@ -392,7 +392,7 @@ jobs:
       # a `|| true` there would reproduce the exact defect this workflow exists
       # to catch, one layer up.
       - id: b01_s02
-        if: ${{ steps.select.outputs.b01 != 'false' && matrix.shard == 2 && !cancelled() && steps.b01_isolate.conclusion != 'failure' && steps.b01_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b01 != 'false' && matrix.shard == 3 && !cancelled() && steps.b01_isolate.conclusion != 'failure' && steps.b01_s01.conclusion != 'failure' }}
         timeout-minutes: 30
         name: PyYAML must be present, or nothing can be parsed
         run: |
@@ -405,7 +405,7 @@ jobs:
           fi
           python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
       - id: b01_s03
-        if: ${{ steps.select.outputs.b01 != 'false' && matrix.shard == 2 && !cancelled() && steps.b01_isolate.conclusion != 'failure' && steps.b01_s01.conclusion != 'failure' && steps.b01_s02.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b01 != 'false' && matrix.shard == 3 && !cancelled() && steps.b01_isolate.conclusion != 'failure' && steps.b01_s01.conclusion != 'failure' && steps.b01_s02.conclusion != 'failure' }}
         timeout-minutes: 30
         name: Every $? capture must be reachable under its step's own shell
         run: |
@@ -443,7 +443,7 @@ jobs:
       # (Same reasoning as test-wiring.yml's `runs-on: macos-latest`.)
       - id: b02_isolate
         name: "[b02] consent-contract.yml :: autologin-consent-opt-in -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b02 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b02 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b02
@@ -479,12 +479,12 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b02_s01
-        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: bash on this runner is the shipped 3.2 (control for the step below)
         run: /bin/bash --version | head -1
       - id: b02_s02
-        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: auto-login consent is opt-in and its copy does not overclaim
         run: /bin/bash tests/test_autologin_consent_opt_in.sh
@@ -498,7 +498,7 @@ jobs:
       # to catch. A harness that could not read the phase has measured NOTHING
       # about it, and that is not a pass.
       - id: b02_s03
-        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: a declined recording consent stops the capture companion being installed
         run: |
@@ -515,7 +515,7 @@ jobs:
       # ========================================================================
       - id: b03_isolate
         name: "[b03] cut-gate-wrappers.yml :: cut-gate-wrappers -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b03 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b03 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b03
@@ -551,12 +551,12 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b03_s01
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && !cancelled() && steps.b03_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && !cancelled() && steps.b03_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: Ensure origin/main is present for the pre-fix comparison
         run: git fetch origin main --quiet || true
       - id: b03_s02
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && !cancelled() && steps.b03_isolate.conclusion != 'failure' && steps.b03_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && !cancelled() && steps.b03_isolate.conclusion != 'failure' && steps.b03_s01.conclusion != 'failure' }}
         timeout-minutes: 30
         name: Wrapper trichotomy self-test (stubbed gate scripts)
         run: /bin/bash tests/test_cut_gate_wrappers.sh
@@ -583,7 +583,7 @@ jobs:
       # asserts the runner refuses a half-built environment rather than
       # producing a summary line that reads like "found nothing".
       - id: b03_s03
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The operator rollforward runner refuses a blind environment
         run: /bin/bash tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
@@ -600,7 +600,7 @@ jobs:
       #
       # if: always() so an earlier red in this job cannot mask it.
       - id: b03_s04
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The dispatch relaxation is tied to the no-publish property
         # always() because a gate its own job can switch off is not a gate.
@@ -610,14 +610,14 @@ jobs:
         # most needs to speak. ci-maskless caught the omission.
         run: /bin/bash tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
       - id: b03_s05
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A workflow_dispatch cannot publish
         run: /bin/bash tests/test_cut_dispatch_is_dry.sh
       # v1.0.103's one tag push was refused at preflight because nothing ran the
       # ship-mode checklist before the tag existed. push_cut_tag.sh runs it first.
       - id: b03_s06
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A cut tag is not pushed while the tag-time checklist is red
         run: /bin/bash tests/test_push_cut_tag_refuses_a_red_checklist.sh
@@ -647,7 +647,7 @@ jobs:
       # the install and the step dies if it is still missing. No `|| true` on
       # the verify.
       - id: b03_s07
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: PyYAML must be present, or the dry-run check cannot parse cut.yml
         run: |
@@ -662,12 +662,12 @@ jobs:
       # After the PyYAML step: this test parses cut.yml. Placed before it, the
       # first run crashed on import and the mutant arms read the crash as caught.
       - id: b03_s08
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A tag rehearsal runs the tag preflight and builds nothing
         run: /bin/bash tests/test_rehearse_tag_is_the_tag_preflight.sh
       - id: b03_s09
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The dry run is structurally reachable on a dispatch
         run: python3 tests/test_the_dry_run_is_reachable_on_a_dispatch.py
@@ -676,21 +676,21 @@ jobs:
       # not merely that it compiles -- the distinction this repo learned the
       # expensive way.
       - id: b03_s10
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The commit-parity gate FIRES
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash scripts/tests/test_verify_commit_parity_gate.sh
       - id: b03_s11
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The stapling gate FIRES and is not a no-op
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash scripts/tests/test_verify_stapling_gate.sh
       - id: b03_s12
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A bundle name with a space survives the staple loops (v1.0.99)
         # The cut that died: staple-apps iterated `for app in $NESTED_APPS`,
@@ -703,14 +703,14 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
       - id: b03_s13
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The cross-language trust-anchor guard FIRES, on the right axis
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash scripts/tests/test_no_env_trust_anchors.sh
       - id: b03_s14
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: run() cannot report a gate that died as a pass
         run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
@@ -738,7 +738,7 @@ jobs:
       # the install and the step dies if it is still missing. No `|| true` on
       # the verification.
       - id: b03_s15
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: PyYAML must be present, or the wiring assertion cannot run
         run: |
@@ -751,12 +751,12 @@ jobs:
           fi
           python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
       - id: b03_s16
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The run-at-commit gate is wired into the cut and can answer
         run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
       - id: b03_s17
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Test parses under /bin/bash 3.2 (the cut host's shell)
         run: |
@@ -779,12 +779,12 @@ jobs:
       # if: always() because this is not the first step -- a failure above must
       # not skip it. A skipped check reads as no objection.
       - id: b03_s18
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The PR-age gate declares the repos it could NOT check
         run: /bin/bash tests/test_pr_age_gate_declares_partial_runs.sh
       - id: b03_s19
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Every wrapper still HAS a cannot-run branch
         run: |
@@ -817,7 +817,7 @@ jobs:
       # reason reaches the log, that a real fault is not retried, and that a
       # persistent timestamp failure is bounded and still fails closed.
       - id: b03_s20
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: sign-python-bundle reports WHY it failed
         run: bash tests/test_sign_python_bundle_reports_why.sh
@@ -828,7 +828,7 @@ jobs:
       # describing the symptom in a different compartment from the cause.
       # This reads the regex OUT of the script, so it cannot drift.
       - id: b03_s21
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the product seed actually seeds the product tree
         run: bash tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
@@ -837,7 +837,7 @@ jobs:
       # regenerated INTO the seal while compileall, the file count and the exit
       # code all reported success. Shim tarballs, so this costs nothing in CI.
       - id: b03_s22
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the hub payload seed refuses a wrong interpreter
         run: bash tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
@@ -862,17 +862,17 @@ jobs:
       # takes the interpreter caveat at face value, pins the interpreter,
       # measures no difference, and deletes the exclusion.
       - id: b03_s23
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the pyc seed leaves the sealed nested Ostler.app byte-identical
         run: bash tests/test_pyc_seed_excludes_nested_ostler_app.sh
       - id: b03_s24
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: pyc bytes depend on the compile path (the reason for the above)
         run: bash tests/test_pyc_bytes_depend_on_compile_path.sh
       - id: b03_s25
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the assembled payload is .pyc-free before seeding (#644)
         run: bash tests/test_stage_payload_strips_ambient_pyc.sh
@@ -889,7 +889,7 @@ jobs:
       # marker are still RED. The teeth cases pass against the pre-fix gate too,
       # which is what proves the fix narrowed nothing.
       - id: b03_s26
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: provenance gate -- cannot-run is never reported as stale
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
@@ -904,7 +904,7 @@ jobs:
       # manifest and proves a filter that matches nothing refuses (CANNOT-RUN),
       # never GREEN, while a filter that matches something is untouched.
       - id: b03_s27
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: provenance gate refuses when it examined nothing
         run: bash tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
@@ -917,7 +917,7 @@ jobs:
       # marker on line 1. This test builds its own git repo and proves the
       # fixture races BEFORE asserting anything, so it cannot pass vacuously.
       - id: b03_s28
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: provenance marker read is not piped into grep -q
         run: /bin/bash tests/test_provenance_gate_marker_read_is_not_piped.sh
@@ -928,7 +928,7 @@ jobs:
       # clause of that exemption -- diffing each mutation first, because a
       # mutation that did not apply is a broken apparatus, not a pass.
       - id: b03_s29
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: arm 8b vetoes on importable, not merely uncovered
         run: /bin/bash tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
@@ -938,12 +938,12 @@ jobs:
       # was never measured. A false cut-blocker is this estate's expensive
       # failure. Runs on macos-latest, where codesign, xcrun and spctl exist.
       - id: b03_s30
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: walk arms say CANNOT-RUN when they could not measure
         run: /bin/bash tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
       - id: b03_s31
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: CANNOT-RUN is not a missing fix (manifest gate + its caller)
         run: |
@@ -955,7 +955,7 @@ jobs:
             || python3 -m pip install --break-system-packages --ignore-installed --quiet pyyaml 2>/dev/null || true
           /bin/bash tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
       - id: b03_s32
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
         run: /bin/bash tests/test_marker_grep_is_three_state.sh
@@ -965,7 +965,7 @@ jobs:
       # pipe-delimited manifest cannot carry it -- `foo|bar` parses as pattern
       # `foo`. Both limbs print their denominator and carry a must-fail control.
       - id: b03_s33
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: every marker pattern compiles, and none is a truncated alternation
         run: /bin/bash tests/test_every_marker_pattern_compiles.sh
@@ -977,7 +977,7 @@ jobs:
       # then scoped to one file while a verdict was reported about the repo.
       # This asks the whole tree every run and prints what it examined.
       - id: b03_s34
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: no gate execs a pinned image to read it (repo-wide)
         run: bash tests/test_no_gate_execs_a_pinned_image.sh
@@ -1003,7 +1003,7 @@ jobs:
       # behaviour, which is why it can block every PR while the gate it guards
       # cannot. Carries its own DEMONSTRATED RED against origin/main.
       - id: b03_s35
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the wiki content gate is invoked, and cannot-run is not a pass
         run: bash tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh
@@ -1044,7 +1044,7 @@ jobs:
       # an UNKNOWN has a backstop: the merge API 405s a real conflict. A cut
       # gate has none; nothing downstream re-asks.
       - id: b03_s36
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: UNKNOWN mergeability is not clean (#888)
         # if: always() -- 17 test steps precede this one in the same job. Without
@@ -1069,7 +1069,7 @@ jobs:
       # bogus digest on the same path returns 404 -- so the probe discriminates
       # and no registry credential is required on the runner.
       - id: b03_s37
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: pinned wiki images are arm64-only
         run: bash tests/test_pinned_wiki_images_are_arm64_only.sh
@@ -1082,7 +1082,7 @@ jobs:
       # step that only runs when everything before it passed cannot report on a
       # red run, which is exactly when a cut-tooling guard matters.
       - id: b03_s38
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: new_cut.sh -- a SCOPED cut is not a STARTED cut
         run: bash tests/test_new_cut_guard_scoped_is_not_started.sh
@@ -1103,7 +1103,7 @@ jobs:
       # Its mutation control is not synthetic: it runs against the REAL
       # pre-fix new_cut.sh from origin/main, and fails naming both refusals.
       - id: b03_s39
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: new_cut.sh gates on everything the cut preflight gates on
         run: bash tests/test_new_cut_checks_what_preflight_checks.sh
@@ -1115,7 +1115,7 @@ jobs:
       # is the REAL pre-fix new_cut.sh from origin/main, on which it fails and
       # names verify_bom_rows_are_in_the_pin.sh -- the gate that killed v1.0.77.
       - id: b03_s40
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: new_cut.sh covers every pre-tag gate cut.yml runs
         run: bash tests/test_new_cut_covers_every_pretag_gate.sh
@@ -1126,7 +1126,7 @@ jobs:
       # the installer's own just-started runtime. Mutation control is the REAL
       # pre-fix install.sh from origin/main, on which this fails 2 of 5.
       - id: b03_s41
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: a first install can claim its own colima port (#567 signal 2)
         run: bash tests/test_store_port_first_install_stale_store.sh
@@ -1146,7 +1146,7 @@ jobs:
       # this one in the same job, and a step that runs only when everything
       # before it passed cannot report on a red run.
       - id: b03_s42
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the vendored rollforward gate matches its OS003 pin (PR-side)
         run: bash tests/test_rollforward_registry_pin.sh
@@ -1154,7 +1154,7 @@ jobs:
       # first" seconds after another had read that exact file. It had looked in
       # a different checkout, and that checkout was iCloud-evicted and stale.
       - id: b03_s43
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the OS003 sync scripts agree on which checkout they read
         run: bash tests/test_os003_sync_defaults_agree.sh
@@ -1163,7 +1163,7 @@ jobs:
       # silently stops covering it. This derives the list FROM the pin and
       # goes red on any file the pin covers that paths: does not.
       - id: b03_s44
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: every file the rollforward pin covers triggers this workflow
         run: bash tests/test_rollforward_pin_is_watched_on_prs.sh
@@ -1470,7 +1470,7 @@ jobs:
       # ========================================================================
       - id: b06_isolate
         name: "[b06] downloads-watcher-survives-an-export.yml :: downloads-watcher-survives-an-export -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b06 != 'false' && matrix.shard == 3 }}
+        if: ${{ !cancelled() && steps.select.outputs.b06 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b06
@@ -1514,7 +1514,7 @@ jobs:
       # osascript trips 1. The last matters on its own -- an unbounded Apple
       # Event once wedged this same export-scan -> import chain for 23h56m.
       - id: b06_s01
-        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 3 && !cancelled() && steps.b06_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 2 && !cancelled() && steps.b06_isolate.conclusion != 'failure' }}
         timeout-minutes: 20
         name: An export in Downloads must reach the importer
         run: bash tests/test_the_downloads_watcher_survives_a_real_export.sh
@@ -1533,7 +1533,7 @@ jobs:
       # export), and a MUST-MISS arm (an already-imported set is still skipped,
       # so the retry arm cannot pass by dedupe being broken outright).
       - id: b06_s02
-        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 20
         name: a failed import is not announced as done (#1571)
         run: bash tests/test_a_failed_import_is_not_announced_as_done.sh
@@ -1547,7 +1547,7 @@ jobs:
       # still running first, and the closing text free of Terminal commands
       # and raw escape codes. Red on the base (17 of 23 fail), green here.
       - id: b06_s03
-        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 20
         name: a loose export in Downloads is found, imported once, and said (#30)
         run: /bin/bash tests/test_loose_exports_in_downloads_are_found_and_said.sh
@@ -1557,7 +1557,7 @@ jobs:
       # "1 found, 0 imported"; a failed import with its exit code; and
       # "not run yet" with no invented count when there is no record.
       - id: b06_s04
-        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 20
         name: the Doctor says why a Downloads export did not import (#30)
         run: /bin/bash tests/test_doctor_shows_why_downloads_exports_did_not_import.sh
@@ -1567,7 +1567,7 @@ jobs:
       # ========================================================================
       - id: b07_isolate
         name: "[b07] fda-deps-installed.yml :: gate -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b07 != 'false' && matrix.shard == 2 }}
+        if: ${{ !cancelled() && steps.select.outputs.b07 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b07
@@ -1603,7 +1603,7 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b07_s01
-        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && !cancelled() && steps.b07_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 3 && !cancelled() && steps.b07_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: Environment, so a failure is attributable
         run: |
@@ -1611,7 +1611,7 @@ jobs:
           python3 --version
           sw_vers | head -2
       - id: b07_s02
-        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && !cancelled() && steps.b07_isolate.conclusion != 'failure' && steps.b07_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 3 && !cancelled() && steps.b07_isolate.conclusion != 'failure' && steps.b07_s01.conclusion != 'failure' }}
         timeout-minutes: 30
         name: The gate
         run: /bin/bash tests/test_fda_deps_are_installed_not_just_copied.sh
@@ -1623,7 +1623,7 @@ jobs:
       # the same interpreter), leaving the whole dedupe layer dark from first
       # boot with no fault reported anywhere.
       - id: b07_s03
-        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: every pipeline package's requirements are installed, not just the first
         run: /bin/bash tests/test_installer_installs_every_pipeline_requirements_file.sh
@@ -1888,7 +1888,7 @@ jobs:
       # ==========================================================================
       - id: b10_isolate
         name: "[b10] gdpr-export-detect.yml :: large-zip-detection-macos -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b10 != 'false' && matrix.shard == 3 }}
+        if: ${{ !cancelled() && steps.select.outputs.b10 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b10
@@ -1940,7 +1940,7 @@ jobs:
       # witness the defect -- a developer Mac, or the box-walk, which runs on
       # real hardware and is where this proof belongs. Filed as the residual.
       - id: b10_s01
-        if: ${{ steps.select.outputs.b10 != 'false' && matrix.shard == 3 && !cancelled() && steps.b10_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b10 != 'false' && matrix.shard == 2 && !cancelled() && steps.b10_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: A large signature-bearing zip is still detected (#889)
         run: |
@@ -1992,7 +1992,7 @@ jobs:
       # starts neither.
       - id: b11_isolate
         name: "[b11] ingest-slot.yml :: shell-3-2 -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b11 != 'false' && matrix.shard == 2 }}
+        if: ${{ !cancelled() && steps.select.outputs.b11 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b11
@@ -2028,12 +2028,12 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b11_s01
-        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 2 && !cancelled() && steps.b11_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 3 && !cancelled() && steps.b11_isolate.conclusion != 'failure' }}
         timeout-minutes: 8
         name: Report the shell being proven against
         run: /bin/bash --version | head -1
       - id: b11_s02
-        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 2 && !cancelled() && steps.b11_isolate.conclusion != 'failure' && steps.b11_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 3 && !cancelled() && steps.b11_isolate.conclusion != 'failure' && steps.b11_s01.conclusion != 'failure' }}
         timeout-minutes: 8
         name: Refuse if the runner is not actually bash 3.x
         run: |
@@ -2050,7 +2050,7 @@ jobs:
           fi
           echo "OK: proving against /bin/bash ${ver}.x"
       - id: b11_s03
-        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 2 && !cancelled() && steps.b11_isolate.conclusion != 'failure' && steps.b11_s01.conclusion != 'failure' && steps.b11_s02.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 3 && !cancelled() && steps.b11_isolate.conclusion != 'failure' && steps.b11_s01.conclusion != 'failure' && steps.b11_s02.conclusion != 'failure' }}
         timeout-minutes: 8
         name: Every slot-contending script parses
         run: |
@@ -2086,7 +2086,7 @@ jobs:
       # ========================================================================
       - id: b12_isolate
         name: "[b12] install-sh-cannot-wedge-the-box.yml :: install-sh-behaviour -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b12 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b12 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b12
@@ -2125,14 +2125,14 @@ jobs:
       # premise of this job has changed and the log must say so rather than
       # letting it pass under a shell the customer never uses.
       - id: b12_s01
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && !cancelled() && steps.b12_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && !cancelled() && steps.b12_isolate.conclusion != 'failure' }}
         timeout-minutes: 10
         name: Confirm /bin/bash is 3.2, as a customer Mac is
         run: |
           /bin/bash --version | head -1
           /usr/bin/grep --version 2>&1 | head -1 || echo "(BSD grep: no --version)"
       - id: b12_s02
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && !cancelled() && steps.b12_isolate.conclusion != 'failure' && steps.b12_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && !cancelled() && steps.b12_isolate.conclusion != 'failure' && steps.b12_s01.conclusion != 'failure' }}
         timeout-minutes: 10
         name: the enrich kickstart cannot block the ingest chain
         run: /bin/bash tests/test_enrich_kickstart_cannot_block_ingest.sh
@@ -2141,12 +2141,12 @@ jobs:
       # precisely the moment you most need the other two answers. This repo has
       # a gate (ci-maskless) that catches exactly this shape.
       - id: b12_s03
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: dead Ostler LaunchAgents are pruned, live and foreign ones are not
         run: /bin/bash tests/test_dead_launchagent_prune.sh
       - id: b12_s04
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: every read-only flag works without a controlling terminal
         run: /bin/bash tests/test_readonly_flags_need_no_tty.sh
@@ -2158,7 +2158,7 @@ jobs:
       #    install.sh and nothing else, which is the only reading that would
       #    have caught any of the three.
       - id: b12_s05
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the shipped compose mounts the AI Conversations tree
         run: /bin/bash tests/test_the_shipped_compose_mounts_ai_conversations.sh
@@ -2172,7 +2172,7 @@ jobs:
       #    expanduser("~") inside an image whose HOME is /root, so each wrote an
       #    empty page and returned status=skipped reason=no_root with exit 0.
       - id: b12_s06
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the shipped compose mounts the human Conversations tree
         run: /bin/bash tests/test_the_shipped_compose_mounts_conversations.sh
@@ -2184,7 +2184,7 @@ jobs:
       #    is STATIC and asserts the CALL EXISTS: a call inside a false guard
       #    still exists. This one EXECUTES the shipped block.
       - id: b12_s07
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the store-auth guard says when it skips
         run: /bin/bash tests/test_the_store_auth_guard_says_when_it_skips.sh
@@ -2198,7 +2198,7 @@ jobs:
       #    carries its own mutant so a green run means the predicate still
       #    discriminates.
       - id: b12_s08
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: every detected export root reaches the importer, not just the first
         run: /bin/bash tests/test_every_detected_export_reaches_the_importer.sh
@@ -2206,7 +2206,7 @@ jobs:
       # EMFILE and every write after it failed. The shipped compose must give
       # qdrant and oxigraph nofile >= 65535; the test's mutants prove it can go RED.
       - id: b12_s09
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the shipped stores have fd headroom (nofile >= 65535)
         run: /bin/bash tests/test_the_shipped_stores_have_fd_headroom.sh
@@ -2219,7 +2219,7 @@ jobs:
       #    waited for ever while writing a 0-byte log. Found by walking a box,
       #    three times. The test's mutant reproduces both measured symptoms.
       - id: b12_s10
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the wiki backfill enrols for the slot instead of spinning on mkdir
         run: /bin/bash tests/test_the_wiki_backfill_enrols_for_the_slot.sh
@@ -2228,12 +2228,12 @@ jobs:
       # Running only the second would leave a silently-broken predicate printing
       # a clean sheet, which is the failure its own vacuity arm exists to stop.
       - id: b12_s11
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the prompt-loop gate can still tell a question from a wait
         run: /bin/bash tests/test_prompt_loops_gate.sh
       - id: b12_s12
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: no NEW re-prompt loop that cannot give up
         run: /bin/bash scripts/verify_prompt_loops_are_bounded.sh
@@ -2241,7 +2241,7 @@ jobs:
       # wrong reason, or worse, a sourcing error reads as a pass. Parse all
       # eight under the same 3.2 that runs them.
       - id: b12_s13
-        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the gates themselves parse under bash 3.2
         run: |
@@ -2277,7 +2277,7 @@ jobs:
       # cut-manifest.yml.
       - id: b13_isolate
         name: "[b13] keyless-store-probe-tests.yml :: probe-tests -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b13 != 'false' && matrix.shard == 3 }}
+        if: ${{ !cancelled() && steps.select.outputs.b13 != 'false' && matrix.shard == 1 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b13
@@ -2313,28 +2313,28 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b13_s01
-        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 60
         name: no_person_holds_two_contact_cards credential + 401/000 adjudication
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
       - id: b13_s02
-        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 60
         name: ingest_coverage credential + 401/000 adjudication
         run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
       - id: b13_s03
-        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 60
         name: people_count_agreement oxigraph credential + 401/000 adjudication
         run: /bin/bash scripts/tests/test_people_count_agreement_probe.sh
       - id: b13_s04
-        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 60
         name: people_stores_reconcile urllib credential + 401/KEYLESS adjudication
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
       # #2362: a self-test is fixtures only; it must not reach the box.
       - id: b13_s05
-        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 60
         name: Probe self-tests never reach the box
         run: /bin/bash scripts/tests/test_probe_self_tests_never_reach_the_box.sh
@@ -2352,7 +2352,7 @@ jobs:
       # NOT fire. GitHub runs `run:` under `bash -eo pipefail`, so the non-zero
       # exit is captured rather than allowed to end the step.
       - id: b13_s06
-        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 3 && (always()) }}
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 60
         name: people_stores_reconcile negative control (--self-test must exit 1)
         run: |
@@ -2370,7 +2370,7 @@ jobs:
       # ========================================================================
       - id: b14_isolate
         name: "[b14] launchagent-success-verification.yml :: gate -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b14 != 'false' && matrix.shard == 2 }}
+        if: ${{ !cancelled() && steps.select.outputs.b14 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b14
@@ -2406,7 +2406,7 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b14_s01
-        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 2 && !cancelled() && steps.b14_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 3 && !cancelled() && steps.b14_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: Environment, so a failure is attributable
         run: |
@@ -2414,7 +2414,7 @@ jobs:
           python3 --version
           sw_vers | head -2
       - id: b14_s02
-        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 2 && !cancelled() && steps.b14_isolate.conclusion != 'failure' && steps.b14_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 3 && !cancelled() && steps.b14_isolate.conclusion != 'failure' && steps.b14_s01.conclusion != 'failure' }}
         timeout-minutes: 30
         name: The gate
         run: /bin/bash tests/test_launchagent_success_requires_verification.sh
@@ -2422,7 +2422,7 @@ jobs:
       # launchd job must stay down while the deliberate-stop marker is present)
       # could only report CANNOT-RUN: no launchctl. This job is macOS.
       - id: b14_s03
-        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: Assert the uninstaller writes the deliberate-stop marker first and removes it last
         run: /bin/bash tests/test_uninstall_writes_deliberate_stop_marker.sh
@@ -2438,7 +2438,7 @@ jobs:
       # plist and payload were both fine and the diagnosis cost a second full
       # install. An honest "no" that cannot say why is a whole walk per defect.
       - id: b14_s04
-        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: A refused LaunchAgent load must record launchd's reason
         run: /bin/bash tests/test_launchagent_refusal_reason_is_recorded.sh
@@ -2449,7 +2449,7 @@ jobs:
       # ttywalk.sh and 0 in walk_drive.py, so the cause of the Mini 16 Doctor
       # failure sat on the box unread and cost a second 21-minute install.
       - id: b14_s05
-        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: A refusal must reach the transcript and name its scope
         run: |
@@ -2471,7 +2471,7 @@ jobs:
       # whole sequence, and the reason recorded was "registered, then VANISHED
       # from gui/501 before it ran". 2 of 20 agents failed; 18 loaded.
       - id: b14_s06
-        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: bootout settles before bootstrap, and costs nothing when idle
         run: |
@@ -2496,7 +2496,7 @@ jobs:
       # `kickstart -k` does not fix it -- it restarts from the loaded
       # definition. Only bootout + bootstrap reloads it.
       - id: b14_s07
-        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b14 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: an upgrade that rewrites a plist makes launchd re-read it
         run: /bin/bash tests/test_upgrade_reloads_the_launchagent_it_rewrote.sh
@@ -2552,7 +2552,7 @@ jobs:
       # ========================================================================
       - id: b16_isolate
         name: "[b16] launchagent-success-verification.yml :: neighbours -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b16 != 'false' && matrix.shard == 2 }}
+        if: ${{ !cancelled() && steps.select.outputs.b16 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b16
@@ -2605,7 +2605,7 @@ jobs:
       # token and an old-only key must still be preserved), so it cannot pass
       # by the merge having stopped working altogether.
       - id: b16_s01
-        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: An upgrade must not revert the LaunchAgent PATH fix
         run: |
@@ -2630,27 +2630,27 @@ jobs:
       # scripts/verify_ci_steps_are_maskless.py exists to stop. Adding a step
       # can mask the one after it; the gate caught mine.
       - id: b16_s02
-        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The Ollama wedge watchdog heals only a wedge, and writes its evidence first
         run: bash tests/test_ollama_watchdog_heals_only_a_wedge.sh
       - id: b16_s03
-        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The promote merges logs/ so a running service's log keeps its path (#2434)
         run: bash tests/test_promote_keeps_open_logs_linked.sh
       - id: b16_s04
-        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: Every plist install.sh renders parses with plistlib
         run: /bin/bash tests/test_every_installer_plist_parses.sh
       - id: b16_s05
-        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The Doctor's tokenless loopback fallback is off on every install
         run: /bin/bash tests/test_doctor_oracle_fallback_is_off.sh
       - id: b16_s06
-        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The existing LaunchAgent guards must still hold
         run: |
@@ -2703,7 +2703,7 @@ jobs:
       # `if: always()` for the reason recorded above: a red in an earlier step
       # would otherwise SKIP this one, and a skipped test reports nothing.
       - id: b16_s07
-        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The WhatsApp keepalive must repair, refuse, and never exit 0 on a failure
         run: /bin/bash tests/test_whatsapp_keepalive_repairs_and_reports.sh
@@ -2777,7 +2777,7 @@ jobs:
       # ========================================================================
       - id: b18_isolate
         name: "[b18] safari-extension-paired-bearer.yml :: writer -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b18 != 'false' && matrix.shard == 2 }}
+        if: ${{ !cancelled() && steps.select.outputs.b18 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b18
@@ -2813,7 +2813,7 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b18_s01
-        if: ${{ steps.select.outputs.b18 != 'false' && matrix.shard == 2 && !cancelled() && steps.b18_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b18 != 'false' && matrix.shard == 3 && !cancelled() && steps.b18_isolate.conclusion != 'failure' }}
         timeout-minutes: 15
         name: Environment, so a failure is attributable
         run: |
@@ -2822,7 +2822,7 @@ jobs:
           /usr/bin/plutil -h >/dev/null 2>&1 && echo "plutil: present"
           [[ -x /usr/libexec/PlistBuddy ]] && echo "PlistBuddy: present"
       - id: b18_s02
-        if: ${{ steps.select.outputs.b18 != 'false' && matrix.shard == 2 && !cancelled() && steps.b18_isolate.conclusion != 'failure' && steps.b18_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b18 != 'false' && matrix.shard == 3 && !cancelled() && steps.b18_isolate.conclusion != 'failure' && steps.b18_s01.conclusion != 'failure' }}
         timeout-minutes: 15
         name: install.sh actually writes the extension's paired bearer
         run: /bin/bash tests/test_safari_extension_paired_bearer_write.sh
@@ -2832,7 +2832,7 @@ jobs:
       # ========================================================================
       - id: b19_isolate
         name: "[b19] secrets-dir-mode.yml :: secrets-dir-mode -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b19 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b19 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b19
@@ -2868,7 +2868,7 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b19_s01
-        if: ${{ steps.select.outputs.b19 != 'false' && matrix.shard == 1 && !cancelled() && steps.b19_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b19 != 'false' && matrix.shard == 2 && !cancelled() && steps.b19_isolate.conclusion != 'failure' }}
         timeout-minutes: 5
         name: secrets/ is 0700 and the credential file is 0600
         run: /bin/bash scripts/tests/test_store_curl_conf_permissions.sh
@@ -2877,12 +2877,12 @@ jobs:
       # upgrade path is proven behaviourally in test_upgrade_mode_invariants.sh
       # (upgrade-payload-shape.yml), which starts from 0755 and asserts 0700.
       - id: b19_s02
-        if: ${{ steps.select.outputs.b19 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b19 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 5
         name: "~/.ostler is 0700 on every install path"
         run: /bin/bash tests/test_ostler_home_is_owner_only_on_every_path.sh
       - id: b19_s03
-        if: ${{ steps.select.outputs.b19 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b19 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 5
         name: The pre-FDA staging tree is private, unpredictable and refuses links (red team DMG #27 F3-2)
         run: /bin/bash tests/test_prelaunch_staging_is_owner_only.sh
@@ -2892,7 +2892,7 @@ jobs:
       # ========================================================================
       - id: b20_isolate
         name: "[b20] symbol-regression.yml :: symbol-regression -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b20 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b20 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b20
@@ -2928,12 +2928,12 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b20_s01
-        if: ${{ steps.select.outputs.b20 != 'false' && matrix.shard == 1 && !cancelled() && steps.b20_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b20 != 'false' && matrix.shard == 2 && !cancelled() && steps.b20_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: The guard discriminates (12 controls + the ordering invariant)
         run: /bin/bash tests/test_verify_no_symbol_regression.sh
       - id: b20_s02
-        if: ${{ steps.select.outputs.b20 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b20 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A missing guard is REFUSED before the tree is touched
         run: |
@@ -2955,7 +2955,7 @@ jobs:
           fi
           echo "OK: refusal at $refuse precedes the swap at $rmrf"
       - id: b20_s03
-        if: ${{ steps.select.outputs.b20 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b20 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Parses under /bin/bash 3.2 (the shell a re-vendor uses)
         run: |
@@ -2970,7 +2970,7 @@ jobs:
       # ========================================================================
       - id: b21_isolate
         name: "[b21] total-steps-denominator-ratchet.yml :: ratchet -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b21 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b21 != 'false' && matrix.shard == 3 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b21
@@ -3006,14 +3006,14 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b21_s01
-        if: ${{ steps.select.outputs.b21 != 'false' && matrix.shard == 1 && !cancelled() && steps.b21_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b21 != 'false' && matrix.shard == 3 && !cancelled() && steps.b21_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: Environment, so a failure is attributable
         run: |
           /bin/bash --version | head -1
           python3 --version
       - id: b21_s02
-        if: ${{ steps.select.outputs.b21 != 'false' && matrix.shard == 1 && !cancelled() && steps.b21_isolate.conclusion != 'failure' && steps.b21_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b21 != 'false' && matrix.shard == 3 && !cancelled() && steps.b21_isolate.conclusion != 'failure' && steps.b21_s01.conclusion != 'failure' }}
         timeout-minutes: 30
         name: TOTAL_STEPS must not gain a new late decrement
         run: |
@@ -3107,7 +3107,7 @@ jobs:
       # ========================================================================
       - id: b23_isolate
         name: "[b23] zero-payload-is-not-ok.yml :: self-test -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b23 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b23 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b23
@@ -3143,7 +3143,7 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b23_s01
-        if: ${{ steps.select.outputs.b23 != 'false' && matrix.shard == 1 && !cancelled() && steps.b23_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b23 != 'false' && matrix.shard == 2 && !cancelled() && steps.b23_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: hydrate_reminders wiring guard
         # Explicit, single-line invocation (verb + path on the same line):
@@ -3153,7 +3153,7 @@ jobs:
         # execution verb and the literal filename on different lines.
         run: /bin/bash tests/test_hydrate_reminders_wired.sh
       - id: b23_s02
-        if: ${{ steps.select.outputs.b23 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b23 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The embedding sentinel is not the reader's sentinel (#775)
         # always(), for the reason the step below states: a guard that only
@@ -3162,7 +3162,7 @@ jobs:
         # Explicit, single-line invocation, same rule as the step above.
         run: /bin/bash tests/test_the_embedding_sentinel_is_not_the_readers.sh
       - id: b23_s03
-        if: ${{ steps.select.outputs.b23 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b23 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The existing hydrate guards must still hold
         # always(), because a step that only runs when everything before it
