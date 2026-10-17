@@ -395,6 +395,57 @@ fi
 rm -rf "$TMP11"
 
 # ---------------------------------------------------------------------------
+note "=== Scenario 12: NET-CONTENT short-circuit -- delete-then-restore is FRESH ==="
+# The advance arm counts COMMITS, but what ships is CONTENT. Advance the source
+# with two commits that net to zero for the vendored subset (change, then
+# restore byte-for-byte). The commit graph has moved +2; the content has not.
+# WITHOUT the short-circuit this is a textbook false RED (source "advanced past
+# pin", no hold_ack); WITH it, the pin is content-current and the gate is GREEN,
+# saying so. This is the HR015 #1145/#1146 class the fix exists for.
+TMP12="$(mktemp -d)"
+make_fixture "$TMP12" >/dev/null
+SRC12="$TMP12/synthetic-source"
+advance_source "$SRC12" "v2 -- temporary change" "commit A: change mod.py" >/dev/null
+advance_source "$SRC12" "v1" "commit B: restore mod.py to the pinned content" >/dev/null
+# Sanity: HEAD content for the vendored file now equals the pin's.
+if [ "$(cat "$SRC12/pkg/mod.py")" != "$(printf 'def hello():\n    return "v1"\n')" ]; then
+    bad "fixture 12 did not restore mod.py to the pinned content -- scenario is vacuous"
+fi
+out12="$(run_gate "$TMP12")"; rc12=$?
+if [ "$rc12" -eq 0 ] \
+    && printf '%s' "$out12" | grep -q "GATE: GREEN" \
+    && printf '%s' "$out12" | grep -qi "net to ZERO content change" \
+    && printf '%s' "$out12" | grep -qE "OK    synthtree"; then
+    ok "two commits that net to zero content -> FRESH, not a false 'advanced' RED (exit $rc12)"
+else
+    bad "net-content short-circuit did not fire; a delete-then-restore red the gate (exit $rc12)"
+    printf '%s\n' "$out12" | grep -E "GATE|FAIL|OK|note|synthtree" | head -8
+fi
+rm -rf "$TMP12"
+
+# ---------------------------------------------------------------------------
+note "=== Scenario 13: verify_exempt is honoured HERE too (shared vocabulary) ==="
+# verify_exempt was verify_cut_freshness.sh's word; unverifiable_ack was this
+# gate's. After unification a tree exempted with verify_exempt + a reason is
+# honoured by BOTH gates. Same unverifiable source as scenario 9, exempted the
+# OTHER way: it must be counted acknowledged, exit 0, and NOT a plain GREEN.
+TMP13="$(mktemp -d)"
+make_fixture "$TMP13" >/dev/null
+remanifest "$TMP13" "$TMP13/there-is-no-repo-here" \
+    $'verify_exempt    = true\nexempt_reason    = "synthetic: genuinely unverifiable source, exempted the verify_exempt way"'
+out13="$(run_gate "$TMP13")"; rc13=$?
+if [ "$rc13" -eq 0 ] \
+    && printf '%s' "$out13" | grep -qE "^ACK   synthtree" \
+    && printf '%s' "$out13" | grep -qE "1 acknowledged-unverifiable" \
+    && ! printf '%s' "$out13" | grep -q "GATE: GREEN -- every vendored tree"; then
+    ok "verify_exempt tree is honoured by the vendor-fresh gate too (exit $rc13)"
+else
+    bad "verify_exempt was NOT honoured here -- the vocabulary is still split (exit $rc13)"
+    printf '%s\n' "$out13" | grep -E "GATE|WARN|ACK|FAIL|vendor-freshness" | head -6
+fi
+rm -rf "$TMP13"
+
+# ---------------------------------------------------------------------------
 note ""
 note "self-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
