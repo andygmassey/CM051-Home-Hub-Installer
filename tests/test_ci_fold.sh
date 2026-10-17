@@ -149,6 +149,11 @@ sys.exit(0 if list(d["jobs"]) == ["b2"] else 1)
 PY
 grep -q 'HEADER COMMENT THAT MUST SURVIVE' "$F" && grep -q 'STEP COMMENT THAT MUST SURVIVE' "$F" \
     && pass "source comments carried into the family" || bad "comments lost"
+# The sources set no pipefail, so the family must not either:
+# test_pipefail_shortcircuit_inversion.sh counts per FILE, and a generated
+# pipefail would make every folded `x | grep -q` read as a new instance.
+[ "$(grep -c pipefail "$F")" -eq 0 ] \
+    && pass "the generator introduces no pipefail" || bad "generator added pipefail"
 grep -q 'steps.b02_count.outputs.n' "$F" \
     && pass "step-id references renamed with their step" || bad "id reference not renamed"
 python3 "$ROOT/scripts/verify_ci_steps_are_maskless.py" "$T/after/wf" >/dev/null 2>&1 \
