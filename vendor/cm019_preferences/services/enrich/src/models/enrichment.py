@@ -843,4 +843,22 @@ class EnrichmentResult:
                 if n is not None:
                     triples.append(f'<{p}> pwg:{pred} "{n}"^^xsd:integer .')
 
+        # Book detail (OpenLibrary). Fetched by the client and, until now,
+        # dropped here, so the wiki's Books table could never show it.
+        # Authors and subjects already travel as pwg:hasEntity (author) and
+        # pwg:hasTopic. Predicates:
+        #   pwg:publishYear  xsd:integer (OpenLibrary first_publish_year)
+        #   pwg:pageCount    xsd:integer (OpenLibrary number_of_pages_median)
+        # cover_url is deliberately NOT written: it is a remote URL, and the
+        # wiki has no consent-gated local copy to show (same rule as posters).
+        book = self.book_metadata
+        if book is not None:
+            for pred, raw in (
+                ("publishYear", book.publish_year),
+                ("pageCount", book.number_of_pages),
+            ):
+                n = _positive_int(raw)
+                if n is not None:
+                    triples.append(f'<{p}> pwg:{pred} "{lit(n)}"^^xsd:integer .')
+
         return "\n".join(triples)
