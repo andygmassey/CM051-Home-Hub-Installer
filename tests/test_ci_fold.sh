@@ -173,7 +173,7 @@ PY
         return
     fi
     check "$T/m"
-    if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qF -- "$want"; then
+    if [ "$RC" -eq 1 ] && grep -qF -- "$want" <<< "$OUT"; then
         pass "refused: $label"
     else
         bad "NOT refused ($RC): $label -- wanted '$want', got: $OUT"
@@ -292,7 +292,7 @@ want "runs without PyYAML" "$(sort "$o" | tr '\n' ' ')" "b01=false b02=true "
 # family file is then an ordinary workflow, graded by the ordinary gates.
 OUT="$(python3 "$TOOL" check --base-dir "$T/after/wf" --base-spec "$T/spec.tsv" \
         --tree "$T/after/wf" --spec "$T/spec.tsv" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'nothing to prove'; then
+if [ "$RC" -eq 0 ] && grep -qF 'nothing to prove' <<< "$OUT"; then
     pass "rows already at the base are not re-proven"
 else bad "already-folded base: $RC $OUT"; fi
 
