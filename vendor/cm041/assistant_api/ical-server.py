@@ -11499,6 +11499,56 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     }
 
 
+def _sparql_select_unscoped(sparql):
+    """Like ``_sparql_select`` but WITHOUT the CM048 user-graph UNION scoper.
+
+    The derived-preferences read names its own graph (the derived named graph),
+    and ``_graph_scoped`` wraps the WHERE body in a UNION that would match an
+    explicitly-named graph once per user graph in scope -- doubling every row.
+    Store auth is injected by the ``ostler_store_auth`` .pth shim, same as
+    ``_sparql_select``. Returns flat binding dicts ({var: value})."""
+    req = urllib.request.Request(
+        OXIGRAPH_URL.rstrip("/") + "/query",
+        data=sparql.encode("utf-8"),
+        headers={
+            "Content-Type": "application/sparql-query",
+            "Accept": "application/sparql-results+json",
+        },
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    data = json.loads(resp.read())
+    return [{k: v["value"] for k, v in b.items()}
+            for b in data.get("results", {}).get("bindings", [])]
+
+
+def api_preferences_derived(limit=8, min_confidence=0.4):
+    """GET /api/v1/preferences/derived -- derived affinities ("What you like")
+    from the derived named graph, built through the CM019 producer builder
+    (vendored verbatim in derived_preferences.py beside this file).
+
+    Read-only; ALWAYS returns 200 with a ``degraded`` flag on any failure
+    (silent-empty rule), never 5xx. An absent/empty derived graph degrades with
+    a reason rather than returning a healthy-looking empty list."""
+    import os as _os
+    import sys as _sys
+    _ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        # Sibling module; the server's own dir is on sys.path (run as a script),
+        # but insert it explicitly so a test harness importing the handler also
+        # resolves it. A normal import registers it in sys.modules, which the
+        # @dataclass machinery needs under `from __future__ import annotations`.
+        _d = _os.path.dirname(_os.path.abspath(__file__))
+        if _d not in _sys.path:
+            _sys.path.insert(0, _d)
+        import derived_preferences as _dp
+    except Exception as exc:  # noqa: BLE001
+        return {"generated_at": _ts, "items": [], "degraded": True,
+                "cannot_check": "derived module unavailable: " + type(exc).__name__}
+    reader = _dp.DerivedGraphReader(_sparql_select_unscoped)
+    return _dp.build_derived_preferences_response(
+        reader, USER_ID, limit=limit, min_confidence=min_confidence)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
@@ -12437,6 +12487,33 @@ class Handler(BaseHTTPRequestHandler):
         # sorted. Absent artefact -> empty list + 200 so the daemon degrades
         # gracefully; provenance (sources/confidence/polarity) is preserved.
         # Sits behind the Doctor auth proxy at /api/v1/* like the rest.
+        # Derived preferences ("What you like"): abstract affinities derived
+        # from the compiled interests, read from the derived named graph via
+        # the CM019 producer builder. Degrades (200 + degraded) when the graph
+        # is empty/unavailable so the digest + pwg_ tool never see a fake empty.
+        if parsed.path == "/api/v1/preferences/derived":
+            params = parse_qs(parsed.query)
+            limit, err = _safe_int(params, "limit", 8)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            min_conf, err = _safe_float(params, "min_confidence", 0.4)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            result = api_preferences_derived(limit=limit, min_confidence=min_conf)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/api/v1/preferences":
             params = parse_qs(parsed.query)
             limit, err = _safe_int(params, "limit", 0)
