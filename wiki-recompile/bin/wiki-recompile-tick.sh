@@ -295,6 +295,44 @@ printf '%s\n' "$$" > "${LOCK_DIR}/pid"
 # is up. Phase 2 has its own no-stack guard below.
 trap 'rm -rf "$LOCK_DIR"' EXIT
 
+# --- Rule 0.8: the Ostler Pro subscription gate (v1.0.108) -----------
+# A FRESH wiki recompile is ongoing intelligence -> Pro. The wiki VIEW is
+# NOT: wiki-site (restart: unless-stopped) keeps serving the last-compiled
+# content to a lapsed owner. So when Pro is inactive we skip the COMPILE but
+# still ensure the view container is up, and we leave the compiled volume
+# byte-for-byte as the last compile left it (Apple restraint: a lapsed
+# owner loses fresh updates, never the wiki they already have).
+#
+# The CM044 render side reads ~/.ostler/state/subscription_gated.json --
+# written by the gate on THIS very --check -- to show "Last updated <date>.
+# Fresh updates resume with Pro", so a paused wiki does not read as broken.
+#
+# FAIL OPEN on a missing module / any non-{0,3} exit: a paid customer must
+# not lose fresh updates because we could not ask, and the fail-CLOSED line
+# for a genuinely missing gate is the ingestion ticks (Leak C), not the
+# view. Exit 3 is the only code that pauses.
+_ostler_gate="${OSTLER_DIR}/services/ical-server/subscription_gate.py"
+_ostler_py="${OSTLER_PYTHON:-python3}"
+if [ -f "$_ostler_gate" ]; then
+    set +e
+    "$_ostler_py" "$_ostler_gate" --check >/dev/null 2>&1
+    _ostler_gate_rc=$?
+    set -e
+    if [ "$_ostler_gate_rc" -eq 3 ]; then
+        log "Ostler Pro is not active: fresh wiki recompile is PAUSED. Serving the last-compiled wiki unchanged; the view stays up. Subscribe in the Ostler app to resume fresh updates."
+        # Keep the VIEW alive on stale-but-compiled content. No compile runs;
+        # the wiki-docs volume is left exactly as the last compile left it.
+        docker compose up -d wiki-site >/dev/null 2>&1 || true
+        exit 0
+    fi
+    if [ "$_ostler_gate_rc" -ne 0 ]; then
+        log "WARNING: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); recompiling anyway. A paid customer is never stopped because we could not ask."
+    fi
+else
+    log "WARNING: subscription gate not found at ${_ostler_gate}; recompiling anyway. The ingestion ticks fail closed on a missing gate; the wiki refresh fails open so a view is never starved by a packaging slip."
+fi
+# --- end Rule 0.8 gate -----------------------------------------------
+
 # ---------------------------------------------------------------------------
 # 1. Phase 1 -- fast baseline compile (OSTLER_WIKI_SKIP_LLM=1)
 # ---------------------------------------------------------------------------
