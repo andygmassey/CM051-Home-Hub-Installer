@@ -1,0 +1,203 @@
+{
+  "_about": "Shared CM019 <-> CM044 contract for film/TV enrichment triples. Byte-identical copies live in CM019 services/enrich/tests/fixtures/ and CM044 compiler/tests/fixtures/. CM019 asserts to_turtle writes exactly expected_triples; CM044 asserts its reader returns expected_wiki from those triples. Edit both copies in the same change. SYNTHETIC DATA ONLY: every title and name here is invented. Each record's turtle (one triple per line, prefixes pwg/rdfs/xsd) is the exact graph CM019 writes for that input.",
+  "namespace": "https://schema.ostler.ai/enrichment/ontology#",
+  "enriched_at": "2026-01-02T03:04:05",
+  "records": [
+    {
+      "preference_id": "00000000-0000-4000-8000-00000000f11a",
+      "input": {
+        "matched_title": "The Lighthouse Accord",
+        "confidence": 0.9,
+        "match_type": "exact_title",
+        "genres": [
+          [
+            "Drama",
+            "drama"
+          ],
+          [
+            "Mystery",
+            "mystery"
+          ]
+        ],
+        "entities": [
+          [
+            "Ottoline Varga",
+            "director"
+          ],
+          [
+            "Mara Quillfeather",
+            "actor"
+          ],
+          [
+            "Dov \"Doc\" Penhallow",
+            "actor"
+          ]
+        ],
+        "movie_metadata": {
+          "title": "The Lighthouse Accord",
+          "media_type": "movie",
+          "overview": "She said \"run\". Then he said 'no'.\nSecond line with a backslash \\ and a tab\there.\r\nTriple quotes \"\"\" and ''' and a fake triple end > . <urn:x:evil> \"x\" .\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\nUnicode café 東京 and a bell\u0007 end.",
+          "poster_path": "/syntheticPoster01.jpg",
+          "runtime": 128,
+          "season_count": null,
+          "episode_count": null
+        }
+      },
+      "expected_triples": [
+        [
+          "overview",
+          "string",
+          "She said \"run\". Then he said 'no'.\nSecond line with a backslash \\ and a tab\there.\r\nTriple quotes \"\"\" and ''' and a fake triple end > . <urn:x:evil> \"x\" .\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\nUnicode café 東京 and a bell\u0007 end."
+        ],
+        [
+          "posterUrl",
+          "anyURI",
+          "https://image.tmdb.org/t/p/w500/syntheticPoster01.jpg"
+        ],
+        [
+          "runtimeMinutes",
+          "integer",
+          "128"
+        ]
+      ],
+      "absent_predicates": [
+        "seasonCount",
+        "episodeCount"
+      ],
+      "expected_wiki": {
+        "matched_title": "The Lighthouse Accord",
+        "genres": [
+          "Drama",
+          "Mystery"
+        ],
+        "director": "Ottoline Varga",
+        "actors": [
+          "Mara Quillfeather",
+          "Dov \"Doc\" Penhallow"
+        ],
+        "overview": "She said \"run\". Then he said 'no'.\nSecond line with a backslash \\ and a tab\there.\r\nTriple quotes \"\"\" and ''' and a fake triple end > . <urn:x:evil> \"x\" .\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\nUnicode café 東京 and a bell\u0007 end.",
+        "poster_url": "https://image.tmdb.org/t/p/w500/syntheticPoster01.jpg",
+        "runtime_minutes": 128,
+        "season_count": 0,
+        "episode_count": 0
+      },
+      "turtle": [
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:enrichedAt \"2026-01-02T03:04:05\"^^xsd:dateTime .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:enrichmentSource \"tmdb\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:enrichmentConfidence \"0.9\"^^xsd:decimal .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:matchType \"exact_title\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasSemanticValue \"true\"^^xsd:boolean .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:matchedTitle \"The Lighthouse Accord\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasGenre <pwg:genre_drama> .",
+        "<pwg:genre_drama> rdfs:label \"Drama\" .",
+        "<pwg:genre_drama> a pwg:Genre .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasGenre <pwg:genre_mystery> .",
+        "<pwg:genre_mystery> rdfs:label \"Mystery\" .",
+        "<pwg:genre_mystery> a pwg:Genre .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasEntity <pwg:entity_ottoline_varga> .",
+        "<pwg:entity_ottoline_varga> rdfs:label \"Ottoline Varga\" .",
+        "<pwg:entity_ottoline_varga> pwg:entityType \"director\" .",
+        "<pwg:entity_ottoline_varga> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasEntity <pwg:entity_mara_quillfeather> .",
+        "<pwg:entity_mara_quillfeather> rdfs:label \"Mara Quillfeather\" .",
+        "<pwg:entity_mara_quillfeather> pwg:entityType \"actor\" .",
+        "<pwg:entity_mara_quillfeather> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasEntity <pwg:entity_dov_%22doc%22_penhallow> .",
+        "<pwg:entity_dov_%22doc%22_penhallow> rdfs:label \"Dov \\\"Doc\\\" Penhallow\" .",
+        "<pwg:entity_dov_%22doc%22_penhallow> pwg:entityType \"actor\" .",
+        "<pwg:entity_dov_%22doc%22_penhallow> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:overview \"She said \\\"run\\\". Then he said 'no'.\\nSecond line with a backslash \\\\ and a tab\\there.\\r\\nTriple quotes \\\"\\\"\\\" and ''' and a fake triple end > . <urn:x:evil> \\\"x\\\" .\\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\\nUnicode café 東京 and a bell\\u0007 end.\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:posterUrl \"https://image.tmdb.org/t/p/w500/syntheticPoster01.jpg\"^^xsd:anyURI .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:runtimeMinutes \"128\"^^xsd:integer ."
+      ]
+    },
+    {
+      "preference_id": "00000000-0000-4000-8000-0000000007f2",
+      "input": {
+        "matched_title": "Harbour Lights Below",
+        "confidence": 0.85,
+        "match_type": "fuzzy_title",
+        "genres": [
+          [
+            "Comedy",
+            "comedy"
+          ]
+        ],
+        "entities": [
+          [
+            "Ines Brackwater",
+            "actor"
+          ]
+        ],
+        "movie_metadata": {
+          "title": "Harbour Lights Below",
+          "media_type": "tv",
+          "overview": "A ferry crew keeps a small island running.",
+          "poster_path": "/../not-a-plain-path.jpg",
+          "runtime": 42,
+          "season_count": 3,
+          "episode_count": 24
+        }
+      },
+      "expected_triples": [
+        [
+          "overview",
+          "string",
+          "A ferry crew keeps a small island running."
+        ],
+        [
+          "runtimeMinutes",
+          "integer",
+          "42"
+        ],
+        [
+          "seasonCount",
+          "integer",
+          "3"
+        ],
+        [
+          "episodeCount",
+          "integer",
+          "24"
+        ]
+      ],
+      "absent_predicates": [
+        "posterUrl"
+      ],
+      "expected_wiki": {
+        "matched_title": "Harbour Lights Below",
+        "genres": [
+          "Comedy"
+        ],
+        "director": "",
+        "actors": [
+          "Ines Brackwater"
+        ],
+        "overview": "A ferry crew keeps a small island running.",
+        "poster_url": "",
+        "runtime_minutes": 42,
+        "season_count": 3,
+        "episode_count": 24
+      },
+      "turtle": [
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:enrichedAt \"2026-01-02T03:04:05\"^^xsd:dateTime .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:enrichmentSource \"tmdb\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:enrichmentConfidence \"0.85\"^^xsd:decimal .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:matchType \"fuzzy_title\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasSemanticValue \"true\"^^xsd:boolean .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:matchedTitle \"Harbour Lights Below\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasGenre <pwg:genre_comedy> .",
+        "<pwg:genre_comedy> rdfs:label \"Comedy\" .",
+        "<pwg:genre_comedy> a pwg:Genre .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasEntity <pwg:entity_ines_brackwater> .",
+        "<pwg:entity_ines_brackwater> rdfs:label \"Ines Brackwater\" .",
+        "<pwg:entity_ines_brackwater> pwg:entityType \"actor\" .",
+        "<pwg:entity_ines_brackwater> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:overview \"A ferry crew keeps a small island running.\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:runtimeMinutes \"42\"^^xsd:integer .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:seasonCount \"3\"^^xsd:integer .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:episodeCount \"24\"^^xsd:integer ."
+      ]
+    }
+  ]
+}

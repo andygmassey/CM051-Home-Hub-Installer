@@ -365,6 +365,7 @@ test_fda_refusal_surfaces.py	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
+test_film_tv_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml
 test_first_window_end_to_end.py	WIRED	.github/workflows/catchup-machinery.yml

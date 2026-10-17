@@ -32,6 +32,8 @@ on:
       - 'tests/test_an_enrichment_miss_is_not_an_import_error.py'
       - 'tests/test_ostler_import_exit_code_separates_misses_from_failures.sh'
       - 'tests/test_enrichment_honours_a_decline.sh'
+      - 'tests/test_film_tv_detail_reaches_the_graph.py'
+      - 'tests/fixtures/film_tv_enrichment_contract.json'
   push:
     branches: [main]
 
@@ -120,3 +122,17 @@ jobs:
         # CANNOT-RUN and fails the step. if: always() -- independent axis.
         if: always()
         run: bash tests/test_enrichment_honours_a_decline.sh
+
+      - name: Film/TV detail reaches the graph (v1.0.108, CM019 to_turtle)
+        # overview, poster URL, runtime, season and episode counts were
+        # fetched and then dropped by to_turtle. Drives the REAL vendored
+        # _store_enrichment (socket replaced by a capturing MockTransport),
+        # executes the posted INSERT DATA in pyoxigraph and compares the graph
+        # with the CM019/CM044 shared contract fixture. Carries its own red
+        # control. pyoxigraph is a test-only dependency, so it is installed
+        # here rather than added to the shipped requirements. Exit 2 is
+        # CANNOT-RUN and fails the step. if: always() -- independent axis.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_film_tv_detail_reaches_the_graph.py
