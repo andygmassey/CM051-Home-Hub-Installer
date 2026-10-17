@@ -107,6 +107,39 @@ SOURCE_DEFAULT = "default"
 KEY_HAS_EVER_PAID = "has_ever_paid"
 
 # ---------------------------------------------------------------------------
+# The shared "Pro paused" signal (v1.0.108 licence hardening)
+# ---------------------------------------------------------------------------
+#
+# WHY THIS FILE EXISTS. When ongoing intelligence pauses, surfaces that
+# keep SHOWING the customer's data must be able to say WHY it stopped
+# getting fresher, or a paused wiki reads as a broken wiki ("Last updated
+# 34 of 354,546"). This is the single shared signal any render surface
+# reads to show "Last updated <date>. Fresh updates resume with Pro."
+#
+# It is a MIRROR of ``is_active_or_grace()``, not a second authority. The
+# gate writes it as a side effect of answering, so it can never disagree
+# with the answer the pipelines act on. The render side (CM044 wiki
+# banner, the Hub) only ever reads it.
+#
+# CONTRACT (owned jointly with the CM044 render side; do not change one
+# side without the other):
+#   path:   ~/.ostler/state/subscription_gated.json  (sibling of the
+#           subscription_state.json the gate already writes)
+#   schema: {"gated": true|false,
+#            "since": "<ISO8601 when gating began = access-ended date>",
+#            "reason": "trial_ended",
+#            "features_paused": [...]}
+#   When active it is the bare {"gated": false} so the banner clears.
+GATED_SIGNAL_FILENAME = "subscription_gated.json"
+GATED_REASON = "trial_ended"
+GATED_FEATURES_PAUSED = (
+    "ingestion",
+    "wiki_recompile",
+    "proactive_brief",
+    "reminders",
+)
+
+# ---------------------------------------------------------------------------
 # The licence tier (HR015 #928)
 # ---------------------------------------------------------------------------
 #
@@ -448,6 +481,78 @@ def _persist_walk(old_state: dict, new_state: dict) -> None:
         pass
 
 
+def _gated_signal_file() -> Path:
+    """The shared "Pro paused" signal, a sibling of the state file.
+
+    Resolved off ``_state_file`` so a test that redirects
+    ``OSTLER_SUBSCRIPTION_STATE`` to a temp path gets an isolated signal
+    too, and production lands it at
+    ``~/.ostler/state/subscription_gated.json``.
+    """
+    return _state_file().with_name(GATED_SIGNAL_FILENAME)
+
+
+def _gated_since(state: dict, now: datetime) -> str:
+    """ISO-8601 of the moment ongoing intelligence paused.
+
+    The render banner shows this as the "access ended" date, so it must
+    be the END OF THE LAST WINDOW, not ``now`` (which would march forward
+    every tick and read as "ended today" forever). For a customer who
+    paid at least once that is the end of their 14-day grace; for a
+    never-paid trialist there is no grace, so it is the free-month expiry.
+    Clamped never to claim access ended in the future, and never raises.
+    """
+    expires = _parse_iso(state.get("expires_at"))
+    grace_end = _parse_iso(state.get("grace_period_end"))
+    paid = _has_ever_paid(state)
+    if paid and grace_end is not None:
+        boundary = grace_end
+    elif paid and expires is not None:
+        boundary = expires + timedelta(days=GRACE_DAYS)
+    elif expires is not None:
+        boundary = expires
+    else:
+        boundary = now
+    if boundary > now:
+        boundary = now
+    return boundary.isoformat().replace("+00:00", "Z")
+
+
+def _write_gated_signal(active: bool, state: dict, now: datetime) -> None:
+    """Mirror the gate's current answer into the shared signal file.
+
+    See GATED_SIGNAL_FILENAME for the contract. Written atomically, only
+    when the content changes (to avoid churning the file on every tick),
+    and BEST EFFORT: a gate decision must never fail, or even slow down,
+    because this companion file could not be written. The reader degrades
+    a missing/corrupt signal to "not gated" so a write that never lands
+    only costs the banner, never the gate.
+    """
+    if active:
+        payload: dict = {"gated": False}
+    else:
+        payload = {
+            "gated": True,
+            "since": _gated_since(state, now),
+            "reason": GATED_REASON,
+            "features_paused": list(GATED_FEATURES_PAUSED),
+        }
+    path = _gated_signal_file()
+    try:
+        if path.exists():
+            if json.loads(path.read_text()) == payload:
+                return
+    except (OSError, json.JSONDecodeError):
+        pass
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=2))
+        os.replace(str(tmp), str(path))
+    except OSError:
+        pass
+
+
 def is_active_or_grace() -> bool:
     """Return True if ongoing intelligence should keep running.
 
@@ -481,15 +586,15 @@ def is_active_or_grace() -> bool:
     effective, walked = _walk(state, now)
     _persist_walk(state, walked)
 
+    result = False
     if effective in (STATUS_ACTIVE, STATUS_GRACE):
-        return True
-
+        result = True
     # Fail-open, for payers only. Note the denominator this branch must
     # not silently acquire: before the has_ever_paid guard, EVERY install
     # satisfied it for its first 30 days, because install.sh stamps
     # last_validated_at at activation time. It read as a safety net and
     # behaved as a second free month.
-    if _has_ever_paid(state):
+    elif _has_ever_paid(state):
         last_validated = _parse_iso(state.get("last_validated_at"))
         expires = _parse_iso(state.get("expires_at"))
         if last_validated is not None and (now - last_validated) < timedelta(
@@ -507,9 +612,13 @@ def is_active_or_grace() -> bool:
             # Same defect family as the trial that never ends.
             heard_after_expiry = expires is not None and last_validated > expires
             if not heard_after_expiry:
-                return True
+                result = True
 
-    return False
+    # Mirror the answer into the shared "Pro paused" signal (v1.0.108).
+    # Uses the WALKED state so "since" reflects any grace_period_end the
+    # walk derived. Best effort; never affects the value returned.
+    _write_gated_signal(result, walked, now)
+    return result
 
 
 def state_dict() -> dict:
