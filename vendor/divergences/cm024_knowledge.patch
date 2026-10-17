@@ -1,6 +1,40 @@
+diff --git a/ostler_knowledge/_vendor/ostler_usage_journal/usage_journal.py b/ostler_knowledge/_vendor/ostler_usage_journal/usage_journal.py
+index b3a451ab..47040ca9 100644
+--- a/ostler_knowledge/_vendor/ostler_usage_journal/usage_journal.py
++++ b/ostler_knowledge/_vendor/ostler_usage_journal/usage_journal.py
+@@ -152,6 +152,7 @@ def record_usage(
+     session_id: str,
+     *,
+     journal_path: Optional[Path] = None,
++    calls: int = 1,
+ ) -> bool:
+     """Append one usage record to the cost journal.
+ 
+@@ -203,6 +204,11 @@ def record_usage(
+             "cost_usd": 0.0,
+             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "purpose": purpose,
++            # #2603 follow-up (Archie review, 2026-10-02): how many real
++            # calls this record represents. Default 1 is correct for every
++            # per-call producer; RollingUsageRecorder passes its real total
++            # so a rolled-up row is not silently undercounted downstream.
++            "calls": max(1, int(calls)),
+         },
+     }
+ 
+@@ -406,6 +412,7 @@ class RollingUsageRecorder:
+                 purpose=self._purpose,
+                 session_id=self._session_id,
+                 journal_path=self._journal_path,
++                calls=self._calls,
+             )
+         except Exception:  # noqa: BLE001 - accounting must never raise
+             logger.warning(
+diff --git a/ostler_knowledge/cli.py b/ostler_knowledge/cli.py
+index b0221ce0..28e3e5b2 100644
 --- a/ostler_knowledge/cli.py
 +++ b/ostler_knowledge/cli.py
-@@ -641,6 +641,17 @@
+@@ -641,6 +641,17 @@ async def _run_embed(
                  except (ValueError, TypeError):
                      pass
  
@@ -18,7 +52,7 @@
              # Incremental mode: check if note should be processed
              if incremental_ingester:
                  if not incremental_ingester.should_process(note_id, updated_at or created_at, content):
-@@ -1351,7 +1362,7 @@
+@@ -1351,7 +1362,7 @@ async def _run_remove_duplicates(
      # Remove duplicates
      if verbose:
          # Set logging level to see individual deletions
@@ -27,9 +61,11 @@
  
      removed = await remove_duplicates(
          qdrant_client,
+diff --git a/ostler_knowledge/ingestion/adapters/__init__.py b/ostler_knowledge/ingestion/adapters/__init__.py
+index fea70199..0e427281 100644
 --- a/ostler_knowledge/ingestion/adapters/__init__.py
 +++ b/ostler_knowledge/ingestion/adapters/__init__.py
-@@ -20,6 +20,7 @@
+@@ -20,6 +20,7 @@ Register new adapters by adding ``"<name>": <Cls>`` to ``ADAPTERS``.
  from .apple_notes import AppleNotesAdapter
  from .base import KnowledgeSourceAdapter, ParsedNote, RawNote
  from .evernote import EvernoteAdapter
@@ -37,7 +73,7 @@
  from .notion import NotionAdapter
  from .obsidian import ObsidianAdapter
  
-@@ -28,6 +29,7 @@
+@@ -28,6 +29,7 @@ ADAPTERS: dict[str, type[KnowledgeSourceAdapter]] = {
      "notion": NotionAdapter,
      "obsidian": ObsidianAdapter,
      "apple_notes": AppleNotesAdapter,
@@ -45,12 +81,15 @@
  }
  
  __all__ = [
-@@ -39,4 +41,5 @@
+@@ -39,4 +41,5 @@ __all__ = [
      "KnowledgeSourceAdapter",
      "ParsedNote",
      "RawNote",
 +    "RemindersAdapter",
  ]
+diff --git b/ostler_knowledge/ingestion/adapters/reminders.py b/ostler_knowledge/ingestion/adapters/reminders.py
+new file mode 100644
+index 00000000..ad42455a
 --- /dev/null
 +++ b/ostler_knowledge/ingestion/adapters/reminders.py
 @@ -0,0 +1,219 @@
@@ -273,9 +312,11 @@
 +            tags=tags,
 +            evernote_guid=_record_id(record),  # synthetic id; see module docstring
 +        )
+diff --git a/ostler_knowledge/ingestion/classifier.py b/ostler_knowledge/ingestion/classifier.py
+index 80b20c9b..9f0137e5 100644
 --- a/ostler_knowledge/ingestion/classifier.py
 +++ b/ostler_knowledge/ingestion/classifier.py
-@@ -298,11 +298,31 @@
+@@ -298,11 +298,31 @@ class PrivacyClassifier:
          prompt = self._build_classification_prompt(note)
  
          url = f"{self.ollama_host}/api/generate"
@@ -308,9 +349,11 @@
          }
  
          try:
+diff --git a/ostler_knowledge/ingestion/importance_scorer.py b/ostler_knowledge/ingestion/importance_scorer.py
+index 914af097..1b35e023 100644
 --- a/ostler_knowledge/ingestion/importance_scorer.py
 +++ b/ostler_knowledge/ingestion/importance_scorer.py
-@@ -15,7 +15,7 @@
+@@ -15,7 +15,7 @@ Usage:
  import logging
  import re
  from dataclasses import dataclass
@@ -319,7 +362,7 @@
  from typing import Dict, List, Optional, Set
  from urllib.parse import urlparse
  
-@@ -299,7 +299,21 @@
+@@ -299,7 +299,21 @@ class ImportanceScorer:
          if not timestamp:
              return 0.0
  
@@ -342,9 +385,11 @@
          cutoff = now - timedelta(days=self.recency_years * 365)
  
          if timestamp > cutoff:
+diff --git a/ostler_knowledge/knowledge/email_summarizer.py b/ostler_knowledge/knowledge/email_summarizer.py
+index 014a7133..b45de8e9 100644
 --- a/ostler_knowledge/knowledge/email_summarizer.py
 +++ b/ostler_knowledge/knowledge/email_summarizer.py
-@@ -270,6 +270,26 @@
+@@ -270,6 +270,26 @@ class EmailSummarizer:
          """Call Ollama API for completion."""
          url = f"{self.ollama_host}/api/generate"
  
@@ -371,7 +416,7 @@
          payload = {
              "model": self.model,
              "prompt": prompt,
-@@ -277,6 +297,7 @@
+@@ -277,6 +297,7 @@ class EmailSummarizer:
              "options": {
                  "temperature": 0.3,  # Lower for more consistent extraction
                  "num_predict": 1024,  # Limit response length
@@ -379,6 +424,9 @@
              },
          }
  
+diff --git b/ostler_knowledge/ollama_user_active.py b/ostler_knowledge/ollama_user_active.py
+new file mode 100644
+index 00000000..9cafb3b9
 --- /dev/null
 +++ b/ostler_knowledge/ollama_user_active.py
 @@ -0,0 +1,138 @@
