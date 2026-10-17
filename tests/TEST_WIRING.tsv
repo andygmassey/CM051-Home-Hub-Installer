@@ -184,6 +184,7 @@ test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-pro
 test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_email_summarizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm041_deceased_excluded_from_proactive_surfaces.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_exit_75_when_the_sink_is_unreachable.py	WIRED	.github/workflows/catchup-machinery.yml
 test_cm048_gateway_extracts_owner_turns_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
