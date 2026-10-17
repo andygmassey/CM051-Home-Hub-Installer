@@ -98,6 +98,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Every httpx client in this module that talks to the LOCAL stores (Qdrant,
+# Oxigraph) passes trust_env=False. With the default, an ambient
+# HTTP(S)_PROXY and no matching NO_PROXY sends loopback requests to the
+# proxy, so a healthy local store reads as dead and enrichment writes are
+# lost. Public API clients (clients/) keep the default on purpose.
+# Pinned by tests/test_local_store_ignores_proxy.py.
+
 # Suppress noisy HTTP client logs (httpx, httpcore)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -138,7 +145,7 @@ async def query_preferences_for_dry_run(
 ) -> List[dict]:
     """Query Qdrant for preferences (for dry run display)."""
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             must_conditions = [{"key": "user_id", "match": {"value": user_id}}]
 
             if category:
@@ -187,7 +194,7 @@ async def check_if_enriched(preference_id: str) -> bool:
     """
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             response = await client.post(
                 f"{settings.oxigraph_url}/query",
                 content=sparql,
@@ -260,7 +267,7 @@ async def get_enrichment_stats_from_db() -> dict:
     """
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             # Get total count
             response = await client.post(
                 f"{settings.oxigraph_url}/query",
@@ -342,7 +349,7 @@ async def get_unenriched_counts(user_id: str) -> dict:
     counts = {}
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             for category in ["book", "movie", "music", "podcast", "tv"]:
                 body = {
                     "limit": 1,  # We just want the total count
@@ -906,7 +913,7 @@ async def _test_connections():
     # Test Qdrant
     click.echo(f"Qdrant URL: {settings.qdrant_url}")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             response = await client.get(f"{settings.qdrant_url}/collections")
             if response.status_code == 200:
                 collections = response.json().get("result", {}).get("collections", [])
@@ -928,7 +935,7 @@ async def _test_connections():
     # Test Oxigraph
     click.echo(f"Oxigraph URL: {settings.oxigraph_url}")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             # Try a simple ASK query
             response = await client.post(
                 f"{settings.oxigraph_url}/query",

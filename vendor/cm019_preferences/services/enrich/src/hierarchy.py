@@ -20,6 +20,13 @@ from .clients.wikidata import WikidataClient, WikidataEntity, BroaderConceptsRes
 
 logger = logging.getLogger(__name__)
 
+# Every httpx client in this module that talks to the LOCAL stores (Qdrant,
+# Oxigraph) passes trust_env=False. With the default, an ambient
+# HTTP(S)_PROXY and no matching NO_PROXY sends loopback requests to the
+# proxy, so a healthy local store reads as dead and enrichment writes are
+# lost. Public API clients (clients/) keep the default on purpose.
+# Pinned by tests/test_local_store_ignores_proxy.py.
+
 
 # RDF Prefixes for Turtle serialization
 RDF_PREFIXES = """
@@ -297,7 +304,7 @@ class TopicHierarchyService:
             True if successful
         """
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 # Store to the hierarchy named graph
                 url = f"{self._oxigraph_url}/store?graph={self.HIERARCHY_GRAPH}"
 
@@ -336,7 +343,7 @@ class TopicHierarchyService:
         """
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 response = await client.post(
                     f"{self._oxigraph_url}/query",
                     content=sparql,
@@ -475,7 +482,7 @@ class TopicHierarchyService:
     async def _execute_query(self, sparql: str) -> Optional[dict]:
         """Execute a SPARQL query against Oxigraph."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 response = await client.post(
                     f"{self._oxigraph_url}/query",
                     content=sparql,

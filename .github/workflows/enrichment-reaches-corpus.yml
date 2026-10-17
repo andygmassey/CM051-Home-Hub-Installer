@@ -32,6 +32,7 @@ on:
       - 'tests/test_an_enrichment_miss_is_not_an_import_error.py'
       - 'tests/test_ostler_import_exit_code_separates_misses_from_failures.sh'
       - 'tests/test_enrichment_honours_a_decline.sh'
+      - 'tests/test_cm019_local_store_ignores_proxy.py'
   push:
     branches: [main]
 
@@ -120,3 +121,11 @@ jobs:
         # CANNOT-RUN and fails the step. if: always() -- independent axis.
         if: always()
         run: bash tests/test_enrichment_honours_a_decline.sh
+
+      - name: The enricher reaches the local stores with a proxy set (v1.0.108)
+        # httpx honoured HTTP(S)_PROXY, so loopback writes to Qdrant/Oxigraph
+        # went to the proxy and enrichment was lost. Dead proxy in the env,
+        # real loopback server, its own control, AST check of every local-store
+        # client. Exit 2 is CANNOT-RUN and fails the step. if: always().
+        if: always()
+        run: python3 tests/test_cm019_local_store_ignores_proxy.py
