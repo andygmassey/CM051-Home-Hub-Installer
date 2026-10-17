@@ -203,8 +203,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install pytest and phonenumbers
-        run: python -m pip install --quiet pytest phonenumbers
+      # ostler_security: the vendored ical-server refuses to import without
+      # it (ostler_security.db_key), so the test's minimal stub is not enough.
+      - name: Install pytest, phonenumbers and ostler_security
+        run: |
+          python -m pip install --quiet pytest phonenumbers
+          python -m pip install --quiet ./vendor/ostler_security
       - name: A deceased person is suggested nowhere; a living relative on the family line stays visible
         run: |
           n="$(python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py \
