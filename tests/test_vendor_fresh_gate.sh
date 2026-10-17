@@ -413,9 +413,9 @@ if [ "$(cat "$SRC12/pkg/mod.py")" != "$(printf 'def hello():\n    return "v1"\n'
 fi
 out12="$(run_gate "$TMP12")"; rc12=$?
 if [ "$rc12" -eq 0 ] \
-    && printf '%s' "$out12" | grep -q "GATE: GREEN" \
-    && printf '%s' "$out12" | grep -qi "net to ZERO content change" \
-    && printf '%s' "$out12" | grep -qE "OK    synthtree"; then
+    && grep -q "GATE: GREEN" <<< "$out12" \
+    && grep -qi "net to ZERO content change" <<< "$out12" \
+    && grep -qE "OK    synthtree" <<< "$out12"; then
     ok "two commits that net to zero content -> FRESH, not a false 'advanced' RED (exit $rc12)"
 else
     bad "net-content short-circuit did not fire; a delete-then-restore red the gate (exit $rc12)"
@@ -435,9 +435,9 @@ remanifest "$TMP13" "$TMP13/there-is-no-repo-here" \
     $'verify_exempt    = true\nexempt_reason    = "synthetic: genuinely unverifiable source, exempted the verify_exempt way"'
 out13="$(run_gate "$TMP13")"; rc13=$?
 if [ "$rc13" -eq 0 ] \
-    && printf '%s' "$out13" | grep -qE "^ACK   synthtree" \
-    && printf '%s' "$out13" | grep -qE "1 acknowledged-unverifiable" \
-    && ! printf '%s' "$out13" | grep -q "GATE: GREEN -- every vendored tree"; then
+    && grep -qE "^ACK   synthtree" <<< "$out13" \
+    && grep -qE "1 acknowledged-unverifiable" <<< "$out13" \
+    && ! grep -q "GATE: GREEN -- every vendored tree" <<< "$out13"; then
     ok "verify_exempt tree is honoured by the vendor-fresh gate too (exit $rc13)"
 else
     bad "verify_exempt was NOT honoured here -- the vocabulary is still split (exit $rc13)"
