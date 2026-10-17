@@ -150,6 +150,10 @@ case "${STUB_TICK_MODE:-launch}" in
         log "ERROR: wiki-compiler baseline failed (exit 1); skipping wiki-site refresh."
         exit 1
         ;;
+    floor)
+        # wiki-recompile-tick.sh:420: a backfill completed inside the floor.
+        log "wiki summary backfill last completed 3269s ago (floor 86400s); not launching another yet"
+        ;;
     already)
         pid="$(cat "$P")"
         log "wiki summary backfill already running (pid ${pid}); not launching another"
@@ -763,6 +767,36 @@ else
     grep -qE "wrapper pid ${PIDZ} alive; .*matching processes: [1-9][0-9]* \[.*${PIDZ}.*\]" <<< "$outz" && grep -q 'GREW from' <<< "$outz"
     arm "and under zsh the process count and the growth reading come out the same (no word-splitting difference)" $? "pid=$PIDZ :: $outz"
 fi
+
+# ---------------------------------------------------------------------------
+printf -- '\n-- 9b. a backfill that COMPLETED inside the tick floor is converged --\n'
+# ---------------------------------------------------------------------------
+# Walk #13 (Ostler cut #14): the tick logged "wiki summary backfill last
+# completed 3269s ago (floor 86400s); not launching another yet", no pid was
+# ever handed over, and the wait burned 902s and then 2707s while the journal
+# already held 1275 cm044 rows and the probe downstream PASSED.
+reap
+BOXF="$WORK/boxf"; make_box "$BOXF"
+JF="$WORK/journalf.jsonl"; : > "$JF"
+for i in 1 2 3; do
+    printf '{"id": "pre-%s", "session_id": "cm044-compile-2026-10-09T00:00:00Z", "purpose": "enriching", "usage": {"model": "stub", "input_tokens": 3}}\n' "$i" >> "$JF"
+done
+tf0=$(date +%s)
+outf="$(run_wait "$LIB" "$BOXF" "$JF" STUB_TICK_MODE=floor OSTLER_WIKI_WAIT_BUDGET_S=20)"
+tf=$(( $(date +%s) - tf0 ))
+grep -q 'RC=0' <<< "$outf" && grep -q 'STATE=converged' <<< "$outf"
+arm "the floor line with 3 cm044 rows already in the journal is CONVERGED, exit 0" $? "$outf"
+[ "$tf" -lt 15 ]
+arm "and it ends on the floor line, not on the budget (${tf}s of a 20s budget)" $? "$outf"
+grep -q 'backfill last completed 3269s ago (floor 86400s)' <<< "$outf"
+arm "and the tick's own floor line is printed" $? "$outf"
+
+reap
+BOXF0="$WORK/boxf0"; make_box "$BOXF0"
+JF0="$WORK/journalf0.jsonl"; : > "$JF0"
+outf0="$(run_wait "$LIB" "$BOXF0" "$JF0" STUB_TICK_MODE=floor OSTLER_WIKI_WAIT_BUDGET_S=20)"
+grep -q 'RC=1' <<< "$outf0" && grep -q 'STATE=finding' <<< "$outf0" && ! grep -q 'CONVERGED' <<< "$outf0"
+arm "MUST-FAIL: the floor line with 0 cm044 rows is a FINDING, never CONVERGED" $? "$outf0"
 
 # ---------------------------------------------------------------------------
 printf -- '\n-- 10. MUTATION: with the delta check disabled, arm 4 must fail --\n'

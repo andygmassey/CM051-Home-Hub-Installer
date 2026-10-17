@@ -64,6 +64,13 @@ from dashboard_components import (
     render_security_posture,
     render_whatsapp_keepalive,
 )
+# Documents-folder access posture (launch-blocker install UX fix). A
+# live write probe against ~/Documents/Ostler surfaced as a Doctor tile
+# so a macOS Files-and-Folders denial -- which otherwise fails the wiki
+# and conversation-record writes silently -- is never invisible. Lives
+# in its own vendor-only module (CM051 probes a layout HR015 Doctor has
+# no equivalent of); see vendor/VENDOR_ONLY.tsv.
+from documents_access_posture import render_documents_access_posture
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -307,7 +314,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
+SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@ostler.ai")
 
 
 # ── Cross-site refusal on the credential routes ──────────────────────
@@ -818,6 +825,34 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
     return findings
 
 
+def _bundle_routine_findings() -> list[dict]:
+    """Findings for recurring ingest routines that are failing or stale, or
+    that could not be read. Empty only when every installed routine is ok or
+    has simply not run yet."""
+    try:
+        from routine_status import read_routine_status
+        rows = read_routine_status()
+    except Exception as exc:
+        return [{
+            "severity": "warning",
+            "title": "Could not check the background routines",
+            "detail": f"The status of Ostler's recurring import routines could not be read ({type(exc).__name__}).",
+            "fix": None, "fix_command": None, "risk": "low",
+        }]
+    bad = [r for r in rows if r.get("health") in ("failing", "stale")]
+    if not bad:
+        return []
+    names = ", ".join(
+        f"{str(r.get('keeps_up_to_date') or r.get('routine'))} ({r.get('reason')})" for r in bad
+    )
+    return [{
+        "severity": "warning",
+        "title": "A background import routine is not running",
+        "detail": f"These recurring imports are failing or have stopped: {names}.",
+        "fix": None, "fix_command": None, "risk": "low",
+    }]
+
+
 def _append_all_clear(
     findings: list[dict],
     errors: dict[str, str] | None = None,
@@ -833,6 +868,13 @@ def _append_all_clear(
     is not clean and must not say it is.
     """
     if findings or errors:
+        return findings
+    # The recurring ingest routines (email-ingest and the bundles) are part of
+    # the report too. A routine that is failing or has stopped, or one we could
+    # not read, is not a healthy box.
+    routine_findings = _bundle_routine_findings()
+    if routine_findings:
+        findings.extend(routine_findings)
         return findings
     findings.append({
         "severity": "info",
@@ -1366,59 +1408,50 @@ def render_source_status() -> str:
     _LABEL = {"ok": "read in", "no_data": "nothing to read",
               "not_run": "not run yet", "unreadable": "record unreadable",
               "error": "failed", "cannot_run": "could not look",
-              "timeout": "ran out of time"}
+              "timeout": "ran out of time",
+              # #30, the Downloads watcher row
+              "not_imported": "found, not imported",
+              "waiting": "waiting for a download"}
     _COLOUR = {"ok": "#2C4A2C", "no_data": "rgba(236,232,225,0.55)",
                "not_run": "#5C4611", "unreadable": "#7A1F1F",
                "error": "#7A1F1F", "cannot_run": "#5C4611",
-               "timeout": "#5C4611"}
+               "timeout": "#5C4611", "not_imported": "#5C4611",
+               "waiting": "#5C4611"}
     body = []
     for r in rows:
         st = (r.get("status") or "not_run")
         when = r.get("last_update_at") or r.get("recorded_at")
         n = r.get("item_count")
 
-        # v1.0.107 walk candidate #9, Andy's console walk: this table showed
-        # "email ... read in ... 0" and "imessage ... read in ... 0" while
-        # email-ingest.log had just emitted 11,883 real messages (29,157 for
-        # imessage, the settling ledger's own total) -- status correctly
-        # promoted to "ok" already (read_source_status, board #2562-C), but
-        # the COUNT column still read the install-time item_count alone,
-        # which is a different, narrower question (new items AT INSTALL,
-        # #2529 review) and is legitimately 0 whenever a run finds nothing
-        # NEW. `last_run_count` is the field that carries the real, ongoing
-        # total; prefer it here whenever it says MORE than item_count does,
-        # so the one column a customer reads as "how much did you find" never
-        # prints a number smaller than what read_source_status has already
-        # measured for this exact row.
-        last_run_count = r.get("last_run_count")
-        if (
-            isinstance(last_run_count, int)
-            and not isinstance(last_run_count, bool)
-            and (n is None or last_run_count > n)
-        ):
-            n = last_run_count
-
-        # None and 0 are different answers and must not print the same.
+        # ONE HONEST TOTAL (walk #28). read_source_status builds the cell's
+        # words once, as count_label, with count_kind saying what KIND of
+        # number it is: "total" (what Ostler holds, in the row's unit) or
+        # "last_check" (a per-run figure, the only evidence there is, and
+        # labelled as one). The table prints that label and nothing else, so
+        # the Doctor table and /api/v1/sources can never disagree. This cell
+        # used to take max(item_count, last_run_count), and on Andy's walk
+        # the Mail row printed the last tick's delta as if it were the
+        # mailbox.
         #
-        # AND A STATE THAT TOOK NO MEASUREMENT MUST NOT PRINT ONE (#1587).
-        # _hydrate_sentinel_record_cannot_run writes `item_count=0`, because
-        # the change-detection helper it shares with the other recorders
-        # needs a number to compare against the previous record. That 0 is
-        # bookkeeping, not a count: the whole meaning of cannot_run is that
-        # nothing looked. Printing it beside "could not look" would put a
-        # fabricated zero in the one column a customer reads as "how much of
-        # mine did you find", which is the same shape as the return code
-        # that used to print there (#946).
-        if st in ("cannot_run", "not_run", "unreadable"):
-            n = None
-        count = "&mdash;" if n is None else f"{n:,}"
+        # None and 0 are different answers and must not print the same, and
+        # a state that took no measurement must not print one (#1587):
+        # _source_count_label returns no label for cannot_run / not_run /
+        # unreadable, whose item_count=0 is bookkeeping, not a count.
+        label = r.get("count_label")
+        count = html.escape(label) if label else "&mdash;"
         body.append(
             '<tr>'
-            f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
+            f'<td>{html.escape({"downloads_exports": "Downloads folder"}.get(r.get("source"), str(r.get("source", "?")).replace("_", " ")))}</td>'
             f'<td><span style="color:{_COLOUR.get(st, "#5C4611")}">'
-            f'{html.escape(_LABEL.get(st, st))}</span></td>'
+            f'{html.escape(_LABEL.get(st, st))}</span>'
+            # #30: a row that found something and did not import it says WHY,
+            # in the customer's words, right under its status.
+            + (f'<div class="muted" style="font-size:0.85em">'
+               f'{html.escape(str(r["reason"]))}</div>' if r.get("reason") else "")
+            + '</td>'
             f'<td style="text-align:right">{count}</td>'
             f'<td>{html.escape(str(when)) if when else "never"}</td>'
+            f'<td>{html.escape(_catchup_phrase(r.get("catchup")))}</td>'
             f'<td class="muted">{html.escape(str(r.get("kind", "")))}</td>'
             '</tr>'
         )
@@ -1430,6 +1463,7 @@ def render_source_status() -> str:
         '<table class="src-table" style="width:100%;border-collapse:collapse">'
         '<thead><tr><th align="left">Source</th><th align="left">Status</th>'
         '<th align="right">Items</th><th align="left">Last read</th>'
+        '<th align="left">History</th>'
         '<th align="left">Kind</th></tr></thead><tbody>'
         + "".join(body) + "</tbody></table></div>"
     )
@@ -1547,6 +1581,18 @@ def render_dashboard(
     # something, then the reminder never appears -- so surfacing it is
     # the same productisation-posture story as the iMessage tile.
     reminders_section = render_reminders_posture()
+
+    # Documents-folder access posture (launch-blocker install UX fix):
+    # a live write probe against ~/Documents/Ostler. Ostler's bundled
+    # interpreter writes the customer's wiki and conversation records
+    # there, behind the macOS Files-and-Folders consent prompt (which
+    # reads as coming from "python3.11"). A customer who declines it
+    # leaves those writes failing silently. Amber when the probe write
+    # is refused; empty string on a fresh box where install.sh has not
+    # reached its first Documents write (not-yet-asked), so Doctor does
+    # not cry wolf. Catches a revoke-after-install the same way the
+    # Reminders runtime tile does, because the probe is live.
+    documents_access_section = render_documents_access_posture()
 
     # Reminders runtime push outcome (task #279, runtime half): reads
     # CM048's reminders_map SQLite table for what actually happened when
@@ -2129,6 +2175,8 @@ def render_dashboard(
 
         {reminders_section}
 
+        {documents_access_section}
+
         {reminders_runtime_section}
 
         {whatsapp_keepalive_section}
@@ -2440,16 +2488,16 @@ def render_history(history_entries: list[dict]) -> str:
             warn = sum(1 for f in findings if f.get("severity") == "warning")
             finding_parts = []
             if crit:
-                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=crit)}</span>')
+                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
             if warn:
-                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=warn)}</span>')
+                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
             if not finding_parts:
                 finding_parts.append(f'<span style="color:#2C4A2C">{HISTORY_ALL_CLEAR}</span>')
 
             rows += f"""<tr>
                 <td>{ts}</td>
                 <td>{", ".join(svc_parts)}</td>
-                <td>{HISTORY_RUNNING_FMT.format(running=running, total=total)}</td>
+                <td>{HISTORY_RUNNING_FMT.format(running=f"{running:,}", total=f"{total:,}")}</td>
                 <td>{", ".join(finding_parts)}</td>
             </tr>"""
 
@@ -2540,7 +2588,7 @@ def render_history(history_entries: list[dict]) -> str:
 <body>
     <div class="container">
         <h1>{HISTORY_HEADING}</h1>
-        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=len(history_entries))}</div>
+        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=f"{len(history_entries):,}")}</div>
         <table>
             <thead>
                 <tr>
@@ -2763,6 +2811,9 @@ _FDA_EXTRACT_KINDS = {
     # leg skipped on the FDA reader's sentinel and reminders_knowledge was
     # never created, while the panel had no row that could have shown it.
     "reminders_knowledge": "operation",
+    # Apple Music library (CM051 walk #27): chosen in the picker like the
+    # two above, so its row appears only once install.sh records it.
+    "apple_music": "source",
 }
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
@@ -3006,6 +3057,252 @@ def _settling_progress_total(source: str, progress_dir: Path | None = None) -> i
     return total if isinstance(total, int) and not isinstance(total, bool) and total > 0 else None
 
 
+# ── ONE HONEST TOTAL PER ROW, IN A NAMED UNIT (v1.0.107 walk #28) ────────
+#
+# Andy's console walk of candidate #28 read the Data sources rows and found
+# five of them saying something other than what their label claims:
+#
+#     Mail       the last tick's delta (email-ingest's per-run "emitted"),
+#                not the mail Ostler has read
+#     WhatsApp   the install-time people_added figure, roughly one per DM
+#                chat, under a label that says "messages"
+#     Safari     visits (one per history_visits row), labelled "web pages"
+#     Photos     "events" in the Doctor's own table, with no unit at all
+#     Notes      four different numbers across the surfaces that show it
+#
+# The cause is one shape: `item_count` was whatever number the install-time
+# recorder happened to put LAST in its payload, and every surface supplied
+# its own noun. The noun and the number were chosen in different repos by
+# different people and nothing held them together.
+#
+# THE FIX IS A DECLARED UNIT PER ROW AND ONE PRODUCER PER UNIT. Each row now
+# carries `item_unit` (the noun the number counts) and `item_count_from`
+# (where the number was read), and `item_count` is the total IN THAT UNIT or
+# None. A producer whose number is in a different unit is never used as a
+# stand-in: WhatsApp's people_added is a count of people, so with no message
+# ledger the row has no total, and says so, rather than printing people as
+# messages. The raw sentinel figure stays on the row as `install_item_count`
+# for anyone debugging the writer.
+#
+# The units are the SAME NOUNS the Hub's Data sources tab prints beside
+# item_count (ostler-assistant web/src/lib/dataSources.ts), so the Hub row
+# and this row now say the same thing about the same number.
+_SOURCE_TOTAL_UNITS = {
+    "email": "emails",
+    "imessage": "messages",
+    "whatsapp": "messages",
+    "calendar": "events",
+    "contacts": "contacts",
+    "apple_notes": "notes",
+    "photos": "photos",
+    "browsing": "web pages",
+    "reminders": "reminders",
+    "apple_music": "tracks",
+    "ai_conversations": "chats",
+}
+
+# Rows whose install-time sentinel count IS in the declared unit, so it is a
+# truthful fallback when no live total exists. Absent on purpose:
+#   imessage  payload people=N        people, not messages
+#   whatsapp  payload people_added=N  people (one per DM chat), not messages
+#   browsing  payload sent=N          visits sent to the store, not pages
+_SENTINEL_COUNT_IN_UNIT = {
+    "email",             # people=N,messages=M -> messages (last key)
+    "calendar",          # events=N
+    "contacts",          # imported=N
+    "apple_notes",       # notes=N (CM024 "Files written", one per note)
+    "photos",            # photo_events=N, one per photo asset
+    "reminders",         # total_reminders=N
+    "apple_music",       # total_tracks=N
+    "ai_conversations",  # written=N conversations
+}
+
+# Settling-progress ledgers whose `done` is the running count of items READ,
+# in the row's unit. `done`, not `total`: `total` is the size of the source
+# (what there is to read), `done` is what Ostler has actually read. For email
+# the tick writes done = previous done + this tick's read (email-ingest-tick.sh,
+# _report_email_settling), so it is cumulative, which is exactly the property
+# the per-run "emitted" figure lacks.
+_SETTLING_DONE_FILES = {
+    "email": "emails.json",
+    "imessage": "messages.imessage.json",
+    "whatsapp": "messages.whatsapp.json",
+}
+
+# The FDA extractor's own per-source record, rewritten by every fda-rerun
+# tick. The ONE canonical Notes count is the number of notes the extractor
+# read out of Apple Notes (vendor/ostler_fda/apple_notes.py notes_stats,
+# "notes": len(notes)). The other Notes figures a person can meet are each a
+# different population: CM024's "Files written" (the install-time sentinel,
+# frozen at install), the apple_notes_knowledge collection (CHUNKS, several
+# per note) and the settling "notes" channel (Evernote imports, not Apple
+# Notes). Photos is the same file: photo_events is one row per photo asset
+# (photos_metadata.extract_photo_events GROUP BY a.Z_PK), so it is photos.
+_EXTRACT_SUMMARY_KEYS = {
+    "apple_notes": ("apple_notes", "notes"),
+    "photos": ("photos", "photo_events"),
+}
+
+# Browsing history extracts: one JSON entry per VISIT, each carrying its url.
+# Pages are the distinct urls across them.
+_BROWSING_EXTRACTS = ("safari_history.json", "chrome_history.json")
+_PAGES_CACHE: dict = {}
+
+
+def _ostler_state_root() -> Path:
+    return Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+
+
+def _positive_int(v) -> int | None:
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def _settling_done(source: str, progress_dir: Path | None = None) -> int | None:
+    name = _SETTLING_DONE_FILES.get(source)
+    if name is None:
+        return None
+    base = progress_dir if progress_dir is not None else (
+        _ostler_state_root() / "state" / "settling_progress.d")
+    try:
+        data = json.loads((base / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return _positive_int(data.get("done")) if isinstance(data, dict) else None
+
+
+def _extract_summary_count(source: str, fda_dir: Path | None = None) -> int | None:
+    spec = _EXTRACT_SUMMARY_KEYS.get(source)
+    if spec is None:
+        return None
+    key, field = spec
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    try:
+        doc = json.loads((base / "extraction_summary.json").read_text(
+            encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    rec = (doc.get("sources") or {}).get(key) if isinstance(doc, dict) else None
+    if not isinstance(rec, dict) or rec.get("status") != "ok":
+        return None
+    return _positive_int(rec.get(field))
+
+
+def _distinct_pages(fda_dir: Path | None = None) -> int | None:
+    """Distinct urls across the browsing extracts, or None when none exist.
+    Cached on (path, mtime, size) so a polled panel does not re-read the
+    extract every few seconds."""
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    urls: set = set()
+    seen_any = False
+    for name in _BROWSING_EXTRACTS:
+        p = base / name
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        key = (str(p), st.st_mtime_ns, st.st_size)
+        cached = _PAGES_CACHE.get(str(p))
+        if cached and cached[0] == key:
+            part = cached[1]
+        else:
+            try:
+                entries = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+            except (OSError, ValueError):
+                continue
+            part = frozenset(
+                e["url"] for e in entries
+                if isinstance(e, dict) and isinstance(e.get("url"), str) and e["url"]
+            ) if isinstance(entries, list) else frozenset()
+            _PAGES_CACHE[str(p)] = (key, part)
+        seen_any = True
+        urls |= part
+    if not seen_any:
+        return None
+    return len(urls) or None
+
+
+def _canonical_total(source: str, sentinel_count, status: str | None = None) -> tuple:
+    """(total, where_it_came_from) for one row, in the row's declared unit.
+
+    Live producers first, because they move after install; then the
+    install-time sentinel, ONLY where its number is in the same unit. Never
+    a per-run figure, never a figure in a different unit.
+    """
+    n = _settling_done(source)
+    if n is not None:
+        return n, "settling_progress"
+    n = _extract_summary_count(source)
+    if n is not None:
+        return n, "extraction_summary"
+    if source == "browsing":
+        n = _distinct_pages()
+        if n is not None:
+            return n, "browsing_extract_distinct_urls"
+    if not isinstance(sentinel_count, int) or isinstance(sentinel_count, bool):
+        return None, None
+    if source not in _SOURCE_TOTAL_UNITS or source in _SENTINEL_COUNT_IN_UNIT:
+        return sentinel_count, "install_sentinel"
+    # A sentinel that looked and found NOTHING is zero in every unit: no
+    # people added from no chats is also no messages. Only a POSITIVE count
+    # in the wrong unit is withheld.
+    if sentinel_count == 0 and status == "no_data":
+        return 0, "install_sentinel"
+    return None, None
+
+
+def _mail_available_total(fda_dir: Path | None = None) -> int | None:
+    """How many messages the Mac's Mail store holds, or None when unknown.
+
+    Recorded at EXTRACT time by vendor/ostler_fda (apple_mail.
+    envelope_index_total, written by extract_all as apple_mail.mailbox_total),
+    which already opens the Envelope Index read-only. The Doctor never opens
+    Mail's database itself: it has no Full Disk Access of its own and must not
+    need it. None (no summary, no field, or a non-positive value) means the
+    row shows only what Ostler holds, with no "of", never "of 0".
+    """
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    try:
+        doc = json.loads((base / "extraction_summary.json").read_text(
+            encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    rec = (doc.get("sources") or {}).get("apple_mail") if isinstance(doc, dict) else None
+    if not isinstance(rec, dict):
+        return None
+    return _positive_int(rec.get("mailbox_total"))
+
+
+def _source_count_label(row: dict) -> tuple:
+    """(count_label, count_kind) for one row, or (None, None).
+
+    count_kind is "total" when the number is what Ostler holds in the row's
+    unit, and "last_check" when the only figure is a per-run one: that is
+    labelled "in the last check", never passed off as a total (walk #28, and
+    the count_kind flag from the closed duplicate #2922).
+    """
+    if (row.get("status") or "not_run") in ("cannot_run", "not_run", "unreadable"):
+        return None, None
+    unit = row.get("item_unit")
+    n = row.get("item_count")
+    if isinstance(n, int) and not isinstance(n, bool):
+        if row.get("source") == "email":
+            of = _positive_int(row.get("item_of"))
+            # "of" only when the denominator was read AND is not smaller than
+            # what Ostler holds; a held count above the mailbox would mean the
+            # two were measured on different stores, and "500 of 300" is
+            # worse than no denominator.
+            if of is not None and of >= n:
+                return "{:,} of {:,} emails read".format(n, of), "total"
+            return "{:,} emails read".format(n), "total"
+        return ("{:,} {}".format(n, unit) if unit else "{:,}".format(n)), "total"
+    per_run = row.get("last_run_count")
+    if (row.get("last_run_count_from") == "routine"
+            and _positive_int(per_run) is not None):
+        return (("{:,} {} in the last check".format(per_run, unit) if unit
+                 else "{:,} in the last check".format(per_run)), "last_check")
+    return None, None
+
+
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     """The ongoing-activity record for one source, or {} when absent.
 
@@ -3047,13 +3344,21 @@ def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     merged = max(recs, key=lambda r: r.get("last_run_at", ""))
     if any(r.get("last_status") != "ok" for r in recs):
         merged = dict(merged)
-        merged["last_status"] = "error"
+        # A refusal in any half keeps its own word (G1): folding it into
+        # "error" would send the customer to a restart instead of a grant.
+        refused = any(r.get("last_status") == "cannot_run" for r in recs)
+        merged["last_status"] = "cannot_run" if refused else "error"
         merged["last_detail"] = "one or more contributing extracts did not succeed"
+        # last_success_at is the OLDEST of the halves: a source is only as
+        # fresh as its stalest part.
+        succ = [r.get("last_success_at", "") for r in recs]
+        merged["last_success_at"] = min(succ) if all(succ) else ""
     return merged
 
 
 def read_source_status(hydrate_dir: Path | None = None,
-                       activity_dir: Path | None = None) -> list:
+                       activity_dir: Path | None = None,
+                       catchup_dir: Path | None = None) -> list:
     """One typed row per canonical source, read from the .done sentinels.
 
     EVERY canonical source appears: one that never ran is reported as
@@ -3157,10 +3462,27 @@ def read_source_status(hydrate_dir: Path | None = None,
         direct_activity = bool(act)
         if act:
             last_status = act.get("last_status", "unknown")
-            row["ongoing"] = "active" if last_status == "ok" else "failing"
+            # Only a tick that errored or could not run is failing. skipped
+            # and no_data are a tick that ran and found nothing to do, which
+            # is what a healthy Mac reports hourly (Mail read "Not working"
+            # on exactly that).
+            # An unrecognised word stays failing: fail safe, never fail open.
+            row["ongoing"] = ("active" if last_status in ("ok", "skipped", "no_data")
+                              else "failing")
             row["last_run_at"] = act.get("last_run_at") or None
             row["last_success_at"] = act.get("last_success_at") or None
             row["ongoing_detail"] = act.get("last_detail") or None
+            # G1 (TCC sweep 2026-10-15): macOS refused the last read. The
+            # install-time verdict is no longer the truth about this source,
+            # and leaving it "ok" made the panel say "Up to date". The row
+            # takes the refusal; the install verdict is kept beside it.
+            if last_status == "cannot_run":
+                row["install_status"] = row["status"]
+                row["status"] = "cannot_run"
+                row["detail"] = ("macOS stopped the Ostler assistant reading "
+                                 "this, so it has not been updated. Turn on "
+                                 "Full Disk Access for the Ostler assistant in "
+                                 "System Settings, Privacy & Security.")
         else:
             row["ongoing"] = "never"
             row["last_run_at"] = None
@@ -3216,16 +3538,219 @@ def read_source_status(hydrate_dir: Path | None = None,
         # Both run even when a direct activity record already set
         # ongoing=active above -- that record is not evidence about a count.
         count = None
+        count_from = None
         if labels:
             count = _best_routine_count(labels, routine_rows)
+            count_from = "routine" if count is not None else None
         if count is None:
             count = _settling_progress_total(row["source"])
+            count_from = "settling_progress" if count is not None else None
+        row["last_run_count_from"] = count_from
         if count is not None:
             row["last_run_count"] = count
             if row["status"] in ("no_data", "not_run", "unreadable"):
                 row["status"] = "ok"
                 row["detail"] = "the store holds %d" % count
+
+        # ONE honest total, in a declared unit (walk #28). See
+        # _SOURCE_TOTAL_UNITS. item_count becomes that total or None; the
+        # sentinel's own figure is kept beside it, renamed, never lost.
+        row["install_item_count"] = row["item_count"]
+        total, origin = _canonical_total(row["source"], row["item_count"], row["status"])
+        # A stale install-time ZERO is not a total once a live producer has
+        # counted something: "0 emails" beside a tick that just read 4,200
+        # is the walk #9 shape again. Unknown, and the per-run figure is
+        # shown with its own wording instead.
+        if (total == 0 and origin == "install_sentinel"
+                and _positive_int(row.get("last_run_count")) is not None):
+            total, origin = None, None
+        row["item_count"] = total
+        row["item_unit"] = _SOURCE_TOTAL_UNITS.get(row["source"])
+        row["item_count_from"] = origin
+        if (total and origin != "install_sentinel"
+                and row["status"] in ("no_data", "not_run", "unreadable")):
+            row["status"] = "ok"
+            row["detail"] = "the store holds %d" % total
+        # Mail also says how much there is to read (Andy, walk #28): the
+        # Mac's Mail store size, recorded at extract time.
+        if row["source"] == "email":
+            row["item_of"] = _mail_available_total()
+        row["count_label"], row["count_kind"] = _source_count_label(row)
+
+    # ── #30: THE DOWNLOADS WATCHER, AND WHY IT FOUND SOMETHING AND IMPORTED NOTHING ──
+    #
+    # MEASURED on a synthetic walk box (studio29, v1.0.107 candidate): a loose
+    # calendar.ics, emails.mbox and contacts.vcf in ~/Downloads. The watcher
+    # (com.ostler.export-scan -> ostler-scan-exports) matched none of them and
+    # exited 0 having written nothing, and this panel had no row for it at all,
+    # so "found nothing", "could not look" and "found three files and imported
+    # none" were all the same silence.
+    #
+    # The watcher now writes state/source_activity/downloads_exports.tsv on EVERY
+    # run (install.sh, the ostler-scan-exports heredoc): last_status is one of
+    # ok / no_data / not_imported / error / cannot_run / waiting, the run's
+    # counts (found, imported, already_imported, skipped, failed), and `reason`,
+    # the plain-words why when what it found did not import. This row prints that
+    # record and nothing else. No record at all means the watcher has not run on
+    # this Mac yet, and says so rather than being left out.
+    #
+    # NESTED, NOT MODULE-LEVEL, ON PURPOSE: the source-table tests rebuild this function from
+    # the AST with a hand-written list of the helpers it calls, so a new
+    # module-level helper turns every one of them into a NameError. Kept inside
+    # read_source_status, it travels with the function those tests already take.
+    def _downloads_exports_row(activity_dir: Path | None = None) -> dict:
+        """The Doctor row for the Downloads export watcher (#30)."""
+        _DOWNLOADS_STATUS = {
+            "ok": "ok", "no_data": "no_data", "not_imported": "not_imported",
+            "error": "error", "cannot_run": "cannot_run", "waiting": "waiting",
+        }
+        base = activity_dir if activity_dir is not None else _source_activity_dir()
+        row = {"source": "downloads_exports", "kind": "watcher",
+               "status": "not_run", "item_count": None, "recorded_at": None,
+               "last_update_at": None, "detail": None, "reason": None,
+               "count_label": None, "count_kind": None, "catchup": None}
+        f = base / "downloads_exports.tsv"
+        try:
+            if not f.is_file():
+                row["reason"] = "the Downloads watcher has not run on this Mac yet"
+                return row
+            rec = {}
+            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    rec[k.strip()] = v.strip()
+        except OSError as exc:
+            row["status"] = "unreadable"
+            row["reason"] = "the watcher's record could not be read (%s)" % exc.__class__.__name__
+            return row
+
+        def _n(key: str):
+            v = rec.get(key, "")
+            return int(v) if v.isdigit() else None
+
+        st = rec.get("last_status", "")
+        # A status this row has never seen is not absorbed into a healthy word.
+        row["status"] = _DOWNLOADS_STATUS.get(st, "error" if st else "unreadable")
+        row["last_update_at"] = rec.get("last_run_at") or None
+        row["last_success_at"] = rec.get("last_success_at") or None
+        found, imported = _n("found"), _n("imported")
+        already = _n("already_imported")
+        row["item_count"] = imported
+        row["found"], row["imported"] = found, imported
+        row["already_imported"] = already
+        row["skipped"], row["failed"] = _n("skipped"), _n("failed")
+        if found is not None and imported is not None:
+            label = "%d found, %d imported" % (found, imported)
+            if already:
+                label += ", %d already in" % already
+            row["count_label"], row["count_kind"] = label, "last_check"
+        reason = rec.get("reason") or ""
+        if not reason and row["status"] not in ("ok", "no_data"):
+            reason = rec.get("last_detail") or ""
+        row["reason"] = reason or None
+        row["detail"] = rec.get("last_detail") or None
+        return row
+
+    # ── #30: the Downloads watcher has a row of its own ──────────────────
+    # See _downloads_exports_row. Appended here, after the per-source loop,
+    # because it is not a hydrate source and none of the sentinel, routine or
+    # settling-progress producers above speak for it.
+    rows.append(_downloads_exports_row(activity_dir))
+
+    # ── v1.0.108: how far back each source has been read ─────────────────
+    # The background catch-up (lib/ostler_catchup.py) walks every source
+    # backwards past the install window and writes one watermark per source
+    # under state/catchup/. None when it has never run for this row: an
+    # absent record is not invented into a state.
+    try:
+        catchup = _read_catchup_by_row(catchup_dir)
+    except Exception:  # noqa: BLE001 - a broken record never fails the panel
+        catchup = {}
+    for row in rows:
+        row["catchup"] = catchup.get(row["source"])
     return rows
+
+
+def _catchup_state_dir() -> Path:
+    """``${OSTLER_DIR}/state/catchup``, where lib/ostler_catchup.py writes."""
+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+    root = Path(base) if base else Path.home() / ".ostler"
+    return root / "state" / "catchup"
+
+
+def _read_catchup_by_row(directory: Path | None = None) -> dict:
+    """Catch-up progress per Doctor row, aggregated over its sources.
+
+    Several catch-up sources can report under one row (Safari and Chrome are
+    both "browsing"). A row is complete only when every one of them is; while
+    any is still walking, the row shows the LEAST advanced one, because "back
+    to 2019" must not be claimed while another source is still in 2024.
+
+    Each value: {"state": "complete" | "catching_up" | "waiting",
+                 "back_to": ISO date or None, "sources": n}.
+    """
+    d = directory if directory is not None else _catchup_state_dir()
+    by_row: dict = {}
+    try:
+        files = sorted(d.glob("*.json"))
+    except OSError:
+        return {}
+    for f in files:
+        try:
+            w = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(w, dict) or w.get("schema") != 1 or not w.get("source"):
+            continue
+        by_row.setdefault(w.get("doctor_row") or w["source"], []).append(w)
+    out = {}
+    for row, ws in by_row.items():
+        open_ = [w for w in ws if not w.get("complete")]
+        skipped = sum(int(w.get("items_quarantined") or 0) for w in ws
+                      if isinstance(w.get("items_quarantined"), int))
+        if not open_:
+            out[row] = {"state": "complete", "back_to": None, "sources": len(ws),
+                        "skipped": skipped}
+            continue
+        dated = [w.get("oldest_at") for w in open_ if w.get("oldest_at")]
+        # The least advanced is the LATEST "back to" date; one that has not
+        # read anything yet has no date at all, which outranks every date.
+        back_to = None if len(dated) < len(open_) else max(dated)
+        waiting = all(str((w.get("last_tick") or {}).get("reason", "")).startswith("busy")
+                      for w in open_)
+        # A source that could not READ at all (permission refused, store
+        # unreadable) outranks every other state: it is neither done nor
+        # catching up, and saying either would be false.
+        blocked = any(isinstance(w.get("cannot_run"), str) and w.get("cannot_run") for w in open_)
+        state = "cannot_run" if blocked else ("waiting" if waiting else "catching_up")
+        out[row] = {"state": state, "back_to": back_to, "sources": len(ws),
+                    "skipped": skipped}
+    return out
+
+
+_CATCHUP_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+                   "August", "September", "October", "November", "December")
+
+
+def _catchup_phrase(c: dict | None) -> str:
+    """The History cell. Plain words, no em dashes, British spelling."""
+    if not c:
+        return ""
+    n = c.get("skipped")
+    tail = ""
+    if isinstance(n, int) and n > 0:
+        tail = "; %d could not be read and %s skipped" % (n, "was" if n == 1 else "were")
+    if c.get("state") == "complete":
+        return ("All of your history is read" if not tail
+                else "History read" + tail)
+    if c.get("state") == "cannot_run":
+        return "Could not read this yet, will keep trying" + tail
+    if c.get("state") == "waiting":
+        return "Catching up, waiting for a quiet moment" + tail
+    back = str(c.get("back_to") or "")
+    if len(back) >= 7 and back[:4].isdigit() and back[5:7].isdigit() and 1 <= int(back[5:7]) <= 12:
+        return "Catching up, back to %s %s%s" % (_CATCHUP_MONTHS[int(back[5:7]) - 1], back[:4], tail)
+    return "Catching up, starting" + tail
 
 
 @app.get("/api/v1/sources", response_class=JSONResponse)
@@ -3394,6 +3919,139 @@ async def api_wiki_correct(request: Request):
         )
 
     return result
+
+
+# -- People: owner-settable do-not-suggest (CM041 #216 loopback half) ----
+#
+# The ical-server (:8090) carries api_people_suppress_suggestions:
+# POST /api/v1/people/{slug}/suppress-suggestions, body
+# {"suppressed": bool, "reason": str}. It is the owner-settable do-not-suggest
+# control ("stop suggesting" / "mark as deceased") that keeps a deceased or
+# unwanted contact out of every proactive surface without deleting them.
+#
+# It is reached from the WIKI person page's "Stop suggesting" button -- an
+# UNPAIRED browser on localhost:8044, exactly like the correction pencil that
+# POSTs /api/v1/wiki/correct (CM044 correction_overlay.js: method POST,
+# Content-Type application/json, NO Authorization, cross-origin to :8089). That
+# surface holds no paired-iOS bearer, so it CANNOT use the DOCTOR_PROXY_PATHS
+# reverse proxy: proxy_request validates a paired bearer and 401s an unpaired
+# caller (OSTLER_DOCTOR_ORACLE_FALLBACK=0 on every install). So this is a
+# Doctor-NATIVE route with the SAME trust model as /api/v1/wiki/correct:
+# unauthenticated, browser-reachable, the loopback bind is its boundary.
+#
+# The one difference from wiki/correct is the write target. wiki/correct writes
+# Oxigraph directly; the suppression record lives in the ical-server's store,
+# and THAT endpoint requires the per-install service token. So we forward
+# server-side and attach PWG_SERVICE_TOKEN here -- the token the browser
+# neither has nor needs -- exactly the substitution the DOCTOR_PROXY_PATHS proxy
+# would do, minus its paired-bearer gate that the wiki surface cannot satisfy.
+#
+# Registered BEFORE register_proxy_routes(app) so this explicit handler wins
+# over the proxy catch-all (Starlette matches in registration order), the same
+# posture as the hydration-status passthrough below. Thin plumbing only: the
+# ical handler owns the suppression logic and re-validates; nothing here is a
+# reimplementation of it.
+
+_SUPPRESS_SUGGESTIONS_PATH = "/api/v1/people/{slug}/suppress-suggestions"
+_SUPPRESS_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS = 10.0
+
+
+async def _forward_suppress_suggestions(
+    slug: str,
+    body: bytes,
+    gateway_url: "str | None" = None,
+    client: "httpx.AsyncClient | None" = None,
+) -> httpx.Response:
+    """POST a suppress-suggestions request to the upstream ical-server,
+    attaching the per-install service token.
+
+    The browser never holds the service token (it is an unpaired wiki page);
+    the Doctor is the one place the token lives, so it is added here on the
+    server-side forward. Reuses ``proxy._gateway_base_url`` (the customer
+    install points ``DOCTOR_GATEWAY_URL`` at the loopback ical-server on :8090)
+    and ``proxy._resolve_service_token`` so the base and the token are read from
+    one place. With no service token configured the forward is a transparent
+    pass-through, matching ``proxy_request``'s documented posture.
+
+    ``gateway_url`` / ``client`` exist for tests that inject a destination or a
+    mocked transport; production callers pass neither.
+    """
+    from proxy import _gateway_base_url, _resolve_service_token
+
+    base = (gateway_url or _gateway_base_url()).rstrip("/")
+    url = base + "/api/v1/people/" + slug + "/suppress-suggestions"
+    headers = {"content-type": "application/json"}
+    service_token = _resolve_service_token()
+    if service_token:
+        headers["authorization"] = "Bearer " + service_token
+    if client is not None:
+        return await client.post(
+            url, content=body, headers=headers,
+            timeout=_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS,
+        )
+    async with httpx.AsyncClient(
+        timeout=_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS
+    ) as new_client:
+        return await new_client.post(url, content=body, headers=headers)
+
+
+@app.post(_SUPPRESS_SUGGESTIONS_PATH, response_class=JSONResponse)
+async def api_people_suppress_suggestions(slug: str, request: Request) -> Response:
+    """Owner's "stop suggesting" / "mark as deceased" control (CM041 #216).
+
+    Doctor-native, unauthenticated, browser-reachable -- the same trust model
+    as ``/api/v1/wiki/correct``, because the wiki "Stop suggesting" button is an
+    unpaired browser and cannot present a paired bearer. We forward to the
+    ical-server with the service token (see ``_forward_suppress_suggestions``)
+    and return its result verbatim, so the owner's choice persists. The ical
+    handler owns the suppression logic and re-validates; the checks here are a
+    thin, fast local guard, never a reimplementation.
+    """
+    if not _SUPPRESS_SLUG_RE.match(slug or ""):
+        return JSONResponse(
+            {"error": "Invalid slug. Expected lowercase ASCII letters, digits "
+                      "and hyphens (max 80 chars)."},
+            status_code=400,
+        )
+
+    raw = await request.body()
+    try:
+        parsed = json.loads(raw) if raw else {}
+    except Exception as exc:
+        return JSONResponse({"error": "invalid JSON: %s" % exc}, status_code=400)
+    if not isinstance(parsed, dict):
+        return JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400,
+        )
+    if "suppressed" in parsed and not isinstance(parsed["suppressed"], bool):
+        return JSONResponse(
+            {"error": "`suppressed` must be a boolean"}, status_code=400,
+        )
+    reason = parsed.get("reason")
+    if reason is not None and (not isinstance(reason, str) or len(reason) > 200):
+        return JSONResponse(
+            {"error": "`reason` must be a string (max 200 chars)"},
+            status_code=400,
+        )
+
+    # Forward exactly what we validated.
+    forward_body = json.dumps(parsed).encode("utf-8")
+    try:
+        upstream = await _forward_suppress_suggestions(slug, forward_body)
+    except (httpx.HTTPError, OSError) as exc:
+        # Upstream ical-server unreachable / timed out. Honest 502 so the
+        # button surfaces a retry rather than a fabricated success.
+        return JSONResponse(
+            {"error": "upstream suppress-suggestions unreachable",
+             "detail": exc.__class__.__name__},
+            status_code=502,
+        )
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
 
 
 @app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
@@ -3757,6 +4415,23 @@ async def api_resume_post(request: Request):
     except _PauseError as exc:
         return JSONResponse({"error": exc.detail}, status_code=exc.status)
     return JSONResponse(state, status_code=200)
+
+
+@app.post("/api/v1/reminders/turn-on", response_class=JSONResponse)
+async def api_reminders_turn_on(request: Request):
+    """"Turn reminders back on" after the customer deleted Ostler's Reminders
+    list. Same guard as the credential routes: Hub-local Host AND no
+    cross-site origin. Forgets the stored list id and re-arms the parked
+    rows; the assistant's next push creates a fresh "Ostler" list.
+    """
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
+    from reminders_runtime import turn_reminders_back_on
+
+    result = turn_reminders_back_on()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 500)
 
 
 # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────

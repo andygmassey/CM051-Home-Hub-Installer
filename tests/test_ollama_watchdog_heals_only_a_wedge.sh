@@ -32,6 +32,7 @@ awk '/^OSTLER_LAUNCHAGENT_LABELS=\(/{f=1} f&&/^\)/{f=0} f' "$ROOT/install.sh" | 
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/curl" <<'EOF'
 #!/usr/bin/env bash
+[ -n "${SHIM_CURL_CALLS:-}" ] && echo "$*" >> "$SHIM_CURL_CALLS"
 case "$*" in
   */api/version*) [ "${SHIM_VERSION:-up}" = up ] && exit 0 || exit 7 ;;
   */api/embed*)   printf '%s' "${SHIM_EMBED:-200}"; [ "${SHIM_EMBED:-200}" = 200 ] && exit 0 || exit 28 ;;
@@ -67,7 +68,9 @@ mkdir -p "$WORK/ologs"; printf 'ollama log line %s\n' 1 2 3 > "$WORK/ologs/ollam
 run() {
     PATH="$WORK/bin:$PATH" SHIM_CALLS="$WORK/calls.$1" OSTLER_WATCHDOG_STATE_DIR="$2" \
         OSTLER_WATCHDOG_EVIDENCE_DIR="$2/evidence" OSTLER_WATCHDOG_OLLAMA_LOG_DIR="$WORK/ologs" \
-        OSTLER_WATCHDOG_PROBE_S=1 "$SCRIPT" >> "$WORK/log.$1" 2>&1
+        OSTLER_WATCHDOG_PROBE_S=1 OSTLER_WATCHDOG_UP_POLL_S=0 \
+        OSTLER_WATCHDOG_ENV_FILE="${SHIM_ENV_FILE:-$WORK/no-such-env}" \
+        "$SCRIPT" >> "$WORK/log.$1" 2>&1
 }
 evcount() { ls -1 "$1"/evidence/wedge-*.txt 2>/dev/null | wc -l | tr -d ' '; }
 restarts() { [ -f "$WORK/calls.$1" ] && grep -c 'kickstart -k' "$WORK/calls.$1" || echo 0; }
@@ -145,6 +148,50 @@ S="$WORK/s7"; SHIM_EMBED=000 run reset "$S"; SHIM_EMBED=200 run reset "$S"; SHIM
 S="$WORK/s8"; for i in $(seq 1 24); do SHIM_EMBED=000 OSTLER_WATCHDOG_COOLDOWN_S=0 run keep "$S"; done
 [ "$(restarts keep)" = 12 ] && ok "retention case: 12 restarts" || bad "retention case: expected 12 restarts, got $(restarts keep)"
 [ "$(evcount "$S")" = 10 ] && ok "retention: 10 evidence files kept of 12" || bad "retention: expected 10 evidence files, got $(evcount "$S")"
+
+# 9. COLD START, CHAT FIRST (walk #19). After a restart the watchdog must load
+# the CHAT model (AI_MODEL from ~/.ostler/.env, at the daemon's num_ctx 32768)
+# BEFORE the embed model. Embed-first starved live chat for 180 s in the lab.
+printf 'COMPOSE_PROJECT_NAME=ostler\nAI_MODEL=gemma4:e2b\n' > "$WORK/ostler.env"
+S="$WORK/s9"; rm -f "$WORK/curl.s9"
+for i in 1 2; do SHIM_EMBED=000 SHIM_ENV_FILE="$WORK/ostler.env" SHIM_CURL_CALLS="$WORK/curl.s9" run prewarm "$S"; done
+[ "$(restarts prewarm)" = 1 ] && ok "prewarm case: the wedge was restarted" || bad "prewarm case: expected 1 restart, got $(restarts prewarm)"
+gen=$(grep -n '/api/generate' "$WORK/curl.s9" 2>/dev/null | head -1 | cut -d: -f1)
+emb=$(grep -n '/api/embed.*keep_alive' "$WORK/curl.s9" 2>/dev/null | head -1 | cut -d: -f1)
+[ -n "$gen" ] && ok "after the restart the chat model is pre-warmed (/api/generate)" || bad "no chat-model prewarm after the restart"
+grep '/api/generate' "$WORK/curl.s9" 2>/dev/null | grep -q '"model":"gemma4:e2b"' \
+    && ok "the prewarm loads AI_MODEL from ~/.ostler/.env" || bad "the prewarm does not load AI_MODEL"
+DAEMON_CTX="$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:OLLAMA_NUM_CTX' "$ROOT/assistant-agent/launchd/com.creativemachines.ostler.assistant.plist" 2>/dev/null)"
+grep '/api/generate' "$WORK/curl.s9" 2>/dev/null | grep -q "\"num_ctx\":${DAEMON_CTX:-unreadable}}" \
+    && ok "the prewarm uses the daemon's num_ctx (${DAEMON_CTX}), so it is the runner chat will use" \
+    || bad "the prewarm num_ctx differs from the daemon's OLLAMA_NUM_CTX (${DAEMON_CTX:-unreadable}): it would load a runner chat cannot use"
+[ -n "$emb" ] && ok "the embed model is pre-warmed too" || bad "no embed-model prewarm after the restart"
+{ [ -n "$gen" ] && [ -n "$emb" ] && [ "$gen" -lt "$emb" ]; } \
+    && ok "ORDER: chat model (call $gen) before embed model (call $emb)" \
+    || bad "ORDER: the chat model must be pre-warmed BEFORE the embed model (generate=${gen:-none}, embed=${emb:-none})"
+grep -q 'PREWARM chat gemma4:e2b' "$WORK/log.prewarm" && ok "the prewarm is logged" || bad "the prewarm is not logged"
+# No restart, no prewarm: a healthy server is never sent a model load.
+rm -f "$WORK/curl.s9h"; SHIM_EMBED=200 SHIM_ENV_FILE="$WORK/ostler.env" SHIM_CURL_CALLS="$WORK/curl.s9h" run prewarmhealthy "$WORK/s9h"
+grep -q '/api/generate' "$WORK/curl.s9h" 2>/dev/null && bad "a healthy server was sent a prewarm" || ok "healthy server: no prewarm"
+# No AI_MODEL: skip the chat prewarm and say so, still warm the embed model.
+rm -f "$WORK/curl.s9n"; for i in 1 2; do SHIM_EMBED=000 SHIM_CURL_CALLS="$WORK/curl.s9n" run prewarmnomodel "$WORK/s9n"; done
+grep -q '/api/generate' "$WORK/curl.s9n" 2>/dev/null && bad "prewarm sent a load with no AI_MODEL" || ok "no AI_MODEL: no chat load is sent"
+grep -q 'PREWARM chat SKIPPED' "$WORK/log.prewarmnomodel" && ok "no AI_MODEL: the skip is logged" || bad "no AI_MODEL: the skip is not logged"
+# MUST-FAIL mutant: embed first, then chat. The ORDER arm must go red.
+MUT3="$WORK/mutant_order"
+awk '
+/^prewarm\(\) \{/ {inp=1}
+inp && /^    if \[ -n "\$chat" \]; then/ {grab=1}
+inp && grab {chatblk=chatblk $0 "\n"; if ($0 ~ /^    fi$/) {grab=0}; next}
+inp && /^    log "PREWARM embed/ {print; printf "%s", chatblk; next}
+{print}
+' "$SCRIPT" > "$MUT3"; chmod +x "$MUT3"
+a=$(grep -n 'PREWARM embed' "$MUT3" | head -1 | cut -d: -f1); b=$(grep -n 'PREWARM chat \${chat}' "$MUT3" | head -1 | cut -d: -f1)
+{ [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; } && ok "order mutation applied" || bad "order mutation did not apply"
+rm -f "$WORK/curl.mo"
+for i in 1 2; do PATH="$WORK/bin:$PATH" SHIM_CALLS="$WORK/calls.mo" OSTLER_WATCHDOG_STATE_DIR="$WORK/smo" OSTLER_WATCHDOG_EVIDENCE_DIR="$WORK/smo/evidence" OSTLER_WATCHDOG_OLLAMA_LOG_DIR="$WORK/ologs" OSTLER_WATCHDOG_PROBE_S=1 OSTLER_WATCHDOG_UP_POLL_S=0 OSTLER_WATCHDOG_ENV_FILE="$WORK/ostler.env" SHIM_EMBED=000 SHIM_CURL_CALLS="$WORK/curl.mo" "$MUT3" >> "$WORK/log.mo" 2>&1; done
+g2=$(grep -n '/api/generate' "$WORK/curl.mo" 2>/dev/null | head -1 | cut -d: -f1); e2=$(grep -n '/api/embed.*keep_alive' "$WORK/curl.mo" 2>/dev/null | head -1 | cut -d: -f1)
+{ [ -n "$g2" ] && [ -n "$e2" ] && [ "$e2" -lt "$g2" ]; } && ok "MUST-FAIL mutant (embed first) is caught by the ORDER predicate" || bad "the embed-first mutant was not distinguishable: the ORDER arm proves nothing"
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

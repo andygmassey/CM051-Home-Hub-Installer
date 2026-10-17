@@ -55,7 +55,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: The wiki compile gets the owner's IANA zone; an unreadable zone is said, not guessed
+        if: always()
+        run: bash tests/test_wiki_compile_gets_owner_tz.sh
+
+      - name: ostler-import hands the owner name to the people graph; unknown format is not a failure
+        if: always()
+        run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
+
       - name: install.sh structural + helper regression tests (m..z batch)
+        if: always()
         run: |
           set -uo pipefail
           fail=0
@@ -88,6 +97,7 @@ jobs:
             tests/test_vendor_exclude_glob_depth.sh \
             tests/test_whatsapp_channel_block.sh \
             tests/test_wiki_baseline_background.sh \
+            tests/test_wiki_compile_gets_owner_tz.sh \
             tests/test_wiki_compose_paths.sh \
             tests/test_wiki_recompile_after_late_hydration.sh \
             tests/test_write_pipeline_signals.sh \
@@ -329,3 +339,7 @@ jobs:
           set -e
           python -m pip install --quiet httpx
           python3 tests/test_gateway_conversations_reach_the_store.py
+
+      - name: A finished contact sync lets the settling bar reach 100% (walk #16 F8)
+        if: always()
+        run: bash tests/test_settling_contacts_reaches_100_when_sync_finished.sh

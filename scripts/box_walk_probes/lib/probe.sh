@@ -105,6 +105,34 @@ probe_fail() {
     exit "$PROBE_EX_FAIL"
 }
 
+# ADVISORY IS NOT A FAIL. scripts/walk_promote_scope.tsv declares which probes can
+# refuse a promote. A probe whose row says `advisory` and whose result is a red
+# that row covers calls probe_fail_or_advisory: it prints
+# `VERDICT: ADVISORY -- <text>` and exits 0, and run_box_walk.sh tallies it on
+# its own ADVISORY line instead of counting a FAIL. Anything else is probe_fail.
+#
+# FAIL-CLOSED: a missing or unreadable scope file, a probe with no row, or any
+# value other than exactly `advisory` is blocking. OSTLER_PROMOTE_SCOPE_FILE
+# overrides the path (tests).
+probe_scope_of() {
+    local f="${OSTLER_PROMOTE_SCOPE_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/walk_promote_scope.tsv}"
+    [ -r "$f" ] || { echo blocking; return 0; }
+    awk -F'\t' -v want="${PROBE_NAME:-}" 'substr($0,1,1)=="#"{next} $1==want{print $2; found=1; exit} END{if(!found)print "blocking"}' "$f"
+}
+
+probe_advisory() {
+    _probe_require_denominator
+    printf 'VERDICT: ADVISORY -- %s\n' "$1"
+    exit "$PROBE_EX_PASS"
+}
+
+probe_fail_or_advisory() {
+    if [ "$(probe_scope_of)" = "advisory" ]; then
+        probe_advisory "$1"
+    fi
+    probe_fail "$1"
+}
+
 probe_cannot_run() {
     # Deliberately does NOT require a denominator: the whole point is that
     # there was nothing to count because a prerequisite was missing. But it
@@ -383,4 +411,19 @@ probe_main() {
             exit "$PROBE_EX_FAIL"
             ;;
     esac
+}
+
+# walk_screens_dir -- where a probe's screenshots and facts go. NEVER inside the
+# repo checkout: they can carry real people's names and CM051 is PUBLIC.
+# Order: OSTLER_WALK_SCREENS_DIR, else <OSTLER_BOX_WALK_EVIDENCE_DIR>/screens,
+# else <walk store>/<stamp>.evidence/screens (store = OSTLER_WALK_STORE or
+# ~/.ostler/walks). Under a test (OSTLER_UNDER_TEST=1) with no store named, a
+# fresh temp dir, so a test can never write the operator's real store.
+walk_screens_dir() {
+    if [ -n "${OSTLER_WALK_SCREENS_DIR:-}" ]; then printf '%s' "${OSTLER_WALK_SCREENS_DIR}"; return; fi
+    if [ -n "${OSTLER_BOX_WALK_EVIDENCE_DIR:-}" ]; then printf '%s/screens' "${OSTLER_BOX_WALK_EVIDENCE_DIR}"; return; fi
+    if [ "${OSTLER_UNDER_TEST:-}" = "1" ] && [ -z "${OSTLER_WALK_STORE:-}" ]; then
+        printf '%s/screens' "$(mktemp -d)"; return
+    fi
+    printf '%s/%s.evidence/screens' "${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}" "$(date -u +%Y%m%dT%H%M%SZ)"
 }

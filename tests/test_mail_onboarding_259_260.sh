@@ -121,7 +121,12 @@ spec = importlib.util.spec_from_file_location(
 # call site passes since_days=<env-derived var>, not a literal 365.
 src = (repo / "vendor" / "ostler_fda" / "extract_all.py").read_text()
 assert "OSTLER_MAIL_BACKFILL_DAYS" in src
-assert "extract_messages(since_days=mail_backfill_days" in src, \
+# Since #30 (first-window widening) the env-derived window SEEDS the ladder,
+# which calls extract_messages with each rung, starting from that seed.
+direct = "extract_messages(since_days=mail_backfill_days" in src
+ladder = ('widen_first_window(\n                "mail", mail_backfill_days,' in src
+          and "lambda d: extract_messages(since_days=d," in src)
+assert direct or ladder, \
     "extract_all.py must call extract_messages with the env-derived window"
 print("PASS [#260 smoke]: call site uses env-derived window, not a literal")
 PY

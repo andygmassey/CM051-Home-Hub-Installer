@@ -42,6 +42,7 @@ from typing import Optional
 from . import channel_adapter as _channel_adapter
 from . import conversation_writer as _conversation_writer
 from .bundle_extractor import BundleExtraction
+from .participants import normalise_participants
 from .schemas import Classification
 from .settings import Settings
 
@@ -249,7 +250,7 @@ def _provisional_classification(metadata: dict) -> Classification:
 
 def _participant_names(metadata: dict) -> list[str]:
     out: list[str] = []
-    for p in metadata.get("participants") or []:
+    for p in normalise_participants(metadata.get("participants")):
         if not isinstance(p, dict):
             continue
         if p.get("role") == "user":

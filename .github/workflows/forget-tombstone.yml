@@ -1,0 +1,131 @@
+# Lane 18: a person erased by POST /api/v1/people/<slug>/forget stays erased
+# when any people syncer or ostler_fda ingest next runs. Mirrors CM041 PR #200.
+# Collected-count floors so a quietly shrinking suite cannot pass.
+name: forget-tombstone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/**'
+      - 'vendor/ostler_fda/**'
+      - 'tests/test_forget_tombstone_*.py'
+      - 'tests/_fake_oxigraph.py'
+      - 'tests/_fake_qdrant.py'
+      - 'vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py'
+      - 'tests/test_facebook_export_imports_once.py'
+      - 'tests/test_merged_people_are_not_recreated.py'
+      - 'vendor/cm021/src/cli.py'
+      - 'install.sh'
+      - '.github/workflows/forget-tombstone.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/**'
+      - 'vendor/ostler_fda/**'
+      - 'tests/test_forget_tombstone_*.py'
+      - 'tests/_fake_oxigraph.py'
+      - 'tests/_fake_qdrant.py'
+      - 'vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py'
+      - 'tests/test_facebook_export_imports_once.py'
+      - 'tests/test_merged_people_are_not_recreated.py'
+      - 'vendor/cm021/src/cli.py'
+      - 'install.sh'
+      - '.github/workflows/forget-tombstone.yml'
+
+concurrency:
+  group: forget-tombstone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tombstone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+      - name: Every syncer and ingest leaves a forgotten person absent
+        run: |
+          set -eu
+          check() {
+            n="$(python -m pytest "$1" --collect-only -q | grep -cE '::test_')" || n=0
+            echo "$1: collected ${n} test(s)"
+            if [ "${n:-0}" -lt "$2" ]; then
+              echo "REFUSING: expected at least $2 collected tests in $1, got ${n:-0}." >&2
+              exit 1
+            fi
+          }
+          check tests/test_forget_tombstone_every_syncer.py 18
+          check tests/test_forget_tombstone_ostler_fda.py 10
+          python -m pytest tests/test_forget_tombstone_every_syncer.py tests/test_forget_tombstone_ostler_fda.py -v
+
+  # DMG #27 shape sweep S2. Its own job (ci-maskless): a merged person is
+  # never re-created by the next ingest, facts land on the survivor, a store
+  # error creates nobody, and the people index skips merged nodes.
+  merged-people-not-recreated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml beautifulsoup4
+      - name: A merged person is never re-created by the next ingest
+        run: |
+          set -eu
+          n="$(python -m pytest tests/test_merged_people_are_not_recreated.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_merged_people_are_not_recreated.py -v
+
+  # Its own job, not a step after the tombstone suite: a step there is skipped
+  # whenever that suite fails, so a red tombstone run would mask this one
+  # (ci-maskless).
+  f6-facebook-import-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+      - name: "F6: one Facebook export is imported once and re-imports keep their node"
+        run: |
+          set -eu
+          n="$(python -m pytest tests/test_facebook_export_imports_once.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected 4 F6 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest tests/test_facebook_export_imports_once.py -v -s
+
+  # Walk #28 grading (status-honesty sweep V17/V22). Its own job (ci-maskless):
+  # Forget reports done only after BOTH stores were purged (503 with what
+  # remains otherwise), the audit line behind "already forgotten" is written
+  # only after a real erasure, and an unreadable tombstone file is never
+  # overwritten. Real pyoxigraph graph with a merged person, stand-in Qdrant.
+  forget-reports-only-what-it-erased:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+      - name: Forget says done only when the person is gone from both stores
+        run: |
+          set -eu
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 15 ] || { echo "REFUSING: expected at least 15 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py -v

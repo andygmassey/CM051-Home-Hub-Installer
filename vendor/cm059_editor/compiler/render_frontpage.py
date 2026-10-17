@@ -625,7 +625,7 @@ def _masthead(feed: dict) -> str:
         '<div class="masthead"><h1>Your Front Page</h1>'
         f'{date_html}</div>'
         '<p class="lede">What Ostler thinks is worth your attention today, drawn '
-        'from across your whole life — and ranked, not dumped.</p>')
+        'from across your whole life, and ranked, not dumped.</p>')
 
 
 def render(feed: dict) -> str:
@@ -633,7 +633,7 @@ def render(feed: dict) -> str:
     cards = feed.get("cards", [])
     bands = _bands_html(cards)
     if not bands:
-        bands = ('<p class="empty">Nothing on your Front Page yet — Ostler is '
+        bands = ('<p class="empty">Nothing on your Front Page yet. Ostler is '
                  'still settling in.</p>')
     return (
         '<!doctype html><html><head><meta charset="utf-8"><meta name="lang" content="en-GB">'
@@ -651,7 +651,7 @@ def render(feed: dict) -> str:
         '</div></div></div>'
         f'<div class="fp">{_masthead(feed)}<div id="bands">{bands}</div></div>'
         '<p class="gfoot">The Editor · compiled '
-        f'{html.escape(str(feed.get("generated_utc", "")))} · '
+        f'{html.escape(_human_date(feed.get("generated_utc")))} · '
         'this preview renders the same JSON the Hub and iOS apps consume.</p>'
         f'<script>{_JS}</script>'
         '</body></html>')
@@ -664,7 +664,7 @@ def render_fragment(feed: dict) -> str:
     cards = feed.get("cards", [])
     bands = _bands_html(cards)
     if not bands:
-        bands = ('<p class="empty">Nothing on your Front Page yet — Ostler is '
+        bands = ('<p class="empty">Nothing on your Front Page yet. Ostler is '
                  'still settling in.</p>')
     return (f'<style>{_CSS}</style>{_ICON_DEFS}'
             f'<div class="fp"><div id="bands">{bands}</div></div>'

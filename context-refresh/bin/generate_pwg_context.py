@@ -136,6 +136,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -599,7 +600,7 @@ def _user_asserted_section() -> list[str]:
     """
     rows = _sparql_select(
         'PREFIX pwg: <{ns}>\n'
-        'SELECT ?text ?name ?rel ?created WHERE {{\n'
+        'SELECT ?text ?name ?rel ?created ?level WHERE {{\n'
         '  ?f a pwg:PersonFact ;\n'
         '     pwg:factSource "user_asserted" ;\n'
         '     pwg:factText ?text .\n'
@@ -883,10 +884,11 @@ def _about_you_section() -> list[str]:
     uid = identity["user_id"]
     if uid:
         fact_rows = _sparql_select(
-            "SELECT ?text ?t ?d ?l ?at WHERE {\n"
+            "SELECT ?text ?t ?d ?l ?at ?about WHERE {\n"
             "  GRAPH ?g {\n"
             "    ?f a <urn:ostler:Fact> ; <urn:ostler:text> ?text ;\n"
             "       <urn:ostler:userId> ?uid .\n"
+            "    OPTIONAL { ?f <urn:ostler:about> ?about }\n"
             "    OPTIONAL { ?f <urn:ostler:type> ?t }\n"
             "    OPTIONAL { ?f <urn:ostler:domain> ?d }\n"
             "    OPTIONAL { ?f <urn:ostler:privacyLevel> ?l }\n"
@@ -898,12 +900,43 @@ def _about_you_section() -> list[str]:
         ) or []
         places: list[str] = []
         family: list[str] = []
+        # F12 (cut #17 device walk): urn:ostler:userId names whose GRAPH a
+        # fact lives in, NOT who it is about. The CM048 writer puts the
+        # subject on urn:ostler:about: urn:ostler:user/<id> for the owner,
+        # urn:ostler:person/<slug> for anyone else. Reading userId alone put
+        # "<a contact> is based in <city>" on the owner's Places line, and
+        # "what do you know about me" recited it as the owner's. A place
+        # about somebody else is not the owner's place. (Family and close
+        # people are other people by definition, so that bucket keeps them.)
+        owner_about = f"urn:ostler:user/{uid}".lower()
+        owner_name = (identity.get("name") or "").strip().lower()
         for row in fact_rows:
             if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
                 continue
+            about = (row.get("about") or "").strip().lower()
             text = " ".join((row.get("text") or "").split())
             if not text:
                 continue
+            if row.get("t") == "location":
+                # F12 + #27: a place is the owner's only when it is about the
+                # owner, or (legacy, untagged) the owner is its explicit
+                # subject. An untagged "<contact> lives in <city>" is dropped.
+                if about != owner_about and not (
+                        not about and owner_name and text.lower().startswith(owner_name)):
+                    continue
+                if _PHONE_RUN.search(text):
+                    continue
+            if row.get("t") != "location":
+                # DMG #23/#25: the owner's family line keeps a fact ONLY when it
+                # is about the owner (urn:ostler:about == the owner), or it is a
+                # kinship fact with the owner as an explicit end (subject or
+                # object). Untagged legacy facts are NOT kept: they were facts
+                # about other people ("<A> met <B> at a party", "<A> has a son").
+                # A raw phone handle never prints, whoever it is about.
+                if about != owner_about and not _owner_is_kin_end(text, owner_name):
+                    continue
+                if _PHONE_RUN.search(text):
+                    continue
             if len(text) > 110:
                 text = text[:107].rstrip() + "..."
             bucket = places if row.get("t") == "location" else family
@@ -914,6 +947,32 @@ def _about_you_section() -> list[str]:
         if family:
             lines.append(f"- Family and close people: {'; '.join(family)}")
     return lines
+
+
+# Same shape the shared person_label gate rejects (vendor/cm059_editor
+# compiler/frontpage.py _PHONE_SHAPE), as a run inside text. This script ships
+# standalone, without the vendored compiler, so it cannot import person_label.
+_PHONE_RUN = re.compile(r"\+?\d[\d\s().\-\u00a0]{5,}\d")
+
+
+_KIN = (r"son|daughter|child|children|kid|kids|wife|husband|partner|spouse|fianc[eé]e?|"
+        r"sister|brother|sibling|mother|father|mum|mom|dad|parent|parents|grandmother|"
+        r"grandfather|grandson|granddaughter|niece|nephew|aunt|uncle|cousin|stepson|stepdaughter")
+
+
+def _owner_is_kin_end(text: str, owner_name: str) -> bool:
+    """True when ``text`` is a kinship fact with the owner as its subject
+    ("<Owner> has a daughter <Y>") or its object ("<Y> is the sister of
+    <Owner>", "<Owner>'s son"). Other people's facts that merely mention the
+    owner, or that have no kinship word, are not."""
+    if not owner_name:
+        return False
+    t, o = text.lower(), re.escape(owner_name)
+    kin = re.search(r"\b(?:%s)\b" % _KIN, t)
+    if not kin:
+        return False
+    return bool(re.match(r"%s\b" % o, t) or re.search(r"\bof\s+%s\b" % o, t)
+                or re.search(r"%s['\u2019]s\b" % o, t))
 
 
 def _meetings_section() -> list[str]:

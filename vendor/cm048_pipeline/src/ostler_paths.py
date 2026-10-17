@@ -35,7 +35,11 @@ log = logging.getLogger(__name__)
 # ── Engine-room: ~/.ostler/ ────────────────────────────────────
 
 def ostler_root() -> Path:
-    """Engine-room root: ``~/.ostler/``."""
+    """Engine-room root: ``$OSTLER_DIR`` when set (install.sh's own
+    `OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"` rule), else ``~/.ostler/``."""
+    override = os.environ.get("OSTLER_DIR", "").strip()
+    if override:
+        return Path(override).expanduser()
     return Path.home() / ".ostler"
 
 

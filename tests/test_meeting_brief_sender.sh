@@ -73,7 +73,7 @@ echo "PASS: bin script polls /api/v1/meeting/upcoming"
 # The bin script must check the `degraded` flag from the hub
 # response and skip delivery rather than emitting stale messages.
 if ! grep -q 'degraded' "$INSTALL_SCRIPT" || \
-   ! grep -q 'skip: hub degraded' "$INSTALL_SCRIPT"; then
+   ! grep -q 'CANNOT-RUN hub degraded' "$INSTALL_SCRIPT"; then
     echo "FAIL [degraded-check]: bin script does not short-circuit on degraded hub response" >&2
     exit 1
 fi
@@ -110,6 +110,33 @@ if ! grep -q 'QUIET_START' "$INSTALL_SCRIPT" || \
     exit 1
 fi
 echo "PASS: bin script implements quiet-hours guard"
+
+# ── Port defaults match what the installer actually binds ────────
+# The sender's tests all set OSTLER_HUB_HOST / OSTLER_ASSISTANT_URL, so a
+# wrong DEFAULT is invisible to them and only shows on a customer Mac as a
+# brief that never arrives. Compare each default against its producer:
+#   HUB_HOST      -> the ical-server plist's OSTLER_API_PORT
+#   ASSISTANT_URL -> the [gateway] port the installer writes (/announce lives there)
+hub_default_port="$(sed -n 's/^HUB_HOST="\${OSTLER_HUB_HOST:-http:\/\/[^:]*:\([0-9]*\)}"$/\1/p' "$INSTALL_SCRIPT")"
+asst_default_port="$(sed -n 's/^ASSISTANT_URL="\${OSTLER_ASSISTANT_URL:-http:\/\/[^:]*:\([0-9]*\)}"$/\1/p' "$INSTALL_SCRIPT")"
+ical_port="$(awk '/<key>OSTLER_API_PORT<\/key>/{getline; gsub(/[^0-9]/,""); print; exit}' "$INSTALL_SCRIPT")"
+gateway_port="$(sed -n 's/^ *echo "port = \([0-9]*\)"$/\1/p' "$INSTALL_SCRIPT" | head -1)"
+for v in hub_default_port asst_default_port ical_port gateway_port; do
+    if [ -z "${!v}" ]; then
+        echo "CANNOT-RUN [port-defaults]: could not read $v from install.sh" >&2
+        exit 2
+    fi
+done
+if [ "$hub_default_port" != "$ical_port" ]; then
+    echo "FAIL [hub-port]: sender HUB_HOST defaults to :$hub_default_port but the ical-server binds :$ical_port" >&2
+    exit 1
+fi
+echo "PASS: sender HUB_HOST default :$hub_default_port is the ical-server port"
+if [ "$asst_default_port" != "$gateway_port" ]; then
+    echo "FAIL [announce-port]: sender ASSISTANT_URL defaults to :$asst_default_port but /announce is on the gateway :$gateway_port" >&2
+    exit 1
+fi
+echo "PASS: sender ASSISTANT_URL default :$asst_default_port is the gateway port"
 
 echo ""
 echo "All meeting-brief-sender wiring checks passed."

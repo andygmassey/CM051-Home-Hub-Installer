@@ -1,0 +1,91 @@
+# Personal Context
+
+Synthetic owner: Jane Smith. Facts as of 2026-10-08.
+
+## Work
+- Jane is Head of Delivery at Acme Corp in Plymouth. She started in March 2023.
+- Before Acme she was a senior project manager at Globex Corp in Derby, from 2017 to 2023.
+- From 2012 to 2017 she was a project coordinator at Initech Corp in Leeds.
+- Her first job, from 2008 to 2012, was junior surveyor at Solo Corp in Norwich.
+- She has a BSc in Civil engineering from the University of Sheffield, graduating in 2008.
+- Her current flagship project is the Sound array, a tidal array of 12 turbines off the Devon coast.
+- Her line manager at Acme is the chief operating officer, Alison Li.
+- She leads a delivery team of 14 people.
+
+## Family
+- Jane's husband is Tom Smith, a physics teacher at Hartwell academy.
+- Their daughter Isla is 9 and plays the violin.
+- Their son Rory is 6.
+- Jane's mother is Margaret Stewart, who lives in Whitby.
+- Jane's brother Carl Stewart is a paramedic and lives in Calgary.
+- The family dog is Biscuit, a border terrier.
+- Tom's birthday is on 22 October.
+- Isla and Rory both go to Mount pleasant Primary school.
+- Jane and Tom married on 14 June 2014.
+
+## Tastes
+- Jane always orders a flat white with oat milk.
+- Her favourite book is The Lantern Keepers by Mary Coe.
+- Her favourite band is The Quiet Harbours.
+- Her favourite meal is a Thai green curry.
+- She cannot stand coriander.
+- Her wine of choice is Albarino.
+- Her favourite holiday place is Orkney.
+- She supports Plymouth argyle.
+- She drives a green Skoda octavia estate.
+
+## Routines
+- Jane wakes at 6:15 every weekday.
+- She sea-swims at Tinside lido on Tuesday and Thursday mornings at 6:30.
+- Her team stand-up is every Monday at 9:15.
+- She works from home on Fridays.
+- She bakes sourdough every Sunday.
+- She does the weekly food shop on Saturday at 8:00.
+- She does the school run on Wednesdays.
+- She sings with Plymouth community choir on Thursday evenings at 19:30.
+- She cycles to the Acme office, which takes 25 minutes.
+- She does a weekly planning review on Sunday at 20:00.
+
+## People
+- Sam Ross is Jane's best friend. She is a graphic designer in Glasgow.
+- Jane met Sam in halls at Sheffield in 2004.
+- Ana Wang is the next-door neighbour, a retired vet. She looks after Biscuit when the family is away.
+- Hans Andersen is Jane's mentor, a former director at Globex Corp.
+- Becky Brown is Jane's accountant.
+- Jane's GP is doctor Liz Zhang.
+- Bob Jones is the harbour master at Sutton harbour and Jane's contact for survey boats.
+- Jane's dentist is doctor Raj Patel.
+
+## Upcoming events
+- Isla's school violin concert is on Thursday 15 October at 18:00 in the Mount pleasant school hall.
+- Jane's dentist appointment is on Monday 19 October at 08:40.
+- Tom's birthday dinner is booked for 22 October at 19:00, a table for four at Harbour kitchen.
+- The family holiday in Orkney runs from 24 October to 31 October, staying in a cottage at Skaill.
+- The ferry to Orkney leaves Scrabster on Saturday 24 October at 08:30.
+- The Skoda's MOT is on Tuesday 3 November.
+- The Acme board offsite is in Falmouth, from 4 November to 5 November.
+- Rory's swimming gala is on Saturday 17 October.
+- Jane has coffee with Hans on Wednesday 14 October at 10:00 at the Mount batten cafe.
+
+## Open todos
+- Rory's passport needs renewing before 30 November.
+- Book the boiler service.
+- Reply to Alison about the Sound array budget by Friday 9 October.
+- Tom's birthday present is still to buy: waterproof walking boots.
+- Submit the expenses for the Leeds trip in September.
+- Christmas plans still need a call to Margaret.
+- Fix the garden gate latch.
+- Return the library books by 12 October.
+- Order new violin strings for Isla.
+- Renew the home insurance before 1 November.
+
+## Recent conversations
+- On Tuesday 6 October, Jane asked the assistant to draft a note to Hans Andersen proposing coffee on 14 October to talk about her succession plan.
+- On Saturday 3 October, Sam told Jane she is moving to Lisbon in January.
+- Jane and Tom chose the Skaill cottage over one in Birsay yesterday, because it had a wood burner.
+- On Monday Alison asked for a revised Sound array budget with a 6 per cent contingency.
+- Last week Jane asked the assistant for a sourdough tip and settled on 75 per cent hydration.
+- On Sunday 4 October, Margaret said she will come for Christmas but not before 23 December.
+- On Wednesday Isla told Jane she wants to try the cello after the concert.
+- On Thursday 1 October, Becky Brown confirmed the self-assessment payment of 3,850 pounds had gone through.
+- Last Friday Bob confirmed the survey boat is booked for 20 October.

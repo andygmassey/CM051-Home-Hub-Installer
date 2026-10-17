@@ -35,6 +35,8 @@ final class PermissionsPrewarmInfoPlistTest: XCTestCase {
         "NSCalendarsFullAccessUsageDescription",
         "NSRemindersFullAccessUsageDescription",
         "NSPhotoLibraryUsageDescription",
+        // CM051 walk #27: ITLibrary ("Media & Apple Music").
+        "NSAppleMusicUsageDescription",
     ]
 
     // MARK: - Info.plist

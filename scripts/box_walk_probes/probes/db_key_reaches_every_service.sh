@@ -61,7 +61,10 @@ run_probe() {
     svc_token="$(box_run 'cat "${OSTLER_DIR:-$HOME/.ostler}/secrets/service_token" 2>/dev/null' | tr -d '\n')"
 
     facts="$(mktemp)"
-    box_run "'${venv_py}' ${remote} box --token '${token}' --service-token '${svc_token}'" > "${facts}" 2>/dev/null
+    # ical-server's base comes from the harness variable every other ical-server
+    # caller here already reads (README env table), not a literal: walk #11 hit
+    # :8089 (the Doctor), which refuses the service token.
+    box_run "'${venv_py}' ${remote} box --token '${token}' --service-token '${svc_token}' --api-base '${OSTLER_PROBE_API_BASE:-http://127.0.0.1:8090}'" > "${facts}" 2>/dev/null
 
     # Cleanup runs regardless of the verdict: a left-behind synthetic row is a
     # tidiness bug, not a measurement, so it is removed before this function

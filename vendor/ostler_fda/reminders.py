@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,7 +137,7 @@ def extract_reminders(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, db_path):
             raise PermissionError(
                 "Cannot read Reminders data. Grant Full Disk Access."
             ) from e
