@@ -102,9 +102,111 @@
 +vendor/divergences cannot describe it and sync_vendor.sh would delete it
 +on the next swap. See vendor/VENDOR_ONLY.tsv for the measurement.
 +"""
+--- a/prompts/01_classify.md
++++ b/prompts/01_classify.md
+@@ -177,9 +177,10 @@
+     (service provider's org + contact name), action items, decisions.
+     No summary, no relationship signals, no coach. Short note written
+     to conversations store; no Person-tier or Coach-tier output.
+-  - `none` — genuinely skip. Use for empty/test transcripts, solo
+-    voice memos, or conversations that should have been routed to
+-    CM040 (AI chats with the user's assistant / Claude / Kimi / etc.).
++  - `none` - genuinely skip. Use for empty transcripts or conversations
++    that should have been routed to CM040 (AI chats with the user's
++    assistant / Claude / Kimi / etc.). NEVER for a voice memo or a note
++    to self: those are kept, and the pipeline decides how to treat them.
+ - `suggested_type_slug` = `"{setting}_{shape}_{stakes}"` — used by
+   downstream to pick the enrichment prompt. Consistent snake_case.
+ 
+@@ -205,9 +206,9 @@
+   quality matters and it's not transactional in a `service` sense.
+ - **Family meeting about a shared decision** (schooling, moving house,
+   eldercare). `family + meeting + high`.
+-- **Voice memo to oneself, no other participants.** Not a conversation.
+-  `processing_depth: none`, reasoning "solo voice memo, not a
+-  conversation."
++- **Voice memo to oneself, no other participants.** Keep it:
++  `processing_depth: full`. Pick the setting from its subject. The
++  pipeline counts the speakers itself and files it as a memo.
+ - **AI chat (user ↔ the user's assistant / Claude / Kimi / other agent).** Not this
+   pipeline's job. `processing_depth: none`, reasoning "AI chat, route
+   to CM040 instead."
+--- /dev/null
++++ b/prompts/02_enrich_voice_memo.md
+@@ -0,0 +1,70 @@
++# Prompt 02 - Enrich: a single-speaker capture (voice memo or note)
++
++**Stage:** enrichment. Chosen by the PIPELINE, not by the classifier:
++the capture has one speaker label and one participant, so it is a memo.
++**Input:** transcript + classifier output + metadata.
++**Output:** one markdown document matching the structure below.
++
++**Precedence:** `_conventions.md` rules apply.
++
++---
++
++## What this capture is
++
++One person speaking, recorded by themself: a voice memo, a dictated
++note, a test recording, a reminder to self. There is NO second person
++in the room or on a line.
++
++Hard rules, because the pipeline checks them:
++
++- Do NOT describe this as a call, meeting, chat or conversation between
++  people. Nobody "caught up with" anybody.
++- Do NOT invent a second participant, a relationship, a role, a company,
++  a setting or a location. If the speaker greets or names someone, that
++  person was ADDRESSED or MENTIONED, not present.
++- Do NOT guess where the speaker was or what device they used.
++- If the memo is a test, say so plainly ("A short test recording.").
++
++---
++
++## Sections to produce (in order)
++
++### `## Summary`
++
++One to three sentences, in the third person about the speaker or as a
++plain description of the memo ("A short test recording checking whether
++capture works."). No participants list, no location.
++
++### `## Topics covered`
++
++Bulleted list of what the speaker talked about. One bullet per topic.
++
++### `## Commitments`
++
++Anything the speaker said they would do, as bullets. If none, write
++`_Nothing to report._`
++
++### `## Cleaned transcript`
++
++The transcript with filler words removed and obvious transcription
++errors left as spoken (do not guess at words). Keep the single speaker
++label exactly as it appears in the input.
++
++---
++
++## Output frontmatter
++
++Start with a YAML frontmatter block. The pipeline overwrites every field
++it knows (ids, model, timestamps, participants, location), so write only
++what you read from the memo:
++
++```yaml
++---
++sensitivity:
++  level: normal
++  categories: []
++review_required: false
++---
++```
++
++Then `## Summary`. No preamble.
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -14,20 +14,17 @@
+@@ -18,20 +18,17 @@
  ]
  
  [project.optional-dependencies]
@@ -157,6 +259,178 @@
 -- Marvin — via `/api/v1/conversation/process` endpoint on ical-server.py
 +- Assistant — via `/api/v1/conversation/process` endpoint on ical-server.py
  - Manual paste (testing, historic imports)
+--- /dev/null
++++ b/src/attribution.py
+@@ -0,0 +1,169 @@
++"""Facts about someone else must carry that person as the subject.
++
++DMG #27 walk: the assistant summarised real messages about ANOTHER person's
++family event as concerning the owner's own parent. The fact extractor (a local
++model) labels a first-person line with ``subject: "user"`` whoever said it:
++"my dad's ..." written by the other participant reads, to the model, like the
++owner talking. Nothing downstream checked who actually said the evidence line,
++so the fact was stored about the owner and repeated back as the owner's own
++family news.
++
++This is a deterministic post-check on the model's output, run after
++``_fix_speaker_subjects``. It only ever moves a fact AWAY from the owner, and
++only on evidence it can read in the transcript:
++
++1. SPEAKER. A ``subject: "user"`` fact whose ``evidence`` is found in exactly
++   one speaker's turns, that speaker being a known NON-owner participant, and
++   whose evidence speaks in the first person ("I", "my", "me") without
++   addressing the listener ("you", "your"). The speaker is the person
++   concerned: the subject becomes ``other:<their id>``.
++
++2. THE PERSON CONCERNED, named by the owner. A ``subject: "user"`` fact whose
++   evidence is the OWNER's line but names another participant's relative
++   ("Bob's dad", "Bob's mum"). The fact is about that participant's family:
++   the subject becomes ``other:<their id>``.
++
++In both cases, where the fact TEXT names the owner (their display name, or
++"the user") and does not already name the person concerned, the owner's name
++is replaced by that person's, so the sentence the assistant reads back says
++the same thing as the subject. Anything ambiguous (evidence not found, found
++under two speakers, an unknown speaker label, second-person wording) is left
++exactly as the model produced it.
++"""
++from __future__ import annotations
++
++import logging
++import re
++from typing import Iterable, List, Optional, Tuple
++
++from .participants import normalise_participants
++
++logger = logging.getLogger(__name__)
++
++# Speaker headers the three producers write:
++#   iMessage  "**Name** (ts): body"
++#   WhatsApp  "**Name** (ts):" then the body on the next lines
++#   gateway   "**label:** body"
++_HEADER = re.compile(
++    r"^\*\*(?P<a>[^*\n]+?)\*\*(?:\s*\([^)\n]*\))?:\s?(?P<ra>.*)$"
++    r"|^\*\*(?P<b>[^*\n]+?):\*\*\s?(?P<rb>.*)$"
++)
++_FIRST_PERSON = re.compile(r"\b(i|i'm|i've|i'd|i'll|my|me|mine|myself)\b", re.I)
++_SECOND_PERSON = re.compile(r"\b(you|your|yours|you're|you've|yourself)\b", re.I)
++_RELATIVES = (
++    "dad", "father", "mum", "mom", "mother", "parents", "brother", "sister",
++    "son", "daughter", "wife", "husband", "partner", "grandad", "grandfather",
++    "grandma", "granny", "grandmother", "uncle", "aunt", "auntie", "cousin",
++    "family", "nephew", "niece", "kids", "children",
++)
++_EVIDENCE_PREFIX = re.compile(r"^\s*[^:\"]{1,60}?\b(said|says|wrote|writes)\s*:\s*", re.I)
++
++
++def _norm(s: str) -> str:
++    s = s.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
++    return re.sub(r"\s+", " ", s).strip().strip('"').strip().lower()
++
++
++def speaker_turns(transcript: str) -> List[Tuple[str, str]]:
++    """[(speaker_label, text)] in order. Continuation lines join the open turn."""
++    turns: List[Tuple[str, List[str]]] = []
++    for line in (transcript or "").splitlines():
++        m = _HEADER.match(line)
++        if m:
++            label = (m.group("a") or m.group("b") or "").strip()
++            rest = m.group("ra") if m.group("a") else m.group("rb")
++            turns.append((label, [rest or ""]))
++        elif turns:
++            turns[-1][1].append(line)
++    return [(label, _norm(" ".join(parts))) for label, parts in turns]
++
++
++def _evidence_core(evidence: str) -> str:
++    return _norm(_EVIDENCE_PREFIX.sub("", evidence or "", count=1))
++
++
++def speaker_of(evidence: str, turns: Iterable[Tuple[str, str]]) -> Optional[str]:
++    """The single speaker whose turns contain the evidence, else None."""
++    core = _evidence_core(evidence)
++    if len(core) < 8:
++        return None
++    labels = {label for label, text in turns if core in text}
++    return next(iter(labels)) if len(labels) == 1 else None
++
++
++def _participant_for(label: str, participants: List[dict]) -> Optional[dict]:
++    want = _norm(label)
++    for p in participants:
++        for key in ("display", "id", "handle"):
++            v = p.get(key)
++            if isinstance(v, str) and v.strip() and _norm(v) == want:
++                return p
++    return None
++
++
++def _is_owner_label(label: str, participants: List[dict]) -> bool:
++    if _norm(label) == "you":
++        return True
++    p = _participant_for(label, participants)
++    return bool(p) and p.get("role") == "user"
++
++
++def _rewrite_text(text: str, owner_names: List[str], other_display: str) -> str:
++    """Replace the owner's name in ``text`` with the person concerned's,
++    unless the text already names that person."""
++    if not other_display or other_display.split()[0].lower() in text.lower():
++        return text
++    out = text
++    for name in sorted({n for n in owner_names if n}, key=len, reverse=True):
++        out = re.sub(rf"\b{re.escape(name)}\b", other_display, out)
++    out = re.sub(r"\b[Tt]he user's\b", f"{other_display}'s", out)
++    out = re.sub(r"\b[Tt]he user\b", other_display, out)
++    out = re.sub(r"\b[Uu]ser's\b", f"{other_display}'s", out)
++    return out
++
++
++def reattribute(facts: list, transcript: str, metadata: dict) -> list:
++    """Move subject=user facts that are about another participant onto that
++    participant. Returns ``facts`` (mutated in place); logs a count only."""
++    participants = normalise_participants(metadata.get("participants"))
++    others = [p for p in participants if p.get("role") != "user" and p.get("id")]
++    if not others or not facts:
++        return facts
++    owner = next((p for p in participants if p.get("role") == "user"), {})
++    owner_display = (owner.get("display") or "").strip()
++    owner_names = [owner_display] + ([owner_display.split()[0]] if owner_display else [])
++    turns = speaker_turns(transcript)
++    moved = 0
++    for fact in facts:
++        if not isinstance(fact, dict) or fact.get("subject", "user") != "user":
++            continue
++        evidence = fact.get("evidence") or ""
++        core = _evidence_core(evidence)
++        label = speaker_of(evidence, turns)
++        if label is None:
++            continue
++        target = None
++        reason = None
++        if not _is_owner_label(label, participants):
++            p = _participant_for(label, participants)
++            if (p and p.get("role") != "user" and p.get("id")
++                    and _FIRST_PERSON.search(core) and not _SECOND_PERSON.search(core)):
++                target, reason = p, "speaker"
++        else:
++            for p in others:
++                first = (p.get("display") or "").split()
++                if not first:
++                    continue
++                if re.search(rf"\b{re.escape(first[0].lower())}'s ({'|'.join(_RELATIVES)})\b", core):
++                    target, reason = p, "named_relative"
++                    break
++        if target is None:
++            continue
++        fact["subject"] = f"other:{target['id']}"
++        fact["text"] = _rewrite_text(fact.get("text") or "", owner_names,
++                                     (target.get("display") or "").strip())
++        fact["attribution_corrected"] = reason
++        moved += 1
++    if moved:
++        logger.info("Re-attributed %d fact(s) from the owner to another participant", moved)
++    return facts
 --- a/src/candidates.py
 +++ b/src/candidates.py
 @@ -297,10 +297,20 @@
@@ -213,9 +487,506 @@
              )
              resp.raise_for_status()
      except Exception as exc:
+--- /dev/null
++++ b/src/capture_truth.py
+@@ -0,0 +1,366 @@
++"""Facts the pipeline KNOWS overwrite what the model WROTE.
++
++Mini16, 2026-10-15: a one-speaker voice memo from the iPhone app came out
++of enrichment as a two-person call. The frontmatter named the speaker
++twice ("S1" and "S1 (new acquaintance, ex-S1)"), the summary said the
++speaker "caught up with" themself, the location was "Remote - Voice call
++(inferred from transcript structure)", ``enrichment_completed_at`` was a
++date padded to midnight, ``enrichment_model`` named a 35B model on a
++16 GB box that only had a 2B model installed, and ``conversation_id`` was
++"N/A".
++
++None of that was a reading error. The 02_enrich_* prompts show the model
++an example frontmatter block and an example roster, and the model copied
++them: the model label and ``(new acquaintance, ex-[company])`` are
++literals in prompts/02_enrich_social_casual.md, and nothing told the
++model the capture had one speaker. The writer then copied the model's
++frontmatter verbatim to ~/Documents/Ostler/Conversations/<id>.md
++(ingest._write_conversation_md).
++
++So the rule here is the shape, not the instance: every frontmatter field
++the pipeline itself knows is written by the pipeline, and a field nobody
++measured is absent rather than invented.
++
++- conversation_id, prompt_version, enrichment_model and
++  enrichment_completed_at are stamped from the run that produced the text.
++- location comes from the capture metadata or is absent.
++- retention_tier comes from the same policy the Qdrant sink uses, or is
++  absent; retention_score_inputs is absent (nothing computes it).
++- a single-speaker spoken capture is a memo: one participant, shape
++  "memo", no location subsection, no "person mentioned" that is only the
++  speaker's own label.
++"""
++from __future__ import annotations
++
++import re
++from datetime import datetime, timezone
++from typing import Iterable
++
++from .participants import normalise_participants
++from .schemas import Classification
++
++MEMO_SHAPE = "memo"
++MEMO_PROMPT = "02_enrich_voice_memo"
++
++# Diarisation labels a capture surface emits on its own, with no roster
++# behind them: CM031 "S1", "Speaker 2", CM042 "Unknown" / "You".
++_DIARISATION_LABEL = re.compile(
++    r"^(?:s\d{1,2}|speaker\s*\d{1,2}|speaker|unknown|you|user|me)$", re.I
++)
++
++# One utterance header. Covers every shape a producer writes:
++#   S1: text                      (CM031 iPhone / Watch)
++#   **Alex** (01:02):             (spoken_source.renderer, CM042)
++#   **Alex:** text                (markdown bold)
++#   [00:01:02] Alex: text         (timestamped)
++#   - Alex: text                  (bulleted)
++_UTTERANCE = re.compile(
++    r"^\s*(?:[-*]\s+)?"
++    r"(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+)?"
++    r"(?:\*\*)?(?P<label>[A-Za-z][^\n:*()\[\]]{0,59}?)(?:\*\*)?"
++    r"\s*(?:\(\d{1,2}:\d{2}(?::\d{2})?\))?\s*(?:\*\*)?:"
++)
++
++
++def _participant_names(metadata: dict) -> set[str]:
++    names: set[str] = set()
++    for p in normalise_participants(metadata.get("participants")):
++        for key in ("display", "id", "name"):
++            v = str(p.get(key) or "").strip().lower()
++            if v:
++                names.add(v)
++    return names
++
++
++def speaker_labels(transcript: str, metadata: dict | None = None) -> list[str]:
++    """Distinct speaker labels heading an utterance, in first-seen order.
++
++    Only a label that is a known participant or a diarisation label
++    counts. A line such as ``Reminder: buy milk`` inside a memo is prose,
++    not a second speaker, and must not turn a memo back into a call.
++    """
++    known = _participant_names(metadata or {})
++    seen: list[str] = []
++    lowered: set[str] = set()
++    for line in (transcript or "").splitlines():
++        m = _UTTERANCE.match(line)
++        if not m:
++            continue
++        label = m.group("label").strip()
++        key = label.lower()
++        if key not in known and not _DIARISATION_LABEL.match(key):
++            continue
++        if key not in lowered:
++            lowered.add(key)
++            seen.append(label)
++    return seen
++
++
++def is_single_speaker_capture(transcript: str, metadata: dict) -> bool:
++    """True when a SPOKEN capture has at most one speaker, by every
++    measure the pipeline has: the roster and the transcript.
++
++    Email and gateway chats are never memos: they are not spoken, and a
++    gateway chat's other party is the assistant.
++    """
++    channel = str(metadata.get("channel") or "spoken").strip().lower()
++    if channel != "spoken":
++        return False
++    if str(metadata.get("source") or "").strip().lower() == "gateway":
++        return False
++    roster = normalise_participants(metadata.get("participants"))
++    # No roster means we cannot say who was there: not a memo by default.
++    # Every spoken producer sends one (CM031 envelope, spoken_source).
++    if len(roster) != 1:
++        return False
++    return len(speaker_labels(transcript, metadata)) <= 1
++
++
++# ── no-speech predicate ──────────────────────────────────────────────
++#
++# Whisper does not return "" for silence. It returns markers
++# ("[BLANK_AUDIO]", "(silence)", "♪") or hallucinates a stock phrase it saw
++# a million times at the end of videos ("Thank you.", "you", "Thanks for
++# watching!"). A capture made of only those has no speech in it, and the
++# model will happily enrich it into a summary, facts and todos about
++# nothing. Decided here, in code, before any of that runs.
++
++MIN_SPEECH_WORDS = 2
++
++# Lower-case, punctuation-free. Longest first so "thank you for watching"
++# is removed whole before "thank you" could split it.
++WHISPER_SILENCE_PHRASES: tuple[str, ...] = tuple(sorted({
++    "thanks for watching", "thank you for watching", "thank you so much",
++    "please subscribe", "subscribe to my channel", "see you next time",
++    "thank you", "thanks", "you", "bye", "bye bye", "okay", "ok", "so",
++    "uh", "um", "hmm", "mm", "ah", "oh",
++}, key=lambda x: -len(x.split())))
++
++_MARKER = re.compile(r"\[[^\]\n]*\]|\([^)\n]*\)|\*[^*\n]*\*|[♪♫]")
++_WORD = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.UNICODE)
++
++
++def speech_words(transcript: str, metadata: dict | None = None) -> list[str]:
++    """The words that were SAID: speaker labels, timestamps, bracketed
++    markers and Whisper's silence phrases removed."""
++    words: list[str] = []
++    for line in (transcript or "").splitlines():
++        m = _UTTERANCE.match(line)
++        if m:
++            line = line[m.end():]
++        line = _MARKER.sub(" ", line)
++        words.extend(w.lower() for w in _WORD.findall(line))
++    out: list[str] = []
++    i = 0
++    phrases = [ph.split() for ph in WHISPER_SILENCE_PHRASES]
++    while i < len(words):
++        for ph in phrases:
++            if words[i:i + len(ph)] == ph:
++                i += len(ph)
++                break
++        else:
++            out.append(words[i])
++            i += 1
++    return out
++
++
++def has_speech(transcript: str, metadata: dict | None = None) -> bool:
++    return len(speech_words(transcript, metadata)) >= MIN_SPEECH_WORDS
++
++
++def is_spoken(metadata: dict) -> bool:
++    channel = str(metadata.get("channel") or "spoken").strip().lower()
++    source = str(metadata.get("source") or "").strip().lower()
++    return channel == "spoken" and source != "gateway"
++
++
++def as_memo(c: Classification) -> Classification:
++    """The classification of a single-speaker capture, whatever the
++    model guessed. Setting, stakes and sensitivity are kept (the model
++    can read a memo's subject); shape is a fact we measured."""
++    if c.shape == MEMO_SHAPE:
++        return c
++    c.reasoning = (
++        f"single-speaker capture: shape set to {MEMO_SHAPE} by the pipeline "
++        f"(model said {c.shape}). " + (c.reasoning or "")
++    ).strip()
++    c.shape = MEMO_SHAPE  # type: ignore[assignment]
++    c.suggested_type_slug = f"{c.setting}_{MEMO_SHAPE}_{c.stakes}"
++    return c
++
++
++def utc_now_iso() -> str:
++    """Wall-clock UTC to the second. Never a date padded to midnight."""
++    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
++        "+00:00", "Z"
++    )
++
++
++# ── frontmatter editing (text level: the model's YAML is not always YAML) ──
++
++
++def _split_frontmatter(text: str) -> tuple[list[str] | None, str]:
++    lines = text.split("\n")
++    if not lines or lines[0].strip() != "---":
++        return None, text
++    for i in range(1, len(lines)):
++        if lines[i].strip() == "---":
++            return lines[1:i], "\n".join(lines[i + 1:])
++    return None, text
++
++
++def _key_span(fm: list[str], key: str) -> tuple[int, int] | None:
++    pat = re.compile(rf"^{re.escape(key)}\s*:")
++    for i, line in enumerate(fm):
++        if pat.match(line):
++            j = i + 1
++            while j < len(fm) and (fm[j].startswith((" ", "\t")) or fm[j].strip() == ""):
++                j += 1
++            return i, j
++    return None
++
++
++def _set(fm: list[str], key: str, block: list[str] | None) -> list[str]:
++    """Replace top-level ``key`` (and its indented children) with
++    ``block``; ``None`` removes it; a missing key is appended."""
++    span = _key_span(fm, key)
++    if span is None:
++        return fm if block is None else fm + block
++    i, j = span
++    return fm[:i] + ([] if block is None else block) + fm[j:]
++
++
++def _yaml_scalar(value: str) -> str:
++    v = str(value)
++    if v == "" or re.search(r"[:#\[\]{},&*!|>'\"%@`]|^\s|\s$", v):
++        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
++    return v
++
++
++def stamp_frontmatter(
++    text: str,
++    *,
++    conversation_id: str,
++    prompt_version: str,
++    model: str,
++    completed_at: str,
++    metadata: dict,
++    classification: Classification,
++    retention_tier: str | None,
++    solo: bool,
++    owner_name: str = "",
++) -> str:
++    """Overwrite every frontmatter field the pipeline knows; drop the
++    ones nobody measured. A reply with no frontmatter gets one."""
++    fm, body = _split_frontmatter(text)
++    if fm is None:
++        fm, body = [], text
++    fm = _set(fm, "conversation_id", [f"conversation_id: {_yaml_scalar(conversation_id)}"])
++    fm = _set(fm, "prompt_version", [f"prompt_version: {_yaml_scalar(prompt_version)}"])
++    fm = _set(fm, "enrichment_model", [f"enrichment_model: {_yaml_scalar(model)}"])
++    fm = _set(fm, "enrichment_completed_at", [f"enrichment_completed_at: {completed_at}"])
++    loc = str(metadata.get("location") or "").strip()
++    fm = _set(fm, "location", [f"location: {_yaml_scalar(loc)}"] if loc else None)
++    fm = _set(
++        fm, "retention_tier",
++        [f"retention_tier: {retention_tier}"] if retention_tier else None,
++    )
++    fm = _set(fm, "retention_score_inputs", None)
++    if solo:
++        fm = _set(fm, "classification", [
++            "classification:",
++            f"  setting: {_yaml_scalar(classification.setting)}",
++            f"  shape: {MEMO_SHAPE}",
++            f"  stakes: {_yaml_scalar(classification.stakes)}",
++            f"  suggested_type_slug: {_yaml_scalar(classification.suggested_type_slug)}",
++        ])
++    # The roster is the capture's, not the model's: the prompt's example
++    # roster gives each person a role ("new acquaintance, ex-...") that the
++    # model copies. Kept from the model only when no roster was sent.
++    if solo:
++        fm = _set(fm, "participants", [
++            "participants:",
++            f"  - name: {_yaml_scalar(owner_label(owner_name))}",
++            "    role: user",
++        ])
++    elif normalise_participants(metadata.get("participants")):
++        fm = _set(fm, "participants", _participants_block(metadata))
++    return "---\n" + "\n".join(fm) + "\n---\n" + body.lstrip("\n")
++
++
++def _participants_block(metadata: dict) -> list[str]:
++    block: list[str] = []
++    for p in normalise_participants(metadata.get("participants")):
++        name = str(p.get("display") or p.get("name") or p.get("id") or "").strip()
++        if not name:
++            continue
++        block.append(f"  - name: {_yaml_scalar(name)}")
++        role = str(p.get("role") or "").strip()
++        if role:
++            block.append(f"    role: {_yaml_scalar(role)}")
++    return ["participants:"] + block if block else ["participants: []"]
++
++
++def owner_label(owner_name: str) -> str:
++    """Who spoke a solo memo: the owner. The configured display name, else
++    "You" (the label the participants roster already uses for the owner)."""
++    return (owner_name or "").strip() or "You"
++
++
++_HEADING = re.compile(r"^#{2,3}\s+(.*?)\s*$")
++
++
++def scrub_solo_body(
++    text: str, labels: Iterable[str], metadata: dict, owner_name: str = "",
++) -> str:
++    """Body edits for a single-speaker capture.
++
++    - a ``### Location`` subsection is removed unless the capture carried
++      a location (the model infers "Remote - voice call" from the shape);
++    - under a ``People ... mentioned`` heading, a bullet that is only the
++      speaker's own label (with or without a copied role tag) is removed:
++      the speaker is not someone they mentioned.
++    """
++    labels = [lab for lab in labels if lab.strip()]
++    own = {lab.strip().lower() for lab in labels}
++    own |= _participant_names(metadata)
++    # A diarisation label ("S1", "Speaker 1") is the device's placeholder
++    # for the one person who spoke, which in a solo memo is the owner.
++    # A real name the producer already resolved is left alone.
++    who = owner_label(owner_name)
++    relabel = [lab for lab in labels if _DIARISATION_LABEL.match(lab.strip().lower())]
++    relabel_re = (
++        re.compile(
++            r"^(\s*(?:[-*]\s+)?(?:\*\*)?)(" + "|".join(re.escape(l) for l in relabel)
++            + r")((?:\*\*)?\s*(?:\(\d{1,2}:\d{2}(?::\d{2})?\))?\s*(?:\*\*)?:)"
++        ) if relabel else None
++    )
++    keep_location = bool(str(metadata.get("location") or "").strip())
++    out: list[str] = []
++    section = ""
++    sub = ""
++    for line in text.split("\n"):
++        m = _HEADING.match(line)
++        if m:
++            level = len(line) - len(line.lstrip("#"))
++            title = m.group(1).strip().lower()
++            if level == 2:
++                section, sub = title, ""
++            else:
++                sub = title
++            if sub == "location" and not keep_location:
++                continue
++            out.append(line)
++            continue
++        if sub == "location" and not keep_location:
++            continue
++        if relabel_re is not None and section.startswith("cleaned transcript"):
++            line = relabel_re.sub(lambda m: m.group(1) + who + m.group(3), line)
++        if section.startswith("people") and "mentioned" in section:
++            b = re.match(r"^\s*[-*]\s+(.*)$", line)
++            if b:
++                name = re.sub(r"\s*\([^)]*\)\s*$", "", b.group(1)).strip(" *_`")
++                if name.lower() in own:
++                    continue
++        out.append(line)
++    return "\n".join(out)
+--- a/src/channel_adapter.py
++++ b/src/channel_adapter.py
+@@ -132,7 +132,12 @@
+     return ConversationBundle(
+         conversation_id=conversation_id,
+         source_kind="spoken",
+-        source_subtype=str(metadata.get("source") or "meeting"),
++        # A single-speaker capture (shape "memo", set by the pipeline from
++        # the speaker count) is not a meeting; do not default it to one.
++        source_subtype=str(
++            metadata.get("source")
++            or ("voice_memo" if getattr(classification, "shape", "") == "memo" else "meeting")
++        ),
+         source_session_id=str(
+             metadata.get("source_session_id") or conversation_id
+         ),
+@@ -259,9 +264,26 @@
+         transcript=transcript or "",
+         todos=_build_todos(conversation_id, extraction),
+         extra_metadata=extra,
++        participant_handles=_counterpart_handles(metadata),
+     )
+ 
+ 
++def _counterpart_handles(metadata: dict) -> tuple[str, ...]:
++    """The non-owner participants' raw handles, from the threader's
++    participant dicts (``handle`` / ``jid``; role ``user`` is the owner and
++    is skipped). Empty when the source supplied none."""
++    out: list[str] = []
++    for entry in metadata.get("participants") or []:
++        if not isinstance(entry, dict):
++            continue
++        if (entry.get("role") or "").strip().lower() == "user":
++            continue
++        handle = (entry.get("handle") or entry.get("jid") or "").strip()
++        if handle:
++            out.append(handle)
++    return tuple(out)
++
++
+ # ---------------------------------------------------------------------------
+ # Email adapter (CM046)
+ # ---------------------------------------------------------------------------
+@@ -664,8 +686,11 @@
+     a midnight time and ``date`` + 1h end (so the bundle has a
+     valid range without lying about precision).
+     """
+-    started = (metadata.get("started_at") or "").strip()
+-    ended = (metadata.get("ended_at") or "").strip()
++    # CM031's iPhone / Watch envelope names them start_time / end_time
++    # (APIClient.ConversationMetadata). Read before the date fallback, which
++    # otherwise stamped a real 14:23 memo as 00:00-01:00 (Mini16 2026-10-15).
++    started = str(metadata.get("started_at") or metadata.get("start_time") or "").strip()
++    ended = str(metadata.get("ended_at") or metadata.get("end_time") or "").strip()
+     if started and ended:
+         return started, ended
+     date_part = (metadata.get("date") or "1970-01-01")[:10]
+--- a/src/cli.py
++++ b/src/cli.py
+@@ -18,7 +18,7 @@
+ import sys
+ from pathlib import Path
+ 
+-from .processor import process
++from .processor import SinkUnavailableError, process
+ from .schemas import PIPELINE_STEP_ORDER, PipelineState, read_json
+ from .settings import ensure_directories, load_settings, settings_from_env_override
+ 
+@@ -154,14 +154,21 @@
+         print("metadata.json must include a conversation_id", file=sys.stderr)
+         return 2
+ 
+-    state = process(
+-        conv_id,
+-        transcript,
+-        metadata,
+-        settings,
+-        dry_run=args.dry_run,
+-        ingest_sinks=not args.no_sinks,
+-    )
++    try:
++        state = process(
++            conv_id,
++            transcript,
++            metadata,
++            settings,
++            dry_run=args.dry_run,
++            ingest_sinks=not args.no_sinks,
++        )
++    except SinkUnavailableError as exc:
++        # EX_TEMPFAIL: could not REACH the model/gateway, nothing about this
++        # document. Distinct from 1 (the item failed) so a catch-up caller does
++        # not count an outage as a poison attempt.
++        print(f"sink unavailable: {exc}", file=sys.stderr)
++        return 75
+     print(json.dumps(state.to_dict(), indent=2))
+     return 0 if state.failed_step is None else 1
+ 
+--- a/src/conversation_writer.py
++++ b/src/conversation_writer.py
+@@ -170,6 +170,11 @@
+     privacy_level: str = "L2"
+     source_app: Optional[str] = None  # "messages" | "mail" | "whatsapp" | etc
+     extra_metadata: dict = field(default_factory=dict)
++    # The counterparts' raw messaging handles (phone / email / JID), owner
++    # excluded, when the source knows them (iMessage: chat_handle_join).
++    # NOT rendered into any artefact; used only to derive the reminder
++    # ``thread_key`` the assistant daemon matches against chat.db.
++    participant_handles: tuple[str, ...] = ()
+ 
+ 
+ @dataclass(frozen=True)
 --- a/src/enrichment_validation.py
 +++ b/src/enrichment_validation.py
-@@ -107,6 +107,42 @@
+@@ -94,6 +94,15 @@
+         "Next steps",
+         "Cleaned transcript",
+     ],
++    # A single-speaker capture (voice memo, dictated note). Chosen by the
++    # pipeline from the speaker count, never by the classifier: see
++    # src/capture_truth.py. No roster, no location, no "people mentioned".
++    "02_enrich_voice_memo": [
++        "Summary",
++        "Topics covered",
++        "Commitments",
++        "Cleaned transcript",
++    ],
+     "02_enrich_email_thread": [
+         "Summary",
+         "Key topics",
+@@ -107,6 +116,42 @@
  }
  
  
@@ -258,7 +1029,7 @@
  def expected_headings_for(prompt_name: str) -> list[str]:
      """Return the expected `## ` heading list for a prompt name.
  
-@@ -158,6 +194,53 @@
+@@ -158,6 +203,53 @@
      )
  
  
@@ -312,7 +1083,7 @@
  def _extract_top_level_headings(text: str) -> list[str]:
      """Return every `## Heading` line in `text`, skipping fenced code blocks.
  
-@@ -181,6 +264,78 @@
+@@ -181,6 +273,78 @@
      return headings
  
  
@@ -391,6 +1162,132 @@
  def build_system_prompt(prompt_name: str) -> str:
      """Build the per-variant system prompt the LLM receives.
  
+@@ -223,7 +387,6 @@
+         "the heading rather than omitting it."
+     )
+ 
+-
+ # v1.0.107 walk #13. The enrich prompts ask the model for a
+ # ``reminders_candidates`` sidecar (prompts/02_enrich_*.md). Nothing parses
+ # it out of the reply: the structured sidecar is written separately and is
+@@ -286,3 +449,117 @@
+         out.append(new.rstrip() if n else line)
+         i += 1
+     return "\n".join(out), removed
++
++
++# ---------------------------------------------------------------------------
++# `### Participants` roster: display names only (walk #23)
++# ---------------------------------------------------------------------------
++# The enrichment prompts show the model `{user_name} (user)` and
++# `{other_name} (new acquaintance, ex-[company])` as the SHAPE of a roster
++# bullet. The model copies the role tags (and sometimes the literal
++# `(other_name)`), and a participant with no resolved name carries its raw
++# phone number or address in `metadata.participants[*].display`. The wiki
++# renders the summary verbatim, so a customer read
++# "Owner (user) (user) +<number> (other_name) (new acquaintance, ...".
++# Normalised here, deterministically, from the names the pipeline already
++# holds in metadata.participants (no new resolver): owner -> "You", a
++# resolved display name stays, a bare number/address -> "an unknown contact".
++_PARTICIPANTS_HEADING = re.compile(r"^#{2,4}\s*Participants\s*$", re.I)
++_ANY_HEADING = re.compile(r"^#{1,6}\s+\S")
++_PAREN = re.compile(r"\([^()]*\)")
++_PHONE_SHAPE = re.compile(r"^\+?[\d\s().\-]{6,}$")
++_UNKNOWN_CONTACT = "an unknown contact"
++_OWNER_LABEL = "You"
++
++
++def _is_handle(name: str) -> bool:
++    return "@" in name or (
++        bool(_PHONE_SHAPE.match(name)) and sum(c.isdigit() for c in name) >= 6
++    )
++
++
++_ROLE_TAG_ANYWHERE = re.compile(
++    r"[ \t]*\((?:user|other|other_name|user_name|other:[\w-]+)\)", re.I
++)
++
++
++def scrub_scaffolding(text: str, participants: list[dict] | None) -> str:
++    """Body-wide: role tags the model copied from the prompt shape, and the
++    raw number/address of a participant with no resolved name. Deterministic;
++    only exact copied tags and exact known handle strings are touched."""
++    text = _ROLE_TAG_ANYWHERE.sub("", text)
++    for p in participants or []:
++        display = str(p.get("display") or "").strip()
++        label = display if display and not _is_handle(display) else _UNKNOWN_CONTACT
++        for key in ("display", "id"):
++            raw = str(p.get(key) or "").strip()
++            if raw and _is_handle(raw) and len(raw) >= 6:
++                text = text.replace(raw, label)
++    return text
++
++
++def sanitise_participants_section(
++    text: str, participants: list[dict] | None, user_name: str = ""
++) -> str:
++    """Rewrite the `### Participants` bullets as de-duplicated display names,
++    then scrub copied role tags and raw handles from the rest of the body."""
++    return scrub_scaffolding(
++        _sanitise_participants_roster(text, participants, user_name), participants
++    )
++
++
++def _sanitise_participants_roster(
++    text: str, participants: list[dict] | None, user_name: str = ""
++) -> str:
++    participants = participants or []
++    owner_names = {user_name.strip().lower()} - {""}
++    resolved: dict[str, str] = {}
++    for p in participants:
++        display = str(p.get("display") or "").strip()
++        pid = str(p.get("id") or "").strip()
++        if p.get("role") == "user" and display and not _is_handle(display):
++            owner_names.add(display.lower())
++        if display and not _is_handle(display):
++            if pid:
++                resolved[pid.lower()] = display
++
++    lines = text.split("\n")
++    out: list[str] = []
++    i = 0
++    while i < len(lines):
++        out.append(lines[i])
++        if not _PARTICIPANTS_HEADING.match(lines[i].strip()):
++            i += 1
++            continue
++        j = i + 1
++        while j < len(lines) and not _ANY_HEADING.match(lines[j]):
++            j += 1
++        block = lines[i + 1:j]
++        bullets = [b for b in block if re.match(r"^\s*[-*]\s+", b)]
++        if not bullets:
++            out.extend(block)
++            i = j
++            continue
++        names: list[str] = []
++        for b in bullets:
++            body = re.sub(r"^\s*[-*]\s+", "", b)
++            prev = None
++            while prev != body:  # nested tags
++                prev, body = body, _PAREN.sub("", body)
++            body = re.sub(r"\([^)]*$", "", body)  # unclosed trailing tag
++            body = re.sub(r"\{[a-z_]+\}", "", body)
++            for part in re.split(r"\s*,\s*", body):
++                part = part.strip(" \t*_`")
++                if not part or part.lower() in ("user", "other_name", "user_name"):
++                    continue
++                if part.lower() in owner_names or part.lower() == "you":
++                    part = _OWNER_LABEL
++                elif _is_handle(part):
++                    part = resolved.get(part.lower(), _UNKNOWN_CONTACT)
++                if part not in names:
++                    names.append(part)
++        out.extend(f"- {n}" for n in names)
++        if block and block[-1].strip() == "":
++            out.append("")
++        i = j
++    return "\n".join(out)
 --- a/src/ingest.py
 +++ b/src/ingest.py
 @@ -34,6 +34,10 @@
@@ -470,7 +1367,18 @@
          file=sys.stderr,
          flush=True,
      )
-@@ -1019,7 +1050,15 @@
+@@ -177,8 +208,8 @@
+     real country code. SAME technique already used in ostler_fda's
+     ``_whatsapp_jid_is_genuine_phone`` (CM051 #2543) and CM041's
+     ``identity_resolver.normalise.is_valid_phone`` -- reused here, not
+-    reimplemented from scratch, because CM048 has no dependency on either
+-    of those packages and ships independently.
++    reimplemented from scratch, because this tree has no dependency on
++    either of those packages and ships independently.
+     """
+     if not local.isdigit():
+         return False
+@@ -1053,7 +1084,15 @@
          return 1
  
      settings.coach_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -487,7 +1395,7 @@
      # ostler_security is guaranteed importable (hard-fails at module
      # load if not). The remaining branch is whether a key is set.
      if encryption_key:
-@@ -1074,7 +1113,7 @@
+@@ -1108,7 +1147,7 @@
                  json.dumps(obs.get("flags") or {}),
                  settings.user_id,
                  "private",
@@ -496,7 +1404,7 @@
                  datetime.now(timezone.utc).isoformat(),
              ),
          )
-@@ -1116,7 +1155,56 @@
+@@ -1150,7 +1189,56 @@
      return str(uuid.uuid5(ns, seed))
  
  
@@ -748,7 +1656,20 @@
 +    return value
 --- a/src/ostler_paths.py
 +++ b/src/ostler_paths.py
-@@ -370,11 +370,27 @@
+@@ -35,7 +35,11 @@
+ # ── Engine-room: ~/.ostler/ ────────────────────────────────────
+ 
+ def ostler_root() -> Path:
+-    """Engine-room root: ``~/.ostler/``."""
++    """Engine-room root: ``$OSTLER_DIR`` when set (install.sh's own
++    `OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"` rule), else ``~/.ostler/``."""
++    override = os.environ.get("OSTLER_DIR", "").strip()
++    if override:
++        return Path(override).expanduser()
+     return Path.home() / ".ostler"
+ 
+ 
+@@ -370,11 +374,27 @@
          return MigrationOutcome(status="locked")
  
      try:
@@ -782,16 +1703,96 @@
          # Backup BEFORE touching anything. shutil.copytree
 --- a/src/processor.py
 +++ b/src/processor.py
-@@ -19,6 +19,8 @@
+@@ -19,11 +19,16 @@
  import hashlib
  import json
  import logging
 +import os
++import re
 +import time
  import uuid
  from dataclasses import asdict
  from datetime import datetime, timezone
-@@ -365,6 +367,76 @@
+ from pathlib import Path
+ 
++from . import attribution
++from . import capture_truth as _capture_truth
+ from . import prompts
+ from . import enrichment_validation
+ from . import bulk_classifier as _bulk_classifier
+@@ -140,6 +145,53 @@
+     if classification is None:
+         logger.error("No classification available; aborting.")
+         return state
++
++    # Mini16 2026-10-15: a one-speaker iPhone voice memo was classified
++    # social/one-on-one and enriched as a call with an invented second
++    # person. The speaker count is a fact the pipeline measures, so it
++    # overrides the model's shape and is persisted, so every later step
++    # (and a resume) reads the same classification.
++    #
++    # A memo is ALWAYS kept. 01_classify.md used to tell the model to answer
++    # processing_depth "none" for a solo voice memo, and "none" stops the
++    # pipeline below: the memo was silently never written. Whether to skip
++    # is decided here, in code, from what we measured: a capture with no
++    # speech (capture_truth.has_speech) is skipped, a memo with speech is
++    # kept.
++    if _capture_truth.is_spoken(metadata) and not _capture_truth.has_speech(
++        transcript, metadata
++    ):
++        # A spoken capture with no speech in it (silence markers, Whisper's
++        # "Thank you." hallucination, a bare label) is never enriched,
++        # whatever the model said: no summary, no facts, no bundle.
++        if classification.processing_depth != "none":
++            classification.processing_depth = "none"
++            classification.reasoning = (
++                "no speech: the pipeline found fewer than "
++                f"{_capture_truth.MIN_SPEECH_WORDS} spoken words. "
++                + (classification.reasoning or "")
++            )
++            write_json(state_dir / "01_classification.json", classification.to_dict())
++        logger.info("No speech in %s; nothing to enrich.", conversation_id)
++    elif _capture_truth.is_single_speaker_capture(transcript, metadata):
++        changed = False
++        if classification.shape != _capture_truth.MEMO_SHAPE:
++            classification = _capture_truth.as_memo(classification)
++            changed = True
++        if classification.processing_depth == "none":  # has_speech held above
++            classification.processing_depth = "full"
++            classification.reasoning = (
++                "memo kept: the model said processing_depth none. "
++                + (classification.reasoning or "")
++            )
++            changed = True
++        if changed:
++            write_json(state_dir / "01_classification.json", classification.to_dict())
++            logger.info(
++                "Single-speaker capture %s: classified as %s, depth %s",
++                conversation_id, classification.suggested_type_slug,
++                classification.processing_depth,
++            )
+ 
+     if classification.processing_depth == "none":
+         logger.info("processing_depth=none  –  pipeline stops here.")
+@@ -390,6 +442,8 @@
+ def _should_run_relationship(c: Classification) -> bool:
+     if c.processing_depth != "full":
+         return False
++    if c.shape == _capture_truth.MEMO_SHAPE:
++        return False  # one speaker: there is no relationship to signal
+     if c.setting in ("public", "service"):
+         return False
+     if c.sensitivity.level == "highly-sensitive":
+@@ -400,6 +454,8 @@
+ def _should_run_coach(c: Classification) -> bool:
+     if c.processing_depth != "full":
+         return False
++    if c.shape == _capture_truth.MEMO_SHAPE:
++        return False  # one speaker: no exchange to coach
+     if c.setting in ("family", "service"):
+         return False
+     if c.sensitivity.level in ("sensitive", "highly-sensitive"):
+@@ -412,9 +468,99 @@
  
  
  MAX_RETRIES = 3
@@ -868,10 +1869,34 @@
  BASE_DELAY_SECONDS = 30
  
  
-@@ -379,6 +451,14 @@
++class SinkUnavailableError(RuntimeError):
++    """A step failed because the model / gateway could not be REACHED (refused
++    connection, DNS, 502/503/504), not because it rejected this document.
++    ``pwg-convo process`` exits 75 (EX_TEMPFAIL) on it so a catch-up caller
++    can tell an outage from a poisoned item."""
++
++
++def _is_sink_unreachable(exc: BaseException) -> bool:
++    import httpx
++
++    if isinstance(exc, httpx.HTTPStatusError):
++        return exc.response.status_code in (502, 503, 504)
++    if isinstance(exc, httpx.TimeoutException):
++        # Only a connect timeout: a read timeout is one slow document.
++        return isinstance(exc, httpx.ConnectTimeout)
++    if isinstance(exc, (httpx.ConnectError, ConnectionError)):
++        return True
++    return False
++
++
+ def _is_retryable(exc: Exception) -> bool:
+     """Classify whether an exception is worth retrying.
+ 
+@@ -425,6 +571,14 @@
+     JSON parse failures, value errors  –  retrying won't help.
      """
      import httpx
- 
++
 +    # v1018-D031. Retrying a budget exhaustion just spends the budget
 +    # again, and MAX_RETRIES would multiply the step ceiling by three --
 +    # which is precisely the arithmetic that made a 4h30m worst case
@@ -879,15 +1904,25 @@
 +    # ends in `return True`: every unrecognised exception is retried.
 +    if isinstance(exc, EnrichmentBudgetExceeded):
 +        return False
-+
+ 
      if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
          return True
-     if isinstance(exc, httpx.TimeoutException):
-@@ -592,7 +672,42 @@
-     sidecar_path = state_dir / "02_enrichment_sidecar.json"
+@@ -486,6 +640,11 @@
+                 )
+                 state.fail(step, reason)
+                 _save_state(state_dir, state)
++                if _is_sink_unreachable(exc):
++                    raise SinkUnavailableError(
++                        f"Step {step}: model or gateway unreachable "
++                        f"({type(exc).__name__}). See state.json."
++                    ) from exc
+                 raise RuntimeError(
+                     f"Step {step} failed "
+                     f"({'permanent error' if not retryable else f'after {MAX_RETRIES} retries'}). "
+@@ -640,6 +799,49 @@
      if out_path.exists():
          return
-+
+ 
 +    # v1018-D031. Arm the document's total allowance. Disarmed in the
 +    # finally below so a later step never inherits a spent budget, and so
 +    # a _run_step retry starts from a full one rather than a stale
@@ -901,6 +1936,11 @@
 +            metadata["conversation_id"],
 +            _budget,
 +        )
++    # Gateway: the enrichment is an extraction step too. Its Action items
++    # table becomes the outstanding_todos sidecar and its text seeds the
++    # step 09 topics, so it reads the owner's turns only. The raw
++    # transcript on disk (00_raw_transcript.md) is not touched.
++    transcript = _extraction_transcript(transcript, metadata)
 +    try:
 +        _step_enrich_inner(
 +            client, transcript, metadata, classification, settings, dry_run,
@@ -909,7 +1949,7 @@
 +    finally:
 +        _enrich_deadline = None
 +    return
- 
++
 +
 +def _step_enrich_inner(
 +    client: OllamaClient,
@@ -923,10 +1963,13 @@
 +    sidecar_path,
 +) -> None:
 +
++    solo = _capture_truth.is_single_speaker_capture(transcript, metadata)
++    if solo:
++        classification = _capture_truth.as_memo(classification)
      prompt_name = prompts.enrichment_prompt_name_for(
          classification.suggested_type_slug
      )
-@@ -635,7 +750,7 @@
+@@ -682,7 +884,7 @@
              full_prompt,
              system=enrichment_system,
              priority="medium",
@@ -935,10 +1978,22 @@
          )
          rendered, retry_attempted, validation = _validate_and_maybe_retry(
              client=client,
-@@ -645,6 +760,17 @@
+@@ -692,6 +894,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
++        # Pipeline-known facts overwrite the model's copies (capture_truth).
++        rendered = _stamp_capture_truth(
++            rendered, transcript, metadata, classification, settings,
++            prompt_version=f"{prompt_name}@1.0",
++            model=getattr(result, "model", None) or settings.ollama_enrich_model,
++            solo=solo,
++        )
++        rendered = enrichment_validation.sanitise_participants_section(
++            rendered,
++            normalise_participants(metadata.get("participants")),
++            getattr(settings, "user_display_name", "") or "",
++        )
 +        # v1018-D014c: last stop before the customer's wiki page. A
 +        # placeholder the model copied out of the prompt template must not
 +        # reach disk. Stripped, not retried -- see the helper's docstring.
@@ -950,10 +2005,10 @@
 +                metadata.get("conversation_id"),
 +                ", ".join(_dropped),
 +            )
-         out_path.write_text(rendered)
-         # Pre-meeting brief input: walk the enrichment's Action items
-         # table and emit a per-participant outstanding_todos.json
-@@ -705,7 +831,7 @@
+         rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+         if _sidecars:
+             logger.warning(
+@@ -759,7 +984,7 @@
                  full_prompt,
                  system=enrichment_system,
                  priority="medium",
@@ -962,10 +2017,22 @@
              )
              per_chunk_outputs.append(result.raw_response)
  
-@@ -740,6 +866,17 @@
+@@ -794,6 +1019,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
++        # Pipeline-known facts overwrite the model's copies (capture_truth).
++        rendered = _stamp_capture_truth(
++            rendered, transcript, metadata, classification, settings,
++            prompt_version=f"{prompt_name}+merge@1.0",
++            model=settings.ollama_enrich_model,
++            solo=solo,
++        )
++        rendered = enrichment_validation.sanitise_participants_section(
++            rendered,
++            normalise_participants(metadata.get("participants")),
++            getattr(settings, "user_display_name", "") or "",
++        )
 +        # v1018-D014c: last stop before the customer's wiki page. A
 +        # placeholder the model copied out of the prompt template must not
 +        # reach disk. Stripped, not retried -- see the helper's docstring.
@@ -977,15 +2044,59 @@
 +                metadata.get("conversation_id"),
 +                ", ".join(_dropped),
 +            )
-         out_path.write_text(rendered)
-         # See note above (single-chunk branch) for the rationale on
-         # extracting outstanding_todos here rather than during ingest.
-@@ -770,6 +907,31 @@
+         rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+         if _sidecars:
+             logger.warning(
+@@ -831,8 +1079,77 @@
                  },
              },
          )
 +
 +
++def _retention_tier(classification: Classification) -> str | None:
++    """The tier the Qdrant sink stamps, so the frontmatter cannot disagree
++    with it. Absent (not guessed) when the sink module cannot load."""
++    try:
++        from .ingest import _retention_tier_for
++
++        return _retention_tier_for(classification)
++    except Exception as exc:  # ingest hard-requires ostler_security
++        logger.warning("retention_tier left absent: %s", type(exc).__name__)
++        return None
++
++
++def _stamp_capture_truth(
++    rendered: str,
++    transcript: str,
++    metadata: dict,
++    classification: Classification,
++    settings: Settings,
++    *,
++    prompt_version: str,
++    model: str,
++    solo: bool,
++) -> str:
++    """Last edit before 02_enrichment.md is written (and copied verbatim
++    to ~/Documents/Ostler/Conversations/<id>.md). See capture_truth."""
++    if solo:
++        rendered = _capture_truth.scrub_solo_body(
++            rendered, _capture_truth.speaker_labels(transcript, metadata), metadata,
++            owner_name=getattr(settings, "user_display_name", "") or "",
++        )
++    return _capture_truth.stamp_frontmatter(
++        rendered,
++        conversation_id=str(metadata.get("conversation_id") or ""),
++        prompt_version=prompt_version,
++        model=str(model or ""),
++        completed_at=_capture_truth.utc_now_iso(),
++        metadata=metadata,
++        classification=classification,
++        retention_tier=_retention_tier(classification),
++        solo=solo,
++        owner_name=getattr(settings, "user_display_name", "") or "",
++    )
+ 
+ 
 +def _validate_document(
 +    text: str, prompt_name: str, expected_headings: list[str],
 +):
@@ -1009,10 +2120,12 @@
 +        extras=top.extras,
 +        found=top.found + subs.found,
 +    )
- 
- 
++
++
  def _validate_and_maybe_retry(
-@@ -790,9 +952,7 @@
+     *,
+     client: OllamaClient,
+@@ -851,9 +1168,7 @@
      is still written - downstream consumers will see whatever the model
      produced and the sidecar records the gap.
      """
@@ -1023,7 +2136,7 @@
      if validation.ok:
          if validation.extras:
              logger.info(
-@@ -814,10 +974,10 @@
+@@ -875,10 +1190,10 @@
          full_prompt,
          system=retry_system,
          priority="medium",
@@ -1037,7 +2150,7 @@
      )
      if not retry_validation.ok:
          logger.warning(
-@@ -937,6 +1097,8 @@
+@@ -998,6 +1313,8 @@
  {conventions}
  
  {chunks_body}
@@ -1046,7 +2159,7 @@
  """
      merge_system = (
          "You are merging multiple enrichment outputs into one coherent "
-@@ -949,7 +1111,7 @@
+@@ -1010,7 +1327,7 @@
          full_prompt,
          system=merge_system,
          priority="medium",
@@ -1055,3 +2168,1421 @@
      )
      return result.raw_response
  
+@@ -1105,8 +1422,18 @@
+         ),
+         "other",
+     )
++    if c.shape == _capture_truth.MEMO_SHAPE:
++        # Without this the line read "Other name: other", and the prompt's
++        # roster example gave that "other" a role and a former employer.
++        other_name = "none (one speaker; this is a memo, not a conversation)"
+     user_name = settings.user_display_name
+     chunk_note = metadata.get("chunk_note")
++    # The reminder used to hard-code work_one-on-one's eight headings for
++    # EVERY variant, contradicting the variant's own system prompt.
++    _headings = enrichment_validation.expected_headings_for(
++        prompts.enrichment_prompt_name_for(c.suggested_type_slug)
++    )
++    heading_lines = "\n".join(f"## {h}" for h in _headings)
+ 
+     body = f"""
+ --- CLASSIFICATION ---
+@@ -1134,17 +1461,10 @@
+ invent your own headings. Do NOT skip sections. If a section has no
+ content, write the heading followed by "_Nothing to report._"
+ 
+-## Summary
+-## Key topics
+-## Decisions
+-## Action items
+-## Key quotes
+-## Key insights
+-## Next steps
+-## Cleaned transcript
++{heading_lines}
+ 
+ Start your response with the YAML frontmatter block (---), then
+-## Summary. No preamble.
++## {_headings[0]}. No preamble.
+ 
+ --- TRANSCRIPT ---
+ {transcript_chunk}
+@@ -1306,8 +1626,109 @@
+     if not result.parsed_json.get("observation_id"):
+         result.parsed_json["observation_id"] = str(uuid.uuid4())
+     write_json(out_path, result.parsed_json)
++
++
++# ── Gateway transcripts: extraction reads the OWNER's turns only ───
++#
++# CM051 v1.0.107 F&F blocker (Mini16 #27). A gateway conversation
++# (metadata source "gateway", provenance source_kind "zeroclaw_gateway",
++# conversation ids zg-*) is the owner chatting with their OWN assistant.
++# Fact extraction read the whole transcript, so the assistant's replies,
++# guesses and test-persona answers included, were extracted as facts with
++# subject=user and the assistant then repeated them back as knowledge.
++# Measured on the box: 66 gateway facts, 45 subject=user, 15 located only
++# in Assistant turns, 0 of those in User turns.
++#
++# The turn structure is the producer's, not a guess at prose: CM052
++# wire.render_transcript writes one "**<label>:** <content>" header per
++# message, where <label> is CM052_USER_EMAIL for role=user,
++# CM052_ASSISTANT_NAME (default "Assistant") for role=assistant, and
++# role.capitalize() for anything else. A message's continuation lines
++# carry no header. Only headers whose label is one of those speakers open
++# a new turn, so a bold "**Note:**" inside an assistant reply cannot end
++# the assistant turn and smuggle its text back in.
++
++_TURN_HEADER = re.compile(r"^\*\*(?P<label>[^*\n]+?):\*\*(?=\s|$)")
++_NON_OWNER_ROLE_LABELS = frozenset({"system", "tool"})
++
++
++def _is_gateway_conversation(metadata: dict) -> bool:
++    if str(metadata.get("source") or "").strip().lower() == "gateway":
++        return True
++    prov = metadata.get("provenance")
++    if isinstance(prov, dict):
++        if str(prov.get("source_kind") or "") == "zeroclaw_gateway":
++            return True
++        if str(prov.get("source_subtype") or "").strip().lower() == "gateway":
++            return True
++    return False
++
++
++def _gateway_assistant_labels() -> set[str]:
++    labels = {"assistant"}
++    configured = (os.environ.get("CM052_ASSISTANT_NAME") or "").strip()
++    if configured:
++        labels.add(configured.lower())
++    return labels
++
++
++def _owner_turns_only(transcript: str) -> str:
++    """Return ``transcript`` with every non-owner turn removed.
++
++    Kept: any preamble before the first turn header (the frontmatter)
++    and the owner's turns. Dropped: assistant turns and system/tool
++    turns. The owner label is CM052_USER_EMAIL when it is set and heads a
++    turn; otherwise the first header label that is not the assistant or a
++    reserved role (the gateway opens a session on an owner message). With
++    no owner label at all, no turns are kept: fail closed, extract nothing.
++    """
++    lines = transcript.splitlines(keepends=True)
++    assistant = _gateway_assistant_labels()
++    headers = [
++        m.group("label").strip()
++        for m in (_TURN_HEADER.match(line) for line in lines)
++        if m
++    ]
++    owner = (os.environ.get("CM052_USER_EMAIL") or "").strip()
++    if not owner or owner not in headers:
++        owner = next(
++            (
++                h for h in headers
++                if h.lower() not in assistant
++                and h.lower() not in _NON_OWNER_ROLE_LABELS
++            ),
++            "",
++        )
++    speakers = assistant | _NON_OWNER_ROLE_LABELS
++    if owner:
++        speakers = speakers | {owner.lower()}
+ 
++    kept: list[str] = []
++    current: str | None = None  # None = preamble, before any turn
++    dropped = 0
++    for line in lines:
++        m = _TURN_HEADER.match(line)
++        if m and m.group("label").strip().lower() in speakers:
++            current = m.group("label").strip()
++            if current != owner:
++                dropped += 1
++        if current is None or (owner and current == owner):
++            kept.append(line)
++    logger.info(
++        "gateway transcript: kept owner turns only, dropped %d non-owner turn(s)",
++        dropped,
++    )
++    return "".join(kept)
++
++
++def _extraction_transcript(transcript: str, metadata: dict) -> str:
++    """The transcript an EXTRACTION step reads. Unchanged for every
++    source except gateway, where only the owner's turns are kept."""
++    if _is_gateway_conversation(metadata):
++        return _owner_turns_only(transcript)
++    return transcript
+ 
++
+ # ── Step 05: fact extraction ────────────────────────────────────────
+ 
+ 
+@@ -1327,6 +1748,8 @@
+     # lacks the specific dialogue turns and speaker attributions the
+     # model needs to produce evidenced facts.
+     raw_transcript = (state_dir / "00_raw_transcript.md").read_text()
++    # Gateway: the assistant's own turns are not evidence about the owner.
++    raw_transcript = _extraction_transcript(raw_transcript, metadata)
+     template = prompts.load_prompt("05_fact_extraction")
+ 
+     if dry_run:
+@@ -1383,6 +1806,10 @@
+     # output "other:speaker" or "other:speaker_1" despite the mapping
+     # hint. Map these back to actual participant IDs from metadata.
+     facts = _fix_speaker_subjects(facts, metadata)
++    # DMG #27: a first-person line written by ANOTHER participant ("my dad's
++    # ...") is about them, not the owner. Move such facts onto the person
++    # concerned, on evidence read from the transcript. See attribution.py.
++    facts = attribution.reattribute(facts, raw_transcript, metadata)
+ 
+     # Stamp every freshly-extracted fact as a candidate. The 08_linked
+     # step promotes facts to candidate=False when a second independent
+@@ -1951,9 +2378,13 @@
+         )
+         write_json(bundle_json_path, extraction.to_dict())
+     else:
++        # Summary, topics and todos come from ONE call on one input, so
++        # for a gateway conversation all three read the owner's turns
++        # only (see _extraction_transcript). The rendered transcript
++        # artefact below still gets the full ``transcript``.
+         extraction = _bundle_extractor.extract(
+             client,
+-            transcript=transcript,
++            transcript=_extraction_transcript(transcript, metadata),
+             enrichment_md=enrichment_md,
+             channel=str(metadata.get("channel") or "spoken"),
+             model=settings.ollama_enrich_model,
+--- a/src/prompts.py
++++ b/src/prompts.py
+@@ -63,6 +63,12 @@
+         return "02_enrich_work_one-on-one"
+     setting, shape, _stakes = parts[0], parts[1], parts[2]
+ 
++    # A single-speaker capture is a memo whatever its setting. The shape is
++    # set by the pipeline from the speaker count (capture_truth.as_memo),
++    # so no setting-specific prompt can ask the model for a second person.
++    if shape == "memo":
++        return "02_enrich_voice_memo"
++
+     if setting == "service":
+         return "02_enrich_service_minimal"
+     if setting == "family":
+--- a/src/reminders_push.py
++++ b/src/reminders_push.py
+@@ -20,7 +20,8 @@
+                              contract). Todos stay file-only in
+                              ``todos.md``.
+     L2                    -- pushed with redacted title (owner +
+-                             "Follow up" phrase + deadline; no body
++                             "Follow up" phrase; the deadline is its
++                             own due-date field, never in the title; no body
+                              text).
+     L1 / L0               -- pushed with full title + notes.
+     Unknown level         -- treated as L3 (no push). Defence in
+@@ -53,11 +54,12 @@
+ from __future__ import annotations
+ 
+ import logging
++import re
+ import sqlite3
+ from dataclasses import dataclass
+ from datetime import datetime, timezone
+ from pathlib import Path
+-from typing import TYPE_CHECKING, Optional
++from typing import TYPE_CHECKING, Callable, Optional
+ 
+ from . import ostler_paths
+ 
+@@ -94,6 +96,15 @@
+ SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
+ SKIP_REASON_OWNER_OTHER = "owed_by_other"
+ SKIP_REASON_EMPTY_TEXT = "empty_text"
++# An organisation or automated sender (the People list's own rules say so).
++SKIP_REASON_NON_HUMAN = "non_human_sender"
++# The People rules could not be loaded. The organisation filter is a QUALITY
++# filter, not a privacy one, so this FAILS OPEN: the todo is pushed anyway and
++# the row is FLAGGED with this value (in `skip_reason`, on a pending/pushed
++# row) so a walk can fail on it. A customer never loses all reminders to it.
++FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
++# Another open reminder already exists for this person / thread.
++SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -124,6 +135,11 @@
+     push_title: str
+     push_notes: str
+     push_deadline: Optional[str]
++    # Stable person/thread id (see ``thread_key_for``); "" when not computed.
++    thread_key: str = ""
++    # Non-empty when the row is eligible but flagged (see
++    # FLAG_ORG_FILTER_UNAVAILABLE); stored in skip_reason.
++    flag: str = ""
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -165,46 +181,432 @@
+         p for p in participants
+         if p and p.strip().lower() not in user_synonyms
+     ]
++
++
++# ---------------------------------------------------------------------------
++# Participant label -> display name (never a raw handle in a customer title)
++# ---------------------------------------------------------------------------
++
++GENERIC_FOLLOW_UP_TITLE = "Follow up on a conversation"
++
++_BARE_ID_CHARS = frozenset("0123456789+-(). ")
++
++
++def _is_handle_shaped(label: str) -> bool:
++    """True when ``label`` is a messaging handle, not a human name.
++
++    Superset of the LOCKED "non-displayable name" predicate
++    (ical-server ``_is_nameless_name`` == CM044 ``compiler/nameless.py`` ==
++    CM031 ``PersonNameFilter``, Ref #664): empty, a WhatsApp JID
++    (``@s.whatsapp.net`` / ``@lid``), or a bare identifier of phone
++    characters with at least 6 digits. Widened here because a customer
++    title must never carry ANY handle: any ``@`` (an email address) and any
++    phone-character-only string holding a digit (a short number) also count.
++    The locked predicate itself lives in people_rules.py (shared with
++    ical-server); this wider handle test is local to titles.
++    """
++    s = (label or "").strip()
++    if not s:
++        return True
++    if "@" in s:
++        return True
++    if all(c in _BARE_ID_CHARS for c in s) and any(c.isdigit() for c in s):
++        return True
++    return False
++
++
++def _handle_variants(handle: str) -> list[str]:
++    h = handle.strip()
++    out = [h, h.lower()]
++    digits = "".join(c for c in h if c.isdigit())
++    if digits and "@" not in h:
++        out += [digits, "+" + digits]
++    seen: list[str] = []
++    for v in out:
++        if v and v not in seen:
++            seen.append(v)
++    return seen
++
++
++def _people_store_record(handle: str) -> Optional[dict]:
++    """The People-store record for ``handle``, or None.
++
++    The Hub People list (ical-server ``people_list``) scrolls the Qdrant
++    ``people`` collection. This asks the same collection for the record whose
++    payload ``phones`` / ``emails`` / ``display_name`` holds ``handle``. Any
++    failure (store down, no match) returns None.
++    """
++    import json
++    import os
++    import urllib.request
++
++    # Same override Settings applies (OSTLER_QDRANT_URL), read directly:
++    # load_settings() raises without a configured user_id, and a title must
++    # not depend on that.
++    base = os.environ.get("OSTLER_QDRANT_URL")
++    if not base:
++        try:
++            from .settings import load_settings
++
++            base = load_settings().qdrant_url
++        except Exception:  # noqa: BLE001 -- settings trouble must not block a title
++            base = "http://localhost:6333"
++    variants = _handle_variants(handle)
++    body = {
++        "filter": {"should": [
++            {"key": "phones", "match": {"any": variants}},
++            {"key": "emails", "match": {"any": variants}},
++            {"key": "display_name", "match": {"any": variants}},
++        ]},
++        "limit": 5,
++        "with_payload": True,
++        "with_vector": False,
++    }
++    try:
++        req = urllib.request.Request(
++            base.rstrip("/") + "/collections/people/points/scroll",
++            data=json.dumps(body).encode(),
++            headers={"Content-Type": "application/json"},
++        )
++        # No proxy: the people store is local, and an HTTP(S)_PROXY in the
++        # environment must not answer for it.
++        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++        with opener.open(req, timeout=3) as resp:
++            points = (json.loads(resp.read()).get("result") or {}).get("points") or []
++    except Exception as exc:  # noqa: BLE001
++        log.info("reminders_push: people lookup unavailable (%s)", exc)
++        return None
++    for pt in points:
++        p = pt.get("payload") or {}
++        if p:
++            return p
++    return None
++
++
++# ---------------------------------------------------------------------------
++# The People list's own "is this a person" rules: ONE source, people_rules.py
++# ---------------------------------------------------------------------------
++
++_PEOPLE_RULES = None
++_PEOPLE_TRIED = False
++# What the last load tried, for the one ERROR line: every path and why it did
++# not work. Empty when the rules loaded.
++_PEOPLE_TRY_LOG: list[str] = []
++
++
++def _people_rules_candidates() -> list[Path]:
++    """Where people_rules.py can be.
++
++    INSTALLED layout (install.sh): it is laid into
++    ``<ostler>/services/shared/`` beside every consumer. cm048 is
++    ``pip install``ed (not editable) into ``.venv/lib/python3.X/site-packages``,
++    so ``Path(__file__)`` says nothing about where the services live: the
++    installed path comes from ``ostler_paths.ostler_root()`` (which honours
++    ``$OSTLER_DIR`` like install.sh does). The ``__file__``-relative path is
++    for a repo checkout (dev, CI).
++    """
++    import os
++
++    out: list[Path] = []
++    env = os.environ.get("OSTLER_PEOPLE_RULES_PATH")
++    if env:
++        out.append(Path(env))
++    try:
++        out.append(ostler_paths.ostler_root() / "services" / "shared" / "people_rules.py")
++    except Exception:  # noqa: BLE001 -- no resolvable home
++        pass
++    here = Path(__file__).resolve()
++    if len(here.parents) > 2:
++        out.append(here.parents[2] / "cm041" / "assistant_api" / "people_rules.py")
++    seen: list[Path] = []
++    for c in out:
++        if c not in seen:
++            seen.append(c)
++    return seen
++
++
++REMINDERS_LOG_NAME = "cm048-reminders.err"
++
++
++def _append_reminders_log(message: str) -> Optional[Path]:
++    """Append one line to ``<ostler>/logs/cm048-reminders.err``.
++
++    cm048 has no LaunchAgent of its own: ``pwg-convo`` is a CLI run by
++    ical-server (which CAPTURES its stderr) and by the bundle ticks (each its
++    own .err), so a bare ``log.error`` lands in no single, findable file. This
++    is the one stable place, named like the other per-component logs
++    (``~/.ostler/logs/<name>.err``). Never raises.
++    """
++    try:
++        d = ostler_paths.ostler_root() / "logs"
++        d.mkdir(parents=True, exist_ok=True)
++        path = d / REMINDERS_LOG_NAME
++        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
++        with open(path, "a", encoding="utf-8") as fh:
++            fh.write("%s ERROR %s\n" % (stamp, message))
++        return path
++    except Exception:  # noqa: BLE001 -- a log must never break a push
++        return None
++
++
++def _load_people_rules():
++    """Load people_rules.py (stdlib only; the single source ical-server.py
++    also imports). Returns the module, or None.
++
++    None is NOT "is a person" or "is not": callers push WITHOUT the
++    organisation filter, flag the rows ``org_filter_unavailable`` and log one
++    ERROR per run (see ``decide_push`` / ``apply_push_status_to_todos``).
++    """
++    global _PEOPLE_RULES, _PEOPLE_TRIED
++    if _PEOPLE_TRIED:
++        return _PEOPLE_RULES
++    _PEOPLE_TRIED = True
++    _PEOPLE_TRY_LOG.clear()
++    import importlib.util
++    import sys
++
++    for cand in _people_rules_candidates():
++        if not cand.is_file():
++            _PEOPLE_TRY_LOG.append("%s: no such file" % cand)
++            continue
++        shared = str(cand.parent)
++        if shared not in sys.path:
++            sys.path.insert(0, shared)  # the shared dir joins the path, as for ical-server
++        try:
++            spec = importlib.util.spec_from_file_location("people_rules", cand)
++            mod = importlib.util.module_from_spec(spec)
++            spec.loader.exec_module(mod)
++            _PEOPLE_RULES = mod
++            return mod
++        except Exception as exc:  # noqa: BLE001
++            _PEOPLE_TRY_LOG.append("%s: %s" % (cand, exc))
++            log.warning("reminders_push: cannot load People rules from %s (%s)", cand, exc)
++    return None
++
++
++def is_listed_as_a_person(payload: dict, name: str) -> Optional[bool]:
++    """Would the Hub People list show this record as a person?
++
++    Calls the shared people_rules predicates in the order ``people_list``
++    applies them. True = a person, False = organisation / automated sender /
++    nameless, None = the rules could not be loaded (the caller pushes anyway, flagged).
++    ``tests/test_cm048_reminder_push_person_parity.py`` pins this against
++    ``people_list`` itself.
++    """
++    srv = _load_people_rules()
++    if srv is None:
++        return None
++    p = payload or {}
++    given = (p.get("given_name") or "").strip()
++    family = (p.get("family_name") or "").strip()
++    nm = (name or "").strip()
++    if (given or family) and srv._looks_like_bare_email_or_phone(nm):
++        nm = " ".join(x for x in (given, family) if x)
++    if srv._is_nameless_name(nm):
++        return False
++    if srv._is_role_address_name(nm):
++        return False
++    has_card = bool((p.get("icloud_uid") or "").strip())
++    has_person_name = bool(given or family)
++    if not has_person_name and srv._is_organisation_name(nm):
++        return False
++    if not has_card and not has_person_name and (
++        srv._is_automated_or_service_name(nm) or srv._is_service_mailbox_name(nm)
++    ):
++        return False
++    if has_card and srv._is_non_human_person(p, nm) == "organisation_card":
++        return False
++    if not has_card:
++        phones = [x for x in (p.get("phones") or []) if x]
++        emails = [x for x in (p.get("emails") or []) if x]
++        if srv._is_non_human_person(p, nm, phones, emails):
++            return False
++    return True
++
++
++NameResolver = Callable[[str], Optional[str]]
++
++KIND_PERSON = "person"
++KIND_UNKNOWN = "unknown"
++KIND_NON_HUMAN = "non_human"
++KIND_UNVERIFIABLE = "unverifiable"
++
++
++def _record_name(p: dict) -> str:
++    name = (p.get("display_name") or p.get("name") or "").strip()
++    given = (p.get("given_name") or "").strip()
++    family = (p.get("family_name") or "").strip()
++    if (given or family) and _is_handle_shaped(name):
++        name = " ".join(x for x in (given, family) if x)
++    return name
++
++
++def _classify_participant(
++    label: str, resolver: Optional[NameResolver]
++) -> tuple[str, Optional[str]]:
++    """(kind, display name) for one participant label.
++
++    PERSON: a human display name safe to show. UNKNOWN: a handle that does
++    not resolve (generic title, never the handle). NON_HUMAN: an organisation
++    or automated sender per the People list's own rules (no push at all).
++    UNVERIFIABLE: the People rules could not be loaded (push anyway, flagged).
++    """
++    if resolver is not None:
++        try:
++            name = (resolver(label) or "").strip()
++        except Exception as exc:  # noqa: BLE001
++            log.info("reminders_push: name resolver failed (%s)", exc)
++            name = ""
++        if name and not _is_handle_shaped(name):
++            return KIND_PERSON, name
++        return KIND_UNKNOWN, None
++    payload = _people_store_record(label)
++    if payload is not None:
++        name = _record_name(payload)
++        verdict = is_listed_as_a_person(payload, name)
++        if verdict is None:
++            return KIND_UNVERIFIABLE, (name if name and not _is_handle_shaped(name) else None)
++        if not verdict:
++            return KIND_NON_HUMAN, None
++        if name and not _is_handle_shaped(name):
++            return KIND_PERSON, name
++        return KIND_UNKNOWN, None
++    if _is_handle_shaped(label):
++        return KIND_UNKNOWN, None
++    # A name-shaped label with no store record: the People rules still
++    # decide whether it reads as an organisation / automated sender.
++    verdict = is_listed_as_a_person({}, label.strip())
++    if verdict is None:
++        return KIND_UNVERIFIABLE, label.strip()
++    if not verdict:
++        return KIND_NON_HUMAN, None
++    return KIND_PERSON, label.strip()
+ 
+ 
++# ---------------------------------------------------------------------------
++# Short commitment text for a private 1:1 title, and the stable thread key
++# ---------------------------------------------------------------------------
++
++_MAX_TITLE_TEXT = 60
++_EMAIL_RE = re.compile(r"\S+@\S+")
++_AT_HANDLE_RE = re.compile(r"(?<!\w)@\w[\w.]*")
++_PHONE_RE = re.compile(r"\+?\d[\d\s().-]{4,}\d")
++_ISO_RE = re.compile(r"\b20\d\d-\d\d-\d\d(?:[T ][\d:.]+Z?)?\b")
++
++
++def _short_text(text: str) -> str:
++    """Commitment text safe for a title: no email/phone/handle/ISO date,
++    collapsed whitespace, about 60 characters."""
++    t = text or ""
++    for rx in (_EMAIL_RE, _AT_HANDLE_RE, _ISO_RE, _PHONE_RE):
++        t = rx.sub(" ", t)
++    t = " ".join(t.split()).strip(" ,;:-")
++    if len(t) > _MAX_TITLE_TEXT:
++        cut = t[:_MAX_TITLE_TEXT].rsplit(" ", 1)[0] or t[:_MAX_TITLE_TEXT]
++        t = cut.rstrip(" ,;:-") + "..."
++    return t
++
++
++_ASCII_DIGITS = frozenset("0123456789")
++
++
++def _norm_identity(label: str) -> str:
++    """Byte-for-byte twin of ostler-assistant's ``norm_identity``
++    (crates/ostler-reminders/src/followup.rs). ASCII digits only, as Rust's
++    ``is_ascii_digit``; pinned by tests/test_cm048_thread_key_matches_the_daemon.py."""
++    s = (label or "").strip().lower()
++    if "@" in s:
++        local, _, host = s.partition("@")
++        if host in ("s.whatsapp.net", "lid") and local and all(c in _ASCII_DIGITS for c in local):
++            return local
++        return s
++    digits = "".join(c for c in s if c in _ASCII_DIGITS)
++    if digits and all(c in _BARE_ID_CHARS for c in s):
++        return digits
++    return s
++
++
++# An iMessage 1:1 chat guid: "<service>;-;<handle>" (a group is ";+;chat...").
++_ONE_TO_ONE_GUID_RE = re.compile(r"^[^;]+;-;(.+)$")
++
++
++def _thread_handles(bundle: "ConversationBundle") -> list[str]:
++    """The counterpart HANDLES the assistant daemon hashes from chat.db's
++    chat_handle_join: the bundle's ``participant_handles`` (owner already
++    excluded), else the handle inside a 1:1 chat guid. Empty when neither is
++    known."""
++    handles = [h for h in (getattr(bundle, "participant_handles", ()) or ()) if h and h.strip()]
++    if handles:
++        return handles
++    m = _ONE_TO_ONE_GUID_RE.match((bundle.source_session_id or "").strip())
++    return [m.group(1)] if m and m.group(1).strip() else []
++
++
++def thread_key_for(bundle: "ConversationBundle", user_id: str) -> str:
++    """Stable id of the person / thread a reminder is about.
++
++    Built from the counterparts' HANDLES whenever they are known, exactly as
++    the assistant daemon builds it from chat.db (``thread_key_for_identities``),
++    so "mark done when the owner follows up" can match the thread. Walk #25
++    found 0 of 6 keys matching because this used participant labels (display
++    names). Labels remain the fallback only when no handle is known (not an
++    iMessage thread). Derived only from identities, so it survives a wiped map
++    or a reinstall. The EventKit side also uses it for one-open-reminder-per-
++    thread dedupe.
++    """
++    import hashlib
++
++    handles = _thread_handles(bundle)
++    if handles:
++        others = sorted({_norm_identity(h) for h in handles})
++    else:
++        others = sorted(
++            {_norm_identity(o) for o in _other_participants(bundle.participants, user_id=user_id)}
++        )
++    basis = "|".join(others) if others else f"solo:{bundle.conversation_id}"
++    return hashlib.sha256(("ostler-thread:" + basis).encode()).hexdigest()[:16]
++
++
+ def _format_push_title(
+     todo: "Todo",
+     privacy_level: str,
+     *,
+     bundle: "ConversationBundle",
+     user_id: str,
++    name_resolver: Optional[NameResolver] = None,
++    participant: Optional[tuple] = None,
+ ) -> str:
+     """Title for the EKReminder.
+ 
+     L0 / L1 use the raw todo text -- the user has authorised full
+     detail at those levels.
+ 
+-    L2 redacts to a neutral phrase that names the *conversation
+-    partner*, not the action owner. "@owner" in the operator's brief reads
+-    as the person you're following up WITH (the other party); the
+-    action owner is captured by the gate (this title only renders
+-    when the user or "both" owns the action, otherwise the gate
+-    skipped it). For one-on-one threads the partner is unambiguous;
+-    multi-party falls back to a generic phrase rather than naming
+-    anyone specifically.
++    L2, private 1:1 whose partner resolves to a person: ``"<Name>: <short
++    commitment text>"`` (Andy's decision, 2026-10-11: the commitment text of
++    a 1:1 now syncs to iCloud with the reminder; truncated to about 60
++    characters with any phone / email / handle / ISO date stripped).
++    L2, 1:1 whose partner does not resolve: the generic title, never the
++    handle. L2 multi-party / solo: generic by design, no names, no text.
+ 
++    ``participant`` is ``(kind, name)`` from ``_classify_participant`` when
++    the caller already classified (avoids a second store lookup).
++
+     Apple Restraint: no emoji prefix, no ``[Ostler]`` tag, no
+     source label in the title.
+     """
+     if privacy_level == "L2":
+         others = _other_participants(bundle.participants, user_id=user_id)
+         if len(others) == 1:
+-            base = f"Follow up with @{others[0]}"
+-        elif others:
+-            base = "Follow up on conversation"
+-        else:
+-            # Solo / no-other-party (e.g. a meeting note where the
+-            # user is the only labelled participant). Don't name
+-            # anyone; keep the title neutral.
+-            base = "Follow up on commitment"
+-        if todo.deadline:
+-            return f"{base} -- {todo.deadline}"
+-        return base
++            kind, name = participant or _classify_participant(others[0], name_resolver)
++            if kind == KIND_PERSON and name:
++                text = _short_text(todo.text or "")
++                return f"{name}: {text}" if text else f"Follow up with {name}"
++            return GENERIC_FOLLOW_UP_TITLE
++        if others:
++            return GENERIC_FOLLOW_UP_TITLE
++        # Solo / no-other-party (e.g. a meeting note where the user is the
++        # only labelled participant). Don't name anyone.
++        return "Follow up on commitment"
+     return (todo.text or "").strip() or "(empty commitment)"
+ 
+ 
+@@ -214,34 +616,25 @@
+     *,
+     privacy_level: str,
+     summary_path: Path,
++    name_resolver: Optional[NameResolver] = None,
++    participant: Optional[tuple] = None,
+ ) -> str:
+     """Notes body. Short context line + a ``file://`` deep link back
+     to the bundle's ``summary.md`` so a tap in Reminders.app opens
+-    the source. No transcript dump (Apple Restraint -- the user
+-    doesn't want their conversations in their reminders body).
++    the source. No transcript dump.
+ 
+-    L2 emits a neutral context line so the redacted title isn't
+-    naked. L3 never reaches here (filtered upstream). L0 / L1 emit
+-    the full context with participant labels.
++    L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
++    the partner only when they resolve to a person; never a raw handle.
+     """
+     started = (bundle.started_at or "")[:10] or "unknown date"
+     if privacy_level == "L2":
+         context = f"From a private conversation on {started}"
+     else:
+-        # The "with @X" line uses the participant axis the operator
+-        # cares about. Pick the first non-user participant; if the
+-        # bundle is one-on-one this is unambiguous, multi-party we
+-        # fall back to a generic "with the group".
+-        others = [
+-            p for p in bundle.participants
+-            if p and p.lower() not in ("user", "me", "self")
+-        ]
+-        if not others:
+-            who = "the group"
+-        elif len(others) == 1:
+-            who = f"@{others[0]}"
+-        else:
+-            who = "the group"
++        others = _other_participants(bundle.participants, user_id="")
++        who = "the group"
++        if len(others) == 1:
++            kind, name = participant or _classify_participant(others[0], name_resolver)
++            who = name if (kind == KIND_PERSON and name) else "a contact"
+         context = f"From conversation with {who} on {started}"
+     file_link = f"file://{summary_path}"
+     return f"{context}\n\n{file_link}"
+@@ -254,6 +647,7 @@
+     demo_mode: bool,
+     user_id: str,
+     summary_path: Path,
++    name_resolver: Optional[NameResolver] = None,
+ ) -> PushDecision:
+     """Run the writer-side gate for one todo.
+ 
+@@ -301,16 +695,36 @@
+             push_deadline=None,
+         )
+ 
++    others = _other_participants(bundle.participants, user_id=user_id)
++    classified = [(_classify_participant(o, name_resolver)) for o in others]
++    kinds = [k for k, _ in classified]
++    flag = FLAG_ORG_FILTER_UNAVAILABLE if KIND_UNVERIFIABLE in kinds else ""
++    # 1:1 with an organisation / automated sender, or a group that is
++    # nothing but such senders: no push.
++    if kinds and all(k == KIND_NON_HUMAN for k in kinds):
++        return PushDecision(
++            eligible=False, skip_reason=SKIP_REASON_NON_HUMAN,
++            push_title="", push_notes="", push_deadline=None,
++        )
++    participant = classified[0] if len(classified) == 1 else None
++    if participant and participant[0] == KIND_UNVERIFIABLE:
++        # fail open: name the person if we have a name, else stay generic
++        participant = (KIND_PERSON, participant[1]) if participant[1] else (KIND_UNKNOWN, None)
++
+     return PushDecision(
+         eligible=True,
+         skip_reason=None,
+         push_title=_format_push_title(
+             todo, level, bundle=bundle, user_id=user_id,
++            name_resolver=name_resolver, participant=participant,
+         ),
+         push_notes=_format_push_notes(
+             todo, bundle, privacy_level=level, summary_path=summary_path,
++            name_resolver=name_resolver, participant=participant,
+         ),
+         push_deadline=todo.deadline,
++        thread_key=thread_key_for(bundle, user_id),
++        flag=flag,
+     )
+ 
+ 
+@@ -355,10 +769,38 @@
+     conn = sqlite3.connect(str(db_path), timeout=5.0)
+     conn.execute("PRAGMA journal_mode=WAL;")
+     conn.execute(_SCHEMA)
++    # thread_key: stable person/thread id (additive; the assistant's
++    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected).
++    cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
++    if "thread_key" not in cols:
++        conn.execute("ALTER TABLE reminders_map ADD COLUMN thread_key TEXT")
+     conn.commit()
+     return conn
+ 
+ 
++def _open_thread_exists(
++    conn: sqlite3.Connection,
++    *,
++    user_id: str,
++    thread_key: str,
++    session_id: str,
++    todo_id: str,
++) -> bool:
++    """True when another todo already holds an open reminder for this
++    person / thread. Open = pending or pushed and not completed."""
++    if not thread_key:
++        return False
++    cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
++    done = " AND completed_at IS NULL" if "completed_at" in cols else ""
++    row = conn.execute(
++        "SELECT 1 FROM reminders_map WHERE user_id=? AND thread_key=? "
++        "AND status IN (?, ?)" + done +
++        " AND NOT (source_session_id=? AND todo_id=?) LIMIT 1",
++        (user_id, thread_key, STATUS_PENDING, STATUS_PUSHED, session_id, todo_id),
++    ).fetchone()
++    return row is not None
++
++
+ def _now_iso() -> str:
+     return datetime.now(timezone.utc).isoformat()
+ 
+@@ -412,6 +854,13 @@
+     conn.commit()
+ 
+ 
++def _row_exists(conn, *, user_id, session_id, todo_id) -> bool:
++    return conn.execute(
++        "SELECT 1 FROM reminders_map WHERE user_id=? AND source_session_id=? "
++        "AND todo_id=?", (user_id, session_id, todo_id),
++    ).fetchone() is not None
++
++
+ def _upsert_pending(
+     conn: sqlite3.Connection,
+     *,
+@@ -443,12 +892,13 @@
+     if existing is None:
+         conn.execute(
+             "INSERT INTO reminders_map "
+-            "(user_id, source_session_id, todo_id, status, push_title, push_notes, push_deadline, last_seen_at) "
+-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
++            "(user_id, source_session_id, todo_id, status, push_title, push_notes, push_deadline, last_seen_at, thread_key, skip_reason) "
++            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (
+                 user_id, session_id, todo_id, STATUS_PENDING,
+                 decision.push_title, decision.push_notes,
+-                decision.push_deadline, now,
++                decision.push_deadline, now, decision.thread_key or None,
++                decision.flag or None,
+             ),
+         )
+         conn.commit()
+@@ -458,11 +908,12 @@
+     conn.execute(
+         "UPDATE reminders_map SET "
+         "  push_title=?, push_notes=?, push_deadline=?, last_seen_at=?, "
+-        "  skip_reason=NULL "
++        "  thread_key=COALESCE(?, thread_key), skip_reason=? "
+         "WHERE user_id=? AND source_session_id=? AND todo_id=?",
+         (
+             decision.push_title, decision.push_notes,
+-            decision.push_deadline, now,
++            decision.push_deadline, now, decision.thread_key or None,
++            decision.flag or None,
+             user_id, session_id, todo_id,
+         ),
+     )
+@@ -520,6 +971,13 @@
+     if db_path is None:
+         db_path = default_db_path()
+ 
++    # A failed import of the People rules is retried once per run (a long
++    # lived process must not stay broken forever on one early failure).
++    global _PEOPLE_TRIED
++    if _PEOPLE_RULES is None:
++        _PEOPLE_TRIED = False
++    unverifiable_rows = 0
++
+     try:
+         conn = _open_db(db_path)
+     except (sqlite3.Error, OSError) as exc:
+@@ -560,6 +1018,27 @@
+                 out.append(todo)
+                 continue
+ 
++            if _open_thread_exists(
++                conn, user_id=user_id, thread_key=decision.thread_key,
++                session_id=session_id, todo_id=todo.id,
++            ) and not _row_exists(
++                conn, user_id=user_id, session_id=session_id, todo_id=todo.id,
++            ):
++                log.info(
++                    "reminders_push: %s/%s skipped, an open reminder already "
++                    "exists for thread %s",
++                    session_id, todo.id, decision.thread_key,
++                )
++                _upsert_skipped(
++                    conn, user_id=user_id, session_id=session_id,
++                    todo_id=todo.id, reason=SKIP_REASON_DUPLICATE_THREAD,
++                )
++                out.append(todo)
++                continue
++
++            if decision.flag:
++                unverifiable_rows += 1
++
+             current_status = _upsert_pending(
+                 conn,
+                 user_id=user_id,
+@@ -592,6 +1071,21 @@
+                 # 'pending' or anything else: writer leaves the
+                 # status as supplied.
+                 out.append(todo)
++        if unverifiable_rows:
++            # ONE line per run, not per row. FAIL OPEN: these todos WERE
++            # pushed, without the organisation filter, and flagged.
++            msg = (
++                "reminders_push: %d todo(s) pushed WITHOUT the organisation "
++                "filter (flag=%s): the People rules (people_rules.py) could "
++                "not be loaded, so banks and automated senders may get "
++                "reminders. Tried: %s. Set OSTLER_PEOPLE_RULES_PATH to fix."
++                % (
++                    unverifiable_rows, FLAG_ORG_FILTER_UNAVAILABLE,
++                    "; ".join(_PEOPLE_TRY_LOG) or "(no candidate paths)",
++                )
++            )
++            log.error("%s", msg)
++            _append_reminders_log(msg)
+         return tuple(out)
+     finally:
+         conn.close()
+--- a/src/reply_debt_adapters.py
++++ b/src/reply_debt_adapters.py
+@@ -7,10 +7,17 @@
+ 
+ Three adapters, in increasing order of how much live data they need to prove:
+ 
+-  * ``iter_imessage_threads``    -  reads Apple's chat.db directly. ``is_from_me``
+-    gives ground-truth per-message direction; ``OSTLER_IMESSAGE_SELF_HANDLES``
+-    + the chat.db owner are the "me" signal. THIS IS THE STRONGEST SOURCE for
+-    reply debt and the one that needs the real box + Full Disk Access to prove.
++  * ``iter_imessage_threads``    -  reads the reply-debt SNAPSHOT that the
++    iMessage feed writes under ``~/.ostler/state/reply_debt/``. It NEVER opens
++    chat.db. The feed runs as ``ostler-assistant run-source imessage``, so its
++    chat.db read happens under the signed assistant's Full Disk Access; this
++    module runs inside ical-server, a bare python3.11 that TCC would attribute
++    the read to and deny (CM051 #30, studio29: the customer was shown a Full
++    Disk Access entry for "python3.11" and then told "you're all caught up").
++    ``is_from_me`` from chat.db is still the direction signal, carried in the
++    snapshot; ``OSTLER_IMESSAGE_SELF_HANDLES`` is applied here as before.
++    A missing, unreadable, malformed or stale snapshot RAISES
++    ``ReplyDebtSourceUnavailable``: it is "could not check", never "nothing owed".
+ 
+   * ``iter_email_threads``       -  reads the CM048 conversation store's
+     email-thread sidecars (``email_thread`` in ``extra_metadata`` /
+@@ -34,9 +41,9 @@
+ from __future__ import annotations
+ 
+ import logging
++import json
+ import os
+ import re
+-import sqlite3
+ from datetime import datetime, timezone
+ from pathlib import Path
+ from typing import Iterator, Optional
+@@ -101,144 +108,211 @@
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# iMessage chat.db adapter (strongest direction signal; needs the box)
++# iMessage adapter: reads the signed feed's snapshot, never chat.db
+ # ---------------------------------------------------------------------------
+ 
+ 
+-CHAT_DB_DEFAULT = Path.home() / "Library" / "Messages" / "chat.db"
++class ReplyDebtSourceUnavailable(RuntimeError):
++    """A reply-debt source could not be read. ``reason`` is a short stable
++    code the endpoint returns as ``degraded`` + ``reason``. Raising (rather
++    than yielding nothing) is the whole point: an empty source and an
++    unreadable one must never produce the same answer."""
+ 
+-# Apple epoch is 2001-01-01; message.date is nanoseconds since then for modern
+-# macOS. We convert to aware UTC datetimes.
+-_APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
++    def __init__(self, reason: str, detail: str = ""):
++        super().__init__(f"{reason}: {detail}" if detail else reason)
++        self.reason = reason
++        self.detail = detail
+ 
+ 
+-def _apple_ts_to_dt(raw: int) -> datetime:
+-    # Modern chat.db stores nanoseconds; older stored seconds. Detect by
+-    # magnitude.
+-    if raw > 1_000_000_000_000:  # ns
+-        seconds = raw / 1_000_000_000
+-    else:
+-        seconds = float(raw)
+-    return _APPLE_EPOCH.fromtimestamp(
+-        _APPLE_EPOCH.timestamp() + seconds, tz=timezone.utc
+-    )
++IMESSAGE_SNAPSHOT_SCHEMA = 1
+ 
++# Older than this and the snapshot no longer says who is waiting NOW: a reply
++# sent since would still read as owed. The feed ticks every 15 minutes but
++# yields to live chat and to the shared ingest lock, so allow some slack.
++DEFAULT_SNAPSHOT_MAX_AGE_HOURS = 6.0
+ 
+-def iter_imessage_threads(
+-    *,
+-    db_path: Optional[Path] = None,
+-    strength_lookup=None,
+-    lookback_days: int = 90,
+-    max_messages_per_thread: int = 40,
+-) -> Iterator[Thread]:
+-    """Yield normalised threads from Apple's chat.db (READ-ONLY).
+ 
+-    ``is_from_me`` is the ground-truth direction signal  -  no heuristic needed.
+-    Group chats are flagged via ``chat.style`` / participant count. Opens the
+-    db read-only (``mode=ro``) so it never mutates Messages.
++def imessage_snapshot_path() -> Path:
++    """Must agree with ``imessage_source.pipeline.reply_debt_snapshot_path``."""
++    explicit = (os.environ.get("OSTLER_REPLY_DEBT_SNAPSHOT") or "").strip()
++    if explicit:
++        return Path(explicit).expanduser()
++    root = (os.environ.get("OSTLER_DIR") or "").strip()
++    base = Path(root).expanduser() if root else Path.home() / ".ostler"
++    return base / "state" / "reply_debt" / "imessage_threads.json"
+ 
+-    NOTE: requires the real box + Full Disk Access to read chat.db. Cannot be
+-    proven in CI / off-box. The query shape is conservative and well-trodden
+-    (it mirrors the assistant daemon's poll query) but live correctness is
+-    UNPROVEN until run on the box.
+-    """
+-    db_path = db_path or CHAT_DB_DEFAULT
+-    if not db_path.exists():
+-        log.info("reply_debt: chat.db not found at %s  -  skipping", db_path)
+-        return
+ 
+-    uri = f"file:{db_path}?mode=ro&immutable=1"
+-    try:
+-        conn = sqlite3.connect(uri, uri=True)
+-    except sqlite3.Error as exc:  # pragma: no cover - needs the box
+-        log.warning("reply_debt: could not open chat.db: %s", exc)
+-        return
++# The iMessage feed exists only when install.sh decided to install it
++# (install.sh, "iMessage body feed"): chat.db present AND the third-party
++# consent (tickbox ``third_party_data_personal_records``) accepted. A Mac
++# without it never gets a snapshot, and reporting that as "couldn't check,
++# will try again" would be a promise nothing keeps. So the decision is read
++# from what the install WROTE, never inferred from the missing snapshot:
++#   * the durable consent registry (ostler_security.consent, the same
++#     record ``consent_cli check`` answers for the installer), and
++#   * the feed's LaunchAgent, which install.sh renders only on that branch.
++IMESSAGE_CONSENT_TICKBOX = "third_party_data_personal_records"
++IMESSAGE_FEED_LABEL = "com.creativemachines.ostler.imessage-bundle"
+ 
+-    try:
+-        conn.row_factory = sqlite3.Row
+-        # One row per chat with its participant count + style (43 == group).
+-        chats = conn.execute(
+-            """
+-            SELECT c.ROWID AS chat_id,
+-                   c.chat_identifier AS chat_identifier,
+-                   c.display_name AS display_name,
+-                   c.style AS style,
+-                   COUNT(DISTINCT chj.handle_id) AS participant_count
+-            FROM chat c
+-            LEFT JOIN chat_handle_join chj ON chj.chat_id = c.ROWID
+-            GROUP BY c.ROWID
+-            """
+-        ).fetchall()
+ 
+-        for chat in chats:
+-            rows = conn.execute(
+-                """
+-                SELECT m.text AS text,
+-                       m.is_from_me AS is_from_me,
+-                       m.date AS date,
+-                       h.id AS handle
+-                FROM message m
+-                JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+-                LEFT JOIN handle h ON h.ROWID = m.handle_id
+-                WHERE cmj.chat_id = ?
+-                  AND m.text IS NOT NULL AND m.text != ''
+-                ORDER BY m.date DESC
+-                LIMIT ?
+-                """,
+-                (chat["chat_id"], max_messages_per_thread),
+-            ).fetchall()
+-            if not rows:
+-                continue
++def imessage_feed_plist_path() -> Path:
++    return Path.home() / "Library" / "LaunchAgents" / f"{IMESSAGE_FEED_LABEL}.plist"
+ 
+-            messages: list[Message] = []
+-            for r in reversed(rows):  # chronological
+-                ts = _apple_ts_to_dt(r["date"])
+-                is_owner = bool(r["is_from_me"]) or is_owner_handle(
+-                    r["handle"] or ""
+-                )
+-                messages.append(
+-                    Message(
+-                        sender=(r["handle"] or "me") if not is_owner else "me",
+-                        text=r["text"] or "",
+-                        timestamp=ts,
+-                        is_from_owner=is_owner,
+-                    )
+-                )
+-            if not messages:
+-                continue
+ 
+-            # Respect the lookback window on the last message.
+-            last_ts = messages[-1].timestamp
+-            age_days = (datetime.now(timezone.utc) - last_ts).days
+-            if age_days > lookback_days:
+-                continue
++def imessage_connection_state() -> tuple[str, str]:
++    """``("connected" | "not_connected" | "unknown", detail)``.
+ 
+-            is_group = (chat["style"] == 43) or (
+-                (chat["participant_count"] or 0) > 1
+-            )
+-            counterpart = chat["display_name"] or chat["chat_identifier"] or ""
++    ``unknown`` means the consent registry could not be consulted; the caller
++    then reports "couldn't check", because guessing "not connected" would
++    hide a broken feed and guessing "connected" is what this replaces.
++    """
++    # The recorded DECISION, not wording-hash currency: a wording update
++    # flags renewal but does not uninstall a feed that is still running, and
++    # calling that "not connected" would hide a live source. Not consent_cli:
++    # it sys.exit()s when the ``legal`` package is absent, which would take
++    # the whole server down from inside a request.
++    try:
++        from ostler_security import consent as _consent
++        record = _consent.read_consent(IMESSAGE_CONSENT_TICKBOX)
++    except Exception as exc:  # noqa: BLE001 -- recorded as unknown, never guessed
++        return "unknown", f"consent registry unreadable: {type(exc).__name__}"
++    consented = isinstance(record, dict) and record.get("decision") == "accepted"
++    if not consented:
++        return "not_connected", "third-party data consent not accepted"
++    if not imessage_feed_plist_path().is_file():
++        return "not_connected", "the iMessage feed is not installed on this Mac"
++    return "connected", ""
+ 
+-            person_uri = None
+-            strength = None
+-            if strength_lookup and not is_group:
+-                resolved = strength_lookup(counterpart)
+-                if resolved:
+-                    person_uri, strength = resolved
+ 
+-            yield Thread(
+-                thread_id=f"imessage:{chat['chat_id']}",
++def _snapshot_max_age_hours() -> float:
++    raw = (os.environ.get("OSTLER_REPLY_DEBT_MAX_AGE_HOURS") or "").strip()
++    if not raw:
++        return DEFAULT_SNAPSHOT_MAX_AGE_HOURS
++    try:
++        v = float(raw)
++    except ValueError:
++        return DEFAULT_SNAPSHOT_MAX_AGE_HOURS
++    return v if v > 0 else DEFAULT_SNAPSHOT_MAX_AGE_HOURS
++
++
++def load_imessage_threads(
++    *,
++    snapshot_path: Optional[Path] = None,
++    strength_lookup=None,
++    lookback_days: int = 90,
++    max_age_hours: Optional[float] = None,
++    now: Optional[datetime] = None,
++) -> list[Thread]:
++    """Return normalised threads from the iMessage reply-debt snapshot.
++
++    Raises ``ReplyDebtSourceUnavailable`` with reason
++    ``imessage_not_connected`` when the install never set the iMessage feed up
++    (no consent, or no feed), and otherwise when the snapshot is absent,
++    unreadable, malformed, stale, or records that the feed itself could not
++    read Messages. A snapshot whose feed found no chat.db at all
++    (``status: absent``) is a true zero and returns ``[]``.
++    """
++    path = snapshot_path or imessage_snapshot_path()
++    now = now or datetime.now(timezone.utc)
++    state, why = imessage_connection_state()
++    if state == "not_connected":
++        raise ReplyDebtSourceUnavailable("imessage_not_connected", why)
++    if state == "unknown":
++        raise ReplyDebtSourceUnavailable("imessage_connection_unknown", why)
++    try:
++        raw = path.read_text(encoding="utf-8")
++    except FileNotFoundError:
++        raise ReplyDebtSourceUnavailable(
++            "imessage_snapshot_missing",
++            "the iMessage feed has not written its reply-debt snapshot yet",
++        )
++    except OSError as exc:
++        raise ReplyDebtSourceUnavailable("imessage_snapshot_unreadable", str(exc)[:200])
++    try:
++        snap = json.loads(raw)
++    except ValueError as exc:
++        raise ReplyDebtSourceUnavailable("imessage_snapshot_malformed", str(exc)[:200])
++    if not isinstance(snap, dict) or snap.get("schema") != IMESSAGE_SNAPSHOT_SCHEMA:
++        raise ReplyDebtSourceUnavailable(
++            "imessage_snapshot_malformed", "unknown snapshot schema"
++        )
++
++    status = snap.get("status")
++    if status == "absent":
++        return []
++    if status != "ok":
++        raise ReplyDebtSourceUnavailable(
++            "messages_not_readable",
++            str(snap.get("reason") or status or "unknown")[:200],
++        )
++
++    generated = _parse_iso(snap.get("generated_at"))
++    if generated is None:
++        raise ReplyDebtSourceUnavailable(
++            "imessage_snapshot_malformed", "no generated_at"
++        )
++    age_h = (now - generated).total_seconds() / 3600.0
++    limit_h = max_age_hours if max_age_hours is not None else _snapshot_max_age_hours()
++    if age_h > limit_h:
++        raise ReplyDebtSourceUnavailable(
++            "imessage_snapshot_stale",
++            f"snapshot is {age_h:.1f}h old (limit {limit_h:g}h)",
++        )
++
++    threads: list[Thread] = []
++    for row in snap.get("threads") or []:
++        if not isinstance(row, dict):
++            continue
++        last = row.get("last") or {}
++        ts = _parse_iso(last.get("timestamp"))
++        text = last.get("text") or ""
++        if ts is None or not text:
++            continue
++        if (now - ts).days > lookback_days:
++            continue
++        handle = last.get("sender") or ""
++        is_owner = bool(last.get("is_from_me")) or is_owner_handle(handle)
++        is_group = bool(row.get("is_group")) or len(row.get("participants") or []) > 1
++        counterpart = (
++            row.get("display_name")
++            or (handle if not is_owner else "")
++            or ", ".join(row.get("participants") or [])
++            or str(row.get("chat_id") or "")
++        )
++        person_uri = None
++        strength = None
++        if strength_lookup and not is_group:
++            resolved = strength_lookup(counterpart)
++            if resolved:
++                person_uri, strength = resolved
++        threads.append(
++            Thread(
++                thread_id=f"imessage:{row.get('chat_id')}",
+                 channel="imessage",
+-                messages=tuple(messages),
++                messages=(
++                    Message(
++                        sender="me" if is_owner else (handle or counterpart),
++                        text=text,
++                        timestamp=ts,
++                        is_from_owner=is_owner,
++                    ),
++                ),
+                 privacy_level="L2",  # iMessage default; per-thread gating TBD
+                 is_group=is_group,
+                 counterpart_name=counterpart,
+                 person_uri=person_uri,
+                 relationship_strength=strength,
+             )
+-    finally:
+-        conn.close()
++        )
++    return threads
+ 
+ 
++def iter_imessage_threads(**kwargs) -> Iterator[Thread]:
++    """Back-compatible name. Loads EAGERLY so an unavailable source raises at
++    the call, where ``compute_reply_debts`` can see it, not lazily mid-merge."""
++    return iter(load_imessage_threads(**kwargs))
++
++
+ # ---------------------------------------------------------------------------
+ # Email-thread adapter (CM048 store sidecars)
+ # ---------------------------------------------------------------------------
+@@ -324,6 +398,9 @@
+ __all__ = [
+     "is_owner_handle",
+     "iter_imessage_threads",
++    "load_imessage_threads",
++    "imessage_snapshot_path",
++    "ReplyDebtSourceUnavailable",
++    "imessage_connection_state",
+     "thread_from_email_transcript",
+-    "CHAT_DB_DEFAULT",
+ ]
+--- a/src/reply_debt_service.py
++++ b/src/reply_debt_service.py
+@@ -25,8 +25,9 @@
+      FallbackBriefData field that fetches the same endpoint.
+ 
+ Proven vs not: the service + endpoint logic is unit-tested with injected
+-threads. The live feed (iMessage chat.db) needs the box + Full Disk Access and
+-is UNPROVEN on real data until run there.
++threads and a synthetic snapshot. The live feed is the snapshot written by the
++iMessage feed (``ostler-assistant run-source imessage``); this process never
++opens chat.db, so it never asks TCC for Full Disk Access.
+ """
+ from __future__ import annotations
+ 
+@@ -54,8 +55,8 @@
+     """Compute ranked reply debts across all sources.
+ 
+     ``thread_sources`` lets a test inject pre-built thread iterables. When
+-    omitted, the default live source is the iMessage chat.db adapter (the
+-    strongest direction signal). Email / WhatsApp adapters can be appended here
++    omitted, the default live source is the iMessage adapter, which reads the
++    snapshot the signed iMessage feed writes (never chat.db from this process). Email / WhatsApp adapters can be appended here
+     as they are proven on the box.
+     """
+     if thread_sources is None:
+@@ -66,13 +67,22 @@
+             ),
+         ]
+ 
++    # A source that could not be read is NOT a source with nothing owed. This
++    # loop used to log and skip a failing source, so a Hub that could not read
++    # Messages at all answered "No replies owed - you're all caught up." with
++    # degraded:false (CM051 #30, studio29). Any unreadable source now raises,
++    # and the endpoint turns that into degraded:true with the reason.
+     all_threads: list[Thread] = []
+     for src in thread_sources:
+         try:
+             all_threads.extend(src)
+-        except Exception as exc:  # pragma: no cover - source failures are
+-            # isolated so one bad adapter does not sink the whole brief datum
+-            logger.warning("reply_debt: source failed, skipping: %s", exc)
++        except adapters.ReplyDebtSourceUnavailable:
++            raise
++        except Exception as exc:
++            logger.warning("reply_debt: source failed: %s", exc)
++            raise adapters.ReplyDebtSourceUnavailable(
++                "reply_debt_source_failed", f"{type(exc).__name__}: {str(exc)[:200]}"
++            ) from exc
+ 
+     return reply_debt.detect(
+         all_threads,
+@@ -88,9 +98,19 @@
+         "count": len(debts),
+         "brief_line": reply_debt.render_brief_block(debts, limit=brief_limit),
+         "debts": [d.to_dict() for d in debts],
++        "degraded": False,
+     }
+ 
+ 
++def degraded_payload(reason: str, detail: str = "") -> dict:
++    """The ONLY shape an unreadable source may produce: no all-clear copy."""
++    out = {"count": 0, "brief_line": "", "debts": [], "degraded": True,
++           "reason": reason}
++    if detail:
++        out["detail"] = detail[:200]
++    return out
++
++
+ def handle_reply_debt(handler: BaseHTTPRequestHandler) -> None:
+     """Handle GET /api/v1/reply-debt.
+ 
+@@ -102,9 +122,12 @@
+         debts = compute_reply_debts()
+         payload = reply_debt_payload(debts)
+         status = 200
++    except adapters.ReplyDebtSourceUnavailable as exc:
++        payload = degraded_payload(exc.reason, exc.detail)
++        status = 200
+     except Exception as exc:  # pragma: no cover - defensive
+         logger.warning("reply_debt endpoint failed: %s", exc)
+-        payload = {"count": 0, "brief_line": "", "debts": [], "error": str(exc)}
++        payload = degraded_payload("reply_debt_failed", str(exc))
+         status = 200  # brief should degrade gracefully, not 500
+ 
+     body = json.dumps(payload, indent=2).encode("utf-8")
+@@ -118,5 +141,6 @@
+ __all__ = [
+     "compute_reply_debts",
+     "reply_debt_payload",
++    "degraded_payload",
+     "handle_reply_debt",
+ ]
+--- a/src/schemas.py
++++ b/src/schemas.py
+@@ -59,7 +59,9 @@
+ # ``prompts.enrichment_prompt_name_for``. Cleaner than reusing ``work``
+ # and overloading ``shape`` to mean "thread vs. message" for email.
+ Setting = Literal["work", "social", "family", "public", "service", "correspondence"]
+-Shape = Literal["meeting", "one-on-one", "group-convo", "presentation", "casual"]
++# "memo" is set by the pipeline, never the model: a spoken capture with one
++# speaker (capture_truth.is_single_speaker_capture).
++Shape = Literal["meeting", "one-on-one", "group-convo", "presentation", "casual", "memo"]
+ Stakes = Literal["high", "medium", "low"]
+ SensitivityLevel = Literal["normal", "personal", "sensitive", "highly-sensitive"]
+ ProcessingDepth = Literal["full", "minimal", "none"]

@@ -261,3 +261,9 @@ wiki_image_grep|wiki-compiler:/app/compiler/compile.py|^def failed_section_names
 wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|^SOURCE_ACTIVITY_DIRNAME = "source_activity"|CM044 #351 Data freshness reads source_activity. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/nameless.py|^def is_short_code\(|CM044 #354 People pages show phone-only contacts (provisional). 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/category_pages.py|^_HELD_FOR_ENRICHER_CONSENT = \(|CM044 #353 Life pages read every writer category, polarity and signal. 0 -> 1.
+# --- v1.0.108 hub-v0.5.19 (oa 58d65239). Each 0 at hub-v0.5.18 (9d2c9491), >=1 at 58d65239 (measured in the full clone).
+assistant_tag_grep|crates/zeroclaw-tools/src/pwg_knowledge_search.rs|api-key|oa #555 knowledge_search sends the Qdrant api-key (every note search 401'd on enforced installs). 0 -> 16.
+assistant_tag_grep|Cargo.lock|^version = "9\.0\.4"|oa #551 zip 9.0.4 clears RUSTSEC-2026-0367/0368/0369. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-tools/src/stop_suggesting_person.rs|stop_suggesting_person|oa #554 conversational bereavement: stop suggesting a person, explicit statement and yes only. 0 -> 4.
+assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|fn default_pwg_derived_preferences_enabled|oa #556 derived-preferences tool off by default (no producer yet). 0 -> 1.
+assistant_tag_grep|web/src/lib/dataSources.ts|const failing = sourceRow|oa #530 (batch #549) a failing last tick never reads Up to date. 0 -> 1.

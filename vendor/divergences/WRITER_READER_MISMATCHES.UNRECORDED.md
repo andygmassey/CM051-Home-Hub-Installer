@@ -1542,3 +1542,54 @@ Tree `doctor`, two files. `vendor/doctor/agent/diagnostic_rules.py`, `check_park
 ### What a future sync must preserve
 
 The quarantined branch in `check_parked_facts` and the three copy constants. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py` (memory-assert-answers-under-load.yml).
+
+## doctor: the listener watchdog's state is a Doctor row (2026-10-17 incident, v1.0.108 / #31) -- `doctor`
+
+Tree `doctor`, two files. NEW CM051-side behaviour. `vendor/doctor/agent/diagnostic_rules.py`: new `check_listener_watchdog` (registered in `ALL_RULES` after `check_engine_supervisor_present`), with `_listener_state_path` and `_iso_age_s`. It reads `~/.ostler/state/listener_watchdog.json` (or `$OSTLER_STATE_DIR/listener_watchdog.json`), written by `ostler-listener-watchdog` (install.sh `LISTENERWDEOF` heredoc, LaunchAgent `com.ostler.listener-watchdog`). `degraded`, `restart_unverified` and `restart_failed` give a critical card; `ok`/`recovered` with a restart in the last 24 h an info card; a file that exists but does not parse a "couldn't check" warning; absent and transient states nothing. `vendor/doctor/agent/diagnostic_copy.py`: new `LISTENER_DEGRADED_*`, `LISTENER_UNVERIFIED_*`, `LISTENER_RECOVERED_*`, `LISTENER_STATE_UNREADABLE_*`. The HR015 doctor twin is OWED; `doctor.patch` is NOT regenerated (the tree is `regenerate_forbidden`).
+
+### What a future sync must preserve
+
+The rule, its `ALL_RULES` entry and the copy constants. Guarded by `tests/test_listener_watchdog_restarts_a_dead_listener.sh`, which feeds the state file the SHIPPED watchdog wrote to the SHIPPED `run_all_rules` and mutates the rule out of `ALL_RULES` (wired in `.github/workflows/vendor-integrity.yml`).
+
+## doctor: the wiki "Stop suggesting" button gets a native loopback route (CM041 #216, v1.0.108) -- `doctor`
+
+Tree `doctor`, one file. NEW CM051-side behaviour. `vendor/doctor/agent/web_ui.py`: new `@app.post("/api/v1/people/{slug}/suppress-suggestions")` handler `api_people_suppress_suggestions` plus the helper `_forward_suppress_suggestions` (and the module constants `_SUPPRESS_SUGGESTIONS_PATH`, `_SUPPRESS_SLUG_RE`, `_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS`), inserted directly after the `/api/v1/wiki/correct` handler and BEFORE `register_proxy_routes(app)` so the explicit route wins over the proxy catch-all. It is Doctor-NATIVE and unauthenticated, the SAME trust model as `/api/v1/wiki/correct`, because the wiki person-page "Stop suggesting" button is an unpaired browser (CM044 `correction_overlay.js` shape: POST, `Content-Type: application/json`, no `Authorization`, cross-origin to :8089) and cannot present a paired bearer for the `DOCTOR_PROXY_PATHS` proxy. The handler validates the slug and the `{suppressed, reason}` body, then forwards to the loopback ical-server (`proxy._gateway_base_url`, :8090) with the per-install service token attached (`proxy._resolve_service_token`), and returns the upstream result verbatim. Pairs with the `cm041/assistant_api` endpoint `api_people_suppress_suggestions` (the #216 graft; it owns the suppression logic). The HR015 doctor twin is OWED; `doctor.patch` is NOT regenerated (the tree is `regenerate_forbidden`).
+
+### What a future sync must preserve
+
+The handler, the forward helper, the three module constants, and the pre-`register_proxy_routes` registration order. Guarded by `tests/test_suppress_suggestions_loopback_reaches_the_store.py` (workflow `suppress-suggestions-loopback.yml`), which drives the real handler and helper: an unpaired/no-bearer request is accepted and forwarded with the service token, and a negative control proves a missing service token leaks no credential.
+
+## doctor: the Documents-folder access tile is wired into the dashboard (launch-blocker install UX fix) -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level
+`from documents_access_posture import render_documents_access_posture`, one
+`documents_access_section = render_documents_access_posture()` call in the
+dashboard renderer beside the other permission-posture tiles, and one
+`{documents_access_section}` placeholder in the dashboard HTML between the
+Reminders install-time tile and the Reminders runtime tile.
+
+The render function, the live write probe and the customer copy live in a NEW
+vendor-only module, `vendor/doctor/agent/documents_access_posture.py`, declared
+in `vendor/VENDOR_ONLY.tsv` (route d), not here. This record covers only the
+`web_ui.py` wiring edit, which is a shared file the `doctor.patch` would
+otherwise own.
+
+### Why there is no patch, re-measured rather than inherited
+
+`scripts/regenerate_divergence_patch.sh doctor` was run on 2026-10-17 and
+REFUSED, exit non-zero, before any source checkout: "doctor is marked
+regenerate_forbidden in VENDOR_MANIFEST.toml." The ban's reason is the
+source-status panel that exists only in CM051 (Board #2219); regenerating from
+the lossy tree would record a re-pin as local edits, or a sync would delete a
+shipped customer surface. So the `doctor` tree's `web_ui.py` divergence cannot
+be recorded in `doctor.patch`, and this file is the record instead. A grep of
+`doctor.patch` for `render_documents_access_posture` returns nothing, and that
+means NOT RECORDED there, not NOT DIVERGED.
+
+### What a future sync must preserve
+
+The import, the `documents_access_section` call, and the
+`{documents_access_section}` placeholder in `web_ui.py`, plus the vendor-only
+module they depend on. Guarded by
+`tests/test_documents_access_doctor_denied_row.py` (workflow
+`consent-data-handling.yml`).

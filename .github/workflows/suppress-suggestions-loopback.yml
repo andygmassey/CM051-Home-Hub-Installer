@@ -1,0 +1,55 @@
+name: suppress-suggestions-loopback
+
+# CM041 #216 loopback half (v1.0.108). THE "STOP SUGGESTING" BUTTON HAD NO
+# ROUTE HOME.
+#
+# The ical-server (:8090) carries api_people_suppress_suggestions
+# (POST /api/v1/people/{slug}/suppress-suggestions), the owner-settable
+# do-not-suggest control that keeps a deceased or unwanted contact out of
+# every proactive surface without deleting them. The wiki person-page "Stop
+# suggesting" button POSTs it -- and that button is an UNPAIRED browser on the
+# wiki page, exactly like the correction pencil that POSTs /api/v1/wiki/correct
+# (CM044 correction_overlay.js: POST, Content-Type application/json, NO
+# Authorization, cross-origin to the Doctor on :8089). It holds no paired-iOS
+# bearer, so it CANNOT use the DOCTOR_PROXY_PATHS reverse proxy, which validates
+# a paired bearer and 401s an unpaired caller. So the Doctor serves it as a
+# NATIVE unauthenticated route (vendor/doctor/agent/web_ui.py), the same trust
+# model as /api/v1/wiki/correct, that forwards to the ical-server WITH the
+# per-install service token -- the token the browser neither has nor needs.
+#
+# This job drives the REAL web_ui.py (not a reimplementation): the native
+# handler accepts an unpaired/no-bearer request and forwards its body; a
+# malformed slug or body is rejected 400 and nothing is forwarded; the forward
+# helper attaches the service token; and a negative control proves a missing
+# service token fabricates no credential.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/proxy.py'
+      - 'tests/test_suppress_suggestions_loopback_reaches_the_store.py'
+      - '.github/workflows/suppress-suggestions-loopback.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  native-loopback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies the real web_ui.py module imports
+        run: python3 -m pip install --quiet fastapi httpx
+      - name: The unpaired wiki button is accepted and forwarded to the store with the service token
+        run: python3 tests/test_suppress_suggestions_loopback_reaches_the_store.py -v

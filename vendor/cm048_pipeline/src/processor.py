@@ -34,6 +34,7 @@ from . import enrichment_validation
 from . import bulk_classifier as _bulk_classifier
 from . import bundle_extractor as _bundle_extractor
 from . import channel_adapter as _channel_adapter
+from . import handle_resolver as _handle_resolver
 from . import conversation_writer as _conversation_writer
 from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
@@ -213,6 +214,24 @@ def process(
         resolved_privacy_level,
         conversation_id,
     )
+
+    # Andy's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
+    # phone/email handle to their NAME so the extraction LLM writes "Jane
+    # Doe agreed to..." not "+447700900123 agreed to...". The
+    # extraction steps below read the `transcript` var, so resolving here still
+    # reaches the fact text.
+    #
+    # PLACED AFTER the privacy level is resolved and SKIPPED for L3 (Archie #87
+    # privacy review): an L3 conversation must produce ZERO store traffic, and
+    # name resolution reads the People graph, so it must never run for L3. The
+    # guard is test_pipeline_l3_conversation_lands_no_topics (oxigraph.requests
+    # == []). Guarded: an unreachable graph leaves handles unresolved, never
+    # blocks ingest.
+    if resolved_privacy_level != "L3":
+        try:
+            transcript, metadata = _handle_resolver.resolve(transcript, metadata, settings)
+        except Exception as exc:  # noqa: BLE001 -- must never block ingest
+            logger.warning("handle resolution skipped for %s: %s", conversation_id, exc)
 
     # Non-relational gate (bulk / marketing / no-reply email).
     # CM046 feeds newsletters, shipping notifications and marketing
