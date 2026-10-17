@@ -1,0 +1,5696 @@
+{
+ "about": "Synthetic demo-life golden counts (fictional persona). Counts only. Built by walkdriver gen/build_conservation_expected.py. chain = box-intrinsic, any box; full = box loaded with the demo-life set plus exports. UNCALIBRATED: every non-preference row of `full` is calibrated against the Studio logs for iMessage/WhatsApp keys only; recalibrate on the first golden-loaded walk.",
+ "profiles": {
+  "chain": {
+   "rows": [
+    {
+     "template": "preferences_pairs"
+    },
+    {
+     "category": "people",
+     "facts": {
+      "in": "log.whatsapp_people_added",
+      "shown": "doctor.whatsapp.item_count",
+      "stored": "hyd.whatsapp.item_count"
+     },
+     "id": "whatsapp/people",
+     "source": "whatsapp",
+     "unit": "people"
+    },
+    {
+     "category": "person",
+     "facts": {
+      "graph": "x.class.Person",
+      "in": "hyd.people.item_count",
+      "shown": "w.shown.people.source=fda_people_index",
+      "stored": "q.people.total"
+     },
+     "id": "people/all",
+     "source": "people",
+     "unit": "people"
+    },
+    {
+     "category": "messages",
+     "chain": false,
+     "expected": {},
+     "facts": {
+      "in": "log.imessage_messages",
+      "shown": "doctor.imessage.last_run_count"
+     },
+     "id": "imessage/summary",
+     "source": "imessage",
+     "unit": "messages"
+    },
+    {
+     "category": "messages",
+     "chain": false,
+     "facts": {
+      "in": "log.whatsapp_t1_dm"
+     },
+     "id": "whatsapp/summary",
+     "source": "whatsapp",
+     "unit": "messages"
+    },
+    {
+     "category": "areas",
+     "expected": {
+      "shown": 1,
+      "stored": 1
+     },
+     "facts": {
+      "shown": "w.pages.Places",
+      "stored": "x.class.Place"
+     },
+     "id": "wiki/places-headline",
+     "known_gap": "the Places headline reads 'areas', which no writer produces (Archie 2026-10-15); nothing stored under that name can ever be shown",
+     "source": "places",
+     "unit": "pages"
+    }
+   ]
+  },
+  "full": {
+   "rows": [
+    {
+     "category": "people",
+     "facts": {
+      "in": "log.whatsapp_people_added",
+      "shown": "doctor.whatsapp.item_count",
+      "stored": "hyd.whatsapp.item_count"
+     },
+     "id": "whatsapp/people",
+     "source": "whatsapp",
+     "unit": "people"
+    },
+    {
+     "category": "person",
+     "facts": {
+      "graph": "x.class.Person",
+      "in": "hyd.people.item_count",
+      "shown": "w.shown.people.source=fda_people_index",
+      "stored": "q.people.total"
+     },
+     "id": "people/all",
+     "source": "people",
+     "unit": "people"
+    },
+    {
+     "category": "messages",
+     "chain": false,
+     "expected": {},
+     "facts": {
+      "in": "log.imessage_messages",
+      "shown": "doctor.imessage.last_run_count"
+     },
+     "id": "imessage/summary",
+     "source": "imessage",
+     "unit": "messages"
+    },
+    {
+     "category": "messages",
+     "chain": false,
+     "facts": {
+      "in": "log.whatsapp_t1_dm"
+     },
+     "id": "whatsapp/summary",
+     "source": "whatsapp",
+     "unit": "messages"
+    },
+    {
+     "category": "areas",
+     "expected": {
+      "shown": 1,
+      "stored": 1
+     },
+     "facts": {
+      "shown": "w.pages.Places",
+      "stored": "x.class.Place"
+     },
+     "id": "wiki/places-headline",
+     "known_gap": "the Places headline reads 'areas', which no writer produces (Archie 2026-10-15); nothing stored under that name can ever be shown",
+     "source": "places",
+     "unit": "pages"
+    },
+    {
+     "category": "books",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=books",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=books",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=books",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=books",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=books",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/books",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "electronics",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=electronics",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=electronics",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=electronics",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=electronics",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=electronics",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/electronics",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 12,
+     "writer_excluded": 4,
+     "writer_excluded_why": "duplicate_aggregated x3; shape_gate x1"
+    },
+    {
+     "category": "fashion",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=fashion",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=fashion",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=fashion",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=fashion",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=fashion",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/fashion",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "health",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=health",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=health",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=health",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=health",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=health",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/health",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "home",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=home",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=home",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=home",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=home",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=home",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/home",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "music",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=music",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=music",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=music",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/music",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "shopping",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=shopping",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=shopping",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=shopping",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=shopping",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=shopping",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/shopping",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 10,
+     "writer_excluded": 2,
+     "writer_excluded_why": "low_value x1; shape_gate x1"
+    },
+    {
+     "category": "sports",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=sports",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=sports",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=sports",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=sports",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=sports",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/sports",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "toys",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=amazon|category=toys",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=amazon|category=toys",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=amazon|category=toys",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=amazon|category=toys",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=amazon|category=toys",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/amazon/toys",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "amazon",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "app",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=app",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=app",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=app",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/app",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "app_subscription",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=app_subscription",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=app_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=app_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=app_subscription",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=app_subscription",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/app_subscription",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "apps",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=apps",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 13,
+      "stored": 13
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=apps",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=apps",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=apps",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=apps",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/apps",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 13,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "book",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=book",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=book",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=book",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/book",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "bookmark",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=bookmark",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=bookmark",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=bookmark",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=bookmark",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=bookmark",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/bookmark",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 8,
+     "writer_excluded": 3,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1; shape_gate x1"
+    },
+    {
+     "category": "books",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=books",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 14,
+      "stored": 14
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=books",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=books",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=books",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=books",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/books",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 15,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "fitness",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=fitness",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=fitness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=fitness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=fitness",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=fitness",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/fitness",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "fitness_subscription",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=fitness_subscription",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=fitness_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=fitness_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=fitness_subscription",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=fitness_subscription",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/fitness_subscription",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "hardware",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=hardware",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=hardware",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=hardware",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=hardware",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=hardware",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/hardware",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "health",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=health",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 9,
+      "stored": 9
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=health",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=health",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=health",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=health",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/health",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 9,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "ios_app",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=ios_app",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=ios_app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=ios_app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=ios_app",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=ios_app",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/ios_app",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "lifestyle",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=lifestyle",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=lifestyle",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=lifestyle",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=lifestyle",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=lifestyle",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/lifestyle",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 6,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "mac_app",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=mac_app",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=mac_app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=mac_app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=mac_app",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=mac_app",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/mac_app",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "marketing",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=marketing",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=marketing",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=marketing",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=marketing",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=marketing",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/marketing",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 6,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; shape_gate x1"
+    },
+    {
+     "category": "movie_tv",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=movie_tv",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 7,
+      "stored": 7
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=movie_tv",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=movie_tv",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/movie_tv",
+     "parsers": [
+      "appletv"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 9,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1"
+    },
+    {
+     "category": "music",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=music",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 38,
+      "stored": 38
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=music",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=music",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/music",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 42,
+     "writer_excluded": 4,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x2; shape_gate x1"
+    },
+    {
+     "category": "music_subscription",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=music_subscription",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=music_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=music_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=music_subscription",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=music_subscription",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/music_subscription",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "news_subscription",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=news_subscription",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=news_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=news_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=news_subscription",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=news_subscription",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/news_subscription",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "organization",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=organization",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=organization",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=organization",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=organization",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=organization",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/organization",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "personal_notes",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=personal_notes",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=personal_notes",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=personal_notes",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=personal_notes",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=personal_notes",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/personal_notes",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 3,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1; shape_gate x1"
+    },
+    {
+     "category": "podcast",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=podcast",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 12,
+      "stored": 12
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=podcast",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=podcast",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=podcast",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=podcast",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/podcast",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 14,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x2"
+    },
+    {
+     "category": "reviews",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=reviews",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=reviews",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=reviews",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=reviews",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=reviews",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/reviews",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "storage_subscription",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=storage_subscription",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=storage_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=storage_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=storage_subscription",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=storage_subscription",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/storage_subscription",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "streaming",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=streaming",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=streaming",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=streaming",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=streaming",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=streaming",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/streaming",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 1,
+     "writer_excluded_why": "low_value x1"
+    },
+    {
+     "category": "subscription",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=subscription",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=subscription",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=subscription",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/subscription",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 1,
+     "writer_excluded_why": "shape_gate x1"
+    },
+    {
+     "category": "tv_subscription",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=tv_subscription",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=tv_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=tv_subscription",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=tv_subscription",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=tv_subscription",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/tv_subscription",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "video",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=video",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=video",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=video",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=video",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=video",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/video",
+     "parsers": [
+      "apple",
+      "appletv"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 11,
+     "writer_excluded": 3,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1; shape_gate x1"
+    },
+    {
+     "category": "wellness",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple|category=wellness",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple|category=wellness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple|category=wellness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple|category=wellness",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple|category=wellness",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple/wellness",
+     "parsers": [
+      "apple"
+     ],
+     "source": "apple",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "media/viewing",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple_tv|category=media/viewing",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple_tv|category=media/viewing",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple_tv|category=media/viewing",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple_tv|category=media/viewing",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple_tv|category=media/viewing",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple_tv/media/viewing",
+     "parsers": [
+      "appletv"
+     ],
+     "source": "apple_tv",
+     "unit": "preferences",
+     "writer_emitted": 12,
+     "writer_excluded": 4,
+     "writer_excluded_why": "duplicate_aggregated x2; low_value x1; shape_gate x1"
+    },
+    {
+     "category": "movie",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple_tv|category=movie",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple_tv|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple_tv|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple_tv|category=movie",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple_tv|category=movie",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple_tv/movie",
+     "parsers": [
+      "appletv"
+     ],
+     "source": "apple_tv",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "tv_show",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=apple_tv|category=tv_show",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=apple_tv|category=tv_show",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=apple_tv|category=tv_show",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=apple_tv|category=tv_show",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=apple_tv|category=tv_show",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/apple_tv/tv_show",
+     "parsers": [
+      "appletv"
+     ],
+     "source": "apple_tv",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 1,
+     "writer_excluded_why": "low_value x1"
+    },
+    {
+     "category": "book",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=book",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=book",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=book",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/book",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "books",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=books",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=books",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=books",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=books",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=books",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/books",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "food",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=food",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 7,
+      "stored": 7
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=food",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=food",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=food",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=food",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/food",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 9,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1"
+    },
+    {
+     "category": "hobby",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=hobby",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=hobby",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=hobby",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=hobby",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=hobby",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/hobby",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "interest",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=interest",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=interest",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=interest",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/interest",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 1,
+     "writer_excluded_why": "low_value x1"
+    },
+    {
+     "category": "movie",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=movie",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=movie",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=movie",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/movie",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "movies",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=movies",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=movies",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=movies",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=movies",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=movies",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/movies",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "music",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=music",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=music",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=music",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/music",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "place",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=place",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=place",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=place",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=place",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=place",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/place",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "podcast",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=podcast",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=podcast",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=podcast",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=podcast",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=podcast",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/podcast",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "professional",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=professional",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=professional",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=professional",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=professional",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=professional",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/professional",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "shopping",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=shopping",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 0,
+      "stored": 0
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=shopping",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=shopping",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=shopping",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=shopping",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/shopping",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 1,
+     "writer_excluded_why": "shape_gate x1"
+    },
+    {
+     "category": "social",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=social",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 0,
+      "stored": 0
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=social",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=social",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=social",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=social",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/social",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 1,
+     "writer_excluded_why": "dropped_category x1"
+    },
+    {
+     "category": "tea",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=tea",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 0,
+      "stored": 0
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=tea",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=tea",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=tea",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=tea",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/tea",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 1,
+     "writer_excluded_why": "shape_gate x1"
+    },
+    {
+     "category": "travel",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=travel",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=travel",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=travel",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=travel",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=travel",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/travel",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "tv",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=tv",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=tv",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=tv",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/tv",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "work",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=csv|category=work",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=csv|category=work",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=csv|category=work",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=csv|category=work",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=csv|category=work",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/csv/work",
+     "parsers": [
+      "csv_parser"
+     ],
+     "source": "csv",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "community",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=discord|category=community",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=discord|category=community",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=discord|category=community",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=discord|category=community",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=discord|category=community",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/discord/community",
+     "parsers": [
+      "discord"
+     ],
+     "source": "discord",
+     "unit": "preferences",
+     "writer_emitted": 12,
+     "writer_excluded": 4,
+     "writer_excluded_why": "duplicate_aggregated x3; shape_gate x1"
+    },
+    {
+     "category": "content",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=discord|category=content",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=discord|category=content",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=discord|category=content",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=discord|category=content",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=discord|category=content",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/discord/content",
+     "parsers": [
+      "discord"
+     ],
+     "source": "discord",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "gaming",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=discord|category=gaming",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=discord|category=gaming",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=discord|category=gaming",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=discord|category=gaming",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=discord|category=gaming",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/discord/gaming",
+     "parsers": [
+      "discord"
+     ],
+     "source": "discord",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 1,
+     "writer_excluded_why": "low_value x1"
+    },
+    {
+     "category": "social",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=discord|category=social",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 0,
+      "stored": 0
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=discord|category=social",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=discord|category=social",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=discord|category=social",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=discord|category=social",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/discord/social",
+     "parsers": [
+      "discord"
+     ],
+     "source": "discord",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 3,
+     "writer_excluded_why": "dropped_category x3"
+    },
+    {
+     "category": "entertainment",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=disney_plus|category=entertainment",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=disney_plus|category=entertainment",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=disney_plus|category=entertainment",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=disney_plus|category=entertainment",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=disney_plus|category=entertainment",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/disney_plus/entertainment",
+     "parsers": [
+      "disney"
+     ],
+     "source": "disney_plus",
+     "unit": "preferences",
+     "writer_emitted": 6,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "movie",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=disney_plus|category=movie",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 9,
+      "stored": 9
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=disney_plus|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=disney_plus|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=disney_plus|category=movie",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=disney_plus|category=movie",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/disney_plus/movie",
+     "parsers": [
+      "disney"
+     ],
+     "source": "disney_plus",
+     "unit": "preferences",
+     "writer_emitted": 13,
+     "writer_excluded": 4,
+     "writer_excluded_why": "duplicate_aggregated x2; low_value x1; shape_gate x1"
+    },
+    {
+     "category": "tv_show",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=disney_plus|category=tv_show",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 12,
+      "stored": 12
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=disney_plus|category=tv_show",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=disney_plus|category=tv_show",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=disney_plus|category=tv_show",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=disney_plus|category=tv_show",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/disney_plus/tv_show",
+     "parsers": [
+      "disney"
+     ],
+     "source": "disney_plus",
+     "unit": "preferences",
+     "writer_emitted": 14,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1"
+    },
+    {
+     "category": "book",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=book",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=book",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=book",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/book",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "electronics",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=electronics",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 14,
+      "stored": 14
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=electronics",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=electronics",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=electronics",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=electronics",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/electronics",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 16,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; shape_gate x1"
+    },
+    {
+     "category": "fashion",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=fashion",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 9,
+      "stored": 9
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=fashion",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=fashion",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=fashion",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=fashion",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/fashion",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 10,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "fitness",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=fitness",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=fitness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=fitness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=fitness",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=fitness",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/fitness",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "hobby",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=hobby",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=hobby",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=hobby",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=hobby",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=hobby",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/hobby",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 6,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "home",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=home",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=home",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=home",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=home",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=home",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/home",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "kids",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=kids",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=kids",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=kids",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=kids",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=kids",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/kids",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "media",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=media",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=media",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=media",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=media",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=media",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/media",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "product",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=product",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=product",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=product",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=product",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=product",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/product",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 8,
+     "writer_excluded": 3,
+     "writer_excluded_why": "duplicate_aggregated x2; low_value x1"
+    },
+    {
+     "category": "sports",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=sports",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=sports",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=sports",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=sports",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=sports",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/sports",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "vehicle",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=ebay|category=vehicle",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 7,
+      "stored": 7
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=ebay|category=vehicle",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=ebay|category=vehicle",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=ebay|category=vehicle",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=ebay|category=vehicle",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/ebay/vehicle",
+     "parsers": [
+      "ebay"
+     ],
+     "source": "ebay",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "book",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=facebook|category=book",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=facebook|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=facebook|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=facebook|category=book",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=facebook|category=book",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/facebook/book",
+     "parsers": [
+      "meta"
+     ],
+     "source": "facebook",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "engagement",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=facebook|category=engagement",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=facebook|category=engagement",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=facebook|category=engagement",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=facebook|category=engagement",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=facebook|category=engagement",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/facebook/engagement",
+     "parsers": [
+      "meta"
+     ],
+     "source": "facebook",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "facebook_content",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=facebook|category=facebook_content",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=facebook|category=facebook_content",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=facebook|category=facebook_content",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=facebook|category=facebook_content",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=facebook|category=facebook_content",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/facebook/facebook_content",
+     "parsers": [
+      "meta"
+     ],
+     "source": "facebook",
+     "unit": "preferences",
+     "writer_emitted": 8,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1"
+    },
+    {
+     "category": "movie_tv",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=facebook|category=movie_tv",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=facebook|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=facebook|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=facebook|category=movie_tv",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=facebook|category=movie_tv",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/facebook/movie_tv",
+     "parsers": [
+      "meta"
+     ],
+     "source": "facebook",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "music",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=facebook|category=music",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=facebook|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=facebook|category=music",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=facebook|category=music",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=facebook|category=music",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/facebook/music",
+     "parsers": [
+      "meta"
+     ],
+     "source": "facebook",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "shared_link",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=facebook|category=shared_link",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=facebook|category=shared_link",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=facebook|category=shared_link",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=facebook|category=shared_link",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=facebook|category=shared_link",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/facebook/shared_link",
+     "parsers": [
+      "meta"
+     ],
+     "source": "facebook",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 1,
+     "writer_excluded_why": "shape_gate x1"
+    },
+    {
+     "category": "social",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=facebook|category=social",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 0,
+      "stored": 0
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=facebook|category=social",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=facebook|category=social",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=facebook|category=social",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=facebook|category=social",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/facebook/social",
+     "parsers": [
+      "meta"
+     ],
+     "source": "facebook",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 4,
+     "writer_excluded_why": "dropped_category x4"
+    },
+    {
+     "category": "interest",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=foursquare|category=interest",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=foursquare|category=interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=foursquare|category=interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=foursquare|category=interest",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=foursquare|category=interest",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/foursquare/interest",
+     "parsers": [
+      "foursquare"
+     ],
+     "source": "foursquare",
+     "unit": "preferences",
+     "writer_emitted": 9,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "place",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=foursquare|category=place",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 40,
+      "stored": 40
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=foursquare|category=place",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=foursquare|category=place",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=foursquare|category=place",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=foursquare|category=place",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/foursquare/place",
+     "parsers": [
+      "foursquare"
+     ],
+     "source": "foursquare",
+     "unit": "preferences",
+     "writer_emitted": 62,
+     "writer_excluded": 22,
+     "writer_excluded_why": "duplicate_aggregated x20; low_value x1; shape_gate x1"
+    },
+    {
+     "category": "travel",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=foursquare|category=travel",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=foursquare|category=travel",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=foursquare|category=travel",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=foursquare|category=travel",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=foursquare|category=travel",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/foursquare/travel",
+     "parsers": [
+      "foursquare"
+     ],
+     "source": "foursquare",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "app",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=app",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=app",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=app",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=app",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/app",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 9,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "automotive",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=automotive",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=automotive",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=automotive",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=automotive",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=automotive",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/automotive",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "culture",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=culture",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=culture",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=culture",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=culture",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=culture",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/culture",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "education",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=education",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=education",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=education",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=education",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=education",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/education",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "family",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=family",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=family",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=family",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=family",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=family",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/family",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "fitness",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=fitness",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 3,
+      "stored": 3
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=fitness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=fitness",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=fitness",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=fitness",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/fitness",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "food",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=food",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 7,
+      "stored": 7
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=food",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=food",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=food",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=food",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/food",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "movie_tv",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=movie_tv",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=movie_tv",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=movie_tv",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/movie_tv",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 4,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "personal_care",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=personal_care",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 1,
+      "stored": 1
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=personal_care",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=personal_care",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=personal_care",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=personal_care",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/personal_care",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 1,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "place",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=place",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 14,
+      "stored": 14
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=place",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=place",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=place",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=place",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/place",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 16,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1"
+    },
+    {
+     "category": "professional",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=professional",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=professional",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=professional",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=professional",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=professional",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/professional",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "search_interest",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=search_interest",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 7,
+      "stored": 7
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=search_interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=search_interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=search_interest",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=search_interest",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/search_interest",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "shopping",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=shopping",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=shopping",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=shopping",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=shopping",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=shopping",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/shopping",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "transportation",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=transportation",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=transportation",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=transportation",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=transportation",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=transportation",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/transportation",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 2,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "travel",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=travel",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 8,
+      "stored": 8
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=travel",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=travel",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=travel",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=travel",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/travel",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 8,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "video",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=video",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 15,
+      "stored": 15
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=video",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=video",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=video",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=video",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/video",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 17,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x2"
+    },
+    {
+     "category": "website",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=google_takeout|category=website",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 10,
+      "stored": 10
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=google_takeout|category=website",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=google_takeout|category=website",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=google_takeout|category=website",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=google_takeout|category=website",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/google_takeout/website",
+     "parsers": [
+      "google_takeout"
+     ],
+     "source": "google_takeout",
+     "unit": "preferences",
+     "writer_emitted": 12,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; shape_gate x1"
+    },
+    {
+     "category": "instagram_creator",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=instagram|category=instagram_creator",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=instagram|category=instagram_creator",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=instagram|category=instagram_creator",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=instagram|category=instagram_creator",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=instagram|category=instagram_creator",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/instagram/instagram_creator",
+     "parsers": [
+      "meta"
+     ],
+     "source": "instagram",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "book",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=kindle|category=book",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 14,
+      "stored": 14
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=kindle|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=kindle|category=book",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=kindle|category=book",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=kindle|category=book",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/kindle/book",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "kindle",
+     "unit": "preferences",
+     "writer_emitted": 14,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "insight",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=kindle|category=insight",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=kindle|category=insight",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=kindle|category=insight",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=kindle|category=insight",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=kindle|category=insight",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/kindle/insight",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "kindle",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 1,
+     "writer_excluded_why": "low_value x1"
+    },
+    {
+     "category": "education",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=linkedin|category=education",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=linkedin|category=education",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=linkedin|category=education",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=linkedin|category=education",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=linkedin|category=education",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/linkedin/education",
+     "parsers": [
+      "linkedin"
+     ],
+     "source": "linkedin",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 3,
+     "writer_excluded_why": "duplicate_aggregated x1; shape_gate x2"
+    },
+    {
+     "category": "inferred_interest",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=linkedin|category=inferred_interest",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=linkedin|category=inferred_interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=linkedin|category=inferred_interest",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=linkedin|category=inferred_interest",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=linkedin|category=inferred_interest",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/linkedin/inferred_interest",
+     "parsers": [
+      "linkedin"
+     ],
+     "source": "linkedin",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "professional",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=linkedin|category=professional",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 17,
+      "stored": 17
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=linkedin|category=professional",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=linkedin|category=professional",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=linkedin|category=professional",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=linkedin|category=professional",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/linkedin/professional",
+     "parsers": [
+      "linkedin"
+     ],
+     "source": "linkedin",
+     "unit": "preferences",
+     "writer_emitted": 21,
+     "writer_excluded": 4,
+     "writer_excluded_why": "duplicate_aggregated x3; low_value x1"
+    },
+    {
+     "category": "social_media",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=linkedin|category=social_media",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 6,
+      "stored": 6
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=linkedin|category=social_media",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=linkedin|category=social_media",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=linkedin|category=social_media",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=linkedin|category=social_media",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/linkedin/social_media",
+     "parsers": [
+      "linkedin"
+     ],
+     "source": "linkedin",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "event",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=meta|category=event",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=meta|category=event",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=meta|category=event",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=meta|category=event",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=meta|category=event",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/meta/event",
+     "parsers": [
+      "meta"
+     ],
+     "source": "meta",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "page",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=meta|category=page",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 5,
+      "stored": 5
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=meta|category=page",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=meta|category=page",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=meta|category=page",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=meta|category=page",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/meta/page",
+     "parsers": [
+      "meta"
+     ],
+     "source": "meta",
+     "unit": "preferences",
+     "writer_emitted": 7,
+     "writer_excluded": 2,
+     "writer_excluded_why": "duplicate_aggregated x1; low_value x1"
+    },
+    {
+     "category": "saved",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=meta|category=saved",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=meta|category=saved",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=meta|category=saved",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=meta|category=saved",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=meta|category=saved",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/meta/saved",
+     "parsers": [
+      "meta"
+     ],
+     "source": "meta",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "game",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=netflix|category=game",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 2,
+      "stored": 2
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=netflix|category=game",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=netflix|category=game",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=netflix|category=game",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=netflix|category=game",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/netflix/game",
+     "parsers": [
+      "netflix"
+     ],
+     "source": "netflix",
+     "unit": "preferences",
+     "writer_emitted": 3,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "movie",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=netflix|category=movie",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 14,
+      "stored": 14
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=netflix|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=netflix|category=movie",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=netflix|category=movie",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=netflix|category=movie",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/netflix/movie",
+     "parsers": [
+      "netflix"
+     ],
+     "source": "netflix",
+     "unit": "preferences",
+     "writer_emitted": 21,
+     "writer_excluded": 7,
+     "writer_excluded_why": "duplicate_aggregated x5; low_value x1; shape_gate x1"
+    },
+    {
+     "category": "search",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=netflix|category=search",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 4,
+      "stored": 4
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=netflix|category=search",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=netflix|category=search",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=netflix|category=search",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=netflix|category=search",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/netflix/search",
+     "parsers": [
+      "netflix"
+     ],
+     "source": "netflix",
+     "unit": "preferences",
+     "writer_emitted": 5,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "tv_show",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=netflix|category=tv_show",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 9,
+      "stored": 9
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=netflix|category=tv_show",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=netflix|category=tv_show",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=netflix|category=tv_show",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=netflix|category=tv_show",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/netflix/tv_show",
+     "parsers": [
+      "netflix"
+     ],
+     "source": "netflix",
+     "unit": "preferences",
+     "writer_emitted": 9,
+     "writer_excluded": 0,
+     "writer_excluded_why": ""
+    },
+    {
+     "category": "movie_tv",
+     "exclusions": [
+      {
+       "fact": {
+        "key": "w.denied.preferences.source=prime_video|category=movie_tv",
+        "zero_if": "w.denied.preferences.total"
+       },
+       "reason": "CM044 noise_reason() denied it",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "graph": 9,
+      "stored": 9
+     },
+     "facts": {
+      "graph": {
+       "key": "x.pref.raw.source=prime_video|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "graph_distinct": {
+       "key": "x.pref.distinct.source=prime_video|category=movie_tv",
+       "zero_if": "x.pref.raw.total"
+      },
+      "shown": {
+       "key": "w.shown.preferences.source=prime_video|category=movie_tv",
+       "zero_if": "w.corpus_chars"
+      },
+      "stored": {
+       "key": "q.preferences.source=prime_video|category=movie_tv",
+       "zero_if": "q.preferences.total"
+      }
+     },
+     "id": "preferences/prime_video/movie_tv",
+     "parsers": [
+      "amazon"
+     ],
+     "source": "prime_video",
+     "unit": "preferences",
+     "writer_emitted": 10,
+     "writer_excluded": 1,
+     "writer_excluded_why": "duplicate_aggregated x1"
+    },
+    {
+     "category": "preferences",
+     "chain": false,
+     "expected": {
+      "in": 760
+     },
+     "facts": {
+      "in": "log.ingest.seen"
+     },
+     "id": "ingest/aggregate",
+     "note": "every preference the parsers emitted before any drop; a file with no parser never reaches it, so a shortfall here is an unmatched or skipped export",
+     "source": "ALL-PARSERS",
+     "unit": "preferences"
+    },
+    {
+     "category": "messages",
+     "chain": false,
+     "expected": {
+      "in": 1075,
+      "shown": 1075
+     },
+     "facts": {
+      "in": "log.imessage_messages",
+      "shown": "doctor.imessage.last_run_count"
+     },
+     "id": "imessage/messages",
+     "source": "imessage",
+     "unit": "messages"
+    },
+    {
+     "category": "conversations",
+     "chain": false,
+     "expected": {
+      "in": 26
+     },
+     "facts": {
+      "in": "log.imessage_conversations"
+     },
+     "id": "imessage/conversations",
+     "source": "imessage",
+     "unit": "chats"
+    },
+    {
+     "category": "conversations",
+     "chain": false,
+     "expected": {
+      "in": 46
+     },
+     "facts": {
+      "in": [
+       "log.whatsapp_t1_dm",
+       "log.whatsapp_t2_intimate",
+       "log.whatsapp_t2_active",
+       "log.whatsapp_t3_skipped"
+      ]
+     },
+     "id": "whatsapp/chats",
+     "source": "whatsapp",
+     "unit": "chats"
+    },
+    {
+     "category": "mbox",
+     "chain": false,
+     "expected": {
+      "in": 476
+     },
+     "facts": {
+      "in": "log.mbox_emitted"
+     },
+     "id": "mail/mbox",
+     "source": "mail",
+     "unit": "messages"
+    },
+    {
+     "category": "all-types",
+     "chain": false,
+     "expected": {
+      "in": 172
+     },
+     "facts": {
+      "in": "log.calendar_events"
+     },
+     "id": "calendar/events",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "vcards",
+     "chain": false,
+     "expected": {
+      "in": 301
+     },
+     "facts": {
+      "in": "log.contacts_vcards"
+     },
+     "id": "contacts/vcards",
+     "source": "contacts",
+     "unit": "cards"
+    },
+    {
+     "category": "all",
+     "chain": false,
+     "expected": {
+      "in": 32
+     },
+     "facts": {
+      "in": "log.notes_notes"
+     },
+     "id": "notes/notes",
+     "source": "notes",
+     "unit": "notes"
+    },
+    {
+     "category": "birthdays",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "exclusions": [
+      {
+       "count": 3,
+       "reason": "type 'birthdays' has no entry in the ICS privacy map, written at L3 and withheld by design today (google_calendar.py)",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "shown": 0,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=birthdays|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=birthdays|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/birthdays.ics",
+     "id": "calendar/birthdays",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "family",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 4,
+     "expected": {
+      "shown": 4,
+      "stored": 4
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=family|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=family|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/family.ics",
+     "id": "calendar/family",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "holidays",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 4,
+     "exclusions": [
+      {
+       "count": 4,
+       "reason": "type 'holidays' has no entry in the ICS privacy map, written at L3 and withheld by design today (google_calendar.py)",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "shown": 0,
+      "stored": 4
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=holidays|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=holidays|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/holidays.ics",
+     "id": "calendar/holidays",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "other",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "expected": {
+      "shown": 3,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=other|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=other|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/other.ics",
+     "id": "calendar/other",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "personal",
+     "chain": false,
+     "duplicates_collapsed": 1,
+     "events_in_file": 6,
+     "expected": {
+      "shown": 5,
+      "stored": 5
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=personal|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=personal|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/personal.ics",
+     "id": "calendar/personal",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "shared",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "expected": {
+      "shown": 3,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=shared|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=shared|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/shared.ics",
+     "id": "calendar/shared",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "unconfirmed",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 3,
+     "exclusions": [
+      {
+       "count": 3,
+       "reason": "type 'unconfirmed' has no entry in the ICS privacy map, written at L3 and withheld by design today (google_calendar.py)",
+       "stage": "shown"
+      }
+     ],
+     "expected": {
+      "shown": 0,
+      "stored": 3
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/unconfirmed.ics",
+     "id": "calendar/unconfirmed",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "work",
+     "chain": false,
+     "duplicates_collapsed": 0,
+     "events_in_file": 5,
+     "expected": {
+      "shown": 5,
+      "stored": 5
+     },
+     "facts": {
+      "shown": {
+       "key": "x.calfact.type=work|visible",
+       "zero_if": "x.calfact.total"
+      },
+      "stored": {
+       "key": "x.calfact.type=work|total",
+       "zero_if": "x.calfact.total"
+      }
+     },
+     "fixture": "calendar/work.ics",
+     "id": "calendar/work",
+     "source": "calendar",
+     "unit": "events"
+    },
+    {
+     "category": "history",
+     "chain": false,
+     "exclusions": [
+      {
+       "count": 5,
+       "reason": "sensitive-domain blocklist (5) and non-http/localhost visits, pwg_ingest.py:1930",
+       "stage": "stored"
+      }
+     ],
+     "expected": {
+      "in": 30,
+      "stored": 25
+     },
+     "facts": {
+      "in": "log.safari_visits",
+      "stored": {
+       "key": "q.safari_history.total",
+       "zero_if": "q.safari_history.total"
+      }
+     },
+     "id": "safari/visits",
+     "source": "safari",
+     "unit": "visits"
+    },
+    {
+     "category": "all",
+     "chain": false,
+     "expected": {
+      "in": 12,
+      "stored": 12
+     },
+     "facts": {
+      "in": "log.reminders_total",
+      "stored": {
+       "key": "q.reminders_knowledge.total",
+       "zero_if": "q.reminders_knowledge.total"
+      }
+     },
+     "id": "reminders/items",
+     "note": "blank-title row skipped by design; macOS 26 shape lists_reported 0 and a deleted row's title present are candidate extractor defects (see expected_extra.json)",
+     "source": "reminders",
+     "unit": "reminders"
+    },
+    {
+     "category": "all",
+     "chain": false,
+     "expected": {
+      "in": 6
+     },
+     "facts": {
+      "in": "log.notes_notes"
+     },
+     "id": "apple_notes/notes",
+     "note": "2 password-locked and 2 marked-for-deletion notes are excluded by design (apple_notes.py:529)",
+     "source": "apple_notes",
+     "unit": "notes"
+    },
+    {
+     "category": "apple_mail",
+     "chain": false,
+     "expected": {
+      "in": 31
+     },
+     "facts": {
+      "in": "log.mail_messages"
+     },
+     "id": "mail/apple_mail",
+     "source": "mail",
+     "unit": "messages"
+    },
+    {
+     "category": "extra_vcf",
+     "chain": false,
+     "expected": {
+      "in": 14
+     },
+     "facts": {
+      "in": "log.contacts_vcards"
+     },
+     "id": "contacts/extra",
+     "note": "classified person 7 business 4 unclassified 3",
+     "source": "contacts",
+     "unit": "cards"
+    }
+   ]
+  }
+ },
+ "version": 1
+}

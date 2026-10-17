@@ -69,10 +69,14 @@ logger = logging.getLogger(__name__)
 # abandoned.
 _DISPATCH_TIMEOUT_DEFAULT_SECS = 900
 
-# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
-# returns, so "this document is slow" is never confused with "this
-# document is broken" by whoever reads the log next.
-DISPATCH_TIMEOUT_RC = 75
+# 124, the timeout(1) convention. Deliberately distinct from any code
+# pwg-convo itself returns, so "this document is slow" is never confused
+# with "this document is broken" by whoever reads the log next. NOT 75:
+# `pwg-convo process` exits 75 (EX_TEMPFAIL) when its model or gateway
+# cannot be REACHED, and a catch-up caller reads 75 as an outage (no poison
+# attempt) but 124 as a possibly item-specific hang (counted, unless a
+# health probe finds the sink down).
+DISPATCH_TIMEOUT_RC = 124
 
 
 def _dispatch_timeout_secs():
@@ -414,6 +418,57 @@ def _seed_timeout_secs():
     return None if secs <= 0 else secs
 
 
+# ── #30: the FIRST mail bundle window widens when the default holds too little ─
+# Same rule as imessage_source/pipeline.py (and ostler_fda.backfill_ladder): the
+# tick reads --since-days 30 (2 in the daytime clamp), so a sparse mailbox got 0
+# thread bundles on day one. On the FIRST tick only, if the window holds under
+# 2,000 messages and under 50 threads, widen backwards until either is met or
+# the history is exhausted. Never during the install (the first tick after it
+# widens), never past 180 s, never when OSTLER_EMAIL_SINCE_DAYS is pinned.
+FIRST_WINDOW_MIN_MESSAGES = 2000
+FIRST_WINDOW_MIN_CONVERSATIONS = 50
+FIRST_WINDOW_RUNGS = [90, 180, 365, 730, 1095, 1825, 3650, 36500]
+FIRST_WINDOW_BUDGET_SECONDS = 180
+
+
+def _install_running() -> bool:
+    home = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
+    return (Path(home) / "state" / "install-in-progress").exists()
+
+
+def _widen_first_window(state, messages, threads, mail_dir, since_days, user_address,
+                        min_thread_messages):
+    if "first_window" in state or os.environ.get("OSTLER_EMAIL_SINCE_DAYS", "").strip():
+        return messages, threads
+    msgs, convs = len(messages), len(threads)
+    if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
+        state["first_window"] = {"days": since_days, "result": "kept"}
+        logger.info("[first-window] email-bundle kept %dd: %d messages, %d threads",
+                    since_days, msgs, convs)
+        return messages, threads
+    if _install_running():
+        logger.info("[first-window] email-bundle deferred: busy (installing); "
+                    "the first tick after the install widens it")
+        return messages, threads
+    widen_t0 = time.monotonic()
+    days, result = since_days, "exhausted"
+    for rung in (r for r in FIRST_WINDOW_RUNGS if r > since_days):
+        if time.monotonic() - widen_t0 >= FIRST_WINDOW_BUDGET_SECONDS:
+            result = "budget"
+            break
+        days = rung
+        messages = read_messages(mail_dir=mail_dir, since_days=rung, user_address=user_address)
+        threads = thread_messages(messages, min_thread_messages=min_thread_messages)
+        msgs, convs = len(messages), len(threads)
+        if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
+            result = "widened"
+            break
+    state["first_window"] = {"days": days, "result": result}
+    logger.info("[first-window] email-bundle %s: default %dd -> %dd: %d messages, %d threads",
+                result, since_days, days, msgs, convs)
+    return messages, threads
+
+
 def process_email(
     *,
     mail_dir: Optional[Path] = None,
@@ -455,8 +510,12 @@ def process_email(
     privacy_map = _load_privacy_map(contacts_path)
     name_for_address = _name_resolver(contacts)
 
-    messages = read_messages(mail_dir=mail_dir, since_days=since_days)
+    messages = read_messages(mail_dir=mail_dir, since_days=since_days,
+                             user_address=user_address)
     threads = thread_messages(messages, min_thread_messages=min_thread_messages)
+    if not dry_run:
+        messages, threads = _widen_first_window(
+            state, messages, threads, mail_dir, since_days, user_address, min_thread_messages)
 
     scanned = dispatched = skipped = failed = 0
     work: list[tuple[object, list[str], set, str, dict]] = []

@@ -20,17 +20,21 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import attribution
+from . import capture_truth as _capture_truth
 from . import prompts
 from . import enrichment_validation
 from . import bulk_classifier as _bulk_classifier
 from . import bundle_extractor as _bundle_extractor
 from . import channel_adapter as _channel_adapter
+from . import handle_resolver as _handle_resolver
 from . import conversation_writer as _conversation_writer
 from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
@@ -142,6 +146,53 @@ def process(
         logger.error("No classification available; aborting.")
         return state
 
+    # Mini16 2026-10-15: a one-speaker iPhone voice memo was classified
+    # social/one-on-one and enriched as a call with an invented second
+    # person. The speaker count is a fact the pipeline measures, so it
+    # overrides the model's shape and is persisted, so every later step
+    # (and a resume) reads the same classification.
+    #
+    # A memo is ALWAYS kept. 01_classify.md used to tell the model to answer
+    # processing_depth "none" for a solo voice memo, and "none" stops the
+    # pipeline below: the memo was silently never written. Whether to skip
+    # is decided here, in code, from what we measured: a capture with no
+    # speech (capture_truth.has_speech) is skipped, a memo with speech is
+    # kept.
+    if _capture_truth.is_spoken(metadata) and not _capture_truth.has_speech(
+        transcript, metadata
+    ):
+        # A spoken capture with no speech in it (silence markers, Whisper's
+        # "Thank you." hallucination, a bare label) is never enriched,
+        # whatever the model said: no summary, no facts, no bundle.
+        if classification.processing_depth != "none":
+            classification.processing_depth = "none"
+            classification.reasoning = (
+                "no speech: the pipeline found fewer than "
+                f"{_capture_truth.MIN_SPEECH_WORDS} spoken words. "
+                + (classification.reasoning or "")
+            )
+            write_json(state_dir / "01_classification.json", classification.to_dict())
+        logger.info("No speech in %s; nothing to enrich.", conversation_id)
+    elif _capture_truth.is_single_speaker_capture(transcript, metadata):
+        changed = False
+        if classification.shape != _capture_truth.MEMO_SHAPE:
+            classification = _capture_truth.as_memo(classification)
+            changed = True
+        if classification.processing_depth == "none":  # has_speech held above
+            classification.processing_depth = "full"
+            classification.reasoning = (
+                "memo kept: the model said processing_depth none. "
+                + (classification.reasoning or "")
+            )
+            changed = True
+        if changed:
+            write_json(state_dir / "01_classification.json", classification.to_dict())
+            logger.info(
+                "Single-speaker capture %s: classified as %s, depth %s",
+                conversation_id, classification.suggested_type_slug,
+                classification.processing_depth,
+            )
+
     if classification.processing_depth == "none":
         logger.info("processing_depth=none  –  pipeline stops here.")
         return state
@@ -163,6 +214,24 @@ def process(
         resolved_privacy_level,
         conversation_id,
     )
+
+    # Andy's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
+    # phone/email handle to their NAME so the extraction LLM writes "Jane
+    # Doe agreed to..." not "+447700900123 agreed to...". The
+    # extraction steps below read the `transcript` var, so resolving here still
+    # reaches the fact text.
+    #
+    # PLACED AFTER the privacy level is resolved and SKIPPED for L3 (Archie #87
+    # privacy review): an L3 conversation must produce ZERO store traffic, and
+    # name resolution reads the People graph, so it must never run for L3. The
+    # guard is test_pipeline_l3_conversation_lands_no_topics (oxigraph.requests
+    # == []). Guarded: an unreachable graph leaves handles unresolved, never
+    # blocks ingest.
+    if resolved_privacy_level != "L3":
+        try:
+            transcript, metadata = _handle_resolver.resolve(transcript, metadata, settings)
+        except Exception as exc:  # noqa: BLE001 -- must never block ingest
+            logger.warning("handle resolution skipped for %s: %s", conversation_id, exc)
 
     # Non-relational gate (bulk / marketing / no-reply email).
     # CM046 feeds newsletters, shipping notifications and marketing
@@ -373,6 +442,8 @@ def _should_run(
 def _should_run_relationship(c: Classification) -> bool:
     if c.processing_depth != "full":
         return False
+    if c.shape == _capture_truth.MEMO_SHAPE:
+        return False  # one speaker: there is no relationship to signal
     if c.setting in ("public", "service"):
         return False
     if c.sensitivity.level == "highly-sensitive":
@@ -383,6 +454,8 @@ def _should_run_relationship(c: Classification) -> bool:
 def _should_run_coach(c: Classification) -> bool:
     if c.processing_depth != "full":
         return False
+    if c.shape == _capture_truth.MEMO_SHAPE:
+        return False  # one speaker: no exchange to coach
     if c.setting in ("family", "service"):
         return False
     if c.sensitivity.level in ("sensitive", "highly-sensitive"):
@@ -468,6 +541,26 @@ def _budget_timeout(ceiling: float = _ENRICH_CALL_CEILING_SECS) -> float:
 BASE_DELAY_SECONDS = 30
 
 
+class SinkUnavailableError(RuntimeError):
+    """A step failed because the model / gateway could not be REACHED (refused
+    connection, DNS, 502/503/504), not because it rejected this document.
+    ``pwg-convo process`` exits 75 (EX_TEMPFAIL) on it so a catch-up caller
+    can tell an outage from a poisoned item."""
+
+
+def _is_sink_unreachable(exc: BaseException) -> bool:
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (502, 503, 504)
+    if isinstance(exc, httpx.TimeoutException):
+        # Only a connect timeout: a read timeout is one slow document.
+        return isinstance(exc, httpx.ConnectTimeout)
+    if isinstance(exc, (httpx.ConnectError, ConnectionError)):
+        return True
+    return False
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Classify whether an exception is worth retrying.
 
@@ -547,6 +640,11 @@ def _run_step(
                 )
                 state.fail(step, reason)
                 _save_state(state_dir, state)
+                if _is_sink_unreachable(exc):
+                    raise SinkUnavailableError(
+                        f"Step {step}: model or gateway unreachable "
+                        f"({type(exc).__name__}). See state.json."
+                    ) from exc
                 raise RuntimeError(
                     f"Step {step} failed "
                     f"({'permanent error' if not retryable else f'after {MAX_RETRIES} retries'}). "
@@ -714,6 +812,11 @@ def _step_enrich(
             metadata["conversation_id"],
             _budget,
         )
+    # Gateway: the enrichment is an extraction step too. Its Action items
+    # table becomes the outstanding_todos sidecar and its text seeds the
+    # step 09 topics, so it reads the owner's turns only. The raw
+    # transcript on disk (00_raw_transcript.md) is not touched.
+    transcript = _extraction_transcript(transcript, metadata)
     try:
         _step_enrich_inner(
             client, transcript, metadata, classification, settings, dry_run,
@@ -736,6 +839,9 @@ def _step_enrich_inner(
     sidecar_path,
 ) -> None:
 
+    solo = _capture_truth.is_single_speaker_capture(transcript, metadata)
+    if solo:
+        classification = _capture_truth.as_memo(classification)
     prompt_name = prompts.enrichment_prompt_name_for(
         classification.suggested_type_slug
     )
@@ -788,6 +894,18 @@ def _step_enrich_inner(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # Pipeline-known facts overwrite the model's copies (capture_truth).
+        rendered = _stamp_capture_truth(
+            rendered, transcript, metadata, classification, settings,
+            prompt_version=f"{prompt_name}@1.0",
+            model=getattr(result, "model", None) or settings.ollama_enrich_model,
+            solo=solo,
+        )
+        rendered = enrichment_validation.sanitise_participants_section(
+            rendered,
+            normalise_participants(metadata.get("participants")),
+            getattr(settings, "user_display_name", "") or "",
+        )
         # v1018-D014c: last stop before the customer's wiki page. A
         # placeholder the model copied out of the prompt template must not
         # reach disk. Stripped, not retried -- see the helper's docstring.
@@ -798,6 +916,13 @@ def _step_enrich_inner(
                 len(_dropped),
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
+            )
+        rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+        if _sidecars:
+            logger.warning(
+                "Dropped %d reminders_candidates sidecar(s) from %s enrichment body",
+                _sidecars,
+                metadata.get("conversation_id"),
             )
         out_path.write_text(rendered)
         # Pre-meeting brief input: walk the enrichment's Action items
@@ -894,6 +1019,18 @@ def _step_enrich_inner(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # Pipeline-known facts overwrite the model's copies (capture_truth).
+        rendered = _stamp_capture_truth(
+            rendered, transcript, metadata, classification, settings,
+            prompt_version=f"{prompt_name}+merge@1.0",
+            model=settings.ollama_enrich_model,
+            solo=solo,
+        )
+        rendered = enrichment_validation.sanitise_participants_section(
+            rendered,
+            normalise_participants(metadata.get("participants")),
+            getattr(settings, "user_display_name", "") or "",
+        )
         # v1018-D014c: last stop before the customer's wiki page. A
         # placeholder the model copied out of the prompt template must not
         # reach disk. Stripped, not retried -- see the helper's docstring.
@@ -904,6 +1041,13 @@ def _step_enrich_inner(
                 len(_dropped),
                 metadata.get("conversation_id"),
                 ", ".join(_dropped),
+            )
+        rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
+        if _sidecars:
+            logger.warning(
+                "Dropped %d reminders_candidates sidecar(s) from %s enrichment body",
+                _sidecars,
+                metadata.get("conversation_id"),
             )
         out_path.write_text(rendered)
         # See note above (single-chunk branch) for the rationale on
@@ -935,6 +1079,50 @@ def _step_enrich_inner(
                 },
             },
         )
+
+
+def _retention_tier(classification: Classification) -> str | None:
+    """The tier the Qdrant sink stamps, so the frontmatter cannot disagree
+    with it. Absent (not guessed) when the sink module cannot load."""
+    try:
+        from .ingest import _retention_tier_for
+
+        return _retention_tier_for(classification)
+    except Exception as exc:  # ingest hard-requires ostler_security
+        logger.warning("retention_tier left absent: %s", type(exc).__name__)
+        return None
+
+
+def _stamp_capture_truth(
+    rendered: str,
+    transcript: str,
+    metadata: dict,
+    classification: Classification,
+    settings: Settings,
+    *,
+    prompt_version: str,
+    model: str,
+    solo: bool,
+) -> str:
+    """Last edit before 02_enrichment.md is written (and copied verbatim
+    to ~/Documents/Ostler/Conversations/<id>.md). See capture_truth."""
+    if solo:
+        rendered = _capture_truth.scrub_solo_body(
+            rendered, _capture_truth.speaker_labels(transcript, metadata), metadata,
+            owner_name=getattr(settings, "user_display_name", "") or "",
+        )
+    return _capture_truth.stamp_frontmatter(
+        rendered,
+        conversation_id=str(metadata.get("conversation_id") or ""),
+        prompt_version=prompt_version,
+        model=str(model or ""),
+        completed_at=_capture_truth.utc_now_iso(),
+        metadata=metadata,
+        classification=classification,
+        retention_tier=_retention_tier(classification),
+        solo=solo,
+        owner_name=getattr(settings, "user_display_name", "") or "",
+    )
 
 
 def _validate_document(
@@ -1234,8 +1422,18 @@ def _build_enrichment_input(
         ),
         "other",
     )
+    if c.shape == _capture_truth.MEMO_SHAPE:
+        # Without this the line read "Other name: other", and the prompt's
+        # roster example gave that "other" a role and a former employer.
+        other_name = "none (one speaker; this is a memo, not a conversation)"
     user_name = settings.user_display_name
     chunk_note = metadata.get("chunk_note")
+    # The reminder used to hard-code work_one-on-one's eight headings for
+    # EVERY variant, contradicting the variant's own system prompt.
+    _headings = enrichment_validation.expected_headings_for(
+        prompts.enrichment_prompt_name_for(c.suggested_type_slug)
+    )
+    heading_lines = "\n".join(f"## {h}" for h in _headings)
 
     body = f"""
 --- CLASSIFICATION ---
@@ -1263,17 +1461,10 @@ You MUST use EXACTLY these section headings in this order. Do NOT
 invent your own headings. Do NOT skip sections. If a section has no
 content, write the heading followed by "_Nothing to report._"
 
-## Summary
-## Key topics
-## Decisions
-## Action items
-## Key quotes
-## Key insights
-## Next steps
-## Cleaned transcript
+{heading_lines}
 
 Start your response with the YAML frontmatter block (---), then
-## Summary. No preamble.
+## {_headings[0]}. No preamble.
 
 --- TRANSCRIPT ---
 {transcript_chunk}
@@ -1437,6 +1628,107 @@ user_name: {settings.user_display_name}
     write_json(out_path, result.parsed_json)
 
 
+# ── Gateway transcripts: extraction reads the OWNER's turns only ───
+#
+# CM051 v1.0.107 F&F blocker (Mini16 #27). A gateway conversation
+# (metadata source "gateway", provenance source_kind "zeroclaw_gateway",
+# conversation ids zg-*) is the owner chatting with their OWN assistant.
+# Fact extraction read the whole transcript, so the assistant's replies,
+# guesses and test-persona answers included, were extracted as facts with
+# subject=user and the assistant then repeated them back as knowledge.
+# Measured on the box: 66 gateway facts, 45 subject=user, 15 located only
+# in Assistant turns, 0 of those in User turns.
+#
+# The turn structure is the producer's, not a guess at prose: CM052
+# wire.render_transcript writes one "**<label>:** <content>" header per
+# message, where <label> is CM052_USER_EMAIL for role=user,
+# CM052_ASSISTANT_NAME (default "Assistant") for role=assistant, and
+# role.capitalize() for anything else. A message's continuation lines
+# carry no header. Only headers whose label is one of those speakers open
+# a new turn, so a bold "**Note:**" inside an assistant reply cannot end
+# the assistant turn and smuggle its text back in.
+
+_TURN_HEADER = re.compile(r"^\*\*(?P<label>[^*\n]+?):\*\*(?=\s|$)")
+_NON_OWNER_ROLE_LABELS = frozenset({"system", "tool"})
+
+
+def _is_gateway_conversation(metadata: dict) -> bool:
+    if str(metadata.get("source") or "").strip().lower() == "gateway":
+        return True
+    prov = metadata.get("provenance")
+    if isinstance(prov, dict):
+        if str(prov.get("source_kind") or "") == "zeroclaw_gateway":
+            return True
+        if str(prov.get("source_subtype") or "").strip().lower() == "gateway":
+            return True
+    return False
+
+
+def _gateway_assistant_labels() -> set[str]:
+    labels = {"assistant"}
+    configured = (os.environ.get("CM052_ASSISTANT_NAME") or "").strip()
+    if configured:
+        labels.add(configured.lower())
+    return labels
+
+
+def _owner_turns_only(transcript: str) -> str:
+    """Return ``transcript`` with every non-owner turn removed.
+
+    Kept: any preamble before the first turn header (the frontmatter)
+    and the owner's turns. Dropped: assistant turns and system/tool
+    turns. The owner label is CM052_USER_EMAIL when it is set and heads a
+    turn; otherwise the first header label that is not the assistant or a
+    reserved role (the gateway opens a session on an owner message). With
+    no owner label at all, no turns are kept: fail closed, extract nothing.
+    """
+    lines = transcript.splitlines(keepends=True)
+    assistant = _gateway_assistant_labels()
+    headers = [
+        m.group("label").strip()
+        for m in (_TURN_HEADER.match(line) for line in lines)
+        if m
+    ]
+    owner = (os.environ.get("CM052_USER_EMAIL") or "").strip()
+    if not owner or owner not in headers:
+        owner = next(
+            (
+                h for h in headers
+                if h.lower() not in assistant
+                and h.lower() not in _NON_OWNER_ROLE_LABELS
+            ),
+            "",
+        )
+    speakers = assistant | _NON_OWNER_ROLE_LABELS
+    if owner:
+        speakers = speakers | {owner.lower()}
+
+    kept: list[str] = []
+    current: str | None = None  # None = preamble, before any turn
+    dropped = 0
+    for line in lines:
+        m = _TURN_HEADER.match(line)
+        if m and m.group("label").strip().lower() in speakers:
+            current = m.group("label").strip()
+            if current != owner:
+                dropped += 1
+        if current is None or (owner and current == owner):
+            kept.append(line)
+    logger.info(
+        "gateway transcript: kept owner turns only, dropped %d non-owner turn(s)",
+        dropped,
+    )
+    return "".join(kept)
+
+
+def _extraction_transcript(transcript: str, metadata: dict) -> str:
+    """The transcript an EXTRACTION step reads. Unchanged for every
+    source except gateway, where only the owner's turns are kept."""
+    if _is_gateway_conversation(metadata):
+        return _owner_turns_only(transcript)
+    return transcript
+
+
 # ── Step 05: fact extraction ────────────────────────────────────────
 
 
@@ -1456,6 +1748,8 @@ def _step_facts(
     # lacks the specific dialogue turns and speaker attributions the
     # model needs to produce evidenced facts.
     raw_transcript = (state_dir / "00_raw_transcript.md").read_text()
+    # Gateway: the assistant's own turns are not evidence about the owner.
+    raw_transcript = _extraction_transcript(raw_transcript, metadata)
     template = prompts.load_prompt("05_fact_extraction")
 
     if dry_run:
@@ -1512,6 +1806,10 @@ participants: {json.dumps(normalise_participants(metadata.get("participants")))}
     # output "other:speaker" or "other:speaker_1" despite the mapping
     # hint. Map these back to actual participant IDs from metadata.
     facts = _fix_speaker_subjects(facts, metadata)
+    # DMG #27: a first-person line written by ANOTHER participant ("my dad's
+    # ...") is about them, not the owner. Move such facts onto the person
+    # concerned, on evidence read from the transcript. See attribution.py.
+    facts = attribution.reattribute(facts, raw_transcript, metadata)
 
     # Stamp every freshly-extracted fact as a candidate. The 08_linked
     # step promotes facts to candidate=False when a second independent
@@ -2080,9 +2378,13 @@ def _step_bundle(
         )
         write_json(bundle_json_path, extraction.to_dict())
     else:
+        # Summary, topics and todos come from ONE call on one input, so
+        # for a gateway conversation all three read the owner's turns
+        # only (see _extraction_transcript). The rendered transcript
+        # artefact below still gets the full ``transcript``.
         extraction = _bundle_extractor.extract(
             client,
-            transcript=transcript,
+            transcript=_extraction_transcript(transcript, metadata),
             enrichment_md=enrichment_md,
             channel=str(metadata.get("channel") or "spoken"),
             model=settings.ollama_enrich_model,

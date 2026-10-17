@@ -41,6 +41,15 @@ NA = "N/A"
 
 SERVICES = ("ical-server", "cm048-ingest")
 
+# ical-server (CM041 assistant_api) listens on :8090. :8089 is the Doctor
+# FastAPI app, which does not serve /api/v1/coach/recent with the service
+# token: walk #11 got a refusal there while the SAME token got 200 from :8090,
+# so the read-back FAILED on the wrong process, not on the key. The probe
+# script passes the harness's own ical-server base (OSTLER_PROBE_API_BASE, the
+# variable people_seed_and_retrieval and the seed libs already use) as
+# --api-base; this default only applies when the box half is run by hand.
+ICAL_SERVER_BASE_DEFAULT = "http://127.0.0.1:8090"
+
 DECLARED = [
     "posture: ical-server self-attests encryption enabled via sqlcipher",
     "posture: cm048-ingest self-attests encryption enabled via sqlcipher",
@@ -158,7 +167,7 @@ def _user_id():
     return ""
 
 
-def seed_and_readback(token, service_token):
+def seed_and_readback(token, service_token, api_base=ICAL_SERVER_BASE_DEFAULT):
     import sqlite3
     import time
     from pathlib import Path
@@ -241,18 +250,18 @@ def seed_and_readback(token, service_token):
         try:
             import urllib.error
             import urllib.request
-            url = "http://127.0.0.1:8089/api/v1/coach/recent?user_id={}&hours=1&limit=50".format(user_id)
+            url = "{}/api/v1/coach/recent?user_id={}&hours=1&limit=50".format(api_base.rstrip("/"), user_id)
             req = urllib.request.Request(url, headers={"Authorization": "Bearer " + service_token})
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open(req, timeout=15) as r:
                 status = r.getcode()
                 body = json.loads(r.read().decode() or "null")
             found = any((o.get("conversation_id") == token) for o in (body.get("observations") or []))
-            out_rb.update(attempted=True, found=found, http_status=status)
+            out_rb.update(attempted=True, found=found, http_status=status, api_base=api_base)
         except urllib.error.HTTPError as exc:
             # ical-server now refuses loudly (500) when it cannot read the
             # coach db: that is a FAIL of the read-back, not a CANNOT-RUN.
-            out_rb.update(attempted=True, found=False, http_status=exc.code)
+            out_rb.update(attempted=True, found=False, http_status=exc.code, api_base=api_base)
         except Exception as exc:
             out_rb["error"] = str(exc)[:160]
     else:
@@ -274,8 +283,9 @@ def box_main(argv):
     a = dict(zip(argv[0::2], argv[1::2]))
     token = a.get("--token", "ostler-walk-dbkey-{}".format(os.getpid()))
     service_token = a.get("--service-token", "")
+    api_base = a.get("--api-base") or ICAL_SERVER_BASE_DEFAULT
     facts = {"posture": measure_posture()}
-    seed, rb, raw = seed_and_readback(token, service_token)
+    seed, rb, raw = seed_and_readback(token, service_token, api_base)
     facts["seed"] = seed
     facts["readback"] = rb
     facts["raw_open"] = raw
@@ -385,6 +395,13 @@ def self_test():
         fails.append("coach_db_path() resolved to {!r}, not the writer's ~/.ostler path".format(p))
     else:
         print("  ok    the probe opens the writer's ~/.ostler coach path, PWG_HOME has no say")
+
+    # Walk #11: the read-back went to :8089 (the Doctor), which refuses the
+    # service token. ical-server is :8090.
+    if not ICAL_SERVER_BASE_DEFAULT.endswith(":8090"):
+        fails.append("the read-back default is {}, not ical-server on :8090".format(ICAL_SERVER_BASE_DEFAULT))
+    else:
+        print("  ok    the read-back defaults to ical-server on :8090, not the Doctor on :8089")
 
     if [ok for n, ok, _ in judge({}) if n in DECLARED and ok is True]:
         fails.append("an empty collection reads as a pass")

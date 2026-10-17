@@ -1,0 +1,32 @@
+{
+  "email": "alexandra@fixture.example",
+  "facts": [
+    "Moved to Acme Corp in January"
+  ],
+  "last_discussion_id": "conv-1",
+  "last_discussion_url": "http://wiki.example/Conversations/conv-1/",
+  "last_met": "2026-05-21",
+  "name": "Alexandra Patel",
+  "organization": "Acme Corp",
+  "outstanding_todos": [
+    {
+      "deadline": "",
+      "owner": "other",
+      "owner_display": "",
+      "priority": "",
+      "source_conversation_date": "",
+      "text": "Share the venue shortlist"
+    },
+    {
+      "deadline": "2030-01-31",
+      "owner": "user",
+      "owner_display": "Sam",
+      "priority": "",
+      "source_conversation_date": "",
+      "text": "Share the workshop deck with Alexandra"
+    }
+  ],
+  "relationship": "former client",
+  "times_met": 2,
+  "wiki_url": "http://wiki.example/People/alexandra-patel/"
+}

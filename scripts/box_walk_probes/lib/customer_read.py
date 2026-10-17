@@ -57,6 +57,14 @@ JARGON = [
     # Not after "@": an account handle (@ann_lee) is the customer's own data, a
     # real identifier, and Ostler must not rewrite it (walk #10 review, CM044 #312).
     (re.compile(r"(?<![@\w.])[a-z]+_[a-z]+(?:_[a-z]+)*\b"), "snake_case key"),
+    # Walk #16: raw YAML frontmatter leaked into customer text, both as an
+    # inline fragment ("--- conversation_id: ...") and as a block of lowercase
+    # "key: value" lines. Keys with no underscore ("date:", "title:", "source:")
+    # slip past the snake_case rule, so these are their own patterns.
+    (re.compile(r"(?:^|\s)---[ \t]*\n?[ \t]*[a-z][a-z0-9_]*:[ \t]"), "raw frontmatter"),
+    (re.compile(r"(?m)^(?:[ \t]*[a-z][a-z0-9_]*:[ \t]+\S[^\n]*\n){2,}"), "raw frontmatter key block"),
+    # Walk #16: internal provenance tags ("[pwg:src=...]") in customer text.
+    (re.compile(r"\[pwg:[a-z_]+=[^\]]*\]"), "internal provenance tag"),
 ]
 
 # A customer source and every label any screen uses for it. A label that maps
@@ -70,6 +78,7 @@ SOURCE_LABELS = {
     "browsing": ["safari history", "safari", "browsing"],
     "apple_notes": ["notes"],
     "photos": ["photos"],
+    "apple_music": ["apple music"],
     "places": ["places you go", "places"],
     "ai_conversations": ["ai chats"],
     "privacy_backfill": ["privacy labelling"],
@@ -101,6 +110,38 @@ MARKETPLACES = re.compile(
     r"\b(amazon|ebay|etsy|aliexpress|alibaba|shopee|lazada|taobao|tmall|rakuten|walmart|temu|shein|"
     r"zalando|asos|wish)\b", re.I)
 DOMAIN_NAME = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr|shop|store)$", re.I)
+# Walk #16 console, "customer eyes" (Andy): a People row named by a username,
+# an id, a calendar address or digits is not a name a customer recognises.
+# Measured on the walk #16 box (7,782 rows): 138 handles or ids, 5 calendar or
+# invite ids, 2 rows with no letters, and the check that existed caught none.
+# A name in decorative Unicode letters IS a name (isalpha counts it).
+# A handle: one token, no capitals, at least one digit, five or more
+# characters, optionally @-prefixed ("2inldn", "shanef3d", "@jdoe84"). Capitals
+# or a space mean a human wrote it ("Jane2", "Henry 8th"); "R2D2" is too short.
+# A digitless handle ("jdoe") cannot be told from a name and is not flagged.
+JUNK_HANDLE = re.compile(r"^@?(?=[a-z0-9._-]*\d)[a-z0-9._-]{5,40}$")
+CALENDAR_ID = re.compile(r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$", re.I)
+# An organisation by its LEGAL FORM or a team mailbox name, never by an
+# ordinary word: a surname can be Bank, College, School or Council, and one
+# such customer must not turn the gate red (review of #2768).
+# AG / BV / NV / Inc are also short given names or initials ("Jane AG", "Tom
+# Inc" read as people), so the bare two-letter forms count only in capitals
+# after at least two words (\S+ \S+ AG); the review of #2768 found the one
+# "organisation" on the walk #16 capture was a person matched on "ag".
+ORG_SHORT_FORM = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
+# F7d (walk #18): "<Word> Inc" is an organisation like "<Word> Ltd"; ONE rule, shared
+# with the product filter (people_rules.py _ORG_NAME_RE), pinned equal by
+# tests/test_people_have_human_evidence.py. A final org word (bank, banking, team,
+# alumni) after at least two other words is an organisation too ("The X Team",
+# "X Y Bank"); a TWO-word "<given> Bank" stays a person (a surname).
+ORG_FINAL_WORD = re.compile(r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni|group|company|promotions?|newsletter|research|card|support|store|shop|official|services?|solutions|foundation|association|council|institute|university|academy|club|magazine|news|no-?reply|noreply)$", re.I)
+ORG_INSTITUTION_OF = re.compile(r"^(university|college|institute|academy)\s+of\s+\S+", re.I)
+ORG_THE_GROUP = re.compile(r"^the\s+\S+(\s+\S+)*\s+(group|team)$", re.I)
+ORG_NAME = re.compile(
+    r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+    r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
+    r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
+SUBJECT_LINE = re.compile(r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
 GONE_QUIET = re.compile(r"gone quiet|no contact for|not been in touch|haven.t (spoken|been in touch)", re.I)
 QUIET_SPAN = re.compile(r"(\d[\d,]*)\s+(day|week|month|year)s?\b", re.I)
 RAW_MONTHS = re.compile(r"\b(\d[\d,]*)\s+months?\b", re.I)
@@ -130,7 +171,11 @@ def _name_windows(text, lo=2, hi=4):
             yield " ".join(w[i:i + k])
 
 
-FRESH_STATUS = re.compile(r"^(Up to date|Nothing found|Not started|Working|Failed|Behind|Stale)", re.I)
+# Every CM044 settling_source_state_* string (compiler/locale.yaml). Walk #17:
+# CM044 #319 added "Checked, nothing new", this list did not know it, and Mail
+# and Messages read as absent from a panel that showed them.
+FRESH_STATUS = re.compile(r"^(Up to date|Nothing found|Not started|Working|Failed|Behind|Stale|"
+                          r"Checked, nothing new|Waiting for iCloud|Did not finish|Could not|Took too long)", re.I)
 
 
 def freshness_labels(section):
@@ -204,18 +249,38 @@ def service_sender(name):
         return None
     if n.startswith("#"):
         return "hash-prefixed"
+    if SUBJECT_LINE.match(n):
+        return "subject line"
     if "@" in n:
         local = n.split("@", 1)[0]
         if SERVICE_LOCAL.match(local) or MARKETPLACES.search(n):
             return "service mailbox"
         return None
-    words = re.findall(r"[A-Za-z]+", n)
-    if len(words) >= 2 and all(w.isupper() for w in words) and sum(len(w) for w in words) >= 4:
-        return "all-caps multiword"
+    # Walk #17: all-caps is not a service signal. Of 19 all-caps multiword rows
+    # on the walk #17 box, 16 were people who type their name in capitals, and
+    # F7 un-hid those on purpose. An all-caps sender is still caught by its
+    # wording ("EXAMPLE BANK ALERTS" by SERVICE_PHRASE) or its legal form.
     if SERVICE_PHRASE.search(n):
         return "notification phrasing"
     if MARKETPLACES.search(n) or DOMAIN_NAME.match(n):
         return "marketplace or domain"
+    if ORG_NAME.search(n) or ORG_SHORT_FORM.match(n) or ORG_FINAL_WORD.match(n) \
+            or ORG_INSTITUTION_OF.match(n) or ORG_THE_GROUP.match(n):
+        return "organisation name"
+    return None
+
+
+def junk_name(name):
+    """A People row name a customer cannot read as a person's name (walk #16 console)."""
+    n = (name or "").strip()
+    if not n:
+        return None
+    if not any(ch.isalpha() for ch in n):
+        return "no letters"
+    if CALENDAR_ID.search(n):
+        return "calendar or invite id"
+    if JUNK_HANDLE.match(n):
+        return "handle or id"
     return None
 
 
@@ -352,6 +417,7 @@ DECLARED = [
     "customer text: no raw http(s) URL in customer copy",
     "wiki: every page linked from the nav was read (the text checks cover all of them)",
     "wiki: no date is set in the old monospace style, on any page",
+    "people: no row is named by a handle, an id, a calendar address or digits",
 ]
 
 
@@ -370,6 +436,23 @@ def judge(f, declared=None):
     # on System sub-pages the front-page read never opened).
     crawl = (f.get("wiki") or {}).get("crawl") or {}
     texts += [("wiki page " + k, (v or {}).get("text") or "") for k, v in crawl.items()]
+    # Text the wiki renders FROM the customer's data (a visited page's title),
+    # recorded per page by CUSTOMER_TITLES_JS. Used only by the em dash check.
+    cust_titles = {"wiki " + k: (v or {}).get("customer_titles") or [] for k, v in wiki.items()}
+    cust_titles.update({"wiki page " + k: (v or {}).get("customer_titles") or [] for k, v in crawl.items()})
+    # Hub screens too (walk #15): the marker was honoured on the wiki only, so a
+    # contact's own LinkedIn title on Hub People counted as Ostler copy.
+    cust_titles.update({"hub " + k: (v or {}).get("customer_titles") or [] for k, v in screens.items()})
+    # Walk #16: a person's or organisation's NAME is contact-written by
+    # definition (it comes from their card or their own messages), so a dash
+    # inside it is the customer's data, not Ostler copy. Every name the people
+    # API returned is exempt on the Hub People screen and on a person detail
+    # screen, ONE occurrence per API row, so Ostler's own label beside it, or a
+    # second copy of the same text, still counts.
+    _people_names = [p.get("name") or "" for p in (f.get("people_api") or []) if p.get("name")]
+    for k in screens:
+        if k == "people" or k.startswith("person"):
+            cust_titles["hub " + k] = list(cust_titles.get("hub " + k, [])) + _people_names
     measured = [t for t in texts if t[1].strip()]
 
     def over_text(name, pred, show):
@@ -399,6 +482,11 @@ def judge(f, declared=None):
         if where == "hub timeline":
             for title in exempt:
                 t = t.replace(title, "")
+        # Wiki: each recorded customer title removes ONE occurrence of itself,
+        # longest first, so a title cannot exempt a second copy of its text
+        # and a dash in our own copy beside it still counts (walk #11).
+        for title in sorted((x for x in cust_titles.get(where, []) if EM_DASH in x), key=len, reverse=True):
+            t = t.replace(title, "", 1)
         return t.count(EM_DASH)
     if not measured:
         add(DECLARED[1], None, "NOT MEASURED: no screen text was collected")
@@ -653,7 +741,9 @@ def judge(f, declared=None):
     if not oc:
         add(DECLARED[22], None if oc is None else NA, "NOT MEASURED: no Ollama call count" if oc is None else "Ollama logged no calls in the window")
     else:
-        add(DECLARED[22], (jr or 0) >= 0.95 * oc,
+        # TWO-SIDED: an over-count (a call journaled twice, or journaled with
+        # no Ollama line behind it) fails exactly like an under-count.
+        add(DECLARED[22], abs((jr or 0) - oc) <= 0.05 * oc,
             "{} recorded vs {} Ollama calls in {} min ({}%)".format(jr, oc, bx.get("window_min"), int(100 * (jr or 0) / oc)))
 
     # ---- walk #5 additions (all details are COUNTS or product copy; no person names) ----
@@ -661,6 +751,7 @@ def judge(f, declared=None):
     if papi is None:
         add(DECLARED[23], None, "NOT MEASURED: the People list was not read from /api/v1/people")
         add(DECLARED[24], None, "NOT MEASURED: the People list was not read from /api/v1/people")
+        add(DECLARED[31], None, "NOT MEASURED: the People list was not read from /api/v1/people")
     else:
         human_by_email = {}
         for r in papi:
@@ -675,14 +766,32 @@ def judge(f, declared=None):
         add(DECLARED[23], not shadowed,
             "{} of {} People rows are named by an email address while a human-named row shares that address "
             "({} email-named rows in all; names withheld)".format(len(shadowed), len(papi), len(email_named)))
+        # A row with a phone is a contact card the customer filled in: the name
+        # on it is theirs, whatever its shape (F7 measured 5 real carded people
+        # this check flagged, plus cards named only by digits). Phone, not
+        # email: a service mailbox carries an email too.
+        named_by_customer = [r for r in papi if r.get("has_phone")]
         kinds = {}
         for r in papi:
+            if r.get("has_phone"):
+                continue
             k = service_sender(r.get("name"))
             if k:
                 kinds[k] = kinds.get(k, 0) + 1
         add(DECLARED[24], not kinds,
             "{} of {} People rows look like services, organisations or subject lines: {} (names withheld)".format(
                 sum(kinds.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(kinds.items()))))
+        junk = {}
+        for r in papi:
+            if r.get("has_phone"):
+                continue
+            k = junk_name(r.get("name"))
+            if k:
+                junk[k] = junk.get(k, 0) + 1
+        add(DECLARED[31], not junk,
+            "{} of {} People rows are named by something a customer cannot read as a name: {} (names withheld)".format(
+                sum(junk.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(junk.items())))
+            + "; {} rows with a phone (a customer-filled card) not judged".format(len(named_by_customer)))
 
     selfd = set(f.get("self_digests") or [])
     if f.get("owner_source") in ("synthetic", "unknown-walk"):
@@ -761,9 +870,23 @@ def judge(f, declared=None):
         add(DECLARED[30], None, "NOT MEASURED: the wiki nav was not read")
     else:
         unread = sorted(set(links) - set(crawl))
-        add(DECLARED[29], bool(links) and not unread,
-            "{} of {} nav-linked pages read{}".format(len(set(links) & set(crawl)), len(set(links)),
-                                                     "; unread: " + ", ".join(unread[:6]) if unread else ""))
+        why = (f.get("wiki") or {}).get("crawl_failures") or {}
+        # Only an HTTP 4xx/5xx answer is a product finding. A Playwright exception
+        # (TargetClosedError, timeout, ...) says the harness could not look.
+        prod = [u for u in unread if str(why.get(u, "")).startswith("HTTP ")]
+        shown = ", ".join("{}: {}".format(u, why.get(u, "no reason recorded")) for u in unread[:8])
+        detail = "{} of {} nav-linked pages read{}".format(len(set(links) & set(crawl)), len(set(links)),
+                                                         "; unread: " + shown if unread else "")
+        ro = (f.get("wiki") or {}).get("reopens") or 0
+        rr = (f.get("wiki") or {}).get("reopen_reasons") or {}
+        detail += "; reopened {}".format(ro) + (
+            " (" + ", ".join("{}: {}, {}".format(k, r, "recovered" if k in crawl else "not recovered")
+                             for k, r in sorted(rr.items())) + ")" if rr else "")
+        if prod:
+            detail += "; PRODUCT finding (page answered badly): " + ", ".join(prod[:8])
+        # a harness-only shortfall (timeout, budget) is CANNOT-RUN, never a pass and never a product FAIL
+        harness_only = bool(unread) and not prod and all(u in why for u in unread)
+        add(DECLARED[29], None if harness_only else (bool(links) and not unread), detail)
         mono = {k: v.get("mono_dates") or 0 for k, v in crawl.items()}
         for k, v in wiki.items():
             if v and v.get("mono_dates"):
@@ -802,6 +925,33 @@ NEEDS_NOW_JS = r"""(arg) => {
     .map(c => { const t = c.querySelector(titleSel); return t ? t.innerText.trim() : ''; })
     .filter(Boolean);
 }"""
+
+# Text the wiki shows that is the customer's data, never Ostler copy, so the
+# judge removes each string once before counting em dashes. Two sources:
+#
+# 1. THE MARKER (cut #13). CM044 compiler/customer_text.py wraps every customer
+#    value it prints (a bookmarked or visited page title, a calendar event, a
+#    note title, a preference subject, a media title) in an element carrying
+#    data-ostler-customer, and wraps only the value. Walk #12 failed because
+#    the Trends "New discoveries" row printed a bookmark title as plain text
+#    and the link rule below could not see it. Only the OUTERMOST marked
+#    element counts (a nested one would exempt the same text twice), and a
+#    marked element that is a heading or holds one is IGNORED: headings are
+#    Ostler's page structure, so a marker there must not hide a dash.
+# 2. THE LINK RULE (#2710, kept for a wiki older than the marker). An <a>
+#    inside the article whose href is http(s) to a host other than the wiki's
+#    own and other than Ostler's, whose only child is text, and which is not
+#    already inside a marked element.
+CUSTOMER_TITLES_JS = r"""() => {
+  const root = document.querySelector('article') || document.body;
+  const ours = /(^|\.)(ostler\.ai|creativemachines\.ai)$/i;
+  const MARK = '[data-ostler-customer]', HEAD = 'h1,h2,h3,h4,h5,h6';
+  const marked = [...root.querySelectorAll(MARK)].filter(e =>
+      !(e.parentElement && e.parentElement.closest(MARK)) && !e.matches(HEAD) && !e.querySelector(HEAD));
+  const links = [...root.querySelectorAll('a[href]')].filter(a => !a.closest(MARK)
+      && /^https?:$/.test(a.protocol) && a.hostname && a.hostname !== location.hostname
+      && !ours.test(a.hostname) && a.children.length === 0);
+  return [...marked, ...links].map(e => e.innerText).filter(t => t && t.trim()); }"""
 
 # Leaf elements set in a monospace face whose text is a date (the old mono
 # styling the reskin removed). Counted per page; the text is not kept.
@@ -844,6 +994,61 @@ WIDTH_JS = r"""() => {
   });
   return out;
 }"""
+
+
+HARNESS_REASONS = ("timeout", "budget exhausted")
+
+
+def _crawl_budget_s(n_pages, per_page_s=45, floor_s=60, cap_s=1800):
+    """Whole-crawl budget: per-page budget x nav page count, capped."""
+    return min(cap_s, floor_s + per_page_s * max(0, n_pages))
+
+
+def _read_failure(exc=None, status=None):
+    """Why a nav page was not read: 'HTTP <code>', 'timeout', or the exception class."""
+    if exc is None:
+        return "HTTP {}".format(status) if status is not None and status >= 400 else None
+    name = type(exc).__name__
+    return "timeout" if "Timeout" in name else name
+
+
+def crawl_nav(rels, read_page, reopen, budget_s, log=None, reopens=None):
+    """Read every nav page. read_page(rel) -> (http_status, data) or raises.
+    A closed browser target (WebKit dying under load, #27) is reopened and the
+    page retried once, so the LAST pages are still crawled. Returns (read, why_not)."""
+    log = log or (lambda m: sys.stderr.write(m + "\n"))
+    t0 = time.time()
+    read, why = {}, {}
+    for rel in rels:
+        key = rel or "(front)"
+        if time.time() - t0 > budget_s:
+            why[key] = "budget exhausted"
+            continue
+        for attempt in (1, 2):
+            try:
+                status, data = read_page(rel)
+                bad = _read_failure(status=status)
+                if bad:
+                    why[key] = bad
+                else:
+                    read[key] = data
+                break
+            except Exception as exc:
+                reason = _read_failure(exc=exc)
+                log("crawl {}: {} after {:.0f}s of {:.0f}s budget (attempt {})".format(
+                    key, reason, time.time() - t0, budget_s, attempt))
+                if attempt == 1 and "Closed" in type(exc).__name__:
+                    if reopens is not None:
+                        reopens.append([key, reason])
+                    try:
+                        reopen()
+                    except Exception as exc2:
+                        why[key] = _read_failure(exc=exc2)
+                        break
+                    continue
+                why[key] = reason
+                break
+    return read, why
 
 
 def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
@@ -931,6 +1136,9 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             s["title"] = page.evaluate("() => { const h = document.querySelector('header h1'); return h ? h.innerText.trim() : null }")
             s["header"] = page.evaluate("() => { const h = document.querySelector('header'); return h ? h.innerText : null }")
             s["text"] = page.evaluate("() => { const m = document.querySelector('main'); return m ? m.innerText : '' }")
+            # Customer-written text the Hub marks (data-ostler-customer, oa #487:
+            # a contact's own job title on People). Same collector as the wiki.
+            s["customer_titles"] = page.evaluate(CUSTOMER_TITLES_JS) or []
             page.screenshot(path=os.path.join(out_dir, "cr-%s.png" % name))
             f["screens"][name] = s
             return s
@@ -958,7 +1166,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     preq = urllib.request.Request(base + "/api/v1/people", headers={"Authorization": "Bearer " + token})
                     with _local_urlopen(preq, timeout=60) as r:
                         body = json.load(r)
-                    f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or ""}
+                    f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or "",
+                                        "has_phone": bool(p.get("phone"))}
                                        for p in body.get("people") or []]
                     f["people_api_total"] = body.get("total", len(f["people_api"]))
                 except Exception as exc:
@@ -1051,7 +1260,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     fr.goto(wbase + rel, wait_until="load", timeout=60000)
                     fr.page.wait_for_timeout(2000)
                     pg = {"text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
-                          "boxes": fr.evaluate(WIDTH_JS) or []}
+                          "boxes": fr.evaluate(WIDTH_JS) or [],
+                          "customer_titles": fr.evaluate(CUSTOMER_TITLES_JS) or []}
                     if name == "front":
                         f["needs_now_wiki"] = fr.evaluate(NEEDS_NOW_JS, [".pw-fcard", "h3,h4,strong,[class*='title']"])
                         # The list directly under the heading, and only that list: the
@@ -1101,18 +1311,32 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     if rel is not None and rel not in rels:
                         rels.append(rel)
                 f["wiki"]["nav_links"] = rels
-                crawl = {}
-                for rel in rels:
-                    try:
-                        fr.goto(wbase + rel, wait_until="load", timeout=60000)
-                        fr.page.wait_for_timeout(1200)
-                        crawl[rel or "(front)"] = {
-                            "text": fr.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
-                            "mono_dates": fr.evaluate(MONO_DATES_JS)}
-                    except Exception as exc:
-                        f["wiki"].setdefault("errors", []).append("crawl {}: {}".format(rel, str(exc)[:120]))
+                cur = {"fr": fr}
+
+                def _read(rel):
+                    g = cur["fr"]
+                    resp = g.goto(wbase + rel, wait_until="load", timeout=45000)
+                    st = resp.status if resp else None
+                    if st is not None and st >= 400:
+                        return st, None
+                    g.page.wait_for_timeout(1200)
+                    return st, {
+                        "text": g.evaluate("() => { const a = document.querySelector('article') || document.body; return a.innerText }"),
+                        "mono_dates": g.evaluate(MONO_DATES_JS),
+                        "customer_titles": g.evaluate(CUSTOMER_TITLES_JS) or []}
+
+                def _reopen():
+                    # the old page/frame is gone; the context (and its session) is not
+                    np = ctx.new_page()
+                    np.set_viewport_size({"width": 1440 - 240, "height": 944})
+                    cur["fr"] = np.main_frame
+                reopens = []
+                crawl, fails = crawl_nav(rels, _read, _reopen, _crawl_budget_s(len(rels)), reopens=reopens)
+                f["wiki"]["reopens"] = len(reopens)
+                f["wiki"]["reopen_reasons"] = {k: r for k, r in reopens}
                 f["wiki"]["nav_links"] = [r or "(front)" for r in rels]
                 f["wiki"]["crawl"] = crawl
+                f["wiki"]["crawl_failures"] = fails
             except Exception as exc:
                 f["wiki"].setdefault("errors", []).append("crawl: {}".format(str(exc)[:160]))
         browser.close()
@@ -1195,6 +1419,10 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             # items' text for a phone-shaped substring -- regardless of
             # which strategy nominally won -- finds it. This is also more
             # robust to a future strategy rename than matching the name.
+            # #2786: the report is built off the request path. "preparing" is
+            # an empty list that means NOT LOOKED YET, never "nothing to review".
+            if diff.get("preparing") or (diff.get("degraded") and not diff.get("items")):
+                raise RuntimeError("duplicate review not ready: " + str(diff.get("reason") or "degraded")[:100])
             reviewed = set()
             for item in diff.get("items") or []:
                 details = (item.get("evidence") or {}).get("details") or ""
@@ -1297,6 +1525,12 @@ def _txt(path, add):
 MUTANTS = [
     ("ISO date on a card (#2534, #2550)", _txt(["screens", "home", "text"], "last seen 2026-01-15\n")),
     ("em dash on a wiki page (#2550)", _txt(["wiki", "pages", "front", "text"], "spans 5 years — from 2021\n")),
+    ("raw frontmatter fragment in a conversation summary (walk #16)",
+     _txt(["wiki", "pages", "front", "text"], "Catch up\n--- title: Catch up with Alexandra\n")),
+    ("raw frontmatter key block on a page (walk #16)",
+     _txt(["wiki", "pages", "front", "text"], "Catch up\ndate: 2030-01-01\nsource: whatsapp\nAgreed the plan.\n")),
+    ("internal provenance tag in customer text (walk #16)",
+     _txt(["screens", "home", "text"], "Jane Doe moved to Acme Corp [pwg:src=whatsapp]\n")),
     ("Ostler placeholder dash on People (#2562)", _txt(["screens", "people", "text"], "Jane Doe\n\u2014\n")),
     ("Ostler placeholder dash on the SAME Timeline screen as an exempt title (#2562)",
      _txt(["screens", "timeline", "text"], "EVENT\nUntitled\n\u2014\n")),
@@ -1363,11 +1597,19 @@ MUTANTS = [
      _app(["wiki", "nav_links"], "System/Statistics/")),
     ("a calendar title whose URL still shows raw (walk #6 f)",
      _txt(["screens", "timeline", "text"], "EVENT\nCheck in https://example.com/checkin\n")),
+    ("an organisation listed as a person (walk #16 console)",
+     _app(["people_api"], {"name": "example holdings ltd", "email": ""})),
+    ("a username as a People name (walk #16 console)", _app(["people_api"], {"name": "jdoe1984", "email": ""})),
+    ("a calendar address as a People name (walk #16 console)",
+     _app(["people_api"], {"name": "abc123" + "@group.calendar" + ".google.com", "email": ""})),
+    ("digits as a People name (walk #16 console)", _app(["people_api"], {"name": "001", "email": ""})),
+    ("an email subject line as a People name (review of #2768)",
+     _app(["people_api"], {"name": "re: lunch on friday", "email": ""})),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31, 24]))
 
 
 def _proxy_bypass_self_test():
@@ -1452,6 +1694,22 @@ def self_test():
     # dedicated fixtures, not folded into the MUTANTS list above, because a
     # mutant's whole contract is "must be caught"; the first of these two
     # must NOT be.
+    # The Bursar arm is TWO-SIDED (Archie, walk #27): an over-count is as
+    # wrong as an under-count (a call journaled twice, or journaled with no
+    # matching Ollama line). |recorded - ollama| <= 5% of ollama.
+    want22 = DECLARED[22]
+    for label, journal, must in (("100% recorded", 1000, True), ("95% recorded", 950, True),
+                                 ("105% recorded", 1050, True), ("94% recorded", 940, False),
+                                 ("110% recorded", 1100, False)):
+        fb = copy.deepcopy(_good())
+        fb["box"]["ollama_calls"] = 1000
+        fb["box"]["journal_calls"] = journal
+        got22 = [ok for n, ok, _ in judge(fb) if n == want22]
+        if got22 != [must]:
+            missed.append("Bursar {} of 1000 Ollama calls read {!r}, want [{}]".format(label, got22, must))
+        else:
+            print("  ok    Bursar {} of Ollama's calls {}".format(label, "PASSES" if must else "FAILS"))
+
     want13 = DECLARED[13]
 
     shared_landline = copy.deepcopy(_good())
@@ -1619,6 +1877,99 @@ def self_test():
     else:
         print("  ok    a list-shaped freshness section naming every working source PASSES")
 
+    # Walk #11 (cut #12): the 3 em dashes on People/timeline and activity were
+    # all inside Safari page TITLES, which are the customer's data, not Ostler
+    # copy. The crawl records the text of each such link (CUSTOMER_TITLES_JS)
+    # and the judge removes exactly those strings, once each, before counting.
+    # Synthetic titles only.
+    title = "Harbour trains \u2014 a short history"
+    browsed = copy.deepcopy(_good())
+    browsed["wiki"]["nav_links"].append("People/Example-Person/timeline/")
+    browsed["wiki"]["crawl"]["People/Example-Person/timeline/"] = {
+        "text": "Timeline\nBrowsing history\n12 Mar \u2013 " + title + "\n", "mono_dates": 0,
+        "customer_titles": [title]}
+    got1 = [(ok, d) for n, ok, d in judge(browsed) if n == DECLARED[1]]
+    if [ok for ok, _ in got1] != [True]:
+        missed.append("an em dash inside a customer's browsing title still fails ({!r})".format(got1))
+    else:
+        print("  ok    an em dash inside a customer's browsing-page title PASSES (customer data, not Ostler copy)")
+    for label, text in (("template copy on the same page", "Pages you visited \u2014 this week\n"),
+                        ("a heading", "Harbour trains \u2014 recent\n")):
+        mut = copy.deepcopy(browsed)
+        mut["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += text
+        got = [ok for n, ok, _ in judge(mut) if n == DECLARED[1]]
+        if got != [False]:
+            missed.append("an em dash in {} beside an exempt title is hidden ({!r})".format(label, got))
+        else:
+            print("  ok    an em dash in {} beside an exempt title still FAILS".format(label))
+    # Walk #16: an em dash inside a person's NAME on Hub People is the
+    # contact's own data and PASSES; our own label beside it still FAILS.
+    named = copy.deepcopy(_good())
+    dashed = "Jane Doe \u2014 Acme Corp"
+    named["people_api"].append({"name": dashed, "email": ""})
+    named["people_api_total"] = named.get("people_api_total", 0) + 1
+    named["screens"]["people"]["text"] += dashed + "\n"
+    gotn = [ok for n, ok, _ in judge(named) if n == DECLARED[1]]
+    if gotn != [True]:
+        missed.append("an em dash inside a person's name on Hub People still fails ({!r})".format(gotn))
+    else:
+        print("  ok    an em dash inside a person's name on Hub People PASSES (contact-written, not Ostler copy)")
+    carded = copy.deepcopy(_good())
+    carded["people_api"] += [{"name": "999", "email": "", "has_phone": True},
+                             {"name": "EXAMPLE BANK ALERTS", "email": "", "has_phone": True}]
+    gotc = [ok for n, ok, _ in judge(carded) if n in (DECLARED[24], DECLARED[31])]
+    if gotc != [True, True]:
+        missed.append("a customer-filled card (has a phone) is still judged by its name shape ({!r})".format(gotc))
+    else:
+        print("  ok    a contact card with a phone keeps the name the customer gave it")
+    # Walk #16 customer eyes: real names that look unusual must PASS the junk
+    # and organisation predicates, or the check fails real people.
+    for real in ("\U0001d479\U0001d48a\U0001d484\U0001d48c\U0001d49a Doe", "Mary-Jane O'Neil", "Henry 8th",
+                 "\u674e\u5c0f\u9f8d", "J. R. R. Doe", "jane doe",
+                 # review of #2768: ordinary words that are also surnames, and
+                 # short or capitalised tokens a human wrote
+                 # (lower case so the PII guard does not read them as name
+                 # pairs; ORG_NAME is case-insensitive, so the test is equal)
+                 "jane bank", "joe college", "ann school", "robert hospital", "lee council",
+                 "Jane Doe (Official)", "Jane2", "R2D2", "jdoe",
+                 "Jane AG", "anna ag", "kim nv", "Coco", "co li",
+                 # walk #17: people who type their own name in capitals
+                 "JANE DOE", "J. R. DOE", "MARY-JANE O'NEIL", "JU CHUN (JC) DOE"):
+        if junk_name(real) or service_sender(real):
+            missed.append("a real name is flagged as junk or an organisation: {!r}".format(real))
+        else:
+            print("  ok    a real name passes the People name checks: {!r}".format(real))
+    # F7d: organisation shapes the judge MUST flag (the product hides the same set)
+    for org in ("tom inc", "acme inc.", "bob doe bank", "the acme team", "acme alumni network alumni",
+                "jane doe banking"):
+        if not service_sender(org):
+            missed.append("an organisation name is NOT flagged: {!r}".format(org))
+        else:
+            print("  ok    an organisation name is flagged: {!r}".format(org))
+    for label, text in (("our own label beside it", "Recently added \u2014 this week\n"),
+                        ("a second copy of the same name", dashed + "\n")):
+        mut = copy.deepcopy(named)
+        mut["screens"]["people"]["text"] += text
+        got = [ok for n, ok, _ in judge(mut) if n == DECLARED[1]]
+        if got != [False]:
+            missed.append("an em dash in {} on Hub People is hidden by the name exemption ({!r})".format(label, got))
+        else:
+            print("  ok    an em dash in {} on Hub People still FAILS".format(label))
+    twice = copy.deepcopy(browsed)
+    twice["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += title + "\n"
+    got = [ok for n, ok, _ in judge(twice) if n == DECLARED[1]]
+    if got != [False]:
+        missed.append("one recorded title exempts two copies of its text ({!r})".format(got))
+    else:
+        print("  ok    one recorded title exempts one occurrence only; a second copy of the same text FAILS")
+
+    # walk #17: every state CM044 prints is a row, not a gap
+    got = freshness_labels({"kind": "list", "text": "\u2713\nMail\nChecked, nothing new \u00b7 2h ago\n"
+                            "\u2026\nMessages\nWaiting for iCloud to finish syncing\n"})
+    if got != ["Mail", "Messages"]:
+        missed.append("a freshness row in a newer CM044 state is read as absent ({!r})".format(got))
+    else:
+        print("  ok    freshness rows in every CM044 state are read as listed")
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})
     if any(ok is True for n, ok, _ in empty if not n.startswith("customer read:")):
@@ -1632,6 +1983,71 @@ def self_test():
         missed.append("a declared but silent assertion is not caught")
     else:
         print("  ok    a declared assertion that prints no row FAILS")
+    # unread-page reasons (DMG #24): a timeout is a harness reason, an HTTP 4xx/5xx is a product finding
+    def _crawl_row(fails):
+        g = copy.deepcopy(_good())
+        g["wiki"]["nav_links"] = g["wiki"]["nav_links"] + sorted(fails)
+        g["wiki"]["crawl_failures"] = fails
+        return [(ok, d) for n, ok, d in judge(g) if n == DECLARED[29]][0]
+    t_ok, t_d = _crawl_row({"Trends/": "timeout"})
+    h_ok, h_d = _crawl_row({"Years/": "HTTP 500"})
+    if "Trends/: timeout" not in t_d or t_ok is not None:
+        missed.append("a timed-out nav page does not print its reason as a harness reason: {} {}".format(t_ok, t_d))
+    else:
+        print("  ok    a nav page that timed out prints 'timeout' (harness, not FAIL)")
+    if "Years/: HTTP 500" not in h_d or h_ok is not False or "PRODUCT" not in h_d:
+        missed.append("an HTTP 500 nav page is not a product FAIL naming the page: {} {}".format(h_ok, h_d))
+    else:
+        print("  ok    a nav page answering 500 prints 'HTTP 500' and FAILs as product")
+    z = _crawl_row({})[1]
+    g1 = copy.deepcopy(_good())
+    g1["wiki"]["reopens"] = 1
+    g1["wiki"]["reopen_reasons"] = {"System/Declining/": "TargetClosedError"}
+    o1 = [d for n, ok, d in judge(g1) if n == DECLARED[29]][0]
+    if "reopened 0" not in z or "reopened 1 (System/Declining/: TargetClosedError, recovered)" not in o1:
+        missed.append("the nav detail line does not carry the reopen count: {!r} {!r}".format(z, o1))
+    else:
+        print("  ok    the nav-coverage detail prints 'reopened 0' and 'reopened 1 (page: reason, recovered)'")
+    if _crawl_budget_s(36) <= _crawl_budget_s(3) or _crawl_budget_s(10000) > 1800:
+        missed.append("crawl budget does not scale with page count under a cap")
+    else:
+        print("  ok    crawl budget scales with nav pages, capped")
+    # #27: a closed browser target mid-crawl is a harness event, never a product finding,
+    # and the remaining nav pages must still be crawled (reopen + retry once).
+    class TargetClosedError(Exception):
+        pass
+    rels3 = ["A/", "Years/", "search/", "stats/"]
+    def _page(rel):
+        return 200, {"text": rel}
+    state = {"closed": False, "reopens": 0}
+    def _reader(rel):
+        if rel == "Years/" and not state["closed"]:
+            state["closed"] = True
+            raise TargetClosedError("Page.goto: Target page, context or browser has been closed")
+        return _page(rel)
+    def _reopen():
+        state["reopens"] += 1
+    c_ok, c_fail = crawl_nav(rels3, _reader, _reopen, 60, log=lambda *_: None)
+    if sorted(c_ok) != sorted(rels3) or c_fail or state["reopens"] != 1:
+        missed.append("a mid-crawl TargetClosedError is not recovered: read {} failed {} reopens {}".format(sorted(c_ok), c_fail, state["reopens"]))
+    else:
+        print("  ok    a context closed mid-crawl is reopened once and every nav page is still read")
+    def _dead(rel):
+        raise TargetClosedError("closed")
+    d_ok, d_fail = crawl_nav(["Years/"], _dead, lambda: None, 60, log=lambda *_: None)
+    g = copy.deepcopy(_good())
+    g["wiki"]["nav_links"] = g["wiki"]["nav_links"] + ["Years/"]
+    g["wiki"]["crawl_failures"] = d_fail
+    r = [(ok, d) for n, ok, d in judge(g) if n == DECLARED[29]][0]
+    if d_fail != {"Years/": "TargetClosedError"} or r[0] is not None or "PRODUCT" in r[1]:
+        missed.append("a persistent TargetClosedError is not CANNOT-RUN with its reason: {} {}".format(d_fail, r))
+    else:
+        print("  ok    a persistent TargetClosedError is CANNOT-RUN with the reason, not PRODUCT")
+    b_ok, b_fail = crawl_nav(["A/", "B/"], _page, lambda: None, -1, log=lambda *_: None)
+    if b_fail != {"A/": "budget exhausted", "B/": "budget exhausted"} or b_ok:
+        missed.append("an exhausted budget is not reported per page: {}".format(b_fail))
+    else:
+        print("  ok    an exhausted budget names every skipped page")
     if missed:
         print("SELF-TEST FAIL: not caught: " + "; ".join(missed))
         return EX_FAIL

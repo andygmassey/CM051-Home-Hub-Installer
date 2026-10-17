@@ -112,7 +112,9 @@ fi
 # --- A: the subject ---------------------------------------------------------
 STMT="$(_extract _HYDRATE_CONTACTS_COUNT "$SUBJECT")" || fatal "could not extract _HYDRATE_CONTACTS_COUNT"
 [ -n "$STMT" ] || fatal "extracted an empty statement for _HYDRATE_CONTACTS_COUNT"
-printf '%s' "$STMT" | grep -q 'python3' || fatal "the extracted statement does not contain python3 -- extraction hit the wrong text"
+# A case match, not `printf | grep -q`: grep -q exits on the first hit, printf
+# then takes SIGPIPE, and under pipefail that race read as "no python3".
+case "$STMT" in *python3*) ;; *) fatal "the extracted statement does not contain python3 -- extraction hit the wrong text" ;; esac
 RC_A="$(_run_with_failing_producer "$STMT" python3)"
 if [ "$RC_A" = "PARSEFAIL" ]; then
     fatal "the extracted _HYDRATE_CONTACTS_COUNT statement does not parse in isolation"

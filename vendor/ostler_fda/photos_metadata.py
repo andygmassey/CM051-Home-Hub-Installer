@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 import plistlib
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +35,22 @@ DEFAULT_PHOTOS_PATH = (
     Path.home() / "Pictures" / "Photos Library.photoslibrary"
     / "database" / "Photos.sqlite"
 )
+
+
+class PhotosCannotRead(RuntimeError):
+    """The Photos database could not be READ (permission refused) or its layout
+    is not one this code knows. Distinct from an empty library: callers that
+    walk history (catchup_photos.py) must report this as cannot-run, never as
+    "nothing there". ``reason`` is a short code, never content."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _is_denied(err: Exception) -> bool:
+    msg = str(err).lower()
+    return "authorization denied" in msg or "not authorized" in msg
 
 
 @dataclass
@@ -76,7 +94,7 @@ def extract_people(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, db_path):
             raise PermissionError(
                 "Cannot read Photos metadata. Grant Full Disk Access."
             ) from e
@@ -198,7 +216,16 @@ def _place_label(blob: Optional[bytes]) -> Optional[str]:
         objects = arch["$objects"]
 
         def deref(v):
-            return objects[v.data] if isinstance(v, plistlib.UID) else v
+            # $objects[0] is the archiver's null sentinel, the literal string
+            # "$null": UID 0 is how an archive says "no value" (an address
+            # with no city points _city at it). Deref it, or a bare "$null",
+            # to None, or "$null" reads as a real city and the fallback to
+            # the state never runs ("$null, Indonesia").
+            if isinstance(v, plistlib.UID):
+                if v.data == 0:
+                    return None
+                v = objects[v.data]
+            return None if v == "$null" else v
 
         def classname(obj) -> str:
             cls = deref(obj.get("$class")) if isinstance(obj, dict) else None
@@ -230,6 +257,9 @@ def extract_photo_events(
     db_path: Optional[Path] = None,
     since_days: int = 365,
     with_people_only: bool = True,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    strict: bool = False,
 ) -> list[PhotoEvent]:
     """Extract photo events for timeline integration.
 
@@ -237,6 +267,14 @@ def extract_photo_events(
         db_path: Path to Photos.sqlite.
         since_days: Only extract from last N days.
         with_people_only: Only include photos that have recognised faces.
+        since: absolute lower bound (exclusive); overrides ``since_days``.
+            Used by the background catch-up (catchup_photos.py) to read one
+            window at a time. None keeps the original behaviour exactly.
+        until: absolute upper bound (inclusive). None means no upper bound,
+            which is the original behaviour.
+        strict: raise PhotosCannotRead when the read is refused or the layout
+            is not recognised, instead of returning []. The default keeps the
+            original behaviour for the install-time caller.
 
     Returns:
         List of PhotoEvent objects for timeline display.
@@ -249,7 +287,7 @@ def extract_photo_events(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, db_path):
             raise PermissionError(
                 "Cannot read Photos metadata. Grant Full Disk Access."
             ) from e
@@ -257,9 +295,18 @@ def extract_photo_events(
 
     conn.row_factory = sqlite3.Row
 
-    cutoff_mac = (
-        datetime.now(timezone.utc).timestamp() - (since_days * 86400)
-    ) - MAC_EPOCH_OFFSET
+    if since is not None:
+        cutoff_mac = since.timestamp() - MAC_EPOCH_OFFSET
+    else:
+        cutoff_mac = (
+            datetime.now(timezone.utc).timestamp() - (since_days * 86400)
+        ) - MAC_EPOCH_OFFSET
+    # Optional upper bound, appended to each schema's WHERE. Empty (and no
+    # extra parameter) when ``until`` is None, so the default queries are
+    # byte-identical to the pre-catch-up ones.
+    upper_sql = " AND a.ZDATECREATED <= ?" if until is not None else ""
+    params = (cutoff_mac,) if until is None else (
+        cutoff_mac, until.timestamp() - MAC_EPOCH_OFFSET)
 
     # Schema probe identical to extract_people: macOS 26+ FK names
     # first (ZASSETFORFACE / ZPERSONFORFACE), then macOS 14-15
@@ -283,11 +330,11 @@ def extract_photo_events(
             LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSONFORFACE
             WHERE a.ZDATECREATED > ?
               AND a.ZTRASHEDSTATE = 0
-        """
+        """ + upper_sql
         if with_people_only:
             query += " AND p.ZFULLNAME IS NOT NULL"
         query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
-        rows = conn.execute(query, (cutoff_mac,)).fetchall()
+        rows = conn.execute(query, params).fetchall()
     except sqlite3.OperationalError as e:
         logger.debug("macOS 26+ photo events schema failed: %s", e)
 
@@ -306,11 +353,11 @@ def extract_photo_events(
                 LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
                 WHERE a.ZDATECREATED > ?
                   AND a.ZTRASHEDSTATE = 0
-            """
+            """ + upper_sql
             if with_people_only:
                 query += " AND p.ZFULLNAME IS NOT NULL"
             query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
-            rows = conn.execute(query, (cutoff_mac,)).fetchall()
+            rows = conn.execute(query, params).fetchall()
         except sqlite3.OperationalError as e:
             logger.debug("macOS 14-15 photo events schema failed: %s", e)
 
@@ -329,14 +376,17 @@ def extract_photo_events(
                 LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
                 WHERE a.ZDATECREATED > ?
                   AND a.ZTRASHEDSTATE = 0
-            """
+            """ + upper_sql
             if with_people_only:
                 query += " AND p.ZDISPLAYNAME IS NOT NULL"
             query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
-            rows = conn.execute(query, (cutoff_mac,)).fetchall()
+            rows = conn.execute(query, params).fetchall()
         except sqlite3.OperationalError as e:
             logger.error("Photo events schema not recognised: %s", e)
             conn.close()
+            if strict:
+                raise PhotosCannotRead(
+                    "read_denied" if _is_denied(e) else "schema_unrecognised") from e
             return []
 
     conn.close()
@@ -362,3 +412,48 @@ def extract_photo_events(
 
     logger.info("Extracted %d photo events", len(events))
     return events
+
+
+def oldest_asset_date(db_path: Optional[Path] = None) -> Optional[datetime]:
+    """Capture time of the oldest non-trashed asset, or None for an empty
+    library. Same schema order as extract_photo_events (ZASSET, then the
+    legacy ZGENERICASSET). Raises like extract_photo_events when the
+    database is missing or Full Disk Access is not granted, and raises
+    PhotosCannotRead when the read is refused part-way or no known table
+    exists: None means EMPTY LIBRARY and nothing else."""
+    db_path = db_path or DEFAULT_PHOTOS_PATH
+    if not db_path.exists():
+        raise FileNotFoundError(f"Photos database not found at {db_path}")
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError as e:
+        if "authorization denied" in str(e).lower():
+            raise PermissionError(
+                "Cannot read Photos metadata. Grant Full Disk Access."
+            ) from e
+        raise
+    try:
+        saw_table = False
+        for table in ("ZASSET", "ZGENERICASSET"):
+            try:
+                row = conn.execute(
+                    f"SELECT MIN(ZDATECREATED) FROM {table} "
+                    "WHERE ZTRASHEDSTATE = 0 AND ZDATECREATED IS NOT NULL"
+                ).fetchone()
+            except sqlite3.OperationalError as e:
+                if _is_denied(e):
+                    raise PhotosCannotRead("read_denied") from e
+                if "no such table" in str(e).lower():
+                    continue
+                raise PhotosCannotRead("schema_unrecognised") from e
+            saw_table = True
+            if row and row[0] is not None:
+                return datetime.fromtimestamp(row[0] + MAC_EPOCH_OFFSET, tz=timezone.utc)
+            # The table was read and holds no live asset: a genuinely empty
+            # library. This, and only this, is None.
+            return None
+        if not saw_table:
+            raise PhotosCannotRead("schema_unrecognised")
+        return None
+    finally:
+        conn.close()

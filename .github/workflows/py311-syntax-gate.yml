@@ -1,0 +1,25 @@
+# Every tracked .py must compile under python 3.11, the interpreter the DMG
+# bundles. 3.12-only syntax (PEP 701 nested same-quote f-strings) is a
+# SyntaxError there and kills the whole module, e.g. the Doctor.
+name: py311-syntax-gate
+
+on:
+  push:
+    branches: [main]
+    paths: ['**.py', 'tests/py311_compile_all.py', '.github/workflows/py311-syntax-gate.yml']
+  pull_request:
+    paths: ['**.py', 'tests/py311_compile_all.py', '.github/workflows/py311-syntax-gate.yml']
+
+jobs:
+  py311:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Control (must reject a PEP 701 f-string)
+        run: python -I tests/py311_compile_all.py --self-test
+      - name: Compile every tracked .py under 3.11
+        run: python -I tests/py311_compile_all.py

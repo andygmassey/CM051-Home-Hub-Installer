@@ -60,6 +60,7 @@ on:
       - 'tests/test_the_wiki_backfill_enrols_for_the_slot.sh'
       - 'tests/test_the_shipped_compose_mounts_ai_conversations.sh'
       - 'tests/test_the_shipped_compose_mounts_conversations.sh'
+      - 'tests/test_the_shipped_stores_have_fd_headroom.sh'
       - 'tests/test_the_store_auth_guard_says_when_it_skips.sh'
       - '.github/workflows/install-sh-cannot-wedge-the-box.yml'
   push:
@@ -154,6 +155,13 @@ jobs:
         if: always()
         run: /bin/bash tests/test_every_detected_export_reaches_the_importer.sh
 
+      # F5 / walk #16: the Qdrant container ran at ulimit -n 1024, RocksDB hit
+      # EMFILE and every write after it failed. The shipped compose must give
+      # qdrant and oxigraph nofile >= 65535; the test's mutants prove it can go RED.
+      - name: the shipped stores have fd headroom (nofile >= 65535)
+        if: always()
+        run: /bin/bash tests/test_the_shipped_stores_have_fd_headroom.sh
+
       # 6. THE WIKI SUMMARY BACKFILL NEVER RAN (#2112), and this is the same
       #    family as 1: a wait that cannot end. It hand-rolled its own lock on
       #    the SHARED Ollama slot directory, so it never enrolled as a waiter,
@@ -190,6 +198,7 @@ jobs:
                    tests/test_readonly_flags_need_no_tty.sh \
                    tests/test_the_shipped_compose_mounts_ai_conversations.sh \
                    tests/test_the_shipped_compose_mounts_conversations.sh \
+                   tests/test_the_shipped_stores_have_fd_headroom.sh \
                    tests/test_the_store_auth_guard_says_when_it_skips.sh \
                    tests/test_every_detected_export_reaches_the_importer.sh \
                    tests/test_the_wiki_backfill_enrols_for_the_slot.sh \

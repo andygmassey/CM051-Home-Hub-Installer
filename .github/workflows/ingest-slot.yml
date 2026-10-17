@@ -47,6 +47,7 @@ on:
       - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
   push:
@@ -62,6 +63,7 @@ on:
       - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
 
@@ -123,6 +125,10 @@ jobs:
       # stall-watchdog one) silently SKIPPED there. ubuntu-latest has no
       # docker at /usr/local/bin or /opt/homebrew/bin, so the stub wins here
       # and every case actually runs rather than skipping.
+      - name: Every wiki compile hands the compiler the recorded public look-up answer (Ostler #30)
+        if: success() || failure()
+        run: bash tests/test_wiki_compile_honours_public_lookup_consent.sh
+
       - name: Install pytest for the wiki-recompile-tick behaviour suite
         if: success() || failure()
         run: python -m pip install --quiet pytest

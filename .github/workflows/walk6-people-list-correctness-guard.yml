@@ -26,6 +26,11 @@ on:
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
+      - 'tests/_fake_oxigraph.py'
+      - 'tests/_fake_qdrant.py'
+      - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
     paths:
@@ -34,6 +39,11 @@ on:
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
+      - 'tests/_fake_oxigraph.py'
+      - 'tests/_fake_qdrant.py'
+      - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
 concurrency:
@@ -137,3 +147,75 @@ jobs:
             exit 1
           fi
           python -m pytest vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py -v
+
+  person-context-finds-merged-names:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # The query is run by a REAL pyoxigraph engine (tests/_fake_oxigraph.py),
+      # not a stubbed _sparql_select: the v1.0.107 defect is in the SPARQL text.
+      - name: Install pytest and pyoxigraph
+        run: python -m pip install --quiet pytest pyoxigraph
+      - name: Chat finds a person by a human name a contact merge retired (v1.0.107)
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py -v
+      - name: Person view, timeline, forget, memory/assert, decisions, speakers and birthdays follow merges (walk #27)
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py -v
+
+  # CM041 #216 (v1.0.108): a do-not-suggest (deceased) person appears in no
+  # proactive surface, stays excluded after a re-sync mints a new node or a
+  # merge, and never hides a living relative on a shared landline or email.
+  # phonenumbers: _is_fixed_line keeps landlines out of the suppression record.
+  deceased-excluded-from-proactive-surfaces:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # ostler_security: the vendored ical-server refuses to import without
+      # it (ostler_security.db_key), so the test's minimal stub is not enough.
+      - name: Install pytest, phonenumbers and ostler_security
+        run: |
+          python -m pip install --quiet pytest phonenumbers
+          python -m pip install --quiet ./vendor/ostler_security
+      - name: A deceased person is suggested nowhere; a living relative on the family line stays visible
+        run: |
+          n="$(python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 18 ]; then
+            echo "REFUSING: expected at least 18 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py -v

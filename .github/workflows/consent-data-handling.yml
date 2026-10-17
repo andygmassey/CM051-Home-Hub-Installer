@@ -143,6 +143,13 @@ jobs:
         if: always()
         run: bash tests/test_imessage_fda_probe.sh
 
+      # TCC sweep 2026-10-15: the assistant's Full Disk Access is asked for on
+      # every install, not only where Messages history exists, and the copy
+      # says what the grant covers.
+      - name: The assistant's Full Disk Access is asked for on every Mac
+        if: always()
+        run: bash tests/test_assistant_fda_is_asked_on_every_mac.sh
+
       # ADDED 2026-08-26, and it is the same defect as the original nine.
       # This test was REPAIRED in #1072 (its shim never sourced the locale
       # catalogue, so four call sites asserted against strings that were not
@@ -153,6 +160,14 @@ jobs:
       - name: the install-time iMessage TCC posture probe stays read-only and honest
         if: always()
         run: bash tests/test_imessage_tcc_posture.sh
+
+      - name: the installer pre-explains the Documents prompt before the first write
+        if: always()
+        run: bash tests/test_documents_tcc_pre_explain_before_first_write.sh
+
+      - name: Doctor surfaces a denied Documents-folder permission, not a silent gap
+        if: always()
+        run: python3 tests/test_documents_access_doctor_denied_row.py
 
       - name: the vendored defect register carries no personal data
         if: always()

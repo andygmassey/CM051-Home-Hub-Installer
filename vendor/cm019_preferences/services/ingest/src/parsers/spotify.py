@@ -202,9 +202,11 @@ class SpotifyParser(BaseParser):
                     if skipped:
                         extra["skipped"] = True
 
+                    # A play is not a like (Ostler #30): Neutral, strength unchanged.
+                    extra["passive_play"] = True
                     yield ParsedPreference(
                         subject=f"{artist_name} - {track_name}",
-                        preference_type="Like",
+                        preference_type="Neutral",
                         category="music",
                         strength=0.10,  # V2: Passive play (could be playlist/shuffle)
                         observed_at=observed_at,

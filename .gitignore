@@ -184,3 +184,7 @@ vendor/ostler_security/build/
 # is empty -- which is luck, not a guard, and the same luck the .sorted/.new
 # entries below were added after running out of.
 python/
+
+# Walk evidence can carry real people's names; CM051 is PUBLIC. Never tracked.
+walk-screens/
+walks/.record_walk.marker.*

@@ -57,6 +57,15 @@ for t in "${TREES[@]}"; do
 	else
 		bad "$t: no distinct timeout rc -- slow is indistinguishable from broken"
 	fi
+	# 124 (the timeout(1) convention), NOT 75. `pwg-convo process` exits 75
+	# (EX_TEMPFAIL) when its model or gateway cannot be REACHED; the catch-up
+	# adapters read 75 as an outage that counts no poison attempt. A hung
+	# document must not share that code, or it would never be quarantined.
+	if grep -qE "^DISPATCH_TIMEOUT_RC = 124$" "$f"; then
+		ok "$t: timeout rc is 124, distinct from pwg-convo's own 75 (sink unreachable)"
+	else
+		bad "$t: DISPATCH_TIMEOUT_RC is not 124 -- it collides with pwg-convo's 75 (sink unreachable)"
+	fi
 done
 
 # --- 2. The helper's env contract, exercised against the REAL file ------
@@ -124,7 +133,7 @@ ctl="$("$PY" - <<'PYEOF' 2>&1
 import subprocess, sys, time
 
 SLEEP = ["/bin/sh", "-c", "sleep 30"]
-TIMEOUT_RC = 75
+TIMEOUT_RC = 124
 
 # (a) shipped shape: bounded.
 t0 = time.monotonic()

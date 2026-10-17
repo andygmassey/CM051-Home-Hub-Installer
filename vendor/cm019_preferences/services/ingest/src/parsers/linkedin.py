@@ -52,6 +52,18 @@ class LinkedInParser(BaseParser):
         "endorsement_given_info.csv",
         "saved_items.csv",
         "inferences_about_you.csv",
+        # Prose written about a colleague. Claimed so the generic CSV parser
+        # cannot read the Text column as a taste (Ostler #30), and yielding
+        # nothing on purpose: see NO_PREFERENCE_FILES.
+        "recommendations_given.csv",
+        "recommendations_received.csv",
+    })
+
+    # Claimed and deliberately read for NOTHING. A recommendation is free text
+    # about another person, not a preference of the owner.
+    NO_PREFERENCE_FILES = frozenset({
+        "recommendations_given.csv",
+        "recommendations_received.csv",
     })
 
     # Filenames other services ship too. Reddit's export contains its own
@@ -127,6 +139,8 @@ class LinkedInParser(BaseParser):
         file_name = file_path.name.lower()
 
         # Route to appropriate parser based on filename
+        if file_name in self.NO_PREFERENCE_FILES:
+            return
         if "reactions.csv" in file_name:
             async for pref in self._parse_reactions(file_path, default_compartment):
                 yield pref

@@ -71,6 +71,17 @@ jobs:
         if: always()
         run: bash tests/test_tailscale_daemon_gate.sh
 
+      # #16 console walk: the sign-in opened TWO Safari tabs every time,
+      # because an unconditional backgrounded re-issue followed a successful
+      # first open. This extracts the real sign-in URL block and _ts_open_url
+      # from install.sh, stubs `open` and `sleep` on PATH, and counts how
+      # many times the URL is opened: exactly once when Safari opens it, and
+      # exactly once through the fallback chain when Safari fails. A control
+      # proves the counter can see a second open.
+      - name: Tailscale sign-in opens exactly one tab (#16)
+        if: always()
+        run: bash tests/test_tailscale_signin_opens_one_tab.sh
+
       # #875. The step above asks whether the sign-in WAIT is entered when it
       # cannot succeed. This asks whether the sign-in QUESTION is put to a
       # customer who has already answered it -- measured on Andy's v1.0.44
@@ -87,3 +98,7 @@ jobs:
       - name: Tailscale prompt is conditional on tailnet state (#875)
         if: always()
         run: bash tests/test_tailscale_prompt_is_conditional_on_tailnet_state.sh
+
+      - name: Tailscale sign-in and the install marker sit at the END (F2)
+        if: always()
+        run: bash tests/test_tailscale_signin_is_at_the_end.sh

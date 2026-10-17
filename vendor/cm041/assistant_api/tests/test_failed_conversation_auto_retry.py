@@ -94,8 +94,13 @@ class AutoRetry(unittest.TestCase):
         self._env = patch.dict(os.environ, {"OSTLER_PROCESSING_DIR": self._tmp.name})
         self._env.start()
         self.s = _load()
+        # The load gate reads the real machine; pin it quiet so every
+        # schedule test below is about the schedule, not about this runner.
+        self._quiet = patch.object(self.s.os, "getloadavg", return_value=(0.0, 0.0, 0.0))
+        self._quiet.start()
 
     def tearDown(self):
+        self._quiet.stop()
         self._env.stop()
         self._tmp.cleanup()
 
@@ -295,6 +300,67 @@ class AutoRetry(unittest.TestCase):
                                          runner=self._runner(d, 1, calls))
         self.assertEqual(calls, [])
 
+
+    # -- walk #27: 29 timed out in a busy hour; retry them only when quiet --
+    def _timed_out(self, name, age_s=3600):
+        d = self._failed(name=name, age_s=age_s)
+        st = json.loads((d / "state.json").read_text())
+        st["failure_reason"] = "Processing timed out (15 min limit)"
+        (d / "state.json").write_text(json.dumps(st))
+        return d
+
+    def test_timed_out_under_the_cap_is_retried_when_the_machine_is_quiet(self):
+        d = self._timed_out("conv_t")
+        calls = []
+        out = self.s._conversation_retry_sweep(now=T0 + timedelta(hours=2),
+                                               runner=self._runner(d, 0, calls))
+        self.assertEqual((len(calls), out["recovered"]), (1, 1))
+
+    def test_nothing_is_retried_while_new_conversations_are_being_processed(self):
+        # The busy hour itself: first dispatches still running. A retry now
+        # would join the same queue for the model and time out again.
+        d = self._timed_out("conv_t")
+        calls = []
+        self.s._CONVERSATIONS_IN_FLIGHT.add("conv_new_dispatch")
+        try:
+            out = self.s._conversation_retry_sweep(now=T0 + timedelta(hours=2),
+                                                   runner=self._runner(d, 0, calls))
+        finally:
+            self.s._CONVERSATIONS_IN_FLIGHT.discard("conv_new_dispatch")
+        self.assertEqual(calls, [])
+        self.assertEqual(out["busy"], 1)
+        # and the conversation is still waiting, not spent
+        self.assertFalse((d / "auto_retry.json").exists())
+
+    def test_nothing_is_retried_under_heavy_load(self):
+        d = self._timed_out("conv_t")
+        calls = []
+        cores = os.cpu_count() or 1
+        with patch.object(self.s.os, "getloadavg", return_value=(cores * 2.0, 0.0, 0.0)):
+            out = self.s._conversation_retry_sweep(now=T0 + timedelta(hours=2),
+                                                   runner=self._runner(d, 0, calls))
+        self.assertEqual(calls, [])
+        self.assertEqual(out["busy"], 1)
+        # quiet again: the next tick takes it
+        self.s._conversation_retry_sweep(now=T0 + timedelta(hours=2, minutes=5),
+                                         runner=self._runner(d, 0, calls))
+        self.assertEqual(len(calls), 1)
+
+    def test_at_the_cap_a_timed_out_conversation_is_not_retried(self):
+        d = self._timed_out("conv_t")
+        (d / "auto_retry.json").write_text(json.dumps(
+            {"attempts": self.s.CONVERSATION_RETRY_MAX_ATTEMPTS, "gave_up": True}))
+        calls = []
+        self.s._conversation_retry_sweep(now=T0 + timedelta(days=3),
+                                         runner=self._runner(d, 0, calls))
+        self.assertEqual(calls, [])
+
+    def test_at_most_n_per_tick(self):
+        dirs = [self._timed_out("conv_%d" % i) for i in range(5)]
+        calls = []
+        self.s._conversation_retry_sweep(now=T0 + timedelta(hours=2),
+                                         runner=self._runner(dirs[0], 1, calls))
+        self.assertEqual(len(calls), self.s.CONVERSATION_RETRY_MAX_PER_SWEEP)
 
 if __name__ == "__main__":
     unittest.main()

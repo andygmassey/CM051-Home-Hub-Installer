@@ -29,7 +29,9 @@
 #                manual "did you rebuild the right wiki image" grep dance.
 #
 # --- v1.0.0 launch blockers (the v0.4.8 walk defects) ---
-daemon_tag|383d021a|-|Mainline hub daemon (tag hub-v0.4.31 @ fa07f1c2 = hub-v0.4.30/7f585136 + #216). 383d021a = ratified mainline QR-fix anchor (CUT_PROVENANCE_CORRECTION_2026-07-08), confirmed ancestor of fa07f1c2 (ahead 54 / behind 0). Supersedes the stale df321daab7 ffpair anchor (which diverged from the hub lineage). All prior assistant_tag_grep markers remain present in the hub lineage.
+daemon_tag|383d021a|-|Mainline hub daemon (tag hub-v0.4.31 @ fa07f1c2 = hub-v0.4.30/7f585136 + #216). 383d021a = ratified mainline QR-fix anchor (CUT_PROVENANCE_CORRECTION_2026-07-08). RE-MEASURED 2026-10-14 (ORM): it IS an ancestor of hub-v0.5.16 in a full-history clone; the 'red on main' reading came from a SHALLOW 72-commit local checkout and was false. Ancestry is still blind to a future history rewrite, so the QR fix is also held by the two content rows below.
+assistant_tag_grep|web/src/components/QrCode.tsx|^import QRCode from 'qrcode';|QR-fix CONTENT (held alongside the 383d021a ancestry anchor): the pairing QR is drawn by the qrcode library, not the broken vendored encoder. 0 at hub-v0.4.41 (pre-fix lineage, vendored web/src/lib/qr.ts present), 1 at hub-v0.5.16.
+assistant_tag_absent|web/src/lib/qr.ts|-|QR-fix CONTENT: the broken vendored QR encoder is gone from the pinned tag. PRESENT at hub-v0.4.41, absent at hub-v0.5.16. Paired with the QrCode.tsx import row above.
 assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|Ollama model preloaded|#216 v1.0.9 recut: model-name-independent retry-on-empty + preload-model-on-config-reload (the "Ollama returned empty" chat-dead cure). Present only at hub-v0.4.31 (fa07f1c2); proves the recut daemon carries #216.
 vendor_file|vendor/doctor/agent/duplicate_decision.py|-|#171 Doctor Same-person decision module (the 404 Save button)
 vendor_grep|vendor/doctor/agent/web_ui.py|/api/v1/wiki/duplicates/decision|#171 Doctor decision route wired into web_ui
@@ -161,3 +163,107 @@ wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|from compiler.
 # (0f5ca25c) and PASSED against v0.1.46 (f2db6f8c) through this verifier.
 wiki_image_grep|wiki-compiler:/app/compiler/pages/bundle_conversation_pages.py|def conversation_display_title\(|CM044 #312 an unnamed conversation is titled "<Channel> conversation, <date>", never its internal id. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|def tidy_generated_text\(|CM044 #312 generated text has no em dash or ISO date, and stored category keys render as plain labels. 0 -> 1.
+# --- v1.0.107 wiki v0.1.47 (CM044 e3d5abe9, #314). The line below FAILED against the v0.1.46 compiler
+# (f2db6f8c) and PASSED against v0.1.47 (73f2b2e9) through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/provenance.py|def _strip_unterminated_frontmatter\(|CM044 #314 an unterminated frontmatter block in a conversation summary no longer reaches People/timeline (conversation_id:, sensitivity_level:). 0 -> 1.
+# --- v1.0.107 wiki v0.1.48 (CM044 88b8425b, #315 #316). Each line below FAILED against the v0.1.47 compiler
+# (73f2b2e9) and PASSED against v0.1.48 (52c7bc0f) through this verifier.
+wiki_image_grep|wiki-compiler:/app/compiler/obsidian.py|^_VAULT_LOCK_NAME = |CM044 #315 the Obsidian vault clear + copy runs under one exclusive flock, so two compiles can no longer race the clear (wiki_compile rc=1, OSError 39). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/digest.py|^ *week_label = "the week ending "|CM044 #315 the digest weekly summary is labelled with a human date, never "the week ending YYYY-MM-DD". 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/trends_pages.py|^from compiler\.customer_text import customer_text|CM044 #316 the Trends page (the walk #12 failure) wraps customer-written titles in a data-ostler-customer span, so the walk em dash check can exempt them. 0 -> 1.
+# --- v1.0.107 wiki v0.1.49 (CM044 74c993f4, #317). The line below FAILED against the v0.1.48 site image
+# (c9c51914) and PASSED against v0.1.49 (a68356ca) through this verifier.
+wiki_image_grep|wiki-site:/docs/overrides/stylesheets/extra.css|font-family:var\(--f-body\); letter-spacing:\.01em;|CM044 #317 the .pw-src-line provenance note is set in the body face, not monospace (walk #13). 0 -> 1.
+assistant_tag_grep|web/src/pages/People.tsx|data-ostler-customer=\{subtitle === person\.role|oa #487 the contact-written People subtitle carries data-ostler-customer=1 so the walk em dash check exempts customer text (hub-v0.5.7, 3140e252). 0 at hub-v0.5.6 (fd904f45), 1 at hub-v0.5.7.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|The user's own profile, from their personal graph|oa #488 a question about the owner's own work carries the CONTEXT.md About-you profile on the user turn (hub-v0.5.7, 3140e252). 0 at hub-v0.5.6 (fd904f45), 1 at hub-v0.5.7.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|About the user themselves, from their personal graph|oa #489 the owner card (CONTEXT.md About you) rides on every turn (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7 (3140e252), 1 at hub-v0.5.8.
+assistant_tag_grep|src/main.rs|"meeting-brief"|oa #470 #479 the meeting-brief composer and its sender-callable CLI (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7, 3 at hub-v0.5.8.
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn stream_native|oa #480 Ollama token streaming with live-chat priority (hub-v0.5.8, 8c41eec5). 0 at hub-v0.5.7, 1 at hub-v0.5.8.
+# --- v1.0.107 wiki v0.1.50 (CM044 5175a107, #318). The three lines below read 0 in the v0.1.49 compiler
+# image (0942d7a7) and 1 in v0.1.50 (a76e02e0), crane export + /usr/bin/grep -cE.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|^_PWG_SENTINEL_RE = re\.compile|CM044 #318 the raw [pwg:src=...] provenance sentinel never reaches a customer-visible string (walk #16). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|_prov\.clean_body\(text or|CM044 #318 the Activity snippet strips raw conversation frontmatter before display (walk #16). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pw_kit.py|class="pw-person-n" data-ostler-customer="1"|CM044 #318 person and org names carry data-ostler-customer so the walk em dash check exempts them (walk #16). 0 -> 1.
+# --- v1.0.107 wiki v0.1.51 (CM044 37f33694, #319 #320). The three lines below read 0 in the v0.1.50 compiler
+# image (a76e02e0) and 1 in v0.1.51 (e57dff40), crane export + /usr/bin/grep -cE.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|^def _source_state_text\(|CM044 #319 the settling panel words a no_data source by the writer's reason, not a contradiction (walk #16 F8). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/locale.yaml|^  settling_source_state_no_data_nothing_new: Checked, nothing new|CM044 #319 the reason-worded no_data row copy (walk #16 F8). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/person_pages.py|^def _instagram_row\(|CM044 #320 the person page states the Facebook friend and Instagram handle identifier lines (walk #16 F4). 0 -> 1.
+assistant_tag_grep|crates/ostler-reminders/src/watcher.rs|\.ostler/state/install-in-progress|oa #499 the Reminders TCC prompt is never raised while the install-in-progress marker is set (walk #16 F2; hub-v0.5.9, ae65b992). 0 at hub-v0.5.8 (8c41eec5).
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/system_prompt.rs|^pub const SELF_DESCRIPTION_RULES|oa #500 the no-internals self-description rule (never name a tool or internal system) (hub-v0.5.9). 0 at hub-v0.5.8.
+assistant_tag_grep|crates/zeroclaw-gateway/src/lib.rs|async fn companion_pair_window_gate|oa #501 8443 pairing only inside an owner-opened window, with a lockout (hub-v0.5.9). 0 at hub-v0.5.8.
+assistant_tag_grep|crates/zeroclaw-gateway/src/lib.rs|fn companion_v6_twin|oa #501 the 8443 companion listener's IPv6 twin bind, link-local/ULA/loopback only (hub-v0.5.9). 0 at hub-v0.5.8.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/self_vocative.rs|fn strip_self_vocative|oa #500 the self-vocative guard: the assistant never addresses the owner by its own name, and stands down when the owner shares it (hub-v0.5.9). 0 at hub-v0.5.8.
+assistant_tag_grep|crates/ostler-reminders/src/watcher.rs|async fn run_tick_gated|oa #505 the Reminders watcher no longer exits when the daemon drops its shutdown sender, and re-checks the permission without re-prompting (walk #17; hub-v0.5.10, ca8b2fec). 0 at hub-v0.5.9 (ae65b992).
+assistant_tag_grep|crates/zeroclaw-runtime/src/brief/catchup.rs|^pub fn render_catchup_block|oa #497 the morning brief leads with a catch-up block (replies owed, commitments, meetings) (hub-v0.5.10). 0 at hub-v0.5.9.
+assistant_tag_grep|crates/zeroclaw-runtime/src/brief/catchup.rs|\(0\.\.4\)\.all\(digit\) && start\.contains\('T'\)|oa #497 (ca8b2fec) the catch-up reads the Hub's compact calendar start %Y%m%dT%H%M%S (hub-v0.5.10). 0 at hub-v0.5.9.
+assistant_tag_grep|crates/zeroclaw-tools/src/pwg_people.rs|fn people_by_recency_url|oa #506 a recent-contacts question is answered from the People list recency when the meetings read is empty (walk #18; hub-v0.5.12, fa8f8132). 0 at hub-v0.5.10 (ca8b2fec).
+assistant_tag_grep|crates/zeroclaw-gateway/src/ws.rs|^struct JournaledConsolidation|oa #507 the memory-consolidation model call after every /ws/chat turn is journaled for the Bursar (walk #18; hub-v0.5.12, fa8f8132). 0 at hub-v0.5.10 and hub-v0.5.11.
+assistant_tag_grep|crates/ostler-reminders/src/watcher.rs|retrying failed Reminders pushes|oa #508 failed Reminders pushes re-arm after a 10 min backoff, capped at 5 attempts (hub-v0.5.13, a59a6d1d). 0 at hub-v0.5.12 (fa8f8132).
+assistant_tag_grep|crates/zeroclaw-gateway/src/api.rs|"reminders_list"|oa #508 GET publishes reminders_list {present,id_stored,pushed_in_list,removed}: the dedicated Ostler list by id (hub-v0.5.13). 0 at hub-v0.5.12.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|"have to reply"|oa #511 reply-debt questions are looked up by the daemon before the model answers (walk #19; hub-v0.5.13). 0 at hub-v0.5.12.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|do you know anything about me|oa #511 about-me questions are in the about-me family and prefetch the owner overview (walk #19; hub-v0.5.13). 0 at hub-v0.5.12.
+assistant_tag_grep|crates/ostler-reminders/src/db.rs|"followup_reopened_at"|oa #512 a reminder is marked done when the owner follows up in its thread, and reopened if the follow-up is undone (hub-v0.5.14, 7d5a3fe8; supersedes #509). 0 at hub-v0.5.13 (a59a6d1d).
+assistant_tag_grep|crates/zeroclaw-runtime/src/health/mod.rs|"completed_by_followup"|oa #512 GET /api/status publishes the follow-up sweep's state (the #2803 probe reads it) (hub-v0.5.14). 0 at hub-v0.5.13.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|fn person_found_instruction|oa #515 the opening turn always states a found person's role and organisation (walk #20; hub-v0.5.14). 0 at hub-v0.5.13.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|"\{\}: \{\}, \{\}\."|oa #516 the found-person line is the neutral "Name: title, organisation." (hub-v0.5.14). 0 at hub-v0.5.13 and at 694d9cc6.
+assistant_tag_grep|web/src/pages/People.tsx|PEOPLE_FIRST_WINDOW|oa #514 the People page mounts a bounded window, not all rows (Ostler DMG #21; hub-v0.5.14). 0 at hub-v0.5.13.
+assistant_tag_grep|web/src/lib/customerText.ts|export function sanitiseCustomerText|oa #517 the Hub web scrubs customer-visible leaks at the render edge (role tags, placeholders, internal tags) (hub-v0.5.15, 644b6137). 0 at hub-v0.5.14 (7d5a3fe8).
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/agent.rs|fn without_unfound_person_links|oa #518 the reply never links a near match as the person asked about (walk #27; hub-v0.5.16, 5aed1b05). 0 at hub-v0.5.15 (644b6137).
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn journals_own_calls|oa #519 every daemon call to Ollama is journaled once, from the provider (walk #27 Bursar; hub-v0.5.16, 5aed1b05). 0 at hub-v0.5.15 (644b6137).
+assistant_tag_grep|crates/zeroclaw-config/src/cost/tracker.rs|fn local_work_since_install|oa #520 the Bursar page totals local work since install (hub-v0.5.17, bab3dc7a). 0 at hub-v0.5.16 (5aed1b05).
+assistant_tag_grep|web/src/lib/wikiNavStore.ts|export function setWikiNav|oa #522 wiki Back/Forward follow instant navigation from the top bar (hub-v0.5.17, bab3dc7a). 0 at hub-v0.5.16 (5aed1b05).
+assistant_tag_grep|crates/zeroclaw-runtime/src/brief/catchup.rs|pub fn carry_missing_items|oa #527 the morning brief carries every catch-up item the model dropped (walk #27; hub-v0.5.17, bab3dc7a). 0 at hub-v0.5.16 (5aed1b05).
+assistant_tag_grep|crates/zeroclaw-channels/src/util.rs|pub fn mark_assistant_send|oa #528 every assistant send carries the invisible marker the Hub readers drop (walk #27; hub-v0.5.17, bab3dc7a). 0 at hub-v0.5.16 (5aed1b05).
+assistant_tag_grep|crates/zeroclaw-runtime/src/brief/fallback.rs|struct PeopleTotal|oa #529 a populated graph never holds the morning brief in settle grace (walk #27; hub-v0.5.17, bab3dc7a). 0 at hub-v0.5.16 (5aed1b05).
+# --- v1.0.107 wiki v0.1.52 (CM044 d6ba3a01, #321). The line below reads 0 in the v0.1.51 compiler image (e57dff40) and 1 in v0.1.52 (e6bc1460).
+wiki_image_grep|wiki-compiler:/app/compiler/customer_edge.py|^def display_name\(|CM044 #321 customer text goes through display_name and sanitise_customer_text at the render edge ("Participants: user" renders as "You"). 0 -> 1.
+# --- v1.0.107 #28 wiki v0.1.53 (CM044 a6a7107c, #324-#336). Each line below reads 0 in the v0.1.52 image (compiler e6bc1460 / site bfeec0e3) and 1 in v0.1.53 (compiler e17730bf / site d87ca823).
+wiki_image_grep|wiki-compiler:/app/compiler/pages/topic_pages.py|^def _deep_dive_tabs\(|CM044 #333 a topic deep dive is Overview with section tabs under the title. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/local_time.py|^def apply_owner_timezone\(|CM044 #327 data freshness shows owner-local times. 0 -> 1.
+wiki_image_grep|wiki-site:/docs/overrides/javascripts/local_time.js|lang === "en"\) \? "en-GB"|CM044 #336 bare English dates render British day-month. 0 -> 1.
+# --- v1.0.107 #28 wiki v0.1.54 (CM044 443d8f51, #337-#342). Each line below reads 0 in the v0.1.53 image (compiler e17730bf / site d87ca823) and 1 in v0.1.54 (compiler 2265d9e1 / site 5dcbcb8f).
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|^def _human_date_tag\(|CM044 #337 Front Page day words and meeting times are computed at read time, not baked. 0 -> 1.
+wiki_image_grep|wiki-site:/docs/overrides/javascripts/local_time.js|function dayWord\(el\)|CM044 #337 a calendar day is worded against the reader's today, not the compile day. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/locale.py|^def token_words\(|CM044 #338 display names use one acronym/brand-aware token fallback. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/compile.py|^def write_corrections_page\(|CM044 #341 the corrections page is always emitted. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/commitment_pages.py|^def _shorten_urls\(|CM044 #342 a bare URL in a commitment renders as a short site link, tracking dropped. 0 -> 1.
+# --- v1.0.107 #30 hub-v0.5.18 (oa 9d2c9491). Each 0 at hub-v0.5.17 (bab3dc7a), >=1 at 9d2c9491 (measured in the full clone).
+assistant_tag_grep|src/main.rs|fn fda_sentinels\(home: &std::path::Path\)|oa #531 run-source --self-test falls through to a Full Disk Access sentinel every Mac has. 0 -> 1.
+assistant_tag_grep|web/src/pages/Cost.tsx|const unattributedTokens = work\.by_purpose\.unattributed\?\.total_tokens \?\? 0;|oa #536 Bursar dashboard reports attributed vs unattributed tokens. 0 -> 1.
+assistant_tag_grep|web/src/contexts/ThemeContext.tsx|export function brandTokensForScheme\(|oa #539 dark theme rebinds the brand shell tokens. 0 -> 1.
+assistant_tag_grep|Cargo.lock|^version = "0\.23\.46"|oa #537 rustls 0.23.46 clears RUSTSEC-2026-0346..0349. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-gateway/src/wiki_proxy.rs|const NAV_BRIDGE_PATH: &str = "/__ostler_nav_bridge\.js";|oa #535 wiki Back/Forward bridge in the Tauri shell + gateway health-poll hysteresis. 0 -> 1.
+assistant_tag_grep|web/src/lib/dataSources.ts|sourceRow\.count_label !== undefined|oa #538 Data sources show the Doctor's typed count_label. 0 -> 1.
+assistant_tag_grep|web/src/lib/formatNumber.ts|^export function formatCount\(|oa #540 thousands separators on every rendered count. 0 -> 1.
+assistant_tag_grep|web/src/components/SourceAwareEmpty.tsx|export function SourceAwareEmpty\(|oa #541 honest empty states for People and Timeline. 0 -> 1.
+assistant_tag_grep|web/src/lib/citations.ts|^export function toCitationChips\(|oa #542 preference citations reach Hub chat. 0 -> 1.
+assistant_tag_grep|web/src/lib/timeline.ts|const shown = new Map<string, number>\(\);|oa #543 timeline merge keeps distinct same-day rows. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-gateway/src/api_sources.rs|^fn canonical_source_id\(raw: &str\) -> String|oa #544 Apple Mail row kept in Overview sources (one id space). 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|const HEALTH_MISSED_POLLS: u64 = 10;|oa #545 status honesty: suppressed brief, degraded Hub, iMessage health. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-runtime/src/stop_marker.rs|^pub fn marker_path\(home: &Path\) -> PathBuf|oa ee696005 daemon restarts after SIGTERM unless a deliberate-stop marker exists. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-runtime/src/brief/fallback.rs|No emails in the last 24 hours\.|oa ed031d83 brief mail count is windowed (last 24 hours). 0 -> 2.
+assistant_tag_grep|crates/ostler-reminders/src/watcher.rs|mapping DB not openable yet|oa 1027a88c Reminders watcher waits and retries when reminders_map.db is missing. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-channels/src/orchestrator/mod.rs|I couldn't answer that just now\. Please try again in a moment\.|oa #548 model error text never reaches a chat; an owner 1:1 gets a generic line. 0 -> 1.
+# --- v1.0.107 #30 wiki v0.1.55 (CM044 c20db124). Each 0 in the v0.1.54 compiler image (2265d9e1), >=1 in v0.1.55 (094e2e46); measured in-image 2026-10-15.
+wiki_image_grep|wiki-compiler:/app/compiler/pwg_data.py|^_AUTOMATION_LOCAL_RE = re\.compile|CM044 #344 an organisation sender is not a person. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|^def _knowledge_row_count\(|CM044 #345 one Notes figure. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/preference_filter.py|^CATEGORY_PAGE_MAX_POINTS = 250_000|CM044 #349 the preference gate denies named junk instead of allowing listed sources. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/empty_state.py|^ORGANISING = "organising"|CM044 #347 honest empty states. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/public_lookups.py|^CONSENT_ENV = "OSTLER_PUBLIC_LOOKUPS"|CM044 #355 venue, music and wiki enrichers send nothing public without OSTLER_PUBLIC_LOOKUPS=agreed (fail-closed). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/music_enricher.py|public_lookups\.consent_given\(\)|CM044 #355 the music enricher is behind the public look-ups consent. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/gap_pages.py|^def _topic_shape\(|CM044 #343 junk Discovered topics rejected by shape at the producer. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/year_pages.py|# A store error is not "no data": re-raise so the page fails visibly\.|CM044 #352 a store error fails the page, not Nothing here yet. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/person_slug.py|^RESERVED_SLUGS = frozenset|CM044 #356 every Person gets a unique slug (no collisions). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/nameless.py|^def is_sender_id_handle\(|CM044 #357 a sender-ID handle is nameless by rule (not a person name). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/lint.py|lint_orphans_intro'\)\.format\(count=f'\*\*\{_locale\.number\(orphan_count\)\}\*\*'\)|CM044 #348 page-generator counts use thousands grouping. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/compile.py|^def failed_section_names\(results\) -> list:|CM044 #350 a failed section exits 2, complete:false, rebuilt next run. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/hydration.py|^SOURCE_ACTIVITY_DIRNAME = "source_activity"|CM044 #351 Data freshness reads source_activity. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/nameless.py|^def is_short_code\(|CM044 #354 People pages show phone-only contacts (provisional). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/category_pages.py|^_HELD_FOR_ENRICHER_CONSENT = \(|CM044 #353 Life pages read every writer category, polarity and signal. 0 -> 1.
+# --- v1.0.108 hub-v0.5.19 (oa 58d65239). Each 0 at hub-v0.5.18 (9d2c9491), >=1 at 58d65239 (measured in the full clone).
+assistant_tag_grep|crates/zeroclaw-tools/src/pwg_knowledge_search.rs|api-key|oa #555 knowledge_search sends the Qdrant api-key (every note search 401'd on enforced installs). 0 -> 16.
+assistant_tag_grep|Cargo.lock|^version = "9\.0\.4"|oa #551 zip 9.0.4 clears RUSTSEC-2026-0367/0368/0369. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-tools/src/stop_suggesting_person.rs|stop_suggesting_person|oa #554 conversational bereavement: stop suggesting a person, explicit statement and yes only. 0 -> 4.
+assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|fn default_pwg_derived_preferences_enabled|oa #556 derived-preferences tool off by default (no producer yet). 0 -> 1.
+assistant_tag_grep|web/src/lib/dataSources.ts|const failing = sourceRow|oa #530 (batch #549) a failing last tick never reads Up to date. 0 -> 1.

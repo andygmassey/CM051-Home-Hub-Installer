@@ -75,6 +75,9 @@ on:
       - 'tests/test_the_recovery_cli_does_not_print_the_key_by_default.py'
       - 'vendor/ostler_security/passphrase_recovery_cli.py'
       - 'tests/test_the_db_key_reaches_the_services_and_the_disk.py'
+      - 'vendor/ostler_security/audit_log.py'
+      - 'vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py'
+      - 'tests/test_audit_log_row_factory.py'
       # A suite this workflow RUNS but does not WATCH is dark on self-edit:
       # it could be narrowed, or gutted, in the very PR that narrows it.
       - 'scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh'
@@ -122,7 +125,8 @@ jobs:
             "sqlcipher3>=0.6.0,<0.7.0" \
             "httpx>=0.27,<1.0" \
             "PyYAML>=6.0" \
-            "phonenumbers>=8.13.0"
+            "phonenumbers>=8.13.0" \
+            pytest
 
       - name: Refuse to grade encryption without SQLCipher
         run: |
@@ -189,6 +193,27 @@ jobs:
             echo "::error title=CANNOT-RUN (harness, not product)::The db-key harness could not obtain a verdict: ostler_security.db_key would not import, sqlcipher3 is absent, or a vendored consumer is missing from this tree. NOTHING about at-rest encryption has been measured, and in particular this is NOT evidence that the services received a key."
           fi
           exit "$rc"
+
+      # v1.0.107 walk #12: the key reached ical-server and the coach DB was
+      # encrypted, and every coach read was still a 500, because
+      # sqlite3.Row refuses a sqlcipher3 cursor. The step above writes
+      # encrypted bytes; this one READS ROWS BACK through the shipped
+      # readers on a real sqlcipher3 connection. -rs prints any skip, and a
+      # skip here is CANNOT-RUN, not a pass.
+      - name: Encrypted stores must be readable as rows by the shipped readers
+        if: always()
+        run: |
+          set -uo pipefail
+          out="$(PYTHONPATH=vendor python -m pytest -v -rs vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py 2>&1)"; rc1=$?
+          echo "$out"
+          out2="$(PYTHONPATH=vendor python -m pytest -v -rs tests/test_audit_log_row_factory.py 2>&1)"; rc2=$?
+          echo "$out2"
+          case "$out$out2" in
+            *SKIPPED*)
+              echo "::error title=CANNOT-RUN (harness, not product)::a real-sqlcipher arm was skipped; encrypted row reads were NOT measured"
+              exit 1;;
+          esac
+          [ "$rc1" -eq 0 ] && [ "$rc2" -eq 0 ]
 
       # The probe that HID the recovery defect is part of the defect. It used
       # to PASS on a box whose keychain carried no recovery envelope at all,
