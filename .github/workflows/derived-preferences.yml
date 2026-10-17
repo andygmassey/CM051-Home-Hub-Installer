@@ -76,7 +76,10 @@ jobs:
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py
       - name: The hub route serves what the engine writes
+        # Arm 4 boots the REAL vendored ical-server as a subprocess, which
+        # needs cryptography + httpx (the same set memory-assert-answers-under-load
+        # installs for the other test that starts it).
         if: always()
         run: |
-          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0' cryptography httpx
           python3 tests/test_derived_route_reads_what_the_engine_writes.py

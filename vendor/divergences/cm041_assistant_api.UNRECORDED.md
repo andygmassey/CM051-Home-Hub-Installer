@@ -1375,5 +1375,7 @@ before it merges, re-graft from its final head.
   REAL cm019 writer into pyoxigraph and the REAL vendored reader + builder over
   it: healthy response with the contract's exact keys and matchedTitle evidence;
   an empty derivation is served degraded with a reason (red control); the route
-  is wired in do_GET and declared in the contract.
+  is wired in do_GET and declared in the contract; and over HTTP the REAL
+  vendored ical-server serves the derived label with the service token and
+  401s without it. Against the pre-graft ical-server.py: 404, 3 checks fail.
 - Retire: re-pin `cm041/assistant_api` past #215's merge commit.

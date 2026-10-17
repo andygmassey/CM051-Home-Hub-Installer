@@ -21,6 +21,11 @@ shared contract example.
          reason, never a healthy-looking empty list.
   arm 3  the route is wired: ical-server.py routes the path to
          api_preferences_derived, and hub_contract.yaml declares it.
+  arm 4  OVER HTTP: the REAL vendored ical-server, started as a subprocess with
+         its Oxigraph pointed at a loopback stub that answers SPARQL from the
+         graph the writer wrote. GET /api/v1/preferences/derived with the
+         service token serves the derived label; without it, the route is not
+         open (it sits behind the same lockdown as /api/v1/preferences).
 
 Synthetic data only. Exit: 0 pass, 1 fail, 2 cannot-run.
 """
@@ -29,8 +34,17 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import socket
+import subprocess
 import sys
 import tempfile
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -144,6 +158,117 @@ def produce(n):
                            PyShaclValidator(), Mirror(), status, now=NOW)
     return raw, rc
 
+def _free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def serve_over_http(raw):
+    """Boot the real ical-server against a SPARQL stub backed by ``raw``."""
+    lock = threading.Lock()
+
+    class Edge(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _sparql(self):
+            if self.command == "POST":
+                n = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(n).decode("utf-8", "replace")
+                ctype = self.headers.get("Content-Type", "")
+                if "form-urlencoded" in ctype:
+                    body = urllib.parse.parse_qs(body).get("query", [""])[0]
+                return body
+            return urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("query", [""])[0]
+
+        def do_POST(self):
+            path = urllib.parse.urlsplit(self.path).path
+            if path.endswith("/query"):
+                q = self._sparql()
+                try:
+                    with lock:
+                        res = raw.query(q)
+                        names = [v.value for v in res.variables]
+                        rows = [{v.value: {"type": "literal", "value": sol[v].value}
+                                 for v in res.variables if sol[v] is not None} for sol in res]
+                    out = {"head": {"vars": names}, "results": {"bindings": rows}}
+                except Exception:
+                    out = {"head": {"vars": []}, "results": {"bindings": []}}
+            else:
+                out = {"result": {"points": [], "next_page_offset": None}, "status": "ok"}
+            data = json.dumps(out).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        do_GET = do_POST
+        do_PUT = do_POST
+
+    edge = ThreadingHTTPServer(("127.0.0.1", _free_port()), Edge)
+    threading.Thread(target=edge.serve_forever, daemon=True).start()
+    edge_url = "http://127.0.0.1:%d" % edge.server_address[1]
+    work = Path(tempfile.mkdtemp(prefix="route-http-"))
+    port = _free_port()
+    env = {k: v for k, v in os.environ.items() if "proxy" not in k.lower()}
+    env.pop("OSTLER_DB_KEY", None)
+    env.update({
+        "OSTLER_API_PORT": str(port), "OXIGRAPH_URL": edge_url, "QDRANT_URL": edge_url,
+        "EMBED_OLLAMA_URL": edge_url, "OSTLER_SERVICE_TOKEN": "fixture-service-token",
+        "USER_ID": "fixtureowner", "USER_NAME": "Sam Smith", "HOME": str(work),
+        "PWG_HOME": str(work / "pwg"), "NO_PROXY": "*", "PYTHONDONTWRITEBYTECODE": "1",
+        "WIKI_BASE_URL": "http://wiki.example",
+        "PYTHONPATH": os.pathsep.join([str(REPO / "vendor/cm041"), str(REPO / "vendor")]),
+    })
+    server = AAPI / "ical-server.py"
+    proc = subprocess.Popen([sys.executable, str(server)], env=env, cwd=str(AAPI),
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    return proc, edge, "http://127.0.0.1:%d" % port
+
+
+def get(url, token=None):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
+    try:
+        with opener.open(req, timeout=10) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def arm4(raw):
+    print("arm 4: over HTTP, the real ical-server serves the derived graph")
+    proc, edge, url = serve_over_http(raw)
+    try:
+        for _ in range(150):
+            if proc.poll() is not None:
+                print("CANNOT-RUN: ical-server exited: " + proc.stderr.read().decode()[-600:])
+                sys.exit(2)
+            try:
+                get(url + "/health")
+                break
+            except Exception:
+                time.sleep(0.1)
+        else:
+            print("CANNOT-RUN: ical-server did not come up")
+            sys.exit(2)
+        code, body = get(url + "/api/v1/preferences/derived?limit=8&min_confidence=0", "fixture-service-token")
+        check(code == 200, f"GET /api/v1/preferences/derived -> {code}")
+        try:
+            data = json.loads(body)
+        except Exception:
+            data = {}
+        check(data.get("degraded") is False and GENRE in [i.get("label") for i in data.get("items", [])],
+              f"served the derived label over HTTP (degraded={data.get('degraded')}, {data.get('cannot_check')})")
+        code_noauth, _ = get(url + "/api/v1/preferences/derived")
+        check(code_noauth in (401, 403), f"without the service token the route is closed ({code_noauth})")
+    finally:
+        proc.kill()
+        proc.wait(5)
+        edge.shutdown()
+
 
 def main():
     contract = json.loads(CONTRACT.read_text())
@@ -182,6 +307,8 @@ def main():
     routes = hc.get("routes", hc) if isinstance(hc, dict) else hc
     check(any(isinstance(r, dict) and r.get("id") == "ical GET /api/v1/preferences/derived" for r in routes),
           "hub_contract.yaml declares ical GET /api/v1/preferences/derived")
+
+    arm4(raw)
 
     print(f"\n{'FAILED: ' + str(len(FAILS)) if FAILS else 'all passed'}")
     return 1 if FAILS else 0
