@@ -74,41 +74,6 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  # ==========================================================================
-  # macOS. The host the rule is actually obeyed on, and the only one where the
-  # eviction limb has an instrument.
-  # ==========================================================================
-  pointer-macos:
-    runs-on: macos-14
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Record the instrument this host has
-        run: |
-          set -u
-          echo "/bin/bash -> $(/bin/bash --version | head -1)"
-          if find . -maxdepth 0 -flags +dataless >/dev/null 2>&1; then
-            echo "find -flags: PRESENT. The eviction limb is exercised for real."
-          else
-            echo "find -flags: ABSENT on a macOS runner, which should be impossible."
-            echo "The suite would silently take its ubuntu branch and this job would"
-            echo "report a second green for the ubuntu job's reason."
-            exit 1
-          fi
-
-      - name: The pointer is sound and the checker can say RED
-        run: /bin/bash tests/test_the_os003_pointer_cannot_rot.sh
-
-      # if: always(), ci-maskless (#1695): without it a red above SKIPS this
-      # step, and a skipped check reports nothing at all rather than no
-      # objection. It shares no state with the step above.
-      - name: The checker and its suite PARSE under /bin/bash 3.2
-        if: always()
-        run: |
-          /bin/bash -n scripts/verify_os003_pointer.sh
-          /bin/bash -n tests/test_the_os003_pointer_cannot_rot.sh
-          echo "both parse under $(/bin/bash --version | head -1)"
 
   # ==========================================================================
   # ubuntu. Cheap, and it asserts the REFUSAL path: a host with no instrument

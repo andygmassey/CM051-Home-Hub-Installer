@@ -243,22 +243,3 @@ jobs:
       - name: The todo-reminders box script at least compiles
         if: always()
         run: python3 -m py_compile scripts/box_walk_probes/lib/todo_reminders_box.py
-
-  owner-employer-seed:
-    # The seed runs on the Hub and uses BSD stat, so it is proven on macOS.
-    runs-on: macos-14
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: The walk seeds the owner's employer through the LinkedIn import
-        run: bash tests/test_the_walk_seeds_the_owner_employer.sh
-
-  conversation-capture-seed:
-    # Pure bash + a stubbed curl on PATH; no real gateway needed, but kept
-    # alongside the other seed-wiring jobs on macOS for consistency.
-    runs-on: macos-14
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: The walk seeds two conversations through the paired gateway
-        run: bash tests/test_the_walk_seeds_the_conversation_capture.sh

@@ -220,6 +220,88 @@ mutate "unrelated workflow deleted" "vanished" \
 mutate "unfolded job changed" "unfolded jobs changed" \
 'p = os.path.join(d, "fam-b.yml"); t = open(p).read().replace("test_b2.sh", "test_b3.sh"); open(p, "w").write(t)'
 
+# ---- plain families: checkout only, the runner's own python ---------------
+# (macOS jobs: no setup-python, some `pip install --break-system-packages`.)
+mkdir -p "$T/pbase/wf"
+cat > "$T/pbase/wf/plain-a.yml" <<'YML'
+name: plain-a
+on:
+  pull_request:
+    paths: ['src/pa.sh', '.github/workflows/plain-a.yml']
+jobs:
+  pa:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m pip install --quiet --break-system-packages pyyaml
+      - name: pa holds
+        if: always()
+        run: bash tests/test_pa.sh
+YML
+cat > "$T/pbase/wf/plain-b.yml" <<'YML'
+name: plain-b
+on:
+  pull_request:
+    paths: ['src/pb.sh', '.github/workflows/plain-b.yml']
+jobs:
+  pb:
+    runs-on: macos-14
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/test_pb.sh
+YML
+printf 'px\tplain-a.yml\tpa\npx\tplain-b.yml\tpb\n' > "$T/pspec.tsv"
+cp -R "$T/pbase" "$T/pafter"
+if python3 "$TOOL" generate px --dir "$T/pafter/wf" --spec "$T/pspec.tsv" >/dev/null 2>&1 \
+   && python3 "$TOOL" check --base-dir "$T/pbase/wf" --tree "$T/pafter/wf" --spec "$T/pspec.tsv" >/dev/null 2>&1; then
+    pass "a plain (checkout-only) family is generated and proven"
+else
+    bad "plain family not generated or not proven"
+fi
+PF="$T/pafter/wf/fold-px.yml"
+python3 - "$PF" <<'PY' && pass "plain: the family checkout is full because one member's was; venvs see system site-packages" || bad "plain hoisting wrong"
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+st = next(iter(d["jobs"].values()))["steps"]
+ok = st[0].get("with") == {"fetch-depth": 0}
+ok = ok and "command -v python3" in st[1]["run"]
+iso = [x for x in st if str(x.get("id", "")).endswith("_isolate")]
+ok = ok and len(iso) == 2 and all("--system-site-packages" in x["run"] for x in iso)
+sys.exit(0 if ok else 1)
+PY
+# A shallow family checkout no longer covers the member that needed history.
+rm -rf "$T/pm"; cp -R "$T/pafter" "$T/pm"
+python3 - "$T/pm/wf/fold-px.yml" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace("      - uses: actions/checkout@v4\n        with:\n          # A member checked out full history; the family does for all.\n          fetch-depth: 0\n", "      - uses: actions/checkout@v4\n", 1)
+open(p, "w").write(s)
+PY
+if diff -rq "$T/pafter" "$T/pm" >/dev/null 2>&1; then bad "shallow-checkout mutation was a NO-OP"
+else
+    OUT="$(python3 "$TOOL" check --base-dir "$T/pbase/wf" --tree "$T/pm/wf" --spec "$T/pspec.tsv" 2>&1)"; RC=$?
+    if [ "$RC" -eq 1 ] && grep -qF 'does not cover' <<< "$OUT"; then pass "refused: the family checkout made shallower than a member's"
+    else bad "shallow family checkout not refused ($RC): $OUT"; fi
+fi
+# Jobs whose actions cannot be undone per block are refused at generate.
+for shape in 'uses: actions/setup-python@v5\n        with: { python-version: "3.12" }' 'uses: actions/upload-artifact@v4\n        with: { name: x, path: y }'; do
+    rm -rf "$T/pr"; cp -R "$T/pbase" "$T/pr"
+    python3 - "$T/pr/wf/plain-b.yml" "$shape" <<'PY'
+import sys
+p, shape = sys.argv[1], sys.argv[2].encode().decode("unicode_escape")
+s = open(p).read().replace("      - run: bash tests/test_pb.sh", "      - " + shape + "\n      - run: bash tests/test_pb.sh")
+open(p, "w").write(s)
+PY
+    python3 "$TOOL" generate px --dir "$T/pr/wf" --spec "$T/pspec.tsv" >/dev/null 2>&1
+    rc=$?
+    [ "$rc" -eq 2 ] && pass "generate refuses a member that also $(printf '%s' "$shape" | head -c 30)..." \
+        || bad "generate did not refuse ($rc): $shape"
+done
+
 # ---- the selector: GitHub's glob semantics, and it FAILS OPEN -------------
 python3 - "$TOOL" <<'PY' && pass "glob table matches GitHub's filter semantics" || bad "glob table"
 import importlib.util, sys
