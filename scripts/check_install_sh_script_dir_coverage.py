@@ -96,6 +96,13 @@ EXCEPTIONS: dict[str, str] = {
 # gate is robust to comment / whitespace drift in the postBuildScript body.
 # The keys here are the canonical "leaf" names install.sh probes for.
 COVERAGE_NEEDLES: dict[str, list[str]] = {
+    # CM051 walk #27: install.sh passes ${SCRIPT_DIR}/ostler-music-library to
+    # the FDA extractor as OSTLER_MUSIC_LIBRARY_HELPER. gui/project.yml
+    # compiles it from this source into Resources (the "Compile + bundle
+    # ostler-music-library helper" postBuildScript). Removing that build
+    # phase must go red here rather than ship an install that silently
+    # falls back to the XML export.
+    "ostler-music-library": ['${SRCROOT}/ostler-music-library/main.swift'],
     "ostler_security": ["vendor/ostler_security"],
     "legal": ["vendor/legal"],
     "ostler_fda": ["vendor/ostler_fda"],
@@ -209,6 +216,11 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # a string that no longer appears there and could never go red.
     "lib/ostler-confirm-calendars.py": ['${SRCROOT}/../lib/ostler-confirm-calendars.py'],
     "lib/ostler-confirm-identity.py": ['${SRCROOT}/../lib/ostler-confirm-identity.py'],
+    # v1.0.108: the full-history catch-up core. install.sh seeds it from
+    # ${SCRIPT_DIR}/lib/ostler_catchup.py and warns-and-continues when absent,
+    # so a dropped cp line would ship an installer that never reads older
+    # history, with no error anywhere. The needle is the cp line's own form.
+    "lib/ostler_catchup.py": ['${SRCROOT}/../lib/ostler_catchup.py'],
     # #550 (2026-08-28): the store-auth shim. install.sh:6523 seeds it from
     # ${SCRIPT_DIR}/lib/ostler_store_auth.py into ${OSTLER_DIR}/lib, and a .pth
     # in every venv imports it so the pinned Python clients authenticate to

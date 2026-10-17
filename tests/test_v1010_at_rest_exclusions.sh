@@ -87,14 +87,21 @@ echo "PASS: Spotlight + Time Machine exclusions on both Ostler trees; hardening 
 HARNESS="$(mktemp -d)"
 trap 'rm -rf "$HARNESS"' EXIT
 
-awk '/^_ostler_harden_at_rest\(\) \{/{c=1} c{print} c&&/^\}/{exit}' \
+# Both helpers: _ostler_harden_at_rest reads its exclusion back through
+# _ostler_tm_excluded (status-honesty sweep I1), so the extract spans both.
+awk '/^_ostler_(tm_excluded|harden_at_rest)\(\) \{/{c=1} c{print} c&&/^\}/&&h{exit} /^_ostler_harden_at_rest\(\) \{/{h=1}' \
     "$INSTALL_SCRIPT" > "$HARNESS/harden.sh"
 grep -q 'tmutil addexclusion' "$HARNESS/harden.sh" \
     || fail "FIX-RT2-F3: failed to extract _ostler_harden_at_rest helper"
 
 EXCL_LOG="$HARNESS/tmutil_exclusions.log"
 # shellcheck disable=SC2317
-tmutil() { if [[ "$1" == "addexclusion" ]]; then echo "$2" >> "$EXCL_LOG"; fi; }
+tmutil() {
+    if [[ "$1" == "addexclusion" ]]; then echo "$2" >> "$EXCL_LOG"; fi
+    if [[ "$1" == "isexcluded" ]]; then
+        if grep -qxF "$2" "$EXCL_LOG"; then echo "[Excluded]  $2"; else echo "[Included]  $2"; fi
+    fi
+}
 export -f tmutil 2>/dev/null || true
 # shellcheck source=/dev/null
 source "$HARNESS/harden.sh"
@@ -107,7 +114,7 @@ printf 'plaintext-service-token\n' > "$STAGING/secrets/service_token"
 # (a) The BUGGED order: harden the staging node, THEN promote (which
 # rm -rf's staging). The exclusion was recorded against the /tmp node.
 : > "$EXCL_LOG"
-_ostler_harden_at_rest "$STAGING"
+_ostler_harden_at_rest "$STAGING" || fail "FIX-RT2-F3 repro: helper reported the staging exclusion as not held"
 mkdir -p "$FINAL"
 mv "$STAGING/secrets" "$FINAL/secrets"
 rm -rf "$STAGING"
@@ -121,7 +128,7 @@ echo "  repro: bugged order excludes only the (now-deleted) staging node -> ${FI
 
 # (b) The FIXED order: promote first, then harden the final node.
 : > "$EXCL_LOG"
-_ostler_harden_at_rest "$FINAL"
+_ostler_harden_at_rest "$FINAL" || fail "FIX-RT2-F3 repro: helper reported the final exclusion as not held"
 grep -qxF "$FINAL" "$EXCL_LOG" \
     || fail "FIX-RT2-F3 repro: fixed order did not exclude the promoted ~/.ostler node"
 [[ -f "$FINAL/.metadata_never_index" ]] \

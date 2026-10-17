@@ -32,6 +32,11 @@ from typing import Dict, List, Set, Tuple
 
 import httpx
 
+try:
+    from .person_audit import record_person_removal
+except ImportError:  # run as a script, not as a package
+    from person_audit import record_person_removal
+
 logger = logging.getLogger(__name__)
 
 OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
@@ -195,6 +200,11 @@ def _merge_pair(canonical: str, dupe: str) -> None:
     Written LAST, after both rewrites, because the outbound rewrite deletes
     every ``<dupe> ?p ?o`` -- including a tombstone written before it.
     """
+    record_person_removal(dupe, "ostler_fda.dedupe_merge", "exact_identifier_merge_all_triples_moved")
+    # Read both name sets BEFORE the move: afterwards they are one pile and
+    # the survivor's own name can no longer be told apart from the dupe's.
+    keep_names = _display_names(canonical)
+    dupe_names = _display_names(dupe)
     # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
     _sparql_update(
         f"DELETE {{ <{dupe}> ?p ?o }} "
@@ -207,10 +217,112 @@ def _merge_pair(canonical: str, dupe: str) -> None:
         f"INSERT {{ ?s ?p <{canonical}> }} "
         f"WHERE  {{ ?s ?p <{dupe}> }}"
     )
+    # NAME TIERS (DMG #27): one displayName on the survivor, chosen UPWARD only.
+    _elect_survivor_name(canonical, keep_names, dupe_names)
     # Tombstone: <dupe> pwg:mergedInto <canonical>
     _sparql_update(
         f"INSERT DATA {{ <{dupe}> <{PWG}mergedInto> <{canonical}> }}"
     )
+
+
+# ---------------------------------------------------------------------------
+# NAME TIERS ON MERGE (DMG #27, KNOWN-ISSUE 1). phone < email < human.
+# ---------------------------------------------------------------------------
+# The outbound rewrite above moves EVERY triple of the dupe, displayName and
+# displayNameProvisional included, so a survivor came out holding BOTH names:
+# "Jane Doe" and "+1 555 0100 01" side by side, and every reader picks one in
+# arbitrary SPARQL order. Measured read-only on the DMG #27 walk box: 257
+# survivors held a mixed set and every one of them had a merged-in node with no
+# mergedAt, which only this writer leaves. 158 of them had a human-named
+# merged-in node. CM051 #2857 put the tier rule into the two identity_resolver
+# merge paths and the install-time repair, but not here, and install.sh runs
+# this sweep AFTER that repair, so the repair saw a clean graph and this sweep
+# then undid it.
+#
+# The rule is the one the other two paths use: the survivor takes the dupe's
+# best name only when it is a HIGHER tier than anything the survivor already
+# carries. Equal tiers keep the survivor's own name. A losing name is DEMOTED
+# to alternateName (still useful for matching), never deleted -- the same
+# convention as repair_placeholder_names. A kinship word ("Mum", "Dad") is
+# never ELECTED: it cannot be the displayName. It is still demoted to
+# alternateName like any losing name, because deleting it is data loss on
+# exactly the family nodes this protects, and "who is Mum" then has nothing to
+# match (Archie, #2866 review).
+
+
+def _display_names(uri: str) -> List[str]:
+    rows = _sparql_query(
+        f"SELECT ?n WHERE {{ <{uri}> <{PWG}displayName> ?n }}"
+    )
+    return [r["n"]["value"] for r in rows if r.get("n", {}).get("value")]
+
+
+def _escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+
+
+def _tier_fn():
+    # Lazy: pwg_ingest pulls in phonenumbers and package-relative imports, and
+    # is only needed when there is a name to rank. One predicate, not a copy.
+    # Branch on how THIS module was loaded, not on an ImportError: a missing
+    # dependency inside pwg_ingest must surface as itself, not be masked by a
+    # second, misleading "no module named pwg_ingest".
+    if __package__:
+        from .pwg_ingest import _display_name_tier, _NAME_TIER_NAME, _NAME_TIER_PLACEHOLDER
+    else:  # run as a script, not as a package
+        from pwg_ingest import _display_name_tier, _NAME_TIER_NAME, _NAME_TIER_PLACEHOLDER  # type: ignore
+    return _display_name_tier, _NAME_TIER_NAME, _NAME_TIER_PLACEHOLDER
+
+
+def choose_survivor_name(keep_names: List[str], dupe_names: List[str]):
+    """Pure decision. Returns (winner, demote, is_human) or None when there is
+    no name to choose. ``winner`` is the survivor's single displayName and is
+    never a kinship word; every other name, kinship words included, is in
+    ``demote`` (written as alternateName). Nothing is deleted."""
+    keep = [n for n in dict.fromkeys(keep_names) if n and n.strip()]
+    dupe = [n for n in dict.fromkeys(dupe_names) if n and n.strip() and n not in keep]
+    every = keep + dupe
+    if not every:
+        return None
+    tier, tier_name, tier_placeholder = _tier_fn()
+    kinship = [n for n in every if tier(n) < tier_placeholder]   # never elected
+    keep_ok = [n for n in keep if n not in kinship]
+    dupe_ok = [n for n in dupe if n not in kinship]
+    if not keep_ok and not dupe_ok:
+        return None                       # only kinship words: leave untouched
+    best_keep = max((tier(n) for n in keep_ok), default=-1)
+    up = sorted((n for n in dupe_ok if tier(n) > best_keep), key=lambda n: (-tier(n), n))
+    if up:
+        winner = up[0]
+    else:
+        # The survivor's own best name. Among its own equal-tier values keep the
+        # first in a stable order; this writer never reorders two human names.
+        top = sorted(keep_ok, key=lambda n: (-tier(n), n))
+        winner = top[0]
+    demote = [n for n in keep_ok + dupe_ok if n != winner] + kinship
+    return winner, demote, tier(winner) >= tier_name
+
+
+def _elect_survivor_name(canonical: str, keep_names: List[str], dupe_names: List[str]) -> None:
+    decided = choose_survivor_name(keep_names, dupe_names)
+    if decided is None:
+        return
+    winner, demote, is_human = decided
+    inserts = [f'<{canonical}> <{PWG}displayName> "{_escape(winner)}" .']
+    inserts += [f'<{canonical}> <{PWG}alternateName> "{_escape(d)}" .' for d in demote]
+    _sparql_update(
+        f"DELETE {{ <{canonical}> <{PWG}displayName> ?old }} "
+        f"WHERE {{ <{canonical}> <{PWG}displayName> ?old }} ; "
+        f"INSERT DATA {{ {' '.join(inserts)} }}"
+    )
+    if is_human:
+        # A real name is the resolution the provisional flag was waiting for.
+        # The dupe's flag moved over with everything else; it must not label a
+        # human-named survivor as a placeholder.
+        _sparql_update(
+            f"DELETE {{ <{canonical}> <{PWG}displayNameProvisional> ?f }} "
+            f"WHERE {{ <{canonical}> <{PWG}displayNameProvisional> ?f }}"
+        )
 
 
 def run(dry_run: bool = False) -> Dict[str, int]:

@@ -235,7 +235,16 @@ def import_graph(pkg_dir: str, mods: list) -> dict:
             graph[m] = edges
             continue
         for node in ast.walk(tree):          # ast.walk sees function-local imports
-            if isinstance(node, ast.ImportFrom) and node.module:
+            if isinstance(node, ast.ImportFrom) and (
+                    node.module is None or node.module == "ostler_fda"):
+                # `from . import forget_tombstone` (module None, level 1) and
+                # `from ostler_fda import forget_tombstone`: the imported NAMES
+                # are the sibling modules. Without this arm a module imported
+                # only this way reads as an orphan while it ships and runs.
+                for alias in node.names:
+                    if alias.name in known:
+                        edges.add(alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module:
                 head = node.module.split(".")
                 if head[0] == "ostler_fda" and len(head) > 1:
                     edges.add(head[1])

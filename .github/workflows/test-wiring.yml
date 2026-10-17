@@ -66,6 +66,13 @@ jobs:
           fi
           echo "OK: manifest matches the tree"
 
+      - name: No patch(1) or merge backup file is tracked (*.orig, *.rej)
+        # CM051 #2937 committed a 843-line enrichment.py.orig in this PUBLIC
+        # repo. Every PR, no path filter. Carries its own positive and
+        # negative controls; exit 2 is CANNOT-RUN and fails the step.
+        if: always()
+        run: /bin/bash tests/test_no_patch_backup_files_tracked.sh
+
       - name: Both files parse under /bin/bash 3.2 (the cut host's shell)
         if: always()
         run: |

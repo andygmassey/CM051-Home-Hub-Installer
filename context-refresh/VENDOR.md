@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `15af17b9e2dee473f899bcd1699b3fb4bc6d9ddb58b9a418dc167241e124d16e` (post-graft, this repo) |
+| Current SHA-256 | `75c43c10d8f028002a7773317aefddc18f294313bdc309a6305b8cabca64043d` (post-graft, this repo, after item 10) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-07 (the digest must know its owner, v1.0.107 candidate #10). NOT upstream: a graft, like items 1 to 5 and 7. |
+| Last divergence | 2026-10-13 (untagged facts leave the family line and Places, DMG #25/#27, item 10). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -158,6 +158,34 @@ the kind of blanket claim that goes stale one item at a time:
    PROJECTS `?level`. It was bound in an OPTIONAL clause but not returned, so
    the L3 withholding check always read None and L3 user-asserted facts reached
    CONTEXT.md. Pinned by `context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py`.
+9. **A contact's place is not the owner's** (2026-10-10, cut #17 F12). NOT
+   upstream (the About-you section is itself graft 8). The Places query keyed on
+   `urn:ostler:userId`, which names whose graph a CM048 fact lives in, not who
+   it is about; a contact's "is based in <city>" fact (`urn:ostler:about` =
+   their person URN) was rendered on the owner's Places line and recited for
+   "what do you know about me". Location facts whose `urn:ostler:about` is set
+   and is not `urn:ostler:user/<USER_ID>` are now skipped. Pinned by the
+   `test_f12_*` tests in `tests/test_digest_knows_its_owner.py`.
+
+10. **A contact's family fact is not the owner's** (2026-10-12, DMG #24). NOT
+   upstream. Item 9 filtered the location bucket only; the family/relationship
+   bucket kept any subject, so "<raw phone> has a son" (a fact ABOUT a contact)
+   printed on the owner's "Family and close people" line. Now a family fact is
+   kept only when `urn:ostler:about` is the owner (or absent, legacy), or the
+   owner's name is in the text (owner is one end of the relation); any fact
+   carrying a raw phone-shaped run is dropped. `_PHONE_RUN` mirrors the shared
+   `person_label` phone gate (vendor/cm059_editor/compiler/frontpage.py); it is
+   restated here because this script ships standalone and cannot import the
+   compiler. Pinned by `test_family_*` in `tests/test_digest_knows_its_owner.py`.
+    **#25 tightening (2026-10-13):** untagged legacy facts are no longer kept
+    (walk #24: "<A> met <B> at a party", "<A> has a son", about other people).
+    Kept only when `about` is the owner, or a kinship fact has the owner as
+    subject or object (`_owner_is_kin_end`).
+    **#27 (2026-10-13):** the same rule now holds for PLACES: a location fact is
+    kept only when `about` is the owner, or it is untagged AND the owner is its
+    explicit subject; an untagged contact location is dropped. Swept: this
+    `urn:ostler:Fact` reader is the only untagged-keep in About you; Work reads
+    are anchored on the owner's URIs (`pwg:aboutPerson`) and need no change.
 
 ## Why vendored rather than shipped in the assistant release
 

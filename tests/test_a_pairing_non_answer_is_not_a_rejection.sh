@@ -92,6 +92,9 @@ probe_pass()       { printf 'PASS\n';       exit 0; }
 probe_fail()       { printf 'FAIL\n';       exit 1; }
 probe_cannot_run() { printf 'CANNOT-RUN\n'; exit 2; }
 box_reachable() { return 0; }
+# The probe pairs through the REAL companion flow (lib/companion_pair.sh). The
+# snippet is stubbed to a marker the box_run stub below recognises.
+companion_pair_box_snippet() { printf 'CP_JSON=STUBBED_COMPANION_PAIR\n'; }
 # THE COUNTER IS A FILE, NOT A VARIABLE. box_run is invoked inside \$( ), which
 # is a SUBSHELL: an arithmetic increment there is discarded on return, so a
 # shell variable would report "first call" on every call and the replay arm
@@ -122,6 +125,17 @@ box_run() {
         nothing) printf '000' ;;
         *)       printf '403' ;;
       esac; return 0 ;;
+    *STUBBED_COMPANION_PAIR*)
+      # One helper run = the pair ($a) and its replay control ($b), as the
+      # JSON lib/companion_pair.py prints. silent = no HTTP answer at all.
+      case '$b' in accept) _R=200 ;; refuse) _R=403 ;; *) _R=null ;; esac
+      case '$a' in
+        ok|accept) printf '{"ok": true, "stage": "register", "http": 200, "detail": "", "device_token": "x", "replay_http": %s}' "\$_R" ;;
+        refuse)    printf '{"ok": false, "stage": "register", "http": 401, "detail": "companion_proof_mismatch", "device_token": null, "replay_http": null}' ;;
+        silent)    printf '{"ok": false, "stage": "init", "http": null, "detail": "no answer", "device_token": null, "replay_http": null}' ;;
+      esac; return 0 ;;
+    # The LEGACY shape, kept for the negative control below: the pre-fix tree
+    # (5532772b) still pairs with a 6-digit code at :8443/pair.
     *8443/pair*)
       printf 'x' >> "\$_PAIRN_F"
       if [ "\$(wc -c < "\$_PAIRN_F" | tr -d ' ')" -eq 1 ]; then _M='$a'; else _M='$b'; fi

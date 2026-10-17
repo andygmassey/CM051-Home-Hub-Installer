@@ -16,8 +16,41 @@ on:
       - 'vendor/cm048_pipeline/src/seed.py'
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
+      - 'tests/test_cm048_gateway_extracts_owner_turns_only.py'
+      - 'tests/test_cm048_third_party_facts_keep_their_subject.py'
+      - 'vendor/cm048_pipeline/src/attribution.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/wire.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/adapters/zeroclaw_sessions.py'
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
+      - 'tests/test_cm048_participants_line_display_names_only.py'
+      - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
+      - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
+      - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/fixtures/people_rules_golden.json'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
+      - 'vendor/cm041/assistant_api/people_rules.py'
+      - 'vendor/cm048_pipeline/src/ostler_paths.py'
+      - 'tests/test_doctor_reminders_list_removed.py'
+      - 'vendor/doctor/agent/reminders_runtime.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
+      - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'vendor/cm048_pipeline/src/channel_adapter.py'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'tests/test_cm048_single_speaker_capture_is_a_memo.py'
+      - 'vendor/cm048_pipeline/src/capture_truth.py'
+      - 'vendor/cm048_pipeline/src/prompts.py'
+      - 'vendor/cm048_pipeline/src/schemas.py'
+      - 'vendor/cm048_pipeline/prompts/**'
+      - 'tests/test_cm048_handle_resolver.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
     paths:
@@ -28,8 +61,41 @@ on:
       - 'vendor/cm048_pipeline/src/seed.py'
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
+      - 'tests/test_cm048_gateway_extracts_owner_turns_only.py'
+      - 'tests/test_cm048_third_party_facts_keep_their_subject.py'
+      - 'vendor/cm048_pipeline/src/attribution.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/wire.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/adapters/zeroclaw_sessions.py'
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
+      - 'tests/test_cm048_participants_line_display_names_only.py'
+      - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
+      - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
+      - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/fixtures/people_rules_golden.json'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
+      - 'vendor/cm041/assistant_api/people_rules.py'
+      - 'vendor/cm048_pipeline/src/ostler_paths.py'
+      - 'tests/test_doctor_reminders_list_removed.py'
+      - 'vendor/doctor/agent/reminders_runtime.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
+      - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'vendor/cm048_pipeline/src/channel_adapter.py'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'tests/test_cm048_single_speaker_capture_is_a_memo.py'
+      - 'vendor/cm048_pipeline/src/capture_truth.py'
+      - 'vendor/cm048_pipeline/src/prompts.py'
+      - 'vendor/cm048_pipeline/src/schemas.py'
+      - 'vendor/cm048_pipeline/prompts/**'
+      - 'tests/test_cm048_handle_resolver.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
 concurrency:
@@ -57,7 +123,7 @@ jobs:
       # test reads ingest's participant edges directly.
       - name: Install pytest and the module's runtime dependencies
         run: |
-          python -m pip install --quiet pytest httpx pyyaml phonenumbers
+          python -m pip install --quiet pytest httpx pyyaml phonenumbers fastapi
           python -m pip install --quiet ./vendor/ostler_security
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in
       # a separate step would SKIP the run below and hide the real result.
@@ -71,6 +137,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_participants_as_strings.py -v
+      - name: The participants roster is display names only (walk #23)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_participants_line_display_names_only.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_participants_line_display_names_only.py -v
       - name: The reminders_candidates sidecar never reaches the conversation body (walk #13)
         if: always()
         run: |
@@ -81,3 +157,126 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminders_sidecar_never_reaches_the_body.py -v
+      - name: A redacted reminder title carries no raw ISO date
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_title_has_no_iso_date.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 4 ]; then
+            echo "REFUSING: expected at least 4 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_title_has_no_iso_date.py -v
+      - name: A redacted reminder title never carries a raw messaging handle
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_title_has_no_handle.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_title_has_no_handle.py -v
+      - name: One open reminder per person/thread; no push for organisations or automated senders
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py -v
+      - name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_thread_key_matches_the_daemon.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 28 ]; then
+            echo "REFUSING: expected at least 28 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_thread_key_matches_the_daemon.py -v
+      - name: reminders_push decides person-ness with the People list's own predicates (parity)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_push_person_parity.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_push_person_parity.py -v
+      - name: doctor tile for a removed reminders list
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_doctor_reminders_list_removed.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_doctor_reminders_list_removed.py -v
+      - name: The People rules load in the layout install.sh lays down (walk 20)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_push_people_rules_installed_layout.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 8 ]; then
+            echo "REFUSING: expected at least 8 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_push_people_rules_installed_layout.py -v
+      - name: people_rules.py is stdlib only and behaves exactly as the rules did inside ical-server
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_people_rules_is_stdlib_only.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_rules_is_stdlib_only.py -v
+      - name: A carded name always shows, and the name ladder holds in list, search, stale, recent and birthdays
+        if: always()
+        run: PYTHONPATH=vendor python tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py
+      - name: A gateway chat's assistant turns are never extracted as facts or todos about the owner (Mini16 #27)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_gateway_extracts_owner_turns_only.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 9 ]; then
+            echo "REFUSING: expected at least 9 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_gateway_extracts_owner_turns_only.py -v
+      - name: A fact about another person's family is theirs, not the owner's (DMG #27)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_third_party_facts_keep_their_subject.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_third_party_facts_keep_their_subject.py -v
+      - name: A one-speaker capture is written as a memo, with the real time and the model that ran (Mini16 2026-10-15)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_single_speaker_capture_is_a_memo.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 39 ]; then
+            echo "REFUSING: expected at least 39 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_single_speaker_capture_is_a_memo.py -v
+      - name: A carded handle is resolved to its name before extraction, never for L3 (CM048 #87)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_handle_resolver.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 15 ]; then
+            echo "REFUSING: expected at least 15 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_handle_resolver.py -v

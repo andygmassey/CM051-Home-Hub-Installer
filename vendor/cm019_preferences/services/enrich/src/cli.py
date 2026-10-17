@@ -32,6 +32,64 @@ from .enricher import EnrichmentService, EnrichmentStats
 # OSTLER_USER_ID env var or the explicit --user-id/-u option.
 DEFAULT_USER_ID = os.environ.get("OSTLER_USER_ID", "default_user")
 
+
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES (CM051 walk #28, privacy).
+#
+# Setup asks consent_enrichment (default no) and writes the answer to
+# ~/.ostler/config/.env as OSTLER_CONSENT_ENRICHMENT_DECISION. The callers in
+# install.sh (ostler-import, the enrich tick) check it first; this is the
+# backstop, so that a caller which forgets the check still sends nothing. It
+# reads the FILE, never the inherited environment, because a variable left in
+# a caller's shell is not the customer's recorded answer. Missing file,
+# unreadable file, missing key, empty value, or anything but "accepted" is NO.
+CONSENT_KEY = "OSTLER_CONSENT_ENRICHMENT_DECISION"
+
+
+def consent_env_file() -> str:
+    base = os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler")
+    return os.path.join(base, "config", ".env")
+
+
+def public_lookups_decision() -> str:
+    """Return "accepted", "declined" or "unknown" (could not read an answer)."""
+    try:
+        with open(consent_env_file(), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return "unknown"
+    value = None
+    for line in lines:
+        if line.startswith(CONSENT_KEY + "="):
+            value = line.split("=", 1)[1].strip().strip('"').strip("'")
+    if value in ("accepted", "declined"):
+        return value
+    return "unknown"
+
+
+def require_public_lookup_consent() -> None:
+    """Exit before any network client is built unless the answer is yes.
+
+    Declined exits 0: the customer's choice is honoured, nothing failed.
+    Unknown exits 3: nothing was sent, but the answer could not be read, and
+    that must not look like a clean run.
+    """
+    decision = public_lookups_decision()
+    if decision == "accepted":
+        return
+    if decision == "declined":
+        click.echo(
+            "Public look-ups are off (you said no during setup). Nothing was "
+            "sent to Wikidata, MusicBrainz, Open Library or any bookmarked link.",
+            err=True,
+        )
+        raise SystemExit(0)
+    click.echo(
+        f"Public look-ups not run: no recorded answer could be read from "
+        f"{consent_env_file()}, so it is treated as no. Nothing was sent.",
+        err=True,
+    )
+    raise SystemExit(3)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +97,13 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stderr)]
 )
 logger = logging.getLogger(__name__)
+
+# Every httpx client in this module that talks to the LOCAL stores (Qdrant,
+# Oxigraph) passes trust_env=False. With the default, an ambient
+# HTTP(S)_PROXY and no matching NO_PROXY sends loopback requests to the
+# proxy, so a healthy local store reads as dead and enrichment writes are
+# lost. Public API clients (clients/) keep the default on purpose.
+# Pinned by tests/test_local_store_ignores_proxy.py.
 
 # Suppress noisy HTTP client logs (httpx, httpcore)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -80,7 +145,7 @@ async def query_preferences_for_dry_run(
 ) -> List[dict]:
     """Query Qdrant for preferences (for dry run display)."""
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             must_conditions = [{"key": "user_id", "match": {"value": user_id}}]
 
             if category:
@@ -129,7 +194,7 @@ async def check_if_enriched(preference_id: str) -> bool:
     """
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             response = await client.post(
                 f"{settings.oxigraph_url}/query",
                 content=sparql,
@@ -202,7 +267,7 @@ async def get_enrichment_stats_from_db() -> dict:
     """
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             # Get total count
             response = await client.post(
                 f"{settings.oxigraph_url}/query",
@@ -284,7 +349,7 @@ async def get_unenriched_counts(user_id: str) -> dict:
     counts = {}
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             for category in ["book", "movie", "music", "podcast", "tv"]:
                 body = {
                     "limit": 1,  # We just want the total count
@@ -492,6 +557,10 @@ def enrich(
         click.echo("Nothing to enrich: no category has a usable client.", err=True)
         return
 
+    # A dry run reads the local stores only and calls no external API.
+    if not dry_run:
+        require_public_lookup_consent()
+
     if dry_run:
         asyncio.run(_dry_run(
             user_id=user_id,
@@ -698,6 +767,16 @@ async def _run_enrichment(
                 for key, value in client_info.items():
                     click.echo(f"  {key}: {value}", err=True)
 
+        # Misses are reported, but as INFORMATION and in their own block: the
+        # source answered and had no match, which is a fact about the item and
+        # not an error in the import (walk #16). They never set the exit code.
+        if getattr(stats, "misses", None):
+            click.echo(f"\n--- No enrichment match ({len(stats.misses)}, not errors) ---", err=True)
+            for miss in stats.misses[:10]:
+                click.echo(f"  {miss}", err=True)
+            if len(stats.misses) > 10:
+                click.echo(f"  ... and {len(stats.misses) - 10} more", err=True)
+
         # Show errors if any
         if stats.errors:
             click.echo(f"\n--- Errors ({len(stats.errors)}) ---", err=True)
@@ -709,7 +788,8 @@ async def _run_enrichment(
         duration = (datetime.utcnow() - start_time).total_seconds()
         click.echo(f"\nTotal duration: {duration:.1f}s", err=True)
 
-        # Return exit code based on success
+        # Return exit code based on success. `failed` holds real failures
+        # only; a no-match is counted in `no_match` and cannot fail the run.
         if stats.failed > stats.successful:
             raise SystemExit(1)
 
@@ -833,7 +913,7 @@ async def _test_connections():
     # Test Qdrant
     click.echo(f"Qdrant URL: {settings.qdrant_url}")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             response = await client.get(f"{settings.qdrant_url}/collections")
             if response.status_code == 200:
                 collections = response.json().get("result", {}).get("collections", [])
@@ -855,7 +935,7 @@ async def _test_connections():
     # Test Oxigraph
     click.echo(f"Oxigraph URL: {settings.oxigraph_url}")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             # Try a simple ASK query
             response = await client.post(
                 f"{settings.oxigraph_url}/query",
@@ -1037,6 +1117,8 @@ def parallel(
     """
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    require_public_lookup_consent()
 
     asyncio.run(_run_parallel(
         user_id=user_id,

@@ -35,6 +35,7 @@ Each parser is independent - missing exports are skipped gracefully.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -64,6 +65,49 @@ def find_dir(base: Path, patterns: List[str]) -> str | None:
         for p in base.rglob(pattern):
             if p.is_dir():
                 return str(p)
+    return None
+
+
+# ── One export, one import per run (CM051 F6) ──────────────────────
+#
+# ostler-import calls this module once PER ROOT, and the same export can sit
+# under two roots: on the Ostler DMG #16 walk, ~/Downloads/01 - Facebook held
+# the archive extracted into facebook-<user>-<date>-<id>/ AND extracted flat
+# beside it, both were detected, and the same your_friends.json was imported
+# twice ("Importing 897 Facebook friends..." x2). The run ledger is a file
+# named by OSTLER_IMPORT_RUN_LEDGER (ostler-import creates one per
+# invocation); each source file's sha256 is claimed once, so identical bytes
+# reached by a second path are skipped and SAID, while a different export is
+# still imported. With no ledger set (a hand run of this module) the claim is
+# per process, which is the old behaviour for a single root.
+_RUN_CLAIMS: Dict[str, str] = {}
+
+
+def claim_source(kind: str, path: str) -> str | None:
+    """Claim ``path`` for this run. Returns None if it is new, else the path
+    the same bytes were first imported from."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    key = f"{kind}\t{h.hexdigest()}"
+    ledger = os.environ.get("OSTLER_IMPORT_RUN_LEDGER", "").strip()
+    if ledger:
+        try:
+            with open(ledger, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    k1, _, rest = line.rstrip("\n").partition("\t")
+                    k2, _, first = rest.partition("\t")
+                    if f"{k1}\t{k2}" == key:
+                        return first
+        except FileNotFoundError:
+            pass
+        with open(ledger, "a", encoding="utf-8") as fh:
+            fh.write(f"{key}\t{path}\n")
+        return None
+    if key in _RUN_CLAIMS:
+        return _RUN_CLAIMS[key]
+    _RUN_CLAIMS[key] = path
     return None
 
 
@@ -128,7 +172,11 @@ def run_import(
 
     # ── 4. Facebook Friends ─────────────────────────────────────
     friends_path = find_export(base, ["your_friends.json"])
-    if friends_path:
+    first_seen = claim_source("facebook_friends", friends_path) if friends_path else None
+    if friends_path and first_seen:
+        print(f"⏭  Facebook Friends - this export was already imported this run "
+              f"(from {first_seen}), skipping the copy at {friends_path}")
+    elif friends_path:
         print("👥 Facebook Friends found")
         from contact_syncer.facebook_friends import import_friends
         results["facebook_friends"] = import_friends(
@@ -141,7 +189,11 @@ def run_import(
     # ── 5. Facebook Events ──────────────────────────────────────
     events_dir = find_dir(base, ["events"])
     events_check = find_export(base, ["event_invitations.json", "your_events.json"])
-    if events_check:
+    events_first = claim_source("facebook_events", events_check) if events_check else None
+    if events_check and events_first:
+        print(f"⏭  Facebook Events - this export was already imported this run "
+              f"(from {events_first}), skipping the copy at {events_check}")
+    elif events_check:
         events_directory = str(Path(events_check).parent)
         print("📅 Facebook Events found")
         from contact_syncer.facebook_events import import_events

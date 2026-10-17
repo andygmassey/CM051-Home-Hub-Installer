@@ -45,6 +45,7 @@ if _PARENT_DIR not in sys.path:
 from contact_syncer import config
 from contact_syncer import privacy_model as _pm
 from contact_syncer.relationship_labels import is_relationship_label
+from identity_resolver import forget_tombstone
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -283,6 +284,9 @@ def _create_person_from_endorser(
     user_id: str,
 ) -> None:
     """Create a minimal Person node from an endorser."""
+    forget_tombstone.guard(
+        [linkedin_url] if linkedin_url else [], name=display_name
+    )
     now = datetime.now(timezone.utc).isoformat()
     # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become a
     # person's permanent displayName -- it says how SOMEBODY refers to this
@@ -392,6 +396,13 @@ def import_endorsements(
             )
 
             match = resolver.resolve(identity, use_fuzzy=True)
+
+            # Forgotten (tombstoned) people are never created or linked.
+            if match and match.match_type == "forgotten":
+                counts["skipped"] += 1
+                if verbose:
+                    print("    FORGOTTEN (skipped)")
+                continue
 
             if match and match.person_uri and match.match_type != "new":
                 person_uri = match.person_uri
@@ -557,6 +568,13 @@ def import_recommendations(
             )
 
             match = resolver.resolve(identity, use_fuzzy=True)
+
+            # Forgotten (tombstoned) people are never created or linked.
+            if match and match.match_type == "forgotten":
+                counts["skipped"] += 1
+                if verbose:
+                    print("    FORGOTTEN (skipped)")
+                continue
 
             if match and match.person_uri and match.match_type != "new":
                 person_uri = match.person_uri

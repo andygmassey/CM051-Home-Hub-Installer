@@ -96,6 +96,19 @@ class Checker(unittest.TestCase):
         self.assertEqual(self.call(body_keys=["metadata"], **kw), ["REQUEST_FIELD_MISSING"])
         self.assertEqual(self.call(body_keys=["transcript"], reads=["nope"], **kw), ["RESPONSE_FIELD_ABSENT"])
 
+    def test_identify_takes_the_service_token_on_the_hub_and_never_on_the_gateway(self):
+        kw = dict(method="POST", body_bytes=10, body_keys=["transcript"])
+        svc = {"Authorization": "Bearer synthetic-service-token"}
+        hub = "http://127.0.0.1:8090/api/v1/speakers/identify"
+        self.assertEqual(self.call(url=hub, headers=svc, token_source="service_token", **kw), [])
+        self.assertEqual(self.call(url=hub, headers={}, token_source="none", **kw), ["AUTH_MISSING"])
+        for url in ("http://127.0.0.1:8000/api/v1/speakers/identify",
+                    "http://192.168.1.5:8443/api/v1/speakers/identify"):
+            self.assertEqual(self.call(url=url, headers={}, token_source="none", **kw),
+                             ["AUTH_MISSING"], url)
+            self.assertEqual(self.call(url=url, headers=svc, token_source="service_token", **kw),
+                             ["AUTH_WRONG_CREDENTIAL"], url)
+
     def test_tampered_copy_is_refused(self):
         import tempfile
         d = tempfile.mkdtemp()
@@ -116,6 +129,10 @@ class Checker(unittest.TestCase):
             dict(method="POST", url="http://localhost:8089/api/safari/save", headers={"Authorization": "Bearer x"}, token_source="extension_token"),
             dict(method="POST", url="http://127.0.0.1:8090/api/v1/conversation/process", headers={"Authorization": "Bearer x"},
                  token_source="device_token", body_bytes=None, body_keys=[], reads=["job_id", "zz"]),
+            dict(method="POST", url="http://127.0.0.1:8000/api/v1/speakers/identify", headers={}, token_source="none",
+                 body_bytes=5, body_keys=["transcript"], reads=["speakers"]),
+            dict(method="POST", url="http://192.168.1.5:8443/api/v1/speakers/identify", headers={}, token_source="none",
+                 body_bytes=5, body_keys=["transcript"]),
         ]
         js = ("const {HubContract}=require(process.argv[1]);"
               "const c=new HubContract(JSON.parse(require('fs').readFileSync(process.argv[2])));"

@@ -1,0 +1,66 @@
+{
+  "facts": [
+    "Moved to Acme Corp in January"
+  ],
+  "found": true,
+  "how_we_met": "a design conference",
+  "identifiers": [
+    {
+      "type": "email",
+      "value": "alexandra@fixture.example"
+    }
+  ],
+  "last_contact": "2026-06-25",
+  "meetings": [
+    {
+      "date": "2026-05-21",
+      "location": "Studio Nine",
+      "summary": "Lisbon workshop budget review"
+    },
+    {
+      "date": "2025-12-12",
+      "location": "Riverside Town",
+      "summary": "Autumn roadmap check-in"
+    }
+  ],
+  "name": "Alexandra Patel",
+  "organisation": "Acme Corp",
+  "person": {
+    "facts": [
+      "Moved to Acme Corp in January"
+    ],
+    "how_we_met": "a design conference",
+    "identifiers": [
+      {
+        "type": "email",
+        "value": "alexandra@fixture.example"
+      }
+    ],
+    "last_contact": "2026-06-25",
+    "meetings": [
+      {
+        "date": "2026-05-21",
+        "location": "Studio Nine",
+        "summary": "Lisbon workshop budget review"
+      },
+      {
+        "date": "2025-12-12",
+        "location": "Riverside Town",
+        "summary": "Autumn roadmap check-in"
+      }
+    ],
+    "name": "Alexandra Patel",
+    "organisation": "Acme Corp",
+    "person_uri": "urn:ostler-walk-fixture:alexandra",
+    "relationship": "former client",
+    "slug": "alexandra-patel",
+    "title": "Head of Design",
+    "wiki_url": "http://wiki.example/People/alexandra-patel/"
+  },
+  "person_uri": "urn:ostler-walk-fixture:alexandra",
+  "query": "Alexandra Patel",
+  "relationship": "former client",
+  "slug": "alexandra-patel",
+  "title": "Head of Design",
+  "wiki_url": "http://wiki.example/People/alexandra-patel/"
+}

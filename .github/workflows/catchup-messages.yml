@@ -1,0 +1,56 @@
+# v1.0.108 catch-up 2/6: iMessage and WhatsApp bundles walk back to the first
+# message. Synthetic chat.db / ChatStorage.sqlite larger than every forward
+# cap, a fake pwg-convo that models CM048, content-level coverage and overlap,
+# and SIGKILL mid-backfill.
+name: catchup-messages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'vendor/imessage_source/**'
+      - 'vendor/whatsapp_source/**'
+      - 'vendor/ostler_fda/whatsapp_history.py'
+      - 'vendor/ostler_fda/imessage.py'
+      - 'tests/test_catchup_messages.py'
+      - '.github/workflows/catchup-messages.yml'
+  pull_request:
+    paths:
+      - 'lib/ostler_catchup.py'
+      - 'install.sh'
+      - 'vendor/imessage_source/**'
+      - 'vendor/whatsapp_source/**'
+      - 'vendor/ostler_fda/whatsapp_history.py'
+      - 'vendor/ostler_fda/imessage.py'
+      - 'tests/test_catchup_messages.py'
+      - '.github/workflows/catchup-messages.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  catchup-messages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest and PyYAML
+        run: python -m pip install --quiet pytest pyyaml
+      - name: every message reaches one bundle, kill-safe, bounded
+        run: |
+          n="$(python -m pytest tests/test_catchup_messages.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 9 ]; then
+            echo "REFUSING: expected at least 9 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_catchup_messages.py -v -rs -s
+      - name: the existing feed tests for the touched trees
+        if: always()
+        run: python -m pytest vendor/imessage_source/tests vendor/whatsapp_source/tests -q

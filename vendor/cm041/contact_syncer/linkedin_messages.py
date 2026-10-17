@@ -272,6 +272,12 @@ def import_messages(
 
                 match = resolver.resolve(identity, use_fuzzy=True)
 
+                # Forgotten (tombstoned) people are never created or linked.
+                if match and match.match_type == "forgotten":
+                    if verbose:
+                        print(" -> FORGOTTEN (skipped)")
+                    continue
+
                 if match and match.person_uri and match.match_type != "new":
                     person_uri = match.person_uri
                     if verbose:

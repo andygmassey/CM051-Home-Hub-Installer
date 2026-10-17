@@ -1,0 +1,231 @@
+{
+  "_about": "Shared CM019 <-> CM044 contract for book (OpenLibrary) enrichment triples. Byte-identical copies live in CM019 services/enrich/tests/fixtures/ and CM044 compiler/tests/fixtures/. CM019 asserts to_turtle writes exactly expected_triples and exactly the turtle graph; CM044 asserts its reader returns expected_wiki from those triples and that the Books table shows the year and pages. Edit both copies in the same change. SYNTHETIC DATA ONLY: every title and name here is invented, people from CM051's approved synthetic cast (.pii-name-registry.tsv) so the public repo's name guard passes. Each record's turtle (one triple per line, prefixes pwg/rdfs/xsd) is the exact graph CM019 writes for that input.",
+  "namespace": "https://schema.ostler.ai/enrichment/ontology#",
+  "enriched_at": "2026-01-02T03:04:05",
+  "records": [
+    {
+      "preference_id": "00000000-0000-4000-8000-0000000b0c01",
+      "input": {
+        "matched_title": "The Riverside cartographer's \"last\" tide",
+        "confidence": 0.92,
+        "match_type": "exact_title",
+        "topics": [
+          [
+            "Maritime fiction",
+            "maritime_fiction"
+          ],
+          [
+            "Islands",
+            "islands"
+          ]
+        ],
+        "entities": [
+          [
+            "Alison Patel",
+            "author"
+          ],
+          [
+            "Ben Brown",
+            "author"
+          ]
+        ],
+        "book_metadata": {
+          "title": "The Riverside cartographer's \"last\" tide",
+          "authors": [
+            "Alison Patel",
+            "Ben Brown"
+          ],
+          "subjects": [
+            "Maritime fiction",
+            "Islands"
+          ],
+          "publish_year": 1987,
+          "number_of_pages": 312,
+          "isbn": "0000000000",
+          "open_library_key": "/works/OL0000000W",
+          "cover_url": "https://covers.openlibrary.org/b/id/0-M.jpg"
+        }
+      },
+      "expected_triples": [
+        [
+          "pageCount",
+          "integer",
+          "312"
+        ],
+        [
+          "publishYear",
+          "integer",
+          "1987"
+        ]
+      ],
+      "absent_predicates": [],
+      "expected_wiki": {
+        "matched_title": "The Riverside cartographer's \"last\" tide",
+        "topics": [
+          "Islands",
+          "Maritime fiction"
+        ],
+        "authors": [
+          "Alison Patel",
+          "Ben Brown"
+        ],
+        "publish_year": 1987,
+        "page_count": 312
+      },
+      "turtle": [
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:enrichedAt \"2026-01-02T03:04:05\"^^xsd:dateTime .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:enrichmentSource \"open_library\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:enrichmentConfidence \"0.92\"^^xsd:decimal .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:matchType \"exact_title\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasSemanticValue \"true\"^^xsd:boolean .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:matchedTitle \"The Riverside cartographer's \\\"last\\\" tide\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasTopic <pwg:topic_maritime_fiction> .",
+        "<pwg:topic_maritime_fiction> rdfs:label \"Maritime fiction\" .",
+        "<pwg:topic_maritime_fiction> a pwg:Topic .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasTopic <pwg:topic_islands> .",
+        "<pwg:topic_islands> rdfs:label \"Islands\" .",
+        "<pwg:topic_islands> a pwg:Topic .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasEntity <pwg:entity_alison_patel> .",
+        "<pwg:entity_alison_patel> rdfs:label \"Alison Patel\" .",
+        "<pwg:entity_alison_patel> pwg:entityType \"author\" .",
+        "<pwg:entity_alison_patel> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasEntity <pwg:entity_ben_brown> .",
+        "<pwg:entity_ben_brown> rdfs:label \"Ben Brown\" .",
+        "<pwg:entity_ben_brown> pwg:entityType \"author\" .",
+        "<pwg:entity_ben_brown> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:publishYear \"1987\"^^xsd:integer .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:pageCount \"312\"^^xsd:integer ."
+      ]
+    },
+    {
+      "preference_id": "00000000-0000-4000-8000-0000000b0c02",
+      "input": {
+        "matched_title": "The Quiet orchards",
+        "confidence": 0.81,
+        "match_type": "fuzzy_title",
+        "topics": [
+          [
+            "Gardening",
+            "gardening"
+          ]
+        ],
+        "entities": [
+          [
+            "Liz Stewart",
+            "author"
+          ]
+        ],
+        "book_metadata": {
+          "title": "The Quiet orchards",
+          "authors": [
+            "Liz Stewart"
+          ],
+          "subjects": [
+            "Gardening"
+          ],
+          "publish_year": 2004,
+          "number_of_pages": null
+        }
+      },
+      "expected_triples": [
+        [
+          "publishYear",
+          "integer",
+          "2004"
+        ]
+      ],
+      "absent_predicates": [
+        "pageCount"
+      ],
+      "expected_wiki": {
+        "matched_title": "The Quiet orchards",
+        "topics": [
+          "Gardening"
+        ],
+        "authors": [
+          "Liz Stewart"
+        ],
+        "publish_year": 2004,
+        "page_count": 0
+      },
+      "turtle": [
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:enrichedAt \"2026-01-02T03:04:05\"^^xsd:dateTime .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:enrichmentSource \"open_library\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:enrichmentConfidence \"0.81\"^^xsd:decimal .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:matchType \"fuzzy_title\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:hasSemanticValue \"true\"^^xsd:boolean .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:matchedTitle \"The Quiet orchards\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:hasTopic <pwg:topic_gardening> .",
+        "<pwg:topic_gardening> rdfs:label \"Gardening\" .",
+        "<pwg:topic_gardening> a pwg:Topic .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:hasEntity <pwg:entity_liz_stewart> .",
+        "<pwg:entity_liz_stewart> rdfs:label \"Liz Stewart\" .",
+        "<pwg:entity_liz_stewart> pwg:entityType \"author\" .",
+        "<pwg:entity_liz_stewart> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c02> pwg:publishYear \"2004\"^^xsd:integer ."
+      ]
+    },
+    {
+      "preference_id": "00000000-0000-4000-8000-0000000b0c03",
+      "input": {
+        "matched_title": "The Riverside notes from nowhere",
+        "confidence": 0.8,
+        "match_type": "fuzzy_title",
+        "topics": [
+          [
+            "Essays",
+            "essays"
+          ]
+        ],
+        "entities": [
+          [
+            "Tom Coe",
+            "author"
+          ]
+        ],
+        "book_metadata": {
+          "title": "The Riverside notes from nowhere",
+          "authors": [
+            "Tom Coe"
+          ],
+          "subjects": [
+            "Essays"
+          ],
+          "publish_year": null,
+          "number_of_pages": null
+        }
+      },
+      "expected_triples": [],
+      "absent_predicates": [
+        "publishYear",
+        "pageCount"
+      ],
+      "expected_wiki": {
+        "matched_title": "The Riverside notes from nowhere",
+        "topics": [
+          "Essays"
+        ],
+        "authors": [
+          "Tom Coe"
+        ],
+        "publish_year": 0,
+        "page_count": 0
+      },
+      "turtle": [
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:enrichedAt \"2026-01-02T03:04:05\"^^xsd:dateTime .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:enrichmentSource \"open_library\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:enrichmentConfidence \"0.8\"^^xsd:decimal .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:matchType \"fuzzy_title\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:hasSemanticValue \"true\"^^xsd:boolean .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:matchedTitle \"The Riverside notes from nowhere\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:hasTopic <pwg:topic_essays> .",
+        "<pwg:topic_essays> rdfs:label \"Essays\" .",
+        "<pwg:topic_essays> a pwg:Topic .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c03> pwg:hasEntity <pwg:entity_tom_coe> .",
+        "<pwg:entity_tom_coe> rdfs:label \"Tom Coe\" .",
+        "<pwg:entity_tom_coe> pwg:entityType \"author\" .",
+        "<pwg:entity_tom_coe> a pwg:Entity ."
+      ]
+    }
+  ]
+}

@@ -79,19 +79,52 @@ LOG_FILE="${LOGS_DIR}/engine-supervisor.log"
 
 ASSISTANT_LABEL="${OSTLER_ASSISTANT_LABEL:-com.creativemachines.ostler.assistant}"
 
-# A daemon restart interrupts in-flight chat, so it is rationed. Ten minutes
-# is longer than a cold Colima boot (measured 0.4-3 s on this box, but a cold
-# VM can take ~60 s) and short enough that an outage is minutes, not a day.
-RECOVERY_COOLDOWN_S="${OSTLER_ENGINE_RECOVERY_COOLDOWN_S:-600}"
-# After this many consecutive failed recoveries, STOP trying and leave the
-# finding standing. A supervisor that thrashes forever is a second outage.
-RECOVERY_MAX_ATTEMPTS="${OSTLER_ENGINE_RECOVERY_MAX_ATTEMPTS:-5}"
-# How long to wait for the engine after asking for a restart.
-RECOVERY_SETTLE_S="${OSTLER_ENGINE_RECOVERY_SETTLE_S:-60}"
+# ══════════════════════════════════════════════════════════════════════
+# HEALTH IS THE STORE PORTS ANSWERING, NOT `colima list` (Ostler #30)
+# ══════════════════════════════════════════════════════════════════════
+# Measured on a Studio install (lifecycle_studio29): the VM process was
+# killed with the limactl hostagent still alive. `colima list` said Running,
+# `colima start` said "already running", the daemon logged a false "Colima
+# started", and the 600 s cooldown outlasted the whole 1200 s window. A fully
+# dead colima, by contrast, recovered in 23 s. So the verdict is now the walk
+# predicate (scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh,
+# arm 2): the Qdrant and Oxigraph ports answer 2xx THROUGH the store proxy
+# WITH the install's own credential (secrets/store-curl.conf).
+#
+# TIMING, justified against the measured boot. A fully dead colima was back in
+# 23 s; a cold VM is budgeted at ~60 s. A restart is only taken when the
+# ports have been dead for N=6 consecutive probes 15 s apart (90 s of
+# continuous silence, 1.5x the cold budget and ~4x the measured recovery), so
+# a slow boot is never killed mid-boot. After the restart the supervisor
+# waits up to 120 s (2x the cold budget) for the ports. Worst case per tick
+# is 90 + 120 = 210 s, inside the 300 s StartInterval.
+PORT_FAIL_N="${OSTLER_ENGINE_PORT_FAIL_N:-6}"
+PORT_FAIL_INTERVAL_S="${OSTLER_ENGINE_PORT_FAIL_INTERVAL_S:-15}"
+# Rationed, not forbidden: 60 s base, doubling per consecutive failed
+# recovery, capped at 900 s. There is no permanent give-up: a supervisor that
+# stops trying is the 1200 s outage again, just slower.
+RECOVERY_COOLDOWN_S="${OSTLER_ENGINE_RECOVERY_COOLDOWN_S:-60}"
+RECOVERY_COOLDOWN_CAP_S="${OSTLER_ENGINE_RECOVERY_COOLDOWN_CAP_S:-900}"
+# How long to wait for the ports after asking for a restart.
+RECOVERY_SETTLE_S="${OSTLER_ENGINE_RECOVERY_SETTLE_S:-120}"
+SETTLE_POLL_S="${OSTLER_ENGINE_SETTLE_POLL_S:-5}"
+# BOOTING WINDOW. On a loaded 16 GB Mac at login a boot can exceed the 90 s
+# dead-probe window, and killing a booting VM in a loop is worse than the
+# outage. So while the lima hostagent is younger than this, the supervisor
+# only waits. Age comes from the PROCESS START TIME (ps), never from this
+# script's own memory, so a supervisor restart cannot reset it.
+BOOT_GRACE_S="${OSTLER_ENGINE_BOOT_GRACE_S:-300}"
+COLIMA_HOME_DIR="${OSTLER_ENGINE_COLIMA_HOME:-${HOME}/.colima}"
+HA_PID_FILE="${OSTLER_ENGINE_HA_PID_FILE:-${COLIMA_HOME_DIR}/_lima/colima/ha.pid}"
 
-# Injectable so the tests can drive every branch without a real launchd and
-# without a real engine. Production leaves them empty.
+# Injectable so the tests can drive every branch without a real launchd, a
+# real engine or real ports. Production leaves them empty.
 OSTLER_ENGINE_KICKSTART_CMD="${OSTLER_ENGINE_KICKSTART_CMD:-}"
+# rc 0 = both store ports answered 2xx through the proxy auth.
+OSTLER_ENGINE_PORT_PROBE_CMD="${OSTLER_ENGINE_PORT_PROBE_CMD:-}"
+# rc 0 = the installer is running right now.
+OSTLER_ENGINE_INSTALL_RUNNING_CMD="${OSTLER_ENGINE_INSTALL_RUNNING_CMD:-}"
+STORE_CURL_CONF="${OSTLER_ENGINE_STORE_CURL_CONF:-${OSTLER_DIR}/secrets/store-curl.conf}"
 
 mkdir -p "$STATE_DIR" "$LOGS_DIR" 2>/dev/null || true
 
@@ -145,6 +178,70 @@ kickstart_assistant() {
     launchctl kickstart -k "gui/$(id -u)/${ASSISTANT_LABEL}" 2>&1
 }
 
+install_running() {
+    if [ -n "$OSTLER_ENGINE_INSTALL_RUNNING_CMD" ]; then
+        eval "$OSTLER_ENGINE_INSTALL_RUNNING_CMD"
+        return $?
+    fi
+    pgrep -f '/install\.sh' >/dev/null 2>&1
+}
+
+# ports_answer: the walk predicate. rc 0 only when BOTH stores answer 2xx
+# through the proxy with the install credential. rc 2 = could not judge (no
+# credential file yet), which is never a verdict.
+ports_answer() {
+    if [ -n "$OSTLER_ENGINE_PORT_PROBE_CMD" ]; then
+        eval "$OSTLER_ENGINE_PORT_PROBE_CMD"
+        return $?
+    fi
+    [ -r "$STORE_CURL_CONF" ] || return 2
+    local code url
+    for url in "http://127.0.0.1:6333/collections" "http://127.0.0.1:7878/query?query=ASK%7B%7D"; do
+        code="$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -K "$STORE_CURL_CONF" "$url" 2>/dev/null)"
+        case "$code" in 2??) ;; *) return 1 ;; esac
+    done
+    return 0
+}
+
+stop_colima_hard() {
+    # `colima stop -f` needs no Full Disk Access (only START does, and that
+    # stays with the daemon). It is the step that clears a hostagent that
+    # outlived its VM: without it `colima start` answers "already running".
+    if [ -n "${OSTLER_ENGINE_COLIMA:-}" ]; then
+        local out rc
+        out="$("$OSTLER_ENGINE_COLIMA" stop -f 2>&1)"; rc=$?
+        log "colima stop -f rc=${rc}: ${out:-<no output>}"
+    else
+        log "no colima binary found; skipping colima stop -f"
+    fi
+}
+
+# hostagent_age_s: seconds since the lima hostagent PROCESS started, read from
+# its pid file and `ps`. Prints nothing (rc 1) when there is no live hostagent:
+# fully dead, so not booting. etime is [[dd-]hh:]mm:ss (BSD ps has no etimes).
+hostagent_age_s() {
+    local pid et d=0 h=0 m=0 sec=0 rest
+    [ -r "$HA_PID_FILE" ] || return 1
+    pid="$(tr -dc '0-9' < "$HA_PID_FILE")"
+    [ -n "$pid" ] || return 1
+    et="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [ -n "$et" ] || return 1
+    case "$et" in *-*) d="${et%%-*}"; rest="${et#*-}" ;; *) rest="$et" ;; esac
+    IFS=: read -r a b c <<<"$rest"
+    if [ -n "${c:-}" ]; then h=$((10#$a)); m=$((10#$b)); sec=$((10#$c)); else m=$((10#$a)); sec=$((10#${b:-0})); fi
+    echo $(( 10#$d * 86400 + h * 3600 + m * 60 + sec ))
+}
+
+cooldown_for() {
+    # cooldown_for <consecutive_failures> -> seconds: base * 2^failures, capped.
+    local c="$RECOVERY_COOLDOWN_S" i=0
+    while [ "$i" -lt "$1" ] && [ "$c" -lt "$RECOVERY_COOLDOWN_CAP_S" ]; do
+        c=$((c * 2)); i=$((i + 1))
+    done
+    [ "$c" -gt "$RECOVERY_COOLDOWN_CAP_S" ] && c="$RECOVERY_COOLDOWN_CAP_S"
+    echo "$c"
+}
+
 # ── classify ────────────────────────────────────────────────────────
 ostler_engine_state
 classify_rc=$?
@@ -157,10 +254,21 @@ if [ "$classify_rc" -eq 2 ]; then
     exit 2
 fi
 
-if [ "$state" = "up" ]; then
-    # Clear the streak. A marker that is never cleared is a false-alarm
-    # generator, and a recovered box must stop reporting an outage.
-    rm -f "$STATE_FILE" 2>/dev/null || true
+# --probe-ports: the ONE canonical store-port check, callable on its own.
+# rc 0 = Qdrant and Oxigraph both answered 2xx through the proxy with the
+# install credential; 1 = a store did not; 2 = could not judge (no credential).
+# Prints nothing, touches no state, restarts nothing. The catch-up adapters
+# (vendor/ostler_fda/sink_health.py) call THIS rather than re-implementing the
+# check, so the supervisor's verdict and theirs cannot drift.
+if [ "${1:-}" = "--probe-ports" ]; then
+    ports_answer
+    exit $?
+fi
+
+# An install in progress owns the runtime: its own colima start, image pulls
+# and container creates look exactly like an outage from outside.
+if install_running; then
+    log "installer is running; not judging or restarting the engine"
     exit 0
 fi
 
@@ -168,84 +276,94 @@ failures="$(read_field consecutive_failures)"; [ -n "$failures" ] || failures=0
 last_attempt="$(read_field last_attempt_epoch)"; [ -n "$last_attempt" ] || last_attempt=0
 since=$(( $(now_epoch) - last_attempt ))
 
-case "$state" in
-  absent)
+if [ "$state" = "absent" ]; then
     # Nothing installed. This supervisor will not install software behind the
     # customer's back; the finding is the deliverable.
     log "engine ABSENT: ${detail}. No recovery is possible from here; re-run the installer."
     write_state "absent" "$detail" "none (install required)" "$failures" "$last_attempt"
     exit 1
-    ;;
+fi
 
-  installed_stopped)
-    # THE MEASURED STATE, AND THE RECOVERABLE ONE.
-    if [ "$failures" -ge "$RECOVERY_MAX_ATTEMPTS" ]; then
-        log "engine STOPPED and ${failures} consecutive recovery attempts have failed; not trying again. The finding stands."
-        write_state "installed_stopped" "$detail" "gave up after ${failures} attempts" "$failures" "$last_attempt"
-        exit 1
-    fi
-    if [ "$last_attempt" -gt 0 ] && [ "$since" -lt "$RECOVERY_COOLDOWN_S" ]; then
-        log "engine STOPPED; last recovery was ${since}s ago, inside the ${RECOVERY_COOLDOWN_S}s cooldown. Waiting."
-        write_state "installed_stopped" "$detail" "cooling down (${since}s of ${RECOVERY_COOLDOWN_S}s)" "$failures" "$last_attempt"
-        exit 1
-    fi
-
-    log "engine STOPPED: ${detail}"
-    log "restarting ${ASSISTANT_LABEL} so its ensure_colima_running() re-runs WITH Full Disk Access -- a launchd agent starting the runtime directly would have none, and the wiki's ~/Documents bind-mount would then fail"
-    ks_out="$(kickstart_assistant)"; ks_rc=$?
-    # Log the restart command's own output ALWAYS, not only on failure. A
-    # recovery whose only trace is "I tried" cannot be told apart from one
-    # that no-oped.
-    log "restart command rc=${ks_rc}: ${ks_out:-<no output>}"
-    attempt_epoch="$(now_epoch)"
-    if [ "$ks_rc" -ne 0 ]; then
-        log "kickstart FAILED rc=${ks_rc}: ${ks_out}"
-        write_state "installed_stopped" "$detail" "kickstart failed rc=${ks_rc}" "$((failures + 1))" "$attempt_epoch"
-        exit 1
-    fi
-
-    waited=0
-    while [ "$waited" -lt "$RECOVERY_SETTLE_S" ]; do
-        sleep 5
-        waited=$((waited + 5))
-        if ostler_engine_state && [ "$OSTLER_ENGINE_STATE" = "up" ]; then
-            log "RECOVERED after ${waited}s: ${OSTLER_ENGINE_DETAIL}"
-            rm -f "$STATE_FILE" 2>/dev/null || true
-            exit 0
-        fi
-    done
-    log "engine did not come back within ${RECOVERY_SETTLE_S}s (now '${OSTLER_ENGINE_STATE}': ${OSTLER_ENGINE_DETAIL})"
-    write_state "installed_stopped" "$OSTLER_ENGINE_DETAIL" "restarted the daemon; engine still down after ${RECOVERY_SETTLE_S}s" "$((failures + 1))" "$attempt_epoch"
-    exit 1
-    ;;
-
-  running_no_wiki)
-    # A DIFFERENT REPAIR. Restarting the engine here would be wrong: the
-    # engine is fine. Start the container.
-    if [ "$last_attempt" -gt 0 ] && [ "$since" -lt "$RECOVERY_COOLDOWN_S" ]; then
-        log "wiki container down; last attempt ${since}s ago, inside cooldown. Waiting."
-        write_state "running_no_wiki" "$detail" "cooling down" "$failures" "$last_attempt"
-        exit 1
-    fi
-    log "engine is UP but the wiki container is not: ${detail}"
-    attempt_epoch="$(now_epoch)"
-    start_out="$("$OSTLER_ENGINE_DOCKER" start ostler-wiki-site 2>&1)"; start_rc=$?
-    if [ "$start_rc" -eq 0 ]; then
-        sleep 5
-        if ostler_engine_state && [ "$OSTLER_ENGINE_STATE" = "up" ]; then
-            log "RECOVERED: wiki container started"
-            rm -f "$STATE_FILE" 2>/dev/null || true
-            exit 0
-        fi
-    fi
-    log "could not start the wiki container: ${start_out}"
-    write_state "running_no_wiki" "$detail" "docker start failed: $(printf '%s' "$start_out" | head -1)" "$((failures + 1))" "$attempt_epoch"
-    exit 1
-    ;;
-
-  *)
-    log "CANNOT-RUN: unrecognised state '${state}'"
-    write_state "unknown" "$detail" "none" "$failures" "$last_attempt"
+ports_answer; ports_rc=$?
+if [ "$ports_rc" -eq 2 ]; then
+    log "CANNOT-RUN: cannot judge the store ports (no credential at ${STORE_CURL_CONF}); nothing was restarted"
     exit 2
-    ;;
-esac
+fi
+
+if [ "$ports_rc" -eq 0 ]; then
+    if [ "$state" = "running_no_wiki" ]; then
+        # Stores answer, wiki container is down: a DIFFERENT, smaller repair.
+        if [ "$last_attempt" -gt 0 ] && [ "$since" -lt "$(cooldown_for "$failures")" ]; then
+            log "wiki container down; last attempt ${since}s ago, inside cooldown. Waiting."
+            exit 1
+        fi
+        log "store ports answer but the wiki container is not running: ${detail}"
+        attempt_epoch="$(now_epoch)"
+        start_out="$("$OSTLER_ENGINE_DOCKER" start ostler-wiki-site 2>&1)"; start_rc=$?
+        if [ "$start_rc" -eq 0 ]; then
+            sleep 5
+            if ostler_engine_state && [ "$OSTLER_ENGINE_STATE" = "up" ]; then
+                log "RECOVERED: wiki container started (store ports answering)"
+                rm -f "$STATE_FILE" 2>/dev/null || true
+                exit 0
+            fi
+        fi
+        log "could not start the wiki container: ${start_out}"
+        write_state "running_no_wiki" "$detail" "docker start failed: $(printf '%s' "$start_out" | head -1)" "$((failures + 1))" "$attempt_epoch"
+        exit 1
+    fi
+    # Ports answer: healthy, whatever `docker info` or `colima list` say.
+    rm -f "$STATE_FILE" 2>/dev/null || true
+    exit 0
+fi
+
+# ── ports are not answering: confirm it is not just a slow boot ─────
+n=1
+while [ "$n" -lt "$PORT_FAIL_N" ]; do
+    sleep "$PORT_FAIL_INTERVAL_S"
+    n=$((n + 1))
+    if ports_answer; then
+        log "store ports answering again on probe ${n}/${PORT_FAIL_N}; slow boot, not restarting"
+        rm -f "$STATE_FILE" 2>/dev/null || true
+        exit 0
+    fi
+done
+log "store ports dead on ${PORT_FAIL_N} consecutive probes ${PORT_FAIL_INTERVAL_S}s apart (engine state '${state}': ${detail})"
+
+ha_age="$(hostagent_age_s)" || ha_age=""
+if [ -n "$ha_age" ] && [ "$ha_age" -lt "$BOOT_GRACE_S" ]; then
+    log "VM is BOOTING: lima hostagent started ${ha_age}s ago (< ${BOOT_GRACE_S}s grace); ports still dead, waiting, no forced stop"
+    exit 1
+fi
+
+cooldown="$(cooldown_for "$failures")"
+if [ "$last_attempt" -gt 0 ] && [ "$since" -lt "$cooldown" ]; then
+    log "last recovery was ${since}s ago, inside the ${cooldown}s cooldown (${failures} consecutive failures). Waiting."
+    write_state "installed_stopped" "$detail" "cooling down (${since}s of ${cooldown}s)" "$failures" "$last_attempt"
+    exit 1
+fi
+
+attempt_epoch="$(now_epoch)"
+stop_colima_hard
+log "restarting ${ASSISTANT_LABEL} so its ensure_colima_running() re-runs WITH Full Disk Access -- a launchd agent starting the runtime directly would have none, and the wiki's ~/Documents bind-mount would then fail"
+ks_out="$(kickstart_assistant)"; ks_rc=$?
+log "restart command rc=${ks_rc}: ${ks_out:-<no output>}"
+if [ "$ks_rc" -ne 0 ]; then
+    log "kickstart FAILED rc=${ks_rc}: ${ks_out}"
+    write_state "installed_stopped" "$detail" "kickstart failed rc=${ks_rc}" "$((failures + 1))" "$attempt_epoch"
+    exit 1
+fi
+
+waited=0
+while [ "$waited" -lt "$RECOVERY_SETTLE_S" ]; do
+    sleep "$SETTLE_POLL_S"
+    waited=$((waited + SETTLE_POLL_S))
+    if ports_answer; then
+        log "RECOVERED after ${waited}s: store ports answering through the proxy auth"
+        rm -f "$STATE_FILE" 2>/dev/null || true
+        exit 0
+    fi
+done
+log "NOT recovered: store ports still not answering ${RECOVERY_SETTLE_S}s after the restart (next attempt after $(cooldown_for "$((failures + 1))")s)"
+write_state "installed_stopped" "$detail" "restarted; store ports still dead after ${RECOVERY_SETTLE_S}s" "$((failures + 1))" "$attempt_epoch"
+exit 1

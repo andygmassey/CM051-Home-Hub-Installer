@@ -802,6 +802,80 @@ signal. Round 2 (walk probe hub_screens.py _org_like requires zero): a STRONG ti
 `vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` class
 `BusinessShapedNameFilterTests`. Retire by re-pinning past the CM041 merge.
 
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
+
+Tree `cm041/assistant_api`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `_audit_person_removal` (loads `person_audit.py` by path from the server's own directory) and one call in `api_people_forget` before `_forget_person_update` runs (reason `user_forget`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
+
+## cm041/assistant_api: memory/assert answers inside a budget (CM051 walk #15, CM041 #208)
+
+Tree `cm041/assistant_api`, file `ical-server.py`. Graft of CM041 #208 ahead of
+a re-pin; the identical edit (one script applied to both copies) is on the
+CM041 branch `fix/memory-assert-search-budget`.
+
+Location and shape. `_embed_text` gains a `timeout` parameter (default 30, as
+before). `people_search` gains `timeout` as ONE budget for embed + Qdrant
+together and raises TimeoutError when it is spent. Beside
+`_ASSERT_DISAMBIGUATION_MARGIN`: `_ASSERT_SEARCH_BUDGET_S` (env
+`OSTLER_ASSERT_SEARCH_BUDGET_S`, default 8) and `_is_timeout`. In
+`api_memory_assert`, step 2 calls people_search with that budget, logs the
+duration (no PII), and on timeout continues with no search hits. After the
+exact-displayName Oxigraph lookup, if no person resolved and the search had
+timed out, the handler returns 503 `identity_resolution_timeout` with
+`retry_after_seconds` and writes nothing.
+
+### What a future sync must preserve
+
+All of the above until the pin passes the CM041 #208 merge. Guarded by
+`tests/test_memory_assert_answers_inside_the_probe_timeout.py` (workflow
+`memory-assert-answers-under-load.yml`): 3 of 4 fail on the pre-graft server,
+4 of 4 pass with it. Retire by re-pinning past the CM041 merge.
+
+## cm041/assistant_api: memory/assert spools on budget exhaustion (CM051 walk #15 follow-up, CM041 spool PR)
+
+Tree `cm041/assistant_api`, file `ical-server.py`. Graft of the CM041 branch
+`fix/memory-assert-spool` (one script applied to both copies), stacked on the
+#208 budget graft above.
+
+Location and shape. `api_memory_assert` keeps validation and hands steps 2-5
+to a new `_assert_resolve_and_write(..., budget, spool_on_timeout, fact_id,
+person_id, privacy_level)`. On budget exhaustion with no exact-name match the
+request path calls `_spool_assertion` and answers 202 `accepted_pending`
+(spool_id, fact_id, status_url) instead of 503. New beside the budget
+constants: `_ASSERT_PRIVACY_LEVEL`, `ASSERT_SPOOL_DB` (SQLCipher via
+`_secure_connect` and the installed key, as `_memory_corrections_connect`),
+`_assert_spool_connect`, `_spool_assertion`, `_assert_fact_person`,
+`_assert_spool_sweep` (single-flight; ASK the fact URI first so a re-run is a
+no-op; writes the spooled ids, timestamp and level), `_assert_spool_loop`,
+`_start_assert_spool_thread` (started in main beside the Lane 6 worker), and
+`api_memory_assert_pending` behind GET `/api/v1/memory/assert/pending/<id>`.
+The PersonFact level is written from the parameter (default "L1", unchanged).
+
+### What a future sync must preserve
+
+All of the above until the pin passes the CM041 spool merge. Guarded by
+`tests/test_memory_assert_answers_inside_the_probe_timeout.py`: 3 of 6 fail on
+the budget-only server, 6 of 6 pass with it; mutants (resolver drops the
+spooled fact_id; level hardcoded) each go red.
+
+Extended for the Doctor surface (same PR): `ASSERT_SPOOL_STATUS` and
+`_write_assert_spool_status` (counts and timestamps only, 0600, written after
+every spool and every sweep), and the sweep closes a row as done only for a
+`stored` / `created_person` answer, so a `needs_disambiguation` 200 parks the
+row instead of closing it.
 ## Generated, not grafted: hub_contract.yaml (CM051 #2676, Lane 10)
 
 Tree `cm041/assistant_api`, new file `vendor/cm041/assistant_api/hub_contract.yaml`.
@@ -818,5 +892,455 @@ A wholesale `sync_vendor.sh` of this tree deletes the file. After any sync or
 graft that touches `ical-server.py`, regenerate it with
 `python3 scripts/gen_hub_contract.py --gateway-src <ostler-assistant checkout>`.
 `hub-contract.yml` job `contract-is-current` reds on a stale or missing copy.
+
+## Eighteenth graft: speaker naming, chunked conversation upload, 405 on POST-only paths (Lane 11)
+
+Source: CM041 branch `claude/lane11-hub-route-gaps` (same shape as the Lane 6
+graft above and #2658). Not yet on CM041 main, so there is no sha to put in
+`hold_ack_shas`: that ack is OWED the moment the CM041 PR merges.
+
+Files. `assistant_api/speaker_identify.py` and
+`assistant_api/conversation_upload.py` are byte-identical to CM041. The four
+new tests (`test_lane11_routes.py`, `test_speaker_identify.py`,
+`test_conversation_upload.py`) are byte-identical too. `ical-server.py` takes 8
+hunks, all applied with the CM041 diff and no hand edit: the route docs, the
+`_POST_ONLY_PATHS` 405 for GET on a POST-only path, the forget 64 KiB body cap,
+three adapters (`api_speakers_identify`, `api_speakers_correct`,
+`api_conversation_upload_part`), their three dispatch blocks and the endpoint
+index.
+
+Behaviour added. `POST /api/v1/speakers/identify` (CM042 RemoteCapture wire
+shape), `POST /api/v1/speakers/correct` (stores a correction so later
+transcripts get the name; also takes CM031's `SpeakerUpdateRequest` shape),
+`POST /api/v1/conversation/upload-part` (parts under one `meeting_id`,
+reassembled server-side, then the normal `conversation/process`).
+
+NOT grafted, deliberately: CM041 upstream's `api_people_forget` is the OLDER
+one. This tree's forget is already the complete one (graph-aware, fact nodes
+scoped by type, honest not-found, audit). The gateway's new
+`POST /api/v1/people/<slug>/forget` reaches THIS handler. Backporting this
+tree's forget to CM041 is separate, and until it lands a re-vendor from CM041
+must not overwrite it.
+
+Guarded by the three vendored tests (25) and
+`tests/test_lane11_client_calls_pass_the_contract.py`. Retire by landing the
+CM041 branch and re-pinning.
+
+## Nineteenth graft: forget writes a tombstone every people syncer respects (Lane 18)
+
+Source: CM041 PR #200, squash merge `e39af73bc6cb1dd0d7a65fcf7a7a01e548f5f6a9`
+(pre-merge head `cb98e00`), same shape as the Lane 11 graft above and #2658.
+Acked in `hold_ack_shas` of the four touched cm041 trees (assistant_api,
+contact_syncer, identity_resolver, meeting_syncer). Retire by re-pinning past it.
+
+`api_people_forget` here and in CM041 are now the SAME handler: CM041 took this
+tree's graph-aware forget (fact nodes by type, honest not-found, audit) in its
+backport commit, so the Eighteenth graft's "NOT grafted, CM041 has the older one"
+warning no longer applies. Only the new hunk is grafted here: the tombstone is
+written BEFORE the erase (`identity_resolver/forget_tombstone.py`, salted
+digests, no clear identifier), and the response gains `tombstone_written`.
+
+Files, all applied with the CM041 diff: `assistant_api/ical-server.py` (one
+hunk); `identity_resolver/forget_tombstone.py` (new, byte-identical to CM041);
+`identity_resolver/resolver.py` (`_resolve_tiers` returns match_type
+`forgotten`, `create_person` raises; applied by hand because this tree wraps
+resolve in a degrade-to-new boundary the CM041 hunk context does not have);
+`contact_syncer/{syncer,facebook_friends,instagram_social,linkedin_career,
+linkedin_connections,linkedin_messages}.py`; `meeting_syncer/syncer.py`.
+`contact_syncer/syncer.py` and `facebook_friends.py` each needed one hunk by
+hand (context differs). NOT grafted: `whatsapp_bridge/bridge.py`, which is not
+vendored in this repo (CM041 has the tombstone check there).
+
+`vendor/ostler_fda/` is CM051-only here (upstream HR015, private, not available
+to this session): `forget_tombstone.py` is copied byte-identical and
+`pwg_ingest.py` skips a tombstoned person in `ingest_imessage`,
+`ingest_whatsapp`, `ingest_calendar`, `ingest_photos_people` and
+`ingest_mail_contacts` (new `_is_forgotten`). The HR015 twin is OWED and
+`vendor/divergences/ostler_fda.patch` is NOT regenerated (no HR015 checkout).
+
+Guarded by `tests/test_forget_tombstone_every_syncer.py` (18) and
+`tests/test_forget_tombstone_ostler_fda.py` (10). Retire by landing the CM041
+and HR015 changes and re-pinning.
+
+Tree `cm041/assistant_api`: the Nineteenth graft above covers `ical-server.py` (forget tombstone hunk), `hub_contract.yaml` (regenerated; speakers/identify on :8090 with the service token, nothing on the gateway) and the Lane 11 files listed in the Lane 11 graft.
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+
+Tree `cm041/assistant_api`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `_audit_person_removal` (loads `person_audit.py` by path from the server's own directory) and one call in `api_people_forget` before `_forget_person_update` runs (reason `user_forget`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
+
+## People list judges human evidence, not only the name (CM051 F7, walk #16)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream. `ical-server.py` gains `_is_non_human_person` (with `_address_is_automated`, `_junk_name_reason`, `_is_plausible_email`, `_is_plausible_phone` and their vocabulary constants, inserted immediately before the "Cut #15 (walk #14)" block comment) and three call sites: `people_list` (before the "Sort keys" comment), `people_search` (after its `_is_nameless_name` check) and `people_stale` (after its `_is_nameless_name` check). It applies to UNCARDED records only (a Contacts card always wins) and hides, from the list only: organisation-worded names, handle/id/calendar-id/no-letter names with no given or family name, a record whose only identifiers are single-token non-phone non-email values (an alphanumeric sender id), and a record whose every email address is shaped like a bulk or brand mailbox. A record with no identifier at all is left alone.
+
+The predicates mirror `scripts/box_walk_probes/lib/customer_read.py` (CM051 #2768) so the list and the judge agree; `tests/test_people_have_human_evidence.py` pins the address rule against the cm021 copy.
+
+### What a future sync must preserve
+
+`_is_non_human_person` and its three call sites. Guarded by `tests/test_people_have_human_evidence.py` (8 tests: 7 red on origin/main), run by `.github/workflows/people-have-human-evidence.yml`. Retire by landing the same change in CM041 `assistant_api/ical-server.py` and re-pinning.
+
+### F7 follow-ups (same graft, same guard)
+
+`people_list` (a) no longer applies the cut #15 name-SHAPE rules (`_is_organisation_name`, `_is_automated_or_service_name`, `_is_service_mailbox_name`) to a record that carries a given or family name (they hid real people on the walk box: names typed in capitals, "Name - Role"); (b) hides a social-only, handle-only node (single-token name, an `instagram_username` identifier, no given/family, no card, no phone/email/LinkedIn) from the default list only (ruling: Archie); (c) drops a Contacts card matching `ASSISTANT_EMAIL` / `ASSISTANT_PHONE` (`_is_assistant_identity`), delivered by new plist keys in `install.sh`. Guarded by `tests/test_people_have_human_evidence.py` (12 tests).
+
+## Memory "About you" holds only the owner's facts (CM051 F12b, cut #17 iOS walk)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream. `ical-server.py` `api_memory_list`: `_memory_query_facts` scopes by whose memory a fact is in (`urn:ostler:userId`, `pwg:belongsToUser`), so facts ABOUT other people (a contact at an event, a relative's job) were listed in "About you". A fact now stays in `facts` only when its subject (`?about`) is the owner (`USER_URI` or `urn:ostler:user/<USER_ID>`, case-folded) or is unset (legacy writers, same rule as CM051 #2770). Every other fact moves to a new `about_others` list carrying `about_name`, so "who is my wife" keeps its answer. `count` counts `facts` only.
+
+### What a future sync must preserve
+
+The owner-subject split in `api_memory_list` and the `about_others` key. Guarded by `tests/test_memory_about_you.py` (4 tests; the straight arm and the about_others test fail on the pre-fix reader), run by `.github/workflows/writer-reader-vocabulary.yml`. `tests/test_writer_reader_vocabulary_contracts.py::test_the_memory_endpoint_itself_returns_the_cm048_facts` now seeds owner-subject rows (its rows had been about other people). Retire by landing the same change in CM041 `assistant_api/ical-server.py` and re-pinning.
+
+## Timeline dates: ISO 8601 with offset, event dates only (CM031 device walk, 2026-10-10)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream (the CM041 port is CM041 #213, on hold). `ical-server.py`: `_to_iso8601` now delegates to a new `_timeline_timestamp` (inserted immediately after it), which returns full ISO 8601 with the Hub's local offset (a bare date becomes local noon) or "" when unreadable. `_timeline_conversations` reads only event-date keys (`occurred_at`, `date`, `timestamp`, `started_at`; no `created_at` / `ingested_at`). `api_timeline`'s `entries` loop skips `conversation_error`, drops a row whose timestamp is "", and adds `all_day` to each entry.
+
+### What a future sync must preserve
+
+`_timeline_timestamp` and its use by `_to_iso8601`, the event-date key list, and the three `entries` changes. Guarded by `tests/test_timeline_dates_are_event_dates_with_offset.py` (7 tests: 7 red on the branch base), run by `.github/workflows/timeline-dates-with-offset.yml`. Retire by landing CM041 #213 (rebased on this) and re-pinning.
+
+### F7b (walk #17): organisations with no legal-form suffix
+
+Tree `cm041/assistant_api`: `ical-server.py` adds `_org_phrase_reason` (a trailing parenthesised ACRONYM after at least three words and no comma, or a final Solutions/Services/Marketing phrase after at least two words, optionally followed by a parenthesised descriptor) and `_person_name_before_org_phrase` (a card-less record with a single-token given and family name whose display name starts with them and continues with an organisation phrase of its own shows as the person's name). `_is_non_human_person` calls the first; `people_list` calls the second before the assistant-identity check. All-caps names are deliberately NOT a signal (ruling). Guarded by `tests/test_people_have_human_evidence.py` (14 tests).
+
+### F7c (walk #17): organisation cards and two-word "Inc" names
+
+Tree `cm041/assistant_api`: `_is_non_human_person` now returns `organisation_card` for a CARDED record with no given name whose name matches the judge's legal-form sets (`_ORG_NAME_RE` / `_ORG_SHORT_FORM_RE`, copied from `customer_read.py` ORG_NAME / ORG_SHORT_FORM); `people_list` hides it. A person's card has a given name, so it stays. `_is_organisation_name` and `_is_business_shaped_name` no longer treat a two-word name ending in "inc" as an organisation ("... inc" needs three words). Guarded by `tests/test_people_have_human_evidence.py`.
+## Tidy report built in the background, served from a cache (CM051 F18, #18 Mini16)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour, not a graft of merged upstream. `ical-server.py` `api_contacts_diff` no longer runs `TidyEngine.build_report()` on the request path: `_contacts_diff_cached` serves the last finished report with `as_of` (and `refreshing` while a new one builds), or answers at once with `degraded: true, preparing: true` and a reason when none exists yet. `_contacts_diff_build` runs in a daemon thread with `fuzzy_match_max_seconds` raised to `OSTLER_CONTACTS_DIFF_BUILD_BUDGET_SECONDS` (900), since it is off the request path. Reports go stale after `OSTLER_CONTACTS_DIFF_TTL_SECONDS` (600). A daemon `threading.Timer` warms the cache 120s after start. A module-level `import time` is added.
+
+### What a future sync must preserve
+
+`_contacts_diff_cached`, `_contacts_diff_build`, `_contacts_diff_kick`, the state dict and lock, and the warm-up timer in `main`. Guarded by `tests/test_contacts_diff_answers_fast_at_scale.py` (the 6,700-person arm fails on the pre-fix server), run by `.github/workflows/contacts-diff-fast.yml`. Retire by landing the same change in CM041 and re-pinning.
+
+### F7d (walk #18): "<Word> Inc" and a final organisation word
+
+Tree `cm041/assistant_api`: `_ORG_NAME_RE` gains `inc` as a legal form (a two-word "<Word> Inc" is an organisation, shared with the judge), and `_ORG_FINAL_WORD_RE` (bank, banking, team, alumni after at least two other words; a two-word "<given> Bank" stays a person) is applied in `_is_non_human_person` for uncarded records and for org cards. The two older rules that exempted a two-word "inc" name (`_is_organisation_name`, `_is_business_shaped_name`) are restored to their original behaviour. The judge (`customer_read.py` `ORG_NAME`, `ORG_FINAL_WORD`) carries the same patterns; `tests/test_people_have_human_evidence.py` pins them equal (pattern and flags) and agrees on every fixture.
+
+Tree `cm041/assistant_api`, F7d round 2: `_ORG_FINAL_WORD_RE` now covers every word `hub_screens.ORG_MARKERS` flags (final word after at least two other words), and `_ORG_INSTITUTION_OF_RE` ("University of X", "College of X", "Institute of X", "Academy of X") and `_ORG_THE_GROUP_RE` ("The ... Group" or "... Team") are added; all three are mirrored in `customer_read.py` and pinned equal by the parity test. A two-word "<given> <marker>" still stays.
+
+## Browsing summaries ask for the chat context window (walk #19 Ollama starvation, part 3)
+
+Tree `cm041/assistant_api`. A CM051-side graft, mirrored upstream as CM041 #214 (open). `browsing_enrich.py` `_num_ctx()` fell back to 8192 when `OSTLER_ENRICH_NUM_CTX` was unset or empty; it now falls back to a new module constant `CHAT_NUM_CTX = 32768`, the daemon's `OLLAMA_NUM_CTX`. An operator value still wins. The comment above `PROMPT_CHARS_VISIT` no longer claims an 8192 window. Why: summaries use the chat model, Ollama keys a loaded runner on (model, num_ctx), and a smaller window reloads the chat model on every switch (CM051 #2804, which makes `OSTLER_ENRICH_NUM_CTX` empty on every tier and so would have left this module at 8192).
+
+### What a future sync must preserve
+
+`CHAT_NUM_CTX` and the `_num_ctx` fallback to it. Guarded by `TestE_SummaryContextIsTheChatWindow` in `tests/test_browsing_enrich.py` (5 tests, 4 red on the old `_num_ctx`), run by `.github/workflows/browsing-summaries-and-save.yml`. Retire by landing CM041 #214 and re-pinning.
+
+## hub_contract.yaml regenerated for the Doctor reminders turn-on route (CM051, 2026-10-11)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/hub_contract.yaml`
+only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
+<ostler-assistant main>` added one route, `doctor POST
+/api/v1/reminders/turn-on` (source `vendor/doctor/agent/web_ui.py`), taking
+the file from 260 to 261 routes. `--check` against assistant main (which
+carries the `reminders_list` status field) reports current. The contract does
+not track the `/api/status` body, so `reminders_list` does not appear in it.
+
+## The People rules move to people_rules.py (CM051, 2026-10-12)
+
+Tree `cm041/assistant_api`, files `vendor/cm041/assistant_api/ical-server.py`
+and NEW `vendor/cm041/assistant_api/people_rules.py`.
+
+- 41 module-level definitions (the seven People rules `_looks_like_bare_email_or_phone`,
+  `_is_nameless_name`, `_is_role_address_name`, `_is_organisation_name`,
+  `_is_automated_or_service_name`, `_is_service_mailbox_name`,
+  `_is_non_human_person`, plus every regex, set and helper they reach) moved
+  VERBATIM out of ical-server.py into the stdlib-only people_rules.py;
+- ical-server.py imports them (`from people_rules import (...)`) after putting
+  `<services>/shared` (installed) and its own directory (repo) on sys.path;
+- why: cm048's reminders_push must apply the same rules from its own venv,
+  which cannot import ical-server.py. One source, two importers.
+- install.sh 3.10a lays people_rules.py into `${OSTLER_DIR}/services/shared/`
+  and the ical-server block removes the bundled duplicate. The .app and
+  tarball already bundle the whole `assistant_api/` directory, so no
+  packaging list changes.
+
+Behaviour pinned by a golden table generated from the PRE-move ical-server.py
+(`tests/fixtures/people_rules_golden.json`, `tests/test_people_rules_is_stdlib_only.py`).
+CM041 upstream needs the same split, or the next re-sync of this tree
+reverts it: that is what this record is for.
+
+## /people/context finds a person by a merged-away human name (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+function `person_context`, and nothing else in the tree.
+
+- v1.0.107 F&F blocker, measured on the Mini16 #27 box: a contact merge types
+  the human-named nodes `pwg:RetiredPerson` + `pwg:mergedInto <survivor>`, and
+  the live survivor can keep only a phone or email as `pwg:displayName`. The
+  lookup matched `?person a pwg:Person ; pwg:displayName` only, so the
+  assistant's `pwg_people` tool got `found: false` for that person's name.
+- The name now matches on the survivor OR on any node merged into it along
+  the whole `pwg:mergedInto+` chain (merges of merges exist; see
+  `identity_resolver/retirement.py::resolve_to_live_person`), returning only a
+  live, non-retired terminus. Rows are collapsed to one per survivor.
+- When the survivor's own name is empty or only an identifier
+  (`people_rules._looks_like_bare_email_or_phone`, reused, not a second
+  detector), the matched human name becomes the entry `name`; `slug` and
+  `wiki_url` stay keyed to the name on record so the link still resolves.
+- NOT done here: renaming the survivor in the graph (v1.0.108).
+
+Pinned by `tests/test_person_context_finds_merged_names.py` (real pyoxigraph
+engine, cast names): 7 pass on the graft, 4 fail on the pre-graft
+ical-server.py, and the two-hop test fails on a one-hop mutant. CM041 upstream
+needs the same change, or the next re-sync of this tree reverts it.
+Review round 1: the SPARQL LIMIT is 50 ROWS and the cap of 5 applies to
+PEOPLE after the dedupe, so one survivor's merged-away names cannot crowd the
+asked-for person out (`test_retired_names_do_not_crowd_out_the_target`: red
+on the 5-row cap, green after).
+
+## One merge-aware person resolver for every slug- and name-keyed read (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- New helpers beside `person_context`: `_LIVE_TERMINUS_SPARQL`,
+  `_merge_aware_name_rows`, `_rank_name_rows`, `_resolve_person_by_slug`,
+  `_resolve_person_by_exact_name`, `_merged_cluster`.
+- Callers moved onto them: `person_context` (its UNION replaced by the shared fragment; the plain `a pwg:Person` arm also returned merged duplicates), `person_enrichment`, `person_timeline`,
+  `api_people_forget` (now erases the survivor and every node merged into it,
+  tombstones the whole cluster's identifiers, deletes Qdrant points for the
+  cluster, and reports `nodes_erased`), `_resolve_person_uri_by_name`
+  (memory/assert), `decisions_list` (about=slug matches decisions filed on
+  any merged node), `_speaker_directory_rows`, and `people_birthdays` (one
+  entry per live person URI instead of a dedupe by name; adds `person_uri`).
+- Why: walk #27 (Mini16) has 1079 mergedInto subjects, 145 of them still
+  typed `pwg:Person`; each of these reads could land on the dead duplicate,
+  and birthdays listed 48 two-named people twice.
+- No patch: same refusal as the entries above (the pin cannot be regenerated
+  without folding in unrelated work). Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py`.
+## Filter and group before the cap, never after it (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- `api_browsing_search`: reads every page of `safari_history` (only the
+  fields the filter and the item need) before the keyword filter, instead of
+  5 pages of 1000 in point-id order. `_BROWSING_SCAN_MAX_PAGES` (200) is a
+  runaway guard; reaching it adds `truncated` and `scanned` to the response.
+- `people_recent`: one row per attendee (`MAX(?date)` grouped by person,
+  merged nodes excluded) with no row cap; the screens run over people and
+  `limit` caps the people that pass. Was `LIMIT limit*3` over meeting x
+  attendee rows.
+- `people_stale`: pages every stale point (`_STALE_SCAN_MAX_PAGES`) instead
+  of the first max(limit*5, limit+20) in id order; the recheck queries are
+  batched by 500.
+- `_timeline_conversations`: reads the whole `conversations` collection
+  instead of stopping at limit*4 points.
+- Why: walk #27, about 43% of 8714 browsing visits unfindable, and "who did I
+  meet recently" returning one person in a busy week.
+- No patch: same refusal as the entries above. Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_filter_before_limit.py`.
+
+## The automatic conversation retry waits for a quiet machine (CM051, 2026-10-14, walk #27)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`
+(and its test `tests/test_failed_conversation_auto_retry.py`).
+`scripts/regenerate_divergence_patch.sh cm041/assistant_api --write` with
+`CM041=~/Developer/CM041-People-Graph` REFUSED (exit 1, PII-shaped content on
+the patch, pattern `+1[[...`), so this edit is recorded here.
+
+- NEW constant `CONVERSATION_RETRY_MAX_LOAD_PER_CORE = 0.75`, after
+  `CONVERSATION_RETRY_TIMEOUT_SECONDS`;
+- NEW `_conversation_retry_busy_reason()` before `_conversation_retry_sweep`:
+  "processing" while any first dispatch is in `_CONVERSATIONS_IN_FLIGHT`,
+  "load" when the 1-minute load average per core is over the constant;
+- `_conversation_retry_sweep` gains a `busy` count and returns before
+  selecting anything when the machine is busy, so no attempt and no sidecar
+  is spent.
+
+Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
+in one busy hour; a retry run in that hour joins the same model queue.
+CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
+extends), or the next re-sync of this tree reverts it.
+
+## 2026-10-15 phone-only people are shown, provisional (fix/phone-only-people-shown)
+
+`people_rules.py`:
+- `_is_nameless_name` no longer hides a bare phone number (7+ digits). It now
+  excludes only: empty, WhatsApp JID, short code (6 digits or fewer), and an
+  alphanumeric sender ID (one upper-case token with a digit or separator).
+  NEW `_is_short_code`, `_is_alphanumeric_sender_id`,
+  `_is_provisional_phone_name`, `_is_bare_phone_shape`, `_digit_count`.
+- `_is_non_human_person` returns None for a provisional phone name (the
+  `no_letters` / `handle_no_channel` junk shapes used to drop it).
+
+`ical-server.py`: People list and search rows carry `provisional_name: true`
+when the name is the phone number.
+
+Why: Andy's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
+human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
+people; the 9 missing were phone-only. CM041 upstream and CM044
+`compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
+predicate and need the same change, or the surfaces drift again.
+
+## cm041/assistant_api: Forget says done only when both stores are purged (walk #28, sweep V17)
+
+`vendor/cm041/assistant_api/ical-server.py`, `api_people_forget`:
+- `forgotten:true` / 200 only when Oxigraph AND Qdrant were purged; otherwise
+  503 with `stores_remaining` and `retry:true`. A Qdrant 404 (no `people`
+  collection) counts as purged: nothing is held.
+- the audit line behind "already forgotten" moved out of
+  `_queue_wiki_recompile` (also called by memory/assert and the not-found
+  branch) into `_record_forget_audit`, called only after a complete purge.
+- an unreadable tombstone is named in `reason` via `forget_tombstone.problem()`.
+- the recompile is queued only when the graph half went.
+Guarded by `vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+Upstream CM041 mirror OWED, or the next re-sync of this tree reverts it.
+## A one-word name that is just the sender's domain is not a person (CM051, 2026-10-15, v1.0.107 walk #28)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
+
+- new `_domain_brand_names`, `_name_is_sender_domain`, `_name_parts_echo_address`;
+- `_address_is_automated`: the brand-mailbox test also accepts the domain's affix and short-TLD spellings (local part "brightwell" at `brightwell-mail.example.com`);
+- `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
+
+WHY: Andy's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
+## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+`api_reply_debt` and the comment block above it. Recorded by hand for the same
+reason as the sections above.
+
+- the exception branch keeps a source's own `reason` code (and `detail`)
+  instead of flattening everything to `reply_debt_failed: ...`;
+- a degraded payload has its `brief_line` forced to `""`, so the all-clear copy
+  can never ride on `degraded: true`;
+- the comments no longer say this process reads chat.db; it reads the snapshot
+  the signed iMessage feed writes.
+
+WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
+with `degraded: false` while it could not read Messages at all. Guarded by
+`tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
+same change, or the next re-sync reverts it.
+
+---
+
+## Brief calendar and mail read the local ingested stores (brief #29 empty sections)
+
+`vendor/cm041/assistant_api/ical-server.py`. `/calendar` and `/calendar/today`
+(`build_calendar_response`) read `~/.ostler/imports/fda/calendar_events.json`
+first; iCloud CalDAV and Google are optional extras. `/api/v1/email/recent`
+(`fetch_recent_emails`) reads `apple_mail.json` from the same directory: `count`
+is mail RECEIVED in the window, `unread_total` is the measured unread figure,
+and the old gws Gmail path survives only as `_fetch_recent_emails_gws`, used
+when the local file is absent. A failed read returns 503 `degraded`, never
+200 with an empty list. Customer installs have no CalDAV pairing and no gws
+credential, so the old paths always answered empty.
+
+### What a future sync must preserve
+
+The local-first order and the 503 on failure. Guarded by
+`vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py`. Retire by
+upstreaming to CM041 and re-pinning.
+## assert-spool sweep: one bad row no longer aborts the pass (walk #29 F1)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py` (the Doctor half is recorded in `WRITER_READER_MISMATCHES.UNRECORDED.md`, tree `doctor`).
+
+`_assert_spool_sweep` in `assistant_api/ical-server.py` now wraps each row. A
+data-shaped error (ValueError, TypeError, KeyError, AttributeError,
+UnicodeError) counts an attempt against that row and moves it to state
+`quarantined` after `OSTLER_ASSERT_SPOOL_MAX_ATTEMPTS` (5), keeping it, with a
+reason of exception type and file:line only. Outage-shaped errors count against
+nobody. `assert_spool_status.json` gains `quarantined`; the Doctor
+(`diagnostic_rules.check_parked_facts`) shows it. WHY: an unparseable
+`asserted_at` raised out of the loop every 20 s, 1,032+ times, and starved the
+rows behind it. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py`.
+CM041 and Doctor upstream need the same change, or the next re-sync reverts it.
+## optional pagination on /api/v1/preferences and /api/v1/people (walk #29)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+`ical-server.py` gains `_paginate` and optional `limit`, `cursor` (opaque; `start`
+for page one) and `fields` on both list routes (`/api/v1/people` is aliased to
+`/people`, one handler). With none of the new parameters, and `limit` alone on
+preferences, the response is byte-identical to before. WHY: preferences answered
+55 MB (97,173 items), people 2 MB. Guarded by
+`tests/test_api_list_pagination_is_additive.py` (goldens captured from the
+pre-change server). CM041 upstream needs the same change or a re-sync reverts it.
+## 2026-10-15 sender IDs are decided by HANDLE, not display name (fix/phone-only-people-shown)
+
+`people_rules.py`: `_is_alphanumeric_sender_id(name)` (the all-caps-name rule,
+which hid a real uncarded "JOHN" and "R2D2") is REPLACED by
+`_is_sender_id_handle` / `_all_handles_are_sender_ids`; `_is_nameless_name`
+takes `handles=`. A person is hidden only when uncarded AND every handle is an
+alphanumeric sender ID or a short code (6 digits or fewer); no handles is no
+evidence (shown). `ical-server.py`: people_search, people_list and
+people_stale pass phones + emails (+ identifier-table handles in the list).
+Golden: `tests/fixtures/people_rules_golden.json` (`by_handle`). CM041 upstream
+and CM044 `compiler/nameless.py` need the same change.
+## 2026-10-15 iOS Quick Note feeds the Save-to-Knowledge drain (fix/quick-note-into-knowledge-drain)
+
+`ical-server.py`: `api_ingest_ios` now calls new `_ingest_quick_notes`, which
+queues each `quick_note` point on the existing EnrichQueue (KIND_KNOWLEDGE);
+malformed points go to `INGEST_DIR/quarantine/` with a reason; level is
+max(declared, 2), L3 or unreadable is withheld (never queued). `_enrich_summarise`
+/ `_enrich_store` branch on `source_kind == ios_quick_note` (no model; source
+and notebook set). `browsing_enrich.py`: `build_knowledge_point` takes optional
+`source`/`notebook`; `parse_level`; quick-note constants; an empty summary no
+longer renders an empty section. Guarded by
+`tests/test_quick_note_reaches_knowledge_store.py`. CM041 upstream needs the same.
+
+## 2026-10-15 EnrichQueue retries through a store outage instead of dropping (fix/quick-note-into-knowledge-drain)
+
+`browsing_enrich.py` `EnrichQueue`: the job file is removed only after `store`
+succeeds. A store failure while `store_up()` is False keeps the file and backs
+off (30 s doubling, cap 900 s, `next_retry_at`/`outage_retries` in the file,
+so a restart resumes it) and counts against nobody; with the store up it counts
+`store_attempts` and quarantines at 3 to `<spool>/quarantine/` with a reason.
+Knowledge jobs no longer age out. `ical-server.py` `_knowledge_store_up` calls
+`ostler_fda.sink_health.stores_answer` (the `--probe-ports` predicate), falling
+back to a Qdrant reachability check. Guarded by
+`tests/test_enrichqueue_retries_not_drops.py`. CM041 upstream needs the same.
+
+Tree `vendor/cm041/assistant_api` (quick-note and enrich-queue PR), every file
+touched: `vendor/cm041/assistant_api/ical-server.py` (quick-note routing in
+`api_ingest_ios`, `_knowledge_store_up`, quick-note branches in
+`_enrich_summarise`/`_enrich_store`), `vendor/cm041/assistant_api/browsing_enrich.py`
+(`EnrichQueue` retry/quarantine, `parse_level`, optional `source`/`notebook`),
+and `vendor/cm041/assistant_api/hub_contract.yaml` (GENERATED by
+`scripts/gen_hub_contract.py`: the ingest_ios 200 response gains `quick_notes`).
+Regenerate the contract after any sync; the two code files need the CM041
+upstream change or a re-sync reverts them.
+
+## 2026-10-17 v1.0.108 batch 2: do-not-suggest (deceased) excludes a person from every proactive surface (CM041 #216, 8aca5ccc)
+
+Tree: `cm041/assistant_api`. Pin HELD; 8aca5ccc added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: all 9 hunks of upstream e1107d6c..8aca5ccc for this file. These are `_identifiers_shared_with_other_than`, `_is_fixed_line`, `api_people_suppress_suggestions`, `_suppressed_identity_index`, the fail-closed reads in `people_stale`, `people_recent` and `people_birthdays`, and the `POST /api/v1/people/{slug}/suppress-suggestions` route.
+- Method: patch(1) failed 2 of 9 hunks against this tree, so each hunk's added lines were inserted at an explicit, uniquely matched anchor. Measured: the sorted multiset of changed lines equals upstream's (320 insertions, 0 deletions).
+- No real name or number is in the vendored code. The upstream test names a real person and carries two numbers; the CM051 port does not.
+- Proof: `tests/test_cm041_deceased_excluded_from_proactive_surfaces.py` (18). Scenarios: a deceased person is excluded from reconnect, follow-up and birthdays; a living relative sharing the family landline and family email stays visible; a new node minted after suppression stays excluded; a merge survivor stays excluded. Also covered: the endpoint record and clear, and fixed-line classification. 17 of 18 fail on the pre-graft file.
+- Retire: re-pin `cm041/assistant_api` past 8aca5ccc.
+
+## hub_contract.yaml regenerated for the Doctor-native suppress-suggestions route (CM051, 2026-10-17)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/hub_contract.yaml`
+only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
+<ostler-assistant main>` added one route, `doctor POST
+/api/v1/people/{slug}/suppress-suggestions` (source `vendor/doctor/agent/web_ui.py`,
+`auth: none`), taking the file from 263 to 264 routes. `--check` against
+assistant main reports current. This is the loopback half of CM041 #216 (the
+8aca5ccc graft above): the ical handler `api_people_suppress_suggestions`
+already shipped on :8090, but the wiki "Stop suggesting" button is an unpaired
+browser that cannot use the paired-bearer `DOCTOR_PROXY_PATHS` proxy, so the
+Doctor now serves it as a NATIVE unauthenticated route (same trust model as
+`/api/v1/wiki/correct`) that forwards to the ical endpoint with the service
+token. The new route is recorded against the `doctor` tree in
+`WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
+Regenerate the contract after any sync.
 
 2026-10-09: `hub_contract.yaml` (cm041/assistant_api) now records gateway ports PER ROUTE. The companion port appears only on routes that ostler-assistant's `companion_route_table` mounts (ostler-assistant #492); against a gateway without that table every route keeps [8000, 8443] and the facts carry `companion_split: false`.

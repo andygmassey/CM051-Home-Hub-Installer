@@ -49,6 +49,7 @@ TOKEN_TO_SCHEME = {
 }
 
 
+
 def _tpl_regex(path):
     out, i = "", 0
     for part in re.split(r"(\{[^}]*\})", path):

@@ -40,6 +40,20 @@ done
 emitted="$(grep -oE '^[[:space:]]*progress[[:space:]]+"[^"]*"[[:space:]]+"[a-z0-9_]+"' "$SH" \
     | grep -oE '"[a-z0-9_]+"[[:space:]]*$' | tr -d '"' | sort -u)"
 
+# The SECOND way install.sh announces a step: a direct
+#   gui_step_begin "<step_id>" ...
+# with a literal id, used where a step must not count toward TOTAL_STEPS
+# (health_check, and F2's end-of-install tailscale_signin). It emits the same
+# STEP_BEGIN id=<step_id> the GUI keys its hint on, so its copy is live, not
+# dead. Only a LITERAL id at line start counts: progress()'s own
+# `gui_step_begin "$id"` carries a variable, and a commented-out call is not
+# an announcement.
+begun="$(grep -oE '^[[:space:]]*gui_step_begin[[:space:]]+"[a-z0-9_]+"' "$SH" \
+    | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u)"
+if [ -n "$begun" ]; then
+    emitted="$(printf '%s\n%s\n' "$emitted" "$begun" | grep . | sort -u)"
+fi
+
 if [ -z "$emitted" ]; then
     printf 'CANNOT RUN  found no `progress "..." "<id>"` calls in install.sh at all.\n'
     printf '            A zero here means the pattern stopped matching, not that the\n'

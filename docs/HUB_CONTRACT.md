@@ -38,3 +38,11 @@ one the route accepts, body is under the limit, fields read exist in the respons
 Calls that are red today and not fixed here are listed in the client's
 `contract/known_drift.json`; a listed call that stops violating fails the test, so the list
 cannot rot.
+
+## Auth kinds (Lane 11 addition)
+
+A route's `auth` list names every credential it accepts. Besides the device bearer it can carry
+The gateway has no unauthenticated `/api` path, no loopback exemption and no service-token path
+(ostler-assistant #475 review): the Hub service token is a loopback credential for the Hub on
+:8090 and the network-facing gateway rejects it. CM042 RemoteCapture calls
+`POST http://127.0.0.1:8090/api/v1/speakers/identify` with `Authorization: Bearer <service token>`.
