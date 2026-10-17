@@ -18,7 +18,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .processor import process
+from .processor import SinkUnavailableError, process
 from .schemas import PIPELINE_STEP_ORDER, PipelineState, read_json
 from .settings import ensure_directories, load_settings, settings_from_env_override
 
@@ -154,14 +154,21 @@ def cmd_process(args, settings) -> int:
         print("metadata.json must include a conversation_id", file=sys.stderr)
         return 2
 
-    state = process(
-        conv_id,
-        transcript,
-        metadata,
-        settings,
-        dry_run=args.dry_run,
-        ingest_sinks=not args.no_sinks,
-    )
+    try:
+        state = process(
+            conv_id,
+            transcript,
+            metadata,
+            settings,
+            dry_run=args.dry_run,
+            ingest_sinks=not args.no_sinks,
+        )
+    except SinkUnavailableError as exc:
+        # EX_TEMPFAIL: could not REACH the model/gateway, nothing about this
+        # document. Distinct from 1 (the item failed) so a catch-up caller does
+        # not count an outage as a poison attempt.
+        print(f"sink unavailable: {exc}", file=sys.stderr)
+        return 75
     print(json.dumps(state.to_dict(), indent=2))
     return 0 if state.failed_step is None else 1
 

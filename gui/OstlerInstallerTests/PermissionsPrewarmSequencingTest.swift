@@ -88,8 +88,8 @@ final class PermissionsPrewarmSequencingTest: XCTestCase {
         )
         _ = await prewarmer.prewarm()
 
-        XCTAssertEqual(spy.calls.count, 4,
-                       "PermissionsPrewarmer must fire EXACTLY four requests (one per permission). Got \(spy.calls.count). A regression to async-let or TaskGroup that drops or duplicates a request would fail here.")
+        XCTAssertEqual(spy.calls.count, 5,
+                       "PermissionsPrewarmer must fire EXACTLY five requests (one per permission: Contacts, Calendar, Reminders, Photos, Apple Music). Got \(spy.calls.count). A regression to async-let or TaskGroup that drops or duplicates a request would fail here.")
 
         let receivedOrder = spy.calls.map(\.permission)
         XCTAssertEqual(
@@ -178,6 +178,7 @@ final class PermissionsPrewarmSequencingTest: XCTestCase {
         spy.stub[.calendar]  = false  // deny
         spy.stub[.reminders] = true
         spy.stub[.photos]    = false  // deny
+        spy.stub[.music]     = false  // deny (CM051 walk #27)
 
         let prewarmer = PermissionsPrewarmer(
             emitLog: { _, _ in },
@@ -186,13 +187,15 @@ final class PermissionsPrewarmSequencingTest: XCTestCase {
         )
         let results = await prewarmer.prewarm()
 
-        XCTAssertEqual(results.count, 4)
+        XCTAssertEqual(results.count, 5)
         XCTAssertEqual(results.map(\.permission), PermissionsPrewarmer.requestOrder,
                        "Returned results must be in the same canonical order as the requests so the denial-summary screen can render them predictably.")
         XCTAssertEqual(results[0].granted, true)
         XCTAssertEqual(results[1].granted, false)
         XCTAssertEqual(results[2].granted, true)
         XCTAssertEqual(results[3].granted, false)
+        XCTAssertEqual(results[4].permission, .music)
+        XCTAssertEqual(results[4].granted, false)
     }
 
     /// CX-17 contract: every permission outcome is emitted via the

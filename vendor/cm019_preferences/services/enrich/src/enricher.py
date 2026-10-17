@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 
+import re
+
 import httpx
 
 from .config import settings
@@ -28,6 +30,13 @@ from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, 
 
 logger = logging.getLogger(__name__)
 
+# Every httpx client in this module that talks to the LOCAL stores (Qdrant,
+# Oxigraph) passes trust_env=False. With the default, an ambient
+# HTTP(S)_PROXY and no matching NO_PROXY sends loopback requests to the
+# proxy, so a healthy local store reads as dead and enrichment writes are
+# lost. Public API clients (clients/) keep the default on purpose.
+# Pinned by tests/test_local_store_ignores_proxy.py.
+
 
 @dataclass
 class EnrichmentStats:
@@ -38,6 +47,10 @@ class EnrichmentStats:
     total_processed: int = 0
     successful: int = 0
     failed: int = 0
+    # The source ANSWERED and had no confident match ("No Wikidata entity
+    # for: X"). That is a fact about X, not a failure of the import, so it
+    # is counted here and never in `failed`. See is_enrichment_miss().
+    no_match: int = 0
     skipped_already_enriched: int = 0
     skipped_no_client: int = 0
     skipped_ineligible: int = 0
@@ -52,6 +65,7 @@ class EnrichmentStats:
     by_category: Dict[str, int] = field(default_factory=dict)
 
     errors: List[str] = field(default_factory=list)
+    misses: List[str] = field(default_factory=list)
 
     def attempted(self) -> int:
         """
@@ -65,7 +79,7 @@ class EnrichmentStats:
         a limited run ends up spending its whole budget re-reading work it
         finished last time.
         """
-        return self.successful + self.failed
+        return self.successful + self.failed + self.no_match
 
     def summary(self) -> str:
         """Generate summary string."""
@@ -79,6 +93,7 @@ class EnrichmentStats:
             f"  Total processed: {self.total_processed}\n"
             f"  Successful: {self.successful}\n"
             f"  Failed: {self.failed}\n"
+            f"  No match: {self.no_match}\n"
             f"  Already enriched: {self.skipped_already_enriched}\n"
             f"  No client: {self.skipped_no_client}\n"
             f"  Not sendable: {self.skipped_ineligible}\n"
@@ -86,6 +101,36 @@ class EnrichmentStats:
             f"  By source: {self.by_source}\n"
             f"  By category: {self.by_category}"
         )
+
+
+# What a client says when the source ANSWERED and had nothing confident to
+# return. Matched only together with MatchType.NONE, and FAIL-CLOSED: a message
+# not on this list is a failure, as before. MatchType.NONE alone is not enough,
+# because it is also the dataclass default, so a client that caught an
+# exception and wrote `result.error = str(e)` carries it too. UNAVAILABLE (the
+# source could not be reached) is never a miss.
+_MISS_MESSAGE = re.compile(
+    r"^(No .+ (found|entity) for: "
+    r"|No .+ found$"
+    r"|Wikidata has no "
+    r"|.+ not found: "
+    r"|Low confidence match)"
+)
+
+
+def is_enrichment_miss(result) -> bool:
+    """True when a client answered "no confident match", which is not an error.
+
+    Walk #16: three titles Wikidata had no entry for ("No Wikidata entity for:
+    ...", "Wikidata has no film or programme named: ...") made the enrich step
+    exit 1, which made ostler-import exit non-zero, which put a red warning
+    on import_data over an import that had fully succeeded.
+    """
+    from .models.enrichment import MatchType
+    error = getattr(result, "error", None)
+    if not error or getattr(result, "match_type", None) != MatchType.NONE:
+        return False
+    return bool(_MISS_MESSAGE.match(str(error)))
 
 
 class EnrichmentService:
@@ -300,7 +345,7 @@ class EnrichmentService:
             Tuple of (list of preference payloads, next_page_offset)
         """
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 # Build filter
                 must_conditions = []
 
@@ -421,7 +466,7 @@ class EnrichmentService:
         """
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/query",
                     content=sparql,
@@ -483,7 +528,7 @@ INSERT DATA {{
 """
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/update",
                     content=update_query,
@@ -846,6 +891,11 @@ INSERT DATA {{
                     else:
                         stats.failed += 1
                         stats.errors.append(f"Failed to store: {pref_id}")
+                elif result and result.error and is_enrichment_miss(result):
+                    stats.no_match += 1
+                    logger.info("No enrichment match for %s: %s", pref_id, result.error)
+                    if len(stats.misses) < 100:
+                        stats.misses.append(f"{pref_id}: {result.error}")
                 elif result and result.error:
                     stats.failed += 1
                     if len(stats.errors) < 100:  # Limit error storage
@@ -1089,6 +1139,7 @@ INSERT DATA {{
             combined_stats.total_processed += stats.total_processed
             combined_stats.successful += stats.successful
             combined_stats.failed += stats.failed
+            combined_stats.no_match += stats.no_match
             combined_stats.skipped_already_enriched += stats.skipped_already_enriched
             combined_stats.skipped_no_client += stats.skipped_no_client
             combined_stats.skipped_ineligible += stats.skipped_ineligible
@@ -1096,6 +1147,7 @@ INSERT DATA {{
                 combined_stats.budget_exhausted or stats.budget_exhausted
             )
             combined_stats.errors.extend(stats.errors[:20])  # Limit errors
+            combined_stats.misses.extend(stats.misses[:20])
 
             for source, count in stats.by_source.items():
                 combined_stats.by_source[source] = (
@@ -1245,7 +1297,7 @@ INSERT DATA {{
         """
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/query",
                     content=sparql_query,

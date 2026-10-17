@@ -5,6 +5,8 @@
 #   context_swap.sh recover <workspace>
 #   context_swap.sh swap    <workspace> <persona-file> [known-person]
 #   context_swap.sh restore <workspace>
+#   context_swap.sh install <workspace> <generated-file>   after swap: put the PRODUCT-GENERATED digest at CONTEXT.md
+#   context_swap.sh verify  <workspace>                    exit 0 while CONTEXT.md is still exactly what install put there
 #
 # THE RULES, each of which a test in test_context_swap.py pins:
 #  1. NEVER TOUCH A REAL OWNER. `swap` proceeds only on positive evidence that
@@ -24,7 +26,7 @@
 set -u
 cmd="${1:-}"; W="${2:-}"
 [ -n "$cmd" ] && [ -n "$W" ] && [ -d "$W" ] || { echo "context_swap: usage / missing workspace" >&2; exit 12; }
-C="$W/CONTEXT.md"; B="$W/CONTEXT.md.owner-score-backup"; F="$W/.owner-score-swapped"
+C="$W/CONTEXT.md"; B="$W/CONTEXT.md.owner-score-backup"; F="$W/.owner-score-swapped"; I="$W/.owner-score-installed"
 MARKER="Synthetic owner: Jane Smith"
 STATE="${OSTLER_STATE_DIR:-$HOME/.ostler/state}"
 
@@ -32,12 +34,13 @@ recover() {
     rm -f "$W"/*.owner-score-tmp.* 2>/dev/null
     if [ -f "$B" ]; then
         mv -f "$B" "$C" || exit 12
-        rm -f "$F"
+        rm -f "$F" "$I"
         echo "RECOVERED the original CONTEXT.md from a leftover backup"
     elif [ -f "$F" ]; then
         # swapped over a box that had no original: remove only OUR file
-        if [ -f "$C" ] && grep -qF "$MARKER" "$C"; then rm -f "$C"; fi
-        rm -f "$F"
+        # ours = the persona marker, or byte-identical to the generated digest install put there
+        if [ -f "$C" ] && { grep -qF "$MARKER" "$C" || { [ -f "$I" ] && cmp -s "$C" "$I"; }; }; then rm -f "$C"; fi
+        rm -f "$F" "$I"
         echo "RECOVERED: removed a leftover persona CONTEXT.md (there was no original)"
     fi
 }
@@ -67,5 +70,15 @@ case "$cmd" in
         mv -f "$W/CONTEXT.persona.owner-score-tmp.$$" "$C" || exit 12
         echo "SWAPPED"
         exit 0 ;;
+    install)
+        G="${3:-}"
+        [ -f "$F" ] || { echo "REFUSED: install only follows a swap (no swap flag at $F)"; exit 10; }
+        [ -s "$G" ] || { echo "context_swap: no generated digest at $G" >&2; exit 12; }
+        cp "$G" "$W/CONTEXT.generated.owner-score-tmp.$$" || exit 12
+        cp "$G" "$I" || exit 12
+        mv -f "$W/CONTEXT.generated.owner-score-tmp.$$" "$C" || exit 12
+        echo "INSTALLED"
+        exit 0 ;;
+    verify) [ -f "$I" ] && cmp -s "$C" "$I"; exit $? ;;
     *) echo "context_swap: unknown command $cmd" >&2; exit 12 ;;
 esac

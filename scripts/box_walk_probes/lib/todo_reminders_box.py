@@ -12,7 +12,7 @@ print personal-content-shaped strings from a box).
 
 Subcommands:
   run --token T --text TEXT --wait-s N   write + poll + read back
-  forget --token T --text TEXT           best-effort cleanup, prints before/after
+  forget --token T --text TEXT           delete the reminder by id, verify, then the map row
 """
 import json
 import os
@@ -72,6 +72,107 @@ def _write(token, text):
         out["error"] = "apply_push_status_to_todos raised: {}".format(exc)[:200]
         return out, None
     return out, (uid, todo_id)
+
+
+ONE_TO_ONE_COUNTERPART = "Jane Doe"  # the OLD fixed counterpart; kept only as the stale-leftover fixture's name
+
+
+def one_to_one_counterpart(token):
+    """A counterpart that is new every walk. The product dedupes on the
+    counterpart (thread_key), and a previous walk's reminder survives (TCC blocks
+    deletion over ssh) and syncs back via iCloud, so a FIXED counterpart makes the
+    new row a correct duplicate_thread skip. Name-shaped (letters only, three
+    capitalised words), synthetic, no digits."""
+    import hashlib
+    h = hashlib.sha256(("walk-1to1:" + str(token)).encode()).hexdigest()[:8]
+    suffix = "".join(chr(ord("a") + int(c, 16) % 26) for c in h).capitalize()
+    return "Jane Doe " + suffix
+
+
+def one_to_one_text(counterpart):
+    return "SYNTHETIC WALK PROBE list check: email {} about the Fictionville report".format(counterpart)
+
+
+def _write_one_to_one(token):
+    """A private 1:1 (L2) row, written through the same shipped gate. A
+    name-shaped counterpart makes the gate call the People list's own
+    predicates (imported from ical-server.py), so a pending/pushed row here
+    PROVES that import works on this box. Returns (facts, (uid, todo_id))."""
+    out = {"attempted": False}
+    try:
+        from src.conversation_writer import ConversationBundle, ConversationSummary, Todo, make_todo_id
+        from src.reminders_push import apply_push_status_to_todos
+    except ImportError as exc:
+        out["error"] = "the shipped writer is not importable ({})".format(exc)
+        return out, None
+    uid = _user_id() or "walk-probe"
+    sid = token + "-1to1"
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    counterpart = one_to_one_counterpart(token)
+    text = one_to_one_text(counterpart)
+    out["counterpart"] = counterpart
+    todo_id = make_todo_id(sid, "user", text)
+    todo = Todo(id=todo_id, text=text, owner="user", deadline=None, source_anchor="L2", status="extracted")
+    bundle = ConversationBundle(
+        conversation_id=sid, source_kind="channel", source_subtype="imessage",
+        source_session_id=sid, channel="im",
+        participants=("user", counterpart),
+        started_at=now, ended_at=now,
+        summary=ConversationSummary(overall="Synthetic walk-probe 1:1, safe to delete.", topics=()),
+        transcript="**You**: " + text, todos=(todo,), privacy_level="L2",
+    )
+    try:
+        apply_push_status_to_todos(
+            (todo,), bundle,
+            summary_path=Path("/tmp/ostler-walk-probe-synthetic-1to1-summary.md"),
+            demo_mode=False, user_id=uid, db_path=None,
+        )
+        out["attempted"] = True
+        out["todo_id"] = todo_id
+    except Exception as exc:
+        out["error"] = "apply_push_status_to_todos raised: {}".format(exc)[:200]
+        return out, None
+    return out, (uid, todo_id)
+
+
+def _count_reason(reason):
+    try:
+        conn = sqlite3.connect(str(_default_db_path()), timeout=5.0)
+        n = conn.execute("SELECT COUNT(*) FROM reminders_map WHERE skip_reason=?", (reason,)).fetchone()[0]
+        conn.close()
+        return n
+    except sqlite3.Error:
+        return None
+
+
+GATEWAY = os.environ.get("OSTLER_PROBE_GATEWAY", "http://127.0.0.1:8000")
+TOKEN_PATH = os.environ.get("OSTLER_PROBE_TOKEN_PATH", "~/.ostler/secrets/zeroclaw_admin_token")
+
+
+def read_reminders_list():
+    """The daemon's own report of the dedicated Reminders list, from
+    GET /api/status (`reminders_list`). Never raises; says WHY it could not read."""
+    import urllib.error
+    import urllib.request
+    try:
+        tok = open(os.path.expanduser(TOKEN_PATH), encoding="utf-8").read().strip()
+    except Exception as exc:
+        return {"read": False, "error": "token unreadable: " + type(exc).__name__}
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        req = urllib.request.Request(GATEWAY + "/api/status", headers={"Authorization": "Bearer " + tok})
+        with opener.open(req, timeout=15) as resp:
+            body = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        return {"read": False, "error": "HTTP {}".format(exc.code)}
+    except Exception as exc:
+        return {"read": False, "error": type(exc).__name__}
+    rl = body.get("reminders_list") if isinstance(body, dict) else None
+    if not isinstance(rl, dict):
+        return {"read": True, "present_in_status": False}
+    out = {"read": True, "present_in_status": True}
+    out.update({k: rl.get(k) for k in ("available", "measured", "authorization", "present", "id_stored", "pushed_in_list", "removed")})
+    return out
 
 
 def _default_db_path():
@@ -175,46 +276,129 @@ def cmd_run(argv):
         facts["tcc_reminders"] = tcc_reminders_state()
         if facts["push"].get("status") == "pushed":
             facts["readback"] = _readback(text)
+    one, ones = _write_one_to_one(token)
+    facts["one_to_one"] = one
+    if ones:
+        uid1, todo1 = ones
+        facts["one_to_one_push"] = _poll(uid1, token + "-1to1", todo1, wait_s)
+    facts["org_filter_flagged_rows"] = _count_reason("org_filter_unavailable")
+    # The list report is read AFTER the pushes so pushed_in_list includes them.
+    time.sleep(2)
+    facts["reminders_list"] = read_reminders_list()
     print(json.dumps(facts))
     return 0
 
 
-def cmd_forget(argv):
+def _as_quote(v):
+    return v.replace('\\', '\\\\').replace('"', '\\"')
+
+
+def _osa(script, runner=None):
+    """Run one AppleScript. Returns (rc, stdout, stderr); never raises."""
+    runner = runner or subprocess.run
+    try:
+        p = runner(["osascript", "-e", script], capture_output=True, text=True, timeout=20)
+        return p.returncode, (p.stdout or ""), (p.stderr or "")
+    except Exception as exc:
+        return 1, "", "osascript could not run: {}".format(exc)
+
+
+def delete_reminder(ident, runner=None):
+    """Delete the reminder the daemon created, by the identifier the daemon
+    recorded in reminders_map.db, then COUNT to prove it is gone.
+
+    The old code matched `name is <the todo text>`. The daemon never titles a
+    reminder with the todo text (reminders_push._format_push_title builds
+    "Follow up on conversation"), so that match found nothing, and an ssh
+    session without the Automation grant failed outright; both read as
+    reminder_deleted=false and the reminder synced back via iCloud into the
+    next walk (walk #19).
+
+    State is one of: deleted (verified count 0), none_to_delete (the daemon
+    never created one), blocked_tcc, failed. Never a bare bool.
+    """
+    if not ident:
+        return {"state": "none_to_delete"}
+    q = _as_quote(ident)
+    sel = 'every reminder whose id contains "%s"' % q
+    rc, out, err = _osa('tell application "Reminders" to delete (%s)' % sel, runner)
+    if rc != 0:
+        blocked = any(m in err.lower() for m in _TCC_MARKERS)
+        return {"state": "blocked_tcc" if blocked else "failed", "error": err.strip()[:200]}
+    rc, out, err = _osa('tell application "Reminders" to count (%s)' % sel, runner)
+    if rc != 0:
+        return {"state": "failed", "error": "delete ran but the verifying count failed: " + err.strip()[:160]}
+    try:
+        left = int(out.strip())
+    except ValueError:
+        return {"state": "failed", "error": "verifying count unreadable: " + out.strip()[:80]}
+    if left > 0:
+        return {"state": "failed", "error": "{} reminder(s) still present after delete".format(left)}
+    return {"state": "deleted"}
+
+
+def _forget_one_to_one(uid, token, runner=None):
+    """Clean up the seeded 1:1 row the same way as the solo one: delete the
+    reminder the daemon created BY ITS RECORDED ID, verify it is gone, and
+    drop the map row only if that worked (or there was nothing to delete)."""
+    sid = token + "-1to1"
+    out = {"reminder": {"state": "failed", "error": "not attempted"}, "db_deleted": False}
+    try:
+        conn = sqlite3.connect(str(_default_db_path()), timeout=5.0)
+        row = conn.execute(
+            "SELECT calendar_item_identifier FROM reminders_map WHERE user_id=? AND source_session_id=?",
+            (uid, sid),
+        ).fetchone()
+        ident = row[0] if row else None
+        out["calendar_item_identifier"] = ident
+        out["reminder"] = delete_reminder(ident, runner)
+        if out["reminder"]["state"] in ("deleted", "none_to_delete"):
+            conn.execute("DELETE FROM reminders_map WHERE user_id=? AND source_session_id=?", (uid, sid))
+            conn.commit()
+            out["db_deleted"] = True
+        conn.close()
+    except Exception as exc:
+        out["reminder"] = {"state": "failed", "error": "could not read the 1:1 map row: " + str(exc)[:120]}
+    return out
+
+
+def cmd_forget(argv, runner=None):
     a = dict(zip(argv[0::2], argv[1::2]))
     token = a.get("--token")
     text = a.get("--text")
     uid = _user_id() or "walk-probe"
-    result = {"db_deleted": False, "reminder_deleted": None}
+    result = {"db_deleted": False, "reminder": {"state": "failed", "error": "not attempted"}}
+    ident = None
     try:
         from src.conversation_writer import make_todo_id
         todo_id = make_todo_id(token, "user", text)
         db_path = _default_db_path()
         conn = sqlite3.connect(str(db_path), timeout=5.0)
-        before = conn.execute(
-            "SELECT COUNT(*) FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
+        # Read the daemon's identifier BEFORE the row is deleted: it is the
+        # only handle on the reminder.
+        row = conn.execute(
+            "SELECT calendar_item_identifier FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
             (uid, token, todo_id),
-        ).fetchone()[0]
-        conn.execute(
-            "DELETE FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
-            (uid, token, todo_id),
-        )
-        conn.commit()
-        after = conn.execute(
-            "SELECT COUNT(*) FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
-            (uid, token, todo_id),
-        ).fetchone()[0]
+        ).fetchone()
+        ident = row[0] if row else None
+        result["calendar_item_identifier"] = ident
+        # Delete the reminder first; the row is dropped only if that worked or
+        # there was nothing to delete, so a retry still has its handle.
+        result["reminder"] = delete_reminder(ident, runner)
+        if result["reminder"]["state"] in ("deleted", "none_to_delete"):
+            conn.execute(
+                "DELETE FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
+                (uid, token, todo_id),
+            )
+            conn.commit()
+            result["db_deleted"] = True
         conn.close()
-        result["db_deleted"] = True
-        result["db_before"] = before
-        result["db_after"] = after
     except Exception as exc:
         result["db_error"] = str(exc)[:160]
-    try:
-        script = 'tell application "Reminders" to delete (every reminder whose name is "%s")' % text.replace('\\', '\\\\').replace('"', '\\"')
-        proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=20)
-        result["reminder_deleted"] = (proc.returncode == 0)
-    except Exception:
-        result["reminder_deleted"] = False
+        if ident is None:
+            result["reminder"] = {"state": "failed", "error": "could not read the map row: " + str(exc)[:120]}
+    result["expected_title"] = "Follow up on conversation"
+    result["one_to_one"] = _forget_one_to_one(uid, token)
     print(json.dumps(result))
     return 0
 

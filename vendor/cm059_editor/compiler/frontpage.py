@@ -357,6 +357,134 @@ def pro_locked_card(now: datetime) -> dict:
     )
 
 
+# Interest categories whose subject is an account handle stored WITHOUT its "@"
+# (the Instagram parser keeps the bare username, often snake_case:
+# category "instagram_creator"). Shown raw it reads as an internal key
+# ("Private / some_account"); a customer reads "@some_account".
+_HANDLE_CATEGORIES = frozenset({"instagram_creator"})
+
+
+import re as _re_text
+
+_ROLE_TAG = _re_text.compile(
+    r"\s*\((?:user|owner|you|other_name|user_name|other(?::[\w-]+)?)\)", _re_text.I)
+_PLACEHOLDER = _re_text.compile(r"\{[a-z][a-z0-9_]*\}")
+_ISO_STAMP = _re_text.compile(
+    r"\b(20\d\d)-([01]\d)-([0-3]\d)(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?)?(?!\d)")
+_PHONE_SHAPE = _re_text.compile(r"^\+?[\d\s().\-\u00a0]{6,}$")
+_EMAIL_SHAPE = _re_text.compile(r"^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$")
+_SNAKE_KEY = _re_text.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+           "Oct", "Nov", "Dec")
+
+
+def _human_iso(m) -> str:
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if not 1 <= mo <= 12:
+        return m.group(0)
+    return "%d %s %d" % (d, _MONTHS[mo - 1], y)
+
+
+def clean_card_text(text) -> str:
+    """Customer-safe free text: role tags and template placeholders removed,
+    ISO dates/timestamps written as '30 Sep 2026'. Idempotent."""
+    out = _ROLE_TAG.sub("", str(text or ""))
+    out = _PLACEHOLDER.sub("", out)
+    out = _ISO_STAMP.sub(_human_iso, out)
+    return _re_text.sub(r"[ \t]{2,}", " ", out).strip()
+
+
+UNKNOWN_CONTACT = "an unknown contact"
+
+
+def person_label(name, fallback=None):
+    """The one display-name gate for card text. Returns a name a customer
+    would recognise, or None when there is none to show: a bare phone number,
+    an email address, an @handle, a snake_case key, or nothing but tags. An @handle is shown
+    only for creator/social interests (see display_subject), never for a
+    person. ``fallback`` is returned instead of None (UNKNOWN_CONTACT)."""
+    n = clean_card_text(name)
+    if not n or not any(ch.isalpha() for ch in n):
+        return fallback
+    if _PHONE_SHAPE.match(n) or _EMAIL_SHAPE.match(n) or "@" in n:
+        return fallback
+    if _SNAKE_KEY.match(n):
+        return fallback
+    return n
+
+
+def display_subject(it: dict) -> str:
+    """The label a customer sees for an interest: a handle-kind interest is
+    shown as ``@handle``; a snake_case key is spoken as words; free text is
+    cleaned of tags, placeholders and ISO dates."""
+    subject = it.get("subject") or ""
+    if ((it.get("category") or "").lower() in _HANDLE_CATEGORIES
+            and subject and not subject.startswith("@") and " " not in subject):
+        return "@" + subject
+    subject = clean_card_text(subject)
+    if _SNAKE_KEY.match(subject):
+        subject = subject.replace("_", " ")
+        subject = subject[:1].upper() + subject[1:]
+    return subject
+
+
+# The interest card's body says WHERE an interest came from, from the card's
+# own `sources` and `last_seen`, instead of one sentence on every card ("One of
+# the things Ostler reckons you're into."). Source keys measured on a walk box:
+# apple, twitter, linkedin, spotify, apple_tv, whatsapp, foursquare, uber, you.
+_SOURCE_NAMES = {
+    "apple": "Apple", "apple_music": "Apple Music", "apple_tv": "Apple TV",
+    "spotify": "Spotify", "twitter": "X", "x": "X", "instagram": "Instagram",
+    "facebook": "Facebook", "linkedin": "LinkedIn", "youtube": "YouTube",
+    "whatsapp": "WhatsApp", "foursquare": "Foursquare", "uber": "Uber",
+    "google": "Google", "netflix": "Netflix", "pinterest": "Pinterest",
+    "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon",
+}
+_SOCIAL_SOURCES = {"twitter", "x", "instagram", "facebook", "tiktok", "youtube", "reddit", "pinterest"}
+
+
+def _source_name(key: str, category: str) -> str:
+    k = (key or "").strip().lower()
+    if k == "apple" and category == "music":
+        return "Apple Music"
+    return _SOURCE_NAMES.get(k) or k.replace("_", " ").strip().title()
+
+
+def _join_names(names: list) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def interest_provenance(it: dict, now: datetime) -> str:
+    """One plain sentence: what kind of signal this is and where it came from."""
+    category = (it.get("category") or "").lower()
+    keys = [s for s in (it.get("sources") or []) if isinstance(s, str) and s.strip()]
+    if any(k.lower() == "you" for k in keys):
+        return "You told Ostler about this."
+    keys = keys[:3]
+    if not keys:
+        line = "Picked up from your own data"
+    else:
+        names = list(dict.fromkeys(_source_name(k, category) for k in keys))
+        where = _join_names(names)
+        low = {k.lower() for k in keys}
+        if low == {"linkedin"}:
+            line = "On your LinkedIn profile"
+        elif category == "music":
+            line = f"From your {where} listening"
+        elif low <= _SOCIAL_SOURCES and category in ("interest", "creator", "social", "account", ""):
+            line = f"Followed on {where}"
+        elif category in ("movie", "tv", "film"):
+            line = f"Watched on {where}"
+        elif category == "place":
+            line = f"From your {where} check-ins"
+        else:
+            line = f"From your {where} data"
+    year = str(it.get("last_seen") or "")[:4]
+    if year.isdigit() and int(year) < now.year:
+        line += f", last seen in {year}"
+    return line + "."
+
+
 def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     """Phase C card: one inferred interest, with its evidence and the rate/
     correct affordances. Priority is the interest's own score mapped into the
@@ -368,12 +496,12 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
         1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
     # CM051 #2534: one evidence line per card, not two joined with " - ".
     ev_list = it.get("evidence") or []
-    evidence = ev_list[0] if ev_list else None
+    evidence = clean_card_text(ev_list[0]) if ev_list else None
     card = _make_card(
         "interest", it["id"],
-        title=it["subject"],
+        title=display_subject(it),
         body=("Something to avoid" if it.get("polarity") == "dislike"
-              else "One of the things Ostler reckons you're into."),
+              else interest_provenance(it, now)),
         now=now, domain=it.get("domain"),
         priority=base,
         action={"label": "Spot on", "kind": "strengthen"},
@@ -422,6 +550,7 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
     bench = [it for block in (profile.get("domains") or [])
              for it in (block.get("interests") or [])
              if it.get("polarity") != "dislike"
+             and _fit_for_a_card(it)
              and it.get("id") not in chosen_ids]
     if not bench:
         return picked[-n:] if n else []
@@ -449,6 +578,20 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
     return out or (picked[-n:] if n else [])
 
 
+# Flags that mean "this is not a clean statement of an interest": prose, a
+# bare link, nothing, or a mail/calendar subject line. The profile already
+# sinks their confidence; the hunch and rotation selectors must not surface
+# them at all (Ostler #30: a LinkedIn recommendation paragraph became "A hunch").
+_UNFIT_FOR_A_CARD_FLAGS = frozenset({
+    "too_long", "too_short", "empty", "url_only",
+    "email_reply_prefix", "email_thread", "dated_subject",
+})
+
+
+def _fit_for_a_card(it: dict) -> bool:
+    return not (_UNFIT_FOR_A_CARD_FLAGS & set(it.get("flags") or ()))
+
+
 def exploration_pick(profile: dict, picked: list[dict],
                      exclude_ids: set | None = None) -> dict | None:
     """The E4 anti-filter-bubble pick: the strongest liked interest that did
@@ -460,6 +603,7 @@ def exploration_pick(profile: dict, picked: list[dict],
     pool = [it for block in profile.get("domains", [])
             for it in block.get("interests", [])
             if it.get("polarity") != "dislike"
+            and _fit_for_a_card(it)
             and it.get("id") not in picked_ids]
     if not pool:
         return None
@@ -484,7 +628,7 @@ def exploration_card(it: dict, now: datetime, ledger=None) -> dict:
     created = fe or now
     card = _make_card(
         "interest", key,
-        title=it["subject"],
+        title=display_subject(it),
         body=("A hunch, based on what Ostler already knows you're into - "
               "say if it lands."),
         now=now, domain=it.get("domain"),
@@ -593,7 +737,7 @@ def _top_interests(profile: dict, exclude_ids: set | None = None) -> list[dict]:
             pool.append(it)
     pool.sort(key=lambda it: it.get("score", 0.0), reverse=True)
     for it in pool:
-        if it.get("id") in exclude_ids:
+        if it.get("id") in exclude_ids or not _fit_for_a_card(it):
             continue
         dom = it.get("domain", "Other")
         if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
@@ -809,6 +953,8 @@ def is_cardable_interest(it: dict) -> bool:
     subject = (it.get("subject") or "").strip()
     if not subject or subject.startswith("#"):
         return False
+    if not any(ch.isalpha() for ch in subject) or _EMAIL_SHAPE.match(subject):
+        return False  # a bare number or address is not a thing to be into
     low = subject.lower()
     if any(stem in low for stem in _SENSITIVE_STEMS):
         return False

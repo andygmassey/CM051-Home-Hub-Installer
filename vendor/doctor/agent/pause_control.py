@@ -59,6 +59,7 @@ allowed to break the load-bearing ``governor.env`` write.
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import time
@@ -234,6 +235,39 @@ def _not_paused(path: Path) -> dict[str, Any]:
     }
 
 
+_LOG = logging.getLogger("ostler.pause_control")
+_LAST_RECONCILE_ERROR: Optional[str] = None
+
+
+def _reconcile_expired_pause(p: Path) -> Optional[str]:
+    """Undo the side effects of a timed pause whose window has elapsed.
+
+    Mirrors the resume to the daemon cron and the Settings checkbox FIRST, and
+    only then clears the stale lines in governor.env. If the mirror fails the
+    file is left alone, so the next poll retries, and the reason is returned
+    for the Doctor to show (logged once per distinct reason, not at 1 Hz).
+    Returns None when nothing is wrong. Idempotent: once governor.env says
+    OSTLER_PAUSED=0 this is never reached again.
+    """
+    global _LAST_RECONCILE_ERROR
+    if os.environ.get("OSTLER_PAUSE_SKIP_MIRROR", "").strip() in ("1", "true", "yes"):
+        return None
+    errors = _mirror_settings_panel(False)
+    if errors:
+        reason = "; ".join(errors)
+        if reason != _LAST_RECONCILE_ERROR:
+            _LOG.error("timed pause expired but resume failed: %s", reason)
+        _LAST_RECONCILE_ERROR = reason
+        return reason
+    _LAST_RECONCILE_ERROR = None
+    try:
+        existing = p.read_text(encoding="utf-8")
+        _atomic_write_text(p, _render_merged(existing, paused=False, until=None))
+    except (OSError, PauseError) as exc:
+        return f"could not clear the expired pause: {exc}"
+    return None
+
+
 def read_state(path: Optional[Path] = None) -> dict[str, Any]:
     """Return the current pause state for the chip / Governor page.
 
@@ -243,10 +277,11 @@ def read_state(path: Optional[Path] = None) -> dict[str, Any]:
         {"paused": bool, "expiry": int|None, "indefinite": bool,
          "expiry_human": str, "scope": str|None, "governor_env_path": str}
 
-    Never raises and never writes: this runs on the ~1 Hz box-status poll, so a
+    Never raises: this runs on the ~1 Hz box-status poll, so a
     missing file, an unreadable file or a malformed value all degrade to a
     well-formed "not paused" payload (fail open -- the exact posture the shell
-    lib takes) rather than 500-ing the poll or self-healing on the read path.
+    lib takes) rather than 500-ing the poll. The one write is the once-only
+    undo of an EXPIRED timed pause (see ``_reconcile_expired_pause``).
     """
     p = path or governor_env_path()
     try:
@@ -277,10 +312,15 @@ def read_state(path: Optional[Path] = None) -> dict[str, Any]:
 
     until = int(until_raw)
     if time.time() >= until:
-        # Window elapsed -> auto-resumed. Report resumed; do NOT rewrite the
-        # file here (this is the hot read path and the file also carries the
-        # throttle choice). The next set_pause/resume tidies the stale line.
-        return _not_paused(p)
+        # Window elapsed. The shell governor reads the clock itself, but the
+        # daemon cron was switched off by set_pause and nothing else switches
+        # it back on, so the 09:00 brief and 18:00 wrap never fired again
+        # while this function said "not paused". Re-enable it once, here.
+        state = _not_paused(p)
+        err = _reconcile_expired_pause(p)
+        if err:
+            state["cron_resume_error"] = err
+        return state
 
     return {
         "paused": True,
@@ -383,7 +423,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
         raise PauseError(500, f"Could not write governor settings file: {exc}")
 
 
-def _mirror_settings_panel(paused: bool) -> None:
+def _mirror_settings_panel(paused: bool) -> list[str]:
     """Best-effort: keep the Settings-panel checkbox + daemon cron coherent.
 
     A Governor-page pause should also (a) show as ticked on the Settings panel
@@ -406,7 +446,8 @@ def _mirror_settings_panel(paused: bool) -> None:
     touching ``config.yaml`` or invoking ``launchctl`` via ``daemon_cron``.
     """
     if os.environ.get("OSTLER_PAUSE_SKIP_MIRROR", "").strip() in ("1", "true", "yes"):
-        return
+        return []
+    errors: list[str] = []
     try:  # config.yaml checkbox coherence
         import config_panel as _cp  # type: ignore
 
@@ -415,15 +456,22 @@ def _mirror_settings_panel(paused: bool) -> None:
         if bool(current.get("background_paused", False)) != paused:
             current["background_paused"] = paused
             _cp._atomic_write(cfg_path, current)
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"settings panel not updated: {exc}")
 
     try:  # daemon brief / wrap coherence
         from daemon_cron import apply_pause_to_cron  # type: ignore
 
         apply_pause_to_cron(paused)
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"daemon cron not updated: {exc}")
+
+    # A swallowed failure here left the brief and wrap switched off while every
+    # screen said "not paused". It stays non-fatal to the governor.env write,
+    # but it is logged and handed back so the caller can say so.
+    for msg in errors:
+        _LOG.warning("pause mirror: %s", msg)
+    return errors
 
 
 def set_pause(
@@ -439,8 +487,11 @@ def set_pause(
     except OSError:
         existing = ""
     _atomic_write_text(p, _render_merged(existing, paused=True, until=until))
-    _mirror_settings_panel(True)
-    return read_state(p)
+    errors = _mirror_settings_panel(True)
+    state = read_state(p)
+    if errors:
+        state["mirror_errors"] = errors
+    return state
 
 
 def resume(path: Optional[Path] = None) -> dict[str, Any]:
@@ -458,8 +509,11 @@ def resume(path: Optional[Path] = None) -> dict[str, Any]:
     except OSError:
         existing = ""
     _atomic_write_text(p, _render_merged(existing, paused=False, until=None))
-    _mirror_settings_panel(False)
-    return read_state(p)
+    errors = _mirror_settings_panel(False)
+    state = read_state(p)
+    if errors:
+        state["mirror_errors"] = errors
+    return state
 
 
 if __name__ == "__main__":  # function-verification entrypoint

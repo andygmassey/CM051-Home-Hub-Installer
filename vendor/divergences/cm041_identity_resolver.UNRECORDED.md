@@ -104,3 +104,115 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## Second graft (DMG #27, 2026-10-13): a merge must not lose the human name
+
+NOT UPSTREAM yet; CM041 needs the same change. A census on a candidate box found
+150 of 787 merges putting a named person into a survivor whose displayName was a
+phone (145) or an email (5): the name-tier rule (phone < email < human) was not
+applied when naming the survivor.
+
+Files, all under `vendor/cm041/identity_resolver/`:
+
+1. `canonical_name.py`: `name_tier`, `upward_name` (appended; nothing existing touched).
+2. `resolver.py`: `rename_survivor_upward` (+ `_display_names`), called as step 4b
+   of `merge_persons`, before the discard is marked merged.
+3. `batch_resolver.py`: `_rename_survivor_upward_oxigraph`, called as step 5b of
+   `_merge_oxigraph` (which now returns the new name); `_set_qdrant_display_name`
+   syncs the Hub's People list (it reads Qdrant); the call site uses it.
+4. `repair_merge_consistency.py`: `misnamed_survivors` / `rename_survivors_upward`,
+   run on every repair pass (idempotent), so EXISTING merges are renamed on upgrade.
+
+Rule: the survivor takes the discard's best name only when it is a HIGHER tier than
+anything the survivor carries; two human names keep the existing rule; a survivor
+with no name is left to the existing copy step. NOT done here (v1.0.108): following
+`mergedInto` to a differently-named survivor on lookup (may be an over-merge), and
+the wiki compiler emitting pages for retired-only people (CM044).
+
+Guarded by `tests/test_merge_survivor_takes_highest_name_tier.py` and the walk
+assertion in `scripts/box_walk_probes/probes/no_person_holds_two_contact_cards.sh`.
+
+## The owner anchor is never an auto-merge candidate (CM051, 2026-10-14)
+
+Tree `cm041/identity_resolver`, file `batch_resolver.py`, function
+`_fetch_all_persons`: one added `FILTER NOT EXISTS { ?person pwg:isOwner true }`.
+
+- Why: install.sh now mints the owner anchor (`pwg:user_<id>`, `pwg:isOwner
+  true`, the owner's name and nothing else) through
+  `contact_syncer/owner_node.py`, which had no call site (walk #27: 0 isOwner
+  triples). exact_name scores 0.9, over the 0.8 auto-merge threshold, so the
+  next batch pass would pair the anchor with the owner's own contact card (or
+  a namesake) and `pick_canonical` could keep the card and tombstone the
+  anchor. Relating fragments to the owner stays with
+  `lib/ostler-confirm-identity.py`, behind the owner's confirmation.
+- No patch: same refusal as the entries above. Upstream mirror owed in CM041.
+- Test: `tests/test_owner_node_is_minted_and_read.py`.
+
+## An identical name is a "Same person?" suggestion, never an automatic merge (DMG #27 item 4)
+
+File `vendor/cm041/identity_resolver/batch_resolver.py`. `import re` added.
+`PersonRecord` gains `organizations` and `contact_card_uids` (sets, default
+empty), filled by `_fetch_all_persons` from every `pwg:organization` row and
+every `icloud_contact_uid` identifier. New `DEFAULT_CONFIG`
+`same_name_suggest_confidence` (0.6: above `review_threshold`, below
+`auto_merge_threshold`). New helpers `_ORG_SUFFIXES`, `_org_tokens`,
+`employers_overlap`, `_has_employer` placed before
+`detect_exact_name_matches`, whose pair loop now: skips a pair whose
+employers are both present and disjoint unless both are Contacts cards (a
+common name at different employers stays apart; it used to auto-merge at 0.9
+when neither held an identifier); emits a `same_name_suggest` match (review
+only) for that card pair and for two different cards with overlapping or
+absent employers; otherwise unchanged. `has_hard_conflict` still vetoes first.
+
+WHY: one real contact split across three nodes (identical full name,
+different employer cards, no shared phone or email). Archie's ruling: no
+automatic merge, a suggestion the owner confirms through the existing
+duplicates review (`needs_review`, `duplicates.yaml` decisions).
+
+Guarded by `tests/test_same_name_is_a_suggestion_not_a_merge.py`, wired in
+`.github/workflows/walk-defect-e-duplicate-evidence-guard.yml`. Upstream CM041
+mirror OWED; no re-vendor.
+
+## cm041/identity_resolver: an unreadable forget tombstone is never overwritten (walk #28, sweep V22)
+
+`vendor/cm041/identity_resolver/forget_tombstone.py`: `record()` used to log
+"starting a new one" on a `TombstoneUnreadable` and write a fresh file over
+it, wiping every earlier Forget. It now leaves the file in place (so
+`is_forgotten()` stays fail-closed for every syncer), copies its bytes to
+`<file>.unreadable-<sha12>` (new `_set_aside()`), and returns False. New
+`problem()` returns the reason for callers that must say why. The
+`vendor/ostler_fda/forget_tombstone.py` copy is kept byte-identical. Guarded
+by `vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`
+(job `forget-reports-only-what-it-erased` in
+`.github/workflows/forget-tombstone.yml`). Upstream CM041 mirror OWED.
+
+## cm041/identity_resolver: an exact shared identifier merges two Contacts cards of one person (v1.0.107 #30)
+
+`batch_resolver.py`: `execute()` used to refuse every planned merge whose nodes
+carried different `icloud_contact_uid` values (RULE 2). Measured on the Mini16,
+66 of 70 same-name pairs sharing an exact email or phone were refused that way
+(one person, two Contacts cards). New `_exact_identifier_override()` and
+`_all_canonical_conflicts()` let an exact shared identifier override a refusal
+whose ONLY conflicting canonical key is the card uid; policy is in the new
+vendor-only module `exact_identifier.py` (full-name equality, usable shared key,
+no hard veto, key not held by 3+ distinct names). `detect_email_matches`,
+`detect_phone_matches` and `detect_linkedin_url_matches` downgrade a key held by
+3+ distinct names to review. Every merge now calls the new vendor-only
+`merge_journal.record_merge()` BEFORE the first write (no snapshot, no merge);
+`--undo-merge ID` / `--list-merges` added to `main()`; `converge()` stops when a
+round executes nothing; `MergeAction.merge_id` added; the converge summary counts
+executed merges, not planned ones. Linkedin conflicts are compared in canonical
+form on this path only.
+
+Guarded by `tests/test_exact_identifier_merge.py` (rdflib-backed store, 23
+tests, wired in `.github/workflows/exact-identifier-merge.yml`).
+`tests/test_converge_path_enforces_rule2.sh` now stubs `record_merge` like it
+already stubs `_backup_triples`. Upstream CM041 mirror OWED; no re-vendor.
+Update: the journal snapshot also carries the pair's Qdrant `people` points
+(id, vector, payload); `--undo-merge` restores them before the graph. New
+vendor-only code in `merge_journal.py`; `batch_resolver.py` passes
+`qdrant_url`/`qdrant_collection` to `record_merge` and `qdrant_url` to undo.
+Update: no vector snapshot, no merge. `record_merge` raises `SnapshotUnavailable`
+when Qdrant cannot be read; `execute()` skips the pair, journals a `skip`
+(reason `qdrant_unavailable`), and the next converge retries. Not a RULE 2
+refusal, not a pin.

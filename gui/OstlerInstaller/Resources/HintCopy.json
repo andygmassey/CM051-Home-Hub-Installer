@@ -506,9 +506,20 @@
   },
   "tailscale_connect": {
     "id": "tailscale_connect",
+    "title": "Setting up remote access",
+    "subtitle": "You sign in at the end",
+    "why": "This installs Tailscale, the private link between your own devices that lets the Ostler iOS app reach this Mac away from home. Nothing to do yet: the sign-in comes at the very end of the install.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 300,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "tailscale_signin": {
+    "id": "tailscale_signin",
     "title": "Connect your iPhone and Watch",
-    "subtitle": "One QR code, on your phone",
-    "why": "Scan the code with the Ostler iOS app to link your phone to this Mac. The connection is private between your own devices. You can skip this and pair later from the app.",
+    "subtitle": "Sign in to Tailscale in your browser",
+    "why": "Sign in to Tailscale in the browser window that opens, so the Ostler iOS app can reach this Mac from anywhere. The connection is private between your own devices. You can skip this and set it up later from the app.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 300,
     "long_running_copy": "This step waits for you. Nothing is timing out.",

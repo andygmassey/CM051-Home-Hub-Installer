@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +82,95 @@ def _find_envelope_index(mail_dir: Optional[Path] = None) -> Path:
     return envelope
 
 
+# Sonoma/Sequoia schema (V10): messages.subject + messages.sender are
+# INTEGER foreign keys, NOT text. Resolve via JOIN to the subjects /
+# addresses lookup tables. The sender FK points at addresses.ROWID
+# on Sequoia (15+); some older builds route via a senders table that
+# itself references addresses. We try the direct join first, then a
+# two-hop fallback, then degrade to the raw integer so we still
+# return rows rather than silently producing zero.
+#
+# The three shapes are shared by extract_messages (the install-time window)
+# and catchup_mail (the full-history walk, v1.0.108), so both read a mailbox
+# the same way. ``{m}`` in a WHERE / ORDER fragment is the messages-table
+# prefix: "m." for the joined shapes, "" for the legacy text-column shape.
+_MESSAGE_SHAPES = (
+    ("""
+        SELECT
+            m.ROWID as msg_rowid,
+            COALESCE(s.subject, '') as subject,
+            COALESCE(sa.address, '') as sender,
+            m.date_sent,
+            m.date_received,
+            m.read as is_read,
+            m.flagged as is_flagged,
+            m.message_id,
+            mb.url as mailbox_url
+        FROM messages m
+        LEFT JOIN subjects s ON m.subject = s.ROWID
+        LEFT JOIN addresses sa ON m.sender = sa.ROWID
+        LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
+    """, "m."),
+    # Older schema variant: two-hop via senders -> addresses.
+    ("""
+        SELECT
+            m.ROWID as msg_rowid,
+            COALESCE(s.subject, '') as subject,
+            COALESCE(sa.address, '') as sender,
+            m.date_sent,
+            m.date_received,
+            m.read as is_read,
+            m.flagged as is_flagged,
+            m.message_id,
+            mb.url as mailbox_url
+        FROM messages m
+        LEFT JOIN subjects s ON m.subject = s.ROWID
+        LEFT JOIN senders se ON m.sender = se.ROWID
+        LEFT JOIN addresses sa ON se.contact_identifier = sa.address
+        LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
+    """, "m."),
+    # Final fallback: legacy schema with text columns.
+    ("""
+        SELECT
+            ROWID as msg_rowid,
+            subject,
+            sender,
+            date_sent,
+            date_received,
+            read as is_read,
+            flagged as is_flagged,
+            message_id,
+            NULL as mailbox_url
+        FROM messages
+    """, ""),
+)
+
+
+def query_message_rows(conn, *, where: str, params: tuple, order: str, limit: int):
+    """Run the first message SELECT shape this Envelope Index accepts.
+
+    Returns the rows, or None when no shape matches (schema not recognised).
+    """
+    last = None
+    for select, prefix in _MESSAGE_SHAPES:
+        sql = (select + " WHERE " + where.format(m=prefix)
+               + " ORDER BY " + order.format(m=prefix) + " LIMIT ?")
+        try:
+            return conn.execute(sql, tuple(params) + (limit,)).fetchall()
+        except sqlite3.OperationalError as e:
+            last = e
+    logger.error("Mail schema not recognised: %s", last)
+    return None
+
+
+def normalise_sender(sender: str) -> str:
+    """"Name <email>" -> the email, lower-cased; anything else unchanged.
+    The one normalisation frequent_contacts and catchup_mail share."""
+    if "<" in sender and ">" in sender:
+        return sender.split("<")[1].split(">")[0].lower()
+    return sender
+
+
 def extract_messages(
     db_path: Optional[Path] = None,
     since_days: int = 1825,
@@ -107,7 +198,7 @@ def extract_messages(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, db_path):
             raise PermissionError(
                 "Cannot read Mail data. Grant Full Disk Access."
             ) from e
@@ -118,79 +209,16 @@ def extract_messages(
     # Mail stores dates as Unix timestamps (not Mac epoch)
     cutoff = datetime.now(timezone.utc).timestamp() - (since_days * 86400)
 
-    # Sonoma/Sequoia schema (V10): messages.subject + messages.sender are
-    # INTEGER foreign keys, NOT text. Resolve via JOIN to the subjects /
-    # addresses lookup tables. The sender FK points at addresses.ROWID
-    # on Sequoia (15+); some older builds route via a senders table that
-    # itself references addresses. We try the direct join first, then a
-    # two-hop fallback, then degrade to the raw integer so we still
-    # return rows rather than silently producing zero.
-    try:
-        rows = conn.execute("""
-            SELECT
-                m.ROWID as msg_rowid,
-                COALESCE(s.subject, '') as subject,
-                COALESCE(sa.address, '') as sender,
-                m.date_sent,
-                m.date_received,
-                m.read as is_read,
-                m.flagged as is_flagged,
-                m.message_id,
-                mb.url as mailbox_url
-            FROM messages m
-            LEFT JOIN subjects s ON m.subject = s.ROWID
-            LEFT JOIN addresses sa ON m.sender = sa.ROWID
-            LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
-            WHERE m.date_received > ?
-            ORDER BY m.date_received DESC
-            LIMIT ?
-        """, (cutoff, limit)).fetchall()
-    except sqlite3.OperationalError:
-        # Older schema variant: try two-hop via senders -> addresses.
-        try:
-            rows = conn.execute("""
-                SELECT
-                    m.ROWID as msg_rowid,
-                    COALESCE(s.subject, '') as subject,
-                    COALESCE(sa.address, '') as sender,
-                    m.date_sent,
-                    m.date_received,
-                    m.read as is_read,
-                    m.flagged as is_flagged,
-                    m.message_id,
-                    mb.url as mailbox_url
-                FROM messages m
-                LEFT JOIN subjects s ON m.subject = s.ROWID
-                LEFT JOIN senders se ON m.sender = se.ROWID
-                LEFT JOIN addresses sa ON se.contact_identifier = sa.address
-                LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
-                WHERE m.date_received > ?
-                ORDER BY m.date_received DESC
-                LIMIT ?
-            """, (cutoff, limit)).fetchall()
-        except sqlite3.OperationalError:
-            # Final fallback: legacy schema with text columns.
-            try:
-                rows = conn.execute("""
-                    SELECT
-                        ROWID as msg_rowid,
-                        subject,
-                        sender,
-                        date_sent,
-                        date_received,
-                        read as is_read,
-                        flagged as is_flagged,
-                        message_id,
-                        NULL as mailbox_url
-                    FROM messages
-                    WHERE date_received > ?
-                    ORDER BY date_received DESC
-                    LIMIT ?
-                """, (cutoff, limit)).fetchall()
-            except sqlite3.OperationalError as e:
-                logger.error("Mail schema not recognised: %s", e)
-                conn.close()
-                return []
+    rows = query_message_rows(
+        conn,
+        where="{m}date_received > ?",
+        params=(cutoff,),
+        order="{m}date_received DESC",
+        limit=limit,
+    )
+    if rows is None:
+        conn.close()
+        return []
 
     # Get recipients from the addresses table. Sequoia recipients schema
     # uses recipients.message + recipients.address (both INTEGER fks),
@@ -275,6 +303,44 @@ def extract_messages(
     return messages
 
 
+def envelope_index_total(db_path: Optional[Path] = None) -> Optional[int]:
+    """How many messages the Mail store on this Mac holds, or None.
+
+    The DENOMINATOR for the Doctor's Mail row ("4,321 of 353,842 emails
+    read", v1.0.107 walk #28): extract_messages reads a windowed, capped
+    subset, so its length is never the size of the mailbox. This is a plain
+    COUNT over the same Envelope Index, opened the same read-only way, with
+    rows Mail has marked deleted left out when the schema carries that flag.
+
+    None, never 0, whenever the count cannot be taken (no database, no Full
+    Disk Access, an unrecognised schema): a reader shows only what Ostler
+    holds when this is None, and "of 0" would be a fabricated number.
+    """
+    try:
+        if db_path is None:
+            db_path = _find_envelope_index()
+        if not db_path.exists():
+            return None
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except (OSError, sqlite3.Error) as e:
+        logger.info("Mail store size not readable: %s", e)
+        return None
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
+        if not cols:
+            return None
+        sql = "SELECT COUNT(*) FROM messages"
+        if "deleted" in cols:
+            sql += " WHERE COALESCE(deleted, 0) = 0"
+        (n,) = conn.execute(sql).fetchone()
+    except sqlite3.Error as e:
+        logger.info("Mail store size not readable: %s", e)
+        return None
+    finally:
+        conn.close()
+    return n if isinstance(n, int) and n > 0 else None
+
+
 def email_stats(messages: list[EmailMessage]) -> dict:
     """Compute summary statistics for extracted emails."""
     senders: dict[str, int] = {}
@@ -316,8 +382,7 @@ def frequent_contacts(messages: list[EmailMessage], limit: int = 50) -> dict[str
         if not sender:
             continue
         # Normalise "Name <email>" to just the email
-        if "<" in sender and ">" in sender:
-            sender = sender.split("<")[1].split(">")[0].lower()
+        sender = normalise_sender(sender)
         counts[sender] = counts.get(sender, 0) + 1
 
     sorted_contacts = sorted(counts.items(), key=lambda x: x[1], reverse=True)

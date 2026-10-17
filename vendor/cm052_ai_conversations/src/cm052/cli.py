@@ -343,6 +343,24 @@ def _emit_json(counts: dict, *, enabled: bool) -> None:
         print(json.dumps(counts))
 
 
+def process_one(conv: Conversation) -> str:
+    """Hand ONE conversation to the wire and name the outcome.
+
+    The single per-conversation step, shared by ``run`` and the background
+    catch-up (``cm052.catchup``), so the two can never drift. Returns
+    ``"l3_skipped"`` (L3 short-circuit), ``"paused"`` (subscription
+    inactive, nothing staged) or ``"posted"``. Raises on transport failure,
+    exactly as ``wire.post`` does.
+    """
+    result = wire.post(conv)
+    if isinstance(result, dict):
+        if result.get("reason") == "privacy_level_l3":
+            return "l3_skipped"
+        if result.get("reason") == "subscription_inactive":
+            return "paused"
+    return "posted"
+
+
 def run(args: argparse.Namespace) -> int:
     """Core orchestration. Returns the process exit code."""
     state_path = (
@@ -424,7 +442,7 @@ def run(args: argparse.Namespace) -> int:
             )
             continue
         try:
-            result = wire.post(conv)
+            outcome = process_one(conv)
         except Exception as exc:
             # One bad transcript must not abort the run. Log with the
             # conversation id + traceback and leave the watermark
@@ -439,7 +457,7 @@ def run(args: argparse.Namespace) -> int:
             )
             continue
 
-        if isinstance(result, dict) and result.get("reason") == "privacy_level_l3":
+        if outcome == "l3_skipped":
             l3_skipped += 1
         else:
             posted += 1

@@ -128,8 +128,8 @@ esac
 # This is the class, not the instance: the heredoc is quoted, so nothing from
 # install.sh's scope is available at runtime.
 _missing=0
-printf '%s\n' "$_SRC" | /usr/bin/grep -q '^OSTLER_OSASCRIPT_TIMEOUT_S=' || _missing=$((_missing+1))
-printf '%s\n' "$_SRC" | /usr/bin/grep -q '^_ostler_run_with_deadline()' || _missing=$((_missing+1))
+/usr/bin/grep -q '^OSTLER_OSASCRIPT_TIMEOUT_S=' <<<"$_SRC" || _missing=$((_missing+1))
+/usr/bin/grep -q '^_ostler_run_with_deadline()' <<<"$_SRC" || _missing=$((_missing+1))
 if [ "$_missing" -eq 0 ]; then
     ok "both names _notify depends on are DEFINED INSIDE the generated scanner"
 else
@@ -138,7 +138,7 @@ fi
 
 # The bound must survive. A bare osascript with no deadline would pass every
 # arm above and would reintroduce the 23h56m wedge.
-if printf '%s\n' "$_SRC" | /usr/bin/grep -q '_ostler_run_with_deadline "\$OSTLER_OSASCRIPT_TIMEOUT_S"'; then
+if /usr/bin/grep -q '_ostler_run_with_deadline "\$OSTLER_OSASCRIPT_TIMEOUT_S"' <<<"$_SRC"; then
     ok "the notification is still BOUNDED, so a hung Apple Event cannot wedge the import chain"
 else
     bad "the notification is no longer routed through the deadline helper"
