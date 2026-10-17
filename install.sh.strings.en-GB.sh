@@ -82,6 +82,13 @@ MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .er
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="An earlier install had Ostler RemoteCapture starting at login. It has been stopped and will not start again."
 MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture was not installed: you chose to keep spoken transcription off. Turn it on in Settings and run the installer again if you change your mind."
 MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
+# Shown just before install.sh first writes under ~/Documents/Ostler, so the
+# customer meets this explanation BEFORE the bare macOS Files-and-Folders prompt
+# appears. The prompt can read as coming from "python3.11" (the bundled helper),
+# and a careful customer who declines an unexplained prompt leaves the wiki and
+# conversation-record writes failing silently. Paired with the Doctor
+# Documents-access tile (vendor/doctor/agent/documents_access_posture.py).
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="In a moment macOS will ask whether Ostler can access files in your Documents folder. The request can read as coming from python3.11, which is the bundled helper Ostler uses to write your files. Please click Allow. Ostler keeps your personal wiki and your conversation records here, under Documents/Ostler, on this Mac. They are yours and they stay on this machine. If you click Don't Allow, Ostler cannot write your wiki or save your conversation records, and the Doctor dashboard will show you how to turn it back on."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"

@@ -64,6 +64,13 @@ from dashboard_components import (
     render_security_posture,
     render_whatsapp_keepalive,
 )
+# Documents-folder access posture (launch-blocker install UX fix). A
+# live write probe against ~/Documents/Ostler surfaced as a Doctor tile
+# so a macOS Files-and-Folders denial -- which otherwise fails the wiki
+# and conversation-record writes silently -- is never invisible. Lives
+# in its own vendor-only module (CM051 probes a layout HR015 Doctor has
+# no equivalent of); see vendor/VENDOR_ONLY.tsv.
+from documents_access_posture import render_documents_access_posture
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -1575,6 +1582,18 @@ def render_dashboard(
     # the same productisation-posture story as the iMessage tile.
     reminders_section = render_reminders_posture()
 
+    # Documents-folder access posture (launch-blocker install UX fix):
+    # a live write probe against ~/Documents/Ostler. Ostler's bundled
+    # interpreter writes the customer's wiki and conversation records
+    # there, behind the macOS Files-and-Folders consent prompt (which
+    # reads as coming from "python3.11"). A customer who declines it
+    # leaves those writes failing silently. Amber when the probe write
+    # is refused; empty string on a fresh box where install.sh has not
+    # reached its first Documents write (not-yet-asked), so Doctor does
+    # not cry wolf. Catches a revoke-after-install the same way the
+    # Reminders runtime tile does, because the probe is live.
+    documents_access_section = render_documents_access_posture()
+
     # Reminders runtime push outcome (task #279, runtime half): reads
     # CM048's reminders_map SQLite table for what actually happened when
     # the assistant pushed extracted commitments to the Reminders app.
@@ -2155,6 +2174,8 @@ def render_dashboard(
         {imessage_tcc_section}
 
         {reminders_section}
+
+        {documents_access_section}
 
         {reminders_runtime_section}
 

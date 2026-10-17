@@ -8060,6 +8060,15 @@ mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR" "$SECURITY_CONFIG_DIR"
 # is itself idempotent; the sentinel exists only to express
 # "we have already announced this layout to this install".
 if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
+    # PRE-EXPLAIN the macOS Documents prompt BEFORE the mkdir below, which is
+    # this installer's first write under ~/Documents/Ostler and so the first
+    # thing that trips the Files-and-Folders consent prompt (it can read as
+    # coming from "python3.11", the bundled interpreter that later writes the
+    # wiki + conversation records here). A customer who declines an unexplained
+    # prompt silently loses those writes; the Doctor Documents-access tile
+    # surfaces that state. This info() emits before the mkdir runs, so the
+    # explanation is on screen before the OS prompt appears.
+    info "$MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT"
     info "$(printf "$MSG_INFO_CREATING_USER_FACING_CONTENT_TREE" "${USER_FACING_ROOT}")"
     mkdir -p "$USER_FACING_ROOT"
     for sub in "${USER_TREE_SUBDIRS[@]}"; do
