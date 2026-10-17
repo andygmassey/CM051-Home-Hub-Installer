@@ -1336,6 +1336,17 @@ entries:
       kind: box_walk_probe
       probe: "companion_listener_refuses_unauthenticated"
 
+  - id: box-walk-listener-watchdog-recovers-a-wedged-listener
+    title: with the daemon SIGSTOPped (process alive, 8443 silent), the listener watchdog captures sample and lsof, restarts it and 8443 answers 401 again within 300 s
+    incident: >-
+      Andy's box, 2026-10-17. The daemon ran at 0% CPU for 4 h with its 8443
+      listener dead; launchd saw a live process, nothing respawned it, and the
+      iPhone app showed Hub unreachable until a manual kickstart. An absent
+      watchdog is FAIL. Core of the #31 hotfix re-cut. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "listener_watchdog_recovers_a_wedged_listener"
+
   # ADVISORY (scripts/walk_promote_scope.tsv, chat_latency_baseline row): a
   # baseline measurement, not an install check. Declared here because every
   # probe on disk must be invoked by the cut; the promote scope decides it
