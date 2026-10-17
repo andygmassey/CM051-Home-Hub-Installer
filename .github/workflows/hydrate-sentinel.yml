@@ -58,10 +58,13 @@ on:
       - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
       - 'tests/test_the_source_table_items_column_is_the_number_it_claims.sh'
       - 'tests/test_the_source_table_items_column_shows_the_live_count.sh'
+      - 'tests/test_doctor_rows_show_one_honest_total.sh'
       - 'vendor/doctor/agent/extension_token.py'
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/ostler_fda/apple_mail.py'
+      - 'vendor/ostler_fda/extract_all.py'
       - 'vendor/divergences/doctor.patch'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
@@ -272,6 +275,16 @@ jobs:
       - name: The source table's Items column prefers the live count over a stale sentinel (v1.0.107 walk #9)
         if: always()
         run: /bin/bash tests/test_the_source_table_items_column_shows_the_live_count.sh
+
+      # v1.0.107 walk #28, Andy's console walk: Mail showed the last tick's
+      # delta, WhatsApp people (one per DM chat) as messages, Safari visits as
+      # pages, Photos a bare number, and Notes four different numbers. Every
+      # row now carries ONE total in a declared unit (item_count + item_unit),
+      # and this asserts each one on a fixture of known totals, reader and
+      # rendered cell both.
+      - name: Every Doctor source row shows one honest total in the unit it names (walk #28)
+        if: always()
+        run: /bin/bash tests/test_doctor_rows_show_one_honest_total.sh
 
       # 🔴 #2313, MEASURED ON macmini16-walk 2026-09-23. Every gate above this
       # line asks whether the sentinel FILE is honest about the run that wrote

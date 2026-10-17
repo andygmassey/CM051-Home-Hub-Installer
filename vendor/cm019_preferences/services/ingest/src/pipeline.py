@@ -25,6 +25,7 @@ from .parsers import (
     LinkedInParser,
     RedditParser,
     AppleParser,
+    AppleMusicLibraryParser,
     TwitterParser,
     YouTubeParser,
     eBayParser,
@@ -66,6 +67,7 @@ class IngestPipeline:
 
         # Available parsers (ordered from most specific to least specific)
         self.parsers: List[BaseParser] = [
+            AppleMusicLibraryParser(),  # Hub's own Music library export - exact filename
             EmailParser(),  # Email preferences from CM021 - specific .jsonl format
             GoogleTakeoutParser(),
             SpotifyParser(),
@@ -382,6 +384,7 @@ class IngestPipeline:
         # logged (no silent truncation) -- see PreferenceFilter.cap_by_source.
         aggregated_prefs, capped_log = self.filter.cap_by_source(aggregated_prefs)
         result["preferences_capped"] = len(capped_log)
+        aggregated_prefs, result["preferences_queued"] = self._queue_tail(aggregated_prefs, user_id)
 
         batch_size = 32
         for i in range(0, len(aggregated_prefs), batch_size):
@@ -584,6 +587,7 @@ class IngestPipeline:
         # protects a real day-one import where one export dwarfs the rest.
         aggregated_prefs, capped_log = self.filter.cap_by_source(aggregated_prefs)
         result["total_capped"] = len(capped_log)
+        aggregated_prefs, result["total_queued"] = self._queue_tail(aggregated_prefs, user_id)
 
         batch_size = 32
 
@@ -604,6 +608,26 @@ class IngestPipeline:
         logger.info(f"Frequency distribution: {result['frequency_stats']}")
 
         return result
+
+    def _queue_tail(self, ranked, user_id):
+        """CM051 #28: in the FOREGROUND (install), store the first N per source
+        now and queue the rest for the background drain (tail_queue.py). Off
+        unless the caller sets both env vars; a queue that cannot be written
+        falls back to storing everything now, never to dropping."""
+        from . import tail_queue
+        limit, qdir = tail_queue.foreground_settings()
+        if limit is None:
+            return ranked, 0
+        now, later = tail_queue.split_foreground(ranked, limit)
+        if not later:
+            return ranked, 0
+        try:
+            tail_queue.write_queue(qdir, later, user_id)
+        except OSError as exc:
+            logger.warning("Could not queue %d preference(s) for later (%s); storing them now.",
+                           len(later), type(exc).__name__)
+            return ranked, 0
+        return now, len(later)
 
     async def _process_batch(
         self,

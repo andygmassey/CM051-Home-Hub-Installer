@@ -953,7 +953,7 @@ final class InstallerCoordinator: ObservableObject {
             let denials = results.filter { !$0.granted }.map(\.permission)
             if denials.isEmpty {
                 self.permissionsIntroState = .complete
-                OstlerLog.lifecycle.info("permissionsPrewarm: all four permissions granted -- advancing")
+                OstlerLog.lifecycle.info("permissionsPrewarm: all permissions granted -- advancing")
             } else {
                 self.permissionsIntroState = .summary(denials: denials)
                 OstlerLog.lifecycle.info("permissionsPrewarm: \(denials.count, privacy: .public) permission(s) not granted -- showing summary")

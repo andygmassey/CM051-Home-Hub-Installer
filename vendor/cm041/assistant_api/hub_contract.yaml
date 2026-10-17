@@ -281,7 +281,9 @@
     "count",
     "degraded",
     "reason",
-    "results"
+    "results",
+    "scanned",
+    "truncated"
    ],
    "source": "install.sh"
   },
@@ -305,7 +307,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -453,7 +461,6 @@
    "response_fields": [
     "counts",
     "degraded",
-    "error",
     "items",
     "reason",
     "schema_version",
@@ -596,9 +603,14 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
     "emails",
     "error",
-    "hours"
+    "hours",
+    "local_store_age_seconds",
+    "source",
+    "unread_total"
    ],
    "source": "install.sh"
   },
@@ -969,7 +981,8 @@
     "health_observations",
     "item_count",
     "ok",
-    "path"
+    "path",
+    "quick_notes"
    ],
    "source": "install.sh"
   },
@@ -1128,6 +1141,7 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "cron_resume_error",
     "expiry",
     "expiry_human",
     "governor_env_path",
@@ -1154,7 +1168,8 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "error"
+    "error",
+    "mirror_errors"
    ],
    "source": "vendor/doctor/agent/web_ui.py"
   },
@@ -1344,13 +1359,38 @@
     "degraded",
     "error",
     "forgotten",
+    "nodes_erased",
     "not_found",
     "reason",
+    "retry",
     "stores_purged",
+    "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
    ],
    "source": "install.sh"
+  },
+  {
+   "auth": [
+    "none"
+   ],
+   "body_limit_bytes": null,
+   "cross_site_refusal": false,
+   "id": "doctor POST /api/v1/people/{slug}/suppress-suggestions",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/suppress-suggestions",
+   "ports": [
+    8089
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "detail",
+    "error"
+   ],
+   "source": "vendor/doctor/agent/web_ui.py"
   },
   {
    "auth": [
@@ -1405,6 +1445,29 @@
     "recording"
    ],
    "source": "install.sh"
+  },
+  {
+   "auth": [
+    "none"
+   ],
+   "body_limit_bytes": null,
+   "cross_site_refusal": true,
+   "id": "doctor POST /api/v1/reminders/turn-on",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/reminders/turn-on",
+   "ports": [
+    8089
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "error",
+    "ok",
+    "rearmed"
+   ],
+   "source": "vendor/doctor/agent/web_ui.py"
   },
   {
    "auth": [
@@ -1468,7 +1531,8 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "error"
+    "error",
+    "mirror_errors"
    ],
    "source": "vendor/doctor/agent/web_ui.py"
   },
@@ -3044,7 +3108,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -3293,7 +3363,8 @@
     "health_observations",
     "item_count",
     "ok",
-    "path"
+    "path",
+    "quick_notes"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3608,11 +3679,51 @@
     "degraded",
     "error",
     "forgotten",
+    "nodes_erased",
     "not_found",
     "reason",
+    "retry",
     "stores_purged",
+    "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/people/{slug}/suppress-suggestions",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/suppress-suggestions",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/suppress-suggestions",
+   "query_params": [],
+   "request_optional": [
+    "reason",
+    "suppressed"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "degraded",
+    "error",
+    "identifiers_recorded",
+    "nodes_matched",
+    "person_uris",
+    "reason",
+    "record_cleared",
+    "record_uri",
+    "record_written",
+    "slug",
+    "suppressed"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
    "via_wildcard": "/api/v1/people/{rest}"
@@ -3632,7 +3743,9 @@
    ],
    "proxy_to": "ical:GET:/api/v1/preferences",
    "query_params": [
+    "cursor",
     "domain",
+    "fields",
     "limit",
     "polarity"
    ],
@@ -3697,6 +3810,7 @@
     "count",
     "debts",
     "degraded",
+    "detail",
     "reason"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -4704,7 +4818,9 @@
     "count",
     "degraded",
     "reason",
-    "results"
+    "results",
+    "scanned",
+    "truncated"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -4728,7 +4844,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -4827,7 +4949,6 @@
    "response_fields": [
     "counts",
     "degraded",
-    "error",
     "items",
     "reason",
     "schema_version",
@@ -5013,9 +5134,14 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
     "emails",
     "error",
-    "hours"
+    "hours",
+    "local_store_age_seconds",
+    "source",
+    "unread_total"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5143,7 +5269,8 @@
     "health_observations",
     "item_count",
     "ok",
-    "path"
+    "path",
+    "quick_notes"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5489,11 +5616,48 @@
     "degraded",
     "error",
     "forgotten",
+    "nodes_erased",
     "not_found",
     "reason",
+    "retry",
     "stores_purged",
+    "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/people/{slug}/suppress-suggestions",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/suppress-suggestions",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "reason",
+    "suppressed"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "degraded",
+    "error",
+    "identifiers_recorded",
+    "nodes_matched",
+    "person_uris",
+    "reason",
+    "record_cleared",
+    "record_uri",
+    "record_written",
+    "slug",
+    "suppressed"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5542,7 +5706,9 @@
     8090
    ],
    "query_params": [
+    "cursor",
     "domain",
+    "fields",
     "limit",
     "polarity"
    ],
@@ -5603,6 +5769,7 @@
     "count",
     "debts",
     "degraded",
+    "detail",
     "reason"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5819,7 +5986,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],
@@ -5862,7 +6035,13 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
+    "detail",
+    "error",
+    "errors",
     "events",
+    "local_store_age_seconds",
+    "not_connected",
     "period_days",
     "sources"
    ],

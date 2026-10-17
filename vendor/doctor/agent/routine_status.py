@@ -31,7 +31,10 @@ _ROUTINES = (
     ("com.creativemachines.ostler.imessage-bundle", "iMessage conversations", "imessage-bundle"),
     ("com.creativemachines.ostler.whatsapp-bundle", "WhatsApp conversations", "whatsapp-bundle"),
     ("com.creativemachines.ostler.spoken-bundle", "Spoken (transcripts)", "spoken-bundle"),
-    ("com.ostler.fda-rerun", "Calendar, Notes, Photos, Safari, contacts", "fda-rerun"),
+    ("com.ostler.fda-rerun", "Calendar, Notes, Photos, Reminders, Safari", "fda-rerun"),
+    # G3 (TCC sweep 2026-10-15): Contacts has its own recurring reader now,
+    # and fda-rerun never read the address book, so it no longer claims it.
+    ("com.ostler.contact-resync", "Contacts", "contact-resync"),
     ("com.ostler.aiconv-resume", "AI chats", "aiconv-resume"),
     ("com.ostler.enrich", "Enrichment (people, books, places)", "enrich"),
 )

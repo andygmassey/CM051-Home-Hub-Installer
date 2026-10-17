@@ -29,6 +29,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_assistant_config_required_fields.sh'
+      - 'tests/test_gateway_pairing_is_explicit.sh'
       # The Skills lockdown gate. Listed here AND run below: a path entry
       # only makes the workflow TRIGGER, the run step is what makes it
       # CHECK, and the pair is the point -- the gate must fire on changes
@@ -73,6 +74,9 @@ jobs:
       # image change cannot turn this gate into a silent pass.
       - name: Assert every table install.sh emits carries the fields the daemon requires
         run: bash tests/test_assistant_config_required_fields.sh
+      - name: The shipped [gateway] states require_pairing and a pair rate limit (red team DMG #27 F4-4)
+        if: always()
+        run: bash tests/test_gateway_pairing_is_explicit.sh
 
       # Same surface as the step above -- the config.toml install.sh emits --
       # so it belongs to the same trigger set rather than a workflow of its

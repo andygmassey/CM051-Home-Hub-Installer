@@ -51,6 +51,8 @@ from identity_resolver.batch_resolver import (
     sweep_qdrant_orphans_of_merged_people,
 )
 from identity_resolver import retirement
+from identity_resolver.batch_resolver import _escape, _set_qdrant_display_name
+from identity_resolver.canonical_name import upward_name
 from identity_resolver.person_audit import record_person_removal
 
 logger = logging.getLogger(__name__)
@@ -100,6 +102,49 @@ def _resurrectable_subjects(url: str, client: httpx.Client) -> List[str]:
     """
     rows = _sparql_query(url, client, retirement.untyped_merge_subjects_query())
     return [r["s"] for r in rows if r.get("s")]
+
+
+def misnamed_survivors(url: str, client: httpx.Client):
+    """(survivors_examined, [(survivor_uri, new_name)]): live Persons that are the
+    target of a mergedInto whose displayName is a LOWER tier than a merged-in
+    node's (DMG #27). Idempotent: once renamed, upward_name returns nothing."""
+    rows = _sparql_query(
+        url, client,
+        f"SELECT ?s ?n ?m WHERE {{ ?s a <{PWG}Person> ; <{PWG}displayName> ?n . "
+        f"?src <{PWG}mergedInto> ?s . ?src <{PWG}displayName> ?m }}",
+    )
+    keep: Dict[str, set] = {}
+    src: Dict[str, set] = {}
+    for r in rows:
+        if r.get("s") and r.get("n"):
+            keep.setdefault(r["s"], set()).add(r["n"])
+        if r.get("s") and r.get("m"):
+            src.setdefault(r["s"], set()).add(r["m"])
+    out = []
+    for s_uri in sorted(keep):
+        new = upward_name(keep[s_uri], src.get(s_uri, ()))
+        if new:
+            out.append((s_uri, new))
+    return len(keep), out
+
+
+def rename_survivors_upward(
+    oxigraph_url: str, qdrant_url: str, collection: str, *, apply: bool,
+):
+    """Repair EXISTING merges (upgrades): returns (examined, misnamed, remaining)."""
+    with httpx.Client(timeout=30, trust_env=False) as client:
+        examined, todo = misnamed_survivors(oxigraph_url, client)
+        if apply:
+            for uri, new in todo:
+                _sparql_update(
+                    oxigraph_url, client,
+                    f"DELETE {{ <{uri}> <{PWG}displayName> ?old }} "
+                    f"WHERE {{ <{uri}> <{PWG}displayName> ?old }} ; "
+                    f'INSERT DATA {{ <{uri}> <{PWG}displayName> "{_escape(new)}" }}',
+                )
+                _set_qdrant_display_name(qdrant_url, collection, uri, new)
+        _, remaining = misnamed_survivors(oxigraph_url, client)
+    return examined, len(todo), len(remaining)
 
 
 def repair(
@@ -203,6 +248,19 @@ def repair(
         "  STILL RESURRECTABLE   : %d   <- must be 0, or the next ingest undoes this"
         % (retired_now, attempted, apply, upgraded_now, upgraded,
            len(still_untyped))
+    )
+
+    try:
+        ex, bad, left = rename_survivors_upward(
+            oxigraph_url, qdrant_url, collection, apply=apply)
+    except Exception as exc:  # noqa: BLE001
+        print("PARTIAL: the survivor-name repair failed (%s). Re-run; it is idempotent." % exc)
+        return EXIT_PARTIAL
+    print(
+        "merge survivors examined: %d\n"
+        "  carrying a lower-tier name than a merged-in node: %d   (apply=%s)\n"
+        "  STILL lower-tier after this run: %d   <- must be 0"
+        % (ex, bad, apply, left)
     )
 
     report = sweep_qdrant_orphans_of_merged_people(

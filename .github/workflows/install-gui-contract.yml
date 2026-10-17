@@ -37,6 +37,9 @@ on:
       - 'tests/test_confirm_calendars_helper.py'
       - 'tests/test_confirm_identity_helper.py'
       - 'tests/test_end_of_install_confirmation.sh'
+      - 'tests/test_calendar_review_is_one_screen.sh'
+      - 'tests/test_calendar_set_aside_classification.py'
+      - 'vendor/cm041/contact_syncer/google_calendar.py'
       # A gate must trigger on changes to ITSELF, or it can be broken (or
       # quietly narrowed) in a PR that never runs it.
       - 'tests/test_bundle_phase_declares_every_copy.sh'
@@ -293,6 +296,19 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_end_of_install_confirmation.sh
+
+      - name: Calendar review is one pre-filled screen, system calendars set aside
+        if: always()
+        # Andy's walk, 2026-10-15: the calendars were asked about one at a
+        # time, two questions each, holidays and Siri suggestions included,
+        # and the help read "1 events". The shell test drives install.sh's
+        # own block under /bin/bash and counts the prompts; the python test
+        # pins the metadata classification and reads the result back through
+        # the vendored CM041 reader (consumer side).
+        run: |
+          set -euo pipefail
+          bash tests/test_calendar_review_is_one_screen.sh
+          python3 tests/test_calendar_set_aside_classification.py
 
       - name: Run app-bundle byte-by-byte regression
         if: always()

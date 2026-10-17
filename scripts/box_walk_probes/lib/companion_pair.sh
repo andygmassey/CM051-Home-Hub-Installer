@@ -36,3 +36,28 @@ rm -f "\$CP_PY_FILE"
 CP_TOKEN=\$(printf '%s' "\$CP_JSON" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("device_token") or "")' 2>/dev/null)
 SNIP
 }
+
+# companion_unpair_box_snippet <since-epoch> <remove-passkey 0|1>
+#   prints shell text for a box-side script that revokes every device the walk
+#   paired (paired_at >= since) through DELETE /api/devices/{id}, removes the
+#   passkey file only when the walk found none, and reads /health. After it
+#   runs, $CU_JSON holds the helper's one-line JSON result.
+companion_unpair_box_snippet() {
+    local since="$1" rmpk="${2:-0}" b64
+    b64="$(base64 < "${_CP_HERE}/companion_pair.py" | tr -d '\n')"
+    cat <<SNIP
+CU_PY_FILE=\$(mktemp -t ostler-companion-unpair.XXXXXX)
+printf %s '${b64}' | base64 -d > "\$CU_PY_FILE"
+CU_PY=''
+for _p in "\${OSTLER_PAIR_PY:-}" "\$HOME/.ostler/.venv/bin/python3" /usr/bin/python3 python3; do
+    [ -n "\$_p" ] || continue
+    "\$_p" -c 'import cryptography' 2>/dev/null && { CU_PY="\$_p"; break; }
+done
+if [ -n "\$CU_PY" ]; then
+    CU_JSON=\$("\$CU_PY" "\$CU_PY_FILE" unpair --since ${since} --remove-passkey ${rmpk} 2>/dev/null)
+else
+    CU_JSON='{"ok": false, "detail": "no python with cryptography on the box"}'
+fi
+rm -f "\$CU_PY_FILE"
+SNIP
+}

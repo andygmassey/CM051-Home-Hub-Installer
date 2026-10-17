@@ -60,6 +60,8 @@ on:
       - 'tests/test_the_number_a_customer_types_reaches_all_three_consumers.sh'
       - 'tests/test_the_config_does_not_promise_encryption_that_never_happens.sh'
       - 'tests/test_a_calendar_export_is_found_where_exports_actually_sit.sh'
+      # #30: the calendar predicate now lives in the shared loose-file table.
+      - 'lib/ostler-detect-exports.sh'
       - '.github/workflows/licence-permissions-and-false-promises.yml'
   push:
     branches: [main]

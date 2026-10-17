@@ -26,7 +26,10 @@ _config_dir = os.path.dirname(os.path.abspath(__file__))
 _load_dotenv(os.path.join(_config_dir, ".env"))
 _load_dotenv(".env")
 
-CALENDAR_API_URL = os.environ.get("CALENDAR_API_URL", "http://localhost:8089")
+# The calendar lives on the ical-server (127.0.0.1:8090, /api/v1/calendar) and
+# is token-gated. The Doctor on :8089 does not serve it. calendar_client sends
+# the loopback service token (PWG_SERVICE_TOKEN or ~/.ostler/secrets/service_token).
+CALENDAR_API_URL = os.environ.get("CALENDAR_API_URL", "http://127.0.0.1:8090/api/v1")
 QDRANT_URL = os.environ.get("QDRANT_URL", "")
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "people")
 OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "")

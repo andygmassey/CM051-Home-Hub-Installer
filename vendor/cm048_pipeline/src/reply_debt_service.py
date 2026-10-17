@@ -25,8 +25,9 @@ Daily-brief wiring (NOT applied here - documented for the owner):
      FallbackBriefData field that fetches the same endpoint.
 
 Proven vs not: the service + endpoint logic is unit-tested with injected
-threads. The live feed (iMessage chat.db) needs the box + Full Disk Access and
-is UNPROVEN on real data until run there.
+threads and a synthetic snapshot. The live feed is the snapshot written by the
+iMessage feed (``ostler-assistant run-source imessage``); this process never
+opens chat.db, so it never asks TCC for Full Disk Access.
 """
 from __future__ import annotations
 
@@ -54,8 +55,8 @@ def compute_reply_debts(
     """Compute ranked reply debts across all sources.
 
     ``thread_sources`` lets a test inject pre-built thread iterables. When
-    omitted, the default live source is the iMessage chat.db adapter (the
-    strongest direction signal). Email / WhatsApp adapters can be appended here
+    omitted, the default live source is the iMessage adapter, which reads the
+    snapshot the signed iMessage feed writes (never chat.db from this process). Email / WhatsApp adapters can be appended here
     as they are proven on the box.
     """
     if thread_sources is None:
@@ -66,13 +67,22 @@ def compute_reply_debts(
             ),
         ]
 
+    # A source that could not be read is NOT a source with nothing owed. This
+    # loop used to log and skip a failing source, so a Hub that could not read
+    # Messages at all answered "No replies owed - you're all caught up." with
+    # degraded:false (CM051 #30, studio29). Any unreadable source now raises,
+    # and the endpoint turns that into degraded:true with the reason.
     all_threads: list[Thread] = []
     for src in thread_sources:
         try:
             all_threads.extend(src)
-        except Exception as exc:  # pragma: no cover - source failures are
-            # isolated so one bad adapter does not sink the whole brief datum
-            logger.warning("reply_debt: source failed, skipping: %s", exc)
+        except adapters.ReplyDebtSourceUnavailable:
+            raise
+        except Exception as exc:
+            logger.warning("reply_debt: source failed: %s", exc)
+            raise adapters.ReplyDebtSourceUnavailable(
+                "reply_debt_source_failed", f"{type(exc).__name__}: {str(exc)[:200]}"
+            ) from exc
 
     return reply_debt.detect(
         all_threads,
@@ -88,7 +98,17 @@ def reply_debt_payload(debts: list[ReplyDebt], *, brief_limit: int = 5) -> dict:
         "count": len(debts),
         "brief_line": reply_debt.render_brief_block(debts, limit=brief_limit),
         "debts": [d.to_dict() for d in debts],
+        "degraded": False,
     }
+
+
+def degraded_payload(reason: str, detail: str = "") -> dict:
+    """The ONLY shape an unreadable source may produce: no all-clear copy."""
+    out = {"count": 0, "brief_line": "", "debts": [], "degraded": True,
+           "reason": reason}
+    if detail:
+        out["detail"] = detail[:200]
+    return out
 
 
 def handle_reply_debt(handler: BaseHTTPRequestHandler) -> None:
@@ -102,9 +122,12 @@ def handle_reply_debt(handler: BaseHTTPRequestHandler) -> None:
         debts = compute_reply_debts()
         payload = reply_debt_payload(debts)
         status = 200
+    except adapters.ReplyDebtSourceUnavailable as exc:
+        payload = degraded_payload(exc.reason, exc.detail)
+        status = 200
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("reply_debt endpoint failed: %s", exc)
-        payload = {"count": 0, "brief_line": "", "debts": [], "error": str(exc)}
+        payload = degraded_payload("reply_debt_failed", str(exc))
         status = 200  # brief should degrade gracefully, not 500
 
     body = json.dumps(payload, indent=2).encode("utf-8")
@@ -118,5 +141,6 @@ def handle_reply_debt(handler: BaseHTTPRequestHandler) -> None:
 __all__ = [
     "compute_reply_debts",
     "reply_debt_payload",
+    "degraded_payload",
     "handle_reply_debt",
 ]

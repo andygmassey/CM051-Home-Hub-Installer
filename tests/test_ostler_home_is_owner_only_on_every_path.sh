@@ -74,14 +74,14 @@ fi
 # ── 2. every path calls it ───────────────────────────────────────────────
 # (a) install over an existing tree, right after the pre-existence probe
 n="$(/usr/bin/grep -n '^\[\[ -d "\$OSTLER_FINAL_DIR" \]\] && _OSTLER_FINAL_PREEXISTED=true$' "$INSTALL_SH" | head -1 | cut -d: -f1)"
-if [ -n "$n" ] && sed -n "$((n+1)),$((n+4))p" "$INSTALL_SH" | /usr/bin/grep -q '^_ostler_lock_home_dir "\$OSTLER_FINAL_DIR"'; then
+if [ -n "$n" ] && /usr/bin/grep -q '^_ostler_lock_home_dir "\$OSTLER_FINAL_DIR"' <<<"$(sed -n "$((n+1)),$((n+4))p" "$INSTALL_SH")"; then
     ok "install over an existing tree locks ~/.ostler before anything else touches it"
 else
     bad "no _ostler_lock_home_dir call right after the _OSTLER_FINAL_PREEXISTED probe"
 fi
 # (b) inside the promote
 PROMOTE="$(sed -n '/^_ostler_promote_prelaunch_tree() {/,/^}/p' "$INSTALL_SH")"
-printf '%s\n' "$PROMOTE" | /usr/bin/grep -q '_ostler_lock_home_dir "\$OSTLER_FINAL_DIR"' \
+/usr/bin/grep -q '_ostler_lock_home_dir "\$OSTLER_FINAL_DIR"' <<<"$PROMOTE" \
     && ok "the promote locks ~/.ostler through the verified helper" \
     || bad "the promote does not call _ostler_lock_home_dir"
 # (c) upgrade mode, before the daemon is staged

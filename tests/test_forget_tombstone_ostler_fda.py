@@ -58,6 +58,7 @@ def _stub_security() -> None:
 _stub_security()
 
 from _fake_oxigraph import FakeOxigraph  # noqa: E402
+from _fake_qdrant import FakeQdrant  # noqa: E402
 
 PHONE = "+447700900123"
 JID = "447700900123@s.whatsapp.net"
@@ -77,13 +78,17 @@ def world(tmp_path, monkeypatch):
     server = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(server)
     monkeypatch.setattr(server, "OXIGRAPH_URL", store.url)
-    monkeypatch.setattr(server, "QDRANT_URL", "http://127.0.0.1:9")
+    # A Qdrant that accepts the delete: forget reports done only when BOTH
+    # stores were purged (test_forget_reports_only_what_it_erased.py).
+    qdrant = FakeQdrant()
+    monkeypatch.setattr(server, "QDRANT_URL", qdrant.url)
     monkeypatch.setattr(server, "_RECOMPILE_QUEUE_DIR", tmp_path / "queue")
     fda = tmp_path / "fda"
     fda.mkdir()
     yield types.SimpleNamespace(store=store, fda=fda, ing=pwg_ingest, server=server,
                                 tomb=tmp_path / "forgotten.json")
     store.close()
+    qdrant.close()
 
 
 def _write_sources(w):

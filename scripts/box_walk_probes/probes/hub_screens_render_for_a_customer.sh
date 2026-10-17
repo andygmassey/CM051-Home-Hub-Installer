@@ -12,13 +12,14 @@
 # every stylesheet the in-app wiki loads must arrive as text/css, the theme
 # header must be painted and the body font must not be the browser default.
 # The wiki screenshot is saved into the walk record (OSTLER_WALK_SCREENS_DIR,
-# else ./walk-screens/<timestamp>) as the visual evidence.
+# else walk_screens_dir in lib/probe.sh, OUTSIDE the repo) as the visual evidence.
 #
 # Runs on the WALK DRIVER: forwards the box's Hub (127.0.0.1:8000) over ssh and
 # drives headless Chromium (Playwright) at it with the box's own admin token.
 # "Not me" persistence WRITES a correction, so it runs only when
 # OSTLER_SCREENS_ALLOW_WRITE=1 (walk boxes); on a customer's box it is skipped
 # and named as skipped.
+# WALK_WRITES: with OSTLER_SCREENS_ALLOW_WRITE=1 seeds a synthetic person through the product's write route and posts a Not me correction; forgets the person afterwards
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
 
@@ -30,14 +31,14 @@ _PY="${OSTLER_SCREENS_PYTHON:-${HOME}/walkdriver/pwvenv/bin/python}"
 
 self_test() {
     # Phase-1 contract (run_box_walk.sh): a self-test must come back FAIL on
-    # known-bad input. The judge's self-test feeds it 18 mutated fixtures, each
+    # known-bad input. The judge's self-test feeds it 30 mutated fixtures, each
     # of which must go red, so "every mutant caught" is reported as the FAIL
     # the harness requires, and a mutant that slips through is the BROKEN case.
     if python3 "${_HERE}/lib/hub_screens.py" --self-test; then
-        probe_examined 24 "mutated screen facts"
-        probe_fail "negative control behaved: all 18 known-bad screen fixtures went red, and an unmeasured person link is an explicit CANNOT-RUN row"
+        probe_examined 30 "mutated screen facts"
+        probe_fail "negative control behaved: all 30 known-bad screen fixtures went red, and an unmeasured person link or people API is an explicit CANNOT-RUN row"
     fi
-    probe_examined 24 "mutated screen facts"
+    probe_examined 30 "mutated screen facts"
     probe_pass "SELF-TEST BROKEN: the screen judge let a known-bad fixture through (see above), so its verdicts mean nothing"
 }
 
@@ -46,7 +47,7 @@ run_probe() {
     [ -x "${_PY}" ] || probe_cannot_run "no Playwright python at ${_PY} (set OSTLER_SCREENS_PYTHON; see scripts/box_walk_probes/README.md)"
 
     local out tokfile port fwd_pid ts_state rc
-    out="${OSTLER_WALK_SCREENS_DIR:-$PWD/walk-screens/$(date -u +%Y%m%dT%H%M%SZ)}"
+    out="$(walk_screens_dir)"
     mkdir -p "${out}" || probe_cannot_run "cannot create ${out}"
     tokfile="$(mktemp)"
     trap 'rm -f "${tokfile}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT

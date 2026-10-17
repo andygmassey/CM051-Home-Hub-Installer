@@ -175,7 +175,10 @@ check "(3) CONTROL a complete landing (8679 of 8679) still records status=ok" \
 #     still demote to no_data (not ok, and not newly promoted to error
 #     either -- this is _hydrate_payload_is_all_zero's job, unchanged).
 out="$(run_people_case false '{"status":"error","sent":0,"total":10}' 0)"
-check "(4) CONTROL a zero landing (0 of 10) still records status=no_data" \
+check "(4) a zero landing with status=error (0 of 10) is an error, not no_data (E1)" \
+    "$out" "status=error"
+out="$(run_people_case false '{"status":"no_data","sent":0,"total":0}' 0)"
+check "(4b) CONTROL an honest empty store (status=no_data) still records no_data" \
     "$out" "status=no_data"
 
 # (5) CONTROL: a real process failure (rc!=0) is still an error, exactly

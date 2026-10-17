@@ -74,3 +74,5 @@ run_probe() {
 }
 
 probe_main "$@"
+
+# WALK_WRITES: POSTs invalid pairing codes to /api/pair and /pair, which advances the pairing rate-limit and lockout counters and writes the daemon err log

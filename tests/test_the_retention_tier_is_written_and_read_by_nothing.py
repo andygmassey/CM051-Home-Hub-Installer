@@ -156,6 +156,35 @@ check(control > 10,
       f"CONTROL: the same scan finds 'privacy_level' in {control} files, so "
       f"an empty result for retention_tier is a real absence")
 
+# MIRROR WRITERS (CM051 #2931, 2026-10-15). These copy the SAME value
+# `_retention_tier_for` computes into the enrichment frontmatter, replacing
+# the guess the model used to copy out of its prompt. They write a tier;
+# nothing in them decides anything on one. Both are named in
+# PRIVACY_ENFORCEMENT_GAPS.md entry 2, and the check below holds them to
+# that: no comparison or branch on the value.
+MIRROR_WRITERS = {
+    "vendor/cm048_pipeline/src/capture_truth.py",
+    "vendor/cm048_pipeline/src/processor.py",
+}
+# A comparison on the VALUE is a decision; a presence check (`if tier
+# else None`, write it or leave it absent) is not.
+_branch = re.compile(
+    r"retention_tier[\w.()\]\[\'\"]*\s*(==|!=|\bnot in\b|\bin\b|<|>|\.startswith|\.endswith)"
+)
+for rel in sorted(MIRROR_WRITERS):
+    path = REPO_ROOT / rel
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    check(path.is_file(), f"mirror writer {rel} exists")
+    bad = [ln.strip() for ln in text.splitlines()
+           if _branch.search(ln) and "retention_tier left absent" not in ln]
+    check(not bad, f"mirror writer {rel} never branches on a tier (found {bad})")
+    check(rel in (REPO_ROOT / "PRIVACY_ENFORCEMENT_GAPS.md").read_text(),
+          f"mirror writer {rel} is named in PRIVACY_ENFORCEMENT_GAPS.md")
+# CONTROL for the branch predicate: it must flag a real branch.
+check(bool(_branch.search("    if retention_tier == 'tier-3-years':")),
+      "CONTROL: the branch predicate flags an `if retention_tier ==` line")
+code_hits = [h for h in code_hits if h not in MIRROR_WRITERS]
+
 check(not code_hits,
       f"retention_tier is still read by NO Python file outside its writer. "
       f"If this fails, a reader has appeared ({code_hits}) -- update "

@@ -343,7 +343,7 @@
  from datetime import timedelta
  from pathlib import Path
  from typing import Callable, Optional
-@@ -49,6 +50,87 @@
+@@ -49,6 +50,91 @@
  logger = logging.getLogger(__name__)
  
  
@@ -365,10 +365,14 @@
 +# abandoned.
 +_DISPATCH_TIMEOUT_DEFAULT_SECS = 900
 +
-+# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
-+# returns, so "this document is slow" is never confused with "this
-+# document is broken" by whoever reads the log next.
-+DISPATCH_TIMEOUT_RC = 75
++# 124, the timeout(1) convention. Deliberately distinct from any code
++# pwg-convo itself returns, so "this document is slow" is never confused
++# with "this document is broken" by whoever reads the log next. NOT 75:
++# `pwg-convo process` exits 75 (EX_TEMPFAIL) when its model or gateway
++# cannot be REACHED, and a catch-up caller reads 75 as an outage (no poison
++# attempt) but 124 as a possibly item-specific hang (counted, unless a
++# health probe finds the sink down).
++DISPATCH_TIMEOUT_RC = 124
 +
 +
 +def _dispatch_timeout_secs():
@@ -431,7 +435,7 @@
  # Engine-zone state under ~/.ostler/ (two-zone architecture). The
  # watermark records the highest message ROWID processed per chat.
  def _default_state_dir() -> Path:
-@@ -159,14 +241,59 @@
+@@ -159,14 +245,59 @@
              metadata["conversation_id"],
              " ".join(pwg_convo_cmd),
          )
@@ -496,7 +500,7 @@
          return proc.returncode
  
  
-@@ -205,6 +332,10 @@
+@@ -205,6 +336,10 @@
              continue
          prev_watermark = watermarks.get(convo.chat_id, -1)
          max_rowid = prev_watermark
@@ -507,7 +511,7 @@
  
          sessions = thread_messages(
              convo.chat_id,
-@@ -251,10 +382,34 @@
+@@ -251,10 +386,34 @@
                  dispatched += 1
              else:
                  failed += 1
@@ -545,7 +549,7 @@
          if not dry_run and max_rowid > prev_watermark:
              watermarks[convo.chat_id] = max_rowid
  
-@@ -267,7 +422,17 @@
+@@ -267,7 +426,17 @@
          "sessions_skipped": skipped,
          "sessions_failed": failed,
      }
@@ -564,7 +568,7 @@
      return summary
  
  
-@@ -285,6 +450,20 @@
+@@ -285,6 +454,20 @@
      return ["pwg-convo"]
  
  

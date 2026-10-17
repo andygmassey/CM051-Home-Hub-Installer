@@ -228,7 +228,7 @@ add("events", "V", "Where is Tom's birthday dinner and when?",
     [G("harbour kitchen"), D(22, 10)])
 add("events", "V", "What are the dates of our Orkney holiday?",
     "From 24 October to 31 October.",
-    [D(24, 10), D(31, 10)])
+    [D(24, 10), D(31, 10)], date_range=True)
 add("events", "V", "What time is the ferry to Orkney?",
     "It leaves Scrabster on Saturday 24 October at 08:30.",
     [T(8, 30)])
@@ -237,7 +237,7 @@ add("events", "V", "When is the MOT for the Skoda?",
     [D(3, 11)])
 add("events", "H", "Where is the Acme board offsite and when?",
     "In Falmouth, from 4 November to 5 November.",
-    [G("falmouth"), D(4, 11)])
+    [G("falmouth"), D(4, 11)], date_range=True)
 add("events", "H", "What is happening on Saturday 17 October?",
     "Rory's swimming gala.",
     [G("gala", "swimming")])

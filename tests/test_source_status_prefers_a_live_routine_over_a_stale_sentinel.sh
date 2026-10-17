@@ -72,7 +72,11 @@ sys.modules["routine_status"] = fake_routine_mod
 tree = ast.parse(src)
 wanted = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
           "_parse_source_sentinel", "read_source_status", "_routine_evidence",
-          "_routine_run_count", "_best_routine_count", "_settling_progress_total"}
+          "_routine_run_count", "_best_routine_count", "_settling_progress_total",
+          # walk #28: one honest total per row, in a declared unit.
+          "_ostler_state_root", "_positive_int", "_settling_done",
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label"}
 ns = {"Path": pathlib.Path, "os": __import__("os"), "json": __import__("json")}
 for node in tree.body:
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -144,8 +148,13 @@ if r and r.get("status") == "ok" and r.get("last_run_count") == FAKE_EMAIL_COUNT
 else:
     bad("email reported status=%r last_run_count=%r -- the live routine's evidence was not used"
         % (r.get("status") if r else None, r.get("last_run_count") if r else None))
-if r and r.get("item_count") == 0:
-    ok("CONTROL: item_count (the total) is left exactly as the sentinel wrote it")
+# Walk #28: item_count is now the row's TOTAL in emails, and a stale
+# install-time 0 beside a live read is not one, so it is None (unknown). The
+# property this control exists for is unchanged: the per-run figure must
+# never become the total. The sentinel's own 0 survives as install_item_count.
+if (r and r.get("install_item_count") == 0
+        and r.get("item_count") != FAKE_EMAIL_COUNT):
+    ok("CONTROL: the per-run count never becomes the total; the sentinel's 0 is kept as install_item_count")
 else:
     bad("CONTROL failed: item_count=%r -- the per-run count overwrote the total"
         % (r.get("item_count") if r else None))
@@ -275,11 +284,14 @@ _ROUTINE_ROWS["at"] = [{
     "last_run_at": "2026-09-04T10:00:00Z", "latest": {"emitted": 999},
 }]
 r = row_for("browsing", read_source_status())
-if r and r.get("ongoing") == "never" and r.get("item_count") == 650 and r.get("last_run_count") is None:
+# install_item_count, not item_count (walk #28): sent=650 counts VISITS, and
+# the row's declared unit is web pages, so the sentinel figure is kept on the
+# row under its own name rather than printed as pages.
+if r and r.get("ongoing") == "never" and r.get("install_item_count") == 650 and r.get("last_run_count") is None:
     ok("CONTROL: a source with no mapped routine is not joined to an unrelated one")
 else:
-    bad("CONTROL failed: ongoing=%r item_count=%r last_run_count=%r"
-        % (r.get("ongoing") if r else None, r.get("item_count") if r else None, r.get("last_run_count") if r else None))
+    bad("CONTROL failed: ongoing=%r install_item_count=%r last_run_count=%r"
+        % (r.get("ongoing") if r else None, r.get("install_item_count") if r else None, r.get("last_run_count") if r else None))
 
 # ── 8. THE WALK-FOUND DEFECT, ROUND 2 (board #2562-C): freshness starves
 #      email of its real count ─────────────────────────────────────────────

@@ -60,6 +60,7 @@ on:
       - 'tests/test_ollama_watchdog_heals_only_a_wedge.sh'
       - 'tests/test_promote_keeps_open_logs_linked.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_uninstall_writes_deliberate_stop_marker.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_doctor_proxy_paths_predicate.sh'
@@ -118,6 +119,13 @@ jobs:
           sw_vers | head -2
       - name: The gate
         run: /bin/bash tests/test_launchagent_success_requires_verification.sh
+
+      # Moved here from launchd-plist-paths (ubuntu), where its axis C (a real
+      # launchd job must stay down while the deliberate-stop marker is present)
+      # could only report CANNOT-RUN: no launchctl. This job is macOS.
+      - name: Assert the uninstaller writes the deliberate-stop marker first and removes it last
+        if: always()
+        run: /bin/bash tests/test_uninstall_writes_deliberate_stop_marker.sh
 
       # THE OTHER HALF OF #876. The helper above stops the installer CLAIMING a
       # LaunchAgent loaded when it did not. It could not say WHY, because both

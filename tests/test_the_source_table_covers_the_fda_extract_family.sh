@@ -353,7 +353,13 @@ want = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
         "_routine_evidence", "_routine_run_count",
         # #2562-C round 2: see test_source_status_prefers_a_live_routine_
         # over_a_stale_sentinel.sh for why both of these exist.
-        "_best_routine_count", "_settling_progress_total"}
+        "_best_routine_count", "_settling_progress_total",
+          # walk #28: one honest total per row, in a declared unit.
+          "_ostler_state_root", "_positive_int", "_settling_done",
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label",
+        # v1.0.108 catch-up progress.
+        "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase"}
 for node in tree.body:
     if isinstance(node, ast.FunctionDef) and node.name in want:
         exec(compile(ast.Module([node], []), "<f>", "exec"), ns)
@@ -405,16 +411,16 @@ ok "control: the always-registered 'imessage' row renders (${_c})"
 
 _c="$(_cell reminders "$OUT_OK")"
 case "$_c" in
-    "read in|87") ok "a customer who ticked Reminders sees 'reminders / read in / 87'" ;;
+    "read in|87 reminders") ok "a customer who ticked Reminders sees 'reminders / read in / 87 reminders'" ;;
     "")           bad "Reminders is ABSENT from the panel after a successful extract. This is #1587: not reported as broken, not reported at all." ;;
-    *)            bad "the Reminders row reads '${_c}', expected 'read in|87' (total_reminders, not pending and not a list count)" ;;
+    *)            bad "the Reminders row reads '${_c}', expected 'read in|87 reminders' (total_reminders, not pending and not a list count)" ;;
 esac
 
 _c="$(_cell photos "$OUT_OK")"
 case "$_c" in
-    "read in|412") ok "Photos reads 'read in / 412' (photo_events, not the 0 recognised people)" ;;
+    "read in|412 photos") ok "Photos reads 'read in / 412 photos' (photo_events, one per photo, not the 0 recognised people)" ;;
     "")            bad "Photos is ABSENT from the panel after a successful extract" ;;
-    *)             bad "the Photos row reads '${_c}', expected 'read in|412'" ;;
+    *)             bad "the Photos row reads '${_c}', expected 'read in|412 photos'" ;;
 esac
 
 # ── Full Disk Access ungranted: CANNOT-RUN, and never a zero ─────────────
@@ -452,9 +458,9 @@ _drive "$SUMMARY_ZERO"
 OUT_ZERO="$(_render)"
 _c="$(_cell reminders "$OUT_ZERO")"
 case "$_c" in
-    "nothing to read|0") ok "an empty Reminders list reads 'nothing to read / 0' -- a measured zero still prints" ;;
+    "nothing to read|0 reminders") ok "an empty Reminders list reads 'nothing to read / 0 reminders' -- a measured zero still prints" ;;
     "")  bad "a Reminders extract that ran and found nothing produced no row" ;;
-    *)   bad "the empty-Reminders row reads '${_c}', expected 'nothing to read|0'" ;;
+    *)   bad "the empty-Reminders row reads '${_c}', expected 'nothing to read|0 reminders'" ;;
 esac
 
 # ── app absent from this Mac ─────────────────────────────────────────────
