@@ -1,0 +1,11 @@
+# .github/ci-fold-families.tsv -- which jobs are folded into which FAMILY workflow.
+#
+# Read by scripts/ci_fold.py generate (writes .github/workflows/fold-<family>.yml
+# and .github/ci-fold-paths.tsv) and scripts/ci_fold.py check (proves the fold
+# against the PR's base; run by .github/workflows/ci-maskless.yml).
+#
+# A row is added in the pull request that folds the job, and stays as the record
+# of where that job went. docs/ci/CI_FOLD_PLAN.md is the plan; docs/ci/
+# CI_FOLD_INVENTORY.tsv maps every job in the estate to its proposed family.
+#
+# columns: family<TAB>source_workflow<TAB>job_id

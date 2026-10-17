@@ -66,3 +66,24 @@ jobs:
       - name: No test step is maskable in this repo
         if: always()
         run: python3 scripts/verify_ci_steps_are_maskless.py
+
+      # FOLDING JOBS INTO FAMILIES (scripts/ci_fold.py) IS THE EASIEST WAY IN
+      # THIS REPO TO MAKE A GATE VANISH. The checker is what stands between
+      # "fewer jobs" and "fewer gates", so it is proven by mutation on every
+      # PR: seventeen ways a fold can lose a gate, each of which must be refused.
+      - name: The fold checker refuses every way a fold can lose a gate
+        if: always()
+        run: /bin/bash tests/test_ci_fold.sh
+
+      # And on a PR that adds rows to .github/ci-fold-families.tsv, the fold
+      # itself is proven against the PR's base: every source step verbatim,
+      # every trigger a superset, every executed script still executed, and
+      # no other workflow touched. A PR adding no rows prints "nothing to
+      # prove" and passes; that is the common case, not a skip.
+      - name: A fold in this PR is proven against its base
+        if: always() && github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --quiet --depth=1 origin "$BASE_SHA"
+          python3 scripts/ci_fold.py check --base "$BASE_SHA"
