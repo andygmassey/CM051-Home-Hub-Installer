@@ -283,7 +283,7 @@ vendor_path      = "vendor/cm041/meeting_syncer"
   # cm041_meeting_syncer.UNRECORDED.md declared (forgotten-attendee skip from CM041 #200;
   # token-gated calendar API from #2926) are now in cm041_meeting_syncer.patch, written by
   # scripts/regenerate_divergence_patch.sh against a CM041 checkout AT the pin, and the tool
-  # re-proved source@pin + patch == vendored tree. Grounds, verbatim: git show 8a7aa862:vendor/divergences/cm041_meeting_syncer.UNRECORDED.md
+  # re-proved source@pin + patch == vendored tree. Grounds, verbatim: git show 992fb55f:vendor/divergences/cm041_meeting_syncer.UNRECORDED.md
 source_repo      = "$CM041"
 source_path      = "meeting_syncer"
 pinned_sha       = "b6ae1f91771f951a4a2cf3b96ce71e4bdd14cc1a"
