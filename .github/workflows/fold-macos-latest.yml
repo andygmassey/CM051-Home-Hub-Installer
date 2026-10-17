@@ -346,6 +346,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b01
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b01" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -431,6 +449,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b02
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b02" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -485,6 +521,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b03
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b03" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1133,6 +1187,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b04
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b04" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1344,6 +1416,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b05
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b05" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1386,6 +1476,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b06
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b06" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1465,6 +1573,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b07
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b07" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1513,6 +1639,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b08
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b08" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1664,6 +1808,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b09
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b09" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1732,6 +1894,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b10
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b10" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1818,6 +1998,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b11
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b11" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -1894,6 +2092,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b12
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b12" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2067,6 +2283,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b13
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b13" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2142,6 +2376,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b14
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b14" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2260,6 +2512,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b15
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b15" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2288,6 +2558,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b16
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b16" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2449,6 +2737,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b17
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b17" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2477,6 +2783,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b18
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b18" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2514,6 +2838,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b19
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b19" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2556,6 +2898,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b20
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b20" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2616,6 +2976,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b21
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b21" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2672,6 +3050,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b22
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b22" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
@@ -2717,6 +3113,24 @@ jobs:
           BLOCK: ${{ runner.temp }}/ci-fold/b23
         run: |
           set -eu
+          # A fresh machine also had no processes left over from another job.
+          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
+          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
+          # anything an earlier block left running still carries it. Kill exactly
+          # those: nothing else on the machine carries the marker.
+          mkdir -p "$RUNNER_TEMP/ci-fold"
+          me=$$
+          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          while read -r pid ppid; do
+            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
+            if [ -r "/proc/$pid/environ" ]; then
+              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
+            else
+              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+          done < "$RUNNER_TEMP/ci-fold/procs"
+          echo "CI_FOLD_BLOCK=b23" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
           rm -rf "$BLOCK"
