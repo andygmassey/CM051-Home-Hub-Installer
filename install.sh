@@ -39320,7 +39320,17 @@ fi
 # install MUST continue. The customer can re-activate via the iOS
 # Companion once paired. We never block a legitimate customer on a
 # subscription-state write failure.
-info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
+if [[ "$OSTLER_LICENCE_TIER_STATE" == "unverified" ]]; then
+    # Leak B (v1.0.108): an install whose Ed25519 licence gate did not run
+    # (--allow-unlicensed / OSTLER_DEV=1) does NOT get the free Pro month.
+    # We still call the gate below so it RECORDS the withheld state
+    # (source=unlicensed_install) for Doctor + support; the gate refuses the
+    # active window itself. Keeping the call (rather than skipping it) means
+    # the state file always exists and honestly says why Pro is off.
+    warn "UNLICENSED INSTALL: Ostler Pro is NOT activated. Ongoing intelligence stays paused until a verified licence or a subscription is present. NOT A SUPPORTED INSTALL."  # i18n-exempt
+else
+    info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
+fi
 if python3 -c "
 import sys, os
 # The .app build (gui/project.yml postBuildScript L487-514) intentionally
@@ -39364,7 +39374,12 @@ activate_first_month_free(
     licence_expires_at=_lic_expiry,
 )
 " 2>&1; then
-    ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
+    if [[ "$OSTLER_LICENCE_TIER_STATE" == "unverified" ]]; then
+        # Withheld-and-recorded is the success path for an unlicensed install.
+        warn "UNLICENSED INSTALL: free month withheld (state recorded). Subscribe in the Ostler app or install a verified licence to enable Ostler Pro."  # i18n-exempt
+    else
+        ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
+    fi
 else
     # NON-FATAL: install continues. Customer can re-activate via
     # Companion later. Per fail-open: never block install on

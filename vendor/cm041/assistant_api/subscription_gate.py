@@ -101,6 +101,10 @@ SOURCE_FIRST_MONTH_FREE = "first_month_free"
 SOURCE_COMPANION = "companion"
 SOURCE_HUB_INITIAL = "hub_initial"
 SOURCE_DEFAULT = "default"
+# An install whose licence gate did not run (--allow-unlicensed /
+# OSTLER_DEV=1). It records that the free month was WITHHELD, not granted,
+# so support and the --check CLI can tell it apart from a lapsed trial.
+SOURCE_UNLICENSED = "unlicensed_install"
 
 # Sticky bit recording that the customer has fully paid for Ostler Pro at
 # least once. Once true it never goes back to false. See _has_ever_paid.
@@ -825,7 +829,44 @@ def activate_first_month_free(
     An unrecognised tier is recorded, not rejected. A tier CM050 starts
     issuing after this build shipped must survive contact with an older
     Hub rather than being flattened to "hub" by the act of being read.
+
+    ── Leak B (v1.0.108): AN UNVERIFIED INSTALL GETS NO FREE MONTH ──
+
+    The ONLY thing that produces ``tier_state == "unverified"`` is
+    install.sh's ``--allow-unlicensed`` / ``OSTLER_DEV=1`` escape: the
+    Ed25519 licence gate did not run, so nothing about this customer is
+    known. Granting the 30-day Pro month there turned the developer escape
+    hatch into a free-Pro switch anyone could flip. So an unverified
+    install now writes an INACTIVE state and returns before any active
+    window is written.
+
+    Three things it is deliberately NOT:
+
+    - NOT keyed on a MISSING tier_state (``None``). That is a legacy or
+      in-process caller that predates the field (every test that calls
+      ``activate_first_month_free(date)`` with no tier), and it keeps the
+      old grant. Only the literal "unverified", which only install.sh
+      emits, is refused.
+    - NOT applied to a customer who has EVER PAID. Their receipt, not the
+      installer, is the authority; re-running the installer unlicensed
+      must never demote a payer.
+    - NOT a verified HUB licence. ``absent`` (verified, no tier field) and
+      ``known`` both get the full free month; only "we did not check" is
+      refused.
     """
+    if licence_tier_state == TIER_STATE_UNVERIFIED and not _has_ever_paid(_load()):
+        refused = {
+            "status": STATUS_INACTIVE,
+            "last_validated_at": _iso_now(),
+            "source": SOURCE_UNLICENSED,
+            KEY_HAS_EVER_PAID: False,
+        }
+        # Preserve any tier a PRIOR verified install recorded: re-running
+        # unlicensed must not erase what a real licence once established.
+        _carry_tier(refused, _load())
+        _write(refused)
+        return
+
     purchase_dt = _parse_iso(purchase_date_iso)
     if purchase_dt is None:
         # Defensive: caller passed garbage. Fall back to now so install

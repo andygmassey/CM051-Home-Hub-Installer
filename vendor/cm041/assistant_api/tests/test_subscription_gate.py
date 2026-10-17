@@ -51,9 +51,13 @@ from subscription_gate import (  # noqa: E402
     GATED_SIGNAL_FILENAME,
     GRACE_DAYS,
     OFFLINE_GRACE_DAYS,
+    SOURCE_UNLICENSED,
     STATUS_ACTIVE,
     STATUS_GRACE,
     STATUS_INACTIVE,
+    TIER_STATE_ABSENT,
+    TIER_STATE_KNOWN,
+    TIER_STATE_UNVERIFIED,
     activate_first_month_free,
     expire_check,
     is_active_or_grace,
@@ -614,6 +618,93 @@ class TestTheCustomerOnDayThirtyOne(SubscriptionGateTestCase):
         finally:
             os.chmod(self.state_path.parent, 0o755)
             os.chmod(self.state_path, 0o644)
+
+
+class TestLeakBUnverifiedInstallGetsNoFreeMonth(SubscriptionGateTestCase):
+    """v1.0.108 Leak B: --allow-unlicensed / OSTLER_DEV=1 is no longer a
+    free-Pro switch. Both directions: unverified is refused, every VERIFIED
+    tier still gets the month.
+    """
+
+    def test_unverified_install_is_refused(self) -> None:
+        """The escape path (tier_state 'unverified') writes inactive."""
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc)),
+            licence_tier=None,
+            licence_tier_state=TIER_STATE_UNVERIFIED,
+        )
+        snap = state_dict()
+        self.assertEqual(snap["status"], STATUS_INACTIVE)
+        self.assertEqual(snap["source"], SOURCE_UNLICENSED)
+        self.assertFalse(snap["has_ever_paid"])
+        self.assertFalse(
+            is_active_or_grace(),
+            "An --allow-unlicensed install got the free Pro month. That is "
+            "the leak: the dev escape hatch was a free-Pro switch.",
+        )
+
+    def test_verified_hub_absent_tier_still_gets_the_month(self) -> None:
+        """A real Hub licence with no tier field (legacy) keeps the grant."""
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc)),
+            licence_tier=None,
+            licence_tier_state=TIER_STATE_ABSENT,
+        )
+        self.assertEqual(state_dict()["status"], STATUS_ACTIVE)
+        self.assertTrue(is_active_or_grace())
+
+    def test_verified_known_tier_still_gets_the_month(self) -> None:
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc)),
+            licence_tier="hub",
+            licence_tier_state=TIER_STATE_KNOWN,
+        )
+        self.assertEqual(state_dict()["status"], STATUS_ACTIVE)
+        self.assertTrue(is_active_or_grace())
+
+    def test_legacy_no_tier_caller_still_gets_the_month(self) -> None:
+        """tier_state None (in-process/legacy caller) is NOT the escape and
+        must keep the old grant -- or every test that calls
+        activate_first_month_free(date) breaks and so does the receipt path.
+        """
+        activate_first_month_free(_iso(datetime.now(timezone.utc)))
+        self.assertEqual(state_dict()["status"], STATUS_ACTIVE)
+        self.assertTrue(is_active_or_grace())
+
+    def test_unverified_reinstall_does_not_demote_a_payer(self) -> None:
+        """A customer who has paid, re-running install unlicensed, keeps Pro.
+
+        Their receipt is the authority, not the installer. has_ever_paid is
+        carried, so the refusal does not apply.
+        """
+        now = datetime.now(timezone.utc)
+        refresh_from_companion("cmVjZWlwdA==", _iso(now + timedelta(days=20)))
+        self.assertTrue(state_dict()["has_ever_paid"])
+        activate_first_month_free(
+            _iso(now),
+            licence_tier=None,
+            licence_tier_state=TIER_STATE_UNVERIFIED,
+        )
+        self.assertTrue(state_dict()["has_ever_paid"])
+        self.assertTrue(
+            is_active_or_grace(),
+            "Re-running the installer unlicensed demoted a paying customer.",
+        )
+
+    def test_unverified_install_preserves_a_prior_verified_tier(self) -> None:
+        """A verified install recorded a tier; a later unlicensed re-run
+        must not erase it (support reads it)."""
+        now = datetime.now(timezone.utc)
+        activate_first_month_free(
+            _iso(now), licence_tier="hub", licence_tier_state=TIER_STATE_KNOWN
+        )
+        self.assertEqual(state_dict()["licence_tier"], "hub")
+        activate_first_month_free(
+            _iso(now), licence_tier=None, licence_tier_state=TIER_STATE_UNVERIFIED
+        )
+        snap = state_dict()
+        self.assertEqual(snap["status"], STATUS_INACTIVE)
+        self.assertEqual(snap["licence_tier"], "hub")
 
 
 class TestGatedSignalFile(SubscriptionGateTestCase):
