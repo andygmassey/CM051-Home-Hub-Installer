@@ -49,6 +49,8 @@ on:
       - 'vendor/cm048_pipeline/src/prompts.py'
       - 'vendor/cm048_pipeline/src/schemas.py'
       - 'vendor/cm048_pipeline/prompts/**'
+      - 'tests/test_cm048_handle_resolver.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
     paths:
@@ -92,6 +94,8 @@ on:
       - 'vendor/cm048_pipeline/src/prompts.py'
       - 'vendor/cm048_pipeline/src/schemas.py'
       - 'vendor/cm048_pipeline/prompts/**'
+      - 'tests/test_cm048_handle_resolver.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
 concurrency:
@@ -266,3 +270,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_single_speaker_capture_is_a_memo.py -v
+      - name: A carded handle is resolved to its name before extraction, never for L3 (CM048 #87)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_handle_resolver.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 15 ]; then
+            echo "REFUSING: expected at least 15 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_handle_resolver.py -v
