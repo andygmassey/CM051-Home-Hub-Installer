@@ -39,6 +39,7 @@
   "gateway": {
    "big_body_limit": 1048576,
    "companion_port": 8443,
+   "companion_split": false,
    "default_body_limit": 65536,
    "default_host": "127.0.0.1",
    "pre_auth_allowlist": [

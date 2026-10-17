@@ -1342,3 +1342,5 @@ Doctor now serves it as a NATIVE unauthenticated route (same trust model as
 token. The new route is recorded against the `doctor` tree in
 `WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
 Regenerate the contract after any sync.
+
+2026-10-09: `hub_contract.yaml` (cm041/assistant_api) now records gateway ports PER ROUTE. The companion port appears only on routes that ostler-assistant's `companion_route_table` mounts (ostler-assistant #492); against a gateway without that table every route keeps [8000, 8443] and the facts carry `companion_split: false`.
