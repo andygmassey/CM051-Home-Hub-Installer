@@ -133,7 +133,7 @@ unless all of the following hold:
 8. The set of **executed scripts** across all workflows is a superset of the
    base's.
 
-`tests/test_ci_fold.sh` (37 cases) proves the checker by **mutation**: 17
+`tests/test_ci_fold.sh` (38 cases) proves the checker by **mutation**: 17
 ways a fold can lose a gate, each of which must be refused for the named
 reason, plus the selector's glob table and fail-open paths. A guard makes a
 mutation that changes nothing count as a test failure, because a no-op
@@ -157,6 +157,12 @@ in each fold PR, and the PR body diffs the WIRED set: no test may leave it.
   fresh machine isolates that.
 
 ## Rollout order, and the hazard each family carries
+
+Every family carries one hazard. A ratchet that counts per **file** has its
+rows keyed by workflow name, so a source's row must move to the family file in
+the same PR. `tests/pipefail_shortcircuit_baseline.txt` is the one measured so
+far, and it is why the generated isolate step uses `set -eu` without
+`pipefail`.
 
 1. **py-matrix** (31 jobs, 93 check-runs, 3 after). This is the pilot: the most
    uniform shape, all on Ubuntu, and no meta-gate names these files.

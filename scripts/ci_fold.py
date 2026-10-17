@@ -710,7 +710,10 @@ def cmd_generate(args):
               "          PY: ${{ steps.python.outputs.python-path }}",
               f"          BLOCK: ${{{{ runner.temp }}}}/ci-fold/{b['tag']}",
               "        run: |",
-              "          set -euo pipefail",
+              # No pipefail, and no pipe to need it. tests/test_pipefail_
+              # shortcircuit_inversion.sh counts per FILE, so a pipefail here
+              # would make every folded block's `x | grep -q` look new.
+              "          set -eu",
               "          git -C \"$GITHUB_WORKSPACE\" reset --hard -q HEAD",
               "          git -C \"$GITHUB_WORKSPACE\" clean -ffdxq",
               "          rm -rf \"$BLOCK\"",
@@ -1360,6 +1363,16 @@ def cmd_run_local(args):
                     go = bool(eval_expr(c, ctx))
                 script = subst(st["run"], ctx)
                 senv = {k: subst(v, ctx) for k, v in (st.get("env") or {}).items()}
+                # GitHub's default for run: is `bash -e {0}`. Only an explicit
+                # `shell: bash` adds --noprofile --norc -o pipefail. Emulating
+                # the stricter one would grade a step by rules it never ran
+                # under.
+                if st.get("shell") == "bash":
+                    argv = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
+                elif st.get("shell") in (None, "bash -e {0}"):
+                    argv = ["bash", "-e"]
+                else:
+                    raise CannotEmulate(f"shell: {st.get('shell')}")
             except CannotEmulate as e:
                 rows.append((sid, "CANNOT-EMULATE", 0.0, str(e)))
                 ctx["failed"] = True
@@ -1386,8 +1399,7 @@ def cmd_run_local(args):
             tmo = int(st.get("timeout-minutes") or job.get("timeout-minutes"))
             t0 = time.time()
             try:
-                p = subprocess.run(["bash", "--noprofile", "--norc", "-eo",
-                                    "pipefail", sf], cwd=os.path.join(
+                p = subprocess.run(argv + [sf], cwd=os.path.join(
                                         ws, st.get("working-directory", "")),
                                    env=env, timeout=tmo * 60,
                                    stdout=subprocess.PIPE,
