@@ -147,9 +147,12 @@ grep -q '_ostler_slot_bg_prefix' "$INSTALL" \
     && ok "install.sh embeds the background-QoS resolver in the slot lib" \
     || no "install.sh does not carry _ostler_slot_bg_prefix; the sealed ticks would run at full priority"
 
-# fda-rerun: ProcessType=Background in its plist heredoc.
+# fda-rerun: ProcessType=Background in its plist heredoc. A HERE-STRING, not a
+# `... | grep -q`: under `set -o pipefail` a short-circuiting consumer closing
+# the pipe early SIGPIPEs its producer and can invert the verdict (the pipefail
+# ratchet, tests/test_pipefail_shortcircuit_inversion.sh).
 fda_block="$(awk '/<string>com.ostler.fda-rerun<\/string>/{f=1} f{print} /^FDARPEOF$/{f=0}' "$INSTALL")"
-if printf '%s' "$fda_block" | grep -q '<string>Background</string>'; then
+if grep -q '<string>Background</string>' <<<"$fda_block"; then
     ok "fda-rerun plist carries ProcessType Background"
 else
     no "fda-rerun plist has no ProcessType Background; its 5-year-window ingest runs at full priority"
@@ -165,10 +168,14 @@ grep -q 'FDA_RERUN_WAS_UNBACKGROUNDED" == "1"' "$INSTALL" \
     || no "the un-backgrounded rewrite never boots the old job out; the fix is on disk, not in force"
 
 # Regression guard: enrichment was ALREADY backgrounded; do not lose it.
-grep -q 'com.ostler.enrich' "$INSTALL" && \
-awk '/local label="com.ostler.enrich"/{f=1} f{print} /^ENRPLIST$/{f=0}' "$INSTALL" | grep -q '<string>Background</string>' \
-    && ok "enrichment plist still carries ProcessType Background (regression guard)" \
-    || no "enrichment lost its ProcessType Background"
+# Extract the block first, then grep a here-string (no pipe into grep -q, same
+# pipefail reason as above).
+enrich_block="$(awk '/local label="com.ostler.enrich"/{f=1} f{print} /^ENRPLIST$/{f=0}' "$INSTALL")"
+if grep -q '<string>Background</string>' <<<"$enrich_block"; then
+    ok "enrichment plist still carries ProcessType Background (regression guard)"
+else
+    no "enrichment lost its ProcessType Background"
+fi
 
 echo
 echo "-------------------------------------------------------------"

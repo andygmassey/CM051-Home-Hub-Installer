@@ -41,6 +41,7 @@ on:
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
       - 'tests/test_background_qos_yields_to_chat.sh'
+      - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -58,6 +59,7 @@ on:
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
       - 'tests/test_background_qos_yields_to_chat.sh'
+      - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -108,6 +110,13 @@ jobs:
       - name: Background QoS yields to interactive chat (first-run settling)
         if: success() || failure()
         run: bash tests/test_background_qos_yields_to_chat.sh
+
+      # v1.0.108: no heavy job may bypass the chat yield. Class A (the 4 feeds
+      # + wiki) must funnel through ostler_slot_run; class B (fda-rerun, enrich)
+      # must carry ProcessType=Background. Enumerated, with a negative control.
+      - name: No heavy job bypasses the chat yield (coverage)
+        if: success() || failure()
+        run: bash tests/test_no_heavy_job_bypasses_the_chat_yield.sh
 
       # Sections 1 to 6 above prove the lib arbitrates fairly; Section 7
       # proves install.sh CARRIES it. Neither can see whether it arrives.
@@ -276,6 +285,7 @@ jobs:
             wiki-recompile/bin/wiki-recompile-tick.sh \
             tests/test_ingest_slot_fairness.sh \
             tests/test_background_qos_yields_to_chat.sh \
+            tests/test_no_heavy_job_bypasses_the_chat_yield.sh \
             tests/test_prelaunch_libs_survive_promote.sh
           do
             if [ ! -f "$f" ]; then
@@ -290,5 +300,5 @@ jobs:
               rc=1
             fi
           done
-          echo "examined 9 files"
+          echo "examined 10 files"
           exit "$rc"
