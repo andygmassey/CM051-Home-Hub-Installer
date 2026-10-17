@@ -275,6 +275,8 @@ test_dedupe_merge_name_tier_upward_only.py	WIRED	.github/workflows/dedupe-merge-
 test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
+test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derived-preferences.yml
+test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_digest_refreshes_when_the_interest_profile_lands.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_discord_claims_an_extracted_package.py	WIRED	.github/workflows/parser-claim-separation.yml
@@ -296,6 +298,7 @@ test_doctor_routines_are_measured_live.py	WIRED	.github/workflows/vendor-integri
 test_doctor_rows_show_one_honest_total.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
+test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-preferences.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
