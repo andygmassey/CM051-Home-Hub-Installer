@@ -261,6 +261,7 @@ for w in $WRAPPERS; do
         echo 'set -euo pipefail'
         echo "SOURCE_DIR='$HUB/services/imessage-source'"
         echo "OSTLER_DIR='$HUB'"
+        echo "OSTLER_HOME='$HUB'"
         echo "PYTHON_BIN='$PY'"
         echo "OSTLER_PYTHON='$PY'"
         echo 'log() { printf "%s\n" "$*"; }'
@@ -291,18 +292,25 @@ for w in $WRAPPERS; do
         fail "C:$base(paid)" "a PAYING customer was stopped. Output: $out"
     fi
 
-    # POSITIVE CONTROL for the fail-open branch: hide the gate module and
-    # confirm the wrapper still ingests. A gate that blocks when it cannot
-    # be found turns a packaging slip into a mass lockout of paying
-    # customers, and nothing else in this suite would notice.
+    # POSITIVE CONTROL for the fail-CLOSED branch (v1.0.108 Leak C, reversing
+    # the former fail-open control here). Hide the gate module and confirm the
+    # wrapper STOPS rather than ingesting unenforced, AND drops a Doctor-red
+    # gate_posture marker so the stop is loud. A missing module used to let
+    # every surface ingest with the gate enforced on nobody.
+    rm -rf "$HUB/.ostler/state/gate_posture"
     install_days_ago 31
     mv "$GATE" "$GATE.hidden"
     out="$(/bin/bash "$harness" 2>&1)"
     mv "$GATE.hidden" "$GATE"
     if printf '%s' "$out" | /usr/bin/grep -q "REACHED_THE_PIPELINE"; then
-        pass "C:$base(failopen)" "gate module absent: ingestion continues and says so"
+        fail "C:$base(failclosed)" "gate module absent and ingestion CONTINUED. A gate we cannot run must fail closed, not wave new data through unenforced."
     else
-        fail "C:$base(failopen)" "gate module absent and ingestion STOPPED. A packaging mistake must never read as a lapsed subscription."
+        pass "C:$base(failclosed)" "gate module absent: ingestion stopped (failed closed)"
+    fi
+    if /usr/bin/grep -rqs '"status":"gate_unavailable"' "$HUB/.ostler/state/gate_posture" 2>/dev/null; then
+        pass "C:$base(doctor)" "fail-closed wrote a Doctor-red gate_posture marker"
+    else
+        fail "C:$base(doctor)" "fail-closed wrote NO gate_posture marker; the stop would be silent to Doctor."
     fi
 done
 

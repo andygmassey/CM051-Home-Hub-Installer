@@ -279,17 +279,30 @@ fi
 # machine is how the daemon and the installer came to disagree about
 # has_ever_paid in the first place.
 #
-# FAIL OPEN on anything that is not an unambiguous "paused": module
-# missing, interpreter will not start, any exit code other than 3. A
-# customer who has paid must never be stopped because we could not ask,
-# and a packaging mistake must never wear the costume of a lapsed
-# subscription. Exit 3 is the ONLY code that pauses -- that is why the
-# gate does not use 1, which is indistinguishable from a crash.
+# FAIL CLOSED on a gate we could not run -- v1.0.108 licence hardening
+# reverses the earlier fail-open posture HERE. A missing module or an
+# interpreter that will not start used to let this surface keep ingesting
+# NEW data with the gate enforced on nobody, logging one line to a file no
+# one reads (Leak C). Now a gate we cannot trust STOPS the tick and lights
+# Doctor red: "we could not check" is not "they may ingest". An ANSWERED
+# pause (exit 3) is still the steady state and still exits 0; a fault exits
+# non-zero so launchd and Doctor both see it.
 #
-# Paused exits 0, not non-zero: this is the expected steady state of an
-# unsubscribed Hub, not a fault. A non-zero exit would light up Doctor
-# and the .err log every 15 minutes for a customer who is simply not
-# paying.
+# WHY THE PATH IS STILL DERIVED. The gate ships beside ical-server.py;
+# install.sh stages the whole of assistant_api/ to
+# $OSTLER_DIR/services/ical-server/, a SIBLING of this service's staged
+# dir. One canonical gate, never a re-vendored copy.
+# Doctor-red marker, written with pure shell so it still lands when the
+# Python interpreter is the thing that failed. ${OSTLER_HOME:-$HOME}
+# matches check_subscription_gate_health in the Doctor rules.
+_ostler_gate_posture_dir="${OSTLER_HOME:-$HOME}/.ostler/state/gate_posture"
+_ostler_gate_posture() {  # $1=status  $2=detail
+    mkdir -p "$_ostler_gate_posture_dir" 2>/dev/null || return 0
+    _gp_f="$_ostler_gate_posture_dir/spoken.json"
+    printf '{"surface":"spoken","status":"%s","detail":"%s","at":"%s"}\n' \
+        "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"${_gp_f}.tmp" 2>/dev/null \
+        && mv -f "${_gp_f}.tmp" "$_gp_f" 2>/dev/null || true
+}
 _ostler_gate="$(dirname "$SOURCE_DIR")/ical-server/subscription_gate.py"
 if [ -f "$_ostler_gate" ]; then
     set +e
@@ -297,14 +310,20 @@ if [ -f "$_ostler_gate" ]; then
     _ostler_gate_rc=$?
     set -e
     if [ "$_ostler_gate_rc" -eq 3 ]; then
+        _ostler_gate_posture ok "subscription inactive (steady state)"
         echo "spoken-bundle tick: Ostler Pro is not active, so new call and meeting transcription is paused. Everything already in your Hub stays available. Subscribe in the Ostler app and this resumes on the next tick."
         exit 0
     fi
     if [ "$_ostler_gate_rc" -ne 0 ]; then
-        echo "spoken-bundle tick: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); continuing to ingest. A customer is never paused because we could not ask." >&2
+        _ostler_gate_posture gate_unavailable "gate check exited ${_ostler_gate_rc} (expected 0 or 3)"
+        echo "spoken-bundle tick: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3). FAILING CLOSED: capture is paused and Doctor is flagged. This is a packaging or runtime fault, not a lapsed subscription." >&2
+        exit 1
     fi
+    _ostler_gate_posture ok ""
 else
-    echo "spoken-bundle tick: subscription gate not found at ${_ostler_gate}; continuing to ingest. Rule 0.8 is NOT being enforced on this surface -- this line is the only evidence of that, so do not remove it." >&2
+    _ostler_gate_posture gate_unavailable "gate module not found at ${_ostler_gate}"
+    echo "spoken-bundle tick: subscription gate not found at ${_ostler_gate}. FAILING CLOSED: capture is paused and Doctor is flagged. The gate module must be staged beside ical-server.py; Rule 0.8 cannot be enforced without it." >&2
+    exit 1
 fi
 # --- end Rule 0.8 gate -----------------------------------------------
 

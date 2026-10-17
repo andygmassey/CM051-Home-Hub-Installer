@@ -74,10 +74,25 @@ log() {
 # checkpoint past messages nothing read. Gate before the first read, or
 # a paused customer silently loses the mail they receive while paused.
 #
-# FAIL OPEN on anything that is not an unambiguous "paused" (exit 3).
-# A customer who has paid must never be stopped because we could not
-# ask. Paused exits 0, because an unsubscribed Hub is a steady state,
-# not a fault to light up Doctor with every hour.
+# FAIL CLOSED on a gate we could not run -- v1.0.108 licence hardening
+# reverses the earlier fail-open posture HERE (Leak C). A missing module or
+# an interpreter that will not start used to let email triage keep ingesting
+# NEW data unenforced. Now a gate we cannot trust STOPS the tick BEFORE the
+# mbox is read (so the Apple Mail checkpoint does not move past unread mail)
+# and lights Doctor red. An ANSWERED pause (exit 3) is still the steady
+# state and still exits 0; a fault exits non-zero.
+#
+# Doctor-red marker, written with pure shell so it still lands when the
+# Python interpreter is the thing that failed. ${OSTLER_HOME:-$HOME} matches
+# check_subscription_gate_health in the Doctor rules.
+_ostler_gate_posture_dir="${OSTLER_HOME:-$HOME}/.ostler/state/gate_posture"
+_ostler_gate_posture() {  # $1=status  $2=detail
+    mkdir -p "$_ostler_gate_posture_dir" 2>/dev/null || return 0
+    _gp_f="$_ostler_gate_posture_dir/email_ingest.json"
+    printf '{"surface":"email_ingest","status":"%s","detail":"%s","at":"%s"}\n' \
+        "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"${_gp_f}.tmp" 2>/dev/null \
+        && mv -f "${_gp_f}.tmp" "$_gp_f" 2>/dev/null || true
+}
 _ostler_gate="$OSTLER_DIR/services/ical-server/subscription_gate.py"
 if [ -f "$_ostler_gate" ]; then
     set +e
@@ -85,14 +100,20 @@ if [ -f "$_ostler_gate" ]; then
     _ostler_gate_rc=$?
     set -e
     if [ "$_ostler_gate_rc" -eq 3 ]; then
+        _ostler_gate_posture ok "subscription inactive (steady state)"
         log "Ostler Pro is not active, so new email ingestion is paused. Mail already in your Hub stays available. Subscribe in the Ostler app and this resumes on the next tick."
         exit 0
     fi
     if [ "$_ostler_gate_rc" -ne 0 ]; then
-        log "WARNING: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); continuing to ingest. A customer is never paused because we could not ask."
+        _ostler_gate_posture gate_unavailable "gate check exited ${_ostler_gate_rc} (expected 0 or 3)"
+        log "FAILING CLOSED: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3). Email ingestion is paused and Doctor is flagged. This is a packaging or runtime fault, not a lapsed subscription."
+        exit 1
     fi
+    _ostler_gate_posture ok ""
 else
-    log "WARNING: subscription gate not found at ${_ostler_gate}; continuing to ingest. Rule 0.8 is NOT being enforced on this surface -- this line is the only evidence of that, so do not remove it."
+    _ostler_gate_posture gate_unavailable "gate module not found at ${_ostler_gate}"
+    log "FAILING CLOSED: subscription gate not found at ${_ostler_gate}. Email ingestion is paused and Doctor is flagged. The gate module must be staged beside ical-server.py; Rule 0.8 cannot be enforced without it."
+    exit 1
 fi
 # --- end Rule 0.8 gate -----------------------------------------------
 
