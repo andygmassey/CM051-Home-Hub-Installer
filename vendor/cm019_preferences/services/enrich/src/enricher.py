@@ -30,6 +30,13 @@ from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, 
 
 logger = logging.getLogger(__name__)
 
+# Every httpx client in this module that talks to the LOCAL stores (Qdrant,
+# Oxigraph) passes trust_env=False. With the default, an ambient
+# HTTP(S)_PROXY and no matching NO_PROXY sends loopback requests to the
+# proxy, so a healthy local store reads as dead and enrichment writes are
+# lost. Public API clients (clients/) keep the default on purpose.
+# Pinned by tests/test_local_store_ignores_proxy.py.
+
 
 @dataclass
 class EnrichmentStats:
@@ -338,7 +345,7 @@ class EnrichmentService:
             Tuple of (list of preference payloads, next_page_offset)
         """
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 # Build filter
                 must_conditions = []
 
@@ -459,7 +466,7 @@ class EnrichmentService:
         """
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/query",
                     content=sparql,
@@ -521,7 +528,7 @@ INSERT DATA {{
 """
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/update",
                     content=update_query,
@@ -1290,7 +1297,7 @@ INSERT DATA {{
         """
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/query",
                     content=sparql_query,
