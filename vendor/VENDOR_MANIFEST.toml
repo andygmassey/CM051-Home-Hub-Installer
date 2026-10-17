@@ -799,7 +799,10 @@ source_repo      = "$HR015"
 source_path      = "email_source"
 pinned_sha       = "5d31073d9e28e9024cbb25b308809ef428a39944"
   divergence_patch = "vendor/divergences/email_source.patch"
-unrecorded_divergence = "vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md"  # 2026-10-14: assistant-send filter in reader.py; regen refused or would bless unrelated drift
+  # RECORDED 2026-10-18 (vendor drift reduction): the assistant-send filter and first-bundle window widening (reader.py, pipeline.py) now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 5d31073d; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
 verify_exempt    = true
