@@ -263,6 +263,22 @@ from diagnostic_copy import (
     ENGINE_SUPERVISOR_MISSING_FIX,
     ENGINE_SUPERVISOR_MISSING_FIX_COMMAND,
     ENGINE_SUPERVISOR_MISSING_TITLE,
+    LISTENER_DEGRADED_TITLE,
+    LISTENER_DEGRADED_DETAIL_FMT,
+    LISTENER_DEGRADED_FIX,
+    LISTENER_DEGRADED_FIX_COMMAND,
+    LISTENER_UNVERIFIED_TITLE,
+    LISTENER_UNVERIFIED_DETAIL_FMT,
+    LISTENER_UNVERIFIED_FIX,
+    LISTENER_UNVERIFIED_FIX_COMMAND,
+    LISTENER_RECOVERED_TITLE,
+    LISTENER_RECOVERED_DETAIL_FMT,
+    LISTENER_RECOVERED_FIX,
+    LISTENER_RECOVERED_FIX_COMMAND,
+    LISTENER_STATE_UNREADABLE_TITLE,
+    LISTENER_STATE_UNREADABLE_DETAIL,
+    LISTENER_STATE_UNREADABLE_FIX,
+    LISTENER_STATE_UNREADABLE_FIX_COMMAND,
     WIKI_REFRESH_STALLED_DETAIL_FMT,
     WIKI_REFRESH_STALLED_FIX,
     WIKI_REFRESH_STALLED_FIX_COMMAND,
@@ -758,6 +774,121 @@ def _engine_supervisor_is_scheduled() -> bool | None:
         return r.returncode == 0
     except Exception:
         return None
+
+
+# ── the companion listener watchdog ──────────────────────────────────
+#
+# Andy's box, 2026-10-17: the daemon was alive at 0% CPU for 4 h with its
+# :8443 listener dead, so the iPhone app showed "Hub unreachable" and nothing
+# on this page said so. ostler-listener-watchdog (install.sh LISTENERWDEOF)
+# probes :8443 every minute, restarts the daemon after 3 silent probes (max 3
+# an hour) and writes listener_watchdog.json. This renders it.
+#
+#   degraded            restart limit hit, listener still dead   -> critical
+#   restart_unverified  restarted, no answer within 60 s         -> critical
+#   restart_failed      kickstart itself failed                  -> critical
+#   ok/recovered with a restart in the last 24 h                 -> info
+#   ok, failing (< 3 probes, transient), stopped_deliberately,
+#   install_running, disabled, not_loaded                        -> silent
+#
+# Absent file: silent (the agent has not ticked yet; install_manifest_complete
+# grades the agent itself). A file that EXISTS but cannot be parsed is
+# "couldn't check", never silence and never an outage.
+
+_LISTENER_RECENT_S = 24 * 3600
+
+
+def _listener_state_path():
+    from pathlib import Path
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    return Path(base) / "listener_watchdog.json"
+
+
+def _iso_age_s(stamp: str):
+    from datetime import datetime, timezone
+    try:
+        t = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except (TypeError, ValueError):
+        return None
+    return time.time() - t.timestamp()
+
+
+def check_listener_watchdog(snapshot: Any) -> list[dict]:
+    import json
+    findings: list[dict] = []
+    path = _listener_state_path()
+    if not path.exists():
+        return findings
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            raise ValueError("state is not an object")
+    except Exception:
+        log.warning("listener watchdog state unreadable: %s", path, exc_info=True)
+        findings.append({
+            "severity": "warning",
+            "title": LISTENER_STATE_UNREADABLE_TITLE,
+            "detail": LISTENER_STATE_UNREADABLE_DETAIL,
+            "fix": LISTENER_STATE_UNREADABLE_FIX,
+            "fix_command": LISTENER_STATE_UNREADABLE_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+        return findings
+
+    state = str(data.get("state", ""))
+    last_restart = str(data.get("last_restart_at") or "never")
+    capture = str(data.get("last_capture") or "no capture yet")
+    detail = str(data.get("detail", ""))[:300]
+    try:
+        restarts = int(data.get("restarts_last_hour", 0) or 0)
+    except (TypeError, ValueError):
+        restarts = 0
+
+    if state == "degraded":
+        findings.append({
+            "severity": "critical",
+            "title": LISTENER_DEGRADED_TITLE,
+            "detail": LISTENER_DEGRADED_DETAIL_FMT.format(
+                restarts=restarts, last_restart=last_restart, capture=capture,
+            ),
+            "fix": LISTENER_DEGRADED_FIX,
+            "fix_command": LISTENER_DEGRADED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    elif state in ("restart_unverified", "restart_failed"):
+        findings.append({
+            "severity": "critical",
+            "title": LISTENER_UNVERIFIED_TITLE,
+            "detail": LISTENER_UNVERIFIED_DETAIL_FMT.format(
+                last_restart=last_restart, detail=detail, capture=capture,
+            ),
+            "fix": LISTENER_UNVERIFIED_FIX,
+            "fix_command": LISTENER_UNVERIFIED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    elif state in ("ok", "recovered") and data.get("last_restart_at"):
+        age = _iso_age_s(last_restart)
+        if age is not None and age < _LISTENER_RECENT_S:
+            findings.append({
+                "severity": "info",
+                "title": LISTENER_RECOVERED_TITLE,
+                "detail": LISTENER_RECOVERED_DETAIL_FMT.format(
+                    last_restart=last_restart, restarts=restarts,
+                    capture=capture,
+                ),
+                "fix": LISTENER_RECOVERED_FIX,
+                "fix_command": LISTENER_RECOVERED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+    return findings
 
 
 _WIKI_STALL_MIN_TICKS = 3   # 10-minute StartInterval, so ~30 minutes
@@ -2731,6 +2862,7 @@ ALL_RULES = [
     check_oxigraph_health,
     check_wiki_health,
     check_engine_supervisor_present,
+    check_listener_watchdog,
     check_redis_health,
     check_gateway_health,
     check_import_readiness,

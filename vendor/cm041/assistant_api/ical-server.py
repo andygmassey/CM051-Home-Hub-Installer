@@ -3183,6 +3183,198 @@ def _forget_audit_has(slug):
         return None
 
 
+def _identifiers_shared_with_other_than(values, owner_slug):
+    """Of ``values``, return the subset held by at least one Person whose
+    display-name slug is NOT ``owner_slug`` -- i.e. shared with a differently
+    named (possibly living) person, so unsafe to key a suppression on. A
+    holder with no display name counts as different (errs toward NOT keeping
+    the identifier). One batched query."""
+    values = sorted({v for v in values if v})
+    if not values:
+        return set()
+    vlist = " ".join('"{}"'.format(_sparql_escape_literal(v)) for v in values)
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?v ?name WHERE {{\n'
+        '  VALUES ?v {{ {vlist} }}\n'
+        '  ?person a pwg:Person ; pwg:hasIdentifier ?id .\n'
+        '  ?id pwg:identifierValue ?v .\n'
+        '  OPTIONAL {{ ?person pwg:displayName ?name }}\n'
+        '}}'.format(ns=PWG_NS, vlist=vlist)
+    )
+    shared = {r.get("v", "") for r in rows
+              if _wiki_slug(r.get("name", "")) != owner_slug}
+    shared.discard("")
+    return shared
+
+
+def _is_fixed_line(value):
+    """True if ``value`` parses as a FIXED-LINE phone number.
+
+    A do-not-suggest record must NEVER store a fixed landline (Archie review
+    #216, round 2): a home line is the family's, so excluding on it would
+    silence a living relative. Mobiles are personal and kept. Best-effort: an
+    unparseable number or a missing ``phonenumbers`` dependency returns False
+    (the sharing re-check is the second line of defence), and the ambiguous
+    FIXED_LINE_OR_MOBILE is treated as fixed, erring toward NOT suppressing.
+    """
+    try:
+        import phonenumbers
+        t = phonenumbers.number_type(phonenumbers.parse(value, None))
+        return t in (phonenumbers.PhoneNumberType.FIXED_LINE,
+                     phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE)
+    except Exception:
+        return False
+
+
+def api_people_suppress_suggestions(slug, payload):
+    """Handle POST /api/v1/people/{slug}/suppress-suggestions.
+
+    Owner-settable do-not-suggest status (the gentle counterpart to
+    /forget): the contact is excluded from every proactive surface --
+    reconnect (people_stale), follow-up (people_recent), birthdays
+    (people_birthdays) and the composite /api/v1/suggestions the iOS cards
+    and the daily brief read -- without ever being deleted. They stay
+    viewable in People and search.
+
+    WHY THIS EXISTS. Ostler surfaced a "Reconnect -- 73 months since last
+    contact" card for the owner's deceased mother, and her birthday would
+    have surfaced on the Birthdays strip. Suggesting someone reconnect with,
+    or wish a happy birthday to, a person who has died is a dignity harm,
+    and it is not unique to one owner. The owner sets this from the person's
+    card ("mark as deceased" / "stop suggesting"); we do NOT infer death
+    from message signals, because a false positive (implying a living person
+    is dead) is just as harmful.
+
+    DURABLE + IDENTITY-KEYED (Archie review #216). A per-node flag leaks: a
+    merge retires the node it was on and a re-sync mints a fresh unflagged
+    node. So this writes a standalone ``pwg:SuggestionSuppression`` record
+    keyed on the person's display-name SLUG and their PERSONAL identifiers.
+    The readers resolve it at read time (``_suppressed_identity_index``), so
+    ANY node for the identity is excluded: new, re-derived, or the survivor
+    of a merge that inherited the identifiers. Nothing on the merge path has
+    to carry the flag.
+
+    PERSONAL IDENTIFIERS ONLY (round 2). The record stores the contact-card
+    UID (unique to this person) plus phones/emails held by NO differently
+    named person, and NEVER a fixed landline. A family line or shared
+    household email must not key a suppression, or marking the deceased would
+    silence a LIVING relative (the owner's father on the home line). The
+    reader re-checks sharing too, so an identifier that becomes shared later
+    still hides nobody.
+
+    Body: {"suppressed": true|false, "reason": "deceased"|"user_request"|...}
+          (suppressed defaults to true). Idempotent; suppressed=false clears
+          the record.
+    """
+    if not _SLUG_PATTERN.match(slug or ""):
+        return {
+            "error": "Invalid slug. Expected lowercase ASCII letters, "
+                     "digits, hyphens (max 80 chars)."
+        }, 400
+
+    suppressed = payload.get("suppressed", True)
+    if not isinstance(suppressed, bool):
+        return {"error": "`suppressed` must be a boolean"}, 400
+    reason = payload.get("reason")
+    if reason is None:
+        reason = "deceased" if suppressed else ""
+    if not isinstance(reason, str) or len(reason) > 200:
+        return {"error": "`reason` must be a string (max 200 chars)"}, 400
+
+    # Deterministic record URI from the slug, so re-suppressing replaces
+    # rather than duplicating and un-suppressing deletes exactly one record.
+    record_uri = PWG_NS + "suppression_" + slug
+
+    # Resolve the person's nodes and fold up their PERSONAL identifiers only.
+    # Best-effort: a record keyed on the slug alone still suppresses (the
+    # readers match on slug too), so an identifier lookup failure narrows
+    # coverage rather than refusing the owner's request.
+    person_uris = []
+    identifiers = []
+    try:
+        candidates = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person ?name WHERE {{\n'
+            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+            '}}'.format(ns=PWG_NS)
+        )
+        person_uris = [c["person"] for c in candidates
+                       if c.get("person") and _wiki_slug(c.get("name", "")) == slug]
+    except Exception as exc:
+        return {"suppressed": suppressed, "degraded": True,
+                "reason": f"oxigraph_lookup_failed: {exc}"}, 503
+
+    if person_uris and suppressed:
+        try:
+            values = " ".join(f"<{u}>" for u in sorted(set(person_uris)))
+            id_rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT DISTINCT ?t ?v WHERE {{\n'
+                '  VALUES ?person {{ {values} }}\n'
+                '  ?person pwg:hasIdentifier ?id .\n'
+                '  ?id pwg:identifierType ?t ; pwg:identifierValue ?v .\n'
+                '}}'.format(ns=PWG_NS, values=values)
+            )
+            typed = [(r.get("t", ""), r["v"]) for r in id_rows if r.get("v")]
+            # STORE PERSONAL IDENTIFIERS ONLY (Archie review #216, round 2).
+            # The contact-card UID is unique to this person and always kept.
+            # A phone/email is kept only when NO differently-named person holds
+            # it; a fixed landline is never kept. This stops the record from
+            # ever excluding a living relative on a shared line / family email.
+            cand_values = sorted({v for (_t, v) in typed})
+            shared_values = _identifiers_shared_with_other_than(cand_values, slug)
+            for t, v in typed:
+                if t == "icloud_contact_uid":
+                    identifiers.append(v)            # the card: always personal
+                    continue
+                if v in shared_values:
+                    continue                          # held by someone else: skip
+                if t == "phone" and _is_fixed_line(v):
+                    continue                          # never a landline
+                identifiers.append(v)
+            identifiers = sorted(set(identifiers))
+        except Exception:
+            identifiers = []  # slug-only record still suppresses
+
+    try:
+        # Always clear any prior record first (clean replace / un-suppress).
+        _sparql_update(
+            'PREFIX pwg: <{ns}>\n'
+            'DELETE WHERE {{ <{r}> ?p ?o }}'.format(ns=PWG_NS, r=record_uri))
+        if suppressed:
+            at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            triples = [
+                '<{r}> a pwg:SuggestionSuppression'.format(r=record_uri),
+                '<{r}> pwg:suppressedSlug "{s}"'.format(
+                    r=record_uri, s=_sparql_escape_literal(slug)),
+                '<{r}> pwg:suppressReason "{s}"'.format(
+                    r=record_uri, s=_sparql_escape_literal(reason)),
+                '<{r}> pwg:suppressedAt "{s}"'.format(r=record_uri, s=at),
+            ]
+            for v in identifiers:
+                triples.append('<{r}> pwg:suppressedIdentifier "{s}"'.format(
+                    r=record_uri, s=_sparql_escape_literal(v)))
+            _sparql_update(
+                'PREFIX pwg: <{ns}>\nINSERT DATA {{ {body} . }}'.format(
+                    ns=PWG_NS, body=" .\n".join(triples)))
+    except Exception as exc:
+        return {"suppressed": suppressed, "degraded": True,
+                "reason": f"suppression_write_failed: {exc}"}, 503
+
+    return {
+        "suppressed": suppressed,
+        "reason": reason,
+        "slug": slug,
+        "record_uri": record_uri,
+        "record_written": bool(suppressed),
+        "record_cleared": not suppressed,
+        "person_uris": person_uris,
+        "nodes_matched": len(person_uris),
+        "identifiers_recorded": len(identifiers),
+    }, 200
+
+
 def api_people_forget(slug):
     """Handle POST /api/v1/people/{slug}/forget.
 
@@ -7667,6 +7859,86 @@ def people_list(sort=None, ceiling=10000):
     return {"people": people, "total": len(people)}
 
 
+def _suppressed_identity_index():
+    """The durable, identity-keyed do-not-suggest index. Returns
+    ``(suppressed_slugs: set[str], suppressed_uris: set[str])``.
+
+    WHY A RECORD, NOT A NODE FLAG. A flag on the Person node (the first cut
+    of this fix, Archie review #216) leaks twice over:
+
+      * a MERGE retires the discard node (``_merge_oxigraph`` moves its
+        identifiers to the survivor and REPLACES its type -- step 7 -- so a
+        flag on the discard is gone and never copied to the survivor), and
+      * a re-sync / new message mints a FRESH node for the same person, which
+        comes in UNFLAGGED.
+
+    Either way a surface reading the un-flagged node nudges a suppressed
+    person again -- which is exactly why the live box needed its
+    re-derivation agents paused. The source of truth is instead a standalone
+    ``pwg:SuggestionSuppression`` record keyed on the person's IDENTIFIERS
+    (emails / phones / contact-uid) and display-name SLUG, checked here at
+    READ time:
+
+      * ``suppressed_uris`` -- every CURRENT Person URI carrying a suppressed
+        identifier, joined in SPARQL. A merge survivor inherits the discard's
+        identifiers (``_merge_oxigraph`` step 1) and a re-derived node carries
+        the same email/phone, so BOTH are caught with no per-node flag and no
+        change to the merge path.
+      * ``suppressed_slugs`` -- the stored slugs, so a same-named node that
+        happens to carry none of the recorded identifiers is caught too.
+
+    Raises on query failure: every READ caller fails closed (suggest nobody)
+    rather than risk resurfacing a suppressed person.
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?slug ?idv WHERE {{\n'
+        '  ?s a pwg:SuggestionSuppression .\n'
+        '  OPTIONAL {{ ?s pwg:suppressedSlug ?slug }}\n'
+        '  OPTIONAL {{ ?s pwg:suppressedIdentifier ?idv }}\n'
+        '}}'.format(ns=PWG_NS)
+    )
+    suppressed_slugs = {r["slug"] for r in rows if r.get("slug")}
+    identifiers = {r["idv"] for r in rows if r.get("idv")}
+    suppressed_uris = set()
+    if identifiers:
+        values = " ".join(
+            '"{}"'.format(_sparql_escape_literal(v)) for v in sorted(identifiers))
+        urows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person ?idv ?name WHERE {{\n'
+            '  VALUES ?idv {{ {values} }}\n'
+            '  ?person a pwg:Person ; pwg:hasIdentifier ?id .\n'
+            '  ?id pwg:identifierValue ?idv .\n'
+            '  OPTIONAL {{ ?person pwg:displayName ?name }}\n'
+            '}}'.format(ns=PWG_NS, values=values)
+        )
+        # READ-TIME SHARING RE-CHECK (Archie review #216, round 2). An
+        # identifier is only safe to exclude on if EVERY current holder is the
+        # suppressed person (same display-name slug). The moment a DIFFERENTLY
+        # named person also holds it -- a family landline, a shared household
+        # email, or a number recycled to someone new -- that identifier must
+        # hide NOBODY, or we would silence a LIVING relative (e.g. the owner's
+        # father on the family line). The write path already stores
+        # personal-only identifiers; this is the backstop for an identifier
+        # that becomes shared AFTER the record was written.
+        holders_by_idv = {}
+        for r in urows:
+            person = r.get("person")
+            if not person:
+                continue
+            holders_by_idv.setdefault(r.get("idv", ""), []).append(
+                (person, _wiki_slug(r.get("name", "")))
+            )
+        for _idv, holders in holders_by_idv.items():
+            if any(slug not in suppressed_slugs for (_p, slug) in holders):
+                # Shared with a differently-named person -> suppresses nobody.
+                continue
+            for person, _slug in holders:
+                suppressed_uris.add(person)
+    return suppressed_slugs, suppressed_uris
+
+
 # Runaway guard for the stale-people scan (pages of 1000). Not a sample.
 _STALE_SCAN_MAX_PAGES = 50
 
@@ -7919,6 +8191,18 @@ def people_stale(months=3, limit=5):
                      ("lcCalendar", "lcWhatsApp", "lcEmail", "lcIMessage")]
             graph_max_by_uri[uri] = _max_past_last_contact(dates)
 
+    # Do-not-suggest (deceased / stop-suggesting): the durable, identity-keyed
+    # suppression record, checked at READ time so ANY node for that identity
+    # is excluded -- a card telling a grieving owner to reconnect with a dead
+    # parent is the bug this closes. FAIL CLOSED like the recheck above: if we
+    # cannot read the suppression index we suggest nobody rather than risk
+    # resurfacing a suppressed person.
+    try:
+        suppressed_slugs, suppressed_uris = _suppressed_identity_index()
+    except Exception as exc:
+        return {"contacts": [], "degraded": True,
+                "reason": f"suppression_index_failed: {exc}", "error": str(exc)}
+
     contacts = []
     for c in candidates:
         uri = c.pop("_person_uri")
@@ -7926,6 +8210,8 @@ def people_stale(months=3, limit=5):
             # No person_uri in Qdrant and no displayName match in the
             # graph: this candidate cannot be verified at all. Drop it
             # rather than show its unverified Qdrant-only date.
+            continue
+        if uri in suppressed_uris or _wiki_slug(c["name"]) in suppressed_slugs:
             continue
         graph_max = graph_max_by_uri.get(uri)
         if graph_max:
@@ -7988,6 +8274,13 @@ def people_recent(days=7, limit=5):
     self_uris = _load_people_list_self_uris()
     _apply_name_ladder_to_rows(rows)
     carded_uris = _load_carded_uris(r.get("p") for r in rows)
+    # Do-not-suggest (deceased / stop-suggesting), identity-keyed + read-time;
+    # fail closed so a suppressed person is never a follow-up nudge.
+    try:
+        suppressed_slugs, suppressed_uris = _suppressed_identity_index()
+    except Exception as exc:
+        return {"contacts": [], "degraded": True,
+                "reason": f"suppression_index_failed: {exc}", "error": str(exc)}
 
     seen = set()
     seen_uris = set()
@@ -7998,6 +8291,8 @@ def people_recent(days=7, limit=5):
         # One entry per PERSON: several names or several same-day meetings
         # give one person several rows; the first that passes the screens wins.
         if not name or name in seen or (uri and uri in seen_uris):
+            continue
+        if uri in suppressed_uris or _wiki_slug(name) in suppressed_slugs:
             continue
         if _is_nameless_name(name, has_card=uri in carded_uris):
             continue
@@ -8077,12 +8372,21 @@ def people_birthdays(days=7):
     # replacing the other.
     self_uris = _load_people_list_self_uris()
     carded_uris = _load_carded_uris(r.get("p") for r in rows)
+    # Do-not-suggest (deceased / stop-suggesting), identity-keyed + read-time;
+    # fail closed so a deceased contact's birthday is never a nudge.
+    try:
+        suppressed_slugs, suppressed_uris = _suppressed_identity_index()
+    except Exception as exc:
+        return {"people": [], "degraded": True,
+                "reason": f"suppression_index_failed: {exc}", "error": str(exc)}
 
     for r in rows:
         name = r.get("name", "")
         bday = r.get("bday", "")
         uri = r.get("p") or ""
         if not name or not bday or len(bday) < 5:
+            continue
+        if uri in suppressed_uris or _wiki_slug(name) in suppressed_slugs:
             continue
         # Hide raw-handle "people" (bare phone numbers, WhatsApp JIDs) from the
         # Birthdays surface, same render-time filter the People search / stale /
@@ -12326,6 +12630,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"error": f"Body read failed: {exc}"}).encode())
+            return
+
+        # Route: POST /api/v1/people/{slug}/suppress-suggestions
+        # Owner-settable do-not-suggest flag ("mark as deceased" / "stop
+        # suggesting"). Body: {"suppressed": bool, "reason": str}.
+        if (parsed.path.startswith("/api/v1/people/")
+                and parsed.path.endswith("/suppress-suggestions")):
+            slug = parsed.path[len("/api/v1/people/"):-len("/suppress-suggestions")]
+            try:
+                result, status = api_people_suppress_suggestions(slug, payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
         # Route

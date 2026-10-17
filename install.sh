@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8574) captures the path BY
+    # _ostler_write_store_curl_config (defined :8586) captures the path BY
     # VALUE and never re-reads it:
-    #     :8575   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8620   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8629 and :15755, both of which run
+    #     :8587   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8632   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8641 and :16057, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16535, where the note reads
+    # WhatsApp Web session path did it again at :16837, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16552 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16854 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5964 against a definition at :8574. Top-level
+    # writer's own definition: :5964 against a definition at :8586. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8629, :15755) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8641, :16057) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18698 / :18876 / :19033 / :19460 path. There the
+    # :19000 / :19178 / :19335 / :19762 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8060,6 +8060,18 @@ mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR" "$SECURITY_CONFIG_DIR"
 # is itself idempotent; the sentinel exists only to express
 # "we have already announced this layout to this install".
 if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
+    # Pre-explain the macOS Documents (Files and Folders) consent prompt,
+    # emitted before the mkdir below. macOS gates that prompt per RESPONSIBLE
+    # PROCESS, so one upfront note cannot cover it by sitting next to a single
+    # write: the installer's own first write under ~/Documents/Ostler is this
+    # mkdir and may prompt now, while the bundled python3.11 that organises the
+    # wiki writes here later from its own launchd jobs and prompts separately,
+    # possibly the next day. The copy is honest about that timing and names
+    # python3.11; the live Documents-access tile in the dashboard is the
+    # backstop that surfaces a denial whenever it happens. A customer who
+    # declines an unexplained prompt silently loses the wiki + conversation
+    # writes, which is the launch-blocker this pair closes.
+    info "$MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT"
     info "$(printf "$MSG_INFO_CREATING_USER_FACING_CONTENT_TREE" "${USER_FACING_ROOT}")"
     mkdir -p "$USER_FACING_ROOT"
     for sub in "${USER_TREE_SUBDIRS[@]}"; do
@@ -15134,6 +15146,296 @@ OLLAMAWDPLIST
 launchctl bootstrap "gui/$(id -u)" "$OLLAMA_WD_PLIST" 2>/dev/null || \
     launchctl load "$OLLAMA_WD_PLIST" 2>/dev/null || true
 
+# ── Companion listener liveness watchdog ──────────────────────────
+#
+# MEASURED on Andy's box, 2026-10-17: the Hub daemon ran at 0% CPU for 4 h with
+# its :8443 listener dead. launchd saw a live process, so KeepAlive never
+# fired, the engine supervisor watches the store ports and not this one, and
+# the iPhone app showed "Hub unreachable" until a manual kickstart -k. This is
+# the backstop: probe :8443 every 60 s, capture diagnostics, then restart the
+# daemon after 3 consecutive silent probes, at most 3 times an hour. The
+# Doctor reads ~/.ostler/state/listener_watchdog.json
+# (vendor/doctor/agent/diagnostic_rules.py check_listener_watchdog).
+# Pinned by tests/test_listener_watchdog_restarts_a_dead_listener.sh, which
+# lifts the LISTENERWDEOF heredoc and runs those exact bytes.
+cat > "${OSTLER_DIR}/bin/ostler-listener-watchdog" <<'LISTENERWDEOF'
+#!/bin/bash
+# Keep the Hub's companion listener (:8443, the port the Ostler iPhone app
+# talks to) ANSWERING, not merely its process alive. Driven by
+# com.ostler.listener-watchdog every 60 s.
+#
+# Andy's box, 2026-10-17: com.creativemachines.ostler.assistant ran at 0% CPU
+# for 4 h with its :8443 listener dead. launchd saw a live process, so nothing
+# respawned it, and the iPhone app sat on "Hub unreachable" until a manual
+# `launchctl kickstart -k`, after which :8443 answered 401 in 33 ms. Root cause
+# unknown, so this captures what the daemon looked like BEFORE restarting it.
+#
+# ALIVE = any HTTP status came back from an UNAUTHENTICATED GET to a route that
+# must answer 401. 000 (refused, timed out, reset, TLS never completed) is a
+# failure. Restart only after FAIL_N consecutive failures, at most MAX_PER_HOUR
+# restarts an hour, and never when the daemon is not supposed to be running:
+# the deliberate-stop marker (uninstaller, owner stop), an install or an
+# uninstall in progress, companion_enabled = false, or the job not loaded.
+#
+# The Governor "Pause" is NOT a stop state and is deliberately not honoured:
+# it pauses background ingest only and leaves live chat (this listener)
+# running by design (vendor/doctor/agent/pause_control.py).
+#
+# State for the Doctor: ${LWD_STATE_DIR}/listener_watchdog.json
+# Captures:             ${LWD_LOGS_DIR}/listener-watchdog/<ts>/
+# Exit: 0 alive or nothing to do; 1 a fault this run could not clear;
+#       2 CANNOT-RUN (launchd could not be read). Never a pass.
+set -uo pipefail
+LWD_OSTLER_DIR="${OSTLER_LISTENER_WD_OSTLER_DIR:-${HOME}/.ostler}"
+URL="${OSTLER_LISTENER_WD_URL:-https://127.0.0.1:8443/api/sessions}"
+LABEL="${OSTLER_LISTENER_WD_LABEL:-com.creativemachines.ostler.assistant}"
+LAUNCHCTL="${OSTLER_LISTENER_WD_LAUNCHCTL:-/bin/launchctl}"
+FAIL_N="${OSTLER_LISTENER_WD_FAIL_N:-3}"
+MAX_PER_HOUR="${OSTLER_LISTENER_WD_MAX_PER_HOUR:-3}"
+CONNECT_S="${OSTLER_LISTENER_WD_CONNECT_S:-3}"
+MAX_S="${OSTLER_LISTENER_WD_MAX_S:-5}"
+VERIFY_S="${OSTLER_LISTENER_WD_VERIFY_S:-60}"
+VERIFY_POLL_S="${OSTLER_LISTENER_WD_VERIFY_POLL_S:-3}"
+SAMPLE_S="${OSTLER_LISTENER_WD_SAMPLE_S:-5}"
+CAPTURE_KEEP="${OSTLER_LISTENER_WD_CAPTURE_KEEP:-5}"
+CAPTURE_FILE_MAX="${OSTLER_LISTENER_WD_CAPTURE_FILE_MAX:-2097152}"
+LWD_STATE_DIR="${OSTLER_LISTENER_WD_STATE_DIR:-${LWD_OSTLER_DIR}/state}"
+LWD_LOGS_DIR="${OSTLER_LISTENER_WD_LOGS_DIR:-${LWD_OSTLER_DIR}/logs}"
+LWD_CAPTURE_ROOT="${LWD_LOGS_DIR}/listener-watchdog"
+STOP_MARKER="${OSTLER_LISTENER_WD_STOP_MARKER:-${LWD_OSTLER_DIR}/deliberate-stop}"
+ASSISTANT_CONFIG="${OSTLER_LISTENER_WD_CONFIG:-${LWD_OSTLER_DIR}/assistant-config/config.toml}"
+DAEMON_ERR="${OSTLER_LISTENER_WD_DAEMON_ERR:-${LWD_LOGS_DIR}/ostler-assistant.err}"
+INSTALL_RUNNING_CMD="${OSTLER_LISTENER_WD_INSTALL_RUNNING_CMD:-}"
+LWD_STATE_FILE="${LWD_STATE_DIR}/listener_watchdog.json"
+FAILS="${LWD_STATE_DIR}/listener_watchdog.fails"
+RESTARTS="${LWD_STATE_DIR}/listener_watchdog.restarts"
+LOCK="${LWD_STATE_DIR}/listener_watchdog.lock"
+
+mkdir -p "$LWD_STATE_DIR" "$LWD_LOGS_DIR" 2>/dev/null || true
+# stdout IS the log: the plist points StandardOutPath at ${LWD_LOGS_DIR}/listener-watchdog.log.
+lwd_log() { printf '%s listener-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+lwd_now() { date +%s; }
+lwd_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1"; }
+
+# A lock that survives a SIGKILL must not wedge the watchdog for ever: one
+# older than 10 minutes is taken over (a run is bounded well under that).
+if ! mkdir "$LOCK" 2>/dev/null; then
+    _lk_age=$(( $(lwd_now) - $(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null || lwd_now) ))
+    if [ "$_lk_age" -lt 600 ]; then
+        lwd_log "previous run still in progress; skipping"
+        exit 0
+    fi
+    lwd_log "taking over a stale lock (${_lk_age}s old)"
+    rmdir "$LOCK" 2>/dev/null; mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
+LAST_RESTART_AT=""; LAST_CAPTURE=""; LAST_CODE=""
+lwd_read_state_field() {
+    [ -f "$LWD_STATE_FILE" ] || return 0
+    sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" "$LWD_STATE_FILE" | head -1
+}
+LAST_RESTART_AT="$(lwd_read_state_field last_restart_at)"
+LAST_CAPTURE="$(lwd_read_state_field last_capture)"
+
+lwd_restarts_last_hour() {
+    local cutoff n=0 t
+    cutoff=$(( $(lwd_now) - 3600 ))
+    [ -f "$RESTARTS" ] || { echo 0; return; }
+    : > "${RESTARTS}.tmp"
+    while IFS= read -r t; do
+        case "$t" in ''|*[!0-9]*) continue ;; esac
+        if [ "$t" -ge "$cutoff" ]; then echo "$t" >> "${RESTARTS}.tmp"; n=$((n + 1)); fi
+    done < "$RESTARTS"
+    mv -f "${RESTARTS}.tmp" "$RESTARTS"
+    echo "$n"
+}
+
+# lwd_write_state <state> <failures> <detail>
+lwd_write_state() {
+    local d
+    d="$(printf '%s' "$3" | tr -d '"\\' | tr '\n\t' '  ' | cut -c1-300)"
+    printf '{"state": "%s", "consecutive_failures": %s, "last_restart_at": "%s", "restarts_last_hour": %s, "last_capture": "%s", "last_http_code": "%s", "detail": "%s", "url": "%s", "updated_at": "%s"}\n' \
+        "$1" "$2" "$LAST_RESTART_AT" "$(lwd_restarts_last_hour)" "$LAST_CAPTURE" "$LAST_CODE" "$d" "$URL" "$(lwd_iso "$(lwd_now)")" \
+        > "${LWD_STATE_FILE}.tmp" && mv -f "${LWD_STATE_FILE}.tmp" "$LWD_STATE_FILE"
+}
+
+lwd_probe() {
+    # Echoes the HTTP status, 000 when no status line arrived.
+    local c
+    c="$(curl -sk --noproxy '*' --connect-timeout "$CONNECT_S" --max-time "$MAX_S" -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null)"
+    case "$c" in ''|000) echo 000 ;; *) echo "$c" ;; esac
+}
+
+lwd_install_running() {
+    if [ -n "$INSTALL_RUNNING_CMD" ]; then eval "$INSTALL_RUNNING_CMD"; return $?; fi
+    pgrep -f '/install\.sh' >/dev/null 2>&1 && return 0
+    pgrep -f 'ostler-uninstall' >/dev/null 2>&1 && return 0
+    return 1
+}
+
+prev_fails="$(cat "$FAILS" 2>/dev/null || echo 0)"
+case "$prev_fails" in ''|*[!0-9]*) prev_fails=0 ;; esac
+
+# ── Is the daemon supposed to be running at all? ─────────────────────
+if [ -e "$STOP_MARKER" ]; then
+    rm -f "$FAILS"
+    lwd_log "deliberate-stop marker present (${STOP_MARKER}); the daemon is meant to be down, no probe, no restart"
+    lwd_write_state "stopped_deliberately" 0 "deliberate-stop marker present"
+    exit 0
+fi
+if lwd_install_running; then
+    rm -f "$FAILS"
+    lwd_log "an install or uninstall is running; not judging or restarting the daemon"
+    lwd_write_state "install_running" 0 "installer or uninstaller running"
+    exit 0
+fi
+if [ -r "$ASSISTANT_CONFIG" ] && grep -Eq '^[[:space:]]*companion_enabled[[:space:]]*=[[:space:]]*false' "$ASSISTANT_CONFIG"; then
+    rm -f "$FAILS"
+    lwd_write_state "disabled" 0 "companion_enabled = false in the assistant config; nothing should listen"
+    exit 0
+fi
+lc_rc=0; lc_out="$("$LAUNCHCTL" print "gui/$(id -u)/${LABEL}" 2>&1)" || lc_rc=$?
+if [ "$lc_rc" -ne 0 ]; then
+    case "$lc_out" in
+        *"Could not find service"*)
+            rm -f "$FAILS"
+            lwd_log "${LABEL} is not loaded in launchd; it was booted out on purpose or never installed, no restart"
+            lwd_write_state "not_loaded" 0 "${LABEL} not loaded in launchd"
+            exit 0 ;;
+    esac
+    lwd_log "CANNOT-RUN: launchctl print ${LABEL} rc=${lc_rc}: $(printf '%s' "$lc_out" | head -1)"
+    lwd_write_state "cannot_run" "$prev_fails" "launchctl print rc=${lc_rc}"
+    exit 2
+fi
+PID="$(printf '%s\n' "$lc_out" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -1)"
+
+# ── Probe ────────────────────────────────────────────────────────────
+LAST_CODE="$(lwd_probe)"
+if [ "$LAST_CODE" != "000" ]; then
+    [ "$prev_fails" -gt 0 ] && lwd_log "listener answering again (HTTP ${LAST_CODE}) after ${prev_fails} failed probe(s)"
+    rm -f "$FAILS"
+    lwd_write_state "ok" 0 "listener answered HTTP ${LAST_CODE}"
+    exit 0
+fi
+n=$((prev_fails + 1))
+echo "$n" > "$FAILS"
+lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})"
+if [ "$n" -lt "$FAIL_N" ]; then
+    lwd_write_state "failing" "$n" "no HTTP status from the listener"
+    exit 0
+fi
+
+# ── Backoff ──────────────────────────────────────────────────────────
+rlh="$(lwd_restarts_last_hour)"
+if [ "$rlh" -ge "$MAX_PER_HOUR" ]; then
+    lwd_log "DEGRADED: listener dead for ${n} probes but ${rlh} restarts already in the last hour (limit ${MAX_PER_HOUR}); NOT restarting"
+    lwd_write_state "degraded" "$n" "listener dead; ${rlh} restarts in the last hour reached the limit of ${MAX_PER_HOUR}, automatic restarts paused"
+    exit 1
+fi
+
+# ── Capture BEFORE the restart destroys the state ────────────────────
+lwd_cap_file() { # lwd_cap_file <file>: keep at most CAPTURE_FILE_MAX bytes
+    [ -f "$1" ] || return 0
+    local sz
+    sz=$(wc -c < "$1" | tr -d ' ')
+    if [ "${sz:-0}" -gt "$CAPTURE_FILE_MAX" ]; then
+        head -c "$CAPTURE_FILE_MAX" "$1" > "$1.cap" && mv -f "$1.cap" "$1"
+        printf '\n[truncated at %s of %s bytes]\n' "$CAPTURE_FILE_MAX" "$sz" >> "$1"
+    fi
+}
+ts="$(date -u +%Y%m%dT%H%M%SZ)"
+CAP="${LWD_CAPTURE_ROOT}/${ts}"
+mkdir -p "$CAP"
+{
+    echo "captured_at=$(lwd_iso "$(lwd_now)") pid=${PID:-none} url=${URL} consecutive_failures=${n} restarts_last_hour=${rlh}"
+    printf '%s\n' "$lc_out"
+} > "$CAP/launchctl.txt" 2>&1
+if [ -n "$PID" ]; then
+    sample "$PID" "$SAMPLE_S" -file "$CAP/sample.txt" > "$CAP/sample.stdout" 2>&1 \
+        || echo "sample rc=$? (see sample.stdout)" >> "$CAP/launchctl.txt"
+    [ -s "$CAP/sample.txt" ] || mv -f "$CAP/sample.stdout" "$CAP/sample.txt" 2>/dev/null
+    rm -f "$CAP/sample.stdout"
+    lsof -nP -p "$PID" > "$CAP/lsof.txt" 2>&1 || true
+    ps -o pid,stat,etime,pcpu,rss,command -p "$PID" > "$CAP/ps.txt" 2>&1 || true
+else
+    echo "no pid from launchctl print; sample and lsof skipped" > "$CAP/sample.txt"
+    echo "no pid from launchctl print" > "$CAP/lsof.txt"
+fi
+tail -n 200 "$DAEMON_ERR" > "$CAP/daemon-err-tail.txt" 2>&1 || true
+{
+    echo "== uptime"; uptime 2>&1
+    echo "== vm.loadavg"; sysctl -n vm.loadavg 2>&1
+} > "$CAP/load.txt"
+{
+    echo "== vm_stat"; vm_stat 2>&1
+    echo "== memory_pressure -Q"; memory_pressure -Q 2>&1
+    echo "== hw.memsize"; sysctl -n hw.memsize 2>&1
+} > "$CAP/memory.txt"
+for _f in "$CAP"/*; do lwd_cap_file "$_f"; done
+LAST_CAPTURE="$CAP"
+lwd_log "CAPTURE ${CAP}"
+ls -1d "$LWD_CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -rf "$_old"; done
+
+# ── Restart ──────────────────────────────────────────────────────────
+# SIGCONT first: harmless on a running process, and a STOPPED one cannot act
+# on the SIGTERM that `kickstart -k` sends, so launchd would sit out its exit
+# timeout before the SIGKILL.
+[ -n "$PID" ] && kill -CONT "$PID" 2>/dev/null
+t0="$(lwd_now)"
+echo "$t0" >> "$RESTARTS"
+LAST_RESTART_AT="$(lwd_iso "$t0")"
+rm -f "$FAILS"
+ks_rc=0; ks_out="$("$LAUNCHCTL" kickstart -k "gui/$(id -u)/${LABEL}" 2>&1)" || ks_rc=$?
+lwd_log "RESTART ${LABEL}: kickstart -k rc=${ks_rc} ${ks_out}"
+if [ "$ks_rc" -ne 0 ]; then
+    lwd_write_state "restart_failed" 0 "kickstart -k rc=${ks_rc}: ${ks_out}"
+    exit 1
+fi
+waited=0
+while [ "$waited" -lt "$VERIFY_S" ]; do
+    sleep "$VERIFY_POLL_S"
+    waited=$((waited + VERIFY_POLL_S))
+    LAST_CODE="$(lwd_probe)"
+    if [ "$LAST_CODE" != "000" ]; then
+        lwd_log "RECOVERED: listener answered HTTP ${LAST_CODE} ${waited}s after the restart"
+        lwd_write_state "recovered" 0 "restarted after ${n} failed probes; answered HTTP ${LAST_CODE} ${waited}s later"
+        exit 0
+    fi
+done
+lwd_log "NOT RECOVERED: listener still silent ${VERIFY_S}s after the restart"
+lwd_write_state "restart_unverified" 0 "restarted after ${n} failed probes; still no HTTP status ${VERIFY_S}s later"
+exit 1
+LISTENERWDEOF
+chmod +x "${OSTLER_DIR}/bin/ostler-listener-watchdog"
+
+LISTENER_WD_PLIST="${HOME}/Library/LaunchAgents/com.ostler.listener-watchdog.plist"
+cat > "$LISTENER_WD_PLIST" <<LISTENERWDPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.listener-watchdog</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${HOME}/.ostler/bin/ostler-listener-watchdog</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>${_ollama_rot_logs}/listener-watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>${_ollama_rot_logs}/listener-watchdog.err</string>
+</dict>
+</plist>
+LISTENERWDPLIST
+launchctl bootstrap "gui/$(id -u)" "$LISTENER_WD_PLIST" 2>/dev/null || \
+    launchctl load "$LISTENER_WD_PLIST" 2>/dev/null || true
+
 # ── 3.4 Python check ──────────────────────────────────────────────
 #
 # The verified-3.10+ Python is established in Phase 2.99 before any
@@ -17750,7 +18052,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.18}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.19}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -17863,7 +18165,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="d357083868ed7affe7438ba27318dc8d06d7ba79f222d99d3028bd73f1d13da1"
+DEFAULT_ASSISTANT_TARBALL_SHA256="b9b2484bbc8f05de4009c5ebc77114a475af9d74b86cf73091f02b464429bddb"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -20146,7 +20448,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:3ff1b32fd04f34f95c3987592fea1c723661a961c61422134b2511ba60ae16bc
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4f11ef5051828290eed9b1b620951ee28d04f1fe10102e73cd58b15234105635
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -20190,7 +20492,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:094e2e46e9497fc53d70619c0cda83606da715ca21f3e7d7479dfb9cbe03f5f0
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:87689b8179c1fb06363fa2fb3b8b356ae46a15e584beefb1b9b9f6e9ed1d085a
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -21842,7 +22144,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.18"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.19"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -26240,6 +26542,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.meeting-brief-sender
     com.ostler.ollama-logrotate
     com.ostler.ollama-watchdog
+    com.ostler.listener-watchdog
     com.ostler.stay-awake
     com.ostler.imessage-bridge
     com.creativemachines.ostler.hub-power

@@ -284,6 +284,65 @@ ENGINE_SUPERVISOR_MISSING_FIX_COMMAND = (
 )
 
 
+# ── the companion listener watchdog's own report ─────────────────────
+#
+# Measured 2026-10-17 on Andy's box: the daemon process was alive at 0% CPU
+# for 4 h while its :8443 listener (the one the iPhone app uses) was dead, and
+# nothing noticed. bin: ostler-listener-watchdog (install.sh LISTENERWDEOF)
+# writes ~/.ostler/state/listener_watchdog.json; check_listener_watchdog reads
+# it. Customer copy: "the Ostler iPhone app", never "companion".
+
+LISTENER_DEGRADED_TITLE = (
+    "The Ostler iPhone app cannot reach your Hub, and automatic restarts have paused"
+)
+LISTENER_DEGRADED_DETAIL_FMT = (
+    "The part of your Hub the iPhone app connects to has stopped answering. "
+    "Ostler restarted it {restarts} time(s) in the last hour (most recently "
+    "{last_restart}) and it did not stay up, so it has stopped retrying until "
+    "the hour is up. What the Hub looked like before each restart is saved in "
+    "{capture}."
+)
+LISTENER_DEGRADED_FIX = "Restart the Hub by hand"
+LISTENER_DEGRADED_FIX_COMMAND = (
+    "launchctl kickstart -k gui/$(id -u)/com.creativemachines.ostler.assistant"
+)
+
+LISTENER_UNVERIFIED_TITLE = (
+    "The Ostler iPhone app cannot reach your Hub"
+)
+LISTENER_UNVERIFIED_DETAIL_FMT = (
+    "The part of your Hub the iPhone app connects to stopped answering. "
+    "Ostler restarted it at {last_restart} but it has not answered since "
+    "({detail}). It will try again in a few minutes. Diagnostics are saved in "
+    "{capture}."
+)
+LISTENER_UNVERIFIED_FIX = LISTENER_DEGRADED_FIX
+LISTENER_UNVERIFIED_FIX_COMMAND = LISTENER_DEGRADED_FIX_COMMAND
+
+LISTENER_RECOVERED_TITLE = (
+    "Your Hub restarted itself so the iPhone app could reconnect"
+)
+LISTENER_RECOVERED_DETAIL_FMT = (
+    "The part of your Hub the iPhone app connects to stopped answering, and "
+    "Ostler restarted it at {last_restart}. It is answering again. Restarts "
+    "in the last hour: {restarts}. Diagnostics are saved in {capture}."
+)
+LISTENER_RECOVERED_FIX = "Nothing to do unless this keeps happening"
+LISTENER_RECOVERED_FIX_COMMAND = "ls ~/.ostler/logs/listener-watchdog/"
+
+LISTENER_STATE_UNREADABLE_TITLE = (
+    "Couldn't check whether the iPhone app can reach your Hub"
+)
+LISTENER_STATE_UNREADABLE_DETAIL = (
+    "The watchdog that keeps the iPhone app's connection to your Hub alive "
+    "left a status file the Doctor cannot read, so its state is unknown."
+)
+LISTENER_STATE_UNREADABLE_FIX = "Check the watchdog's log"
+LISTENER_STATE_UNREADABLE_FIX_COMMAND = (
+    "tail -n 50 ~/.ostler/logs/listener-watchdog.log"
+)
+
+
 # ── check_import_readiness ───────────────────────────────────────────
 
 
