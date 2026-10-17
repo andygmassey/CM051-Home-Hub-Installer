@@ -67,6 +67,7 @@ British English; " -- " not em-dashes.
 """
 import argparse
 import copy
+import json
 import glob
 import os
 import re
@@ -470,6 +471,21 @@ HOIST_PYTHON = "actions/setup-python@v5"
 CHECKOUT_WITH_OK = (None, {"fetch-depth": 0})
 
 
+def uses_token(job):
+    """Does a job's EXECUTED text use the GitHub token? Comments do not count:
+    a `# gh pr list fails when...` note is not a call. A member that declares
+    `contents: read` is never narrowed by the family's token (contents: read,
+    pull-requests: read), so this matters only on default permissions."""
+    parts = []
+    for st in job.get("steps") or []:
+        run = str(st.get("run") or "")
+        parts += [l for l in run.splitlines() if not l.strip().startswith("#")]
+        parts.append(json.dumps(st.get("env") or {}))
+        parts.append(json.dumps(st.get("with") or {}))
+    parts.append(json.dumps(job.get("env") or {}))
+    return bool(TOKEN_RE.search("\n".join(parts)))
+
+
 def hoist_shape(job):
     """How a job's leading steps hoist into a family, or None if they do not.
 
@@ -559,9 +575,10 @@ def cmd_generate(args):
         if doc.get("permissions") not in (None, READ_ONLY):
             raise CannotRun(f"ci_fold: {wf} permissions "
                              f"{doc.get('permissions')} are not foldable")
-        if TOKEN_RE.search(text):
-            raise CannotRun(f"ci_fold: {wf} uses a token or secret; a "
-                             f"read-only family token could break it")
+        if doc.get("permissions") is None and uses_token(job):
+            raise CannotRun(f"ci_fold: {wf} uses the token on the repo's "
+                            f"DEFAULT permissions; a read-only family token "
+                            f"could break it")
         ro = job.get("runs-on")
         strat = job.get("strategy") or {}
         if runs_on is None:
@@ -1003,6 +1020,10 @@ def cmd_check(args):
                     problems.append(f"{wf}: its unfolded jobs changed")
             if fjob.get("runs-on") != bjob.get("runs-on"):
                 problems.append(f"{wf}::{jid} runs-on changed")
+            if bdoc.get("permissions") is None and uses_token(bjob):
+                problems.append(f"{wf}::{jid} calls the token on DEFAULT "
+                                f"permissions; the family's read-only token "
+                                f"could narrow it")
             if (fjob.get("strategy") or {}) != (bjob.get("strategy") or {}):
                 problems.append(f"{wf}::{jid} strategy/matrix changed")
             # triggers

@@ -56,7 +56,12 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WF="${REPO}/.github/workflows/cut-gate-wrappers.yml"
+# The gate runs in the macos-latest FAMILY since CM051's CI fold (see
+# .github/ci-fold-families.tsv): cut-gate-wrappers.yml's macOS job became a
+# block of fold-macos-latest.yml, so that is the workflow that must both
+# invoke the gate and be triggered by every pinned file.
+WF="${REPO}/.github/workflows/fold-macos-latest.yml"
+WF_NAME="$(basename "$WF")"
 PIN="${REPO}/cuts/REGISTRY_PIN"
 GATE_REL="tests/test_rollforward_registry_pin.sh"
 SELF_REL="tests/test_rollforward_pin_is_watched_on_prs.sh"
@@ -125,10 +130,13 @@ printf 'pin covers %s file(s); trigger lists %s path(s)\n\n' "$n_pinned" "$n_pat
 # ── 1. The workflow must RUN the gate ──────────────────────────────────────
 # A paths: entry for a gate nobody invokes is the mirror image of dark-on-
 # self-edit: perfectly watched, never executed.
-if grep -qF -- "$GATE_REL" "$WF"; then
-    okay "cut-gate-wrappers.yml invokes ${GATE_REL}"
+# BELOW `jobs:` ONLY. Searched over the whole file, this was satisfied by the
+# gate's own `paths:` entry: measured during the fold, the old workflow kept
+# that entry after its job moved out, and this line still printed "invokes".
+if [ "$(awk '/^jobs:/{f=1} f' "$WF" | grep -cF -- "$GATE_REL")" -gt 0 ]; then
+    okay "${WF_NAME} invokes ${GATE_REL}"
 else
-    red  "cut-gate-wrappers.yml does NOT invoke ${GATE_REL} -- watching a gate that never runs"
+    red  "${WF_NAME} does NOT invoke ${GATE_REL} -- watching a gate that never runs"
 fi
 
 # ── 2. Every pinned file triggers the workflow ─────────────────────────────
@@ -193,5 +201,5 @@ if [ "$fail" -eq 0 ]; then
 fi
 printf 'FAIL: see RED lines above.\n'
 [ -n "$missing" ] && printf 'Add these to the pull_request paths: list in %s\n%s\n' \
-    ".github/workflows/cut-gate-wrappers.yml" "$missing"
+    ".github/workflows/${WF_NAME}" "$missing"
 exit 1
