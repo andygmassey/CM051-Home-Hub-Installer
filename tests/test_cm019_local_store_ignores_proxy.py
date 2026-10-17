@@ -109,10 +109,10 @@ def main() -> int:
 
     result = EnrichmentResult(
         preference_id="00000000-0000-4000-8000-0000000000aa",
-        original_subject="Synthetic Title",
+        original_subject="Synthetic title",
         source=EnrichmentSource.TMDB,
         enriched_at=datetime(2026, 1, 2, 3, 4, 5),
-        matched_title="Synthetic Title",
+        matched_title="Synthetic title",
     )
     arm("_store_enrichment",
         EnrichmentService._store_enrichment(SimpleNamespace(_enriched_ids=set()), result),
