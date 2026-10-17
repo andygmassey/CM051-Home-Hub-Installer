@@ -1373,6 +1373,41 @@
    "auth": [
     "device_bearer"
    ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "doctor POST /api/v1/people/{slug}/suppress-suggestions",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/suppress-suggestions",
+   "ports": [
+    8089
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/suppress-suggestions",
+   "query_params": [],
+   "request_optional": [
+    "reason",
+    "suppressed"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "degraded",
+    "error",
+    "identifiers_recorded",
+    "nodes_matched",
+    "person_uris",
+    "reason",
+    "record_cleared",
+    "record_uri",
+    "record_written",
+    "slug",
+    "suppressed"
+   ],
+   "source": "install.sh"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
    "body_limit_bytes": null,
    "id": "doctor GET /api/v1/person/{slug}/timeline",
    "listener": "doctor",

@@ -1,0 +1,73 @@
+name: suppress-suggestions-loopback
+
+# CM041 #216 loopback half (v1.0.108). THE "STOP SUGGESTING" BUTTON HAD NO
+# ROUTE HOME.
+#
+# The ical-server (:8090) carries api_people_suppress_suggestions
+# (POST /api/v1/people/{slug}/suppress-suggestions), the owner-settable
+# do-not-suggest control that keeps a deceased or unwanted contact out of
+# every proactive surface without deleting them. The wiki person-page "Stop
+# suggesting" button, the iOS person card and the assistant all POST it to the
+# DOCTOR (:8089), the single client-facing auth boundary. The Doctor forwards
+# /api/v1/* paths to the loopback ical-server, substituting the per-install
+# service token for the caller's paired bearer -- but ONLY for the templates
+# listed in DOCTOR_PROXY_PATHS. suppress-suggestions was absent, so the button
+# 404'd at the Doctor and the suppression never persisted. This PR adds the
+# template; the sibling /api/v1/people/{slug}/forget is the proven pattern.
+#
+# TWO JOBS, BECAUSE EACH CAN BE RIGHT WHILE THE OTHER IS WRONG:
+#
+#   proxy-list -- install.sh's DOCTOR_PROXY_PATHS carries the template as a
+#            whole comma field (scripts/check_doctor_proxy_paths.sh, which
+#            rejects a comment-only mention and a prefix match). A dark route
+#            is a 404 at the Doctor however well the ical handler works.
+#
+#   forward -- the value above is forwarded through the REAL
+#            vendor/doctor/agent/proxy.py:proxy_request with the SERVICE token
+#            substituted for the caller's bearer (not reimplemented), an
+#            unpaired caller is refused 401 and nothing is forwarded, and the
+#            negative control proves a missing service token leaks the client
+#            bearer -- so the positive assertion is not green by construction.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/doctor/agent/proxy.py'
+      - 'scripts/check_doctor_proxy_paths.sh'
+      - 'tests/test_doctor_proxy_paths_predicate.sh'
+      - 'tests/test_suppress_suggestions_loopback_reaches_the_store.py'
+      - '.github/workflows/suppress-suggestions-loopback.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  proxy-list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: The suppress template is a whole field in DOCTOR_PROXY_PATHS, not a 404
+        run: /bin/bash scripts/check_doctor_proxy_paths.sh install.sh
+      - name: The required-paths predicate still refuses a comment decoy, a prefix and a shrunk list
+        run: /bin/bash tests/test_doctor_proxy_paths_predicate.sh
+
+  forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies the real proxy.py module imports
+        run: python3 -m pip install --quiet fastapi httpx
+      - name: The suppress loopback forwards with the service token and refuses an unpaired caller
+        run: python3 tests/test_suppress_suggestions_loopback_reaches_the_store.py -v

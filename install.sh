@@ -27185,9 +27185,23 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              day's physiology back joined to its life-context. Without
              this entry the Doctor 404s the read-back even once the
              CM041 health branch ships, so the write lands but nothing
-             can query it across the auth boundary. -->
+             can query it across the auth boundary.
+             #216 (2026-10-17): /api/v1/people/{slug}/suppress-suggestions is
+             the owner-settable do-not-suggest control ("stop suggesting" /
+             "mark as deceased"), the gentle counterpart to /forget. The wiki
+             person-page button, the iOS person card and the assistant all POST
+             it {"suppressed": bool, "reason": str}; the ical-server writes a
+             pwg:SuggestionSuppression record read at query time. It is a
+             path-parameter POST that mirrors /api/v1/people/{slug}/forget
+             exactly, so proxy.py's request.url.path forwarding substitutes the
+             slug and the validate-then-substitute service-token path carries
+             it to :8090. Handler exists on the ical-server (:8090),
+             api_people_suppress_suggestions (CM041 #216, vendored) -- so
+             unlike the pause/governor routes below this has a real upstream
+             and does NOT forward into a 404. Without this entry the wiki
+             "Stop suggesting" button 404s at the Doctor and never persists. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/safari/save,/api/v1/browsing/search,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert,/api/v1/contacts/diff</string>
+        <string>/api/safari/ingest,/api/safari/save,/api/v1/browsing/search,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/people/{slug}/suppress-suggestions,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert,/api/v1/contacts/diff</string>
         <!-- The Doctor's tokenless loopback-read fallback (vendor/doctor/agent/
              proxy.py _local_fallback_allowed) is OFF on every install. Port
              8089 is tailscale-served as raw TCP (install.sh, tailscale serve on
