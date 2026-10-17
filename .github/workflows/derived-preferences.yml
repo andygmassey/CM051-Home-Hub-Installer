@@ -1,0 +1,70 @@
+name: derived-preferences
+
+# "What you like" HAS A PRODUCER (smart-prefs, build after v1.0.108).
+#
+# The wiki page (CM044 what_you_like) and the assistant tool
+# (pwg_derived_preferences) read the derived named graph
+# https://schema.ostler.ai/derived/graph/preferences, and nothing on a box ever
+# wrote it: the CM019 derive engine was not vendored and nothing scheduled it.
+# Three tests, three independent axes, so each step is if: always():
+#
+#   scheduled  the REAL install.sh _install_*_agent functions, run in a sandbox
+#              HOME, generate a LaunchAgent whose wrapper invokes the vendored
+#              derive_runner (RED on the pre-change install.sh: the generated
+#              set was com.ostler.enrich + dedupe-catchup only).
+#   writes     the REAL runner -> engine -> writer -> pyshacl gate writes
+#              pwg:DerivedPreference nodes into pyoxigraph from a synthetic
+#              fixture graph; a failed reader and a SHACL refusal keep the
+#              prior graph; a below-floor fixture is the red control.
+#   doctor     the Doctor row distinguishes every state and knows every
+#              outcome the shipped runner can write.
+#
+# Exit 2 is CANNOT-RUN and fails the step.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/cm019_preferences/services/enrich/src/derive/**'
+      - 'vendor/cm019_preferences/services/enrich/src/derive_runner.py'
+      - 'vendor/cm019_preferences/services/common/strength.py'
+      - 'vendor/cm019_preferences/ontology/**'
+      - 'vendor/cm019_preferences/requirements.txt'
+      - 'vendor/doctor/agent/derived_preferences_status.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'tests/test_derive_preferences_is_scheduled.sh'
+      - 'tests/test_derive_engine_writes_a_derived_preference.py'
+      - 'tests/test_doctor_shows_derived_preferences_status.py'
+      - '.github/workflows/derived-preferences.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  derived-preferences:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: A LaunchAgent the installer writes runs the derive engine
+        if: always()
+        run: bash tests/test_derive_preferences_is_scheduled.sh
+      - name: The vendored engine writes pwg:DerivedPreference nodes from a graph
+        # pyoxigraph is test-only (the Hub runs Oxigraph in a container);
+        # the other three are the shipped requirements the writer imports.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_derive_engine_writes_a_derived_preference.py
+      - name: The Doctor shows whether "What you like" has a producer
+        if: always()
+        run: python3 tests/test_doctor_shows_derived_preferences_status.py
