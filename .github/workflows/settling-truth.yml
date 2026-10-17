@@ -19,6 +19,10 @@ concurrency:
 
 jobs:
   settling-truth:
+    # DEMO ONLY, NEVER MERGE: an invalid expression makes GitHub reject this
+    # workflow at startup, so it creates ZERO jobs and ZERO check-runs. The CI
+    # Required Gate must go RED and name this check.
+    if: ${{ github.event_name == }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
