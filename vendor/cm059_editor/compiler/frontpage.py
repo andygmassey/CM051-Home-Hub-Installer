@@ -428,6 +428,63 @@ def display_subject(it: dict) -> str:
     return subject
 
 
+# The interest card's body says WHERE an interest came from, from the card's
+# own `sources` and `last_seen`, instead of one sentence on every card ("One of
+# the things Ostler reckons you're into."). Source keys measured on a walk box:
+# apple, twitter, linkedin, spotify, apple_tv, whatsapp, foursquare, uber, you.
+_SOURCE_NAMES = {
+    "apple": "Apple", "apple_music": "Apple Music", "apple_tv": "Apple TV",
+    "spotify": "Spotify", "twitter": "X", "x": "X", "instagram": "Instagram",
+    "facebook": "Facebook", "linkedin": "LinkedIn", "youtube": "YouTube",
+    "whatsapp": "WhatsApp", "foursquare": "Foursquare", "uber": "Uber",
+    "google": "Google", "netflix": "Netflix", "pinterest": "Pinterest",
+    "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon",
+}
+_SOCIAL_SOURCES = {"twitter", "x", "instagram", "facebook", "tiktok", "youtube", "reddit", "pinterest"}
+
+
+def _source_name(key: str, category: str) -> str:
+    k = (key or "").strip().lower()
+    if k == "apple" and category == "music":
+        return "Apple Music"
+    return _SOURCE_NAMES.get(k) or k.replace("_", " ").strip().title()
+
+
+def _join_names(names: list) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def interest_provenance(it: dict, now: datetime) -> str:
+    """One plain sentence: what kind of signal this is and where it came from."""
+    category = (it.get("category") or "").lower()
+    keys = [s for s in (it.get("sources") or []) if isinstance(s, str) and s.strip()]
+    if any(k.lower() == "you" for k in keys):
+        return "You told Ostler about this."
+    keys = keys[:3]
+    if not keys:
+        line = "Picked up from your own data"
+    else:
+        names = list(dict.fromkeys(_source_name(k, category) for k in keys))
+        where = _join_names(names)
+        low = {k.lower() for k in keys}
+        if low == {"linkedin"}:
+            line = "On your LinkedIn profile"
+        elif category == "music":
+            line = f"From your {where} listening"
+        elif low <= _SOCIAL_SOURCES and category in ("interest", "creator", "social", "account", ""):
+            line = f"Followed on {where}"
+        elif category in ("movie", "tv", "film"):
+            line = f"Watched on {where}"
+        elif category == "place":
+            line = f"From your {where} check-ins"
+        else:
+            line = f"From your {where} data"
+    year = str(it.get("last_seen") or "")[:4]
+    if year.isdigit() and int(year) < now.year:
+        line += f", last seen in {year}"
+    return line + "."
+
+
 def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     """Phase C card: one inferred interest, with its evidence and the rate/
     correct affordances. Priority is the interest's own score mapped into the
@@ -444,7 +501,7 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
         "interest", it["id"],
         title=display_subject(it),
         body=("Something to avoid" if it.get("polarity") == "dislike"
-              else "One of the things Ostler reckons you're into."),
+              else interest_provenance(it, now)),
         now=now, domain=it.get("domain"),
         priority=base,
         action={"label": "Spot on", "kind": "strengthen"},
@@ -493,6 +550,7 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
     bench = [it for block in (profile.get("domains") or [])
              for it in (block.get("interests") or [])
              if it.get("polarity") != "dislike"
+             and _fit_for_a_card(it)
              and it.get("id") not in chosen_ids]
     if not bench:
         return picked[-n:] if n else []
@@ -520,6 +578,20 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
     return out or (picked[-n:] if n else [])
 
 
+# Flags that mean "this is not a clean statement of an interest": prose, a
+# bare link, nothing, or a mail/calendar subject line. The profile already
+# sinks their confidence; the hunch and rotation selectors must not surface
+# them at all (Ostler #30: a LinkedIn recommendation paragraph became "A hunch").
+_UNFIT_FOR_A_CARD_FLAGS = frozenset({
+    "too_long", "too_short", "empty", "url_only",
+    "email_reply_prefix", "email_thread", "dated_subject",
+})
+
+
+def _fit_for_a_card(it: dict) -> bool:
+    return not (_UNFIT_FOR_A_CARD_FLAGS & set(it.get("flags") or ()))
+
+
 def exploration_pick(profile: dict, picked: list[dict],
                      exclude_ids: set | None = None) -> dict | None:
     """The E4 anti-filter-bubble pick: the strongest liked interest that did
@@ -531,6 +603,7 @@ def exploration_pick(profile: dict, picked: list[dict],
     pool = [it for block in profile.get("domains", [])
             for it in block.get("interests", [])
             if it.get("polarity") != "dislike"
+            and _fit_for_a_card(it)
             and it.get("id") not in picked_ids]
     if not pool:
         return None
@@ -664,7 +737,7 @@ def _top_interests(profile: dict, exclude_ids: set | None = None) -> list[dict]:
             pool.append(it)
     pool.sort(key=lambda it: it.get("score", 0.0), reverse=True)
     for it in pool:
-        if it.get("id") in exclude_ids:
+        if it.get("id") in exclude_ids or not _fit_for_a_card(it):
             continue
         dom = it.get("domain", "Other")
         if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:

@@ -24,8 +24,102 @@ set -uo pipefail
 
 DIR="${1:-}"
 DO_UNZIP=0
+DO_LOOSE=0
 [[ "${2:-}" == "--unzip" ]] && DO_UNZIP=1
+[[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
+
+# --- 0. LOOSE FILES: the ONE table both detectors read (#30, 2026-10-15) ------
+#
+# Usage: ostler-detect-exports.sh <dir> --loose
+# Prints one  "LABEL<TAB>path<TAB>VERDICT<TAB>REASON"  line per loose data file
+# under <dir>, where VERDICT is "import" (the importer behind ostler-import can
+# read it) or "skip" (recognised, and REASON says in plain words why it will
+# not be imported). Exit 0 if >=1 line, 1 if none.
+#
+# MEASURED on a synthetic walk box (studio29, v1.0.107 candidate): a loose
+# calendar.ics, emails.mbox and contacts.vcf in ~/Downloads. The install-time
+# scan listed two of them as "Found 2 GDPR export(s)" from its OWN find arms;
+# the Downloads watcher matched none of them, exited 0 before it logged
+# anything, and the customer was never told. Two detectors reading the same
+# folder disagreed, and the one that runs for the life of the install was the
+# blind one. This table is the fix for the SHAPE: both callers read it, so
+# they cannot disagree again. Add a format HERE, never in a caller.
+#
+# Columns, <US>-separated: label, extended regex on the LOWERCASED basename,
+# minimum bytes the importer reads, and the reason it is skipped when no
+# importer exists for it (empty = importable). Each row is checked against
+# the consumer that actually reads it:
+#   Mailbox   ostler_fda.universal_import _detect_mbox (any non-empty .mbox)
+#   Calendar  contact_syncer.import_all, which skips an .ics of 1000 bytes or
+#             less, so 1001 is the floor here and a smaller file is reported
+#             as skipped rather than as imported
+#   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
+#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, for the name
+#             WhatsApp's "Export chat" gives the file
+#   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
+#             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
+#             app's own export. Recognised, so it is never silent, and skipped
+#             with a reason the customer can act on.
+LOOSE=(
+  $'Mailbox\x1f\\.mbox$\x1f1\x1f'
+  $'Calendar\x1f\\.ics$\x1f1001\x1f'
+  $'Evernote\x1f\\.enex$\x1f1\x1f'
+  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1f'
+  $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
+)
+
+if [[ "$DO_LOOSE" == "1" ]]; then
+    _lx_res=""
+    for _lx in "${LOOSE[@]}"; do
+        _lx_rest="${_lx#*$'\x1f'}"
+        _lx_res="${_lx_res}${_lx_res:+$'\x1f'}${_lx_rest%%$'\x1f'*}"
+    done
+    _lx_any=1
+    # Bounded the way the install-time calendar arm was (2026-09-12, Andy:
+    # "change the installer, not the box"): depth 6 covers every export shape
+    # measured so far (Takeout/Calendar is depth 4), -xdev keeps a mounted disk
+    # image out of it, and package bundles are pruned so a file inside an .app
+    # or a photo library is never reported as the customer's own. -maxdepth
+    # goes first because GNU find warns when it follows a primary. No file
+    # cap: a silent cap is how a fourth calendar went missing.
+    #
+    # The regexes reach awk through ENVIRON, NEVER `awk -v`: -v runs escape
+    # processing, which turns `\.mbox$` into `.mbox$`, and measured on BSD awk
+    # a file named "fooxmbox" was then reported as a mailbox.
+    while IFS=$'\t' read -r _lx_idx _lx_path; do
+        [[ -n "$_lx_path" && -f "$_lx_path" ]] || continue
+        _lx_row="${LOOSE[$_lx_idx]}"
+        _lx_label="${_lx_row%%$'\x1f'*}"
+        _lx_t="${_lx_row#*$'\x1f'}"; _lx_t="${_lx_t#*$'\x1f'}"
+        _lx_min="${_lx_t%%$'\x1f'*}"
+        _lx_noimp="${_lx_t#*$'\x1f'}"
+        _lx_size="$(wc -c < "$_lx_path" 2>/dev/null | tr -d ' ')"
+        case "$_lx_size" in ''|*[!0-9]*) _lx_size="" ;; esac
+        if [[ -z "$_lx_size" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "Ostler could not read the file"
+        elif [[ -n "$_lx_noimp" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "$_lx_noimp"
+        elif [[ "$_lx_size" -eq 0 ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is empty"
+        elif [[ "$_lx_size" -lt "$_lx_min" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is too small to hold anything Ostler can read"
+        else
+            printf '%s\t%s\timport\t\n' "$_lx_label" "$_lx_path"
+        fi
+        _lx_any=0
+    done < <(find "$DIR" -maxdepth 6 -xdev \
+                  \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
+                     -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
+                     -o -name '*.photoslibrary' -o -name '*.aplibrary' \
+                     -o -name '*.fcpbundle' -o -name '*.imovielibrary' \
+                     -o -name '*.tvlibrary' -o -name '*.musiclibrary' \
+                     -o -name '*.sparsebundle' \) -prune \
+                  -o -type f -print \
+             | OSTLER_LX_RES="$_lx_res" awk -F/ 'BEGIN { n = split(ENVIRON["OSTLER_LX_RES"], R, "\037") }
+                   { b = tolower($NF); for (i = 1; i <= n; i++) if (b ~ R[i]) { print (i - 1) "\t" $0; next } }')
+    exit "$_lx_any"
+fi
 
 # platform <US> extended-regex of signature basenames (a file OR dir whose
 # name is specific enough to identify the source export). Kept deliberately

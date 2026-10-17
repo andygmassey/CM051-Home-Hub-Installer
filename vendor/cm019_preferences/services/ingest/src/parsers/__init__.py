@@ -9,6 +9,7 @@ from .amazon import AmazonParser
 from .linkedin import LinkedInParser
 from .reddit import RedditParser
 from .apple import AppleParser
+from .apple_music_library import AppleMusicLibraryParser
 from .twitter import TwitterParser
 from .youtube import YouTubeParser
 from .ebay import eBayParser
@@ -35,6 +36,7 @@ __all__ = [
     "LinkedInParser",
     "RedditParser",
     "AppleParser",
+    "AppleMusicLibraryParser",
     "TwitterParser",
     "YouTubeParser",
     "eBayParser",

@@ -374,6 +374,38 @@ fi
 # WRONG on origin/main before this branch existed: the skip is at :249 there. It
 # is prose in both places, nothing executes a line lookup into this file, so it
 # is left for its owners rather than fixed under a freeze.
+# ── EVERY FORGET RUNS FROM A TRAP (walk #27 shape sweep S7c) ──
+# The forgets used to run only at the end of a walk that reached the end, so an
+# aborted walk (Ctrl-C, a dropped ssh, a crash) kept everything it had seeded.
+# walk_cleanup runs once, from the normal path below or from this trap on EXIT,
+# INT or TERM; each forget is gated on its own seed state, and nothing writes in
+# a read-only run.
+WALK_CLEANUP_DONE=0
+WALK_TEMP_FILES=""
+walk_cleanup() {
+    [ "$WALK_CLEANUP_DONE" -eq 0 ] || return 0
+    WALK_CLEANUP_DONE=1
+    if [ "$READ_ONLY" -eq 0 ]; then
+        declare -F grounding_seed_forget >/dev/null && { grounding_seed_forget || true; }
+        declare -F preference_seed_forget >/dev/null && { preference_seed_forget || true; }
+        declare -F conversation_seed_forget >/dev/null && { conversation_seed_forget || true; }
+        declare -F usage_seed_forget >/dev/null && { usage_seed_forget || true; }
+        declare -F owner_employer_seed_forget >/dev/null && { owner_employer_seed_forget || true; }
+        declare -F conversation_capture_seed_forget >/dev/null && { conversation_capture_seed_forget || true; }
+        declare -F scale_fixture_forget >/dev/null && { scale_fixture_forget || true; }
+        declare -F companion_walk_unpair >/dev/null && { companion_walk_unpair || true; }
+    fi
+}
+_walk_exit_trap() {
+    local rc=$?
+    walk_cleanup
+    # shellcheck disable=SC2086
+    [ -z "$WALK_TEMP_FILES" ] || rm -f $WALK_TEMP_FILES
+    return $rc
+}
+trap _walk_exit_trap EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 . "$HERE/lib/grounding_seed.sh"
 
 # 🔴 THE SEED STATE REACHED NOTHING, AND THAT IS WHY 17 OF 21 COMMITTED WALKS
@@ -468,6 +500,13 @@ fi
 # this seed had put a conversation through the device-facing door. Gated on
 # READ_ONLY like every writer: it mints a device bearer and POSTs two
 # synthetic transcripts.
+# Walk #27 item 5a: record the walk start and whether a passkey existed
+# BEFORE anything pairs, so the cleanup after the probes revokes only the
+# walk's own synthetic companion (lib/companion_unpair.sh).
+. "$HERE/lib/companion_unpair.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+companion_walk_baseline || true
+fi
 . "$HERE/lib/conversation_capture_seed.sh"
 if [ "$READ_ONLY" -eq 0 ]; then
     # Flush left: see the grounding seed's comment above this same shape.
@@ -681,7 +720,9 @@ CANNOT_REASONS="$(mktemp)"
 # grounded cost across walks 9 and 10, red both times and undiagnosed both
 # times.
 FAIL_REASONS="$(mktemp)"
-trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
+# Removed by _walk_exit_trap (one EXIT trap: a second `trap ... EXIT` here
+# would replace the cleanup trap above).
+WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
 
 # OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
 # appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>,
@@ -745,6 +786,18 @@ if [ -z "$ONLY" ] && [ "${OSTLER_PROMOTE_PREV_FAILS:-1}" = "1" ]; then
         printf '\n\n'
     fi
 fi
+
+# THE OWNER-KNOWLEDGE SCORE RUNS LAST. It seeds a synthetic persona into the
+# graph and the conversation store (and purges it before it returns), so any
+# probe that counts or reads people after it would be measuring the seed.
+# Applied after promotion on purpose: the probe declares WALK_WRITES, so
+# promotion never moves it, and this puts it behind the p..z probes that the C
+# sort would otherwise run after it. tests/test_owner_score_instrument_is_valid.sh
+# asserts the order.
+PROBES="$(pin_last owner_knowledge_score)"
+# The probe seeds only on a walk that may write: --only implies --read-only, and
+# the probe reads this to leave the graph alone.
+export OSTLER_WALK_READ_ONLY="$READ_ONLY"
 
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
@@ -896,6 +949,13 @@ conversation_seed_forget || true
 usage_seed_forget || true
 owner_employer_seed_forget || true
 conversation_capture_seed_forget || true
+if [ "$READ_ONLY" -eq 0 ]; then
+scale_fixture_forget || true
+companion_walk_unpair || true
+fi
+# Done on the normal path: the EXIT trap (walk_cleanup, above) only acts on an
+# abort. tests/test_walk_cleanup_runs_on_abort.sh pins that the two lists match.
+WALK_CLEANUP_DONE=1
 
 # But post_walk_qa.sh replays probes against this box AFTER this script exits
 # (the cut manifest's runtime proofs), and the compiled wiki still counts the

@@ -14,7 +14,9 @@ ICAL = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_
 # The predicate now lives in the stdlib-only people_rules.py (single source
 # shared with cm048's reminders_push); people_list stays in ical-server.py.
 SRC = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/people_rules.py"
-WANT = {"_is_nameless_name", "_NAMELESS_BARE_ID_CHARS"}
+WANT = {"_is_nameless_name", "_NAMELESS_BARE_ID_CHARS", "_digit_count",
+        "_is_bare_phone_shape", "_is_short_code", "_is_sender_id_handle", "_all_handles_are_sender_ids",
+        "_is_provisional_phone_name"}
 
 try:
     text = SRC.read_text()
@@ -51,9 +53,30 @@ if f:
     # context).
     _lid_jid = "1" + "5550101234" + "@s.whatsapp.net"
     _bare_phone = "+1 " + "(555) " + "010-" + "1234"
-    for nameless in (_lid_jid, _bare_phone, "", None, "   ", "x@lid"):
+    # Excluded, each with its declared reason: empty, JID, short code (6
+    # digits or fewer), alphanumeric sender ID.
+    for nameless in (_lid_jid, "", None, "   ", "x@lid",
+                     "".join("87099"), "".join("123456")):
         check(f"nameless: {nameless!r}", f(nameless))
-    for real in ("Alice Example", "Bob Example"):
+    # Sender IDs are decided by HANDLE, never by the display name.
+    for nm, hs in (("HSBCALERT", ["HSBCALERT"]), ("NHS-ALERT", ["NHS-ALERT"]),
+                   ("Bank", ["87099", "AMZN1"])):
+        check(f"nameless by handle: {nm!r} {hs!r}", f(nm, handles=hs))
+    for nm, hs in (("JOHN", ["+447700900001"]), ("JOHN", None), ("R2D2", ["r2d2@example.invalid"]),
+                   ("HSBCALERT", None), ("AMAZON", [])):
+        check(f"NOT nameless without sender-ID-only handles: {nm!r} {hs!r}", not f(nm, handles=hs))
+    check("a carded ALERT with only a sender-ID handle is shown", not f("ALERT", has_card=True, handles=["ALERT"]))
+    # A phone-only person is SHOWN (ruling 2026-08-10), never dropped.
+    pf = ns.get("_is_provisional_phone_name")
+    check("_is_provisional_phone_name exists", pf is not None)
+    for shown in (_bare_phone, "+44" + "7700900001", "(555) 010 " + "0100"):
+        check(f"NOT nameless (phone-only, provisional): {shown!r}", not f(shown))
+        check(f"provisional mark: {shown!r}", bool(pf and pf(shown)))
+    # A carded name always shows, whatever its case (Archie's ruling).
+    for carded in ("JOHN", "ALEX", "JEAN-LUC", "MARY-JANE", "J.R.", "HSBCALERT"):
+        check(f"carded {carded!r} is NOT nameless", not f(carded, has_card=True))
+    check("a human name carries no provisional mark", bool(pf) and not pf("Alice Example"))
+    for real in ("Alice Example", "Bob Example", "Marta"):
         check(f"NOT nameless: {real!r}", not f(real))
 
 ical_text = ICAL.read_text()
@@ -61,7 +84,7 @@ body = ical_text[ical_text.index("def people_list("):]
 body = body[: body.index("\ndef ", 10)]
 check(
     "people_list calls _is_nameless_name on the display name (not just `if not name`)",
-    "_is_nameless_name(name)" in body,
+    "_is_nameless_name(name" in body,
 )
 
 print(f"\n{'PASS' if fails == 0 else 'FAIL'}: {fails} failed")

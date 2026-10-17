@@ -177,9 +177,10 @@ Output ONE JSON object. No preamble, no explanation outside the JSON:
     (service provider's org + contact name), action items, decisions.
     No summary, no relationship signals, no coach. Short note written
     to conversations store; no Person-tier or Coach-tier output.
-  - `none` — genuinely skip. Use for empty/test transcripts, solo
-    voice memos, or conversations that should have been routed to
-    CM040 (AI chats with the user's assistant / Claude / Kimi / etc.).
+  - `none` - genuinely skip. Use for empty transcripts or conversations
+    that should have been routed to CM040 (AI chats with the user's
+    assistant / Claude / Kimi / etc.). NEVER for a voice memo or a note
+    to self: those are kept, and the pipeline decides how to treat them.
 - `suggested_type_slug` = `"{setting}_{shape}_{stakes}"` — used by
   downstream to pick the enrichment prompt. Consistent snake_case.
 
@@ -205,9 +206,9 @@ Output ONE JSON object. No preamble, no explanation outside the JSON:
   quality matters and it's not transactional in a `service` sense.
 - **Family meeting about a shared decision** (schooling, moving house,
   eldercare). `family + meeting + high`.
-- **Voice memo to oneself, no other participants.** Not a conversation.
-  `processing_depth: none`, reasoning "solo voice memo, not a
-  conversation."
+- **Voice memo to oneself, no other participants.** Keep it:
+  `processing_depth: full`. Pick the setting from its subject. The
+  pipeline counts the speakers itself and files it as a memo.
 - **AI chat (user ↔ the user's assistant / Claude / Kimi / other agent).** Not this
   pipeline's job. `processing_depth: none`, reasoning "AI chat, route
   to CM040 instead."

@@ -129,3 +129,20 @@ if __name__ == "__main__":
         fn()
         print(f"ok  {fn.__name__}")
     print(f"\nPASS: {len(fns)} calendar-confirm tests")
+
+
+def test_every_type_the_confirm_helper_writes_has_an_explicit_reader_privacy():
+    """Writer/reader contract: each calendar type lib/ostler-confirm-calendars.py
+    can write must be an explicit key of the shipped CM041 reader's table, so a
+    confirmed type is never silently demoted to the fail-closed L3 default."""
+    spec = importlib.util.spec_from_file_location(
+        "cm041_google_calendar",
+        str(REPO / "vendor" / "cm041" / "contact_syncer" / "google_calendar.py"),
+    )
+    gc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gc)
+
+    missing = [t for t in cc.VALID_TYPES if t not in gc._TYPE_DEFAULT_PRIVACY]
+    assert not missing, f"types written by the helper but unknown to the reader: {missing}"
+    # ``other`` is documented as personal-grade; it must not be L3.
+    assert gc._TYPE_DEFAULT_PRIVACY["other"] != "L3"

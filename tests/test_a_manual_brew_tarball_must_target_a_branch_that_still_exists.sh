@@ -40,23 +40,25 @@ fail_test() {
 }
 ok() { echo "ok: $*"; }
 
-if ! grep -q 'Homebrew/brew/tarball/' "$INSTALL_SH"; then
-    fail_test "install.sh no longer contains a Homebrew/brew/tarball/ fetch. If the manual tarball install path was removed, remove this test with it rather than leave it to fail blind."
-elif grep -q 'Homebrew/brew/tarball/master' "$INSTALL_SH"; then
-    fail_test "install.sh still fetches https://github.com/Homebrew/brew/tarball/master. Homebrew retired the master branch, so brew --version exits 1 immediately after extraction with a migrate-to-main error. Use tarball/main."
+# RED TEAM DMG #27 F3-1 (walk #27 item 6b) replaced the branch fetch
+# (tarball/main) with a pinned RELEASE TAG verified by sha256, which is what
+# tests/test_homebrew_bootstrap_is_pinned.sh checks in full. What this test
+# still owns: the manual no-sudo path exists and never targets the retired
+# master branch (or any branch).
+if ! grep -q 'Homebrew/brew/archive/refs/tags/' "$INSTALL_SH"; then
+    fail_test "install.sh no longer fetches a Homebrew/brew release tag archive. If the manual tarball install path was removed, remove this test with it rather than leave it to fail blind."
 else
-    ok "install.sh does not fetch the retired tarball/master branch"
+    ok "install.sh fetches a pinned Homebrew/brew release tag"
 fi
-
-if grep -q 'Homebrew/brew/tarball/main\b' "$INSTALL_SH"; then
-    ok "install.sh fetches the live tarball/main branch"
+if grep -qE 'Homebrew/brew/tarball/(master|main)' "$INSTALL_SH"; then
+    fail_test "install.sh still fetches a Homebrew/brew BRANCH tarball. Branches move (and master was retired); fetch the pinned tag."
 else
-    fail_test "install.sh does not fetch https://github.com/Homebrew/brew/tarball/main. The manual no-sudo tarball install path must target a branch that still exists."
+    ok "install.sh does not fetch a moving Homebrew/brew branch"
 fi
 
 echo ""
 if [[ $failures -eq 0 ]]; then
-    echo "PASS: the manual Homebrew tarball install targets a branch that still exists."
+    echo "PASS: the manual Homebrew tarball install targets a pinned release tag."
     exit 0
 else
     echo "FAIL: ${failures} violation(s)." >&2

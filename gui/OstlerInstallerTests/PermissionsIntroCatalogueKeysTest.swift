@@ -45,6 +45,8 @@ final class PermissionsIntroCatalogueKeysTest: XCTestCase {
         "permissions_prewarm.intro_reminders_reason",
         "permissions_prewarm.intro_photos_title",
         "permissions_prewarm.intro_photos_reason",
+        "permissions_prewarm.intro_music_title",
+        "permissions_prewarm.intro_music_reason",
         "permissions_prewarm.intro_privacy_note",
         "permissions_prewarm.intro_grant_button",
         "permissions_prewarm.intro_skip_button",
@@ -58,6 +60,7 @@ final class PermissionsIntroCatalogueKeysTest: XCTestCase {
         "permissions_prewarm.calendar_denied",
         "permissions_prewarm.reminders_denied",
         "permissions_prewarm.photos_denied",
+        "permissions_prewarm.music_denied",
     ]
 
     // MARK: - Catalogue load

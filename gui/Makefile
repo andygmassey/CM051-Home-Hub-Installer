@@ -210,7 +210,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.5.16
+DAEMON_VERSION       ?= 0.5.19
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -304,7 +304,7 @@ DAEMON_VERSION       ?= 0.5.16
 # has been published at ostler-ai/ostler-assistant. Cutting v1.0.91 before
 # that second artefact exists will fail exactly as v1.0.81 did (see the
 # v1.0.81 note above) -- out of scope for this pin, flagged for whoever cuts.
-DAEMON_SHA256        ?= c77051d9323c1484ee213ae983ec52cc764bda19563aa2790aca00515f4b672a
+DAEMON_SHA256        ?= b9b2484bbc8f05de4009c5ebc77114a475af9d74b86cf73091f02b464429bddb
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -425,7 +425,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # produced is byte-identical (sha256 2b65537ee0...) to the copy already
 # grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
 # and both binaries carry the same *_FRONTEND_COMMIT marker.
-HUB_APP_SHA256       ?= 67debd28d47a581b37232835a2305c794f18bab6e8060f44a0d41ad73946dde8
+HUB_APP_SHA256       ?= 22bcf00e10af81e70c6a6bc70c2036aded9a8e204f28fbb87d576187f0423eab
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
@@ -1670,6 +1670,23 @@ sign-python-bundle: guard-local-cut
 	else \
 	    echo "  no ostler-mecard at $$MECARD_BIN -- skipping (standalone sign run)"; \
 	fi
+	$(STEP) "Signing bundled ostler-music-library helper with hardened runtime"
+	# CM051 walk #27 (2026-10-14): ostler-music-library reads the Music app library via
+	# iTunesLibrary. Same shape as ostler-mecard directly above: a nested Mach-O at
+	# Contents/Resources/ostler-music-library, compiled unsigned by the xcodegen
+	# postBuildScript, so it MUST be signed here or notarytool rejects the DMG. Same
+	# identity and the SAME entitlements file as mecard and the outer .app: no new
+	# entitlement. The hardened runtime has no "Media & Apple Music" entitlement to add;
+	# that permission is the NSAppleMusicUsageDescription string plus the customer's click.
+	@MUSIC_BIN="$(APP_PATH)/Contents/Resources/ostler-music-library"; \
+	if [ -f "$$MUSIC_BIN" ]; then \
+	    codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp \
+	        --entitlements "OstlerInstaller/OstlerInstaller.entitlements" \
+	        "$$MUSIC_BIN"; \
+	    echo "  signed ostler-music-library with hardened runtime: $$MUSIC_BIN"; \
+	else \
+	    echo "  no ostler-music-library at $$MUSIC_BIN -- skipping (standalone sign run)"; \
+	fi
 	$(STEP) "Re-signing outer .app to seal inner Python signatures"
 	# CX-33 (2026-05-24): --entitlements MUST be passed here, otherwise the
 	# --force --deep re-sign STRIPS the disable-library-validation entitlement
@@ -1723,6 +1740,13 @@ sign-python-bundle: guard-local-cut
 	    codesign -dvvv "$$MECARD_BIN" 2>&1 | grep -Eq "flags=.*runtime" \
 	        && echo "  ✓ hardened runtime present on ostler-mecard" \
 	        || (echo "  ✗ hardened runtime MISSING from ostler-mecard -- DMG will fail notarisation"; exit 1); \
+	fi
+	@echo "Post-sign verify: ostler-music-library hardened runtime (must be enabled)"
+	@MUSIC_BIN="$(APP_PATH)/Contents/Resources/ostler-music-library"; \
+	if [ -f "$$MUSIC_BIN" ]; then \
+	    codesign -dvvv "$$MUSIC_BIN" 2>&1 | grep -Eq "flags=.*runtime" \
+	        && echo "  ✓ hardened runtime present on ostler-music-library" \
+	        || (echo "  ✗ hardened runtime MISSING from ostler-music-library -- DMG will fail notarisation"; exit 1); \
 	fi
 
 # ---------------------------------------------------------------------------
@@ -2746,7 +2770,7 @@ verify-dmg-contents:
 	fi; \
 	RES="$$MOUNT/$(APP_NAME).app/Contents/Resources"; \
 	MISSING=""; \
-	for p in Ostler.app install.sh ostler-mecard ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline cm019_preferences cm021 contact_syncer meeting_syncer identity_resolver email-ingest imessage-bridge whatsapp_source email_source spoken_source imessage_source assistant-agent; do \
+	for p in Ostler.app install.sh ostler-mecard ostler-music-library ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline cm019_preferences cm021 contact_syncer meeting_syncer identity_resolver email-ingest imessage-bridge whatsapp_source email_source spoken_source imessage_source assistant-agent; do \
 	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
 	done; \
 	OSTLER_APP_OK=1; \
@@ -2801,6 +2825,15 @@ verify-dmg-contents:
 	    codesign -dvvv "$$MECARD_BIN_M" 2>&1 | grep -E "^CodeDirectory" | grep -q "runtime" || MECARD_SIGN_OK=0; \
 	else \
 	    MECARD_SIGN_OK=0; \
+	fi; \
+	MUSIC_SIGN_OK=1; \
+	MUSIC_BIN_M="$$RES/ostler-music-library"; \
+	if [ -e "$$MUSIC_BIN_M" ]; then \
+	    codesign -dvv "$$MUSIC_BIN_M" 2>&1 | grep -q "Authority=Developer ID Application: Creative Machines Limited" || MUSIC_SIGN_OK=0; \
+	    codesign -dvv "$$MUSIC_BIN_M" 2>&1 | grep -q "TeamIdentifier=$(TEAM_ID)" || MUSIC_SIGN_OK=0; \
+	    codesign -dvvv "$$MUSIC_BIN_M" 2>&1 | grep -E "^CodeDirectory" | grep -q "runtime" || MUSIC_SIGN_OK=0; \
+	else \
+	    MUSIC_SIGN_OK=0; \
 	fi; \
 	hdiutil detach "$$MOUNT" >/dev/null 2>&1 || true; \
 	if [ -n "$$MISSING" ]; then \
@@ -2879,7 +2912,14 @@ verify-dmg-contents:
 	    echo "       the DMG -- a burnt cut cycle." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon + ostler-mecard + embedded (B-lite) ostler-payload present (Hub build-SHA $$HUB_SHA)"
+	if [ "$$MUSIC_SIGN_OK" = "0" ]; then \
+	    echo "ERROR: bundled ostler-music-library is NOT Developer-ID signed + hardened-runtime (Team $(TEAM_ID))." >&2; \
+	    echo "       CM051 walk #27: the Apple Music helper is a nested Mach-O at Contents/Resources/ostler-music-library;" >&2; \
+	    echo "       sign-python-bundle must re-sign it Developer-ID --options runtime before packaging, else" >&2; \
+	    echo "       notarytool rejects the DMG." >&2; \
+	    exit 1; \
+	fi; \
+	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon + ostler-mecard + ostler-music-library + embedded (B-lite) ostler-payload present (Hub build-SHA $$HUB_SHA)"
 
 # ---------------------------------------------------------------------------
 # verify-stapling: post-cut integrity gate for notarisation ticket staples.

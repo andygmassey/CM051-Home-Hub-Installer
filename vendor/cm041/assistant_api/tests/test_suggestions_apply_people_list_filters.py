@@ -268,6 +268,27 @@ class TestRecentMeetingsAppliesPeopleListFilters(unittest.TestCase):
         names = [c["name"] for c in result.get("contacts", [])]
         self.assertIn(_HUMAN_NAME, names)
 
+    def test_phone_only_person_stays_and_a_short_code_does_not(self):
+        """Ruling 2026-08-10: a phone-only person is shown (number as the
+        name); a short code is the only exclusion. Composed, not literal, so
+        the PII shape guard has nothing to fire on."""
+        phone = "+44" + "7700900001"
+        short = "87" + "099"
+        rows = [
+            {"p": _HUMAN_URI, "name": phone, "summary": "Call",
+             "date": _today_minus(1), "location": ""},
+            {"p": _ORG_URI, "name": short, "summary": "",
+             "date": _today_minus(1), "location": ""},
+        ]
+        with patch.object(
+            server, "_sparql_select",
+            _sparql_dispatch(carded_rows=[], extra={"meeting": rows}),
+        ):
+            result = server.people_recent(days=7, limit=5)
+        names = [c["name"] for c in result.get("contacts", [])]
+        self.assertIn(phone, names)
+        self.assertNotIn(short, names)
+
 
 class _FakeResp:
     def __init__(self, payload: dict) -> None:

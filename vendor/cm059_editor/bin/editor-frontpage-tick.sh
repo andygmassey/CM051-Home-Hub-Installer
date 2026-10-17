@@ -338,3 +338,31 @@ if [ -f "$FRONT_PAGE_JSON" ]; then
         log "front_page.json unchanged since the wiki last saw it; leaving the daily wiki-recompile schedule alone"
     fi
 fi
+
+# --- Step 4: tell the context digest when the interest profile changes --
+# CM051 walk #27: the digest's "Preferences and things to keep in mind" was
+# EMPTY while the preferences store held 40,315 points. Measured read-only on
+# macmini16-walk: the digest (context-refresh) reads /api/v1/preferences,
+# which serves THIS tick's interest_profile.json. The digest last ran at
+# 05:14 local; this tick wrote the first non-empty profile at 05:25 (0 before,
+# while hydration was still landing); the next digest was 06:48. The walk read
+# it in between. Same writer/reader gap as Step 3, same fix: when the
+# profile's interest count changes, ask launchd to run the digest now.
+# Count, not hash: the file carries generated_at, so it changes every tick.
+INTEREST_PROFILE="${OSTLER_INTEREST_PROFILE:-${OSTLER_PREFERENCES_DIR:-$HOME/.ostler/preferences}/interest_profile.json}"
+INTEREST_SEEN="${OSTLER_DIR}/state/context-refresh-last-interest-count"
+CONTEXT_REFRESH_LABEL="com.creativemachines.ostler.context-refresh"
+if [ -f "$INTEREST_PROFILE" ]; then
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+    _new_n="$("$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); i=d.get("interests"); print(len(i) if isinstance(i, list) else 0)' "$INTEREST_PROFILE" 2>/dev/null)" || true
+    _old_n="$(cat "$INTEREST_SEEN" 2>/dev/null || true)"
+    if [ -n "$_new_n" ] && [ "$_new_n" != "$_old_n" ]; then
+        printf '%s' "$_new_n" > "$INTEREST_SEEN"
+        log "interest profile now holds ${_new_n} interests (was ${_old_n:-<none>}); kickstarting ${CONTEXT_REFRESH_LABEL} so the digest's Preferences catch up within one tick"
+        _kick_rc=0
+        launchctl kickstart "gui/$(id -u)/${CONTEXT_REFRESH_LABEL}" || _kick_rc=$?
+        if [ "$_kick_rc" -ne 0 ]; then
+            log "launchctl kickstart ${CONTEXT_REFRESH_LABEL} returned rc=${_kick_rc}; the digest's own schedule will pick this up instead"
+        fi
+    fi
+fi

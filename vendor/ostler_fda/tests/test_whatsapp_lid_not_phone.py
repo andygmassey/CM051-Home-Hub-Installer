@@ -112,6 +112,10 @@ class TestIngestWhatsapp:
 
     @patch("ostler_fda.pwg_ingest._update_last_contact")
     @patch("ostler_fda.pwg_ingest._sparql_update")
+    # DMG #27 S2: the writer follows pwg:mergedInto before it checks
+    # existence, and skips the person when the store cannot be read. No
+    # store here, so that lookup is stubbed to "never merged".
+    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
     @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
     @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
     def test_lid_shaped_participant_is_never_tagged_phone(
@@ -131,6 +135,10 @@ class TestIngestWhatsapp:
 
     @patch("ostler_fda.pwg_ingest._update_last_contact")
     @patch("ostler_fda.pwg_ingest._sparql_update")
+    # DMG #27 S2: the writer follows pwg:mergedInto before it checks
+    # existence, and skips the person when the store cannot be read. No
+    # store here, so that lookup is stubbed to "never merged".
+    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
     @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
     @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
     def test_genuine_phone_participant_is_tagged_phone(
@@ -150,6 +158,10 @@ class TestIngestWhatsapp:
 
     @patch("ostler_fda.pwg_ingest._update_last_contact")
     @patch("ostler_fda.pwg_ingest._sparql_update")
+    # DMG #27 S2: the writer follows pwg:mergedInto before it checks
+    # existence, and skips the person when the store cannot be read. No
+    # store here, so that lookup is stubbed to "never merged".
+    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
     @patch("ostler_fda.pwg_ingest._person_exists", return_value=True)
     @patch("ostler_fda.pwg_ingest._identifier_exists", return_value=False)
     @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)

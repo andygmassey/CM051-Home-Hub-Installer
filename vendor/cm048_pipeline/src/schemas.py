@@ -59,7 +59,9 @@ from typing import Any, Literal
 # ``prompts.enrichment_prompt_name_for``. Cleaner than reusing ``work``
 # and overloading ``shape`` to mean "thread vs. message" for email.
 Setting = Literal["work", "social", "family", "public", "service", "correspondence"]
-Shape = Literal["meeting", "one-on-one", "group-convo", "presentation", "casual"]
+# "memo" is set by the pipeline, never the model: a spoken capture with one
+# speaker (capture_truth.is_single_speaker_capture).
+Shape = Literal["meeting", "one-on-one", "group-convo", "presentation", "casual", "memo"]
 Stakes = Literal["high", "medium", "low"]
 SensitivityLevel = Literal["normal", "personal", "sensitive", "highly-sensitive"]
 ProcessingDepth = Literal["full", "minimal", "none"]

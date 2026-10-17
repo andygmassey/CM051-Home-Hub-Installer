@@ -12,6 +12,7 @@ on:
       - 'scripts/owner_score.sh'
       - 'scripts/box_walk_probes/probes/owner_knowledge_score.sh'
       - 'scripts/walk_promote_scope.tsv'
+      - 'scripts/box_walk_probes/lib/promote_order.sh'
       - 'tests/test_owner_score_instrument_is_valid.sh'
       - 'tests/test_an_advisory_probe_is_not_a_walk_fail.sh'
       - 'scripts/box_walk_probes/run_box_walk.sh'
@@ -33,6 +34,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # the seed/purge proof runs against the real Oxigraph engine, not a stub
+      - name: Install pyoxigraph
+        run: python3 -m pip install pyoxigraph
       - name: The owner-knowledge instrument is valid
         run: /bin/bash tests/test_owner_score_instrument_is_valid.sh
       - name: An advisory probe is not a walk FAIL

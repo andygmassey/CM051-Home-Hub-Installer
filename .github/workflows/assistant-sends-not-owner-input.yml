@@ -1,0 +1,70 @@
+# Walk #27 (Mini16, 2026-10-14): the morning brief and evening wrap go out by
+# iMessage FROM the owner's Apple ID, so chat.db stores them as is_from_me=1
+# and the conversation readers bundled them as the owner speaking (141 sends,
+# 9 bundles, 7 facts). This runs the test that holds every reader to one rule:
+# 0 assistant sends reach CM048, and an owner-typed note (including one worded
+# like a brief) still does. The mutation arm proves the negative control can
+# fail: a predicate that matches prose instead of the marker must go RED.
+name: assistant-sends-not-owner-input
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/imessage_source/reader.py'
+      - 'vendor/imessage_source/pipeline.py'
+      - 'vendor/ostler_fda/imessage.py'
+      - 'vendor/whatsapp_source/reader.py'
+      - 'vendor/email_source/reader.py'
+      - 'tests/test_assistant_sends_are_not_owner_input.py'
+      - '.github/workflows/assistant-sends-not-owner-input.yml'
+  pull_request:
+    paths:
+      - 'vendor/imessage_source/reader.py'
+      - 'vendor/imessage_source/pipeline.py'
+      - 'vendor/ostler_fda/imessage.py'
+      - 'vendor/whatsapp_source/reader.py'
+      - 'vendor/email_source/reader.py'
+      - 'tests/test_assistant_sends_are_not_owner_input.py'
+      - '.github/workflows/assistant-sends-not-owner-input.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  readers-drop-assistant-sends:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: Assistant sends never reach extraction; owner notes always do
+        run: python -m pytest tests/test_assistant_sends_are_not_owner_input.py -v
+      - name: Mutation, a prose-matching rule must drop the owner's look-alike note (must go RED)
+        if: always()
+        run: |
+          set -u
+          for f in vendor/imessage_source/reader.py vendor/ostler_fda/imessage.py; do
+            python - "$f" <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          old = "    return from_owner and text.lstrip().startswith(ASSISTANT_SEND_PREFIX)"
+          assert s.count(old) == 1, "mutant did not apply to " + p
+          s = s.replace(old, '    return ASSISTANT_SEND_PREFIX in text or text.startswith("Good morning")')
+          open(p, "w").write(s)
+          PY
+          done
+          rc=0
+          python -m pytest -q tests/test_assistant_sends_are_not_owner_input.py || rc=$?
+          git checkout -- vendor/imessage_source/reader.py vendor/ostler_fda/imessage.py
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: the mutant passed, so the owner-note controls cannot discriminate."
+            exit 1
+          fi
+          echo "OK: the mutant failed (pytest exit ${rc}); the negative controls discriminate."

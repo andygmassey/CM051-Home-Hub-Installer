@@ -58,6 +58,9 @@ mkdir -p "$CM019_DIR/.venv/bin" "$H/.ostler/config" "$WORK/exports/synthetic"
 HOME="$H" PYTHONUSERBASE="$PY_USERBASE" "$PY" -c "import sys; sys.path.insert(0, '${ENRICH}'); import src.cli" 2>/dev/null \
     || cannot "the vendored enrich CLI is not importable by ${PY} in the stub's environment (pip install -r vendor/cm019_preferences/requirements.txt)"
 : > "$WORK/exports/synthetic/placeholder.json"
+# Public look-ups only run on a recorded yes (test_enrichment_honours_a_decline.sh).
+# Without it the enrich leg is skipped and arm 1 would pass without running it.
+printf 'OSTLER_CONSENT_ENRICHMENT_DECISION="accepted"\n' > "$H/.ostler/config/.env"
 
 # Runs the REAL enrich CLI over N synthetic misses (helper owns the fake
 # service; only the network edge is stubbed).

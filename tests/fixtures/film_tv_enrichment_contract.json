@@ -1,0 +1,203 @@
+{
+  "_about": "Shared CM019 <-> CM044 contract for film/TV enrichment triples. Byte-identical copies live in CM019 services/enrich/tests/fixtures/ and CM044 compiler/tests/fixtures/. CM019 asserts to_turtle writes exactly expected_triples; CM044 asserts its reader returns expected_wiki from those triples. Edit both copies in the same change. SYNTHETIC DATA ONLY: every title and name here is invented, people from CM051's approved synthetic cast (.pii-name-registry.tsv) so the public repo's name guard passes. Each record's turtle (one triple per line, prefixes pwg/rdfs/xsd) is the exact graph CM019 writes for that input.",
+  "namespace": "https://schema.ostler.ai/enrichment/ontology#",
+  "enriched_at": "2026-01-02T03:04:05",
+  "records": [
+    {
+      "preference_id": "00000000-0000-4000-8000-00000000f11a",
+      "input": {
+        "matched_title": "The Riverside Accord",
+        "confidence": 0.9,
+        "match_type": "exact_title",
+        "genres": [
+          [
+            "Drama",
+            "drama"
+          ],
+          [
+            "Mystery",
+            "mystery"
+          ]
+        ],
+        "entities": [
+          [
+            "Jane Doe",
+            "director"
+          ],
+          [
+            "Mary Smith",
+            "actor"
+          ],
+          [
+            "Bob \"Doc\" Jones",
+            "actor"
+          ]
+        ],
+        "movie_metadata": {
+          "title": "The Riverside Accord",
+          "media_type": "movie",
+          "overview": "She said \"run\". Then he said 'no'.\nSecond line with a backslash \\ and a tab\there.\r\nTriple quotes \"\"\" and ''' and a fake triple end > . <urn:x:evil> \"x\" .\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\nUnicode café 東京 and a bell\u0007 end.",
+          "poster_path": "/syntheticPoster01.jpg",
+          "runtime": 128,
+          "season_count": null,
+          "episode_count": null
+        }
+      },
+      "expected_triples": [
+        [
+          "overview",
+          "string",
+          "She said \"run\". Then he said 'no'.\nSecond line with a backslash \\ and a tab\there.\r\nTriple quotes \"\"\" and ''' and a fake triple end > . <urn:x:evil> \"x\" .\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\nUnicode café 東京 and a bell\u0007 end."
+        ],
+        [
+          "posterUrl",
+          "anyURI",
+          "https://image.tmdb.org/t/p/w500/syntheticPoster01.jpg"
+        ],
+        [
+          "runtimeMinutes",
+          "integer",
+          "128"
+        ]
+      ],
+      "absent_predicates": [
+        "seasonCount",
+        "episodeCount"
+      ],
+      "expected_wiki": {
+        "matched_title": "The Riverside Accord",
+        "genres": [
+          "Drama",
+          "Mystery"
+        ],
+        "director": "Jane Doe",
+        "actors": [
+          "Mary Smith",
+          "Bob \"Doc\" Jones"
+        ],
+        "overview": "She said \"run\". Then he said 'no'.\nSecond line with a backslash \\ and a tab\there.\r\nTriple quotes \"\"\" and ''' and a fake triple end > . <urn:x:evil> \"x\" .\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\nUnicode café 東京 and a bell\u0007 end.",
+        "poster_url": "https://image.tmdb.org/t/p/w500/syntheticPoster01.jpg",
+        "runtime_minutes": 128,
+        "season_count": 0,
+        "episode_count": 0
+      },
+      "turtle": [
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:enrichedAt \"2026-01-02T03:04:05\"^^xsd:dateTime .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:enrichmentSource \"tmdb\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:enrichmentConfidence \"0.9\"^^xsd:decimal .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:matchType \"exact_title\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasSemanticValue \"true\"^^xsd:boolean .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:matchedTitle \"The Riverside Accord\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasGenre <pwg:genre_drama> .",
+        "<pwg:genre_drama> rdfs:label \"Drama\" .",
+        "<pwg:genre_drama> a pwg:Genre .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasGenre <pwg:genre_mystery> .",
+        "<pwg:genre_mystery> rdfs:label \"Mystery\" .",
+        "<pwg:genre_mystery> a pwg:Genre .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasEntity <pwg:entity_jane_doe> .",
+        "<pwg:entity_jane_doe> rdfs:label \"Jane Doe\" .",
+        "<pwg:entity_jane_doe> pwg:entityType \"director\" .",
+        "<pwg:entity_jane_doe> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasEntity <pwg:entity_mary_smith> .",
+        "<pwg:entity_mary_smith> rdfs:label \"Mary Smith\" .",
+        "<pwg:entity_mary_smith> pwg:entityType \"actor\" .",
+        "<pwg:entity_mary_smith> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:hasEntity <pwg:entity_bob_%22doc%22_jones> .",
+        "<pwg:entity_bob_%22doc%22_jones> rdfs:label \"Bob \\\"Doc\\\" Jones\" .",
+        "<pwg:entity_bob_%22doc%22_jones> pwg:entityType \"actor\" .",
+        "<pwg:entity_bob_%22doc%22_jones> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:overview \"She said \\\"run\\\". Then he said 'no'.\\nSecond line with a backslash \\\\ and a tab\\there.\\r\\nTriple quotes \\\"\\\"\\\" and ''' and a fake triple end > . <urn:x:evil> \\\"x\\\" .\\nMarkdown image ![px](https://tracker.invalid/p.png) and raw <img src=https://tracker.invalid/q.png> & [link](https://tracker.invalid/).\\nUnicode café 東京 and a bell\\u0007 end.\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:posterUrl \"https://image.tmdb.org/t/p/w500/syntheticPoster01.jpg\"^^xsd:anyURI .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-00000000f11a> pwg:runtimeMinutes \"128\"^^xsd:integer ."
+      ]
+    },
+    {
+      "preference_id": "00000000-0000-4000-8000-0000000007f2",
+      "input": {
+        "matched_title": "Riverside Town Ferry",
+        "confidence": 0.85,
+        "match_type": "fuzzy_title",
+        "genres": [
+          [
+            "Comedy",
+            "comedy"
+          ]
+        ],
+        "entities": [
+          [
+            "Alison Patel",
+            "actor"
+          ]
+        ],
+        "movie_metadata": {
+          "title": "Riverside Town Ferry",
+          "media_type": "tv",
+          "overview": "A ferry crew keeps a small island running.",
+          "poster_path": "/../not-a-plain-path.jpg",
+          "runtime": 42,
+          "season_count": 3,
+          "episode_count": 24
+        }
+      },
+      "expected_triples": [
+        [
+          "overview",
+          "string",
+          "A ferry crew keeps a small island running."
+        ],
+        [
+          "runtimeMinutes",
+          "integer",
+          "42"
+        ],
+        [
+          "seasonCount",
+          "integer",
+          "3"
+        ],
+        [
+          "episodeCount",
+          "integer",
+          "24"
+        ]
+      ],
+      "absent_predicates": [
+        "posterUrl"
+      ],
+      "expected_wiki": {
+        "matched_title": "Riverside Town Ferry",
+        "genres": [
+          "Comedy"
+        ],
+        "director": "",
+        "actors": [
+          "Alison Patel"
+        ],
+        "overview": "A ferry crew keeps a small island running.",
+        "poster_url": "",
+        "runtime_minutes": 42,
+        "season_count": 3,
+        "episode_count": 24
+      },
+      "turtle": [
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:enrichedAt \"2026-01-02T03:04:05\"^^xsd:dateTime .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:enrichmentSource \"tmdb\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:enrichmentConfidence \"0.85\"^^xsd:decimal .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:matchType \"fuzzy_title\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasSemanticValue \"true\"^^xsd:boolean .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:matchedTitle \"Riverside Town Ferry\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasGenre <pwg:genre_comedy> .",
+        "<pwg:genre_comedy> rdfs:label \"Comedy\" .",
+        "<pwg:genre_comedy> a pwg:Genre .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasEntity <pwg:entity_alison_patel> .",
+        "<pwg:entity_alison_patel> rdfs:label \"Alison Patel\" .",
+        "<pwg:entity_alison_patel> pwg:entityType \"actor\" .",
+        "<pwg:entity_alison_patel> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:overview \"A ferry crew keeps a small island running.\" .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:runtimeMinutes \"42\"^^xsd:integer .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:seasonCount \"3\"^^xsd:integer .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:episodeCount \"24\"^^xsd:integer ."
+      ]
+    }
+  ]
+}

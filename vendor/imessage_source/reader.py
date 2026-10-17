@@ -36,6 +36,71 @@ DEFAULT_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 _CHAT_STYLE_GROUP = 43
 
 
+# ---------------------------------------------------------------------------
+# The assistant's own sends are not the owner's words.
+#
+# The morning brief and the evening wrap go out by iMessage to the owner's
+# own number, FROM the owner's Apple ID. chat.db therefore records them with
+# is_from_me=1, and this reader used to bundle them as the owner speaking:
+# measured on the walk box 2026-10-14, 141 assistant sends with is_from_me=1
+# (plus 148 inbound copies), 9 bundles and 7 facts extracted from them.
+#
+# What the sender actually stamps, read from ostler-assistant
+# crates/zeroclaw-channels/src/imessage.rs (send -> apply_message_prefix):
+# every outbound iMessage starts with the identity prefix, default the robot
+# emoji, and that channel's own echo guard (is_bot_identity_prefixed) already
+# treats a leading robot emoji as "can only have come from this assistant".
+# There is no persisted delivery log to match against: the channel's
+# recent-send buffer is in memory and capped at 20, and cron_runs.output holds
+# the pre-send text (markdown not yet flattened, prefix not yet applied).
+#
+# ASSISTANT_SEND_MARKER is an invisible marker the sender appends to every
+# outbound message (ostler-assistant, same change set), so a customer who
+# empties the visible prefix is still covered. Both checks must stay in step
+# with the copies in whatsapp_source/reader.py, email_source/reader.py and
+# ostler_fda/imessage.py; tests/test_assistant_sends_are_not_owner_input.py
+# holds them to one table.
+#
+# The PREFIX rule applies only to rows the owner's account sent (is_from_me,
+# or the inbound copy in the owner's own self-chat: the self-chat shows one of
+# each). A contact's message that opens with the same emoji is kept. The
+# invisible marker applies in every direction.
+# ---------------------------------------------------------------------------
+ASSISTANT_SEND_PREFIX = "\U0001F916"  # robot face, the identity prefix
+ASSISTANT_SEND_MARKER = "\u2063\u2064\u2063"  # invisible sep, plus, sep
+
+
+def _owner_sent(row) -> bool:
+    """Was this row sent from the owner's own account?
+
+    is_from_me=1, or the inbound copy in the owner's Note-to-Self chat: a
+    one-handle chat whose handle IS the account it was received on (the
+    same test ostler-assistant's POLL_QUERY_SELF_CHAT uses). The brief lands
+    in that chat as both an outgoing and an inbound row.
+    """
+    if row["is_from_me"]:
+        return True
+    hid = row["handle_id"] or ""
+    login = row["account_login"] or ""
+    return bool(hid) and row["n_handles"] == 1 and login in ("E:" + hid, "P:" + hid)
+
+
+def is_assistant_send(text: Optional[str], from_owner: bool = False) -> bool:
+    """True when ``text`` was written by the Ostler assistant, not a person.
+
+    The invisible marker counts in any direction: only the assistant stamps
+    it. The robot-emoji PREFIX counts only on a row the owner's own account
+    sent (``from_owner``), because that is the only place the assistant's
+    sends appear with it. A contact whose message happens to open with the
+    same emoji is a person, and their words are kept.
+    """
+    if not text:
+        return False
+    if ASSISTANT_SEND_MARKER in text:
+        return True
+    return from_owner and text.lstrip().startswith(ASSISTANT_SEND_PREFIX)
+
+
 @dataclass
 class Conversation:
     """A conversation thread (1:1 or group)."""
@@ -214,7 +279,11 @@ def extract_messages(
                 m.date                     AS date,
                 m.cache_has_attachments    AS has_attachment,
                 m.service                  AS service,
-                COALESCE(h.id, 'me')       AS sender
+                COALESCE(h.id, 'me')       AS sender,
+                h.id                       AS handle_id,
+                c.account_login            AS account_login,
+                (SELECT COUNT(*) FROM chat_handle_join x
+                  WHERE x.chat_id = c.ROWID) AS n_handles
             FROM message m
             JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
             JOIN chat c                ON c.ROWID = cmj.chat_id
@@ -232,8 +301,12 @@ def extract_messages(
         conn.close()
 
     out: list[Message] = []
+    dropped_assistant = 0
     for row in rows:
         if row["date"] is None:
+            continue
+        if is_assistant_send(row["text"], from_owner=_owner_sent(row)):
+            dropped_assistant += 1
             continue
         out.append(
             Message(
@@ -246,6 +319,10 @@ def extract_messages(
                 has_attachment=bool(row["has_attachment"]),
                 service=(row["service"] or "iMessage"),
             )
+        )
+    if dropped_assistant:
+        logger.info(
+            "Dropped %d assistant-sent message(s) from one thread", dropped_assistant
         )
     out.reverse()  # chronological
     return out
