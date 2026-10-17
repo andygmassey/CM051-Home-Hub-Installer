@@ -100,6 +100,7 @@ br._sparql_query = fake_query
 br._merge_oxigraph = fake_merge_oxigraph
 br._merge_qdrant = fake_merge_qdrant
 br._backup_triples = fake_backup
+br.merge_journal.record_merge = lambda *a, **k: "stub-merge-id"   # the journal is proven in test_exact_identifier_merge.py
 # execute() ends by reconciling the vector store. This test is about the merge
 # LOOP, and leaving that live reached a real Qdrant -- via a local Privoxy that
 # answered 503 for a host nothing was listening on, which is exactly why a

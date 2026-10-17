@@ -71,12 +71,21 @@ class PreferenceFilter:
     # the count and dilute genuine taste signals, so we drop them here.
     DROP_CATEGORIES = {"social"}
 
-    # Per-source preference cap. A single noisy export (tens of thousands of
-    # Facebook reactions, say) must not crowd out high-signal preferences from
-    # every other source. When a source exceeds this many UNIQUE preferences,
-    # the lowest-priority categories are trimmed first (see CATEGORY_PRIORITY).
-    # No row is dropped silently: every trimmed row is logged (see cap_by_source).
-    MAX_PREFS_PER_SOURCE = 5000
+    # Per-source preference STORAGE cap: None = NO CAP (CM051 #28, Andy
+    # 2026-10-14: "That's not good enough. Need everything.").
+    #
+    # This used to be 5000. It stored at most 5000 preferences per source and
+    # dropped the rest, so an owner's 12,000-track library kept 5000 and a
+    # large Spotify history kept 5000, logged and gone. The concern it answered
+    # (one noisy export crowding out every other source) is a RANKING concern,
+    # not a storage one, and the ranking is kept: cap_by_source still orders
+    # each source high-signal first (category priority, then strength, which
+    # carries play count and recency, then frequency), so the most-played
+    # still lead every read that takes a head. Nothing is dropped.
+    #
+    # An integer here restores a cap (operator override only); nothing in the
+    # shipped tree sets one.
+    MAX_PREFS_PER_SOURCE = None
 
     # Category priority for the per-source cap. LOWER rank = higher signal =
     # kept first when the cap bites. Deliberate follows and declared interests
@@ -277,13 +286,22 @@ class PreferenceFilter:
         # Source-agnostic belt-and-braces gate added in v1.0.11: this is the
         # single chokepoint every parser's output passes through, so it stops
         # the junk regardless of which upstream produced it.
-        if self.is_non_preference_shape(subject):
+        if self.is_non_preference_shape(subject, category=pref.category):
             self.stats["filtered_non_preference"] += 1
             return True
 
         return False
 
-    def is_non_preference_shape(self, subject: str) -> bool:
+    # Categories whose subject is a structured title from a player library or
+    # play history ("Artist - Title"), never free text. The prose gates (word
+    # count, boilerplate phrases) dropped real tracks: a classical work runs
+    # past 12 words ("Composer - Symphony No. 9 in D minor, Op. 125: IV. ..."),
+    # and a song can be called "Click Here" or "Your Order". CM051 #28: the
+    # owner's whole library is kept. The artifact checks (Re:/Fwd:, an email
+    # address, a URL) still apply.
+    _STRUCTURED_TITLE_CATEGORIES = frozenset({"music"})
+
+    def is_non_preference_shape(self, subject: str, category=None) -> bool:
         """Return True if ``subject`` is a shape that is never a genuine taste.
 
         Rejects email subject-line artifacts (``Re:`` / ``Fwd:`` prefixes,
@@ -312,6 +330,9 @@ class PreferenceFilter:
             return True
         if self._URL_RE.search(text):
             return True
+
+        if (category or "").strip().lower() in self._STRUCTURED_TITLE_CATEGORIES:
+            return False
 
         # Transactional / notification boilerplate.
         for marker in self._TRANSACTIONAL_MARKERS:
@@ -387,18 +408,32 @@ class PreferenceFilter:
                 # First time seeing this subject from any source
                 self._subject_sources[normalized_subject] = {pref.source}
 
-            # Now check for same-source duplicates
+            # Now check for same-source duplicates.
+            #
+            # ONE SCALE FOR EVERY SERVICE (CM051 walk #27). A row counts for
+            # the plays it stands for, not for 1: Spotify writes one row per
+            # play, Apple Music's library writes one row per track carrying
+            # its play count. Counting rows made 42 Spotify plays worth
+            # frequency 42 and 42 Apple Music plays worth 1, so whichever
+            # service exports per-play events won regardless of what the
+            # owner actually listens to. See _observation_weight.
+            weight = self._observation_weight(pref)
             if key in self._aggregated:
                 # Increment count for existing preference (same source)
                 existing_pref, count = self._aggregated[key]
-                self._aggregated[key] = (existing_pref, count + 1)
+                if self._is_passive(existing_pref) and not self._is_passive(pref):
+                    # An explicit signal outranks the plays already seen.
+                    existing_pref = self._with_latest_observation(pref, existing_pref)
+                else:
+                    existing_pref = self._with_latest_observation(existing_pref, pref)
+                self._aggregated[key] = (existing_pref, count + weight)
                 self.stats["aggregated_count"] += 1
                 # Mark as modified since frequency increased
                 self._modified_keys.add(key)
                 return True
             else:
                 # First time seeing this preference from this source
-                self._aggregated[key] = (pref, 1)
+                self._aggregated[key] = (pref, weight)
                 # New preference is also considered modified
                 self._modified_keys.add(key)
                 return False
@@ -408,6 +443,54 @@ class PreferenceFilter:
                 return True
             self._seen_keys.add(key)
             return False
+
+    @staticmethod
+    def _is_passive(pref: ParsedPreference) -> bool:
+        return isinstance(pref.extra, dict) and pref.extra.get("passive_play") is True
+
+    @staticmethod
+    def _observation_weight(pref: ParsedPreference) -> int:
+        """How many observations one parsed row stands for.
+
+        A row that declares ``extra["play_count"]`` (a library row: one track,
+        N plays) counts N; anything else counts 1, which is unchanged for
+        every source that writes one row per event (Spotify plays, emails,
+        likes). A play count of 0 still counts 1: the row itself is evidence
+        (the track is in the library), exactly as a Spotify saved track with
+        no plays is one row. Garbage counts 1, never 0 and never negative.
+        """
+        extra = pref.extra if isinstance(pref.extra, dict) else {}
+        raw = extra.get("play_count")
+        if isinstance(raw, bool):
+            return 1
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            return 1
+        return n if n > 1 else 1
+
+    @staticmethod
+    def _with_latest_observation(
+        kept: ParsedPreference, seen: ParsedPreference
+    ) -> ParsedPreference:
+        """Keep the MOST RECENT observed_at across duplicates.
+
+        Recency feeds time decay, so it must be the last time the owner
+        played the thing. The kept row used to be whichever row came FIRST,
+        so a streaming history read oldest-first decayed every track to its
+        first play: the same listening scored differently by file order.
+        """
+        from datetime import timezone
+
+        def aware(dt):
+            if dt is None:
+                return None
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+        a, b = aware(kept.observed_at), aware(seen.observed_at)
+        if b is not None and (a is None or b > a):
+            return replace(kept, observed_at=seen.observed_at)
+        return kept
 
     def get_aggregated_preferences(self, modified_only: bool = False) -> List[ParsedPreference]:
         """
@@ -462,7 +545,12 @@ class PreferenceFilter:
             )
 
             # Derive preference_type from sign of strength
-            if adjusted_strength > 0:
+            passive = isinstance(pref.extra, dict) and pref.extra.get("passive_play") is True
+            if adjusted_strength > 0 and passive:
+                # Plays only: a play is not a like. Strength is kept, so the
+                # listening still ranks; only the label stops claiming a like.
+                preference_type = "Neutral"
+            elif adjusted_strength > 0:
                 preference_type = "Like"
             elif adjusted_strength < 0:
                 preference_type = "Dislike"
@@ -654,8 +742,9 @@ class PreferenceFilter:
         kept: List[ParsedPreference] = []
         capped_log: List[Dict[str, str]] = []
 
+        cap = self.MAX_PREFS_PER_SOURCE
         for source, prefs in by_source.items():
-            if len(prefs) <= self.MAX_PREFS_PER_SOURCE:
+            if cap is not None and len(prefs) <= cap:
                 kept.extend(prefs)
                 continue
 
@@ -675,8 +764,13 @@ class PreferenceFilter:
                 )
 
             ranked = sorted(prefs, key=_sort_key)
-            survivors = ranked[: self.MAX_PREFS_PER_SOURCE]
-            trimmed = ranked[self.MAX_PREFS_PER_SOURCE :]
+            if cap is None:
+                # No storage cap: keep EVERY row, in ranked order, so the
+                # high-signal, most-played head is still written first.
+                kept.extend(ranked)
+                continue
+            survivors = ranked[:cap]
+            trimmed = ranked[cap:]
             kept.extend(survivors)
 
             trimmed_by_category: Dict[str, int] = {}

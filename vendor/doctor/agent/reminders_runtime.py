@@ -69,6 +69,10 @@ logger = logging.getLogger(__name__)
 STATE_PERMISSION_DENIED = "permission_denied"
 STATE_OK = "ok"
 STATE_NO_DATA = "no-data"
+# Rows exist, none ever reached Reminders (status=failed, no pushed row).
+STATE_PUSH_FAILING = "push_failing"
+# The mapping DB is there and could not be read: "could not look", not "nothing".
+STATE_CANNOT_READ = "cannot_read"
 # The customer deleted Ostler's Reminders list; the assistant paused pushes
 # (rows carry status reminders_list_removed) and does not recreate it.
 STATE_LIST_REMOVED = "list_removed"
@@ -87,6 +91,8 @@ class RemindersRuntime(TypedDict, total=False):
     state: str
     denied_count: int
     total_rows: int
+    failed_count: int
+    reason: str
     # Most recent ``last_seen_at`` across permission_denied rows, ISO-8601,
     # for the "how long has this been broken" relative-time line. Absent
     # when there are no permission_denied rows.
@@ -163,6 +169,21 @@ def read_reminders_runtime() -> RemindersRuntime:
         denied_count = int(cur.fetchone()[0])
 
         if denied_count == 0:
+            cur.execute(
+                "SELECT COUNT(*) FROM reminders_map WHERE status = 'failed'"
+            )
+            failed_count = int(cur.fetchone()[0])
+            cur.execute(
+                "SELECT COUNT(*) FROM reminders_map WHERE status = 'pushed'"
+            )
+            pushed_count = int(cur.fetchone()[0])
+            if failed_count and not pushed_count:
+                return {
+                    "state": STATE_PUSH_FAILING,
+                    "denied_count": 0,
+                    "total_rows": total_rows,
+                    "failed_count": failed_count,
+                }
             return {
                 "state": STATE_OK,
                 "denied_count": 0,
@@ -192,7 +213,12 @@ def read_reminders_runtime() -> RemindersRuntime:
         logger.warning(
             "Could not read Reminders runtime DB %s: %s", db, exc,
         )
-        return {"state": STATE_NO_DATA, "denied_count": 0, "total_rows": 0}
+        return {
+            "state": STATE_CANNOT_READ,
+            "denied_count": 0,
+            "total_rows": 0,
+            "reason": f"the Reminders mapping database could not be read ({exc.__class__.__name__})",
+        }
     finally:
         if conn is not None:
             try:

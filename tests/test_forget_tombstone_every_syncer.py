@@ -79,6 +79,7 @@ def _install_ostler_security_stub() -> None:
 _install_ostler_security_stub()
 
 from _fake_oxigraph import FakeOxigraph  # noqa: E402
+from _fake_qdrant import FakeQdrant  # noqa: E402
 
 NAME = "Elizabeth Stewart"
 SLUG = "elizabeth-stewart"
@@ -125,13 +126,17 @@ def world(tmp_path, monkeypatch):
 
     server = _load_server()
     monkeypatch.setattr(server, "OXIGRAPH_URL", store.url)
-    monkeypatch.setattr(server, "QDRANT_URL", "http://127.0.0.1:9")
+    # A Qdrant that accepts the delete: forget reports done only when BOTH
+    # stores were purged (test_forget_reports_only_what_it_erased.py).
+    qdrant = FakeQdrant()
+    monkeypatch.setattr(server, "QDRANT_URL", qdrant.url)
     monkeypatch.setattr(server, "_RECOMPILE_QUEUE_DIR", tmp_path / "queue")
 
     w = types.SimpleNamespace(store=store, tomb=tomb, server=server, tmp=tmp_path, cfg=cfg,
                               monkeypatch=monkeypatch)
     yield w
     store.close()
+    qdrant.close()
 
 
 def _mint_and_forget(w):
@@ -316,5 +321,7 @@ def test_an_unwritable_tombstone_still_erases_and_says_so(world, monkeypatch):
     body, status = world.server.api_people_forget(SLUG)
     assert status == 200 and body["forgotten"] is True
     assert body["tombstone_written"] is False and body["degraded"] is True
-    assert "tombstone_failed" in body["reason"]
+    # A path under a regular file cannot be read either, so the reason may
+    # name it unreadable (it is then never overwritten) or unwritable.
+    assert "tombstone_failed" in body["reason"] or "tombstone_unreadable" in body["reason"]
     assert world.store.person_count() == 0

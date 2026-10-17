@@ -1127,7 +1127,8 @@ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
     oxigraph_url = oxigraph_url or os.environ.get(
         "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
     out: list[dict] = []
-    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike")):
+    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike"),
+                                ("NeutralPreference", "neutral")):
         for row in _sparql_select(oxigraph_url, _pref_query(node_type)):
             out.append({
                 "subject": row.get("subject", ""),

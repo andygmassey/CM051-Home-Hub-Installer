@@ -1,0 +1,143 @@
+{
+  "people": [
+    {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "name": "Person 00 Example",
+      "slug": "person-00-example",
+      "wiki_url": "http://wiki.example/People/person-00-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "Person 01 Example",
+      "slug": "person-01-example",
+      "wiki_url": "http://wiki.example/People/person-01-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "Person 02 Example",
+      "slug": "person-02-example",
+      "wiki_url": "http://wiki.example/People/person-02-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "name": "Person 03 Example",
+      "slug": "person-03-example",
+      "wiki_url": "http://wiki.example/People/person-03-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "name": "Person 04 Example",
+      "slug": "person-04-example",
+      "wiki_url": "http://wiki.example/People/person-04-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "name": "Person 05 Example",
+      "slug": "person-05-example",
+      "wiki_url": "http://wiki.example/People/person-05-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000006",
+      "name": "Person 06 Example",
+      "slug": "person-06-example",
+      "wiki_url": "http://wiki.example/People/person-06-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "name": "Person 07 Example",
+      "slug": "person-07-example",
+      "wiki_url": "http://wiki.example/People/person-07-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "name": "Person 08 Example",
+      "slug": "person-08-example",
+      "wiki_url": "http://wiki.example/People/person-08-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000009",
+      "name": "Person 09 Example",
+      "slug": "person-09-example",
+      "wiki_url": "http://wiki.example/People/person-09-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "name": "Person 10 Example",
+      "slug": "person-10-example",
+      "wiki_url": "http://wiki.example/People/person-10-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "name": "Person 11 Example",
+      "slug": "person-11-example",
+      "wiki_url": "http://wiki.example/People/person-11-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "name": "Person 12 Example",
+      "slug": "person-12-example",
+      "wiki_url": "http://wiki.example/People/person-12-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000013",
+      "name": "Person 13 Example",
+      "slug": "person-13-example",
+      "wiki_url": "http://wiki.example/People/person-13-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000014",
+      "name": "Person 14 Example",
+      "slug": "person-14-example",
+      "wiki_url": "http://wiki.example/People/person-14-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000015",
+      "name": "Person 15 Example",
+      "slug": "person-15-example",
+      "wiki_url": "http://wiki.example/People/person-15-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000016",
+      "name": "Person 16 Example",
+      "slug": "person-16-example",
+      "wiki_url": "http://wiki.example/People/person-16-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000017",
+      "name": "Person 17 Example",
+      "slug": "person-17-example",
+      "wiki_url": "http://wiki.example/People/person-17-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000018",
+      "name": "Person 18 Example",
+      "slug": "person-18-example",
+      "wiki_url": "http://wiki.example/People/person-18-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000019",
+      "name": "Person 19 Example",
+      "slug": "person-19-example",
+      "wiki_url": "http://wiki.example/People/person-19-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000020",
+      "name": "Person 20 Example",
+      "slug": "person-20-example",
+      "wiki_url": "http://wiki.example/People/person-20-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000021",
+      "name": "Person 21 Example",
+      "slug": "person-21-example",
+      "wiki_url": "http://wiki.example/People/person-21-example/"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000022",
+      "name": "Person 22 Example",
+      "slug": "person-22-example",
+      "wiki_url": "http://wiki.example/People/person-22-example/"
+    }
+  ],
+  "total": 23
+}

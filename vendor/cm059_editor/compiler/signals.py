@@ -62,6 +62,19 @@ _STRINGS = {
     "reply_debt_title_many": "{count} people are waiting on you",
     "reply_debt_body": "{names} {have} messages awaiting your reply.",
     "reply_debt_action": "See who",
+    # A reply-debt source that could not be read is said out loud. Without
+    # this card the band simply had no reply-debt card, which reads exactly
+    # like nobody waiting (CM051 #30, studio29).
+    "reply_debt_unchecked_title": "Couldn't check who is waiting on you",
+    "reply_debt_unchecked_body": ("Ostler could not read your messages just "
+                                  "now, so this is not an all-clear. It will "
+                                  "check again shortly."),
+    # Messages was never set up as a source on this Mac (no consent, or no
+    # Messages history at install). Plain, and no promise to retry.
+    "reply_debt_not_connected_title": "Messages isn't connected",
+    "reply_debt_not_connected_body": ("Ostler isn't reading Messages on this "
+                                      "Mac, so it can't tell who is waiting "
+                                      "on a reply there."),
     "gone_quiet_title": "You and {name} have gone quiet",
     "gone_quiet_body": ("No contact for {span}. A short message keeps "
                         "the thread alive."),
@@ -404,6 +417,43 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
     return card
 
 
+def reply_debt_degraded(raw) -> bool:
+    """True when the reply-debt endpoint answered but said it could not look
+    (``degraded: true``). A degraded payload carries count 0, and count 0 must
+    not be read as "nobody is waiting"."""
+    return isinstance(raw, dict) and bool(raw.get("degraded"))
+
+
+# Reasons that mean "the install never set Messages up", as opposed to a
+# connected source that could not be read this time.
+_REPLY_DEBT_NOT_CONNECTED_REASONS = {"imessage_not_connected"}
+
+
+def reply_debt_not_connected(raw) -> bool:
+    return (reply_debt_degraded(raw)
+            and str(raw.get("reason") or "") in _REPLY_DEBT_NOT_CONNECTED_REASONS)
+
+
+def reply_debt_unchecked_card(now: datetime, ledger=None, not_connected=False):
+    """The "couldn't check" card, or, when Messages was never connected, the
+    plain "Messages isn't connected" card (no "will check again" promise).
+    Names nobody and quotes nothing, so it is safe at L2. No action."""
+    key = "reply_debt_not_connected" if not_connected else "reply_debt_unchecked"
+    cid = fp.card_id("signal", key)
+    created = _ledger_created(ledger, cid, now)
+    card = fp._make_card(
+        "signal", key,
+        title=_STRINGS[key + "_title"],
+        body=_STRINGS[key + "_body"], now=now,
+        domain="people",
+        priority=fp.BAND_REPLY_DEBT * (0.1 if not_connected else 0.25),
+        action=None, source="ostler:conversations", privacy="L2",
+        signal={"type": "reply_debt", "unchecked": True,
+                "not_connected": bool(not_connected)})
+    card["created_utc"] = fp._iso(created)
+    return card
+
+
 def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
                     privacy: str = "L2"):
     name = fp.person_label(name)
@@ -519,10 +569,15 @@ def build_signal_cards(raw: dict | None, now: datetime, ledger=None) -> list:
         return []
     cards: list = []
 
-    rd = _normalise_reply_debt(raw.get("reply_debt"))
-    card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
-    if card:
-        cards.append(card)
+    if reply_debt_degraded(raw.get("reply_debt")):
+        cards.append(reply_debt_unchecked_card(
+            now, ledger=ledger,
+            not_connected=reply_debt_not_connected(raw.get("reply_debt"))))
+    else:
+        rd = _normalise_reply_debt(raw.get("reply_debt"))
+        card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
+        if card:
+            cards.append(card)
 
     reconnect, birthdays = _normalise_suggestions(raw.get("suggestions"), now)
     for it in reconnect:

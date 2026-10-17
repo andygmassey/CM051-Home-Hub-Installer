@@ -1102,3 +1102,243 @@ Review round 1: the SPARQL LIMIT is 50 ROWS and the cap of 5 applies to
 PEOPLE after the dedupe, so one survivor's merged-away names cannot crowd the
 asked-for person out (`test_retired_names_do_not_crowd_out_the_target`: red
 on the 5-row cap, green after).
+
+## One merge-aware person resolver for every slug- and name-keyed read (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- New helpers beside `person_context`: `_LIVE_TERMINUS_SPARQL`,
+  `_merge_aware_name_rows`, `_rank_name_rows`, `_resolve_person_by_slug`,
+  `_resolve_person_by_exact_name`, `_merged_cluster`.
+- Callers moved onto them: `person_context` (its UNION replaced by the shared fragment; the plain `a pwg:Person` arm also returned merged duplicates), `person_enrichment`, `person_timeline`,
+  `api_people_forget` (now erases the survivor and every node merged into it,
+  tombstones the whole cluster's identifiers, deletes Qdrant points for the
+  cluster, and reports `nodes_erased`), `_resolve_person_uri_by_name`
+  (memory/assert), `decisions_list` (about=slug matches decisions filed on
+  any merged node), `_speaker_directory_rows`, and `people_birthdays` (one
+  entry per live person URI instead of a dedupe by name; adds `person_uri`).
+- Why: walk #27 (Mini16) has 1079 mergedInto subjects, 145 of them still
+  typed `pwg:Person`; each of these reads could land on the dead duplicate,
+  and birthdays listed 48 two-named people twice.
+- No patch: same refusal as the entries above (the pin cannot be regenerated
+  without folding in unrelated work). Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py`.
+## Filter and group before the cap, never after it (CM051, 2026-10-14)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+- `api_browsing_search`: reads every page of `safari_history` (only the
+  fields the filter and the item need) before the keyword filter, instead of
+  5 pages of 1000 in point-id order. `_BROWSING_SCAN_MAX_PAGES` (200) is a
+  runaway guard; reaching it adds `truncated` and `scanned` to the response.
+- `people_recent`: one row per attendee (`MAX(?date)` grouped by person,
+  merged nodes excluded) with no row cap; the screens run over people and
+  `limit` caps the people that pass. Was `LIMIT limit*3` over meeting x
+  attendee rows.
+- `people_stale`: pages every stale point (`_STALE_SCAN_MAX_PAGES`) instead
+  of the first max(limit*5, limit+20) in id order; the recheck queries are
+  batched by 500.
+- `_timeline_conversations`: reads the whole `conversations` collection
+  instead of stopping at limit*4 points.
+- Why: walk #27, about 43% of 8714 browsing visits unfindable, and "who did I
+  meet recently" returning one person in a busy week.
+- No patch: same refusal as the entries above. Upstream mirror owed in CM041.
+- Test: `vendor/cm041/assistant_api/tests/test_filter_before_limit.py`.
+
+## The automatic conversation retry waits for a quiet machine (CM051, 2026-10-14, walk #27)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`
+(and its test `tests/test_failed_conversation_auto_retry.py`).
+`scripts/regenerate_divergence_patch.sh cm041/assistant_api --write` with
+`CM041=~/Developer/CM041-People-Graph` REFUSED (exit 1, PII-shaped content on
+the patch, pattern `+1[[...`), so this edit is recorded here.
+
+- NEW constant `CONVERSATION_RETRY_MAX_LOAD_PER_CORE = 0.75`, after
+  `CONVERSATION_RETRY_TIMEOUT_SECONDS`;
+- NEW `_conversation_retry_busy_reason()` before `_conversation_retry_sweep`:
+  "processing" while any first dispatch is in `_CONVERSATIONS_IN_FLIGHT`,
+  "load" when the 1-minute load average per core is over the constant;
+- `_conversation_retry_sweep` gains a `busy` count and returns before
+  selecting anything when the machine is busy, so no attempt and no sidecar
+  is spent.
+
+Why: walk #27, 29 conversations failed "Processing timed out (15 min limit)"
+in one busy hour; a retry run in that hour joins the same model queue.
+CM041 upstream needs the same change (CM041 owns the CM041 #203 retry it
+extends), or the next re-sync of this tree reverts it.
+
+## 2026-10-15 phone-only people are shown, provisional (fix/phone-only-people-shown)
+
+`people_rules.py`:
+- `_is_nameless_name` no longer hides a bare phone number (7+ digits). It now
+  excludes only: empty, WhatsApp JID, short code (6 digits or fewer), and an
+  alphanumeric sender ID (one upper-case token with a digit or separator).
+  NEW `_is_short_code`, `_is_alphanumeric_sender_id`,
+  `_is_provisional_phone_name`, `_is_bare_phone_shape`, `_digit_count`.
+- `_is_non_human_person` returns None for a provisional phone name (the
+  `no_letters` / `handle_no_channel` junk shapes used to drop it).
+
+`ical-server.py`: People list and search rows carry `provisional_name: true`
+when the name is the phone number.
+
+Why: Andy's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
+human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
+people; the 9 missing were phone-only. CM041 upstream and CM044
+`compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
+predicate and need the same change, or the surfaces drift again.
+
+## cm041/assistant_api: Forget says done only when both stores are purged (walk #28, sweep V17)
+
+`vendor/cm041/assistant_api/ical-server.py`, `api_people_forget`:
+- `forgotten:true` / 200 only when Oxigraph AND Qdrant were purged; otherwise
+  503 with `stores_remaining` and `retry:true`. A Qdrant 404 (no `people`
+  collection) counts as purged: nothing is held.
+- the audit line behind "already forgotten" moved out of
+  `_queue_wiki_recompile` (also called by memory/assert and the not-found
+  branch) into `_record_forget_audit`, called only after a complete purge.
+- an unreadable tombstone is named in `reason` via `forget_tombstone.problem()`.
+- the recompile is queued only when the graph half went.
+Guarded by `vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+Upstream CM041 mirror OWED, or the next re-sync of this tree reverts it.
+## A one-word name that is just the sender's domain is not a person (CM051, 2026-10-15, v1.0.107 walk #28)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
+
+- new `_domain_brand_names`, `_name_is_sender_domain`, `_name_parts_echo_address`;
+- `_address_is_automated`: the brand-mailbox test also accepts the domain's affix and short-TLD spellings (local part "brightwell" at `brightwell-mail.example.com`);
+- `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
+
+WHY: Andy's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
+## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+`api_reply_debt` and the comment block above it. Recorded by hand for the same
+reason as the sections above.
+
+- the exception branch keeps a source's own `reason` code (and `detail`)
+  instead of flattening everything to `reply_debt_failed: ...`;
+- a degraded payload has its `brief_line` forced to `""`, so the all-clear copy
+  can never ride on `degraded: true`;
+- the comments no longer say this process reads chat.db; it reads the snapshot
+  the signed iMessage feed writes.
+
+WHY: the endpoint answered HTTP 200 "No replies owed - you're all caught up."
+with `degraded: false` while it could not read Messages at all. Guarded by
+`tests/test_reply_debt_never_opens_protected_data.py`. CM041 upstream needs the
+same change, or the next re-sync reverts it.
+
+---
+
+## Brief calendar and mail read the local ingested stores (brief #29 empty sections)
+
+`vendor/cm041/assistant_api/ical-server.py`. `/calendar` and `/calendar/today`
+(`build_calendar_response`) read `~/.ostler/imports/fda/calendar_events.json`
+first; iCloud CalDAV and Google are optional extras. `/api/v1/email/recent`
+(`fetch_recent_emails`) reads `apple_mail.json` from the same directory: `count`
+is mail RECEIVED in the window, `unread_total` is the measured unread figure,
+and the old gws Gmail path survives only as `_fetch_recent_emails_gws`, used
+when the local file is absent. A failed read returns 503 `degraded`, never
+200 with an empty list. Customer installs have no CalDAV pairing and no gws
+credential, so the old paths always answered empty.
+
+### What a future sync must preserve
+
+The local-first order and the 503 on failure. Guarded by
+`vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py`. Retire by
+upstreaming to CM041 and re-pinning.
+## assert-spool sweep: one bad row no longer aborts the pass (walk #29 F1)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py` (the Doctor half is recorded in `WRITER_READER_MISMATCHES.UNRECORDED.md`, tree `doctor`).
+
+`_assert_spool_sweep` in `assistant_api/ical-server.py` now wraps each row. A
+data-shaped error (ValueError, TypeError, KeyError, AttributeError,
+UnicodeError) counts an attempt against that row and moves it to state
+`quarantined` after `OSTLER_ASSERT_SPOOL_MAX_ATTEMPTS` (5), keeping it, with a
+reason of exception type and file:line only. Outage-shaped errors count against
+nobody. `assert_spool_status.json` gains `quarantined`; the Doctor
+(`diagnostic_rules.check_parked_facts`) shows it. WHY: an unparseable
+`asserted_at` raised out of the loop every 20 s, 1,032+ times, and starved the
+rows behind it. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py`.
+CM041 and Doctor upstream need the same change, or the next re-sync reverts it.
+## optional pagination on /api/v1/preferences and /api/v1/people (walk #29)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`.
+
+`ical-server.py` gains `_paginate` and optional `limit`, `cursor` (opaque; `start`
+for page one) and `fields` on both list routes (`/api/v1/people` is aliased to
+`/people`, one handler). With none of the new parameters, and `limit` alone on
+preferences, the response is byte-identical to before. WHY: preferences answered
+55 MB (97,173 items), people 2 MB. Guarded by
+`tests/test_api_list_pagination_is_additive.py` (goldens captured from the
+pre-change server). CM041 upstream needs the same change or a re-sync reverts it.
+## 2026-10-15 sender IDs are decided by HANDLE, not display name (fix/phone-only-people-shown)
+
+`people_rules.py`: `_is_alphanumeric_sender_id(name)` (the all-caps-name rule,
+which hid a real uncarded "JOHN" and "R2D2") is REPLACED by
+`_is_sender_id_handle` / `_all_handles_are_sender_ids`; `_is_nameless_name`
+takes `handles=`. A person is hidden only when uncarded AND every handle is an
+alphanumeric sender ID or a short code (6 digits or fewer); no handles is no
+evidence (shown). `ical-server.py`: people_search, people_list and
+people_stale pass phones + emails (+ identifier-table handles in the list).
+Golden: `tests/fixtures/people_rules_golden.json` (`by_handle`). CM041 upstream
+and CM044 `compiler/nameless.py` need the same change.
+## 2026-10-15 iOS Quick Note feeds the Save-to-Knowledge drain (fix/quick-note-into-knowledge-drain)
+
+`ical-server.py`: `api_ingest_ios` now calls new `_ingest_quick_notes`, which
+queues each `quick_note` point on the existing EnrichQueue (KIND_KNOWLEDGE);
+malformed points go to `INGEST_DIR/quarantine/` with a reason; level is
+max(declared, 2), L3 or unreadable is withheld (never queued). `_enrich_summarise`
+/ `_enrich_store` branch on `source_kind == ios_quick_note` (no model; source
+and notebook set). `browsing_enrich.py`: `build_knowledge_point` takes optional
+`source`/`notebook`; `parse_level`; quick-note constants; an empty summary no
+longer renders an empty section. Guarded by
+`tests/test_quick_note_reaches_knowledge_store.py`. CM041 upstream needs the same.
+
+## 2026-10-15 EnrichQueue retries through a store outage instead of dropping (fix/quick-note-into-knowledge-drain)
+
+`browsing_enrich.py` `EnrichQueue`: the job file is removed only after `store`
+succeeds. A store failure while `store_up()` is False keeps the file and backs
+off (30 s doubling, cap 900 s, `next_retry_at`/`outage_retries` in the file,
+so a restart resumes it) and counts against nobody; with the store up it counts
+`store_attempts` and quarantines at 3 to `<spool>/quarantine/` with a reason.
+Knowledge jobs no longer age out. `ical-server.py` `_knowledge_store_up` calls
+`ostler_fda.sink_health.stores_answer` (the `--probe-ports` predicate), falling
+back to a Qdrant reachability check. Guarded by
+`tests/test_enrichqueue_retries_not_drops.py`. CM041 upstream needs the same.
+
+Tree `vendor/cm041/assistant_api` (quick-note and enrich-queue PR), every file
+touched: `vendor/cm041/assistant_api/ical-server.py` (quick-note routing in
+`api_ingest_ios`, `_knowledge_store_up`, quick-note branches in
+`_enrich_summarise`/`_enrich_store`), `vendor/cm041/assistant_api/browsing_enrich.py`
+(`EnrichQueue` retry/quarantine, `parse_level`, optional `source`/`notebook`),
+and `vendor/cm041/assistant_api/hub_contract.yaml` (GENERATED by
+`scripts/gen_hub_contract.py`: the ingest_ios 200 response gains `quick_notes`).
+Regenerate the contract after any sync; the two code files need the CM041
+upstream change or a re-sync reverts them.
+
+## 2026-10-17 v1.0.108 batch 2: do-not-suggest (deceased) excludes a person from every proactive surface (CM041 #216, 8aca5ccc)
+
+Tree: `cm041/assistant_api`. Pin HELD; 8aca5ccc added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: all 9 hunks of upstream e1107d6c..8aca5ccc for this file. These are `_identifiers_shared_with_other_than`, `_is_fixed_line`, `api_people_suppress_suggestions`, `_suppressed_identity_index`, the fail-closed reads in `people_stale`, `people_recent` and `people_birthdays`, and the `POST /api/v1/people/{slug}/suppress-suggestions` route.
+- Method: patch(1) failed 2 of 9 hunks against this tree, so each hunk's added lines were inserted at an explicit, uniquely matched anchor. Measured: the sorted multiset of changed lines equals upstream's (320 insertions, 0 deletions).
+- No real name or number is in the vendored code. The upstream test names a real person and carries two numbers; the CM051 port does not.
+- Proof: `tests/test_cm041_deceased_excluded_from_proactive_surfaces.py` (18). Scenarios: a deceased person is excluded from reconnect, follow-up and birthdays; a living relative sharing the family landline and family email stays visible; a new node minted after suppression stays excluded; a merge survivor stays excluded. Also covered: the endpoint record and clear, and fixed-line classification. 17 of 18 fail on the pre-graft file.
+- Retire: re-pin `cm041/assistant_api` past 8aca5ccc.
+
+## hub_contract.yaml regenerated for the Doctor-native suppress-suggestions route (CM051, 2026-10-17)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/hub_contract.yaml`
+only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
+<ostler-assistant main>` added one route, `doctor POST
+/api/v1/people/{slug}/suppress-suggestions` (source `vendor/doctor/agent/web_ui.py`,
+`auth: none`), taking the file from 263 to 264 routes. `--check` against
+assistant main reports current. This is the loopback half of CM041 #216 (the
+8aca5ccc graft above): the ical handler `api_people_suppress_suggestions`
+already shipped on :8090, but the wiki "Stop suggesting" button is an unpaired
+browser that cannot use the paired-bearer `DOCTOR_PROXY_PATHS` proxy, so the
+Doctor now serves it as a NATIVE unauthenticated route (same trust model as
+`/api/v1/wiki/correct`) that forwards to the ical endpoint with the service
+token. The new route is recorded against the `doctor` tree in
+`WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
+Regenerate the contract after any sync.

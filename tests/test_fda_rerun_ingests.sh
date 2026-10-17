@@ -234,7 +234,7 @@ printf '%s\n' "$WRAPPER_BODY" > "${WORK}/ostler-fda.shipped"
 # original grows; truncation at a named anchor does not.
 awk '
     !stop { print }
-    !stop && $0 == "run_all(fda_dir)" { stop = 1; next }
+    !stop && $0 == "_summary = run_all(fda_dir)" { stop = 1; next }
     stop == 1 && ($0 == "\"" || $0 ~ /^" \|\| _fda_rc=/) { print; stop = 2; next }
     stop == 2 { print }
 ' "${WORK}/ostler-fda.shipped" > "${WORK}/ostler-fda.extractonly"
@@ -243,8 +243,8 @@ awk '
 # "the whole shipped wrapper", the negative control then sees ingest_all called
 # and fails -- which is at least loud -- but it could equally become an empty
 # file that fails for the wrong reason. Refuse instead of guessing.
-grep -q '^run_all(fda_dir)$' "${WORK}/ostler-fda.extractonly" || cannot_run \
-    "could not build the extract-only fixture: the run_all(fda_dir) anchor moved"
+grep -q '^_summary = run_all(fda_dir)$' "${WORK}/ostler-fda.extractonly" || cannot_run \
+    "could not build the extract-only fixture: the _summary = run_all(fda_dir) anchor moved"
 # The fixture must not CALL ingest_all. Checked on the comment-stripped text
 # with call syntax, not on the raw text: the wrapper's own comments discuss
 # ingest_all at length, and a bare substring guard fails on the prose while the

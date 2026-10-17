@@ -94,6 +94,15 @@ EXPECTED_HEADINGS_BY_PROMPT: dict[str, list[str]] = {
         "Next steps",
         "Cleaned transcript",
     ],
+    # A single-speaker capture (voice memo, dictated note). Chosen by the
+    # pipeline from the speaker count, never by the classifier: see
+    # src/capture_truth.py. No roster, no location, no "people mentioned".
+    "02_enrich_voice_memo": [
+        "Summary",
+        "Topics covered",
+        "Commitments",
+        "Cleaned transcript",
+    ],
     "02_enrich_email_thread": [
         "Summary",
         "Key topics",

@@ -837,6 +837,17 @@ REMINDERS_RUNTIME_DETAIL_DENIED = (
     "refused because Reminders access is denied or has been revoked. Those "
     "reminders are not appearing until you grant access again."
 )
+REMINDERS_RUNTIME_STATUS_PUSH_FAILING = "Reminders are not syncing"
+REMINDERS_RUNTIME_DETAIL_PUSH_FAILING = (
+    "Every commitment Ostler tried to add to the macOS Reminders app has "
+    "failed, and none has got through. They are not reaching your Reminders."
+)
+REMINDERS_RUNTIME_FAILED_COUNT_FMT = "{count} reminder(s) could not be added."
+REMINDERS_RUNTIME_STATUS_CANNOT_READ = "Could not check Reminders sync"
+REMINDERS_RUNTIME_DETAIL_CANNOT_READ = (
+    "Ostler could not read its record of what it sent to the Reminders app, so "
+    "it cannot tell whether reminders are arriving."
+)
 REMINDERS_RUNTIME_BTN_TURN_ON = "Turn reminders back on"
 REMINDERS_RUNTIME_DETAIL_LIST_REMOVED = (
     "Ostler's Reminders list was removed; turn reminders back on? Until you do, "

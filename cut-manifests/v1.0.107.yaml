@@ -441,13 +441,17 @@ entries:
   # not touch install.sh's logic at all, only the daemon/hub-app pin values.
   # ==========================================================================
   - id: brew-manual-tarball-targets-main
-    title: the manual, no-sudo Homebrew tarball install must fetch tarball/main
+    title: the manual, no-sudo Homebrew tarball install fetches a pinned, existing ref (since #2890, the tag archive at OSTLER_BREW_TAG, sha256-verified), never tarball/master
     incident: "v1.0.89, freshly wiped Mac, no Homebrew present: install.sh fetched https://github.com/Homebrew/brew/tarball/master, curl and tar succeeded, and the very next command /opt/homebrew/bin/brew --version exited 1 with 'Error: Homebrew's master branch is no longer supported.' install.sh aborted at ERR-04-HOMEBREW-INSTALL. Fixed by CM051 #1920, ac0b5d518b557494e9450256bbfeb76780a2e563."
     source_pr: andygmassey/CM051-Home-Hub-Installer#1920
     source_sha: ac0b5d518b557494e9450256bbfeb76780a2e563
     proof:
       kind: grep_in_installer
-      pattern: "https://github\\.com/Homebrew/brew/tarball/main"
+      # RE-KEYED 2026-10-14 (ORM, cut #28): #2890 (batch #2897, d0c9f235) replaced the
+      # unpinned tarball/main fetch with a pinned tag archive plus a sha256 check, the
+      # stronger form of the same property (fetch a ref that exists). The old pattern
+      # matched nothing at d0c9f235 and the manifest gate went red at the #28 freeze.
+      pattern: "https://github\\.com/Homebrew/brew/archive/refs/tags/\\$\\{OSTLER_BREW_TAG\\}\\.tar\\.gz"
       must_match: true
 
   - id: brew-manual-tarball-master-absent

@@ -147,6 +147,41 @@ def _write(path: Path, data: dict) -> None:
         raise
 
 
+def _set_aside(path: Path) -> Optional[Path]:
+    """Copy an unreadable tombstone's bytes beside it, once per distinct state.
+
+    The original stays in place (it is what keeps every syncer fail-closed).
+    Returns the copy's path, or None when even reading the bytes failed.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    tag = hashlib.sha256(raw).hexdigest()[:12]
+    aside = path.with_name(f"{path.name}.unreadable-{tag}")
+    try:
+        if not aside.exists():
+            aside.write_bytes(raw)
+            os.chmod(aside, 0o600)
+        return aside
+    except OSError:
+        return None
+
+
+def problem(path: Optional[Path] = None) -> Optional[str]:
+    """None when the tombstone is absent or readable, else what is wrong.
+
+    For callers that must SAY why a tombstone was not written (forget) and
+    for any health surface that wants to show it.
+    """
+    path = path or tombstone_path()
+    try:
+        _load(path)
+        return None
+    except TombstoneUnreadable as exc:
+        return f"tombstone_unreadable: {exc}"
+
+
 def record(
     person_uri: str,
     identifier_values: Iterable[str],
@@ -157,13 +192,25 @@ def record(
 
     Never raises: forget must still erase when the tombstone cannot be
     written, and report that honestly (the caller surfaces the False).
+    An existing file that cannot be read is never replaced: see below.
     """
     path = path or tombstone_path()
     try:
         data = _load(path)
     except TombstoneUnreadable:
-        logger.error("forget tombstone unreadable; starting a new one", exc_info=True)
-        data = {"v": 1, "salt": "", "entries": []}
+        # NEVER START A NEW ONE OVER IT. This used to log "starting a new one"
+        # and write a fresh file in its place, which wiped every earlier
+        # Forget: the people in it could then be minted again by the next
+        # sync. The file is left exactly where it is, so is_forgotten() stays
+        # fail-closed for every syncer, a copy of its bytes is set aside for
+        # recovery, and the caller is told the tombstone was not written.
+        aside = _set_aside(path)
+        logger.error(
+            "forget tombstone unreadable; NOT overwriting it (%s). A copy is "
+            "kept at %s. Repair or remove it, then forget again.",
+            path, aside or "(copy failed)", exc_info=True,
+        )
+        return False
     try:
         if not data["salt"]:
             data["salt"] = secrets.token_hex(16)

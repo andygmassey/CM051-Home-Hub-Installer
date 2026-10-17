@@ -194,19 +194,23 @@
         RunAtLoad: start the daemon at LaunchAgent load (login
         or post-install).
 
-        KeepAlive (dict form): only restart on abnormal exit. A
-        clean exit zero (e.g. SIGTERM during uninstall, or daemon
-        deciding to stop on a fatal config error it has already
-        surfaced) does not retry. SuccessfulExit=false matches
-        the launchd convention for "respawn on crash, leave alone
-        on intentional shutdown".
+        KeepAlive (PathState form): the job stays alive while the
+        marker OSTLER_HOME/.ostler/deliberate-stop is ABSENT. Only
+        `ostler-assistant service stop` writes that marker and the
+        daemon deletes it on start. A SIGTERM (which the daemon
+        answers with exit 0) therefore respawns, where the old
+        SuccessfulExit=false left it dead. PathState needs an
+        absolute path; install renders OSTLER_HOME to the real HOME.
     -->
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <dict>
-        <key>SuccessfulExit</key>
-        <false/>
+        <key>PathState</key>
+        <dict>
+            <key>OSTLER_HOME/.ostler/deliberate-stop</key>
+            <false/>
+        </dict>
     </dict>
 
     <!--
