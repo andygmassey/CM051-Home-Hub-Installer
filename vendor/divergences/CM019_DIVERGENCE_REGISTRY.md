@@ -205,7 +205,8 @@ services/enrich), same shape: upstream has no consent gate either.
 ### v1.0.108 -- local-store clients ignore HTTP(S)_PROXY (enricher.py, hierarchy.py, cli.py)
 
 `trust_env=False` on the 13 httpx clients that talk to the local Qdrant and
-Oxigraph. Upstream: personal-world-graph #409. Detail and proof:
+Oxigraph. UPSTREAM since 4e023299 (personal-world-graph #409); this tree is
+pinned there, so this is no longer a divergence. Detail and proof:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-17 v1.0.108".
 
 ## How to add a row

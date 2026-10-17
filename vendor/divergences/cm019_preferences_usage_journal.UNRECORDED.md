@@ -282,12 +282,12 @@ Proof: `tests/test_passive_plays_are_not_likes.py`, `tests/test_linkedin_recomme
 
 ## 2026-10-17 v1.0.108: cm019_preferences local-store clients ignore HTTP(S)_PROXY
 
-Tree: `cm019_preferences`. Same port as upstream personal-world-graph #409 (open when this was written). Regeneration was not attempted: this tree is `verify = "skip"`, and `--regen-patch` here would publish upstream-side lines in this public repo (see the 2026-10-17 manifest note on the #408 re-pin).
+Tree: `cm019_preferences`. RETIRED AS A DIVERGENCE 2026-10-17: upstream personal-world-graph #409 merged as 4e023299 and this tree is pinned there, so the hunk below IS upstream (changed lines measured identical per file). Kept as history. Regeneration was not attempted: this tree is `verify = "skip"`, and `--regen-patch` here would publish upstream-side lines in this public repo (see the 2026-10-17 manifest note on the #408 re-pin).
 
 Edits, all under `vendor/cm019_preferences/services/enrich/src/`: every `httpx.AsyncClient(...)` that talks to the local Qdrant or Oxigraph now passes `trust_env=False`, 13 call sites (`enricher.py` 4, `hierarchy.py` 3, `cli.py` 6), plus one comment block per file. Public API clients under `clients/` are unchanged.
 
 Why: with `HTTP(S)_PROXY` set and no matching `NO_PROXY`, loopback writes went to the proxy and `_store_enrichment` returned False (measured on a dev Mac, proxy 127.0.0.1:8118).
 
-Retire: when #409 merges, re-pin this tree to the merge SHA; the vendored hunk then IS upstream and this section is history.
+Retired: re-pinned to 4e023299 (see the manifest note).
 
 Proof: `tests/test_cm019_local_store_ignores_proxy.py` (dead proxy in the env, real loopback server, own control, AST check of all 13 sites); fails on origin/main with 17 failures.
