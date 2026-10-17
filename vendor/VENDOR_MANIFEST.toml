@@ -889,8 +889,11 @@ vendor_path      = "vendor/cm052_ai_conversations"
 source_repo      = "$CM052"
 source_path      = "."
 pinned_sha       = "1ec05783be953314847c476d4b5013d40de53650"
-divergence_patch = ""
-unrecorded_divergence = "vendor/divergences/cm052_ai_conversations.UNRECORDED.md"
+  divergence_patch = "vendor/divergences/cm052_ai_conversations.patch"
+  # RECORDED 2026-10-18 (vendor drift reduction): the 365-day-clamp catch-up graft (catchup.py new file + cli.py), and divergence_patch was a false empty byte-identity claim now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin 1ec05783; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/cm052_ai_conversations.UNRECORDED.md
 exclude          = ["tests/", "docs/", "prompts/", ".github/", ".claude/", "fixtures_private/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "PLAN.md", "README.md", ".env.example", ".gitignore"]
 verify           = "full"
 unverifiable_ack = true
