@@ -2384,3 +2384,14 @@ nonperson	vendor/divergences/doctor.patch::3cd82b59cd3c9a35	PRODUCT: the same pa
 nonperson	scripts/cut_markers.manifest::0d1287e3a96d9684	PRODUCT: line 136, the vector-store product name as it appeared in a fallback heading. It is the exact string a wiki_image_absent LOCK must prove is GONE from the shipped image (CM044 #299); a synthetic substitute would make the lock test a string that was never there, so it would pass by construction.
 nonperson	scripts/cut_markers.manifest::c6d895b24a3b8a08	PRODUCT: line 137, the graph-store product name as it appeared in a fallback heading. Same reason: the LOCK must name the exact leaked string to prove its absence (CM044 #299).
 phrase	loopback qdrant	code comment heading for the loopback vector-store helpers (vendor/cm041/assistant_api/browsing_enrich.py)
+# smart-prefs graft (personal-world-graph 96ff272d, derive engine). These files
+# are vendored BYTE-IDENTICAL to upstream, so they are cleared here rather than
+# edited: a scrub of the vendored copy alone would diverge from source and write
+# the original text into any future divergence patch.
+phrase	derived preference	ontology class label pwg:DerivedPreference ("Derived Preference", "Derived Preference Shape") in vendor/cm019_preferences/ontology/*.ttl; a class name, not a person
+phrase	preference ontology	ontology title "PWG Derived-Preference Ontology" in vendor/cm019_preferences/ontology/upper/pwg-derived.ttl; a document title, not a person
+phrase	optional wikidata	rdfs:comment prose "Optional Wikidata QID for the abstract value" in vendor/cm019_preferences/ontology/upper/pwg-derived.ttl; the adjective "optional" plus the product Wikidata, not a person
+phrase	dedicated qdrant	code comment "Dedicated Qdrant collection for the derived mirror" in vendor/cm019_preferences/services/enrich/src/derive/model.py; an adjective plus the vector-store product, not a person
+phrase	return qdrant	docstring "Return Qdrant points" in vendor/cm019_preferences/services/enrich/src/derive/readers.py; a verb plus the vector-store product, not a person
+phrase	blade runner	FILM TITLE ("Blade Runner 2049") in the shared derived-preferences contract example, byte-identical across CM019, CM041 and ostler-assistant (contract/derived_preferences_response.example.json); a public work, not a person, same precedent as the album and book titles above
+phrase	christopher nolan	PUBLIC FIGURE, deliberate: a film DIRECTOR value in the shared derived-preferences contract example (dimension media.film.director) and in model.py's field comment, the canonical example of what that dimension holds. Same precedent as the enrichment public-figure rows above. NOT a customer contact; the contract is byte-identical in three repos and renaming one copy breaks the pin

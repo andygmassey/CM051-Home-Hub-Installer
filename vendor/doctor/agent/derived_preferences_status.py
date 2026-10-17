@@ -174,7 +174,7 @@ def render_derived_preferences_status(status: dict | None = None) -> str:
     detail = st.get("reason") or _EXPLAIN.get(key, "")
     return (
         '<div class="section"><h2>What you like</h2>'
-        '<p class="muted">Tastes Ostler works out from your saved preferences, '
+        '<p class="muted">The tastes Ostler works out from your saved preferences, '
         "on this Mac. Whether it is set up, when it last ran and how many it "
         "found.</p>"
         '<table class="src-table" style="width:100%;border-collapse:collapse">'

@@ -129,11 +129,11 @@ fi
 
 echo "B: it is a background citizen"
 if [ -n "$DERIVE_PLIST" ]; then
-    grep -A1 '<key>ProcessType</key>' "$DERIVE_PLIST" | grep -q '<string>Background</string>' \
+    grep -q '<string>Background</string>' <<< "$(grep -A1 '<key>ProcessType</key>' "$DERIVE_PLIST")" \
         && ok "ProcessType Background" || bad "ProcessType is not Background"
     grep -q '<key>StartInterval</key>' "$DERIVE_PLIST" \
         && ok "has a StartInterval (re-runs on a cadence)" || bad "no StartInterval"
-    grep -A1 '<key>RunAtLoad</key>' "$DERIVE_PLIST" | grep -q '<false/>' \
+    grep -q '<false/>' <<< "$(grep -A1 '<key>RunAtLoad</key>' "$DERIVE_PLIST")" \
         && ok "RunAtLoad false (first pass after the install's import)" || bad "RunAtLoad is not false"
     grep -q '<key>PYTHONPYCACHEPREFIX</key>' "$DERIVE_PLIST" \
         && ok "PYTHONPYCACHEPREFIX in the plist environment" || bad "no PYTHONPYCACHEPREFIX"
@@ -154,7 +154,7 @@ if [ -n "$DERIVE_PLIST" ]; then
     fi
     if [ -n "$call_line" ]; then
         guard="$(sed -n "$((call_line - 3)),$((call_line - 1))p" "$INSTALL_SH")"
-        if printf '%s' "$guard" | grep -q 'ENRICH'; then
+        if grep -q 'ENRICH' <<< "$guard"; then
             bad "the call sits under an enrichment-consent guard; derivation is local only"
         else
             ok "the call is not gated on the enrichment answer"
