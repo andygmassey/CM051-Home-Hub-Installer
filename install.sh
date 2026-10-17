@@ -15169,12 +15169,12 @@ cat > "${OSTLER_DIR}/bin/ostler-listener-watchdog" <<'LISTENERWDEOF'
 # it pauses background ingest only and leaves live chat (this listener)
 # running by design (vendor/doctor/agent/pause_control.py).
 #
-# State for the Doctor: ${STATE_DIR}/listener_watchdog.json
-# Captures:             ${LOGS_DIR}/listener-watchdog/<ts>/
+# State for the Doctor: ${LWD_STATE_DIR}/listener_watchdog.json
+# Captures:             ${LWD_LOGS_DIR}/listener-watchdog/<ts>/
 # Exit: 0 alive or nothing to do; 1 a fault this run could not clear;
 #       2 CANNOT-RUN (launchd could not be read). Never a pass.
 set -uo pipefail
-OSTLER_DIR="${OSTLER_LISTENER_WD_OSTLER_DIR:-${HOME}/.ostler}"
+LWD_OSTLER_DIR="${OSTLER_LISTENER_WD_OSTLER_DIR:-${HOME}/.ostler}"
 URL="${OSTLER_LISTENER_WD_URL:-https://127.0.0.1:8443/api/sessions}"
 LABEL="${OSTLER_LISTENER_WD_LABEL:-com.creativemachines.ostler.assistant}"
 LAUNCHCTL="${OSTLER_LISTENER_WD_LAUNCHCTL:-/bin/launchctl}"
@@ -15187,20 +15187,20 @@ VERIFY_POLL_S="${OSTLER_LISTENER_WD_VERIFY_POLL_S:-3}"
 SAMPLE_S="${OSTLER_LISTENER_WD_SAMPLE_S:-5}"
 CAPTURE_KEEP="${OSTLER_LISTENER_WD_CAPTURE_KEEP:-5}"
 CAPTURE_FILE_MAX="${OSTLER_LISTENER_WD_CAPTURE_FILE_MAX:-2097152}"
-STATE_DIR="${OSTLER_LISTENER_WD_STATE_DIR:-${OSTLER_DIR}/state}"
-LOGS_DIR="${OSTLER_LISTENER_WD_LOGS_DIR:-${OSTLER_DIR}/logs}"
-CAPTURE_ROOT="${LOGS_DIR}/listener-watchdog"
-STOP_MARKER="${OSTLER_LISTENER_WD_STOP_MARKER:-${OSTLER_DIR}/deliberate-stop}"
-ASSISTANT_CONFIG="${OSTLER_LISTENER_WD_CONFIG:-${OSTLER_DIR}/assistant-config/config.toml}"
-DAEMON_ERR="${OSTLER_LISTENER_WD_DAEMON_ERR:-${LOGS_DIR}/ostler-assistant.err}"
+LWD_STATE_DIR="${OSTLER_LISTENER_WD_STATE_DIR:-${LWD_OSTLER_DIR}/state}"
+LWD_LOGS_DIR="${OSTLER_LISTENER_WD_LOGS_DIR:-${LWD_OSTLER_DIR}/logs}"
+LWD_CAPTURE_ROOT="${LWD_LOGS_DIR}/listener-watchdog"
+STOP_MARKER="${OSTLER_LISTENER_WD_STOP_MARKER:-${LWD_OSTLER_DIR}/deliberate-stop}"
+ASSISTANT_CONFIG="${OSTLER_LISTENER_WD_CONFIG:-${LWD_OSTLER_DIR}/assistant-config/config.toml}"
+DAEMON_ERR="${OSTLER_LISTENER_WD_DAEMON_ERR:-${LWD_LOGS_DIR}/ostler-assistant.err}"
 INSTALL_RUNNING_CMD="${OSTLER_LISTENER_WD_INSTALL_RUNNING_CMD:-}"
-STATE_FILE="${STATE_DIR}/listener_watchdog.json"
-FAILS="${STATE_DIR}/listener_watchdog.fails"
-RESTARTS="${STATE_DIR}/listener_watchdog.restarts"
-LOCK="${STATE_DIR}/listener_watchdog.lock"
+LWD_STATE_FILE="${LWD_STATE_DIR}/listener_watchdog.json"
+FAILS="${LWD_STATE_DIR}/listener_watchdog.fails"
+RESTARTS="${LWD_STATE_DIR}/listener_watchdog.restarts"
+LOCK="${LWD_STATE_DIR}/listener_watchdog.lock"
 
-mkdir -p "$STATE_DIR" "$LOGS_DIR" 2>/dev/null || true
-# stdout IS the log: the plist points StandardOutPath at ${LOGS_DIR}/listener-watchdog.log.
+mkdir -p "$LWD_STATE_DIR" "$LWD_LOGS_DIR" 2>/dev/null || true
+# stdout IS the log: the plist points StandardOutPath at ${LWD_LOGS_DIR}/listener-watchdog.log.
 lwd_log() { printf '%s listener-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 lwd_now() { date +%s; }
 lwd_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1"; }
@@ -15220,8 +15220,8 @@ trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 LAST_RESTART_AT=""; LAST_CAPTURE=""; LAST_CODE=""
 lwd_read_state_field() {
-    [ -f "$STATE_FILE" ] || return 0
-    sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" "$STATE_FILE" | head -1
+    [ -f "$LWD_STATE_FILE" ] || return 0
+    sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" "$LWD_STATE_FILE" | head -1
 }
 LAST_RESTART_AT="$(lwd_read_state_field last_restart_at)"
 LAST_CAPTURE="$(lwd_read_state_field last_capture)"
@@ -15245,7 +15245,7 @@ lwd_write_state() {
     d="$(printf '%s' "$3" | tr -d '"\\' | tr '\n\t' '  ' | cut -c1-300)"
     printf '{"state": "%s", "consecutive_failures": %s, "last_restart_at": "%s", "restarts_last_hour": %s, "last_capture": "%s", "last_http_code": "%s", "detail": "%s", "url": "%s", "updated_at": "%s"}\n' \
         "$1" "$2" "$LAST_RESTART_AT" "$(lwd_restarts_last_hour)" "$LAST_CAPTURE" "$LAST_CODE" "$d" "$URL" "$(lwd_iso "$(lwd_now)")" \
-        > "${STATE_FILE}.tmp" && mv -f "${STATE_FILE}.tmp" "$STATE_FILE"
+        > "${LWD_STATE_FILE}.tmp" && mv -f "${LWD_STATE_FILE}.tmp" "$LWD_STATE_FILE"
 }
 
 lwd_probe() {
@@ -15333,7 +15333,7 @@ lwd_cap_file() { # lwd_cap_file <file>: keep at most CAPTURE_FILE_MAX bytes
     fi
 }
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
-CAP="${CAPTURE_ROOT}/${ts}"
+CAP="${LWD_CAPTURE_ROOT}/${ts}"
 mkdir -p "$CAP"
 {
     echo "captured_at=$(lwd_iso "$(lwd_now)") pid=${PID:-none} url=${URL} consecutive_failures=${n} restarts_last_hour=${rlh}"
@@ -15363,7 +15363,7 @@ tail -n 200 "$DAEMON_ERR" > "$CAP/daemon-err-tail.txt" 2>&1 || true
 for _f in "$CAP"/*; do lwd_cap_file "$_f"; done
 LAST_CAPTURE="$CAP"
 lwd_log "CAPTURE ${CAP}"
-ls -1d "$CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -rf "$_old"; done
+ls -1d "$LWD_CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -rf "$_old"; done
 
 # ── Restart ──────────────────────────────────────────────────────────
 # SIGCONT first: harmless on a running process, and a STOPPED one cannot act
