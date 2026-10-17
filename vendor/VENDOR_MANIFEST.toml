@@ -693,7 +693,10 @@ source_repo      = "$CM024"
 source_path      = "."
 pinned_sha       = "e0196b10308476eeeb4e29edc2eead6d47b9a4d7"
   divergence_patch = "vendor/divergences/cm024_knowledge.patch"
-unrecorded_divergence = "vendor/divergences/cm024_knowledge_calls_field.UNRECORDED.md"
+  # RECORDED 2026-10-18 (vendor drift reduction): the usage-journal calls field (#2603 follow-up) now in this tree's divergence patch,
+  # written by scripts/regenerate_divergence_patch.sh against the source AT pin e0196b10; the tool
+  # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
+  # grounds, verbatim: git show 992fb55f:vendor/divergences/cm024_knowledge_calls_field.UNRECORDED.md
 exclude          = ["tests/", "docs/", "scripts/", "__pycache__/", "*.egg-info/", ".gitignore", "CLAUDE.md", "HANDOFF.md", "TODO.md", "pytest.ini", "ostler_knowledge/query/"]
 # ostler_knowledge/query/ EXCLUDED 2026-09-03, and the reason is the point.
 # The 2026-09-02 re-vendor brought query/__init__.py but NOT the retriever.py it
