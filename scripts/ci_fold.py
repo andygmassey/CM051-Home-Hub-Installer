@@ -40,6 +40,9 @@ it:
                           block installed something
   * a fresh HOME, TMPDIR  so files one block leaves behind cannot satisfy
                           another block's assertions
+  * no leftover process   every step after a block's isolate step carries
+                          CI_FOLD_BLOCK=<tag>, inherited even by an orphan, and
+                          the next isolate step kills exactly those processes
 
 Step conditions are re-scoped to the block. A step with no `if:` ran only when
 every earlier step in ITS job succeeded; here it runs when every earlier step
@@ -57,6 +60,8 @@ WHAT IS NOT PRESERVED, stated so nobody over-trusts it:
   * A test that writes to a fixed absolute path outside the checkout, HOME and
     TMPDIR (for example a literal /tmp/foo) can still see an earlier block's
     leftovers. Nothing here can isolate that without a fresh machine.
+  * A process an earlier block started as ANOTHER user (sudo) or inside a
+    container the runner's user cannot signal survives into the next block.
 
 EXIT CODES
   0  ok / proven
@@ -832,6 +837,33 @@ def cmd_generate(args):
               # shortcircuit_inversion.sh counts per FILE, so a pipefail here
               # would make every folded block's `x | grep -q` look new.
               "          set -eu",
+              "          # A fresh machine also had no processes left over from "
+              "another job.",
+              "          # Every step after an isolate step carries "
+              "CI_FOLD_BLOCK=<its tag>",
+              "          # (via GITHUB_ENV), and a process inherits it even "
+              "once orphaned, so",
+              "          # anything an earlier block left running still "
+              "carries it. Kill exactly",
+              "          # those: nothing else on the machine carries the "
+              "marker.",
+              "          mkdir -p \"$RUNNER_TEMP/ci-fold\"",
+              "          me=$$",
+              "          ps -A -o pid=,ppid= > \"$RUNNER_TEMP/ci-fold/procs\" "
+              "|| true",
+              "          while read -r pid ppid; do",
+              "            if [ \"$pid\" = \"$me\" ] || [ \"$ppid\" = \"$me\" ]; "
+              "then continue; fi",
+              "            if [ -r \"/proc/$pid/environ\" ]; then",
+              "              tr '\\0' '\\n' < \"/proc/$pid/environ\" 2>/dev/null "
+              "| grep -q '^CI_FOLD_BLOCK=' || continue",
+              "            else",
+              "              ps eww -o command= -p \"$pid\" 2>/dev/null "
+              "| grep -q 'CI_FOLD_BLOCK=' || continue",
+              "            fi",
+              "            kill -KILL \"$pid\" 2>/dev/null || true",
+              "          done < \"$RUNNER_TEMP/ci-fold/procs\"",
+              f"          echo \"CI_FOLD_BLOCK={b['tag']}\" >> \"$GITHUB_ENV\"",
               "          git -C \"$GITHUB_WORKSPACE\" reset --hard -q HEAD",
               "          git -C \"$GITHUB_WORKSPACE\" clean -ffdxq",
               "          rm -rf \"$BLOCK\"",
@@ -1125,6 +1157,10 @@ def cmd_check(args):
             if "!cancelled()" not in str(pre.get("if", "")):
                 problems.append(f"{tag}_isolate can be skipped by another "
                                 f"block's failure")
+            prun = str(pre.get("run", ""))
+            if f"CI_FOLD_BLOCK={tag}" not in prun or "kill -KILL" not in prun:
+                problems.append(f"{tag}_isolate does not mark its block's "
+                                f"processes and stop an earlier block's")
             gate = f"steps.select.outputs.{tag} != 'false'"
             if fshards:
                 ks = {m for st in block for m in
@@ -1478,9 +1514,12 @@ def cmd_run_local(args):
               file=sys.stderr)
         return 2
     work = tempfile.mkdtemp(prefix="ci_fold_run_")
-    ws = os.path.join(work, "ws")
-    subprocess.run(["git", "-C", REPO, "worktree", "add", "-q", "--detach",
-                    ws, args.ref], check=True)
+    if args.workspace:
+        ws = os.path.abspath(args.workspace)      # self-test seam: a git repo
+    else:
+        ws = os.path.join(work, "ws")
+        subprocess.run(["git", "-C", REPO, "worktree", "add", "-q",
+                        "--detach", ws, args.ref], check=True)
     ctx = {"steps": {}, "failed": False, "python": python,
            "matrix_shape": matrix_shape,
            "python_version": args.python, "runner_temp": os.path.join(work, "t"),
@@ -1581,7 +1620,8 @@ def cmd_run_local(args):
                 print(f"--- {sid} ({res}, rc={rc}) {st.get('name', '')}\n"
                       f"{out[-4000:]}", file=sys.stderr)
     finally:
-        subprocess.run(["git", "-C", REPO, "worktree", "remove", "--force", ws],
+        if not args.workspace:
+            subprocess.run(["git", "-C", REPO, "worktree", "remove", "--force", ws],
                        check=False)
         shutil.rmtree(work, ignore_errors=True)
     total = time.time() - t_job
@@ -1647,6 +1687,8 @@ def main(argv):
     r.add_argument("--ref", default="HEAD",
                    help="committed tree to run in a disposable worktree")
     r.add_argument("--block", action="append")
+    r.add_argument("--workspace", help="run in this git checkout instead of "
+                   "a disposable worktree (self-test seam)")
     r.add_argument("--timings")
     r.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv[1:])
