@@ -71,6 +71,11 @@ from dashboard_components import (
 # in its own vendor-only module (CM051 probes a layout HR015 Doctor has
 # no equivalent of); see vendor/VENDOR_ONLY.tsv.
 from documents_access_posture import render_documents_access_posture
+# "What you like" status row (smart-prefs): is the preference-derivation agent
+# scheduled, when did it last run, how many tastes did it leave in the derived
+# graph. Vendor-only module (it reports on an installer LaunchAgent HR015 Doctor
+# has no equivalent of); see vendor/VENDOR_ONLY.tsv.
+from derived_preferences_status import render_derived_preferences_status
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -1616,6 +1621,7 @@ def render_dashboard(
     whatsapp_keepalive_section = render_whatsapp_keepalive()
 
     source_status_section = render_source_status()
+    derived_preferences_section = render_derived_preferences_status()
 
     # Build findings
     findings_html = ""
@@ -2181,6 +2187,7 @@ def render_dashboard(
 
         {whatsapp_keepalive_section}
         {source_status_section}
+        {derived_preferences_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
