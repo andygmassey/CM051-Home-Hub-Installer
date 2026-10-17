@@ -69,7 +69,7 @@ from pyoxigraph import RdfFormat, Store  # noqa: E402
 
 NOW = datetime(2026, 10, 17, tzinfo=timezone.utc)
 GENRE = "synthetic-genre-alpha"
-DIRECTOR = "Director Example One"
+DIRECTOR = "synthetic-director-one"
 
 PASS = 0
 FAIL = 0
