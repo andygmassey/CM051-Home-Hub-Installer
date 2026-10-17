@@ -407,12 +407,11 @@ source_repo      = "$CM048"
 source_path      = "."
   pinned_sha = "0190f448688481a3d5caf220c9f4a5a008ea495d"
   divergence_patch = "vendor/divergences/cm048_pipeline.patch"
-unrecorded_divergence = "vendor/divergences/cm048_pipeline.UNRECORDED.md"
-  # DECLARED 2026-10-01 (CM051 #2578, people-correctness agent): a
-  # single-function graft (_whatsapp_jid_is_genuine_phone +
-  # _normalise_chat_identifier's call site) not attempted against the
-  # regeneration tool -- see the dedicated file for the reasoning.
-  # verify_vendor_divergence_described.py route (c).
+  # RETIRED 2026-10-18 (vendor drift reduction): unrecorded_divergence pointer and
+  # vendor/divergences/cm048_pipeline.UNRECORDED.md removed. Measured: source@0190f448
+  # plus cm048_pipeline.patch reconstructs all 72 vendored files with ZERO diff
+  # (negative control: a one-line mutant in a vendored .py was flagged). The 16 grafts
+  # that file listed are native at the pin (CM048 #82-#88) or carried by the patch.
 exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production", "copy_de.py", "copy_es.py", "copy_fr.py", "i18n-promotion-guard.yml"]
 verify           = "skip"
 unverifiable_ack = true
