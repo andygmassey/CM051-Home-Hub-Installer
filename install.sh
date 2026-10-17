@@ -15283,7 +15283,7 @@ if [ -r "$ASSISTANT_CONFIG" ] && grep -Eq '^[[:space:]]*companion_enabled[[:spac
     lwd_write_state "disabled" 0 "companion_enabled = false in the assistant config; nothing should listen"
     exit 0
 fi
-lc_out="$("$LAUNCHCTL" print "gui/$(id -u)/${LABEL}" 2>&1)"; lc_rc=$?
+lc_rc=0; lc_out="$("$LAUNCHCTL" print "gui/$(id -u)/${LABEL}" 2>&1)" || lc_rc=$?
 if [ "$lc_rc" -ne 0 ]; then
     case "$lc_out" in
         *"Could not find service"*)
@@ -15374,7 +15374,7 @@ t0="$(lwd_now)"
 echo "$t0" >> "$RESTARTS"
 LAST_RESTART_AT="$(lwd_iso "$t0")"
 rm -f "$FAILS"
-ks_out="$("$LAUNCHCTL" kickstart -k "gui/$(id -u)/${LABEL}" 2>&1)"; ks_rc=$?
+ks_rc=0; ks_out="$("$LAUNCHCTL" kickstart -k "gui/$(id -u)/${LABEL}" 2>&1)" || ks_rc=$?
 lwd_log "RESTART ${LABEL}: kickstart -k rc=${ks_rc} ${ks_out}"
 if [ "$ks_rc" -ne 0 ]; then
     lwd_write_state "restart_failed" 0 "kickstart -k rc=${ks_rc}: ${ks_out}"
