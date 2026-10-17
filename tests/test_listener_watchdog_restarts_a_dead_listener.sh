@@ -37,6 +37,7 @@ kill_daemons() {
     : > "$WORK/daemon.pids"
 }
 trap 'kill_daemons; rm -rf "$WORK"' EXIT
+trap 'exit 143' INT TERM HUP
 
 SCRIPT="${LWD_SCRIPT:-}"
 if [ -z "$SCRIPT" ]; then

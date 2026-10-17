@@ -28,6 +28,7 @@ cleanup() {
     rm -rf "$WORK"
 }
 trap cleanup EXIT
+trap 'exit 143' INT TERM HUP
 
 WD="$WORK/watchdog"
 awk '/<<'"'"'LISTENERWDEOF'"'"'$/{f=1;next} /^LISTENERWDEOF$/{f=0} f' "$ROOT/install.sh" > "$WD"
