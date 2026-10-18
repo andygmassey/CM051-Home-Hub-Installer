@@ -111,7 +111,7 @@ else
     fi
 fi
 
-# Fake Ollama store helpers (python, so no shasum dependency on the runner).
+# Helpers that write a fake model store (python, so no shasum dependency on the runner).
 mkstore() {   # mkstore <models_dir> <name> <tag> <cfg-seed> [tamper-blob|wrong-layers]
     python3 -I - "$@" <<'PY'
 import hashlib, json, os, sys
