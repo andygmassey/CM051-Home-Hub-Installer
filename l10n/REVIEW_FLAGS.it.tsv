@@ -1,0 +1,74 @@
+file	key	state	reason
+install.sh.strings.en-GB.sh	MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_STEP_SETUP_COMPLETE_WRAP_UP	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER	needs_review	Proposed text reversed the meaning: 'after first' became 'prima' (before/first). This is a fragment split across lines, so check it against the adjacent lines.
+install.sh.strings.en-GB.sh	MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_WARN_OSTLER_DOCTOR_NOT_LOADED	needs_review	Page names People/Timeline/Governor must match the app's Italian navigation labels; 'la dashboard' is the more usual gender in Italian.
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_OK_POWER_SOURCE_AC_GOOD_10_15	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE	needs_review	Source names the Energy panel (Italian macOS: "Energia"), not Batteria; exact Apple Italian wording of the option label needs verification against macOS.
+install.sh.strings.en-GB.sh	MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2	needs_review	Source says Energy pane (desktop Macs); 'Batteria' is the laptop pane. Verify Apple's exact Italian pane name and option label for the target macOS version.
+install.sh.strings.en-GB.sh	MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_PHASE_3_TAKES_10_15_MINUTES	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER	needs_review	Fragment continues a previous line (likely '...until this is resolved'); original translation said the problem IS resolved. Check join with preceding string.
+install.sh.strings.en-GB.sh	MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_PROMPT_WHATSAPP_CONSENT_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_WHATSAPP_CONSENT_HELP	needs_review	Legal acceptance wording; a lawyer should confirm the Italian carries the same force.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ARTICLE_9_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ARTICLE_9_HELP	needs_review	Legal consent wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_VOICE_EU_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_VOICE_EU_HELP	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ENRICHMENT_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ENRICHMENT_HELP	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_THIRD_PARTY_HELP	needs_review	Legal agreement wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_HEADING	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_BUSINESS	needs_review	Licence term wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_RECORDER	needs_review	Legal/consent wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_ASK_1	needs_review	Clarified 'theirs' refers to the parent's consent; legal wording for lawyer check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_ASK_2	needs_review	Legal/consent wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_ASK_3	needs_review	Legal/consent wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_LEGAL	needs_review	Legal wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_PROMPT_TERMS_PERSONAL_USE_HELP	needs_review	Legal/consent wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_HEADING	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_INTRO	needs_review	Fixed awkward last sentence; legal wording for lawyer check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_LAW	needs_review	Legal/consent wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_LOCAL	needs_review	Legal/consent wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_1	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_2	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_3	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y	needs_review	Consent declaration: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_LEGAL	needs_review	Legal wording: lawyer should check.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP	needs_review	Fixed awkward sentence; legal/consent text for lawyer check.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_HELP	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Consent/liability sentence: a lawyer should check the legal force of the Italian wording.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	Legal text: a lawyer should verify the GDPR terminology (titolare/responsabile del trattamento).
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	'registrazioni vocali' changed to 'acquisizioni vocali' (voice captures, not recordings). GDPR Article 9 consent text: lawyer should check legal force.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal text with GDPR references; translation is sound but a lawyer should confirm.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	Minor fix ('in sé' to 'di per sé'); legal text with statute references needs lawyer review.
+gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Restored 'recorded' (source refers to user's own existing recordings) and clarified the consent clause; consent wording should be checked by a lawyer.
