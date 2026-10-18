@@ -332,3 +332,49 @@ def test_otter_srt_name_prefix_and_title(tmp_path):
     m = parse_file("otter", p)[0]
     assert m.title == "Synthetic Weekly Call"
     assert [u.speaker for u in m.utterances] == ["Alex Example", "Alex Example"]
+
+
+# ---- Fireflies, official GraphQL schema (docs.fireflies.ai/schema/transcript,
+# /schema/sentence, /schema/summary, /schema/meeting-attendee, read 2026-10-18).
+# Sentence.start_time is type String. Values synthetic.
+FIREFLIES_V = {"data": {"transcript": {
+    "id": "SYNTH01FF", "title": "Synthetic pipeline review", "dateString": "2026-03-14T16:00:00.000Z",
+    "date": 1773504000000, "duration": 42.5, "organizer_email": "alex@example.test",
+    "user": {"email": "owen@example.test", "name": "Owen Owner"},
+    "participants": ["alex@example.test", "robin@example.test", "owen@example.test"],
+    "meeting_attendees": [{"displayName": "Alex Example", "email": "alex@example.test", "name": "Alex Example"},
+                          {"displayName": "Robin Sample", "email": "robin@example.test", "name": None}],
+    "speakers": [{"id": "0", "name": "Alex Example"}, {"id": "1", "name": "Owen Owner"}],
+    "sentences": [
+        {"index": 0, "text": "Let us begin.", "raw_text": "let us begin", "start_time": "2.48",
+         "end_time": "3.9", "speaker_id": "0", "speaker_name": "Alex Example"},
+        {"index": 1, "text": "I have the numbers.", "raw_text": "i have the numbers", "start_time": "65.2",
+         "end_time": "67.0", "speaker_id": "1", "speaker_name": "Owen Owner"}],
+    "summary": {"overview": "Synthetic pipeline overview.", "gist": "One line.",
+                "action_items": "**Alex Example**\nShare the revised forecast (01:05)\nBook the review room (02:10)\n\n**Owen Owner**\nSend the numbers (03:00)",
+                "topics_discussed": ["Forecast", "Hiring"], "keywords": "forecast, hiring"}}}}
+
+def test_fireflies_official_schema(tmp_path):
+    p = tmp_path / "ff.json"; p.write_text(json.dumps(FIREFLIES_V))
+    m = parse_file("fireflies", p)[0]
+    assert [u.start_s for u in m.utterances] == [2.48, 65.2]          # String start_time -> seconds
+    assert m.ended_at.startswith("2026-03-14T16:42:30")
+    by_email = {a.email: a.name for a in m.attendees if a.email}
+    assert by_email["alex@example.test"] == "Alex Example" and "robin@example.test" in by_email
+    assert len([a for a in m.attendees if a.name == "Alex Example"]) == 1   # speaker + attendee merged
+    assert [(a.text, a.assignee) for a in m.action_items] == [
+        ("Share the revised forecast", "Alex Example"), ("Book the review room", "Alex Example"),
+        ("Send the numbers", "Owen Owner")]
+
+def test_fireflies_string_start_time_renders(tmp_path):
+    d = tmp_path / "Imports"; (d / "fireflies").mkdir(parents=True)
+    (d / "fireflies" / "ff.json").write_text(json.dumps(FIREFLIES_V))
+    r, out = run(d, tmp_path)
+    assert r["imported"] == 1 and r["failed"] == 0
+    t = (Path(r["folders"][0]) / "transcript.md").read_text()
+    assert "[01:05] **Owen Owner:** I have the numbers." in t
+
+def test_fireflies_unrecognised_json_is_refused(tmp_path):
+    p = tmp_path / "x.json"; p.write_text(json.dumps({"something": "else"}))
+    with pytest.raises(ValueError):
+        parse_file("fireflies", p)
