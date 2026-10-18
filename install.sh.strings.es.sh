@@ -1934,3 +1934,195 @@ MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler no pudo abrir Ajustes del Sistema 
 # sentence without removing the corresponding capability.
 MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler ejecuta tu wiki y la búsqueda en contenedores, así que instala y gestiona un motor de contenedores (Colima) en este Mac. Si ese motor se elimina o se reconfigura, tu wiki y la búsqueda dejarán de funcionar. Ostler te avisará e intentará reiniciarlo."
 MSG_INFO_ENGINE_ALREADY_PRESENT="Ya hay un motor de contenedores instalado en este Mac. Ostler lo usará en lugar de instalar el suyo, y no lo gestionará ni lo modificará."
+
+# ── Consent screens, terminal/log path (lifted from inline echo, l10n) ──
+# Printed by _ostler_tty in install.sh: each value is a printf format whose
+# %s pairs switch bold/dim on and off. Keep every %s, every line break and
+# the [Y]/[N] answer tokens. Legal wording: translations ship needs_review.
+
+# install.sh consent screen (TTY/log path), lifted from install.sh:11865. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_01="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+
+  %sUna última cosa – qué va a consultar Ostler en tu Mac%s
+
+  Ostler es un asistente personal, así que funciona consultando las
+  partes de tu vida que guardas en este Mac. Parte de ello es
+  sensible. La ley de privacidad del Reino Unido y de la UE nos
+  obliga a preguntarte con claridad antes de tocar nada de eso.
+
+  %sDónde se guardan los datos.%s Todo lo que Ostler lee se queda en
+  este Mac, en carpetas cifradas que solo tú puedes abrir. Nunca
+  recibimos una copia. No existe una versión de tus datos en la \"nube\".
+
+  %sQué se incluye.%s Según los conectores que actives, Ostler
+  puede procesar los siguientes tipos de información que la ley
+  considera datos de \"categoría especial\":
+
+    - Información de salud mencionada en correos, mensajes,
+      entradas de calendario o conversaciones transcritas
+    - Creencias religiosas o filosóficas
+    - Orientación sexual
+    - Afiliación sindical
+    - Capturas de voz, usadas solo para indicar *quién* habla en las
+      llamadas (identificación del hablante). No deducimos estado de
+      ánimo, emoción, sentimiento, estrés ni engaño a partir de la voz.
+    - Menciones de delitos – propios o de otras personas
+
+  No realizamos reconocimiento de emociones. Si esto cambiara, te lo
+  preguntaríamos de nuevo, por separado, en una nueva pantalla de consentimiento.
+
+  Todo esto se queda en tu Mac. Nada se envía a Creative Machines ni
+  a ningún tercero, salvo en los casos concretos que se indican en
+  nuestra Política de privacidad en ostler.ai/privacy.
+
+  %sPuedes cambiar de opinión cuando quieras.%s Desactiva conectores
+  concretos en Ajustes, borra todo con \"Reset Ostler\" o desinstala
+  por completo ejecutando ostler-uninstall en Terminal.
+
+  Retirar el consentimiento detiene el tratamiento a partir de ese
+  momento. No deshace el trabajo que Ostler ya hizo con tu consentimiento anterior.
+
+  Tu decisión:
+
+    [Y] Doy mi consentimiento para que Ostler trate las categorías de
+        datos personales anteriores, localmente en este Mac, para
+        ejecutar mi asistente personal. (continúa la instalación)
+
+    [N] No doy mi consentimiento. (cancela y elimina el
+        instalador; no se guarda nada en este Mac)
+
+  %sNota legal: Tú eres el responsable del tratamiento de todos
+  los datos de categoría especial que Ostler procesa en este Mac
+  (UK GDPR, artículo 4(7)). Creative Machines nunca recibe
+  ninguno de estos datos. Tu consentimiento explícito anterior
+  (UK GDPR, artículo 9(2)(a)) es la base jurídica del
+  tratamiento. Para uso personal y doméstico, el artículo 2(2)(c)
+  limita aún más el alcance. Este consentimiento es revocable en
+  cualquier momento sin afectar al tratamiento ya realizado.%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:11973. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_02="  No hay problema. La configuración se ha detenido y tus datos
+  de Ostler existentes se han dejado exactamente como estaban."
+# install.sh consent screen (TTY/log path), lifted from install.sh:11976. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_03="  No hay problema. No se ha instalado nada y no se ha escrito
+  nada en tu Mac."
+# install.sh consent screen (TTY/log path), lifted from install.sh:11979. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_04="
+  Si cambias de opinión, vuelve a ejecutar el instalador."
+# install.sh consent screen (TTY/log path), lifted from install.sh:11985. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_05="  Responde Y o N."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12031. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_01="  %sReconocimiento de voces en llamadas (en la app Ostler para iPhone)%s
+
+  La app Ostler Companion para iPhone puede etiquetar las transcripciones
+  con quién habla – por ejemplo, \"Sam\", \"Alex\" – guardando una huella
+  numérica de cada voz en un almacén cifrado de tu iPhone. Las huellas
+  nunca salen de tu teléfono y nunca se envían a este Mac ni a nosotros;
+  el Mac solo recibe la etiqueta de texto (el nombre), nunca la huella.
+  Según la ley de privacidad del Reino Unido y de la UE, una huella de
+  voz es un dato biométrico, por eso preguntamos antes de que
+  Companion registre cualquier voz.
+
+  %sQué hacemos.%s Identificar *quién* habla en una llamada que captures.
+  %sQué no hacemos.%s Detectar el estado de ánimo, la emoción, el sentimiento,
+  el estrés ni ningún otro estado psicológico deducido a partir de la voz.
+
+  Las huellas se quedan en tu iPhone. Nunca las recibimos, y este
+  Mac tampoco. Puedes desactivarlo cuando quieras en la app del
+  iPhone, en Ajustes -> Reconocimiento de voz; al desactivarlo se
+  borran las huellas ya guardadas en el teléfono. Si nunca
+  instalas Companion en el iPhone, no se crea ninguna huella de
+  voz.
+
+  %sNota legal: Las huellas de voz guardadas en tu iPhone por la
+  app Ostler Companion son datos biométricos según el artículo
+  9(1) del UK GDPR. Tu consentimiento explícito anterior
+  (artículo 9(2)(a)) es la base jurídica del tratamiento. Tú eres
+  el responsable del tratamiento (artículo 4(7)); Creative
+  Machines nunca recibe las huellas, y nunca se envían a este
+  Mac. Para uso personal y doméstico, el artículo 2(2)(c) limita
+  aún más el alcance. Retirar el consentimiento en la app del
+  iPhone borra las huellas guardadas.%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12102. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_02="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+
+  %sSobre los datos de tu Mac que no son solo tuyos%s
+
+  Ostler lee partes de tu vida que contienen información sobre
+  otras personas – correos que te enviaron, mensajes que
+  escribieron, caras en tus fotos, datos de contacto, asistentes
+  a eventos del calendario. Es algo normal. Es tu bandeja de
+  entrada, tus contactos, tu vida tal como existe en realidad.
+
+  Todo permanece en este Mac. Creative Machines nunca recibe
+  nada de ello. No hay ninguna cuenta en la nube que lo guarde.
+
+  %sAntes de continuar, ten en cuenta lo siguiente:%s
+
+    - Guardas estos registros para ti, como una agenda privada,
+      un diario personal o un cuaderno. Ostler es la herramienta
+      que te ayuda a organizar y buscar lo que ya tienes. Tú
+      decides qué conservar y qué eliminar.
+
+    - Solicitudes específicas de eliminación. Si alguna persona
+      de la que tienes registros te pide que la elimines, puedes
+      borrarla por completo de Ostler (Ajustes -> Personas ->
+      Eliminar una persona). El borrado elimina sus datos de tu wiki,
+      tu grafo, tu índice de búsqueda y la memoria de tu asistente.
+
+    - Nada sale de tu Mac. Ni hacia nosotros, ni hacia una nube,
+      ni hacia terceros – salvo en los casos concretos indicados en
+      nuestra Política de privacidad en ostler.ai/privacy (sobre todo:
+      enrutamiento opcional a la nube para preguntas no personales,
+      comprobación de actualizaciones y enriquecimiento con metadatos públicos).
+
+  Más información en docs.ostler.ai/privacy/third-party-data.
+
+  Tu decisión:
+
+    [Y] Lo entiendo. Continuar.
+    [N] No doy mi consentimiento. (cancela y elimina el instalador;
+        no se guarda nada en este Mac)
+
+  %sNota legal: Respecto a los registros que conservas en este Mac,
+  eres el responsable del tratamiento según la legislación del Reino
+  Unido y de la UE (UK GDPR, artículo 4(7)). Creative Machines nunca
+  recibe estos datos y no es el responsable del tratamiento. Tu tratamiento
+  con fines personales y domésticos entra en el ámbito del artículo 2(2)(c) del RGPD del Reino Unido y de la UE.%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12175. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_03="  No hay problema. La configuración se ha detenido y tus datos
+  de Ostler existentes se han dejado exactamente como estaban."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12178. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_04="  No hay problema. No se ha instalado nada y no se ha escrito
+  nada en tu Mac."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12181. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_05="
+  Si cambias de opinión, vuelve a ejecutar el instalador."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12187. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_06="  Responde Y o N."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12214. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_07="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12253. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_08="  Responde Y o N."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12293. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_09="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+"

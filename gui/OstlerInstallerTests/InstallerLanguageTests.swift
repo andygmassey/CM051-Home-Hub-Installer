@@ -28,7 +28,10 @@ final class InstallerLanguageTests: XCTestCase {
     func testChineseScriptAndRegion() {
         XCTAssertEqual(InstallerLanguage.map("zh-Hans-CN"), "zh-Hans")
         XCTAssertEqual(InstallerLanguage.map("zh-Hant-HK"), "zh-HK")
-        XCTAssertEqual(InstallerLanguage.map("zh-Hant-TW"), "zh-HK")
+        XCTAssertEqual(InstallerLanguage.map("zh-Hant-TW"), "zh-Hant")
+        XCTAssertEqual(InstallerLanguage.map("zh-Hant"), "zh-Hant")
+        XCTAssertEqual(InstallerLanguage.map("zh-TW"), "zh-Hant")
+        XCTAssertEqual(InstallerLanguage.map("zh-Hant-MO"), "zh-HK")
         XCTAssertEqual(InstallerLanguage.map("zh-HK"), "zh-HK")
         XCTAssertEqual(InstallerLanguage.map("zh-CN"), "zh-Hans")
     }
@@ -38,6 +41,7 @@ final class InstallerLanguageTests: XCTestCase {
         XCTAssertEqual(InstallerLanguage.map("pt-BR"), "pt-BR")
         XCTAssertEqual(InstallerLanguage.map("nl-BE"), "nl")
         XCTAssertEqual(InstallerLanguage.map("es-419"), "es")
+        XCTAssertEqual(InstallerLanguage.map("ar-SA"), "ar")
         XCTAssertNil(InstallerLanguage.map("sv-SE"))
     }
 

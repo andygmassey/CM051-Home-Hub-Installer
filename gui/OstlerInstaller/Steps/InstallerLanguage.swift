@@ -25,7 +25,7 @@ enum InstallerLanguage {
 
     /// Languages with a shipped translation of all three catalogues.
     static let translated: [String] = [
-        "de", "fr", "es", "it", "nl", "pt-BR", "ja", "ko", "zh-Hans", "zh-HK",
+        "de", "fr", "es", "it", "nl", "pt-BR", "ja", "ko", "zh-Hans", "zh-Hant", "zh-HK", "ar",
     ]
 
     static let current: String = resolve(
@@ -56,9 +56,13 @@ enum InstallerLanguage {
             return base
         case "zh":
             // Script wins over region; with no script, region decides.
+            // Traditional: Taiwan vocabulary is the base (zh-Hant); Hong Kong
+            // and Macau get the regional zh-HK. No Traditional reader gets English.
             if rest.contains("hans") { return "zh-Hans" }
-            if rest.contains("hant") { return "zh-HK" }
-            if rest.contains("hk") || rest.contains("mo") || rest.contains("tw") { return "zh-HK" }
+            let hkOrMo = rest.contains("hk") || rest.contains("mo")
+            if rest.contains("hant") { return hkOrMo ? "zh-HK" : "zh-Hant" }
+            if hkOrMo { return "zh-HK" }
+            if rest.contains("tw") { return "zh-Hant" }
             return "zh-Hans"
         case "pt":
             return "pt-BR"
@@ -66,6 +70,10 @@ enum InstallerLanguage {
             return translated.contains(primary) ? primary : nil
         }
     }
+
+    /// Right-to-left languages among the shipped ones.
+    static let rightToLeft: Set<String> = ["ar"]
+    static var isRightToLeft: Bool { rightToLeft.contains(current) }
 
     /// Bundle resource name for a catalogue in the current language, or nil
     /// for the base language (callers then load the unsuffixed file).

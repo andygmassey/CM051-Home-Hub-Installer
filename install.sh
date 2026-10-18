@@ -4768,6 +4768,17 @@ else
 fi
 unset _STRINGS_FILE
 
+# Print a lifted multi-line catalogue block (consent screens on the terminal /
+# log path). $1 is the MSG_ value used as a printf format; the rest are colour
+# codes (BOLD/DIM/NC), expanded with %b exactly as `echo -e` did, so the
+# English output is byte-identical to the inline echoes it replaced.
+_ostler_tty() {
+    local _f="$1"; shift
+    local _a=() _x
+    for _x in "$@"; do _a+=("$(printf '%b' "$_x")"); done
+    printf -- "${_f}\n" ${_a[@]+"${_a[@]}"}
+}
+
 # ── GUI progress emitter (sourced) ─────────────────────────────────
 #
 # Loads helpers `gui_emit`, `gui_step_begin`, `gui_step_end`,
@@ -12236,66 +12247,7 @@ OSTLER_CONSENT_THIRD_PARTY_DECISION=""
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
 
 if [[ "$OSTLER_REGION" == "eu" ]]; then
-    echo ""
-    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "  ${BOLD}One last thing – what Ostler will look at on your Mac${NC}"
-    echo ""
-    echo "  Ostler is a personal assistant, so it works by looking at the"
-    echo "  parts of your life you keep on this Mac. Some of that is"
-    echo "  sensitive. UK and EU privacy law requires us to ask you, in"
-    echo "  clear words, before we touch any of it."
-    echo ""
-    echo -e "  ${BOLD}Where the data lives.${NC} Everything Ostler reads stays on this"
-    echo "  Mac, in encrypted folders only you can unlock. We never get a"
-    echo "  copy. There is no \"cloud\" version of your data."
-    echo ""
-    echo -e "  ${BOLD}What's in scope.${NC} Depending on which connectors you turn on,"
-    echo "  Ostler may process the following kinds of information that the"
-    echo "  law treats as \"special category\" data:"
-    echo ""
-    echo "    - Health information mentioned in emails, messages, calendar"
-    echo "      entries or transcribed conversations"
-    echo "    - Religious or philosophical beliefs"
-    echo "    - Sexual orientation"
-    echo "    - Trade union membership"
-    echo "    - Voice captures, used only to label *who* is speaking on"
-    echo "      calls (speaker identification). We do not infer mood,"
-    echo "      emotion, sentiment, stress or deception from voice."
-    echo "    - Mentions of criminal offences – your own or other people's"
-    echo ""
-    echo "  We do not perform emotion recognition. If that ever changes we"
-    echo "  will ask you again, separately, on a new consent screen."
-    echo ""
-    echo "  All of this stays on your Mac. None of it is sent to Creative"
-    echo "  Machines or any third party, except in the specific cases listed"
-    echo "  in our Privacy Policy at ostler.ai/privacy."
-    echo ""
-    echo -e "  ${BOLD}You can change your mind any time.${NC} Turn individual connectors"
-    echo "  off in Settings, delete everything via \"Reset Ostler\", or"
-    echo "  fully uninstall by running ostler-uninstall in Terminal."
-    echo ""
-    echo "  Withdrawing consent stops processing from that point forward. It"
-    echo "  does not undo work Ostler already did with your earlier consent."
-    echo ""
-    echo "  Your decision:"
-    echo ""
-    echo "    [Y] I consent to Ostler processing the categories of personal"
-    echo "        data above, locally on this Mac, for the purpose of"
-    echo "        running my personal assistant. (continues the install)"
-    echo ""
-    echo "    [N] I do not consent. (cancels and removes the installer;"
-    echo "        nothing is stored on this Mac)"
-    echo ""
-    echo -e "  ${DIM}Legal note: You are the data controller for all"
-    echo -e "  special-category data Ostler processes on this Mac (UK GDPR"
-    echo -e "  Article 4(7)). Creative Machines never receives any of this"
-    echo -e "  data. Your explicit consent above (UK GDPR Article 9(2)(a))"
-    echo -e "  is the lawful basis for processing. For personal and household"
-    echo -e "  use, Article 2(2)(c) further limits scope. This consent is"
-    echo -e "  revocable at any time without affecting processing that has"
-    echo -e "  already taken place.${NC}"
-    echo ""
+    _ostler_tty "$MSG_TTY_CONSENT_EU_01" "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC" "$DIM" "$NC"
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
@@ -12344,19 +12296,16 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 unset RECOVERY_PASSPHRASE 2>/dev/null || true
                 echo ""
                 if [[ "$_OSTLER_FINAL_PREEXISTED" == true ]]; then
-                    echo "  No problem. Setup has stopped and your existing Ostler"
-                    echo "  data has been left exactly as it was."
+                    _ostler_tty "$MSG_TTY_CONSENT_EU_02"
                 else
-                    echo "  No problem. Nothing has been installed and nothing was"
-                    echo "  written to your Mac."
+                    _ostler_tty "$MSG_TTY_CONSENT_EU_03"
                 fi
-                echo ""
-                echo "  If you change your mind, re-run the installer."
+                _ostler_tty "$MSG_TTY_CONSENT_EU_04"
                 gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
                 exit 0
                 ;;
             *)
-                echo "  Please answer Y or N."
+                _ostler_tty "$MSG_TTY_CONSENT_EU_05"
                 ;;
         esac
     done
@@ -12402,38 +12351,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     # Text below is now verbatim from the catalogue, reflowed for an 80-column
     # terminal and nothing else. tests/test_voice_consent_matches_catalogue.sh
     # asserts the load-bearing claims cannot drift apart again.
-    echo -e "  ${BOLD}Recognising voices on calls (in the Ostler iPhone app)${NC}"
-    echo ""
-    echo "  The Ostler iPhone Companion app can label transcripts with who"
-    echo "  is speaking – for example, \"Sam\", \"Alex\" – by storing a numeric"
-    echo "  fingerprint of each voice in an encrypted store on your iPhone."
-    echo "  The fingerprints never leave your phone and are never sent to"
-    echo "  this Mac or to us; the Mac only ever receives the text label"
-    echo "  (the name), never the fingerprint. Under UK and EU privacy law a"
-    echo "  voice fingerprint is biometric data, so we ask before the"
-    echo "  Companion enrols any voices."
-    echo ""
-    echo -e "  ${BOLD}What we do.${NC} Identify *who* is speaking on a call you capture."
-    echo -e "  ${BOLD}What we do not do.${NC} Detect mood, emotion, sentiment, stress"
-    echo "  or any other inferred psychological state from voice."
-    echo ""
-    echo "  The fingerprints stay on your iPhone. We never receive them, and"
-    echo "  neither does this Mac. You can turn this off any time in the"
-    echo "  iPhone app under Settings -> Voice recognition; turning it off"
-    echo "  deletes any fingerprints already stored on the phone. If you"
-    echo "  never install the iPhone Companion, no voice fingerprint is ever"
-    echo "  created."
-    echo ""
-    echo -e "  ${DIM}Legal note: Voice fingerprints stored on your iPhone by the"
-    echo -e "  Ostler Companion app are biometric data under UK GDPR Article"
-    echo -e "  9(1). Your explicit consent above (Article 9(2)(a)) is the"
-    echo -e "  lawful basis for processing. You are the data controller"
-    echo -e "  (Article 4(7)); Creative Machines never receives the"
-    echo -e "  fingerprints, and they are never sent to this Mac. For"
-    echo -e "  personal and household use, Article 2(2)(c) further limits"
-    echo -e "  scope. Withdrawing consent in the iPhone app deletes stored"
-    echo -e "  fingerprints.${NC}"
-    echo ""
+    _ostler_tty "$MSG_TTY_CONSENT_MORE_01" "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC" "$DIM" "$NC"
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
@@ -12473,53 +12391,7 @@ fi
 # the entire reason Ostler exists; declining means the user is not
 # willing to keep these records, and the install should not proceed.
 
-echo ""
-echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo -e "  ${BOLD}About the data on your Mac that's not just yours${NC}"
-echo ""
-echo "  Ostler reads parts of your life that contain information about"
-echo "  other people – emails they sent you, messages they wrote, faces"
-echo "  in your photos, contact details, calendar attendees. This is"
-echo "  normal. It's your inbox, your contacts, your life as it actually"
-echo "  exists."
-echo ""
-echo "  Everything stays on this Mac. Creative Machines never receives"
-echo "  any of it. There is no cloud account holding it."
-echo ""
-echo -e "  ${BOLD}Before you continue, please understand:${NC}"
-echo ""
-echo "    - You are keeping these records for yourself, like a private"
-echo "      address book, a personal diary, or a journal. Ostler is the"
-echo "      tool that helps you organise and search what you already"
-echo "      have. You decide what to keep and what to delete."
-echo ""
-echo "    - Specific requests to be removed. If anyone you have records"
-echo "      of asks you to be removed, you can delete that person from"
-echo "      Ostler entirely (Settings -> People -> Delete a person). The"
-echo "      deletion removes their data from your wiki, your graph,"
-echo "      your search index, and your assistant's memory."
-echo ""
-echo "    - Nothing leaves your Mac. Not to us, not to a cloud, not to"
-echo "      a third party – except in the specific cases listed in our"
-echo "      Privacy Policy at ostler.ai/privacy (mainly: optional cloud"
-echo "      routing for non-personal questions, software update checks,"
-echo "      public metadata enrichment)."
-echo ""
-echo "  Read more at docs.ostler.ai/privacy/third-party-data."
-echo ""
-echo "  Your decision:"
-echo ""
-echo "    [Y] I understand. Continue."
-echo "    [N] I do not consent. (cancels and removes the installer;"
-echo "        nothing is stored on this Mac)"
-echo ""
-echo -e "  ${DIM}Legal note: For records you keep on this Mac, you are"
-echo -e "  the data controller under UK and EU law (UK GDPR Article"
-echo -e "  4(7)). Creative Machines never receives this data and is not"
-echo -e "  the controller. Your processing for personal and household"
-echo -e "  purposes falls within UK/EU GDPR Article 2(2)(c).${NC}"
-echo ""
+_ostler_tty "$MSG_TTY_CONSENT_MORE_02" "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC" "$DIM" "$NC"
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
@@ -12546,19 +12418,16 @@ while true; do
             unset RECOVERY_PASSPHRASE 2>/dev/null || true
             echo ""
             if [[ "$_OSTLER_FINAL_PREEXISTED" == true ]]; then
-                echo "  No problem. Setup has stopped and your existing Ostler"
-                echo "  data has been left exactly as it was."
+                _ostler_tty "$MSG_TTY_CONSENT_MORE_03"
             else
-                echo "  No problem. Nothing has been installed and nothing was"
-                echo "  written to your Mac."
+                _ostler_tty "$MSG_TTY_CONSENT_MORE_04"
             fi
-            echo ""
-            echo "  If you change your mind, re-run the installer."
+            _ostler_tty "$MSG_TTY_CONSENT_MORE_05"
             gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
             exit 0
             ;;
         *)
-            echo "  Please answer Y or N."
+            _ostler_tty "$MSG_TTY_CONSENT_MORE_06"
             ;;
     esac
 done
@@ -12585,9 +12454,7 @@ done
 # EU voice gate -- declining just keeps spoken transcription off; text
 # conversations are unaffected. Default seeded "n" so spoken transcription
 # is opt-in (the safe posture for someone who clicks straight through).
-echo ""
-echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
+_ostler_tty "$MSG_TTY_CONSENT_MORE_07" "$BOLD" "$NC"
 echo -e "  ${BOLD}${MSG_CONSENT_SPOKEN_CAPTURE_HEADING}${NC}"
 echo ""
 echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_INTRO}"
@@ -12624,7 +12491,7 @@ while true; do
             break
             ;;
         *)
-            echo "  Please answer Y or N."
+            _ostler_tty "$MSG_TTY_CONSENT_MORE_08"
             ;;
     esac
 done
@@ -12664,9 +12531,7 @@ done
 # was never shown the licence terms and no acknowledgement was recorded.
 # One definition, two call sites, so the two screens cannot drift apart.
 _ostler_ask_personal_use_terms() {
-    echo ""
-    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+    _ostler_tty "$MSG_TTY_CONSENT_MORE_09" "$BOLD" "$NC"
     echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_HEADING}${NC}"
     echo ""
     echo "  ${MSG_TERMS_PERSONAL_USE_INTRO}"
@@ -16439,6 +16304,18 @@ if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
     rm -f "${OSTLER_ENV_FILE}.bak"
 fi
 printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
+
+# l10n: the wiki speaks the installer's language. OSTLER_LANG (set by the GUI
+# from the Mac's languages, InstallerLanguage.swift) goes into this compose .env
+# for the same reason as USER_FIRST_NAME above: every compose invocation, the
+# install-time compile and the recompile LaunchAgent alike, reads it from here.
+# The wiki compiler and wiki-site fall back to English for any value they do
+# not ship. Idempotent: replace any prior line, preserve the rest.
+if grep -q '^OSTLER_LANG=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^OSTLER_LANG=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'OSTLER_LANG=%s\n' "${OSTLER_LANG:-en-GB}" >> "$OSTLER_ENV_FILE"
 
 # #259 (the load-bearing half): the wiki-compiler compose block references
 # ${AI_MODEL:-qwen3.5:9b}. docker-compose.yml is a QUOTED heredoc, so that
@@ -21118,6 +20995,9 @@ services:
     # compiler.identity_label.first_name_to_pedia_label.
     environment:
       USER_FIRST_NAME: "${USER_FIRST_NAME:-}"
+      # l10n: theme chrome language (CM044 picks mkdocs Material's language
+      # and text direction from it; unknown -> English). From the compose .env.
+      OSTLER_LANG: "${OSTLER_LANG:-en-GB}"
     volumes:
       - wiki-docs:/docs/docs:ro
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
@@ -21338,6 +21218,9 @@ services:
       # Owner's IANA zone, exported by wiki-recompile-tick.sh / the install-time
       # compile. Empty -> the compiler labels its times UTC.
       - OSTLER_TZ=${OSTLER_TZ:-}
+      # l10n: CM044 loads compiler/locale.<lang>.yaml when it ships one,
+      # else its English locale.yaml. From the compose .env (see OSTLER_LANG there).
+      - OSTLER_LANG=${OSTLER_LANG:-en-GB}
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian

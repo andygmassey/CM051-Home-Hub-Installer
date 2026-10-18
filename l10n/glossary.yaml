@@ -1,7 +1,7 @@
 # l10n/glossary.yaml -- the rules every translation and every review is held to.
 # Versioned: bump `version` when you change a rule, so a PR shows why wording moved.
 # Shared by every Ostler repo; the canonical copy is CM051 l10n/glossary.yaml.
-version: 1
+version: 3  # v2: Arabic (ar), right-to-left. v3: zh-Hant (Taiwan) as the Traditional base, zh-HK regional
 
 language_names:
   de: "German"
@@ -14,6 +14,8 @@ language_names:
   ko: "Korean"
   zh-Hans: "Chinese, simplified script (mainland China)"
   zh-HK: "Chinese, traditional script (HK SAR)"
+  ar: "Arabic (modern standard)"
+  zh-Hant: "Chinese, traditional script (Taiwan)"
 
 register:
   de: "informal 'du' (as Apple does for consumer apps), capitalised only at sentence start ('du', 'dein')."
@@ -26,6 +28,8 @@ register:
   ko: "polite formal 합니다/하세요 style as in Apple's Korean UI."
   zh-Hans: "Chinese, simplified script (mainland), '你', Apple mainland terminology."
   zh-HK: "Chinese, traditional script for HK SAR, '你', HK vocabulary and Apple's zh-HK terminology (not Taiwan-specific terms where HK differs), full-width punctuation."
+  zh-Hant: "Chinese, traditional script for Taiwan, '你', Taiwan vocabulary (軟體, 網路, 訊息, 資料, 影片, 設定, 檔案, 帳號) and Apple's Taiwan terminology, full-width punctuation."
+  ar: "Arabic (modern standard), polite and neutral (the plural/formal you, or impersonal phrasing, where Apple's Arabic UI uses it), Apple's Arabic UI terminology, Arabic punctuation (، ؟ ؛). Right-to-left: keep Latin brand names (Ostler, Hub, iPhone, Mac), placeholders, URLs and numbers exactly as in the source, in Latin script and Western digits; never add bidi control characters; do not reorder placeholders unless positional."
 
 rules: |
   You are a senior software localiser translating the user interface of Ostler, a consumer product: a private personal-AI "Hub" that runs entirely on the customer's own Mac, plus its iPhone app and its macOS installer. Translations ship to paying customers in the App Store and in a signed macOS installer. Accuracy, natural tone and mechanical integrity matter more than literalness.

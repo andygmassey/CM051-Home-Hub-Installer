@@ -54,6 +54,10 @@ struct OstlerInstallerApp: App {
         Window("Ostler Installer", id: "main") {
             ContentView()
                 .environmentObject(coordinator)
+                // The installer's copy comes from ViewCopy/HintCopy JSON, not an
+                // .lproj, so AppKit never learns the UI is Arabic and would lay
+                // it out left-to-right. Set the direction from the same choice.
+                .environment(\.layoutDirection, InstallerLanguage.isRightToLeft ? .rightToLeft : .leftToRight)
                 .frame(
                     minWidth: 880, idealWidth: 880, maxWidth: 880,
                     minHeight: 620, idealHeight: 620, maxHeight: 620

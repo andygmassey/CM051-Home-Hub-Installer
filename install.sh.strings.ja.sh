@@ -1934,3 +1934,195 @@ MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler は システム設定 を開け�
 # sentence without removing the corresponding capability.
 MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler は Wiki と検索をコンテナで実行するため、この Mac にコンテナエンジン（Colima）をインストールして管理します。このエンジンが削除または再構成されると、Wiki と検索が動作しなくなります。その場合、Ostler がお知らせし、再起動を試みます。"
 MSG_INFO_ENGINE_ALREADY_PRESENT="この Mac にはコンテナエンジンがすでにインストールされています。Ostler は独自のエンジンをインストールせず、これを使用します。管理や変更は行いません。"
+
+# ── Consent screens, terminal/log path (lifted from inline echo, l10n) ──
+# Printed by _ostler_tty in install.sh: each value is a printf format whose
+# %s pairs switch bold/dim on and off. Keep every %s, every line break and
+# the [Y]/[N] answer tokens. Legal wording: translations ship needs_review.
+
+# install.sh consent screen (TTY/log path), lifted from install.sh:11865. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: Translation is accurate and mechanically sound; consent/legal wording needs lawyer review.
+MSG_TTY_CONSENT_EU_01="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+
+  %s最後に – Ostlerがあなたの Mac で参照する内容について%s
+
+  Ostlerはパーソナルアシスタントです。そのため、この Mac に保存されている
+  あなたの生活に関する情報を参照して動作します。その中には
+  機微な情報も含まれます。英国およびEUのプライバシー法により、
+  それらに触れる前に、わかりやすい言葉で確認することが求められています。
+
+  %sデータの保管場所。%s Ostlerが読み取るものはすべて、この
+  Mac 内の、あなただけが解除できる暗号化フォルダに保存されます。
+  コピーが当社に送られることはありません。あなたのデータの
+  「クラウド」版は存在しません。
+
+  %s対象範囲。%s 有効にするコネクタによっては、Ostlerは法律で
+  「特別カテゴリー」のデータとされる次の種類の情報を
+  処理することがあります:
+
+    - メール、メッセージ、カレンダーの項目、または文字起こしされた
+      会話に含まれる健康に関する情報
+    - 宗教上または哲学上の信条
+    - 性的指向
+    - 労働組合への加入
+    - 通話で *誰が* 話しているかを示すためだけに使う音声の取得
+      (話者の識別)。音声から気分、感情、心情、ストレス、
+      虚偽を推測することはありません。
+    - 犯罪行為への言及 – あなた自身のものも他の人のものも
+
+  感情認識は行いません。今後これが変わる場合は、新しい同意画面で
+  あらためて個別に確認します。
+
+  これらはすべてこの Mac の中にとどまります。ostler.ai/privacy の
+  プライバシーポリシーに記載された特定の場合を除き、Creative
+  Machines や第三者に送信されることはありません。
+
+  %sいつでも考えを変えられます。%s 設定で個々のコネクタを
+  オフにしたり、「Ostlerをリセット」ですべてを削除したり、ターミナルで
+  ostler-uninstall を実行して完全にアンインストールしたりできます。
+
+  同意を撤回すると、その時点以降の処理が停止します。以前の同意に基づいて
+  Ostlerがすでに行った処理が取り消されることはありません。
+
+  あなたの選択:
+
+    [Y] 個人用アシスタントを動作させる目的で、Ostlerが上記の
+        カテゴリーの個人データをこの Mac 上でローカルに処理する
+        ことに同意します。(インストールを続行します)
+
+    [N] 同意しません。(インストーラを中止して削除します。
+        この Mac には何も保存されません)
+
+  %s法的注記: この Mac でOstlerが処理するすべての特別カテゴリーの
+  データについて、あなたがデータ管理者です (UK GDPR 第4条(7))。
+  Creative Machinesがこれらのデータを受け取ることは一切ありません。
+  上記のあなたの明示的な同意 (UK GDPR 第9条(2)(a)) が、処理の
+  適法根拠となります。個人的・家庭内での利用については、第2条(2)(c)
+  によって適用範囲がさらに限定されます。この同意はいつでも撤回でき、
+  すでに行われた処理には影響しません。%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:11973. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_02="  問題ありません。セットアップを中止しました。既存のOstlerの
+  データは、そのまま変更されていません。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:11976. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_03="  問題ありません。何もインストールされておらず、Mac には
+  何も書き込まれていません。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:11979. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_04="
+  考えが変わった場合は、インストーラをもう一度実行してください。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:11985. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_EU_05="  Y か N で答えてください。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12031. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_01="  %s通話での声の認識 (Ostler iPhoneアプリ)%s
+
+  Ostler iPhoneコンパニオンアプリは、各人の声の数値的な特徴データを
+  iPhone内の暗号化されたストアに保存することで、文字起こしに
+  話している人 (たとえば「Sam」「Alex」) のラベルを付けられます。
+  この特徴データがiPhoneの外に出ることはなく、この Mac や当社に
+  送信されることもありません。Mac が受け取るのはテキストのラベル
+  (名前) だけで、特徴データは受け取りません。英国およびEUの
+  プライバシー法では、声の特徴データは生体データにあたるため、
+  コンパニオンが声を登録する前に確認します。
+
+  %sできること。%s あなたが文字起こしする通話で *誰が* 話しているかを識別します。
+  %sしないこと。%s 声から気分、感情、心情、ストレスなど、推測される
+  心理状態を検出することはありません。
+
+  特徴データはiPhoneの中にとどまります。当社が受け取ることはなく、
+  この Mac も受け取りません。iPhoneアプリの
+  設定 -> 声の認識からいつでもオフにできます。オフにすると、
+  iPhoneにすでに保存されている特徴データは削除されます。
+  iPhoneコンパニオンをインストールしない場合、声の特徴データが
+  作成されることはありません。
+
+  %s法的注記: OstlerコンパニオンアプリがあなたのiPhoneに保存する
+  声の特徴データは、UK GDPR 第9条(1)に基づく生体データです。
+  上記のあなたの明示的な同意 (第9条(2)(a)) が、処理の適法根拠
+  となります。あなたがデータ管理者です (第4条(7))。Creative
+  Machinesが特徴データを受け取ることは一切なく、この Mac に
+  送信されることもありません。個人的・家庭内での利用については、
+  第2条(2)(c)によって適用範囲がさらに限定されます。
+  iPhoneアプリで同意を撤回すると、保存された特徴データは
+  削除されます。%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12102. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_02="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+
+  %sMac内のあなた以外の人に関するデータについて%s
+
+  Ostlerは、あなたの生活のうち、他の人に関する情報を含む部分も
+  読み取ります。たとえば、相手から届いたメール、相手が書いたメッセージ、
+  写真に写っている顔、連絡先の詳細、カレンダーの出席者などです。
+  これはごく普通のことです。それはあなたの受信箱、あなたの連絡先、
+  実際に存在するあなたの生活そのものです。
+
+  すべてはこのMac上に保存されます。Creative Machinesがそれらを受け取ることは
+  一切ありません。データを保管するクラウドアカウントもありません。
+
+  %s続ける前に、次の点をご理解ください。%s
+
+    - これらの記録は、個人用のアドレス帳や日記、日誌のように、
+      ご自身のために保管するものです。Ostlerは、すでにお持ちの
+      情報を整理して検索するためのツールです。何を残し、何を削除するかは
+      あなたが決めます。
+
+    - 個別の削除依頼について。記録のある人から削除を求められた場合は、
+      その人をOstlerから完全に削除できます
+      (設定 -> 人物 -> 人物を削除)。削除すると、その人のデータが
+      あなたのwiki、グラフ、検索インデックス、
+      アシスタントの記憶から消去されます。
+
+    - Macの外にデータが出ることはありません。当社にも、クラウドにも、
+      第三者にも送信されません。ただし、ostler.ai/privacy のプライバシーポリシーに
+      記載された特定の場合を除きます(主に、個人に関わらない質問の
+      任意のクラウド経由処理、ソフトウェアアップデートの確認、
+      公開メタデータによる情報補完)。
+
+  詳しくは docs.ostler.ai/privacy/third-party-data をご覧ください。
+
+  あなたの選択:
+
+    [Y] 理解しました。続行します。
+    [N] 同意しません。(キャンセルしてインストーラを削除します。
+        このMacには何も保存されません)
+
+  %s法的な注意: このMac上で保管する記録について、あなたは
+  英国法およびEU法上のデータ管理者(UK GDPR第4条(7))です。
+  Creative Machinesはこのデータを受け取らず、管理者でもありません。
+  個人的・家庭内の目的でのあなたの処理は、UK/EU GDPR第2条(2)(c)の
+  範囲に含まれます。%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12175. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_03="  問題ありません。セットアップを中止しました。既存のOstlerのデータは
+  そのまま残してあります。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12178. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_04="  問題ありません。何もインストールされておらず、Macには
+  何も書き込まれていません。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12181. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_05="
+  気が変わった場合は、インストーラをもう一度実行してください。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12187. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_06="  YまたはNで答えてください。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12214. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_07="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12253. %s pairs are bold/dim on and off.
+# NEEDS REVIEW: legal/consent wording: needs a qualified human check
+MSG_TTY_CONSENT_MORE_08="  YまたはNで答えてください。"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12293. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_09="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+"
