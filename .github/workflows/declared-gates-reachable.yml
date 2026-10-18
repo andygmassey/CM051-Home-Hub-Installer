@@ -200,13 +200,43 @@ jobs:
       # NONE now means one of two things, and both are honest: no proof exists,
       # or a proof exists in a shape nobody has declared yet. The remaining six
       # are the standing backlog, three of them the #699 orphan knot.
+      # SPEED, NOT SEMANTICS (CM051 CI lane, 2026-10-17). Three steps below
+      # each ran the full real-tree sweep, one after another: measured on
+      # Actions, 78 + 79 + 80 s of a 245 s job. They differ ONLY in
+      # OSTLER_PROVED_RED_FLOOR (6, unset, 99), and the sweep keeps its state
+      # in its own mktemp dir, so the three are independent. This step runs
+      # the same three invocations, each with exactly the env its step used,
+      # side by side, and records each one's output and exit code; each step
+      # below grades its own record with its own unchanged assertion. Three
+      # sweeps for the wall time of one. A missing record is a failure, never
+      # a pass.
+      - name: Run the three real-tree sweeps side by side (graded below)
+        run: |
+          d="$RUNNER_TEMP/declgates"
+          mkdir -p "$d"
+          sweep() {  # sweep <record-name> [ENV=value]
+            local name="$1" rc=0; shift
+            env "$@" bash scripts/verify_declared_gates_reachable.sh > "$d/$name.out" 2>&1 || rc=$?
+            printf '%s\n' "$rc" > "$d/$name.rc"
+          }
+          sweep ratio OSTLER_PROVED_RED_FLOOR=6 &
+          sweep orphans &
+          sweep floor99 OSTLER_PROVED_RED_FLOOR=99 &
+          wait
+          for k in ratio orphans floor99; do
+            if [ ! -s "$d/$k.rc" ]; then
+              echo "::error::the $k sweep left no exit code -- CANNOT-RUN, not clean" >&2
+              exit 1
+            fi
+            printf '%s sweep: exit %s, %s line(s)\n' "$k" "$(cat "$d/$k.rc")" "$(wc -l < "$d/$k.out")"
+          done
+
       - name: Ratio on the real tree, and the proved-red ratchet
-        env:
-          OSTLER_PROVED_RED_FLOOR: "6"
         run: |
           set +e
-          out="$(bash scripts/verify_declared_gates_reachable.sh 2>&1)"
+          out="$(cat "$RUNNER_TEMP/declgates/ratio.out")"
           set -e
+          [ -n "$out" ] || { echo "::error::no recorded ratio sweep -- CANNOT-RUN, not clean" >&2; exit 1; }
           printf '%s\n' "$out"
           if printf '%s' "$out" | grep -q 'PROVED-RED REGRESSION'; then
             echo "::error::a declared gate lost its known-failing fixture" >&2
@@ -240,9 +270,10 @@ jobs:
       # on one orphan and GREEN again the moment that orphan is wired.
       - name: No declared cut-blocker is orphaned (BLOCKING)
         run: |
-          set +e
-          out="$(bash scripts/verify_declared_gates_reachable.sh 2>&1)"; rc=$?
-          set -e
+          d="$RUNNER_TEMP/declgates"
+          out="$(cat "$d/orphans.out" 2>/dev/null)"
+          rc="$(cat "$d/orphans.rc" 2>/dev/null)"
+          [ -n "$rc" ] || { echo "::error::no recorded orphan sweep -- CANNOT-RUN, not clean" >&2; exit 1; }
           printf '%s\n' "$out"
           if ! printf '%s' "$out" | grep -q 'EXECUTABLE files declaring themselves'; then
             echo "::error::the sweep printed no ratio -- treat as CANNOT-RUN, not clean" >&2
@@ -291,10 +322,8 @@ jobs:
       # number nobody has ever seen enforced.
       - name: The proved-red floor can actually fail
         run: |
-          set +e
-          OSTLER_PROVED_RED_FLOOR=99 bash scripts/verify_declared_gates_reachable.sh >/dev/null 2>&1
-          rc=$?
-          set -e
+          rc="$(cat "$RUNNER_TEMP/declgates/floor99.rc" 2>/dev/null)"
+          [ -n "$rc" ] || { echo "::error::no recorded floor-99 sweep -- CANNOT-RUN, not a pass" >&2; exit 1; }
           if [ "$rc" -eq 0 ]; then
             echo "the proved-red floor did not fire on an impossible floor" >&2
             exit 1

@@ -147,8 +147,11 @@
 #   OSTLER_GATE_POLL_INTERVAL_SECONDS  default 20
 #   OSTLER_GATE_MAX_WAIT_SECONDS        default 2700 (45 min). An IDLE window,
 #                                    not a total: the clock restarts whenever
-#                                    any check changes state (queued ->
-#                                    started -> completed). Added after
+#                                    a check starts or finishes, and holds
+#                                    while any check is running. A check that
+#                                    only sits queued restarts nothing, so a
+#                                    lane with nothing running and nothing
+#                                    moving still ends in CANNOT-RUN. Added after
 #                                    probe-tests queued ~17 min then ran ~31
 #                                    min and a total budget gave up (CANNOT-RUN)
 #                                    on every PR that triggers it (PR #2799,
@@ -770,7 +773,7 @@ poll_and_decide() {
     dim "polling check-runs for ${sha:0:12} in $repo -- floor=${floor}, ${n_expected} check-run(s) required by identity (base ${OSTLER_GATE_BASE_REF:-unknown}, action ${OSTLER_GATE_EVENT_ACTION:-unknown}), excluding: ${own}"
 
     local start now elapsed attempt=0 tmp state subverdict total completed excluded detail fetch_rc
-    local last_progress sig last_sig="" idle
+    local last_progress sig last_sig="" idle probe running
     start=$(date +%s)
     last_progress=$start
     while true; do
@@ -794,19 +797,53 @@ poll_and_decide() {
                 OSTLER_GATE_EXPECTED_FILE="$exp_file" OSTLER_GATE_ELAPSED_SECONDS="$elapsed" \
                 evaluate "$tmp" "$tmp.runs")
         fi
-        # Progress = the (name,status) set changed since the last good read.
-        # An unreadable or unparseable payload yields an empty signature and
-        # is never progress, so a dead API cannot extend the window.
+        # PROGRESS restarts the idle window. It is either of:
+        #   * a check STARTED or FINISHED since the last good read: the
+        #     (name,status) set of the checks that are no longer queued
+        #     changed. A check merely appearing as, or going back to, queued
+        #     resets nothing: a queue is not progress.
+        #   * a check is RUNNING right now. A 30-minute block is working, not
+        #     hung; a check that runs forever is still ended by the hard cap.
+        # The gate's own job(s) are left out of both, or the gate, which is
+        # always running while it polls, would count as its own progress.
+        #
+        # The live payload is `gh api --paginate --slurp`: an ARRAY of pages,
+        # read here exactly as evaluate() reads it. Until 2026-10-18 this read
+        # `.check_runs` off the array, which raised, was swallowed, and left
+        # an empty signature that is never progress -- so on every real PR
+        # the idle window never restarted and the gate gave up 45 minutes
+        # after its first poll however much was happening (#2959, #2962,
+        # #2963, #2973: "2704s with no check changing state" while legs were
+        # starting and finishing). The fixtures were single objects, so the
+        # self-test never saw it.
+        #
+        # An unreadable payload prints nothing and is never progress, so a
+        # dead API cannot extend the window.
         if [ "$fetch_rc" -eq 0 ]; then
-            sig="$(python3 -c '
-import json,sys
+            probe="$(OSTLER_GATE_OWN_JOB_NAMES="$own" python3 -c '
+import json,os,sys
+own = {n.strip() for n in os.environ.get("OSTLER_GATE_OWN_JOB_NAMES", "").split(",") if n.strip()}
 try:
-    d=json.load(open(sys.argv[1]))
-    print("|".join(sorted("%s:%s" % (r.get("name"), r.get("status")) for r in d.get("check_runs", []))))
+    doc = json.load(open(sys.argv[1]))
+    if isinstance(doc, list):
+        runs = []
+        for page in doc:
+            runs.extend((page.get("check_runs") or []) if isinstance(page, dict) else [page])
+    else:
+        runs = doc.get("check_runs") or []
+    runs = [r for r in runs if isinstance(r, dict) and r.get("name") not in own]
+    running = sum(1 for r in runs if r.get("status") == "in_progress")
+    sig = "|".join(sorted("%s:%s" % (r.get("name"), r.get("status"))
+                          for r in runs if r.get("status") != "queued"))
+    print("%d\t%s" % (running, sig))
 except Exception:
     pass' "$tmp" 2>/dev/null)"
-            if [ -n "$sig" ] && [ "$sig" != "$last_sig" ]; then
-                last_sig="$sig"; last_progress=$now
+            if [ -n "$probe" ]; then
+                running="${probe%%$'\t'*}"
+                sig="${probe#*$'\t'}"
+                if [ "$sig" != "$last_sig" ] || [ "$running" -gt 0 ]; then
+                    last_sig="$sig"; last_progress=$now
+                fi
             fi
         fi
         idle=$((now - last_progress))
@@ -948,6 +985,7 @@ if [ "${1:-}" = "--self-test" ]; then
             OSTLER_CHECKRUNS_JSON="$TMP/$file.json" \
             OSTLER_GATE_FLOOR="$floor" \
             OSTLER_GATE_MAX_WAIT_SECONDS=1 \
+            OSTLER_GATE_HARD_CAP_SECONDS=3 \
             OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
             poll_and_decide deadbeefdeadbeef owner/repo
         ) >/dev/null 2>&1
@@ -984,6 +1022,7 @@ if [ "${1:-}" = "--self-test" ]; then
             OSTLER_CHECKRUNS_JSON="$TMP/$file.json" \
             OSTLER_GATE_FLOOR="$floor" \
             OSTLER_GATE_MAX_WAIT_SECONDS=1 \
+            OSTLER_GATE_HARD_CAP_SECONDS=3 \
             OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
             poll_and_decide deadbeefdeadbeef owner/repo 2>&1
         )
@@ -1006,7 +1045,7 @@ if [ "${1:-}" = "--self-test" ]; then
         "a mixed queue reports both counts and claims neither shape" mixedpending4 4
 
     echo "=== it waits; it does not sample once ==="
-    run_case2 2 "one run still in_progress at the wait window closes -> CANNOT-RUN, not GREEN" onepending3
+    run_case2 2 "one run still in_progress that never settles -> CANNOT-RUN at the hard cap, not GREEN" onepending3
     (
         OSTLER_CHECKRUNS_JSON_SEQUENCE="$TMP/onepending3.json:$TMP/green3.json" \
         OSTLER_GATE_FLOOR=3 \
@@ -1031,14 +1070,86 @@ if [ "${1:-}" = "--self-test" ]; then
     ) >/dev/null 2>&1
     rc=$?
     if [ "$rc" -eq 0 ]; then note "PASS  rc=$rc  late-start check finishing inside a restarted window passes"; else note "FAIL  rc=$rc want=0  late-start check"; fail=1; fi
-    # CONTROL: stuck in_progress, no change, longer than the idle window -> CANNOT-RUN (2).
-    (
-        OSTLER_CHECKRUNS_JSON_SEQUENCE="$TMP/allqueued3.json:$TMP/allstarted3.json" \
-        OSTLER_GATE_FLOOR=3 OSTLER_GATE_MAX_WAIT_SECONDS=3 OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
-        poll_and_decide deadbeefdeadbeef owner/repo
-    ) >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" -eq 2 ]; then note "PASS  rc=$rc  a check stuck past the idle window is CANNOT-RUN"; else note "FAIL  rc=$rc want=2  stuck check"; fail=1; fi
+
+    echo "=== a running check is progress; a queued one restarts nothing (live payload shape) ==="
+    # Every fixture below is in the LIVE shape, `gh api --paginate --slurp`:
+    # an array of pages. Until 2026-10-18 the progress signature could not
+    # read that shape, so on real PRs the window never restarted at all.
+    # Scale: one poll is 5 minutes, so the 45-minute idle window is 9 s.
+    mk s_queued3 '[{"total_count":3,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"queued"}]}]'
+    mk s_running3 '[{"total_count":3,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"in_progress"}]}]'
+    mk s_green3 '[{"total_count":3,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"completed","conclusion":"success"}]}]'
+    mk s_queued4 '[{"total_count":4,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"queued"},
+        {"name":"late-one","status":"queued"}]}]'
+    mk s_queued3_self_running '[{"total_count":4,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"queued"},
+        {"name":"CI Required Gate","status":"in_progress"}]}]'
+    seq_of() {  # seq_of <fixture> <n> -> n colon-joined copies
+        local out="" i=0
+        while [ "$i" -lt "$2" ]; do out="${out:+$out:}$TMP/$1.json"; i=$((i + 1)); done
+        printf '%s' "$out"
+    }
+    gate_seq() {  # gate_seq <sequence> <max-wait> <hard-cap> -> sets rc, out
+        out="$(
+            OSTLER_CHECKRUNS_JSON_SEQUENCE="$1" \
+            OSTLER_GATE_FLOOR=3 OSTLER_GATE_MAX_WAIT_SECONDS="$2" OSTLER_GATE_HARD_CAP_SECONDS="$3" \
+            OSTLER_GATE_POLL_INTERVAL_SECONDS=1 poll_and_decide deadbeefdeadbeef owner/repo 2>&1
+        )"
+        rc=$?
+    }
+    # THE 2973 SHAPE: a 15-minute queue, then a block running for 30 minutes
+    # and seen still running on the next poll, with no other state change,
+    # then green. 50 minutes from the first poll: past the 45-minute window,
+    # and nothing was hung. Must PASS. (The pre-fix gate timed this out.)
+    gate_seq "$(seq_of s_queued3 3):$(seq_of s_running3 7):$TMP/s_green3.json" 9 60
+    if [ "$rc" -eq 0 ]; then note "PASS  rc=$rc  a 15-min queue then a 30-min running block (50 min from the first poll) does not time out"
+    else note "FAIL  rc=$rc want=0  a 15-min queue then a 30-min running block timed out"; fail=1; fi
+    # A running check holds the window by itself: running for twice the idle
+    # window with NO state change, then green. Must PASS.
+    gate_seq "$(seq_of s_running3 6):$TMP/s_green3.json" 3 60
+    if [ "$rc" -eq 0 ]; then note "PASS  rc=$rc  a check running past the idle window, with no state change, is still waited for"
+    else note "FAIL  rc=$rc want=0  a running check was treated as idle"; fail=1; fi
+    # CONTROL: genuinely stuck -- nothing running, no state change at all --
+    # is CANNOT-RUN, and by the IDLE window, not the hard cap.
+    gate_seq "$TMP/s_queued3.json" 3 60
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "with no check changing state" <<< "$out" && ! /usr/bin/grep -q "hard cap" <<< "$out"; then
+        note "PASS  rc=$rc  CONTROL: nothing running and nothing moving is CANNOT-RUN by the idle window"
+    else note "FAIL  rc=$rc want=2  a genuinely stuck queue was not ended by the idle window"; fail=1; fi
+    # A queued check restarts nothing: a second check APPEARING as queued,
+    # again and again, for longer than the hard cap. Counted as progress it
+    # would hold the window open until the cap; it must end by the idle
+    # window instead.
+    flap=""; i=0
+    while [ "$i" -lt 12 ]; do flap="${flap:+$flap:}$TMP/s_queued3.json:$TMP/s_queued4.json"; i=$((i + 1)); done
+    gate_seq "$flap" 3 20
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "with no check changing state" <<< "$out" && ! /usr/bin/grep -q "hard cap" <<< "$out"; then
+        note "PASS  rc=$rc  checks appearing as queued restart nothing: still CANNOT-RUN by the idle window"
+    else note "FAIL  rc=$rc want=2  a queued check was counted as progress"; fail=1; fi
+    # The gate's OWN check-run is always running while it polls. It must not
+    # count, or the gate would never be idle.
+    gate_seq "$TMP/s_queued3_self_running.json" 3 60
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "with no check changing state" <<< "$out"; then
+        note "PASS  rc=$rc  the gate's own running check-run is not progress"
+    else note "FAIL  rc=$rc want=2  the gate counted itself as progress"; fail=1; fi
+    # A check running forever still ends: the hard cap.
+    gate_seq "$TMP/s_running3.json" 3 5
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "hard cap" <<< "$out"; then
+        note "PASS  rc=$rc  a check that runs forever is still ended, by the hard cap"
+    else note "FAIL  rc=$rc want=2  a never-ending running check was not capped"; fail=1; fi
     # HARD CAP: never settles; idle window huge, cap must end it. Uses the
     # one-state fixture so the cap (not a state flap) is what trips.
     (
