@@ -1362,3 +1362,57 @@ down graph no longer blanks the answer when conversations can speak.
 `_decision_facts_from_conversations` and the two edits in `decisions_list`.
 Guarded by `vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py`
 (3 of 6 arms fail against main's ical-server). Retire by re-pinning.
+
+## Twelfth graft: commitments extension and handle resolution for the Follow-Up Detector (Lane 8)
+
+Tree `cm041/assistant_api`, same file: `commitments_list` (new optional
+fields and `min_confidence`), new `api_commitments_detected`,
+`api_commitment_set_status`, `people_resolve` and their helpers, plus the
+three routes. Matches CM041 PR #199 at head `365f15d2a605cf27ed7682eaea8f3daf1a244d80`
+(upstream, open at time of writing). Re-grafted onto CM051 main 2026-10-18:
+the #199-head commit `365f15d2` (scope the commitments readers across graphs)
+is carried here as `SELECT DISTINCT` on the two status lookups; its
+`read_across_graphs` wrapping is NOT carried, for the reason below.
+
+The assistant daemon's Follow-Up Detector finds promises in iMessage,
+WhatsApp and email and must land them in the SAME `OutstandingTodo` wing
+`/api/v1/commitments` already reads, not a second store. Additive only:
+meeting todos read exactly as before and are never hidden; detector rows
+carry `person`, `channel`, `origin`, `confidence` and are hidden below
+`min_confidence` (default 0.6). The write routes are scoped to nodes under
+`urn:ostler:todo/detected/`, so a CM048 todo cannot be edited through them.
+
+**What differs from CM041 source.** Nothing in the code. The behavioural
+difference is the read path: CM041 wraps `commitments_list` in
+`read_across_graphs`; this tree has no such symbol and relies on the central
+`_graph_scoped` rewriter on every `_sparql_select` (see the note above
+`_sparql_select`). The vendored copy of `commitments_list` already had that
+wrapper removed and the graft keeps it that way. Detector rows are written to
+the DEFAULT graph, which the scoper unions with the user's CM048 graphs.
+`test_commitments_detected.py::TestNewQueriesSurviveTheVendoredGraphScoper`
+executes the real rewriter over each new SELECT rather than assuming it.
+
+`SELECT DISTINCT` on the two status lookups (from #199 head `365f15d2`):
+the central scoper UNIONs the default graph with the user's graphs, so a node
+present in both returned twice without it.
+
+Measured on a real SPARQL engine (pyoxigraph, in
+`test_commitments_detected.py::TestRoundTripOnARealSparqlEngine`): detector
+rows written by the route and a CM048 meeting todo in its NAMED graph both
+reach `/api/v1/commitments` through `_graph_scoped`; with no user graphs the
+meeting todo is unreachable (control); a dismissal survives re-detection; a
+status in both graphs is read once. Mutants: dropping DISTINCT fails the last,
+making dismissal non-sticky fails the third.
+
+NOT MEASURED: the shipped Oxigraph server process and its compartment set-up
+on a box. Only the HTTP hop to Oxigraph is replaced in the test above.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_commitments_detected.py`
+(23 tests) and `test_people_resolve.py` (7), wired in
+`.github/workflows/walk8-followups-guard.yml`, which installs pyoxigraph and
+refuses a skip. RED against main's unmodified vendored `ical-server.py`:
+40 of 42 fail; GREEN after: 30 passed. Full vendored `assistant_api` suite
+(local Python 3.14): the same 41 failures on main and on this head, none new;
+this head adds 30 passes.
+
+Retire by landing CM041 PR #199 and re-pinning.

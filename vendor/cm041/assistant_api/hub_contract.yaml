@@ -391,6 +391,7 @@
     "commitments",
     "count",
     "degraded",
+    "hidden_low_confidence",
     "privacy_level",
     "reason"
    ],
@@ -3145,6 +3146,7 @@
     "commitments",
     "count",
     "degraded",
+    "hidden_low_confidence",
     "privacy_level",
     "reason"
    ],
@@ -3565,6 +3567,35 @@
     "degraded",
     "error",
     "reason"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": null,
+   "id": "gateway GET /api/v1/people/resolve",
+   "listener": "gateway",
+   "method": "GET",
+   "path": "/api/v1/people/resolve",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:GET:/api/v1/people/resolve",
+   "query_params": [
+    "handle"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "error",
+    "reason",
+    "resolved"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
    "via_wildcard": "/api/v1/people/{rest}"
@@ -4926,8 +4957,63 @@
     "commitments",
     "count",
     "degraded",
+    "hidden_low_confidence",
     "privacy_level",
     "reason"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/commitments/detected",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/commitments/detected",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [
+    "items"
+   ],
+   "response_fields": [
+    "degraded",
+    "error",
+    "reason",
+    "skipped_dismissed",
+    "written"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/commitments/{slug}/status",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/commitments/{slug}/status",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [
+    "status"
+   ],
+   "response_fields": [
+    "degraded",
+    "error",
+    "id",
+    "reason",
+    "status"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5512,6 +5598,32 @@
     "degraded",
     "error",
     "reason"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/people/resolve",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/people/resolve",
+   "ports": [
+    8090
+   ],
+   "query_params": [
+    "handle"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "error",
+    "reason",
+    "resolved"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
