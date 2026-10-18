@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Stand-in for macOS `security`, first on PATH for the assistant-mailbox e2e.
+
+No test may create, read or unlock a real keychain, even a throwaway one (one
+did, and put a password dialog in front of the owner). This answers the two
+calls the Doctor module and the daemon make, from a JSON file:
+
+  security -i            stdin: add-generic-password -U -a A -s S -w PW [KC]
+  security find-generic-password -a A -s S -w [KC]
+
+A trailing positional is the keychain path (the OSTLER_E2E_KEYCHAIN seam);
+without one the lookup is the "default" store, which this run never writes.
+Every call is logged to $FAKE_SECURITY_LOG as `ppid verb service account kc`
+(never the password). Anything else exits 1 and logs UNSUPPORTED.
+"""
+import json, os, shlex, sys
+
+STORE = os.environ.get("FAKE_SECURITY_STORE", "")
+LOG = os.environ.get("FAKE_SECURITY_LOG", "")
+
+
+def log(line):
+    if LOG:
+        with open(LOG, "a") as f:
+            f.write(f"{os.getppid()} {line}\n")
+
+
+def load():
+    try:
+        with open(STORE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def run(argv):
+    if not argv or not STORE:
+        log("UNSUPPORTED " + " ".join(argv[:1]))
+        return 1
+    verb, rest = argv[0], argv[1:]
+    opts, pos, i = {}, [], 0
+    while i < len(rest):
+        a = rest[i]
+        if a in ("-a", "-s") or (a == "-w" and verb == "add-generic-password"):
+            opts[a] = rest[i + 1] if i + 1 < len(rest) else ""
+            i += 2
+        elif a.startswith("-"):
+            opts[a] = True
+            i += 1
+        else:
+            pos.append(a)
+            i += 1
+    kc = pos[-1] if pos else "default"
+    key = f"{opts.get('-s', '')}\n{opts.get('-a', '')}"
+    log(f"{verb} {opts.get('-s', '')!r} {opts.get('-a', '')!r} {kc}")
+    db = load()
+    if verb == "add-generic-password":
+        db.setdefault(kc, {})[key] = opts.get("-w", "")
+        with open(STORE, "w") as f:
+            json.dump(db, f)
+        return 0
+    if verb == "find-generic-password":
+        pw = db.get(kc, {}).get(key)
+        if pw is None:
+            sys.stderr.write("security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.\n")
+            return 44
+        print(pw)
+        return 0
+    log("UNSUPPORTED " + verb)
+    return 1
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["-i"]:
+        rc = 0
+        for line in sys.stdin:
+            if line.strip():
+                rc = run(shlex.split(line)) or rc
+        sys.exit(rc)
+    sys.exit(run(sys.argv[1:]))

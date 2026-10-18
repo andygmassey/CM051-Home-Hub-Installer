@@ -2,11 +2,13 @@
 """End to end for the assistant's own email address, with the REAL components.
 
 Driven by tests/e2e/assistant_mailbox_e2e.sh (which checks the preconditions and
-makes the temporary keychain). Synthetic data only. Real parts:
+puts the `security` stand-in first on PATH, so no real keychain is ever
+created, read or unlocked). Synthetic data only. Real parts:
 
   * the installer step: install.sh's helper block and flow function, run
     non-interactively (only the prompt reader is replaced by an answers file);
-  * the probes and the Keychain writes: vendor/doctor/agent/assistant_mailbox.py;
+  * the probes and the Keychain writes: vendor/doctor/agent/assistant_mailbox.py
+    (its `security` calls answered by tests/e2e/fakebin/security);
   * the daemon: the release binary built from the ostler-assistant branch,
     started with the config the installer step generated;
   * the Doctor: assistant_mailbox.read_row / render_html / test_now;
@@ -145,7 +147,7 @@ def main() -> int:
         cannot_run(f"OSTLER_E2E_DAEMON is not an executable daemon binary ({binary!r})")
     keychain = os.environ.get("OSTLER_E2E_KEYCHAIN", "")
     if not keychain or not os.path.exists(keychain):
-        cannot_run("OSTLER_E2E_KEYCHAIN (a temporary keychain file) is missing")
+        cannot_run("OSTLER_E2E_KEYCHAIN (the stand-in keychain name) is missing")
 
     import mailsim
 
@@ -276,9 +278,9 @@ allowed_senders = ["{OWNER}"]
               str([s["rcpt"] for s in sim.submission.sent]))
         check("(a) bad credentials are refused by the server (control: the probes can fail)",
               am.probe("loopback", ASSISTANT, "z" * 16)["imap"] != "ok" and sim.box.bad_logins >= 1)
-        check("(a) password is in the TEMPORARY keychain",
+        check("(a) password is in the keychain the seam names (stand-in store)",
               kc_has(True) == password)
-        check("(a) control: the same lookup without the temporary keychain finds nothing",
+        check("(a) control: the same lookup without the seam keychain finds nothing",
               kc_has(False) == "")
         cfg_text = config.read_text()
         check("(a) password is not in config, installer output or the daemon-visible state",
@@ -294,6 +296,16 @@ allowed_senders = ["{OWNER}"]
 
         # ------------------------------------------------------------ daemon
         start_daemon()
+        daemon_pid = proc["p"].pid
+
+        def daemon_read_via_stub() -> bool:
+            try:
+                lines = Path(os.environ["FAKE_SECURITY_LOG"]).read_text().splitlines()
+            except (KeyError, OSError):
+                return False
+            return any(l.startswith(f"{daemon_pid} find-generic-password ") for l in lines)
+        check("daemon read the password via `security` (the stand-in), not from config",
+              wait(daemon_read_via_stub, 30))
         check("daemon connects to the mailbox and keeps polling",
               wait(lambda: sim.box.logins >= 3 and sim.box.searches >= 3, 90),
               f"logins={sim.box.logins} searches={sim.box.searches}")
