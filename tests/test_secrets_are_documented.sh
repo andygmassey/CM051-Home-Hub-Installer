@@ -85,7 +85,7 @@ info "documented rows: ${DOC_COUNT}"
 # cannot see it, the extractor is blind and every absence claim below is void.
 FOUND="$(extract_secrets "$WF_DIR")"
 CONTROL="CM051_RELEASES_READ"
-if printf '%s\n' "$FOUND" | grep -qx "$CONTROL"; then
+if grep -qx "$CONTROL" <<< "$FOUND"; then
     ok "POSITIVE CONTROL: extractor found ${CONTROL}, which is known to be referenced"
 else
     bad "POSITIVE CONTROL FAILED: extractor did not find ${CONTROL}, which IS referenced in cut.yml."
@@ -94,7 +94,7 @@ else
 fi
 
 # It must also not hallucinate. `sh` is the phantom the first draft produced.
-if printf '%s\n' "$FOUND" | grep -qx 'sh'; then
+if grep -qx 'sh' <<< "$FOUND"; then
     bad "extractor produced the phantom secret 'sh' (matched require_signing_secrets.sh). Expression-context guard has regressed."
 else
     ok "extractor rejects the 'sh' phantom from require_signing_secrets.sh"
@@ -106,7 +106,7 @@ info "secrets referenced by workflows: ${REF_COUNT}"
 UNDOCUMENTED=""
 for name in $FOUND; do
     is_exempt "$name" && continue
-    printf '%s\n' "$DOC_NAMES" | grep -qx "$name" || UNDOCUMENTED="${UNDOCUMENTED}${name} "
+    grep -qx "$name" <<< "$DOC_NAMES" || UNDOCUMENTED="${UNDOCUMENTED}${name} "
 done
 
 if [ -z "$UNDOCUMENTED" ]; then
@@ -123,7 +123,7 @@ fi
 # secret that is absent by design, but it must be said out loud.
 STALE=""
 for name in $DOC_NAMES; do
-    printf '%s\n' "$FOUND" | grep -qx "$name" || STALE="${STALE}${name} "
+    grep -qx "$name" <<< "$FOUND" || STALE="${STALE}${name} "
 done
 if [ -z "$STALE" ]; then
     ok "no stale rows: every documented secret is still referenced"
@@ -148,8 +148,8 @@ jobs:
       - run: echo "${{ secrets.CM051_NEGATIVE_CONTROL_UNDOCUMENTED }}"
 YAML
 SEEDED="$(extract_secrets "$WF_DIR")"
-if printf '%s\n' "$SEEDED" | grep -qx 'CM051_NEGATIVE_CONTROL_UNDOCUMENTED' \
-   && ! printf '%s\n' "$DOC_NAMES" | grep -qx 'CM051_NEGATIVE_CONTROL_UNDOCUMENTED'; then
+if grep -qx 'CM051_NEGATIVE_CONTROL_UNDOCUMENTED' <<< "$SEEDED" \
+   && ! grep -qx 'CM051_NEGATIVE_CONTROL_UNDOCUMENTED' <<< "$DOC_NAMES"; then
     ok "NEGATIVE CONTROL: a seeded undocumented secret IS detected, so this gate can fail"
 else
     bad "NEGATIVE CONTROL FAILED: seeded undocumented secret was NOT flagged. This gate cannot fail and its green means nothing."

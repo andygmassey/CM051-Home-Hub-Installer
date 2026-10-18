@@ -94,7 +94,7 @@ elif [[ ! -x "$BUNDLED_PY" ]]; then
 else
     # Confirm it is a Mach-O arm64 binary, not something masquerading.
     FILE_OUT="$(file "$BUNDLED_PY")"
-    if ! printf '%s\n' "$FILE_OUT" | grep -q "Mach-O .* arm64"; then
+    if ! grep -q "Mach-O .* arm64" <<< "$FILE_OUT"; then
         echo "FAIL: $BUNDLED_PY is not Mach-O arm64." >&2
         echo "      file says: $FILE_OUT" >&2
         echo "      v1.0 ships arm64-only; Intel comes in v1.0.1." >&2
