@@ -15,6 +15,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "vendor" / "doctor" / "agent"))
 import telegram_status as ts  # noqa: E402
 
+import os, subprocess  # noqa: E402
+dead = subprocess.Popen([sys.executable, "-c", "pass"]); dead.wait()
+LIVE_ASSISTANT = 999_999_001  # the fixture's pid; the fake inspector calls it the live assistant
+real_inspector = getattr(ts, "assistant_pid_alive", None)
+ts.assistant_pid_alive = lambda pid: pid == LIVE_ASSISTANT
+
 FIX = json.loads((ROOT / "tests" / "fixtures" / "telegram_channel_status.json").read_text())
 NOW = datetime(2026, 10, 18, 6, 5, tzinfo=timezone.utc)
 fails = 0
@@ -42,7 +48,7 @@ check("shows the ignored count", "Ignored 3 messages from other people" in out, 
 check("no setup hint when connected", "ostler-telegram-setup" not in out, out)
 check("every fixture key is one the reader knows",
       set(FIX) == {"status", "bot_username", "last_owner_message_at", "non_owner_dropped",
-                   "last_dropped_at", "last_error", "updated_at"}, str(sorted(FIX)))
+                   "last_dropped_at", "last_error", "updated_at", "daemon_pid"}, str(sorted(FIX)))
 
 err = dict(FIX, status="config_error", last_error="Telegram is switched on but has no bot token (synthetic).")
 out = render(err)
@@ -62,5 +68,23 @@ out = render(dict(FIX, non_owner_dropped=0, last_owner_message_at=None))
 check("zero drops: no ignored line", "Ignored" not in out, out)
 check("never messaged: says so", "No message from you yet" in out, out)
 
+# ── stale "Connected" (Archie #2980): the file alone is not the truth ──
+check("tile has a daemon-liveness inspector", callable(real_inspector))
+if callable(real_inspector):
+    check("inspector: a dead pid is not alive", real_inspector(dead.pid) is False)
+    check("inspector: a live pid that is not the assistant is not alive", real_inspector(os.getpid()) is False)
+
+out = render(dict(FIX, daemon_pid=dead.pid))
+check("dead daemon: never says Connected", "Connected" not in out, out)
+check("dead daemon: says it could not check", "Couldn't check" in out, out)
+out = render(dict(FIX, daemon_pid=os.getpid()))
+check("pid reused by another process: never says Connected", "Connected" not in out, out)
+out = render({k: v for k, v in FIX.items() if k != "daemon_pid"})
+check("no daemon pid (older daemon): never says Connected", "Connected" not in out, out)
+out = render(dict(FIX, daemon_pid=LIVE_ASSISTANT))
+check("live assistant wrote it: Connected", "Connected" in out, out)
+out = render(dict(FIX, status="off", daemon_pid=dead.pid))
+check("off: says Off, even with the daemon stopped", "Off" in out and "Connected" not in out, out)
+check("off: says how to switch it on", "ostler-telegram-setup" in out, out)
 print(f"\n{fails} failed")
 sys.exit(1 if fails else 0)
