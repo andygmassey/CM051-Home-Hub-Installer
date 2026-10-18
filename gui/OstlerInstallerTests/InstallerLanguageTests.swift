@@ -65,17 +65,17 @@ final class InstallerLanguageTests: XCTestCase {
     }
 
     func testStepOverlayReplacesOnlyKnownIds() {
-        let base = ["a": StepMeta(id: "a", title: "Checking your Mac", subtitle: nil, why: nil,
+        let base = ["a": StepMeta(id: "a", title: "checking", subtitle: nil, why: nil,
                                   durationEstimateSeconds: 5, longRunningThresholdSeconds: nil,
                                   longRunningCopy: nil, illustration: nil, needsFDA: false)]
-        let loc = ["a": StepMeta(id: "a", title: "Dein Mac wird geprüft", subtitle: nil, why: nil,
+        let loc = ["a": StepMeta(id: "a", title: "wird geprüft", subtitle: nil, why: nil,
                                  durationEstimateSeconds: 5, longRunningThresholdSeconds: nil,
                                  longRunningCopy: nil, illustration: nil, needsFDA: false),
                    "ghost": StepMeta(id: "ghost", title: "x", subtitle: nil, why: nil,
                                      durationEstimateSeconds: nil, longRunningThresholdSeconds: nil,
                                      longRunningCopy: nil, illustration: nil, needsFDA: nil)]
         let out = StepCatalog.overlay(base: base, localized: loc)
-        XCTAssertEqual(out["a"]?.title, "Dein Mac wird geprüft")
+        XCTAssertEqual(out["a"]?.title, "wird geprüft")
         XCTAssertNil(out["ghost"])
     }
 
