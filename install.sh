@@ -4207,7 +4207,7 @@ _ostler_scrub_recovery_key_from_logs() {
         _tmp="${_f}.scrub.$$"
         if /usr/bin/awk '
             BEGIN { pending = 0 }
-            /RECOVERY_PHRASE=/ { sub(/RECOVERY_PHRASE=.*/, "RECOVERY_PHRASE=<redacted>"); print; next }
+            /RECOVERY_PHRASE=[^<]/ { sub(/RECOVERY_PHRASE=.*/, "RECOVERY_PHRASE=<redacted>"); n++; print; next }
             pending > 0 {
                 plain = $0
                 gsub(/\033\[[0-9;]*[A-Za-z]/, "", plain)
@@ -39500,7 +39500,7 @@ PY
         # out of Time Machine backups and Migration Assistant – matching
         # OstlerPasskeyHelper / CM031 / ostler_security elsewhere.
         # The `security` CLI cannot set these attributes, so we shell
-        # out to swift when available, and fall back to the CLI otherwise.
+        # out to swift (guaranteed by the CLT gate; no CLI fallback, see below).
         SAVED_TO_KEYCHAIN_VIA="none"
         SWIFT_BIN=""
         if command -v swift &>/dev/null; then
