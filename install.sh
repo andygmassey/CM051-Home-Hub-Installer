@@ -1996,20 +1996,21 @@ ollama_pull_with_retry() {
 
 # Layer mediaTypes that carry model WEIGHTS. Any other layer (template,
 # params, licence, tokenizer, config json) is not weights and is not pinned.
+# Read from the on-disk manifests the PINNED Ollama 0.34.0 wrote on clean
+# pulls (evidence: walkdriver/evidence/pins_0340_2026-10-19.md). 0.34.0
+# pulls GGUF builds: one image.model weight layer per model.
 OSTLER_MODEL_WEIGHT_MEDIATYPES=(
     "application/vnd.ollama.image.model"
-    # PENDING: the MLX tensor-layer mediaType(s) written by Ollama 0.40.5,
-    # exact strings from ~/walkdriver/evidence/pins_0405_2026-10-18.md.
 )
 
-# PENDING: every value below comes from the Mini16 clean 0.40.5 pull
-# (~/walkdriver/evidence/pins_0405_2026-10-18.md), with the log line cited
-# per row. Until then each row is PENDING, which arm A of
+# PENDING: every value below comes from a clean pull by the PINNED Ollama
+# 0.34.0 into an empty store (walkdriver/evidence/pins_0340_2026-10-19.md),
+# pull log cited per row. Until then each row is PENDING, which arm A of
 # tests/test_model_digest_pins.sh reports as RED, never as a pass.
+# No qwen3.5:4b row for v1.0.109: the 16 GB tier stays gemma4:e2b.
 OSTLER_MODEL_PINS=(
     "qwen3.6:35b-a3b         PENDING PENDING"
     "qwen3.5:9b              PENDING PENDING"
-    "qwen3.5:4b              PENDING PENDING"
     "gemma4:e2b              PENDING PENDING"
     "nomic-embed-text:latest PENDING PENDING"
 )
