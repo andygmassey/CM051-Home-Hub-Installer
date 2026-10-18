@@ -17596,7 +17596,9 @@ except Exception as e:
             warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
         else
             warn "$MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT"
-            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -15
+            # v1.0.109: SETUP_OUTPUT can carry RECOVERY_PHRASE=<key> (printed
+            # before the DB-key step that can raise), and stdout is the tee.
+            echo "$SETUP_OUTPUT" | sed -e 's/^RECOVERY_PHRASE=.*/RECOVERY_PHRASE=<redacted>/' -e 's/^/    /' | head -15
             fail_with_code "ERR-09-PASSKEY-SETUP" "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else

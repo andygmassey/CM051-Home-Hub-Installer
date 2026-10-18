@@ -22,9 +22,11 @@
 #      no recorded argv.
 #   E  keychain save with swift succeeding: the key reaches swift via env,
 #      never argv.
+#   F  ERR-09 setup-failure dump of SETUP_OUTPUT: RECOVERY_PHRASE= redacted,
+#      the error line kept.
 #
 # RED: `bash $0 <path-to-old-install.sh>` runs every arm against another copy.
-# On origin/main before this fix A, C and D fail (A: log holds the key once).
+# On origin/main before this fix A, B, C, D and F fail (A: log holds the key once).
 #
 # Usage: tests/test_the_recovery_key_never_reaches_install_log.sh [install.sh]
 set -u
@@ -159,6 +161,21 @@ else
     [ "$nw" = 0 ] && pass "E: key not on swift argv" || fail "E: key on swift argv"
     [ "$ne" = 1 ] && pass "E: key reached swift via env (control: the stub can see it)" || fail "E: swift never received the key (env count ${ne})"
     /usr/bin/grep -q '^SAVED_TO_KEYCHAIN=true$' "$d/out" && pass "E: saved" || fail "E: not saved when swift succeeded"
+fi
+
+# ── F: setup-failure dump ────────────────────────────────────────────────
+# On ERR-09 install.sh echoes SETUP_OUTPUT (to stdout, i.e. the tee). That
+# output carries RECOVERY_PHRASE=<key> when setup fails after minting.
+fline="$(/usr/bin/grep -m1 -E '^ *echo "\$SETUP_OUTPUT" \| sed ' "$SRC" || true)"
+if [ -z "$fline" ]; then
+    echo "CANNOT-RUN: F: setup-failure dump line not found"; FAILS=$((FAILS+1))
+else
+    fout="$(SETUP_OUTPUT="$(printf 'RECOVERY_PHRASE=%s\nERROR=synthetic failure\n' "$KEY")" /bin/bash -c "$fline")"
+    nf=$(/usr/bin/grep -c -F -- "$KEY" <<<"$fout" || true)
+    ne=$(/usr/bin/grep -c -F -- 'ERROR=synthetic failure' <<<"$fout" || true)
+    echo "F: setup-failure dump: key=${nf} error line=${ne}"
+    [ "$nf" = 0 ] && pass "F: key redacted from the setup-failure dump" || fail "F: setup-failure dump writes the key ${nf} time(s)"
+    [ "$ne" = 1 ] && pass "F: the error line still reaches the log (control)" || fail "F: error line lost"
 fi
 
 echo "VERDICT: $([ "$FAILS" = 0 ] && echo PASS || echo "FAIL (${FAILS})")"
