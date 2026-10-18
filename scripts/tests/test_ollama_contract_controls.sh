@@ -74,27 +74,24 @@ echo "ollama install path contract: can every limb go red?"
 
 run_control "control 0: unmodified tree                 (expect PASS)" 0
 
-run_control "control 1: bare 'ollama' cask reintroduced (expect FAIL)" 1 \
-    sed -E 's#^([[:space:]]*)brew install --cask ollama-app$#\1brew install --cask ollama#'
-
-run_control "control 2: cask install removed            (expect FAIL)" 1 \
-    grep -v 'brew install --cask ollama-app'
-
-run_control "control 3: cask installed twice            (expect FAIL)" 1 \
-    sed -E 's#^([[:space:]]*)(brew install --cask ollama-app)$#\1\2\n\1\2#'
-
-run_control "control 4: de-quarantine removed           (expect FAIL)" 1 \
-    grep -v 'xattr -dr com.apple.quarantine /Applications/Ollama.app'
-
+run_control "control 1: ollama-app cask reintroduced  (expect FAIL)" 1 \
+    sed -E 's#^(    info "\$\(printf "\$MSG_INFO_INSTALLING_OLLAMA_PINNED".*)$#\1\n    brew install --cask ollama-app#'
+run_control "control 2: bare ollama cask reintroduced  (expect FAIL)" 1 \
+    sed -E 's#^(    info "\$\(printf "\$MSG_INFO_INSTALLING_OLLAMA_PINNED".*)$#\1\n    brew install --cask ollama#'
+run_control "control 3: pinned install call removed    (expect FAIL)" 1 \
+    grep -v '^    _ostler_ollama_pin_install "\$OLLAMA_PIN_DIR" || _ollama_pin_rc=\$?$'
+run_control "control 4: URL for another version        (expect FAIL)" 1 \
+    sed -E 's#^(OLLAMA_PIN_URL="https://github.com/ollama/ollama/releases/download/v)[0-9.]+/#\10.0.1/#'
 run_control "control 5: exists-check code removed       (expect FAIL)" 1 \
     sed 's/ERR-07-DMG48-OLLAMA-MISSING-AFTER-BREW/ERR-07-SOMETHING-ELSE/'
-
 run_control "control 6: OLLAMA_APP_BIN repointed        (expect FAIL)" 1 \
-    sed -E 's#^OLLAMA_APP_BIN="/Applications/Ollama\.app/Contents/Resources/ollama"#OLLAMA_APP_BIN="ollama"#'
-
+    sed -E 's#^OLLAMA_APP_BIN="\$\{OLLAMA_PIN_DIR\}/ollama"#OLLAMA_APP_BIN="/Applications/Ollama.app/Contents/Resources/ollama"#'
 run_control "control 7: 'open -a Ollama' reintroduced   (expect FAIL)" 1 \
-    sed -E 's#^([[:space:]]*)(xattr -dr com\.apple\.quarantine.*)$#\1\2\n\1open -a Ollama#'
-
+    sed -E 's#^(    ok "\$MSG_OK_OLLAMA_INSTALLED")$#\1\n    open -a Ollama#'
+run_control "control 9: sha256 record not 64 hex        (expect FAIL)" 1 \
+    sed -E 's#^(OLLAMA_PIN_SHA256="[0-9a-f]{63})[0-9a-f]"#\1"#'
+run_control "control 10: already-running skip unpinned  (expect FAIL)" 1 \
+    sed -E 's#^(   && grep -qF "<string>\$\{OLLAMA_APP_BIN\}</string>" "\$OLLAMA_PLIST"; then)$#   ; then#'
 run_control "control 8: port drifted to 11435           (expect FAIL)" 1 \
     sed 's#localhost:11434/api/tags#localhost:11435/api/tags#g'
 
@@ -103,4 +100,4 @@ if [ "$fails" -gt 0 ]; then
     printf '\033[0;31mollama contract controls: %d FAILED\033[0m\n' "$fails"
     exit 1
 fi
-printf '\033[0;32mollama contract controls: 9/9 -- every limb discriminates, including the two cask names\033[0m\n'
+printf '\033[0;32mollama contract controls: 11/11 -- every limb discriminates, including both cask names and the pin record\033[0m\n'

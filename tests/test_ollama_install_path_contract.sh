@@ -52,6 +52,11 @@
 #      CX-14 concern, and without it the cask reintroduces the original bug
 #   4  a hard binary-exists check gates success, so a cask install that lands
 #      nothing cannot report OK (the DMG #48 silent-bail lesson)
+# 2026-10-18: limbs 1-4 now lock the PINNED release (no cask of any name, the
+# OLLAMA_PIN_* record, one pinned install call, the exists-check on the pinned
+# binary, and the already-running skip requiring the agent to serve it). The
+# behaviour of the install function itself is executed by
+# tests/test_ollama_pin_install_verifies_sha256.sh.
 #   5  no `open -a Ollama` -- success is decided by the binary path, not by
 #      whether `open` managed to spawn something
 #   6  port 11434 unchanged (cross-component wire contract)
@@ -74,39 +79,44 @@ INSTALL_SH="${REPO_ROOT}/install.sh"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-# ── 1. the BARE `ollama` cask is still refused ────────────────────────────
-# End-of-token anchored: `--cask ollama` followed by whitespace or end of
-# line. `--cask ollama-app` does NOT match, which is the whole point.
-if grep -nE '^[[:space:]]*(if[[:space:]]+)?brew install --cask ollama([[:space:]]|$)' "$INSTALL_SH" > /dev/null; then
+# ── 1. NO cask for Ollama, of any name (2026-10-18) ───────────────────────
+# A cask cannot be version-pinned and the app it installs updates itself, so
+# the model manifests and config digests on disk drift with whatever Ollama is
+# current on install day. Neither `ollama` nor `ollama-app` may be installed.
+if grep -nE '^[[:space:]]*(if[[:space:]]+)?brew install[[:space:]]+(--cask[[:space:]]+)?ollama(-app)?([[:space:]]|$)' "$INSTALL_SH" > /dev/null; then
     echo "Offending lines:" >&2
-    grep -nE '^[[:space:]]*(if[[:space:]]+)?brew install --cask ollama([[:space:]]|$)' "$INSTALL_SH" >&2
-    fail "install.sh installs the BARE 'ollama' cask. That is the one whose first launch shows the Gatekeeper 'downloaded from internet' dialog mid-install (CX-14 E1). The supported path is the 'ollama-app' cask plus the de-quarantine below. If you need the bare cask, talk to Andy first."
+    grep -nE '^[[:space:]]*(if[[:space:]]+)?brew install[[:space:]]+(--cask[[:space:]]+)?ollama(-app)?([[:space:]]|$)' "$INSTALL_SH" >&2
+    fail "install.sh installs Ollama from Homebrew. The cask is unpinned and self-updating (and the formula has no llama-server, CX-43). Ollama must come from the pinned, sha256-verified release (OLLAMA_PIN_*, _ostler_ollama_pin_install)."
 fi
 
-# ── 2. exactly one `--cask ollama-app` install ────────────────────────────
-cask_count=$(grep -cE '^[[:space:]]*brew install --cask ollama-app([[:space:]]|$)' "$INSTALL_SH" || true)
-if [ "$cask_count" -ne 1 ]; then
-    echo "Offending matches (expected 1, got $cask_count):" >&2
-    grep -nE 'brew install --cask ollama-app' "$INSTALL_SH" >&2 || true
-    fail "install.sh must have exactly ONE 'brew install --cask ollama-app' invocation. Got $cask_count. Two install sites means two chances to diverge on the de-quarantine and the exists-check that make the cask path safe."
-fi
+# ── 2. the pin is recorded: version, official URL for THAT version, sha256 ─
+pin_ver=$(sed -nE 's/^OLLAMA_PIN_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' "$INSTALL_SH")
+pin_url=$(sed -nE 's/^OLLAMA_PIN_URL="([^"]+)"$/\1/p' "$INSTALL_SH")
+pin_sha=$(sed -nE 's/^OLLAMA_PIN_SHA256="([0-9a-f]{64})"$/\1/p' "$INSTALL_SH")
+[ "$(printf '%s\n' "$pin_ver" | grep -c .)" = 1 ] || fail "install.sh must set OLLAMA_PIN_VERSION=\"X.Y.Z\" exactly once (got: '${pin_ver}')."
+[ "$pin_url" = "https://github.com/ollama/ollama/releases/download/v${pin_ver}/ollama-darwin.tgz" ] \
+    || fail "OLLAMA_PIN_URL must be Ollama's official GitHub release asset for v${pin_ver} (ollama-darwin.tgz), got '${pin_url}'. A URL for another version than OLLAMA_PIN_VERSION ships an engine the pin does not describe."
+[ "$(printf '%s\n' "$pin_sha" | grep -c .)" = 1 ] || fail "install.sh must record OLLAMA_PIN_SHA256 as 64 lowercase hex characters exactly once."
 
-# ── 3. the de-quarantine runs ─────────────────────────────────────────────
-# THE LOAD-BEARING ONE. Without this the cask reintroduces exactly the
-# Gatekeeper dialog CX-14 E1 was raised about, and the rest of the block
-# still looks correct.
-if ! grep -nE '^[[:space:]]*xattr -dr com\.apple\.quarantine[[:space:]]+/Applications/Ollama\.app' "$INSTALL_SH" > /dev/null; then
-    fail "install.sh does not de-quarantine /Applications/Ollama.app after the cask install. The cask path is only safe BECAUSE of that step: without it the first launch shows the Gatekeeper dialog, the customer ignores it, and the :11434 poll times out with the install reporting a generic 'could not start Ollama'. This is the CX-14 E1 concern and this line is what neutralises it."
-fi
+# ── 3. the pinned install is what runs, once, and the binary lives in its dir ─
+call_count=$(grep -cE '^[[:space:]]*_ostler_ollama_pin_install "\$OLLAMA_PIN_DIR" \|\| _ollama_pin_rc=\$\?$' "$INSTALL_SH" || true)
+[ "$call_count" -eq 1 ] || fail "install.sh must call _ostler_ollama_pin_install \"\$OLLAMA_PIN_DIR\" exactly once (got ${call_count})."
+grep -nE '^OLLAMA_PIN_DIR="\$\{HOME\}/\.ostler/runtime/ollama-\$\{OLLAMA_PIN_VERSION\}"$' "$INSTALL_SH" > /dev/null \
+    || fail "OLLAMA_PIN_DIR must be the versioned Ostler-owned prefix \${HOME}/.ostler/runtime/ollama-\${OLLAMA_PIN_VERSION}."
 
-# ── 4. a hard binary-exists check gates success ───────────────────────────
+# ── 4. a hard binary-exists check gates success, on the PINNED binary ─────
 # DMG #48 lesson: a bare `command -v ollama` is satisfied by a leftover
-# formula on PATH, so success must be decided by the CASK binary's own path.
+# formula on PATH, so success must be decided by the binary's own path.
 if ! grep -nE 'ERR-07-DMG48-OLLAMA-MISSING-AFTER-BREW' "$INSTALL_SH" > /dev/null; then
-    fail "install.sh no longer fails with ERR-07-DMG48-OLLAMA-MISSING-AFTER-BREW when the cask binary is absent after brew reports success. Without that check a brew install that lands nothing is reported as OK and the failure surfaces 90 seconds later as an unrelated timeout."
+    fail "install.sh no longer fails with ERR-07-DMG48-OLLAMA-MISSING-AFTER-BREW when the Ollama binary is absent after install. Without that check an install that lands nothing is reported as OK and the failure surfaces 90 seconds later as an unrelated timeout."
 fi
-if ! grep -nE '^OLLAMA_APP_BIN="/Applications/Ollama\.app/Contents/Resources/ollama"' "$INSTALL_SH" > /dev/null; then
-    fail "OLLAMA_APP_BIN no longer points at the cask binary inside Ollama.app. A bare 'command -v ollama' is satisfied by a leftover broken FORMULA on PATH, which is why the check path-matches the app binary instead."
+if ! grep -nE '^OLLAMA_APP_BIN="\$\{OLLAMA_PIN_DIR\}/ollama"$' "$INSTALL_SH" > /dev/null; then
+    fail "OLLAMA_APP_BIN no longer points at the pinned binary. It is what the com.ostler.ollama LaunchAgent serves; pointed anywhere else, the customer runs an engine the pin does not describe."
+fi
+# An agent written by a cask-era install must not satisfy the "already
+# running" skip, or the upgraded customer stays on the self-updating app.
+if ! grep -nE '&& grep -qF "<string>\$\{OLLAMA_APP_BIN\}</string>" "\$OLLAMA_PLIST"; then$' "$INSTALL_SH" > /dev/null; then
+    fail "the 'Ollama already running' skip no longer requires com.ostler.ollama to serve OLLAMA_APP_BIN, so an install upgraded from the cask keeps serving /Applications/Ollama.app."
 fi
 
 # ── 5. no `open -a Ollama` ────────────────────────────────────────────────
@@ -123,5 +133,5 @@ if ! grep -nE 'localhost:11434/api/tags' "$INSTALL_SH" > /dev/null; then
     fail "install.sh no longer probes localhost:11434/api/tags. The Ollama port is a cross-component wire contract (Hub agents, embedding pipeline, providers TOML, post-install health probes). A deliberate port change means auditing all four first; a silent one is a copy-paste bug."
 fi
 
-echo "PASS: ollama install path contract -- cask 'ollama-app', de-quarantined, exists-checked, port 11434"
+echo "PASS: ollama install path contract -- no cask, pinned v${pin_ver} sha256-recorded, exists-checked, port 11434"
 exit 0
