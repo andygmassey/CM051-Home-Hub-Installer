@@ -6869,3 +6869,8 @@ open_issues:
     repo: CM051
     title: 'v1.0.108: customer_read must catch a bare decimal score in parentheses, e.g. "(0.90)"'
     gate: 'NOT BLOCKING for v1.0.107; DEFERRED to v1.0.108 (Aesop filed it 2026-10-08 for v1.0.108; Archie, 2026-10-08). It is a WALK-JUDGE gap, not a product change: CM051 scripts/box_walk_probes/lib/customer_read.py does not flag a score in parentheses such as "The Last Horizon · tv show (0.90)" on the wiki Years/2026 Top items list. ORM measured it present on BOTH wiki v0.1.45 and v0.1.46 images through the CM044 crawl rig on 2026-10-08, so it predates and is not introduced by v1.0.107 #11, and the rig check "no internal score shown to the customer" is blind to the parenthesised form. Fixing the judge changes what the v1.0.107 walk grades, so it lands with v1.0.108. Registered here because an open issue missing from the checklist reds the cut preflight (run 37717318360) and main (alarm #2700).'
+
+  - issue: 3003
+    repo: CM051
+    title: 'gen_hub_contract.py lists every gateway route on 8443, but 8443 serves only a frozen allowlist'
+    gate: 'NOT BLOCKING for v1.0.109 (Archie, 2026-10-19). Registered so the cut checklist stays the register: #2998 went red on "1 OPEN issue(s) are not in the checklist: [3003]". CODE: scripts/gen_hub_contract.py gives every gateway route ports [8000, companion_port], but since v1.0.108 the 8443 listener serves only ostler-assistant FROZEN_COMPANION_ALLOWLIST. No shipped client chooses its base port from the contract, so nothing a customer does changes. FIX SHAPE: read the allowlist from the lib.rs the generator already parses and add 8443 only for matching routes. Lands with or after the #2988 re-pin (v1.0.110).'
