@@ -1869,3 +1869,183 @@ MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler could not open System Settings for
 # sentence without removing the corresponding capability.
 MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler runs your wiki and search in containers, so it installs and manages a container engine (Colima) on this Mac. If that engine is removed or reconfigured, your wiki and search will stop working – Ostler will tell you and try to restart it."
 MSG_INFO_ENGINE_ALREADY_PRESENT="A container engine is already installed on this Mac. Ostler will use it rather than installing its own, and will not manage or modify it."
+
+# ── Consent screens, terminal/log path (lifted from inline echo, l10n) ──
+# Printed by _ostler_tty in install.sh: each value is a printf format whose
+# %s pairs switch bold/dim on and off. Keep every %s, every line break and
+# the [Y]/[N] answer tokens. Legal wording: translations ship needs_review.
+
+# install.sh consent screen (TTY/log path), lifted from install.sh:11865. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_EU_01="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+
+  %sOne last thing – what Ostler will look at on your Mac%s
+
+  Ostler is a personal assistant, so it works by looking at the
+  parts of your life you keep on this Mac. Some of that is
+  sensitive. UK and EU privacy law requires us to ask you, in
+  clear words, before we touch any of it.
+
+  %sWhere the data lives.%s Everything Ostler reads stays on this
+  Mac, in encrypted folders only you can unlock. We never get a
+  copy. There is no \"cloud\" version of your data.
+
+  %sWhat's in scope.%s Depending on which connectors you turn on,
+  Ostler may process the following kinds of information that the
+  law treats as \"special category\" data:
+
+    - Health information mentioned in emails, messages, calendar
+      entries or transcribed conversations
+    - Religious or philosophical beliefs
+    - Sexual orientation
+    - Trade union membership
+    - Voice captures, used only to label *who* is speaking on
+      calls (speaker identification). We do not infer mood,
+      emotion, sentiment, stress or deception from voice.
+    - Mentions of criminal offences – your own or other people's
+
+  We do not perform emotion recognition. If that ever changes we
+  will ask you again, separately, on a new consent screen.
+
+  All of this stays on your Mac. None of it is sent to Creative
+  Machines or any third party, except in the specific cases listed
+  in our Privacy Policy at ostler.ai/privacy.
+
+  %sYou can change your mind any time.%s Turn individual connectors
+  off in Settings, delete everything via \"Reset Ostler\", or
+  fully uninstall by running ostler-uninstall in Terminal.
+
+  Withdrawing consent stops processing from that point forward. It
+  does not undo work Ostler already did with your earlier consent.
+
+  Your decision:
+
+    [Y] I consent to Ostler processing the categories of personal
+        data above, locally on this Mac, for the purpose of
+        running my personal assistant. (continues the install)
+
+    [N] I do not consent. (cancels and removes the installer;
+        nothing is stored on this Mac)
+
+  %sLegal note: You are the data controller for all
+  special-category data Ostler processes on this Mac (UK GDPR
+  Article 4(7)). Creative Machines never receives any of this
+  data. Your explicit consent above (UK GDPR Article 9(2)(a))
+  is the lawful basis for processing. For personal and household
+  use, Article 2(2)(c) further limits scope. This consent is
+  revocable at any time without affecting processing that has
+  already taken place.%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:11973. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_EU_02="  No problem. Setup has stopped and your existing Ostler
+  data has been left exactly as it was."
+# install.sh consent screen (TTY/log path), lifted from install.sh:11976. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_EU_03="  No problem. Nothing has been installed and nothing was
+  written to your Mac."
+# install.sh consent screen (TTY/log path), lifted from install.sh:11979. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_EU_04="
+  If you change your mind, re-run the installer."
+# install.sh consent screen (TTY/log path), lifted from install.sh:11985. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_EU_05="  Please answer Y or N."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12031. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_01="  %sRecognising voices on calls (in the Ostler iPhone app)%s
+
+  The Ostler iPhone Companion app can label transcripts with who
+  is speaking – for example, \"Sam\", \"Alex\" – by storing a numeric
+  fingerprint of each voice in an encrypted store on your iPhone.
+  The fingerprints never leave your phone and are never sent to
+  this Mac or to us; the Mac only ever receives the text label
+  (the name), never the fingerprint. Under UK and EU privacy law a
+  voice fingerprint is biometric data, so we ask before the
+  Companion enrols any voices.
+
+  %sWhat we do.%s Identify *who* is speaking on a call you capture.
+  %sWhat we do not do.%s Detect mood, emotion, sentiment, stress
+  or any other inferred psychological state from voice.
+
+  The fingerprints stay on your iPhone. We never receive them, and
+  neither does this Mac. You can turn this off any time in the
+  iPhone app under Settings -> Voice recognition; turning it off
+  deletes any fingerprints already stored on the phone. If you
+  never install the iPhone Companion, no voice fingerprint is ever
+  created.
+
+  %sLegal note: Voice fingerprints stored on your iPhone by the
+  Ostler Companion app are biometric data under UK GDPR Article
+  9(1). Your explicit consent above (Article 9(2)(a)) is the
+  lawful basis for processing. You are the data controller
+  (Article 4(7)); Creative Machines never receives the
+  fingerprints, and they are never sent to this Mac. For
+  personal and household use, Article 2(2)(c) further limits
+  scope. Withdrawing consent in the iPhone app deletes stored
+  fingerprints.%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12102. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_02="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+
+  %sAbout the data on your Mac that's not just yours%s
+
+  Ostler reads parts of your life that contain information about
+  other people – emails they sent you, messages they wrote, faces
+  in your photos, contact details, calendar attendees. This is
+  normal. It's your inbox, your contacts, your life as it actually
+  exists.
+
+  Everything stays on this Mac. Creative Machines never receives
+  any of it. There is no cloud account holding it.
+
+  %sBefore you continue, please understand:%s
+
+    - You are keeping these records for yourself, like a private
+      address book, a personal diary, or a journal. Ostler is the
+      tool that helps you organise and search what you already
+      have. You decide what to keep and what to delete.
+
+    - Specific requests to be removed. If anyone you have records
+      of asks you to be removed, you can delete that person from
+      Ostler entirely (Settings -> People -> Delete a person). The
+      deletion removes their data from your wiki, your graph,
+      your search index, and your assistant's memory.
+
+    - Nothing leaves your Mac. Not to us, not to a cloud, not to
+      a third party – except in the specific cases listed in our
+      Privacy Policy at ostler.ai/privacy (mainly: optional cloud
+      routing for non-personal questions, software update checks,
+      public metadata enrichment).
+
+  Read more at docs.ostler.ai/privacy/third-party-data.
+
+  Your decision:
+
+    [Y] I understand. Continue.
+    [N] I do not consent. (cancels and removes the installer;
+        nothing is stored on this Mac)
+
+  %sLegal note: For records you keep on this Mac, you are
+  the data controller under UK and EU law (UK GDPR Article
+  4(7)). Creative Machines never receives this data and is not
+  the controller. Your processing for personal and household
+  purposes falls within UK/EU GDPR Article 2(2)(c).%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12175. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_03="  No problem. Setup has stopped and your existing Ostler
+  data has been left exactly as it was."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12178. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_04="  No problem. Nothing has been installed and nothing was
+  written to your Mac."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12181. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_05="
+  If you change your mind, re-run the installer."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12187. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_06="  Please answer Y or N."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12214. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_07="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+"
+# install.sh consent screen (TTY/log path), lifted from install.sh:12253. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_08="  Please answer Y or N."
+# install.sh consent screen (TTY/log path), lifted from install.sh:12293. %s pairs are bold/dim on and off.
+MSG_TTY_CONSENT_MORE_09="
+%s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s
+"

@@ -151,7 +151,8 @@ def load_config():
 # Units and catalogue adapters
 # --------------------------------------------------------------------------
 
-SPEC = re.compile(r"%(?:\d+\$)?[-+ #0]*\d*(?:\.\d+)?(?:hh|h|ll|l|q|z|t|j)?[@dDiuUxXoOfeEgGcCsSpaA%]|\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+SPEC = re.compile(r"%(?:\d+\$)?[-+ #0]*\d*(?:\.\d+)?(?:hh|h|ll|l|q|z|t|j)?[@dDiuUxXoOfeEgGcCsSpaA%]|\$\{[a-zA-Z_][a-zA-Z0-9_]*\}|\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+TAG = re.compile(r"</?[a-zA-Z][^<>]*>")
 
 
 def h(s):
@@ -497,7 +498,197 @@ class XcstringsCatalogue:
                 for k, l in self.missing_fallbacks([lang])]
 
 
-ADAPTERS = {"shell": ShellCatalogue, "json-tree": JsonTreeCatalogue, "xcstrings": XcstringsCatalogue}
+def _js_string(text, i):
+    """Parse a JS string literal ('..', "..") at text[i]; return (value, end)."""
+    q = text[i]
+    j, out = i + 1, []
+    esc = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "'": "'", '"': '"', "`": "`", "$": "$", "0": "\0"}
+    while text[j] != q:
+        if text[j] == "\\":
+            c = text[j + 1]
+            if c == "u":
+                out.append(chr(int(text[j + 2:j + 6], 16)))
+                j += 6
+                continue
+            out.append(esc.get(c, c))
+            j += 2
+            continue
+        out.append(text[j])
+        j += 1
+    return "".join(out), j + 1
+
+
+class TsObjectCatalogue:
+    """English lives in a TS object literal ({ 'key': 'value', ... } with
+    // comments); each language is a flat <target>.json the app merges over
+    English per key. Read-only on the TS side: the source is never rewritten."""
+
+    def __init__(self, spec):
+        self.id, self.spec = spec["id"], spec
+
+    def path(self, lang=None):
+        return os.path.join(REPO, self.spec["source"] if lang is None else self.spec["target"].format(lang=lang))
+
+    def _entries(self):
+        text = open(self.path(), encoding="utf-8").read()
+        start = text.index(self.spec["start_marker"]) + len(self.spec["start_marker"])
+        i, depth, comment = start, 1, []
+        key_re = re.compile(r"\s*(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][\w]*))\s*:\s*")
+        while i < len(text):
+            if text.startswith("//", i):
+                e = text.index("\n", i)
+                comment.append(text[i + 2:e].strip())
+                i = e + 1
+                continue
+            c = text[i]
+            if c in " \t\n,":
+                if c == "\n" and text[i + 1:i + 2] == "\n":
+                    comment = []
+                i += 1
+                continue
+            if c == "}":
+                return
+            m = key_re.match(text, i)
+            if not m:
+                raise ValueError(f"{self.spec['source']}: cannot parse near {text[i:i + 60]!r}")
+            key = m.group(1) or m.group(2) or m.group(3)
+            j = m.end()
+            while text[j] in " \t\n":
+                j += 1
+            parts = []
+            while True:
+                v, j = _js_string(text, j)
+                parts.append(v)
+                k = j
+                while text[k] in " \t\n":
+                    k += 1
+                if text[k] == "+":
+                    j = k + 1
+                    while text[j] in " \t\n":
+                        j += 1
+                    continue
+                break
+            yield key, "".join(parts), " ".join(comment)[-300:]
+            comment = []
+            i = j
+
+    def units(self):
+        for k, v, c in self._entries():
+            if has_letters(v) and k not in self.spec.get("do_not_translate_keys", []):
+                yield Unit(self.id, k, v, c, "web")
+
+    def read(self, lang):
+        p = self.path(lang)
+        return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
+
+    def flags(self, lang):
+        p = os.path.join(HERE, f"REVIEW_FLAGS.{lang}.tsv")
+        out = {}
+        if os.path.exists(p):
+            for line in open(p, encoding="utf-8").read().splitlines()[1:]:
+                f = line.split("\t")
+                if len(f) >= 4 and f[0] == self.spec["source"] and f[2] == "needs_review":
+                    out[f[1]] = f[3]
+        return out
+
+    def write(self, lang, values, flags):
+        order = [k for k, _, _ in self._entries()]
+        d = {k: values[k] for k in order if k in values}
+        os.makedirs(os.path.dirname(self.path(lang)), exist_ok=True)
+        with open(self.path(lang), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        _write_flag_rows(lang, self.spec["source"], flags)
+
+    def validate_file(self, lang):
+        p = self.path(lang)
+        if not os.path.exists(p):
+            return []
+        try:
+            d = json.load(open(p, encoding="utf-8"))
+        except Exception as e:
+            return [f"{os.path.relpath(p, REPO)}: invalid JSON: {e}"]
+        keys = {k for k, _, _ in self._entries()}
+        extra = sorted(set(d) - keys)
+        return [f"{os.path.relpath(p, REPO)}: {len(extra)} key(s) not in the English source, e.g. {extra[:3]}"] if extra else []
+
+
+class YamlTreeCatalogue(JsonTreeCatalogue):
+    """A YAML tree (needs PyYAML). Each language is written as JSON, which
+    every YAML loader reads, so the writer never has to emit YAML. Keys in
+    `skip_keys` (dotted paths) are copied from English untouched; `fixed`
+    gives per-language values a translator must not invent."""
+
+    def _load_src(self):
+        import yaml
+        return yaml.safe_load(open(self.path(), encoding="utf-8"))
+
+    def _walk(self, x, p, meta, all_text=False):
+        skip = set(self.spec.get("skip_keys", []))
+        if p and ".".join(map(str, p)) in skip:
+            return
+        if any(".".join(map(str, p)).startswith(s + ".") for s in skip):
+            return
+        yield from JsonTreeCatalogue._walk(self, x, p, meta, all_text)
+
+    def units(self):
+        for k, v, meta in self._walk(self._load_src(), [], ""):
+            yield Unit(self.id, k, v, meta[:300], "yaml")
+
+    def write(self, lang, values, flags):
+        fixed = self.spec.get("fixed", {})
+
+        def walk(x, p):
+            k = "/".join(map(str, p))
+            dotted = ".".join(map(str, p))
+            if dotted in fixed and isinstance(fixed[dotted], dict) and lang in fixed[dotted]:
+                return fixed[dotted][lang]
+            if isinstance(x, str):
+                return values.get(k, x)
+            if isinstance(x, dict):
+                return {kk: walk(vv, p + [kk]) for kk, vv in x.items()}
+            if isinstance(x, list):
+                return [walk(v, p + [i]) for i, v in enumerate(x)]
+            return x
+        d = walk(self._load_src(), [])
+        with open(self.path(lang), "w", encoding="utf-8") as f:
+            f.write(f"# {self.spec['source']} translated to {lang} by l10n/ostler_l10n.py. Generated: edit the\n"
+                    "# English source, never this file. JSON is valid YAML, so the loader reads it as-is.\n")
+            json.dump(d, f, ensure_ascii=False, indent=1)
+            f.write("\n")
+        _write_flag_rows(lang, self.spec["source"], flags)
+
+    def validate_file(self, lang):
+        p = self.path(lang)
+        if not os.path.exists(p):
+            return []
+        try:
+            import yaml
+            tr = yaml.safe_load(open(p, encoding="utf-8"))
+        except Exception as e:
+            return [f"{os.path.relpath(p, REPO)}: unreadable: {e}"]
+        base = self._load_src()
+
+        def keys(x, p=""):
+            if isinstance(x, dict):
+                out = set()
+                for k, v in x.items():
+                    out |= {f"{p}{k}"} | keys(v, f"{p}{k}.")
+                return out
+            return set()
+        missing = keys(base) - keys(tr)
+        return [f"{os.path.relpath(p, REPO)}: {len(missing)} key(s) missing vs English, e.g. {sorted(missing)[:3]}"] if missing else []
+
+    def read(self, lang):
+        p = self.path(lang)
+        if not os.path.exists(p):
+            return {}
+        import yaml
+        return {k: v for k, v, _ in self._walk(yaml.safe_load(open(p, encoding="utf-8")), [], "", True)}
+
+
+ADAPTERS = {"shell": ShellCatalogue, "json-tree": JsonTreeCatalogue, "xcstrings": XcstringsCatalogue,
+            "ts-object": TsObjectCatalogue, "yaml-tree": YamlTreeCatalogue}
 
 
 def catalogues(cfg):
@@ -555,6 +746,8 @@ def mech(u, out, cfg):
         m = m.rstrip(".,;:)")
         if m not in out:
             errs.append(f"literal {m!r} lost")
+    if collections.Counter(TAG.findall(src)) != collections.Counter(TAG.findall(out)):
+        errs.append("HTML tags differ (tags and their attributes must be kept verbatim)")
     if not out.strip():
         errs.append("empty")
     return errs
@@ -681,10 +874,14 @@ def pending(cfg):
     stale_set = {(c.id, lang, k) for c, lang, k in stale}
     st = load_state()
     keep = set(cfg.get("keep_english", []))
+    only = [x for x in os.environ.get("OSTLER_L10N_ONLY", "").split(",") if x]  # e.g. "zh-Hant" for a second pass
+    skip = [x for x in os.environ.get("OSTLER_L10N_SKIP", "").split(",") if x]
     out = []
     for c in catalogues(cfg):
         units = list(c.units())
         for lang in cfg["languages"]:
+            if (only and lang not in only) or lang in skip:
+                continue
             tr = c.read(lang)
             made = st["made_from"].get(lang, {})
             for u in units:
@@ -742,8 +939,20 @@ def _client():
 
 def _batch(cl, cfg, reqs, phase, log):
     model = cfg["models"][phase]
-    b = cl.messages.batches.create(requests=reqs)
-    print(f"{phase}: batch {b.id}, {len(reqs)} requests", flush=True)
+    # Crash-recovery record + raw results, OUTSIDE the repo: model output must
+    # never sit in a tree that the PII guards scan or that git could pick up.
+    runs = os.environ.get("OSTLER_L10N_RUNS_DIR") or os.path.join(
+        os.path.expanduser("~/.cache/ostler-l10n"), os.path.basename(REPO))
+    os.makedirs(runs, exist_ok=True)
+    resume = os.environ.get(f"OSTLER_L10N_RESUME_{phase.upper()}")
+    if resume:
+        b = cl.messages.batches.retrieve(resume)  # never pay twice: reuse a batch that already ran
+        print(f"{phase}: RESUMING batch {b.id}", flush=True)
+    else:
+        b = cl.messages.batches.create(requests=reqs)
+        with open(os.path.join(runs, "inflight.tsv"), "a") as f:
+            f.write(f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%SZ}\t{phase}\t{b.id}\t{len(reqs)}\n")
+        print(f"{phase}: batch {b.id}, {len(reqs)} requests (recorded in {runs}/inflight.tsv)", flush=True)
     while True:
         r = cl.messages.batches.retrieve(b.id)
         rc = r.request_counts
@@ -752,10 +961,12 @@ def _batch(cl, cfg, reqs, phase, log):
             break
         time.sleep(60)
     out, acc = {}, collections.Counter()
+    raw = open(os.path.join(runs, f"{b.id}.jsonl"), "w", encoding="utf-8")  # streamed to disk as it arrives
     for res in cl.messages.batches.results(b.id):
         if res.result.type != "succeeded":
             continue
         m = res.result.message
+        raw.write(json.dumps({"custom_id": res.custom_id, "text": next((x.text for x in m.content if x.type == "text"), "")}, ensure_ascii=False) + "\n")
         u = m.usage
         acc["in"] += u.input_tokens or 0
         acc["cw"] += getattr(u, "cache_creation_input_tokens", 0) or 0
@@ -770,6 +981,7 @@ def _batch(cl, cfg, reqs, phase, log):
         lang = res.custom_id.split("_")[1]  # custom_id must match ^[a-zA-Z0-9_-]{1,64}$
         for it in items:
             out[(lang, it["id"])] = it
+    raw.close()
     pin, pout, crm = PRICE[model]
     cost = 0.5 * (acc["in"] * pin + acc["cw"] * pin * 1.25 + acc["cr"] * pin * crm + acc["out"] * pout) / 1e6
     log(phase, model, b.id, len(reqs), acc, cost)
@@ -819,9 +1031,31 @@ def cmd_run(cfg, gl, dry=False):
         if cur:
             yield cur
 
+    # derive_from: {zh-Hant: zh-HK} -- a cheap adaptation pass from a reviewed
+    # sibling translation instead of translating from scratch.
+    derive = cfg.get("derive_from") or {}
+    st0 = load_state()
+    cats = {c.id: c for c in catalogues(cfg)}
+    base_cache = {}
+
+    def base_for(lang, u):
+        src_lang = derive.get(lang)
+        if not src_lang:
+            return None
+        if (u.cat, src_lang) not in base_cache:
+            base_cache[(u.cat, src_lang)] = cats[u.cat].read(src_lang)
+        v = base_cache[(u.cat, src_lang)].get(u.key)
+        if v is None or st0["made_from"].get(src_lang, {}).get(u.uid) != h(u.src):
+            return None  # the sibling is missing or stale: translate from scratch
+        return v
+
     def item(sid):
-        u = ids[sid][1]
-        return {"id": sid, "src": u.src, "ctx": u.ctx[:400], "specs": SPEC.findall(u.src), "kind": u.kind}
+        lang, u = ids[sid]
+        d = {"id": sid, "src": u.src, "ctx": u.ctx[:400], "specs": SPEC.findall(u.src), "kind": u.kind}
+        b = base_for(lang, u)
+        if b is not None:
+            d["base_translation"] = b
+        return d
 
     reqs = []
     for lang in groups:
@@ -829,7 +1063,10 @@ def cmd_run(cfg, gl, dry=False):
             reqs.append({"custom_id": f"t_{lang}_{n}", "params": {
                 "model": cfg["models"]["translate"], "max_tokens": 32000, "system": _system(gl, False),
                 "thinking": {"type": "adaptive"}, "output_config": {"effort": "medium", "format": {"type": "json_schema", "schema": T_SCHEMA}},
-                "messages": [{"role": "user", "content": f"Target language: {gl['language_names'][lang]} (locale {lang}). Translate every item.\n\n"
+                "messages": [{"role": "user", "content": f"Target language: {gl['language_names'][lang]} (locale {lang}). Translate every item."
+                              + (f" Items with base_translation already have a reviewed {gl['language_names'][derive[lang]]} ({derive[lang]}) translation: "
+                                 "ADAPT it to the target locale's usage and vocabulary, changing only what a native reader of the target locale would say differently, "
+                                 "and keep everything else identical." if lang in derive else "") + "\n\n"
                               + json.dumps([item(s) for s in ch], ensure_ascii=False)}]}})
     tr, c1 = _batch(cl, cfg, reqs, "translate", log)
     reqs = []
@@ -850,7 +1087,8 @@ def cmd_run(cfg, gl, dry=False):
                 reqs.append({"custom_id": f"r_{lang}_{n}", "params": {
                     "model": cfg["models"]["review"], "max_tokens": 32000, "system": _system(gl, True),
                     "thinking": {"type": "adaptive"}, "output_config": {"effort": "medium", "format": {"type": "json_schema", "schema": R_SCHEMA}},
-                    "messages": [{"role": "user", "content": f"Target language: {gl['language_names'][lang]} (locale {lang}). Review every item.\n\n"
+                    "messages": [{"role": "user", "content": f"Target language: {gl['language_names'][lang]} (locale {lang}). Review every item."
+                                  + (f" Many were adapted from the {derive[lang]} translation: check specifically that the vocabulary is {lang} usage, not {derive[lang]}." if lang in derive else "") + "\n\n"
                                   + json.dumps(items, ensure_ascii=False)}]}})
     rv, c2 = _batch(cl, cfg, reqs, "review", log) if reqs else ({}, 0.0)
     results = decide(cfg, ids, tr, rv)
@@ -874,7 +1112,7 @@ def decide(cfg, ids, tr, rv):
             out[sid] = None
             continue
         why = r["reason"] if r["verdict"] == "flag" else ""
-        if any(p.search(u.key + " " + u.ctx) for p in legal) and u.kind == "shell":
+        if any(p.search(u.key + " " + u.ctx) for p in legal):
             why = why or "legal/consent wording: needs a qualified human check"
         if u.key in human:
             why = why or "source asks for human translation of this key"

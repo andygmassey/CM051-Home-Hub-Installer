@@ -86,6 +86,8 @@ CM051_SOURCES=(
     "install.sh.strings.ko.sh"
     "install.sh.strings.zh-Hans.sh"
     "install.sh.strings.zh-HK.sh"
+    "install.sh.strings.ar.sh"
+    "install.sh.strings.zh-Hant.sh"
     "lib"
     "scripts"
     "assistant-agent"

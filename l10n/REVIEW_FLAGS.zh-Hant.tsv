@@ -1,0 +1,21 @@
+file	key	state	reason
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Consent text with legal force: lawyer should check. Unified 說話者識別 to Taiwan-usual 辨識 for consistency.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal wording: lawyer should check.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/ask_heading	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/bullet_1	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/bullet_2	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/bullet_3	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/intro_body	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	Legal wording: lawyer should check.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Changed HK '這部 Mac' to Taiwan '這台 Mac' and '就如' to '就像'; legal/consent wording needs lawyer review.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	Changed HK '這部 Mac' to Taiwan '這台 Mac', noun '記錄' to Taiwan standard '紀錄'; legal sentence needs lawyer review.
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_body_install_token	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_body_middle	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_body_prefix	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_cancel	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_primary	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_terms_link_label	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_terms_url	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_typed_mismatch	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_typed_placeholder	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Consent statement; legal wording should be checked. Also changed transcript term to 逐字稿.

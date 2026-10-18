@@ -22,7 +22,7 @@
 # a scratch copy and the test must go red.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-LANGS="de fr es it nl pt-BR ja ko zh-Hans zh-HK"
+LANGS="de fr es it nl pt-BR ja ko zh-Hans zh-Hant zh-HK ar"
 fail=0
 bad() { printf 'FAIL: %s\n' "$*"; fail=1; }
 
@@ -78,7 +78,7 @@ PY
     fi
     checked=$((checked + 1))
 done
-[ "$checked" -eq 10 ] || bad "checked $checked of 10 shell catalogues"
+[ "$checked" -eq 12 ] || bad "checked $checked of 12 shell catalogues"
 
 # 4. install.sh's own loader, extracted verbatim and run.
 loader="$scratch/loader.sh"
@@ -147,4 +147,4 @@ for l in $LANGS; do
 done
 
 if [ "$fail" -ne 0 ]; then echo "RESULT: FAIL"; exit 1; fi
-echo "RESULT: PASS (10 shell catalogues, 20 JSON catalogues, loader, bundling)"
+echo "RESULT: PASS (12 shell catalogues, 24 JSON catalogues, loader, bundling)"
