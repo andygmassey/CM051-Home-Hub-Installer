@@ -26742,7 +26742,9 @@ done
 
 # AND SAY SO IF ANY SURVIVED. The whole reason /Applications/Ostler stayed
 # invisible for months is that a removal failed and nothing graded it.
-_u_ns_re="^(${_U_NS_CORE}|${_U_NS_BRAND})\\."
+# Brand prefix WITHOUT a trailing dot, matching the enumeration above:
+# com.creativemachines.ostler-remotecapture is ours and has a hyphen there.
+_u_ns_re="^(${_U_NS_CORE}\\.|${_U_NS_BRAND})"
 _u_left="$(ls "${HOME}/Library/LaunchAgents" 2>/dev/null | grep -cE "$_u_ns_re" || true)"
 if [ "${_u_left:-0}" -gt 0 ]; then
     echo "  (warning: ${_u_left} Ostler LaunchAgent(s) could not be removed:)"

@@ -41,6 +41,13 @@ on:
       # knowledge-staging gains a --purge-data opt-in. Watched by name so
       # editing either the uninstaller or this test re-fires the gate.
       - 'tests/test_uninstall_colima_and_data_choices.sh'
+      # The whole uninstaller, end to end, in a sandbox built from install.sh's
+      # own layout, plus the install.sh-labels vs uninstaller-list cross-check.
+      - 'tests/test_uninstall_leaves_no_ostler_behind.sh'
+      - 'context-refresh/**'
+      - 'assistant-agent/**'
+      - 'wiki-recompile/**'
+      - 'vendor/*/INSTALL_SNIPPET.sh'
       - '.github/workflows/uninstall-removal-honesty.yml'
   push:
     branches: [main]
@@ -173,3 +180,14 @@ jobs:
       - name: The colima VM is never blind-deleted, and --purge-data is honoured
         if: always()
         run: bash tests/test_uninstall_colima_and_data_choices.sh
+
+  # macOS, and /bin/bash 3.2: the uninstaller ships to macOS and this runs the
+  # WHOLE generated body, so it is measured on the host that runs it. It
+  # starts real TCP listeners and checks they are closed afterwards.
+  uninstall-leaves-no-ostler-behind:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: The uninstaller leaves no Ostler behind, keeps the customer's data, every control red
+        run: /bin/bash tests/test_uninstall_leaves_no_ostler_behind.sh
