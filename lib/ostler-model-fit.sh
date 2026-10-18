@@ -82,7 +82,12 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
 # larger of the two. qwen3.6:35b-a3b's "~23 GB" matches the only measurement
 # (`ollama list` 23 GB, Mac Studio, 2026-10-18), whose Ollama version was NOT
 # RECORDED. Every row is gated by tests/test_model_download_size_honesty.sh.
-OSTLER_MODEL_SIZELBL=("~23 GB"          "~7.6 GB"    "~7.2 GB"     )
+# 2026-10-18: every label re-read for Ollama 0.40.5 on Apple Silicon from the
+# registry (the MLX child v0.40.5 selects; sum of layer sizes). 35b-a3b
+# 23.60 GB -> "~24 GB" (was "~23 GB", understated); e2b 7.48 GB -> "~7.5 GB"
+# (was "~7.2 GB", an older build); 9b 7.64 GB -> "~7.6 GB". Provenance in
+# tests/test_model_download_size_honesty.sh MEASURED_FLOORS.
+OSTLER_MODEL_SIZELBL=("~24 GB"          "~7.6 GB"    "~7.5 GB"     )
 # min_fit: comfortable at num_ctx 32768.
 #   35b-a3b: ~23 GB weights + ~5 GB 32k KV + headroom -> needs ~48 GB box.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.

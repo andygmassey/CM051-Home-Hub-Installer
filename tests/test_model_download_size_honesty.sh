@@ -80,9 +80,23 @@ ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 #                         was NOT RECORDED, so this is NOT MEASURED on 0.40.5;
 #                         it is the only measurement there is, and it matches
 #                         the label.
-MEASURED_FLOORS='gemma4:e2b 7.2 measured on the v1.0.61 walk box, 2026-09-03
-qwen3.5:9b 7.6 ollama list under Ollama 0.40.5, Mac Studio, 2026-10-18 (0.34 GGUF is 6.6)
-qwen3.6:35b-a3b 23 ollama list, Mac Studio, 2026-10-18; Ollama version NOT RECORDED'
+#
+# 2026-10-18, REGISTRY READ for Ollama 0.40.5 on Apple Silicon. The request
+# v0.40.5 makes (signed token, manifest-list Accept), with the child that
+# manifest/manifest.go runnerPreferences() picks on darwin/arm64 (mlx first).
+# The download is the sum of that child's layer sizes, in decimal GB rounded
+# to 0.1. Validated: the selected child digest equals the `ollama list` ID the
+# Studio recorded under 0.40.5 for all four tags. Script and output:
+# ~/walkdriver/evidence/ollama_0405_registry_sizes_2026-10-18/.
+#   gemma4:e2b       7,476,594,888 B -> 7.5  (child 45d11505b91d; was 7.2,
+#                    the v1.0.61 walk box, an older build)
+#   qwen3.5:9b       7,639,229,211 B -> 7.6  (child d63f830f28d5)
+#   qwen3.6:35b-a3b  23,598,465,441 B -> 23.6 (child 599a7133f2e3). This
+#                    replaces the unversioned 23 GB reading, and the old
+#                    "~23 GB" label understated it.
+MEASURED_FLOORS='gemma4:e2b 7.5 registry read for Ollama 0.40.5 darwin/arm64 (mlx child 45d11505b91d), 2026-10-18; was 7.2 on the v1.0.61 walk box
+qwen3.5:9b 7.6 registry read for Ollama 0.40.5 darwin/arm64 (mlx child d63f830f28d5), 2026-10-18; ollama list 7.6 GB on the Studio; 0.34 GGUF is 6.6
+qwen3.6:35b-a3b 23.6 registry read for Ollama 0.40.5 darwin/arm64 (mlx child 599a7133f2e3), 2026-10-18; the GGUF child is 22.6'
 
 # The RAM tiers the picker serves. Each must resolve to a measured tag.
 # 16 GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW).

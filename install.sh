@@ -5541,7 +5541,7 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=70"
 
-# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (7.2-23 GB),
+# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (7.5-24 GB),
 # embedding model (300 MB), import pipeline + venv (~500 MB), databases (grows
 # with data), and headroom for GDPR exports.
 FREE_GB=$(df -g / | tail -1 | awk '{print $4}')
@@ -9135,7 +9135,7 @@ else
     # same thresholds the fit table encodes for the comfortable ("fits") tier.
     if [[ $RAM_GB -ge 48 ]]; then
         AI_MODEL="qwen3.6:35b-a3b"
-        AI_MODEL_SIZE="~23 GB"
+        AI_MODEL_SIZE="~24 GB"
     elif [[ $RAM_GB -ge 24 ]]; then
         AI_MODEL="qwen3.5:9b"
         # v1.0.109: 7.6 GB under the pinned Ollama 0.40.5 (MLX build), not the
@@ -9148,7 +9148,7 @@ else
         # is a second, independently-editable copy of the same customer claim
         # -- it must not drift from lib/ostler-model-fit.sh. Gated by
         # tests/test_model_download_size_honesty.sh, which compares the two.
-        AI_MODEL_SIZE="~7.2 GB"
+        AI_MODEL_SIZE="~7.5 GB"
     fi
     ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
 fi
@@ -26289,7 +26289,7 @@ echo "      default because it may hold Docker data unrelated to Ostler;"
 echo "      it is only deleted with --remove-colima or an explicit 'yes'"
 echo "      at the prompt near the end. --yes alone does NOT delete it."
 echo "    - Homebrew"
-echo "    - Ollama or downloaded models (may be 7.2-23 GB)"
+echo "    - Ollama or downloaded models (may be 7.5-24 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
 echo "    - Your Ostler licence (~/.ostler/license/)"
