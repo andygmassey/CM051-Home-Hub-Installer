@@ -362,8 +362,8 @@ class JsonTreeCatalogue:
             if type(a) != type(b):
                 errs.append(f"{os.path.relpath(p, REPO)} {path}: type changed")
             elif isinstance(a, dict):
-                if set(a) != set(b):
-                    errs.append(f"{os.path.relpath(p, REPO)} {path}: keys differ from English")
+                if set(b) - set(a):  # fewer is fine: the loaders overlay English per key
+                    errs.append(f"{os.path.relpath(p, REPO)} {path}: keys not in the English source")
                 for k in a:
                     if k in b:
                         cmp(a[k], b[k], f"{path}/{k}")
@@ -679,8 +679,8 @@ class YamlTreeCatalogue(JsonTreeCatalogue):
                     out |= {f"{p}{k}"} | keys(v, f"{p}{k}.")
                 return out
             return set()
-        missing = keys(base) - keys(tr)
-        return [f"{os.path.relpath(p, REPO)}: {len(missing)} key(s) missing vs English, e.g. {sorted(missing)[:3]}"] if missing else []
+        extra = keys(tr) - keys(base)  # fewer is fine: the loader overlays it on English
+        return [f"{os.path.relpath(p, REPO)}: {len(extra)} key(s) not in English, e.g. {sorted(extra)[:3]}"] if extra else []
 
     def read(self, lang):
         p = self.path(lang)
