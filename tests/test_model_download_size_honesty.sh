@@ -28,9 +28,9 @@
 #   1. EVERY model's download label in lib/ostler-model-fit.sh is at or above
 #      that model's measured floor, and every model HAS a measured floor. This
 #      covers all three RAM tiers (16 / 24-47 / 48+), not only the 16 GB one:
-#      v1.0.109 found the 24-47 tier's qwen3.5:9b labelled ~6.6 GB against a
-#      7.6 GB pull under the pinned Ollama 0.40.5, and a 16-only gate could
-#      not see it.
+#      a 16-only gate cannot see a label on the 24-47 or 48+ tier understate
+#      its pull, and v1.0.109 found exactly that shape when the Ollama
+#      version under the labels was in question.
 #   2. For every RAM tier, install.sh's fallback ladder (the stripped-bundle
 #      path) states the SAME figure as lib/ostler-model-fit.sh. Two editable
 #      copies of one customer claim drift, and the fallback path is the one
@@ -64,25 +64,34 @@ ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # Ollama version. A tag that genuinely downloads less records the new
 # measurement; it does not relax a floor so a convenient label passes.
 #
-#   gemma4:e2b       7.2  measured on the v1.0.61 walk box, 2026-09-03.
-#                         Corroborated by install.sh's own pull comments and
-#                         scripts/verify_install_duration_honesty.sh.
-#   qwen3.5:9b       7.6  `ollama list` 7.6 GB under Ollama 0.40.5 (the
-#                         version #2977 pins), Mac Studio, 2026-10-18, MLX
-#                         safetensors build, config 5722a374e0a1 (round-2
-#                         bake-off; on disk from the validated A/B, not
-#                         re-pulled in that run). Under Ollama 0.34 the same
-#                         tag is a 6.6 GB GGUF build (Mini16, config
-#                         08f9698c), which is where "~6.6 GB" came from. The
-#                         floor is the larger, so neither Ollama understates.
-#   qwen3.6:35b-a3b  23   `ollama list` 23 GB, Mac Studio, 2026-10-17/18
-#                         (round-1 bake-off). The Ollama version of that run
-#                         was NOT RECORDED, so this is NOT MEASURED on 0.40.5;
-#                         it is the only measurement there is, and it matches
-#                         the label.
-MEASURED_FLOORS='gemma4:e2b 7.2 measured on the v1.0.61 walk box, 2026-09-03
-qwen3.5:9b 7.6 ollama list under Ollama 0.40.5, Mac Studio, 2026-10-18 (0.34 GGUF is 6.6)
-qwen3.6:35b-a3b 23 ollama list, Mac Studio, 2026-10-18; Ollama version NOT RECORDED'
+# v1.0.109 pins Ollama 0.34.0 (#2977), which pulls the GGUF build. Every
+# floor below is for THAT version. Source for e2b and 9b: clean pulls into an
+# empty scratch store with the official 0.34.0 binary, every blob re-hashed,
+# ~/walkdriver/evidence/pins_0340_2026-10-19.md. Total = every layer + config.
+#
+#   gemma4:e2b       4,587,156,505 B -> 4.6  (ollama list ID b37049369adf,
+#                    config 3ff8a734). LOWERED from 7.2 against this new
+#                    measurement: 7.2 was the v1.0.61 walk box, 2026-09-03,
+#                    before the tag moved (config c6bc3775 -> 3ff8a734).
+#   qwen3.5:9b       6,550,825,550 B -> 6.6  (ollama list ID 56671c2ab938,
+#                    config 08f9698c).
+#   qwen3.6:35b-a3b  NOT MEASURED by a pull (the evidence file says so: ~12 h
+#                    on the Mini16 link, Studio under STUDIO_LOCK, MBP short
+#                    of disk). Floor from a REGISTRY READ instead: the plain
+#                    (pre-manifest-list) manifest, sha256 a7eb95c53bcf..., the
+#                    same digest the manifest list names as its llamacpp/GGUF
+#                    entry, totals 22,621,314,381 B -> 22.6. The same read
+#                    gives e2b 4,587,156,505 and 9b 6,550,825,550, equal to
+#                    the clean pulls to the byte, so the method is validated
+#                    on the two tags that were pulled.
+#
+# NOT for v1.0.110: under Ollama 0.40.5 on Apple Silicon these tags pull the
+# MLX builds (e2b 7.48, 9b 7.64, 35b 23.60 GB; registry read 2026-10-18,
+# ~/walkdriver/evidence/ollama_0405_registry_sizes_2026-10-18/). Changing the
+# Ollama pin changes every floor here; re-measure before that lands.
+MEASURED_FLOORS='gemma4:e2b 4.6 clean pull, Ollama 0.34.0, 4,587,156,505 B, ollama list b37049369adf (pins_0340_2026-10-19.md)
+qwen3.5:9b 6.6 clean pull, Ollama 0.34.0, 6,550,825,550 B, ollama list 56671c2ab938 (pins_0340_2026-10-19.md)
+qwen3.6:35b-a3b 22.6 registry read of the GGUF manifest a7eb95c53bcf, 22,621,314,381 B; NOT MEASURED by a 0.34.0 pull'
 
 # The RAM tiers the picker serves. Each must resolve to a measured tag.
 # 16 GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW).

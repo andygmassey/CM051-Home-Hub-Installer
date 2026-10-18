@@ -177,7 +177,7 @@ done
     || bad "recommendation downgraded with more RAM (non-monotonic)"
 
 echo "== accessors + pills =="
-[[ "$(ostler_model_size_label qwen3.5:9b)" == "~7.6 GB" ]] \
+[[ "$(ostler_model_size_label qwen3.5:9b)" == "~6.6 GB" ]] \
     && ok "size label for 9b" || bad "size label for 9b wrong"
 [[ -n "$(ostler_model_quant qwen3.5:9b)" ]] \
     && ok "quant tier present for 9b ($(ostler_model_quant qwen3.5:9b))" \

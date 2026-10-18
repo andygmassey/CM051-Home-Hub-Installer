@@ -3416,7 +3416,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8653   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8698   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8707 and :16172, both of which run
+    # Its two top-level arming calls are :8707 and :16173, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16952, where the note reads
+    # WhatsApp Web session path did it again at :16953, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16969 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16970 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3453,9 +3453,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8707, :16172) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8707, :16173) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19117 / :19295 / :19452 / :19897 path. There the
+    # :19118 / :19296 / :19453 / :19898 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5607,7 +5607,7 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=70"
 
-# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (7.2-23 GB),
+# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (4.6-23 GB),
 # embedding model (300 MB), import pipeline + venv (~500 MB), databases (grows
 # with data), and headroom for GDPR exports.
 FREE_GB=$(df -g / | tail -1 | awk '{print $4}')
@@ -9204,17 +9204,18 @@ else
         AI_MODEL_SIZE="~23 GB"
     elif [[ $RAM_GB -ge 24 ]]; then
         AI_MODEL="qwen3.5:9b"
-        # v1.0.109: 7.6 GB under the pinned Ollama 0.40.5 (MLX build), not the
-        # 6.6 GB GGUF build 0.34 pulls. Must match lib/ostler-model-fit.sh.
-        AI_MODEL_SIZE="~7.6 GB"
+        # v1.0.109: 6.55 GB, a clean pull under the pinned Ollama 0.34.0
+        # (GGUF). Must match lib/ostler-model-fit.sh.
+        AI_MODEL_SIZE="~6.6 GB"
     else
         AI_MODEL="gemma4:e2b"
-        # v1061-D002 (reg #623): measured 7.2 GB on the v1.0.61 walk box, not
-        # the ~5 GB this said. This ladder is the STRIPPED-BUNDLE path, so it
+        # v1.0.109: 4.59 GB, a clean pull under the pinned Ollama 0.34.0
+        # (GGUF); the 7.2 GB of v1061-D002 predates the tag moving. This
+        # ladder is the STRIPPED-BUNDLE path, so it
         # is a second, independently-editable copy of the same customer claim
         # -- it must not drift from lib/ostler-model-fit.sh. Gated by
         # tests/test_model_download_size_honesty.sh, which compares the two.
-        AI_MODEL_SIZE="~7.2 GB"
+        AI_MODEL_SIZE="~4.6 GB"
     fi
     ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
 fi
@@ -26442,7 +26443,7 @@ echo "      default because it may hold Docker data unrelated to Ostler;"
 echo "      it is only deleted with --remove-colima or an explicit 'yes'"
 echo "      at the prompt near the end. --yes alone does NOT delete it."
 echo "    - Homebrew"
-echo "    - Ollama or downloaded models (may be 7.2-23 GB)"
+echo "    - Ollama or downloaded models (may be 4.6-23 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
 echo "    - Your Ostler licence (~/.ostler/license/)"
