@@ -1342,3 +1342,24 @@ Doctor now serves it as a NATIVE unauthenticated route (same trust model as
 token. The new route is recorded against the `doctor` tree in
 `WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
 Regenerate the contract after any sync.
+
+## coach_recent tolerates an uninitialised coach db (CM051, 2026-10-18, walk #31)
+
+Tree `cm041/assistant_api`. Files: `vendor/cm041/assistant_api/ical-server.py`,
+function `coach_recent` only, and its test
+`vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`,
+`test_zero_byte_decoy_never_masks_the_real_db` only.
+
+Walk #31 (v1.0.108): a 0-byte file at the writer's path turned
+`GET /api/v1/coach/recent` into a 500 ("no such table: observations"), and
+context-refresh then exited 3 on every tick. The graft returns a DECLARED
+empty, HTTP 200, for two more states beside the existing `db_state: "absent"`:
+a 0-byte file (`db_state: "empty"`) and a keyed db with no observations table
+(`db_state: "no_table"`). Every other read failure (wrong key, corruption,
+missing key against an encrypted file) still raises `CoachDbError` and 500s.
+The decoy test now asserts the declared `db_state` rather than a raise; the
+path-drift it was written for stays held by `test_reader_path_equals_writer_path`.
+
+- Proof: `tests/test_install_creates_the_coach_db_keyed.py` drives the real
+  ical-server; 3 of its reader cases fail on the pre-graft file with 500.
+- Owed upstream to CM041 so the two converge. Retire on a re-pin that carries it.
