@@ -387,7 +387,7 @@ def _write_flag_rows(lang, source, flags):
 
 
 class XcstringsCatalogue:
-    """Apple String Catalog. Fallback is native: a language with no
+    """Apple string catalogue (.xcstrings). Fallback is native: a language with no
     localisation for a key shows the development-language value."""
 
     def __init__(self, spec):
@@ -729,7 +729,7 @@ def _batch(cl, cfg, reqs, phase, log):
             items = json.loads(next(x.text for x in m.content if x.type == "text"))["items"]
         except Exception:
             continue
-        lang = res.custom_id.split("|")[1]
+        lang = res.custom_id.split("_")[1]  # custom_id must match ^[a-zA-Z0-9_-]{1,64}$
         for it in items:
             out[(lang, it["id"])] = it
     pin, pout, crm = PRICE[model]
@@ -788,7 +788,7 @@ def cmd_run(cfg, gl, dry=False):
     reqs = []
     for lang in groups:
         for n, ch in enumerate(chunks(lang)):
-            reqs.append({"custom_id": f"t|{lang}|{n}", "params": {
+            reqs.append({"custom_id": f"t_{lang}_{n}", "params": {
                 "model": cfg["models"]["translate"], "max_tokens": 32000, "system": _system(gl, False),
                 "thinking": {"type": "adaptive"}, "output_config": {"effort": "medium", "format": {"type": "json_schema", "schema": T_SCHEMA}},
                 "messages": [{"role": "user", "content": f"Target language: {gl['language_names'][lang]} (locale {lang}). Translate every item.\n\n"
@@ -809,7 +809,7 @@ def cmd_run(cfg, gl, dry=False):
                     d["automatic_check_failed"] = e
                 items.append(d)
             if items:
-                reqs.append({"custom_id": f"r|{lang}|{n}", "params": {
+                reqs.append({"custom_id": f"r_{lang}_{n}", "params": {
                     "model": cfg["models"]["review"], "max_tokens": 32000, "system": _system(gl, True),
                     "thinking": {"type": "adaptive"}, "output_config": {"effort": "medium", "format": {"type": "json_schema", "schema": R_SCHEMA}},
                     "messages": [{"role": "user", "content": f"Target language: {gl['language_names'][lang]} (locale {lang}). Review every item.\n\n"

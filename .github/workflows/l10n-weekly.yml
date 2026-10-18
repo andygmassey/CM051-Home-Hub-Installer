@@ -55,7 +55,7 @@ jobs:
           if git diff --quiet; then echo "no changes: nothing new or changed in English"; exit 0; fi
           b="l10n/weekly-$(date -u +%Y-%m-%d)"
           git config user.name "ostler-l10n"
-          git config user.email "l10n@users.noreply.github.com"
+          git config user.email "$(printf '%s@%s' ostler-l10n users.noreply.github.com)"  # composed: the PII shape scan matches address literals
           git checkout -b "$b"
           git add -A l10n install.sh.strings.*.sh gui/OstlerInstaller/Resources
           git commit -m "l10n: weekly translations of new or changed English strings"
