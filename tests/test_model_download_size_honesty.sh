@@ -25,13 +25,18 @@
 #   floor and binds the two independent copies of that figure to each other.
 #
 # WHAT IT ASSERTS
-#   1. The download label for the model a 16 GB box is given must not be below
-#      the measured floor.
-#   2. install.sh's fallback ladder (the stripped-bundle path) must state the
-#      SAME figure as lib/ostler-model-fit.sh. Two editable copies of one
-#      customer claim drift, and the fallback path is the one nobody walks.
+#   1. EVERY model's download label in lib/ostler-model-fit.sh is at or above
+#      that model's measured floor, and every model HAS a measured floor. This
+#      covers all three RAM tiers (16 / 24-47 / 48+), not only the 16 GB one:
+#      v1.0.109 found the 24-47 tier's qwen3.5:9b labelled ~6.6 GB against a
+#      7.6 GB pull under the pinned Ollama 0.40.5, and a 16-only gate could
+#      not see it.
+#   2. For every RAM tier, install.sh's fallback ladder (the stripped-bundle
+#      path) states the SAME figure as lib/ostler-model-fit.sh. Two editable
+#      copies of one customer claim drift, and the fallback path is the one
+#      nobody walks.
 #   3. No customer-facing "N-M GB" downloaded-models range in install.sh may
-#      start below the measured floor.
+#      start below the smallest measured download (the 16 GB tier's model).
 #
 # CONTRACT
 #   rc=0  every advertised size is at or above what we measured, and the two
@@ -47,23 +52,49 @@ set -uo pipefail
 
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-# ── The measured floor ────────────────────────────────────────────────
-# 7.2 GB, measured on the box during the v1.0.61 walk (2026-09-03) rather than
-# read off a spec. Corroborated inside this repo by install.sh's own pull
-# comments and by scripts/verify_install_duration_honesty.sh, which prices the
-# install duration floor on the same figure.
+# ── The measured floors, one row per model the installer can offer ──
+# EVERY tag in lib/ostler-model-fit.sh's OSTLER_MODEL_TAGS must have a row
+# here. The installer prints the size label for EVERY model in its fit table
+# (install.sh's per-model fit rows), and the picker hands one of them to each
+# RAM tier (16 / 24-47 / 48+), so every label is a customer claim. A tag with
+# no row is an UNMEASURED customer claim and fails.
 #
-# RAISE THIS, NEVER LOWER IT, and only against a NEW measurement on a box. If a
-# future model tag genuinely downloads less, the honest move is to record that
-# measurement here with its date and box -- not to relax the floor so a
-# convenient label passes.
-MEASURED_FLOOR_GB="7.2"
-FLOOR_PROVENANCE="measured on the v1.0.61 walk box, 2026-09-03"
+# Row: <tag> <floor_gb> <provenance>. RAISE a floor, never lower it, and only
+# against a NEW measurement on a box, recorded here with its date, box and
+# Ollama version. A tag that genuinely downloads less records the new
+# measurement; it does not relax a floor so a convenient label passes.
+#
+#   gemma4:e2b       7.2  measured on the v1.0.61 walk box, 2026-09-03.
+#                         Corroborated by install.sh's own pull comments and
+#                         scripts/verify_install_duration_honesty.sh.
+#   qwen3.5:9b       7.6  `ollama list` 7.6 GB under Ollama 0.40.5 (the
+#                         version #2977 pins), Mac Studio, 2026-10-18, MLX
+#                         safetensors build, config 5722a374e0a1 (round-2
+#                         bake-off; on disk from the validated A/B, not
+#                         re-pulled in that run). Under Ollama 0.34 the same
+#                         tag is a 6.6 GB GGUF build (Mini16, config
+#                         08f9698c), which is where "~6.6 GB" came from. The
+#                         floor is the larger, so neither Ollama understates.
+#   qwen3.6:35b-a3b  23   `ollama list` 23 GB, Mac Studio, 2026-10-17/18
+#                         (round-1 bake-off). The Ollama version of that run
+#                         was NOT RECORDED, so this is NOT MEASURED on 0.40.5;
+#                         it is the only measurement there is, and it matches
+#                         the label.
+MEASURED_FLOORS='gemma4:e2b 7.2 measured on the v1.0.61 walk box, 2026-09-03
+qwen3.5:9b 7.6 ollama list under Ollama 0.40.5, Mac Studio, 2026-10-18 (0.34 GGUF is 6.6)
+qwen3.6:35b-a3b 23 ollama list, Mac Studio, 2026-10-18; Ollama version NOT RECORDED'
 
-# The tier the floor was measured on. A 16 GB Mac is the installer's hard RAM
-# floor (ERR-02-PREREQ-RAM-LOW), so this is the smallest -- and therefore
-# cheapest-to-download -- model the product ever ships.
+# The RAM tiers the picker serves. Each must resolve to a measured tag.
+# 16 GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW).
+TIER_RAMS="16 24 48"
 MEASURED_TIER_RAM_GB=16
+
+floor_for_tag() {
+    printf '%s\n' "$MEASURED_FLOORS" | awk -v t="$1" '$1 == t { print $2; exit }'
+}
+provenance_for_tag() {
+    printf '%s\n' "$MEASURED_FLOORS" | awk -v t="$1" '$1 == t { $1 = ""; $2 = ""; sub(/^  /, ""); print; exit }'
+}
 
 rc=0
 
@@ -84,26 +115,30 @@ lt() {
 # ── Limb implementations, parameterised on a tree so the controls can ──
 # ── point them at a synthetic pre-fix copy.                           ──
 
-# Echoes the canonical download label for the measured tier, or "" if the
-# helper cannot answer.
-canonical_label_for_tier() {
-    local tree="$1"
+# Echoes every tag in the fit table, one per line ("" if unreadable).
+all_tags() {
     (
         # shellcheck disable=SC1090
-        . "$tree/lib/ostler-model-fit.sh" >/dev/null 2>&1 || exit 0
-        local tag
-        tag="$(ostler_recommend_model "$MEASURED_TIER_RAM_GB")"
-        [ -n "$tag" ] || exit 0
-        ostler_model_size_label "$tag"
+        . "$1/lib/ostler-model-fit.sh" >/dev/null 2>&1 || exit 0
+        printf '%s\n' "${OSTLER_MODEL_TAGS[@]}"
     )
 }
 
-canonical_tag_for_tier() {
-    local tree="$1"
+# tag_for_ram <tree> <ram_gb> -> the model the picker gives that RAM.
+tag_for_ram() {
     (
         # shellcheck disable=SC1090
-        . "$tree/lib/ostler-model-fit.sh" >/dev/null 2>&1 || exit 0
-        ostler_recommend_model "$MEASURED_TIER_RAM_GB"
+        . "$1/lib/ostler-model-fit.sh" >/dev/null 2>&1 || exit 0
+        ostler_recommend_model "$2"
+    )
+}
+
+# label_for_tag <tree> <tag> -> the customer-facing size label.
+label_for_tag() {
+    (
+        # shellcheck disable=SC1090
+        . "$1/lib/ostler-model-fit.sh" >/dev/null 2>&1 || exit 0
+        ostler_model_size_label "$2"
     )
 }
 
@@ -117,35 +152,50 @@ fallback_label_for_tag() {
         | sed -e 's/.*AI_MODEL_SIZE="//' -e 's/".*//'
 }
 
-# ── Limb 1: the advertised figure is not below what we measured ───────
+# ── Limb 1: no model's advertised figure is below what we measured ────
+# Prints "tag|label|floor|why" for each offender; rc 3 when nothing could be
+# examined. "why" is "below" or "unmeasured" (a tag with no floor row).
 limb_understated() {
-    local tree="$1" lbl num
-    lbl="$(canonical_label_for_tier "$tree")"
-    [ -n "$lbl" ] || return 3          # 3 = cannot run
-    num="$(num_from_label "$lbl")"
-    [ -n "$num" ] || return 3
-    lt "$num" "$MEASURED_FLOOR_GB" && return 1
+    local tree="$1" tag lbl num floor examined=0
+    while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
+        examined=$((examined + 1))
+        lbl="$(label_for_tag "$tree" "$tag")"
+        num="$(num_from_label "$lbl")"
+        floor="$(floor_for_tag "$tag")"
+        if [ -z "$floor" ]; then
+            printf '%s|%s|-|unmeasured\n' "$tag" "$lbl"
+        elif [ -z "$num" ] || lt "$num" "$floor"; then
+            printf '%s|%s|%s|below\n' "$tag" "$lbl" "$floor"
+        fi
+    done < <(all_tags "$tree")
+    [ "$examined" -gt 0 ] || return 3
     return 0
 }
 
-# ── Limb 2: the two copies of the figure agree ────────────────────────
+# ── Limb 2: for every RAM tier, the two copies of the figure agree ────
+# Prints "ram|tag|canon|fallback" for each disagreement; rc 3 if a tier
+# named no model or the ladder has no row for it.
 limb_drift() {
-    local tree="$1" tag canon fb
-    tag="$(canonical_tag_for_tier "$tree")"
-    [ -n "$tag" ] || return 3
-    canon="$(canonical_label_for_tier "$tree")"
-    fb="$(fallback_label_for_tag "$tree" "$tag")"
-    [ -n "$fb" ] || return 3
-    [ "$canon" = "$fb" ] || return 1
+    local tree="$1" ram tag canon fb
+    for ram in $TIER_RAMS; do
+        tag="$(tag_for_ram "$tree" "$ram")"
+        [ -n "$tag" ] || return 3
+        canon="$(label_for_tag "$tree" "$tag")"
+        fb="$(fallback_label_for_tag "$tree" "$tag")"
+        [ -n "$fb" ] || return 3
+        [ "$canon" = "$fb" ] || printf '%s|%s|%s|%s\n' "$ram" "$tag" "$canon" "$fb"
+    done
     return 0
 }
 
-# ── Limb 3: no advertised range starts below the floor ────────────────
-# Echoes offending "line:lower_bound" rows on stdout; rc 3 when the scan found
-# nothing at all to examine, because a pattern that has gone blind prints an
-# identical clean run to a tree with no defects.
+# ── Limb 3: no advertised range starts below the smallest download ────
+# The smallest download is the 16 GB tier's model: the cheapest install the
+# product ships. Echoes offending "line:lower_bound" rows; rc 3 when the scan
+# found nothing at all to examine, because a pattern that has gone blind
+# prints an identical clean run to a tree with no defects.
 limb_ranges() {
-    local tree="$1" hit line lower examined=0
+    local tree="$1" min_floor="$2" hit line lower examined=0
     while IFS= read -r hit; do
         [ -n "$hit" ] || continue
         examined=$((examined + 1))
@@ -153,7 +203,7 @@ limb_ranges() {
         lower="$(printf '%s' "$hit" | sed -e 's/^[0-9]*://' \
             -e 's/.*[^0-9.]\([0-9][0-9.]*\)-[0-9][0-9.]*[[:space:]]*GB.*/\1/')"
         [ -n "$lower" ] || continue
-        if lt "$lower" "$MEASURED_FLOOR_GB"; then
+        if lt "$lower" "$min_floor"; then
             printf '%s:%s\n' "$line" "$lower"
         fi
     done < <(grep -nE '[0-9][0-9.]*-[0-9][0-9.]*[[:space:]]*GB' "$tree/install.sh" 2>/dev/null \
@@ -206,45 +256,61 @@ force_label() {
     printf '\nOSTLER_MODEL_SIZELBL[%s]="%s"\n' "$idx" "$lbl" >> "$tree/lib/ostler-model-fit.sh"
 }
 
-_ctl_tag="$(canonical_tag_for_tier "$ROOT")"
-[ -n "${_ctl_tag}" ] || cannot_run "the model-fit helper named no model for a ${MEASURED_TIER_RAM_GB} GB box -- no control can be built"
-
-# Synthetic labels chosen relative to the floor, never copied from the product.
-_lbl_below="~$(awk -v f="$MEASURED_FLOOR_GB" 'BEGIN { printf "%.1f", (f / 2) }') GB"
-_lbl_above="~$(awk -v f="$MEASURED_FLOOR_GB" 'BEGIN { printf "%.1f", (f + 10) }') GB"
+# Every tier's model, read from the subject. A tier that names nothing, or a
+# floor table that cannot be read, is CANNOT RUN: no control can be built.
+_tags_seen=""
+for _r in $TIER_RAMS; do
+    _t="$(tag_for_ram "$ROOT" "$_r")"
+    [ -n "$_t" ] || cannot_run "the model-fit helper named no model for a ${_r} GB box -- no control can be built"
+    _tags_seen="${_tags_seen} ${_t}"
+done
+[ -n "$(floor_for_tag gemma4:e2b)$(floor_for_tag qwen3.5:9b)" ] \
+    || cannot_run "MEASURED_FLOORS could not be read -- every floor would be empty"
 
 say "== controls: each limb must FAIL on a tree built wrong in that limb's way =="
 
-# Limb 1 positive control: a label definitively below the floor.
-_c1="$(new_fixture c1)"
-force_label "$_c1" "$_ctl_tag" "$_lbl_below" || cannot_run "could not build the limb 1 control"
-limb_understated "$_c1"; _r=$?
-[ "$_r" -eq 1 ] \
-    && say "  ok  limb 1 (understated) fires on a label below the floor" \
-    || cannot_run "limb 1 did not go red on a label below the floor (rc=$_r) -- an unproven limb is not a check"
+# Limb 1 controls, run for EVERY tier's model so no tier is unguarded: a label
+# definitively below that model's floor must fire, one above must not.
+for _t in $_tags_seen; do
+    _f="$(floor_for_tag "$_t")"
+    [ -n "$_f" ] || continue   # an unmeasured tag is reported by the subject run
+    _below="~$(awk -v f="$_f" 'BEGIN { printf "%.1f", (f / 2) }') GB"
+    _above="~$(awk -v f="$_f" 'BEGIN { printf "%.1f", (f + 10) }') GB"
+    _c="$(new_fixture "c1-${_t//[:.]/_}")"
+    force_label "$_c" "$_t" "$_below" || cannot_run "could not build the limb 1 control for ${_t}"
+    _out="$(limb_understated "$_c")"
+    printf '%s\n' "$_out" | grep -q "^${_t}|.*|below\$" \
+        && say "  ok  limb 1 fires on ${_t} labelled ${_below} (floor ${_f})" \
+        || cannot_run "limb 1 did not go red on ${_t} labelled below its floor -- an unproven limb is not a check"
+    _c="$(new_fixture "c1n-${_t//[:.]/_}")"
+    force_label "$_c" "$_t" "$_above" || cannot_run "could not build the limb 1 negative control for ${_t}"
+    _out="$(limb_understated "$_c")"
+    printf '%s\n' "$_out" | grep -q "^${_t}|" \
+        && cannot_run "limb 1 fired on ${_t} labelled ABOVE its floor -- it is not measuring what it claims" \
+        || say "  ok  limb 1 stays GREEN on ${_t} above its floor"
+done
 
-# Limb 1 negative control: a label ABOVE the floor must stay green. Without
-# this, a limb hard-wired to "fail" would have passed the check above.
-_c1n="$(new_fixture c1n)"
-force_label "$_c1n" "$_ctl_tag" "$_lbl_above" || cannot_run "could not build the limb 1 negative control"
-limb_understated "$_c1n"; _r=$?
-[ "$_r" -eq 0 ] \
-    && say "  ok  limb 1 stays GREEN above the floor (it measures the floor, not a literal)" \
-    || cannot_run "limb 1 fired on a label ABOVE the floor (rc=$_r) -- it is not measuring what it claims"
+# Limb 1 unmeasured control: a tag with no floor row must be reported.
+_c="$(new_fixture c1u)"
+printf '\nOSTLER_MODEL_TAGS+=("control:unmeasured")\nOSTLER_MODEL_SIZELBL+=("~99 GB")\n' >> "$_c/lib/ostler-model-fit.sh"
+limb_understated "$_c" | grep -q '^control:unmeasured|.*|unmeasured$' \
+    && say "  ok  limb 1 reports a model with no measured floor" \
+    || cannot_run "limb 1 did not report a model that has no measured floor"
 
-# Limb 2 positive control: move ONLY the canonical copy, leave the install.sh
-# ladder untouched, so the two copies must disagree whatever they started at.
-_c2="$(new_fixture c2)"
-force_label "$_c2" "$_ctl_tag" "$_lbl_above" || cannot_run "could not build the limb 2 control"
-limb_drift "$_c2"; _r=$?
-[ "$_r" -eq 1 ] \
-    && say "  ok  limb 2 (drift between the two copies) fires when one copy moves" \
-    || cannot_run "limb 2 did not go red when the two copies of the figure were made to disagree (rc=$_r)"
+# Limb 2 control: move ONLY the canonical copy for the 24 GB tier's model.
+_t24="$(tag_for_ram "$ROOT" 24)"
+_c="$(new_fixture c2)"
+force_label "$_c" "$_t24" "~999 GB" || cannot_run "could not build the limb 2 control"
+limb_drift "$_c" | grep -q "^24|${_t24}|" \
+    && say "  ok  limb 2 (drift between the two copies) fires on the 24 GB tier when one copy moves" \
+    || cannot_run "limb 2 did not go red when the two copies of the 24 GB figure were made to disagree"
 
 # Limb 3 positive control: plant one understated range.
+_min_floor="$(floor_for_tag "$(tag_for_ram "$ROOT" "$MEASURED_TIER_RAM_GB")")"
+[ -n "$_min_floor" ] || _min_floor=0
 _c3="$(new_fixture c3)"
-printf '%s\n' 'echo "    - control: downloaded models (may be 1-23 GB)"' >> "$_c3/install.sh"
-_ctl_ranges="$(limb_ranges "$_c3")"; _r=$?
+printf '%s\n' 'echo "    - control: downloaded models (may be 0.1-23 GB)"' >> "$_c3/install.sh"
+_ctl_ranges="$(limb_ranges "$_c3" "$_min_floor")"; _r=$?
 if [ "$_r" -eq 0 ] && [ -n "$_ctl_ranges" ]; then
     say "  ok  limb 3 (understated range) fires on a planted range"
 elif [ "$_r" -eq 3 ]; then
@@ -258,43 +324,52 @@ say ""
 # ══ THE REAL TREE ═════════════════════════════════════════════════════
 say "== subject: $ROOT =="
 
-_tag="$(canonical_tag_for_tier "$ROOT")"
-_canon="$(canonical_label_for_tier "$ROOT")"
-[ -n "$_tag" ] && [ -n "$_canon" ] \
-    || cannot_run "lib/ostler-model-fit.sh named no model or no label for a ${MEASURED_TIER_RAM_GB} GB box"
+for _r in $TIER_RAMS; do
+    _t="$(tag_for_ram "$ROOT" "$_r")"
+    say "  ${_r} GB tier -> ${_t}, advertised $(label_for_tag "$ROOT" "$_t"); floor $(floor_for_tag "$_t") GB ($(provenance_for_tag "$_t"))"
+done
 
-say "  ${MEASURED_TIER_RAM_GB} GB tier -> ${_tag}, advertised ${_canon}; floor ${MEASURED_FLOOR_GB} GB (${FLOOR_PROVENANCE})"
+_u="$(limb_understated "$ROOT")"; _r=$?
+[ "$_r" -eq 3 ] && cannot_run "limb 1 examined no model in lib/ostler-model-fit.sh"
+if [ -z "$_u" ]; then
+    say "  PASS  every model's label in lib/ostler-model-fit.sh is at or above its measured floor"
+else
+    while IFS='|' read -r _t _l _f _w; do
+        [ -n "$_t" ] || continue
+        if [ "$_w" = "unmeasured" ]; then
+            fail "lib/ostler-model-fit.sh advertises ${_t} as '${_l}' and there is NO measured floor for it. Measure the pull on a box and add a row to MEASURED_FLOORS."
+        else
+            fail "lib/ostler-model-fit.sh advertises ${_t} as '${_l}', but it was MEASURED at ${_f} GB ($(provenance_for_tag "$_t")). The customer reads this while deciding whether to continue on a metered link."
+        fi
+    done <<< "$_u"
+fi
 
-limb_understated "$ROOT"; _r=$?
-case "$_r" in
-    0) say "  PASS  lib/ostler-model-fit.sh advertises ${_canon}, at or above the measured floor" ;;
-    1) fail "lib/ostler-model-fit.sh advertises ${_canon} for ${_tag}, but it was MEASURED at ${MEASURED_FLOOR_GB} GB (${FLOOR_PROVENANCE}). The customer reads this while deciding whether to continue on a metered link." ;;
-    *) cannot_run "limb 1 could not read a size label off the real tree" ;;
-esac
+_d="$(limb_drift "$ROOT")"; _r=$?
+[ "$_r" -eq 3 ] && cannot_run "limb 2 could not read install.sh's fallback ladder for every tier"
+if [ -z "$_d" ]; then
+    say "  PASS  for every tier (${TIER_RAMS}), helper and install.sh fallback ladder state the same figure"
+else
+    while IFS='|' read -r _ram _t _c _fb; do
+        [ -n "$_ram" ] || continue
+        fail "the two copies of the ${_ram} GB tier's figure disagree for ${_t}: lib/ostler-model-fit.sh says '${_c}', install.sh's fallback ladder says '${_fb}'. The fallback path is the stripped-bundle path -- the one nobody walks."
+    done <<< "$_d"
+fi
 
-limb_drift "$ROOT"; _r=$?
-_fb="$(fallback_label_for_tag "$ROOT" "$_tag")"
-case "$_r" in
-    0) say "  PASS  both copies of the figure say ${_canon} (helper + install.sh fallback ladder)" ;;
-    1) fail "the two copies of the download figure disagree for ${_tag}: lib/ostler-model-fit.sh says '${_canon}', install.sh's fallback ladder says '${_fb}'. The fallback path is the stripped-bundle path -- the one nobody walks." ;;
-    *) cannot_run "limb 2 could not read install.sh's fallback ladder for ${_tag}" ;;
-esac
-
-_ranges="$(limb_ranges "$ROOT")"; _r=$?
+_ranges="$(limb_ranges "$ROOT" "$_min_floor")"; _r=$?
 if [ "$_r" -eq 3 ]; then
     cannot_run "the range scan examined NO model-size ranges in install.sh -- the pattern has gone blind, and blind reports clean"
 elif [ -n "$_ranges" ]; then
     while IFS= read -r row; do
         [ -n "$row" ] || continue
-        fail "install.sh:${row%%:*} advertises a downloaded-models range starting at ${row##*:} GB, below the measured floor of ${MEASURED_FLOOR_GB} GB"
+        fail "install.sh:${row%%:*} advertises a downloaded-models range starting at ${row##*:} GB, below the smallest measured download of ${_min_floor} GB"
     done <<< "$_ranges"
 else
-    say "  PASS  every downloaded-models range in install.sh starts at or above ${MEASURED_FLOOR_GB} GB"
+    say "  PASS  every downloaded-models range in install.sh starts at or above ${_min_floor} GB"
 fi
 
 say ""
 if [ "$rc" -eq 0 ]; then
-    say "test_model_download_size_honesty: OK -- the advertised download size is not below what we measured."
+    say "test_model_download_size_honesty: OK -- no advertised download size is below what we measured."
 else
     say "test_model_download_size_honesty: the product is understating a download to the customer."
 fi

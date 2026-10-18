@@ -76,9 +76,13 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
 # called it "a 7.2 GB model" and "7 GB model pull ... on a 16 GB box", and
 # scripts/verify_install_duration_honesty.sh prices the install floor on
 # "7.2 GB of models". Only this customer-facing label still said 5.
-# The other two labels are NOT measured -- they are still inherited from
-# weights_gb and are the remaining live half of the download-honesty class.
-OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~7.2 GB"     )
+# v1.0.109: qwen3.5:9b read "~6.6 GB", the GGUF build Ollama 0.34 pulls. Under
+# Ollama 0.40.5, the version install.sh pins, the same tag is the MLX build and
+# `ollama list` reports 7.6 GB (Mac Studio, 2026-10-18). The label is the
+# larger of the two. qwen3.6:35b-a3b's "~23 GB" matches the only measurement
+# (`ollama list` 23 GB, Mac Studio, 2026-10-18), whose Ollama version was NOT
+# RECORDED. Every row is gated by tests/test_model_download_size_honesty.sh.
+OSTLER_MODEL_SIZELBL=("~23 GB"          "~7.6 GB"    "~7.2 GB"     )
 # min_fit: comfortable at num_ctx 32768.
 #   35b-a3b: ~23 GB weights + ~5 GB 32k KV + headroom -> needs ~48 GB box.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.
