@@ -626,7 +626,7 @@ def _format_push_notes(
     L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
     the partner only when they resolve to a person; never a raw handle.
     """
-    started = (bundle.started_at or "")[:10] or "unknown date"
+    started = (bundle.started_at or "")[:10] or bundle.date or "unknown date"
     if privacy_level == "L2":
         context = f"From a private conversation on {started}"
     else:

@@ -126,7 +126,7 @@ n_def="$(printf '%s\n' "$HEREDOC" | grep -cE '[[:space:]]*count_dir\(\)[[:space:
 [[ "$n_def" -eq 1 ]] || cannot_run "count_dir() definition matched ${n_def} times inside the heredoc, expected exactly 1"
 
 SHIPPED_COUNT_DIR="$(printf '%s\n' "$HEREDOC" | awk '/[[:space:]]*count_dir\(\)[[:space:]]*\{/{f=1} f{print; if (/^[[:space:]]*\}[[:space:]]*$/) exit}')"
-printf '%s\n' "$SHIPPED_COUNT_DIR" | grep -qF 'find' \
+grep -qF 'find' <<< "$SHIPPED_COUNT_DIR" \
     || cannot_run "the extracted count_dir does not reference find; wrong region"
 ok "CANNOT-RUN checks: heredoc found, count_dir anchored uniquely, region is the right one"
 
@@ -276,7 +276,7 @@ th="$(grep -nF -- '_ostler_uninstall_on_err() {' "$HEREDOC_F" | cut -d: -f1)"
 tt="$(grep -nE -- '^trap .*ERR$' "$HEREDOC_F" | cut -d: -f1)"
 [[ "$th" -lt "$tt" ]] || cannot_run "ERR-trap anchors are out of order (head ${th}, tail ${tt})"
 TRAP_BLOCK="$(sed -n "${th},${tt}p" "$HEREDOC_F")"
-printf '%s\n' "$TRAP_BLOCK" | grep -qF 'BASH_COMMAND' \
+grep -qF 'BASH_COMMAND' <<< "$TRAP_BLOCK" \
     || cannot_run "the extracted trap block does not reference BASH_COMMAND; wrong region"
 
 # drive_trap <with|without> <stderr-file>
@@ -333,7 +333,7 @@ if [[ "$n_render" -ne 1 ]]; then
     cannot_run "render_count() definition matched ${n_render} times inside the heredoc, expected exactly 1"
 fi
 RENDER="$(awk '/[[:space:]]*render_count\(\)[[:space:]]*\{/{f=1} f{print; if (/^[[:space:]]*\}[[:space:]]*$/) exit}' "$HEREDOC_F")"
-printf '%s\n' "$RENDER" | grep -qF 'case' \
+grep -qF 'case' <<< "$RENDER" \
     || cannot_run "the extracted render_count does not contain a case statement; wrong region"
 
 render() { # render <value> <noun>
