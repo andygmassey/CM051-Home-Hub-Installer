@@ -248,8 +248,20 @@ class Routes(unittest.TestCase):
     def tearDown(self):
         self._env.stop()
 
+    LOCAL = {"host": "127.0.0.1:8089"}
+    ACTIONS = ("on", "off", "test-now", "replace-password")
+
     def test_get_row_has_no_secret(self):
-        r = self.client.get("/api/v1/assistant-mailbox")
+        # (a) The Keychain holds a password and the route still never returns
+        # it: present-but-empty is the only allowed shape of a secret here.
+        with mock.patch.object(am, "keychain_read", return_value=PASSWORD):
+            r = self.client.get("/api/v1/assistant-mailbox", headers=self.LOCAL)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(PASSWORD, r.text)
+        for k, v in r.json().items():
+            if "password" in k.lower() or "secret" in k.lower():
+                self.assertFalse(v, f"{k} carries a value")
+        r = self.client.get("/api/v1/assistant-mailbox", headers=self.LOCAL)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["address"], ME)
         self.assertNotIn("secret_ref", r.text)
@@ -272,6 +284,45 @@ class Routes(unittest.TestCase):
     def test_non_local_host_is_refused(self):
         r = self.client.post("/api/v1/assistant-mailbox/off", headers={"host": "evil.example.test"})
         self.assertEqual(r.status_code, 403)
+
+    def test_every_route_refuses_a_non_loopback_host(self):
+        # (b) No paired credential, so the Hub-local Host is the boundary.
+        for host in ("192.168.1.5:8089", "ostler-hub.tailnet.example:8089", ""):
+            h = {"host": host} if host else {"host": ""}
+            r = self.client.get("/api/v1/assistant-mailbox", headers=h)
+            self.assertEqual(r.status_code, 403, f"GET host={host!r}")
+            self.assertNotIn(ME, r.text)
+            for a in self.ACTIONS:
+                r = self.client.post(f"/api/v1/assistant-mailbox/{a}", headers=h, json={"password": PASSWORD})
+                self.assertEqual(r.status_code, 403, f"POST {a} host={host!r}")
+        self.assertTrue(am.read_config(self.cfg)["enabled"])
+
+    def test_every_route_refuses_a_cross_site_origin(self):
+        # (c) A page on another site must not read the row or flip a switch.
+        for extra in ({"origin": "https://evil.example.test"},
+                      {"origin": "http://192.168.1.5:8089"},
+                      {"sec-fetch-site": "cross-site"}):
+            h = {**self.LOCAL, **extra}
+            r = self.client.get("/api/v1/assistant-mailbox", headers=h)
+            self.assertEqual(r.status_code, 403, f"GET {extra}")
+            self.assertNotIn(ME, r.text)
+            for a in self.ACTIONS:
+                r = self.client.post(f"/api/v1/assistant-mailbox/{a}", headers=h, json={"password": PASSWORD})
+                self.assertEqual(r.status_code, 403, f"POST {a} {extra}")
+        self.assertTrue(am.read_config(self.cfg)["enabled"])
+        # Control: the same-origin Doctor page is served.
+        r = self.client.get("/api/v1/assistant-mailbox",
+                            headers={**self.LOCAL, "origin": "http://127.0.0.1:8089", "sec-fetch-site": "same-origin"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_the_doctor_listens_on_loopback_only(self):
+        # (b) The process binds 127.0.0.1, so the routes are not on the LAN.
+        import ast
+        src = Path(self.web_ui.__file__).read_text()
+        hosts = [kw.value.value for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Call)
+                 and getattr(node.func, "attr", "") == "run" and getattr(node.func.value, "id", "") == "uvicorn"
+                 for kw in node.keywords if kw.arg == "host" and isinstance(kw.value, ast.Constant)]
+        self.assertEqual(hosts, ["127.0.0.1"], hosts)
 
     def test_test_now_asks_the_daemon_and_writes_nothing_itself(self):
         # The route returns the daemon's answer; the Doctor writes no file of

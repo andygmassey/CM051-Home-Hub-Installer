@@ -3854,7 +3854,12 @@ async def api_remote_access_post(request: Request):
 # origin. No route returns the password; the status route is the row only.
 
 @app.get("/api/v1/assistant-mailbox", response_class=JSONResponse)
-async def api_assistant_mailbox_get():
+async def api_assistant_mailbox_get(request: Request):
+    # Local-only and same-site, like the POST below (Archie ruling: no paired
+    # credential, so the loopback Host and the origin check ARE the boundary).
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
     from assistant_mailbox import read_row
     try:
         return read_row()
