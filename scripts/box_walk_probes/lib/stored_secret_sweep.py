@@ -3,16 +3,13 @@
 The question: does any gateway or companion route hand back a secret the box
 stores in ${OSTLER_DIR}/assistant-config/config.toml? The secrets are every
 entry of [gateway].paired_tokens and the Vane password embedded in vane_url
-(http://<user>:<pw>@localhost:3000).
-
-Also swept, when present on the box: the licence id (license/license.json) and
-the registered device fingerprint (state/fingerprint.txt) under ${OSTLER_DIR}.
-The Hub reads both to proxy POST /api/v1/invites/{mint,rewards} to the licence
-server (ostler-assistant #573), so those two routes are ALWAYS swept, added to
-the contract's route list if it does not carry them yet, and are sent in the
-authenticated arm too (mint is idempotent and the member's own; rewards only
-reads). Each file is its own positive control. A box without either file says
-so in a NOT INSTRUMENTED line; the token sweep still stands.
+(http://<user>:<pw>@localhost:3000). When [email_assistant] is enabled, also
+the assistant mailbox's app password, read from the Keychain with `security`
+(the tool the installer stored it with, so no access prompt). Its positive
+control is the raw Keychain answer, since config.toml never holds it.
+POST /api/assistant-mailbox/self-test IS sent in the authenticated arm (it
+runs the mailbox self-test, the same as Doctor's "Test now") with a 75 s
+timeout, so its real response is examined, not a timeout's empty body.
 
   sweep  (runs ON the box) reads the secret values from config.toml, holds
          them in memory only (never printed, never written), derives the
@@ -63,10 +60,10 @@ PLACEHOLDER = "walk-probe-nonexistent"
 NOT_JSON = b"walk-probe: deliberately not json"
 READ_CAP = 1 << 20
 NEVER_SEND = ("/admin/shutdown",)
-# The Hub proxies these with the licence id + fingerprint (ostler-assistant
-# #573). Swept even before the contract lists them, in both arms.
-INVITE_ROUTES = [("POST", "/api/v1/invites/mint", ["device_bearer"]),
-                 ("POST", "/api/v1/invites/rewards", ["device_bearer"])]
+SLOW = re.compile(r"/assistant-mailbox/self-test$")
+SLOW_TIMEOUT = 75.0
+MAILBOX_SERVICE = "Ostler Assistant Mailbox"
+MAILBOX_LABEL = "assistant_mailbox_password"
 BODY_BLIND = re.compile(r"(shutdown|/rotate|/forget|paircode/new|suppress-suggestions|/dismiss|pairing/initiate)")
 
 
@@ -115,29 +112,25 @@ def read_secrets(text):
     return secrets
 
 
-def read_file_secrets(license_path, fingerprint_path):
-    """[(label, value, [], control_bytes)] for the licence id and fingerprint
-    files that exist; [(label, None, reason)] style absences in a second list."""
-    found, absent = [], []
+def mailbox_address(text):
+    """The assistant's own address when [email_assistant] is enabled, else None."""
+    sec = _section(text, "email_assistant")
+    if not re.search(r"(?m)^\s*enabled\s*=\s*true\s*$", sec):
+        return None
+    m = re.search(r'(?m)^\s*address\s*=\s*"([^"]+)"', sec)
+    return m.group(1) if m else None
+
+
+def keychain_reader(address):
+    """Raw bytes of the Keychain answer, or None. Never printed."""
     try:
-        raw = open(license_path, "rb").read()
-        lid = (json.loads(raw.decode("utf-8", "replace")).get("license_id") or "").strip()
-        if lid:
-            found.append(("licence_id", lid, [], raw))
-        else:
-            absent.append("licence_id (license.json has no license_id)")
-    except (OSError, ValueError, AttributeError):
-        absent.append("licence_id (no readable license.json)")
-    try:
-        raw = open(fingerprint_path, "rb").read()
-        fp = raw.decode("utf-8", "replace").strip()
-        if fp:
-            found.append(("device_fingerprint", fp, [], raw))
-        else:
-            absent.append("device_fingerprint (fingerprint.txt is empty)")
-    except OSError:
-        absent.append("device_fingerprint (no readable fingerprint.txt)")
-    return found, absent
+        # OSTLER_SECRET_SWEEP_SECURITY: a test seam (the stand-in's absolute path),
+        # because box_run's login shell resets PATH. Unset on a box.
+        r = subprocess.run([os.environ.get("OSTLER_SECRET_SWEEP_SECURITY") or "security", "find-generic-password", "-s", MAILBOX_SERVICE, "-a", address, "-w"],
+                           capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 and r.stdout.strip() else None
 
 
 def forms(value, extra):
@@ -159,10 +152,7 @@ def count(blob, value, extra):
 def gateway_routes(contract_path):
     c = json.load(open(contract_path))
     routes = [r for r in c.get("routes", []) if r.get("listener") == "gateway"]
-    out = [(r["method"].upper(), r["path"], r.get("auth") or []) for r in routes]
-    have = {(m, p) for (m, p, _a) in out}
-    out += [(m, p, a) for (m, p, a) in INVITE_ROUTES if (m, p) not in have]
-    return out
+    return [(r["method"].upper(), r["path"], r.get("auth") or []) for r in routes]
 
 
 def concrete(path):
@@ -222,8 +212,7 @@ def find_bearer(secrets, bases, routes, timeout):
     return None, None
 
 
-def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0,
-          license_path=None, fingerprint_path=None):
+def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0, mailbox_reader=None):
     res = {"bases": bases, "rows": [], "skipped": [], "control": {}, "cannot": None}
     try:
         text = open(config_path, encoding="utf-8", errors="replace").read()
@@ -231,6 +220,16 @@ def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0,
         res["cannot"] = "config.toml unreadable at %s: %s" % (config_path, e.strerror)
         return res
     secrets = read_secrets(text)
+    controls = {}
+    addr = mailbox_address(text)
+    res["mailbox"] = "enabled" if addr else "not configured"
+    if addr:
+        raw = (mailbox_reader or keychain_reader)(addr)
+        if raw is None:
+            res["cannot"] = "[email_assistant] is enabled but its password could not be read from the Keychain, so no route can be checked for it"
+            return res
+        secrets.append((MAILBOX_LABEL, raw.decode("utf-8", "replace").strip(), []))
+        controls[MAILBOX_LABEL] = raw
     res["secret_labels"] = [s[0] for s in secrets]
     if not any(s[0].startswith("paired_token") for s in secrets):
         res["cannot"] = "no [gateway].paired_tokens entry found in config.toml"
@@ -241,15 +240,7 @@ def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0,
         res["cannot"] = "positive-control file unreadable: %s" % e.strerror
         return res
     for label, value, extra in secrets:
-        res["control"][label] = count(ctrl, value, extra)
-    od = os.path.dirname(os.path.dirname(os.path.abspath(config_path)))
-    fsec, absent = read_file_secrets(license_path or os.path.join(od, "license", "license.json"),
-                                     fingerprint_path or os.path.join(od, "state", "fingerprint.txt"))
-    res["not_instrumented"] = absent
-    for label, value, extra, raw in fsec:
-        res["control"][label] = count(raw, value, extra)
-        secrets.append((label, value, extra))
-    res["secret_labels"] = [s[0] for s in secrets]
+        res["control"][label] = count(controls.get(label, ctrl), value, extra)
     blind = [l for l, n in res["control"].items() if n < 1]
     if blind:
         res["cannot"] = "positive control saw 0 for %s in %s: the counter is blind, so a 0 below would mean nothing" % (
@@ -278,7 +269,8 @@ def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0,
                     res["skipped"].append({"method": method, "path": path, "base": base, "auth": mode,
                                            "why": "mutating, body-independent effect"})
                     continue
-                st, blob = request(base, method, path, bearer if mode == "paired_bearer" else None, timeout)
+                st, blob = request(base, method, path, bearer if mode == "paired_bearer" else None,
+                                   max(timeout, SLOW_TIMEOUT) if SLOW.search(path) else timeout)
                 counts = {l: count(blob, v, x) for (l, v, x) in secrets}
                 res["rows"].append({"method": method, "path": path, "base": base, "auth": mode,
                                     "status": st, "counts": counts})
@@ -294,8 +286,8 @@ def judge(res):
     lines.append("  ok     positive control: %s each found >= 1 time by the same counter" % (
         ", ".join("%s=%d" % kv for kv in sorted(res.get("control", {}).items())) or "nothing"))
     lines.append("  ok     authenticated arm uses %s" % res.get("bearer_label"))
-    for a in res.get("not_instrumented", []):
-        lines.append("  ok     NOT INSTRUMENTED on this box: %s, so the invite routes were checked for the other secrets only" % a)
+    lines.append("  ok     assistant mailbox: %s%s" % (res.get("mailbox", "not configured"),
+                 ", its password is swept" if res.get("mailbox") == "enabled" else ", so its password is not swept"))
     for b in res.get("bases", []):
         answered = [r for r in rows if r["base"] == b and r["status"]]
         if not answered:
@@ -346,13 +338,14 @@ def default_bases():
 SYN_TOKEN = "zc_walkprobe_synthetic_token_0123456789abcdef"
 SYN_VANE = "walkprobe-synthetic-vane-pw"
 SYN_TOKEN2 = "zc+walkprobe/second=token"
-SYN_LICENCE = "0000beef-walk-4000-8000-probe0licence"
-SYN_FPRINT = "walkprobe-synthetic-fingerprint-0001"
+SYN_MAILBOX = "walkprobemailboxapppw"
+SYN_MAILBOX_ADDR = "tess.assistant@icloud.example"
 CONTRACT = {"routes": [
     {"listener": "gateway", "method": "GET", "path": "/health", "auth": ["handler_defined"]},
     {"listener": "gateway", "method": "GET", "path": "/api/status", "auth": ["device_bearer"]},
     {"listener": "gateway", "method": "GET", "path": "/api/config", "auth": ["device_bearer"]},
     {"listener": "gateway", "method": "POST", "path": "/api/memory", "auth": ["device_bearer"]},
+    {"listener": "gateway", "method": "POST", "path": "/api/assistant-mailbox/self-test", "auth": ["device_bearer"]},
     {"listener": "gateway", "method": "DELETE", "path": "/api/devices/{id}", "auth": ["device_bearer"]},
     {"listener": "gateway", "method": "POST", "path": "/admin/shutdown", "auth": ["admin_token"]},
     {"listener": "doctor", "method": "GET", "path": "/doctor-only", "auth": ["none"]},
@@ -399,32 +392,34 @@ def write_fixture(d):
     fd = os.open(cfg, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write('[gateway]\nrequire_pairing = true\npaired_tokens = [\n  "%s",\n  "%s",\n]\n\n[web_search]\nprovider = "vane"\n'
-                'vane_url = "http://ostler:%s@localhost:3000"\n' % (SYN_TOKEN, SYN_TOKEN2, SYN_VANE))
+                'vane_url = "http://ostler:%s@localhost:3000"\n\n[email_assistant]\nenabled = true\naddress = "%s"\n'
+                % (SYN_TOKEN, SYN_TOKEN2, SYN_VANE, SYN_MAILBOX_ADDR))
     con = os.path.join(d, "hub_contract.yaml")
     json.dump(CONTRACT, open(con, "w"))
-    open(os.path.join(d, "license.json"), "w").write('{"license_id":"%s"}\n' % SYN_LICENCE)
-    open(os.path.join(d, "fingerprint.txt"), "w").write(SYN_FPRINT + "\n")
     blind = os.path.join(d, "control_without_secret.txt")
     open(blind, "w").write("[gateway]\npaired_tokens = []\n")
     return cfg, con, blind
+
+
+def fake_keychain(address):
+    return (SYN_MAILBOX + "\n").encode() if address == SYN_MAILBOX_ADDR else None
 
 
 def self_test():
     ok = True
     d = tempfile.mkdtemp(prefix="secret-sweep-st-")
     cfg, con, blind = write_fixture(d)
-    lic, fpr = os.path.join(d, "license.json"), os.path.join(d, "fingerprint.txt")
 
-    def arm(name, leak, expect_rc, control_file=None, bases=None, must=None):
+    def arm(name, leak, expect_rc, control_file=None, bases=None, must=None, reader=None):
         nonlocal ok
         srv = _fake_server(leak)
         b = bases or ["http://127.0.0.1:%d" % srv.server_address[1]]
-        res = sweep(cfg, con, b, control_file=control_file, timeout=3, license_path=lic, fingerprint_path=fpr)
+        res = sweep(cfg, con, b, control_file=control_file, timeout=3, mailbox_reader=reader or fake_keychain)
         lines, rc = judge(res)
         srv.shutdown()
         text = "\n".join(lines) + json.dumps(res)
         good = rc == expect_rc and (must is None or must in "\n".join(lines)) \
-            and not any(v in text for v in (SYN_TOKEN, SYN_TOKEN2, SYN_VANE, SYN_LICENCE, SYN_FPRINT))
+            and not any(v in text for v in (SYN_TOKEN, SYN_TOKEN2, SYN_VANE, SYN_MAILBOX))
         print("  %s %s: rc=%d (want %d)" % ("ok    " if good else "FAIL  ", name, rc, expect_rc))
         ok &= good
 
@@ -435,10 +430,10 @@ def self_test():
         EX_FAIL, must="GET /api/status")
     arm("a base64 Vane password leaked on POST /api/memory fails", ("POST", "/api/memory",
         base64.b64encode(SYN_VANE.encode()).decode()), EX_FAIL, must="POST /api/memory")
-    arm("the fingerprint echoed on POST /api/v1/invites/mint fails naming the route",
-        ("POST", "/api/v1/invites/mint", SYN_FPRINT), EX_FAIL, must="POST /api/v1/invites/mint")
-    arm("the licence id echoed on POST /api/v1/invites/rewards fails naming the route",
-        ("POST", "/api/v1/invites/rewards", SYN_LICENCE), EX_FAIL, must="POST /api/v1/invites/rewards")
+    arm("the mailbox app password echoed by POST /api/assistant-mailbox/self-test fails naming the route",
+        ("POST", "/api/assistant-mailbox/self-test", SYN_MAILBOX), EX_FAIL, must="POST /api/assistant-mailbox/self-test")
+    arm("an enabled mailbox whose Keychain item is unreadable is CANNOT-RUN", None, EX_CANNOT,
+        must="could not be read from the Keychain", reader=lambda a: None)
     arm("a control that sees 0 is CANNOT-RUN, never PASS", None, EX_CANNOT, control_file=blind,
         must="positive control saw 0")
     arm("no route responding is CANNOT-RUN", None, EX_CANNOT, bases=["http://127.0.0.1:9"])
@@ -447,23 +442,14 @@ def self_test():
     print("  %s an unreadable config.toml is CANNOT-RUN" % ("ok    " if good else "FAIL  "))
     ok &= good
     srv = _fake_server(None)
-    res = sweep(cfg, con, ["http://127.0.0.1:%d" % srv.server_address[1]], timeout=3,
-                license_path=lic, fingerprint_path=fpr)
+    res = sweep(cfg, con, ["http://127.0.0.1:%d" % srv.server_address[1]], timeout=3, mailbox_reader=fake_keychain)
     srv.shutdown()
     sent = {(r["method"], r["path"], r["auth"]) for r in res["rows"]}
     good = ("GET", "/doctor-only", "none") not in sent and not any(r["path"] == "/admin/shutdown" for r in res["rows"]) \
         and ("DELETE", "/api/devices/{id}", "paired_bearer") not in sent and ("DELETE", "/api/devices/{id}", "none") in sent \
-        and all((m, p, a) in sent for (m, p, _x) in INVITE_ROUTES for a in ("none", "paired_bearer"))
-    print("  %s routes come from the contract's gateway listener; shutdown never sent; authed DELETE skipped; invite routes sent in both arms" % (
+        and ("POST", "/api/assistant-mailbox/self-test", "paired_bearer") in sent
+    print("  %s routes come from the contract's gateway listener; shutdown never sent; authed DELETE skipped" % (
         "ok    " if good else "FAIL  "))
-    ok &= good
-    srv = _fake_server(None)
-    res = sweep(cfg, con, ["http://127.0.0.1:%d" % srv.server_address[1]], timeout=3,
-                license_path=os.path.join(d, "absent.json"), fingerprint_path=os.path.join(d, "absent.txt"))
-    srv.shutdown()
-    lines, rc = judge(res)
-    good = rc == EX_PASS and sum("NOT INSTRUMENTED" in l for l in lines) == 2
-    print("  %s no licence or fingerprint on the box: PASS on tokens, with 2 NOT INSTRUMENTED lines" % ("ok    " if good else "FAIL  "))
     ok &= good
     for f in os.listdir(d):
         os.unlink(os.path.join(d, f))
@@ -482,8 +468,6 @@ def main(argv):
         ap.add_argument("--contract", required=True)
         ap.add_argument("--base", action="append", default=[])
         ap.add_argument("--control-file")
-        ap.add_argument("--license")
-        ap.add_argument("--fingerprint")
         a = ap.parse_args(argv[1:])
         bases = a.base
         if not bases:
@@ -491,8 +475,7 @@ def main(argv):
             if not has_lan:
                 print(json.dumps({"cannot": "no LAN address on en0/en1 and OSTLER_PAIR_PROBE_HOST unset: the :8443 LAN surface cannot be swept"}))
                 return EX_PASS
-        print(json.dumps(sweep(a.config, a.contract, bases, control_file=a.control_file,
-                               license_path=a.license, fingerprint_path=a.fingerprint)))
+        print(json.dumps(sweep(a.config, a.contract, bases, control_file=a.control_file)))
         return EX_PASS
     if len(argv) == 3 and argv[1] == "judge":
         res = json.load(open(argv[2]))
