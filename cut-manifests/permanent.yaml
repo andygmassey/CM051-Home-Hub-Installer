@@ -1353,6 +1353,19 @@ entries:
       kind: box_walk_probe
       probe: "companion_listener_refuses_unauthenticated"
 
+  - id: box-walk-gateway-never-serves-a-stored-secret
+    title: no gateway or companion route, unauthenticated or with a paired bearer, serves a paired token or the Vane password stored in config.toml
+    incident: >-
+      v1.0.109 thin walk. config.toml holds every [gateway].paired_tokens
+      entry and the Vane password inside vane_url. Every gateway route in the
+      hub contract is requested on LAN :8443, loopback :8443 and :8000, with
+      and without a paired bearer, and each secret is counted in body and
+      headers (exact, URL-encoded, base64). A positive control on config.toml
+      must see each secret first. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "gateway_never_serves_a_stored_secret"
+
   - id: box-walk-listener-watchdog-recovers-a-wedged-listener
     title: with the daemon SIGSTOPped (process alive, 8443 silent), the listener watchdog captures sample and lsof, restarts it and 8443 answers 401 again within 300 s
     incident: >-
