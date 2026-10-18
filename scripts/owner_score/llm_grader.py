@@ -400,8 +400,14 @@ def cmd_adjudicate(a):
         cid = f"a{n:05d}"
         idmap[cid] = it["item_id"]
         h = {k: it["heuristic"].get(k) for k in LABELS}
-        user = (owner_user_text(it) + "\n\nHEURISTIC LABELS: " + json.dumps(h) + "\nLLM GRADER LABELS: " + json.dumps(gl) +
-                "\nLLM GRADER RATIONALE: " + r["grade"].get("rationale", "") + "\nDISPUTED: " + ", ".join(d))
+        if a.blind:
+            # blind: the adjudicator sees neither grader's labels nor the LLM grader's rationale,
+            # so it cannot anchor on either side
+            user = (owner_user_text(it) + "\n\nBLIND ADJUDICATION: no labels are shown. Decide the true value of "
+                    "non_answer, made_up_facts and correct yourself, and set winner to \"split\".")
+        else:
+            user = (owner_user_text(it) + "\n\nHEURISTIC LABELS: " + json.dumps(h) + "\nLLM GRADER LABELS: " + json.dumps(gl) +
+                    "\nLLM GRADER RATIONALE: " + r["grade"].get("rationale", "") + "\nDISPUTED: " + ", ".join(d))
         reqs.append({"custom_id": cid, "params": {
             "model": ADJ_MODEL, "max_tokens": 8000, "system": system_blocks(ADJ_RUBRIC, ctx),
             "output_config": {"effort": a.effort, "format": {"type": "json_schema", "schema": ADJ_SCHEMA}},
@@ -535,6 +541,7 @@ def main():
         q.add_argument("--limit", type=int)
         q.add_argument("--from", dest="src")
         q.add_argument("--adjudicated")
+        q.add_argument("--blind", action="store_true")
     q = s.add_parser("poll")
     q.add_argument("--phase", required=True)
     q.add_argument("--out", required=True)
