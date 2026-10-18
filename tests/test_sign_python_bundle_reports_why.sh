@@ -119,6 +119,17 @@ ts_mode 0
     || { echo "::error::entitlements moved; this harness cannot drive the script"; exit 2; }
 
 mkdir -p "$WORK/bin"
+
+# `sleep` is stubbed as well. The retry back-off is real seconds (10, then 15),
+# so the two timestamp cases below spent 50 of this file's 60 s waiting. The
+# stub returns at once and records each requested delay, which lets the
+# back-off SCHEDULE be asserted instead of merely sat through.
+cat >"$WORK/bin/sleep" <<STUB
+#!/bin/bash
+echo "\$1" >> "$WORK/sleeps"
+STUB
+chmod +x "$WORK/bin/sleep"
+sleeps() { [ -f "$WORK/sleeps" ] && tr '\n' ' ' < "$WORK/sleeps" | sed 's/ $//'; }
 cat >"$WORK/bin/file" <<'STUB'
 #!/bin/bash
 # ONLY .dylib is Mach-O. This used to answer "Mach-O" for EVERYTHING, which was
@@ -154,7 +165,7 @@ case "$1" in
 esac
 STUB
     chmod +x "$WORK/bin/codesign"
-    rm -f "$WORK/attempts"
+    rm -f "$WORK/attempts" "$WORK/sleeps"
 }
 
 run() { PATH="$WORK/bin:$PATH" bash "$SCRIPT" "$APP" "Fake ID" >"$WORK/out" 2>&1; echo $?; }
@@ -185,18 +196,21 @@ fi
 
 # --- A REAL FAULT MUST NOT BE RETRIED --------------------------------------
 check "real fault is not retried" "1" "$(attempts)"
+check "real fault is not retried: no back-off at all" "" "$(sleeps)"
 
 # --- A TIMESTAMP TIMEOUT IS RETRIED, AND CAN RECOVER -----------------------
 make_codesign timestamp_then_ok
 rc="$(run)"
 check "timestamp timeout then success: script succeeds" "0" "$rc"
 check "timestamp timeout: retried to the third attempt" "3" "$(attempts)"
+check "timestamp timeout: backs off 10 s, then 15 s" "10 15" "$(sleeps)"
 
 # --- A PERSISTENT TIMESTAMP FAILURE STILL FAILS CLOSED ---------------------
 make_codesign timestamp_forever
 rc="$(run)"
 check "persistent timestamp failure still fails" "1" "$rc"
 check "persistent timestamp failure is bounded at 3 attempts" "3" "$(attempts)"
+check "persistent timestamp failure: the same bounded back-off" "10 15" "$(sleeps)"
 if grep -q "timestamp service is not available" "$WORK/out"; then
     echo "  PASS  persistent timestamp failure: the reason reaches the log"
 else
