@@ -55,4 +55,5 @@ jobs:
         run: python -m pytest -q -p no:cacheprovider tests/test_install_creates_the_coach_db_keyed.py
 
       - name: Coach reader matches writer (decoy contract updated by the same change)
+        if: success() || failure()
         run: python -m pytest -q -p no:cacheprovider vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py
