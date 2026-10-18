@@ -16501,7 +16501,7 @@ if [[ "${CHANNEL_EMAIL_ENABLED:-false}" == true \
     # restored the flags) keeps the stored one, which the old writer lost.
     if [[ -n "${CHANNEL_EMAIL_PASSWORD:-}" ]]; then
         _email_password_store "$CHANNEL_EMAIL_PASSWORD" "$EMAIL_PASSWORD_FILE" \
-            || fail "Could not write the email password to ~/.ostler/secrets (it was not written anywhere else)."  # i18n-exempt
+            || fail_with_code "ERR-14-STORE-EMAIL-CREDENTIAL" "Could not write the email password to ~/.ostler/secrets (it was not written anywhere else)."  # i18n-exempt
     fi
 elif [[ -n "${_EMAIL_BLOCK_PRESERVED:-}" ]]; then
     _email_block_extract_password "$_EMAIL_BLOCK_PRESERVED"

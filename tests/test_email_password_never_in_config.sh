@@ -66,7 +66,7 @@ run_region() {
         CHANNEL_EMAIL_ALLOWED_SENDERS=owner@example.invalid USER_TZ=Europe/London \
         "$@" "$BASH_BIN" -c '
             info() { echo "[info] $*"; }; warn() { echo "[warn] $*" >&2; }
-            fail() { echo "[fail] $*" >&2; exit 1; }
+            fail() { echo "[fail] $*" >&2; exit 1; }; fail_with_code() { echo "[fail] $*" >&2; exit 1; }
             dbg() { :; }; gui_log() { :; }; gui_active() { return 1; }
             . "$1"
             if [ -n "${OLD_CONFIG:-}" ]; then
