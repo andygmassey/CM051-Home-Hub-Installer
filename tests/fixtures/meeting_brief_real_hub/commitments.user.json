@@ -2,12 +2,18 @@
   "commitments": [
     {
       "action": "Share the workshop deck with Alexandra",
+      "channel": "",
+      "confidence": null,
       "due": "2030-01-31",
+      "id": "urn:ostler:todo/t1",
+      "origin": "",
       "owner": "user",
+      "person": "",
       "source": "",
       "status": "open"
     }
   ],
   "count": 1,
+  "hidden_low_confidence": 0,
   "privacy_level": "L2"
 }

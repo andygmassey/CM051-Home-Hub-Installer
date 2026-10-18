@@ -246,8 +246,15 @@ def main():
                       len(todos) == 2 and all(k in t for t in todos for k in ("text", "owner", "deadline")))
                 check("a done todo is not listed as open", not any("contract" in t["text"] for t in todos))
                 cm = hub.get("/api/v1/commitments?status=open")
-                check("commitments rows have no person field (so they cannot be attributed to a contact)",
-                      cm["commitments"] and not any(k in r for r in cm["commitments"] for k in ("with", "person", "counterparty", "about")))
+                # Lane 8 (CM041 #199) added an optional `person` to every row: a
+                # Follow-Up Detector row names its contact, a CM048 meeting todo
+                # (all the seed holds) carries person "" and no origin. So the
+                # trap is now a non-empty person on a meeting todo, plus the
+                # field names that never existed.
+                check("meeting commitments carry no attributable person (person empty, no detector origin)",
+                      cm["commitments"]
+                      and not any(k in r for r in cm["commitments"] for k in ("with", "counterparty", "about"))
+                      and all(not r.get("person") and r.get("origin") != "message_detector" for r in cm["commitments"]))
                 blob = json.dumps([rich, tl, none_tl, up_, cm])
                 for g in ("first_contact", "contact_frequency", "mutual_contacts", "org_contacts",
                           "meeting_count", "awaiting_reply", "first_seen", "known_since"):
