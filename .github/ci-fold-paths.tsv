@@ -1035,6 +1035,8 @@ macos-latest	b10	gdpr-export-detect.yml::large-zip-detection-macos	.github/workf
 macos-latest	b11	ingest-slot.yml::shell-3-2	lib/ostler-ingest-slot.sh
 macos-latest	b11	ingest-slot.yml::shell-3-2	tests/test_ingest_slot_fairness.sh
 macos-latest	b11	ingest-slot.yml::shell-3-2	tests/test_a_hung_slot_holder_is_stopped.sh
+macos-latest	b11	ingest-slot.yml::shell-3-2	tests/test_background_qos_yields_to_chat.sh
+macos-latest	b11	ingest-slot.yml::shell-3-2	tests/test_no_heavy_job_bypasses_the_chat_yield.sh
 macos-latest	b11	ingest-slot.yml::shell-3-2	tests/test_prelaunch_libs_survive_promote.sh
 macos-latest	b11	ingest-slot.yml::shell-3-2	vendor/email_source/bin/email-bundle-tick.sh
 macos-latest	b11	ingest-slot.yml::shell-3-2	vendor/imessage_source/bin/imessage-bundle-tick.sh

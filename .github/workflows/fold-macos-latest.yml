@@ -207,6 +207,8 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_background_qos_yields_to_chat.sh'
+      - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -2141,6 +2143,8 @@ jobs:
             vendor/spoken_source/bin/spoken-bundle-tick.sh \
             wiki-recompile/bin/wiki-recompile-tick.sh \
             tests/test_ingest_slot_fairness.sh \
+            tests/test_background_qos_yields_to_chat.sh \
+            tests/test_no_heavy_job_bypasses_the_chat_yield.sh \
             tests/test_prelaunch_libs_survive_promote.sh
           do
             if [ ! -f "$f" ]; then
@@ -2155,7 +2159,7 @@ jobs:
               rc=1
             fi
           done
-          echo "examined 8 files"
+          echo "examined 10 files"
           exit "$rc"
 
       # ========================================================================
