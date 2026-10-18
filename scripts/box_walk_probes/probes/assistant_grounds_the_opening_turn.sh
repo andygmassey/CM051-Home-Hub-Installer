@@ -731,8 +731,8 @@ run_probe() {
 
     # The fit-table cross-check. A DISAGREEMENT is reported and does not stop
     # the run: what is running is what is running, and the probe records it.
-    if [ -n "$RAM_GB" ] && [ "$RAM_GB" -le 23 ] 2>/dev/null && [ "$MODEL_TAG" != "gemma4:e2b" ]; then
-        probe_note "NOTE: ${RAM_GB}GB should give gemma4:e2b by the fit table, and the live config says ${MODEL_TAG}. Recorded as measured; the table is not the authority here."
+    if [ -n "$RAM_GB" ] && [ "$RAM_GB" -le 23 ] 2>/dev/null && [ "$MODEL_TAG" != "qwen3.5:4b" ]; then
+        probe_note "NOTE: ${RAM_GB}GB should give qwen3.5:4b by the fit table, and the live config says ${MODEL_TAG}. Recorded as measured; the table is not the authority here."
     fi
 
     _mem="$(_memory_mentions_person)"

@@ -3416,7 +3416,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8587   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8632   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8641 and :16104, both of which run
+    # Its two top-level arming calls are :8641 and :16105, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16884, where the note reads
+    # WhatsApp Web session path did it again at :16885, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16901 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16902 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3453,9 +3453,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8641, :16104) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8641, :16105) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19047 / :19225 / :19382 / :19827 path. There the
+    # :19048 / :19226 / :19383 / :19828 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9140,13 +9140,14 @@ else
         AI_MODEL="qwen3.5:9b"
         AI_MODEL_SIZE="~6.6 GB"
     else
-        AI_MODEL="gemma4:e2b"
-        # v1061-D002 (reg #623): measured 7.2 GB on the v1.0.61 walk box, not
-        # the ~5 GB this said. This ladder is the STRIPPED-BUNDLE path, so it
-        # is a second, independently-editable copy of the same customer claim
-        # -- it must not drift from lib/ostler-model-fit.sh. Gated by
+        AI_MODEL="qwen3.5:4b"
+        # v1.0.109: the 16 GB tier is qwen3.5:4b (was gemma4:e2b). Measured
+        # 4.0 GB pulled under the pinned Ollama 0.40.5. This ladder is the
+        # STRIPPED-BUNDLE path, so it is a second, independently-editable copy
+        # of the same customer claim -- it must not drift from
+        # lib/ostler-model-fit.sh. Gated by
         # tests/test_model_download_size_honesty.sh, which compares the two.
-        AI_MODEL_SIZE="~7.2 GB"
+        AI_MODEL_SIZE="~4.0 GB"
     fi
     ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
 fi
@@ -9853,11 +9854,11 @@ ostler_resource_tier_detect() {
             #     model              min_fit   min_slow
             #     qwen3.6:35b-a3b       48        36
             #     qwen3.5:9b            24        18
-            #     gemma4:e2b            16        12
+            #     qwen3.5:4b            16        12
             #
             # So at 16GB, qwen3.5:9b is below even its min_slow of 18 and
-            # gemma4:e2b is the only model that fits. EVERY Mac of 23GB or
-            # less runs gemma4:e2b, and 16GB is the hard minimum, so the
+            # qwen3.5:4b is the only model that fits. EVERY Mac of 23GB or
+            # less runs qwen3.5:4b, and 16GB is the hard minimum, so the
             # minimum supported customer runs the smallest model we ship.
             # That is a PRODUCT fact about the minimum spec, not a bug here.
             #
@@ -15877,7 +15878,7 @@ printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
 # `compose run` time from THIS compose .env (exactly like USER_FIRST_NAME
 # above), NOT from an unexported install.sh shell var. Without AI_MODEL here
 # the reference resolves to the qwen3.5:9b FALLBACK, which is not pulled on
-# <=23GB Macs (the RAM picker gives them gemma4:e2b) -> CM044's compiler hits
+# <=23GB Macs (the RAM picker gives them qwen3.5:4b) -> CM044's compiler hits
 # Ollama with a model that was never pulled -> ~2000x 404 in one compile ->
 # Person/Org/Year pages render empty. Write the installer's RAM-tier pick
 # (AI_MODEL, set ~install.sh:4685) so BOTH the install-time compile AND the
@@ -16551,7 +16552,7 @@ TOMLPREAMBLE
     # com.ostler.ollama LaunchAgent). The model is the
     # tier-aware default the installer chose at AI_MODEL
     # selection time (high RAM = qwen3.6:35b-a3b, mid =
-    # qwen3.5:9b, low = gemma4:e2b). The customer can edit
+    # qwen3.5:9b, low = qwen3.5:4b). The customer can edit
     # either field post-install in the assistant config TOML.
     #
     # timeout_secs is set generously because the local Ollama
@@ -20863,7 +20864,7 @@ services:
       # #259: pin the compiler's Ollama model to the SAME model the installer
       # pulled for this box's RAM tier (AI_MODEL, set ~install.sh:4685). Without
       # this the compiler falls back to compiler/config.py's default qwen3.5:9b,
-      # which is NOT pulled on <=23GB Macs (they get gemma4:e2b) -> every wiki
+      # which is NOT pulled on <=23GB Macs (they get qwen3.5:4b) -> every wiki
       # narrative LLM call 404s and Person/Org/Year pages render empty. Mirrors
       # the daemon-config expression at :7779.
       - OLLAMA_MODEL=${AI_MODEL:-qwen3.5:9b}
@@ -23053,7 +23054,7 @@ fi
 # qwen3.5:35b-a3b, which needs ~18-20GB resident and cannot run on a 16GB
 # box (and is a brutal squeeze on 24GB). The installer's RAM-aware picker
 # already chose the model it actually pulled ($AI_MODEL: 35b-a3b only on
-# 48GB+, 9b on 24-48GB, gemma4:e2b below), so point every conversation
+# 48GB+, 9b on 24-48GB, qwen3.5:4b below), so point every conversation
 # step at THAT model rather than a default no normal box can serve. Big-
 # memory boxes opt into 35b-a3b automatically because that is what their
 # picker selected; CM048's code default stays at 35b-a3b as the quality

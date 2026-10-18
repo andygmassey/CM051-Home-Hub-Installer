@@ -60,12 +60,12 @@ assert_fit() {
     fi
 }
 
-echo "== verdicts: gemma4:e2b (16/12 thresholds) =="
-assert_fit gemma4:e2b 8  nofit   # below min_slow -> won't fit
-assert_fit gemma4:e2b 12 slow    # min_slow boundary -> may be slow
-assert_fit gemma4:e2b 15 slow
-assert_fit gemma4:e2b 16 fits    # min_fit boundary -> fits
-assert_fit gemma4:e2b 64 fits
+echo "== verdicts: qwen3.5:4b (16/12 thresholds) =="
+assert_fit qwen3.5:4b 8  nofit   # below min_slow -> won't fit
+assert_fit qwen3.5:4b 12 slow    # min_slow boundary -> may be slow
+assert_fit qwen3.5:4b 15 slow
+assert_fit qwen3.5:4b 16 fits    # min_fit boundary -> fits
+assert_fit qwen3.5:4b 64 fits
 
 # ---------------------------------------------------------------------------
 # THE COMMENT IN install.sh MUST NOT DRIFT FROM THIS TABLE.
@@ -82,7 +82,7 @@ assert_fit gemma4:e2b 64 fits
 # ---------------------------------------------------------------------------
 echo "== install.sh's quoted thresholds match lib/ostler-model-fit.sh =="
 _mf_drift=0; _mf_missing=""
-for _row in "qwen3.6:35b-a3b 48 36" "qwen3.5:9b 24 18" "gemma4:e2b 16 12"; do
+for _row in "qwen3.6:35b-a3b 48 36" "qwen3.5:9b 24 18" "qwen3.5:4b 16 12"; do
     set -- $_row
     if [ "$(grep -c "#     $1 *$2 *$3\$" "$INSTALL")" -lt 1 ]; then
         _mf_missing="$_mf_missing $1"
@@ -127,13 +127,20 @@ assert_reco() {
         bad "recommend(${ram}GB) expected $want, got $got"
     fi
 }
-# Below everything's min_fit but e2b still loads at 12-15GB -> e2b (smallest
-# that at least runs). At/below 8GB nothing loads -> still e2b as last resort.
-assert_reco 8   gemma4:e2b
-assert_reco 12  gemma4:e2b
-assert_reco 16  gemma4:e2b        # e2b fits, 9b does not at 16
-assert_reco 18  gemma4:e2b        # 9b only "slow" at 18, so e2b is the comfy fit
-assert_reco 24  qwen3.5:9b        # 9b now fits comfortably
+# Below everything's min_fit but 4b still loads at 12-15GB -> 4b (smallest
+# that at least runs). At/below 8GB nothing loads -> still 4b as last resort.
+#
+# v1.0.109 TIER SWITCH (16 to <24 GB: gemma4:e2b -> qwen3.5:4b). The rows at
+# 16, 18 and 23 are the switch; the row at 24 is the guard that the 24-47 tier
+# did NOT move with it. On the pre-switch table 16/18/23 answer gemma4:e2b and
+# go red; a table that also moved qwen3.5:9b's min_fit up past 24 would hand
+# a 24 GB box the 4b and go red there instead (mutation-tested on this PR).
+assert_reco 8   qwen3.5:4b
+assert_reco 12  qwen3.5:4b
+assert_reco 16  qwen3.5:4b        # 4b fits, 9b does not at 16
+assert_reco 18  qwen3.5:4b        # 9b only "slow" at 18, so 4b is the comfy fit
+assert_reco 23  qwen3.5:4b        # top of the 16GB tier
+assert_reco 24  qwen3.5:9b        # 9b now fits comfortably: 24-47 tier unchanged
 assert_reco 36  qwen3.5:9b        # 35b only "slow" at 36, 9b still the comfy fit
 assert_reco 48  qwen3.6:35b-a3b   # 35b fits comfortably
 assert_reco 64  qwen3.6:35b-a3b
@@ -161,7 +168,7 @@ rank() {
     case "$1" in
         qwen3.6:35b-a3b) printf 2 ;;
         qwen3.5:9b)      printf 1 ;;
-        gemma4:e2b)      printf 0 ;;
+        qwen3.5:4b)      printf 0 ;;
         *)               printf -1 ;;
     esac
 }
@@ -179,6 +186,12 @@ done
 echo "== accessors + pills =="
 [[ "$(ostler_model_size_label qwen3.5:9b)" == "~6.6 GB" ]] \
     && ok "size label for 9b" || bad "size label for 9b wrong"
+[[ "$(ostler_model_size_label qwen3.5:4b)" == "~4.0 GB" ]] \
+    && ok "size label for 4b (measured under the pinned Ollama 0.40.5)" || bad "size label for 4b wrong"
+# The 16GB tier's model is no longer in the table at all, so nothing can pick
+# it, label it or fall back to it.
+[[ "$(_ostler_model_index gemma4:e2b)" == "-1" ]] \
+    && ok "gemma4:e2b is gone from the fit table" || bad "gemma4:e2b is still in the fit table"
 [[ -n "$(ostler_model_quant qwen3.5:9b)" ]] \
     && ok "quant tier present for 9b ($(ostler_model_quant qwen3.5:9b))" \
     || bad "quant tier missing for 9b"
