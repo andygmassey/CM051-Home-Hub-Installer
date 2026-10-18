@@ -864,7 +864,7 @@ def test_every_shipped_last_contact_predicate_is_read():
 
 # ── The recency arm is an addition: its failure must not take the ranking ────
 
-_PREFIX_SHA_RECENCY_STRICT = "be053e9494144c3d1595403d54730d958f4e3eb2"  # #2966 head: a failed recency read blanked People
+_PREFIX_SHA_RECENCY_STRICT = "992fb55f1e98a3bf3bead14805aea113e36da44d"  # #2966 as merged to main (byte-identical generator to its head): a failed recency read blanked People
 
 
 def _oxigraph_server_failing_recency(store: ox.Store, *, token: str | None = STORE_TOKEN):
