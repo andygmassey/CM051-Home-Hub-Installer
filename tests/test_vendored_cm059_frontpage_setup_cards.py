@@ -142,8 +142,11 @@ expect("both held back when neither app is installed",
 box(ext_app=True, rc_app=True)
 f = feed()
 for source in (EXT, RC):
-    card = shown(f, source)[0]
-    out = fb.record_feedback(card["id"], None, "drop", now=NOW)
+    cards = shown(f, source)
+    if not cards:
+        expect(f"{source} present to dismiss", False)
+        continue
+    out = fb.record_feedback(cards[0]["id"], None, "drop", now=NOW)
     expect(f"{source} drop recorded", out.get("ok") is True and out.get("dismissed") is True)
 f = feed()
 expect("both hidden for good after dismiss",
