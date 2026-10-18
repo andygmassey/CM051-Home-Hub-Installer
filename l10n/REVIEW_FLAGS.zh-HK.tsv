@@ -56,18 +56,18 @@ install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review
 install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1	needs_review	HK Apple uses 私隱; Full Disk Access term needs verification against zh-HK macOS.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; word order depends on how it is concatenated in Chinese. Check in context.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; word order depends on how it is concatenated in Chinese. Check in context.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Changed to full-width punctuation. Flagged because the acceptance of responsibility has legal force and needs a lawyer's check.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	Changed to full-width punctuation. Flagged because the GDPR controller/processor wording needs a lawyer's check.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Restored dropped 'sentiment' in the list of things not inferred from voice; Article 9 consent text needs legal review.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal statement with statutory references; lawyer should confirm wording.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/intro_body	needs_review	Consent responsibility wording; lawyer should check.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	'independently of' rendered as 'unrelated to'; corrected. Legal text needs lawyer review.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Changed to full-width punctuation. Flagged because the acceptance of responsibility has legal force and needs a lawyer's check.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	Changed to full-width punctuation. Flagged because the GDPR controller/processor wording needs a lawyer's check.
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; word order depends on how it is concatenated in Chinese. Check in context.
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; word order depends on how it is concatenated in Chinese. Check in context.
+gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/why	needs_review	Consent-related wording rewritten from 'record' to 'transcribe'; full-width commas applied. Human should confirm consent meaning.
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Source itself refers to the user's own existing recordings, so 錄製/錄音 is faithful; consent sentence should be checked by legal.
-gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/why	needs_review	Consent-related wording rewritten from 'record' to 'transcribe'; full-width commas applied. Human should confirm consent meaning.

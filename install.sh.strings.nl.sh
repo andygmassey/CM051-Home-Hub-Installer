@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# CM051 install.sh -- nl strings catalogue (machine-translated from
-# install.sh.strings.en-GB.sh, then independently reviewed). Generated; do not hand-edit
-# without updating the en-GB source first. Keys marked '# NEEDS REVIEW' await a
-# native speaker; any key missing a translation keeps its English value.
+# install.sh.strings.en-GB.sh translated to nl by l10n/ostler_l10n.py.
+# Generated: edit the en-GB source, never this file. '# NEEDS REVIEW' marks a key
+# awaiting a native speaker; a key with no current translation carries English.
 # CM051 install.sh -- en-GB strings catalogue
 # Generated 2026-05-19 as part of Rule 0.9
 # (customer strings extractable from day one).
@@ -276,7 +275,7 @@ MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="De ostler-assistant-binary uit d
 MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge geïnstalleerd in venv."
-# NEEDS REVIEW: Source is a line fragment ('before installing' likely continues with an object on the next line); Dutch rendering may not join correctly with the continuation. 
+# NEEDS REVIEW: Source is a line fragment ('before installing' likely continues with an object on the next line); Dutch rendering may not join correctly with the continuation.
 MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler toont een extra toestemmingsscherm voordat de installatie begint"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  Overschrijf de bronrepository voor de gespreksgeheugen-engine via de omgevingsvariabele die staat beschreven in ./install.sh --help."
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR="  Overschrijf de bronrepository met PWG_DOCTOR_REPO=<url> ./install.sh"

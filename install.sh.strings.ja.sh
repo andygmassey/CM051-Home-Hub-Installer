@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# CM051 install.sh -- ja strings catalogue (machine-translated from
-# install.sh.strings.en-GB.sh, then independently reviewed). Generated; do not hand-edit
-# without updating the en-GB source first. Keys marked '# NEEDS REVIEW' await a
-# native speaker; any key missing a translation keeps its English value.
+# install.sh.strings.en-GB.sh translated to ja by l10n/ostler_l10n.py.
+# Generated: edit the en-GB source, never this file. '# NEEDS REVIEW' marks a key
+# awaiting a native speaker; a key with no current translation carries English.
 # CM051 install.sh -- en-GB strings catalogue
 # Generated 2026-05-19 as part of Rule 0.9
 # (customer strings extractable from day one).
@@ -1125,7 +1124,7 @@ MSG_CONFIRM_CALENDAR_INCLUDE_HELP="これは %s のようなので除外しま�
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="「%s」は誰のカレンダーですか?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="「%s」はどの種類のカレンダーですか?"
-# NEEDS REVIEW: 'One of:' suggests the customer may type these values and the installer may compare them in English; kept English tokens with Japanese glosses. Confirm whether 
+# NEEDS REVIEW: 'One of:' suggests the customer may type these values and the installer may compare them in English; kept English tokens with Japanese glosses. Confirm whether
 MSG_CONFIRM_CALENDAR_TYPE_HELP="personal(個人)、work(仕事)、family(家族)、shared(共有)、other(その他)のいずれかです。予定をどの程度機密として扱うかが決まります。"
 MSG_CONFIRM_CALENDARS_SAVED="カレンダーの所有者を保存しました"
 MSG_CONFIRM_CALENDARS_FAILED="カレンダーの所有者を保存できませんでした(致命的ではありません。あとから設定できます)"

@@ -60,15 +60,15 @@ install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	needs_revie
 install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Legal responsibility/consent wording; lawyer should confirm legal force in pt-BR.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	GDPR controller/processor terminology (controlador/operador per LGPD usage) needs legal review; minor wording smoothed.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Special-category consent text; lawyer should check. Changed 'identificação de voz' to 'identificação do locutor' to match speaker identification. Verify 'Redefinir o Ostler' matches the app menu.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal statement on controller role and lawful basis; lawyer should check.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/intro_body	needs_review	Consent/liability wording; lawyer should check.
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	Legal text citing statutes; lawyer should check legal force.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Legal responsibility/consent wording; lawyer should confirm legal force in pt-BR.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	GDPR controller/processor terminology (controlador/operador per LGPD usage) needs legal review; minor wording smoothed.
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Consent statement and source's own use of 'recorded/recordings' conflict with the transcribe-not-record rule; needs legal/product check. Restored 'gravadas' to match source.
