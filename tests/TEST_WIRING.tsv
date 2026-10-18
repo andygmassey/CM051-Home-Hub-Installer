@@ -630,6 +630,7 @@ test_real_person_pick_richest.py	WIRED	.github/workflows/walk-record-gate.yml
 test_real_person_slug_from_api.py	WIRED	.github/workflows/walk-record-gate.yml
 test_reclassify_subject_names_is_wired.sh	WIRED	.github/workflows/reclassify-subject-names-wired.yml
 test_reconcile_splits_our_fixtures_from_the_products.py	WIRED	.github/workflows/walk-record-gate.yml
+test_reconnect_nudge_sender.sh	WIRED	.github/workflows/reconnect-nudge.yml
 test_recording_consent_fields_have_a_producer_and_a_consumer.py	WIRED	.github/workflows/consent-contract.yml
 test_recording_consent_gates_the_capture_companion.sh	WIRED	.github/workflows/consent-contract.yml
 test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-probe.yml

@@ -1605,3 +1605,28 @@ Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness
 ### What a future sync must preserve
 
 `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`.
+
+## doctor: the weekly reconnect nudge sender joins the scheduled-agent card (CM051 v1.0.108, wow gate item 3)
+
+Tree `doctor`, file `agent/diagnostic_rules.py`. Recorded here because this
+file is the doctor tree's declared `unrecorded_divergence` pointer and the edit
+has no patch.
+
+Location and shape. One row appended to the `_SCHEDULED_AGENTS` tuple:
+`("com.ostler.reconnect-nudge-sender", "your weekly nudge about people to get
+back in touch", "reconnect-nudge-sender", 604800)`, plus a four-line comment.
+No rule logic, copy or severity changed. Reason: the sender exits 69 (composer
+failed, or /announce refused) or 78 (no brief channel); without the row launchd
+records that exit code and nothing reads it. Pinned by
+`tests/test_scheduled_agent_failure_is_loud.sh` (reconnect limb). There is no
+HR015 upstream twin yet: OWED.
+
+Exit 69, not 75 (2026-10-18, after merging main): main's G1 (#2908) makes the
+Doctor read exit 75 from ANY scheduled agent as "macOS refused a read, grant
+Full Disk Access". A refused /announce told the owner to grant FDA. The sender
+now exits 69 (EX_UNAVAILABLE); the reconnect limb asserts the card for 69 does
+not say Full Disk Access and that install.sh's sender has no `cannot_deliver
+75` (RED on a one-site mutant back to 75). Sibling NOT fixed here: main's
+meeting-brief sender still exits 75 for a Hub fetch failure and gets the same
+wrong card.
+
