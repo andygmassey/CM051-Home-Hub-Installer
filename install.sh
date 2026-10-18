@@ -16664,7 +16664,7 @@ TOMLPREAMBLE
     #
     # base_url + model are the load-bearing fields. base_url is
     # the Ollama server URL the installer wired up in Phase 3.3
-    # (brew install --cask ollama-app, served headless via the
+    # (the pinned Ollama release, served headless via the
     # com.ostler.ollama LaunchAgent). The model is the
     # tier-aware default the installer chose at AI_MODEL
     # selection time (high RAM = qwen3.6:35b-a3b, mid =
