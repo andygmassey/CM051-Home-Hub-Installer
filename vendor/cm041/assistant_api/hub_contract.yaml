@@ -209,7 +209,7 @@
     "none"
    ],
    "body_limit_bytes": null,
-   "cross_site_refusal": false,
+   "cross_site_refusal": true,
    "id": "doctor GET /api/v1/assistant-mailbox",
    "listener": "doctor",
    "method": "GET",

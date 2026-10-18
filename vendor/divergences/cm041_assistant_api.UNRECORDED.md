@@ -1418,8 +1418,8 @@ only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
 <ostler-assistant #567 head>` added three routes, taking the file from 264 to
 267: `doctor GET /api/v1/assistant-mailbox` and `doctor POST
 /api/v1/assistant-mailbox/{action}` (source `vendor/doctor/agent/web_ui.py`,
-`auth: none`, loopback-only via `_not_hub_local`, the POST with cross-site
-refusal), and `gateway POST /api/assistant-mailbox/self-test` (`device_bearer`,
+`auth: none`, both loopback-only via `_not_hub_local` and both with
+cross-site refusal, per Archie's 2026-10-19 ruling), and `gateway POST /api/assistant-mailbox/self-test` (`device_bearer`,
 source ostler-assistant #567). `--check` reports current against #567 and
 STALE against assistant main until #567 merges. The Doctor routes are recorded
 against the `doctor` tree in `WRITER_READER_MISMATCHES.UNRECORDED.md`; no
