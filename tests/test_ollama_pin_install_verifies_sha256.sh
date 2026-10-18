@@ -25,6 +25,11 @@
 #   case I  plist present but nothing answers :11434 -> rc 11, no deferral
 #           (a dead install is not a working one)
 #   case J  EXISTING install and a tampered archive -> deferred too (rc 0)
+#   case L  the installer's "agent must run the PINNED binary" block, run for
+#           real: a plist running ${OLLAMA_PIN_DIR}/ollama passes; a plist
+#           running the customer's self-updating /Applications/Ollama.app
+#           FAILS ERR-07-OLLAMA-AGENT-NOT-PINNED; the same plist under a
+#           DEFERRED pin is recorded (ollama_server=... pinned=no), not failed
 #
 # The sha256 in each case is computed from the fixture by this test and set on
 # OLLAMA_PIN_SHA256 in the test shell, so case B is a real mismatch between a
@@ -217,9 +222,35 @@ if grep -qE '^[[:space:]]*_ostler_ollama_pin_apply "\$OLLAMA_PIN_DIR" "\$\{HOME\
     pass "K: install.sh calls _apply on the agent plist, warns MSG_WARN_OLLAMA_PIN_DEFERRED, and the string exists"
 else bad "K: install.sh does not wire _ostler_ollama_pin_apply + the deferral warning"; fi
 
+# L: the post-step pinned-agent check, lifted from install.sh and executed
+post="$W/postcheck.sh"
+awk '/^# ── THE AGENT MUST RUN THE PINNED BINARY/{f=1} /^# ── 3\.3b Ollama log rotation/{f=0} f{print}' "$INSTALL_SH" > "$post"
+mk_plist() {  # mk_plist <path> <binary>
+    mkdir -p "$(dirname "$1")"
+    printf '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n    <key>Label</key>\n    <string>com.ostler.ollama</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>%s</string>\n        <string>serve</string>\n    </array>\n</dict>\n</plist>\n' "$2" > "$1"
+}
+run_post() {  # run_post <plist binary> <outcome> ; prints "rc|code|log"
+    local h="$W/posthome"; rm -rf "$h"; mkdir -p "$h"
+    mk_plist "$h/com.ostler.ollama.plist" "$1"
+    OLLAMA_PIN_DIR="$h/.ostler/runtime/ollama-9.9.9" OLLAMA_PLIST="$h/com.ostler.ollama.plist" \
+    OLLAMA_PIN_OUTCOME="$2" INSTALL_LOG="$h/install.log" \
+    bash -c '. "$1"; fail_with_code() { echo "CODE $1"; exit 1; }; MSG_FAIL_OLLAMA_AGENT_NOT_PINNED="%s %s %s"; . "$2"; echo REACHED' _ "$FN" "$post" > "$h/out" 2>&1
+    printf '%s|%s|%s\n' "$(grep -c '^REACHED$' "$h/out")" "$(sed -n 's/^CODE //p' "$h/out")" "$(cat "$h/install.log" 2>/dev/null)"
+}
+APP="/Applications/Ollama.app/Contents/Resources/ollama"
+if [ "$(wc -l < "$post" | tr -d ' ')" -ge 5 ] && grep -q 'ERR-07-OLLAMA-AGENT-NOT-PINNED' "$post"; then
+    r_pin="$(run_post "$W/posthome/.ostler/runtime/ollama-9.9.9/ollama" installed)"
+    r_app="$(run_post "$APP" installed)"
+    r_def="$(run_post "$APP" deferred)"
+    if [ "${r_pin%%|*}" = 1 ] && [ "${r_app%%|*}" = 0 ] && [ "$(cut -d'|' -f2 <<<"$r_app")" = ERR-07-OLLAMA-AGENT-NOT-PINNED ] \
+       && [ "${r_def%%|*}" = 1 ] && grep -qF "ollama_server=${APP} pinned=no reason=pin_deferred" <<<"$r_def"; then
+        pass "L: agent on the pinned binary passes; agent on /Applications/Ollama.app FAILS ERR-07-OLLAMA-AGENT-NOT-PINNED; under a deferred pin it is recorded, not failed"
+    else bad "L: pinned=[$r_pin] app=[$r_app] deferred=[$r_def]"; fi
+else bad "L: install.sh has no 'agent must run the PINNED binary' block ending at 3.3b"; fi
+
 echo ""
-if [ "$fails" -gt 0 ] || [ "$ran" -ne 11 ]; then
-    echo "FAIL: ollama pin install: ${fails} of ${ran} cases failed (expected 11 run)" >&2
+if [ "$fails" -gt 0 ] || [ "$ran" -ne 12 ]; then
+    echo "FAIL: ollama pin install: ${fails} of ${ran} cases failed (expected 12 run)" >&2
     exit 1
 fi
-echo "PASS: ollama pin install: 11/11 -- sha256 enforced, updater refused, fresh failure loud, existing install deferred untouched"
+echo "PASS: ollama pin install: 12/12 -- sha256 enforced, updater refused, fresh failure loud, existing install deferred untouched, agent must run the pinned binary"

@@ -3416,7 +3416,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8587   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8632   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8641 and :16283, both of which run
+    # Its two top-level arming calls are :8641 and :16315, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17063, where the note reads
+    # WhatsApp Web session path did it again at :17095, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17080 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17112 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3453,9 +3453,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8641, :16283) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8641, :16315) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19226 / :19404 / :19561 / :20006 path. There the
+    # :19258 / :19436 / :19593 / :20038 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -14484,11 +14484,30 @@ _ostler_ollama_pin_is_current() {
 # com.ostler.ollama agent serves from. Succeeds only when the plist exists,
 # its first ProgramArguments entry is an executable file, and Ollama answers
 # on :11434. Anything less is not a working install and must not defer.
+# _ostler_ollama_plist_bin <plist>: print ProgramArguments[0] of the agent
+# plist (the binary launchd actually runs). rc 1 when absent or unreadable.
+_ostler_ollama_plist_bin() {
+    local _bin
+    [[ -f "$1" ]] || return 1
+    _bin="$(/usr/bin/awk '/<key>ProgramArguments<\/key>/{f=1; next} f && /<string>/{sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit}' "$1")" || return 1
+    [[ -n "$_bin" ]] || return 1
+    printf '%s\n' "$_bin"
+}
+
+# _ostler_ollama_plist_runs_pinned <plist>: TRUE only when launchd runs the
+# PINNED engine, ${OLLAMA_PIN_DIR}/ollama, exactly. A customer's own
+# /Applications/Ollama.app updates itself (measured: the Studio's app moved to
+# 0.40.5 on its own), so an agent pointing at it can drift under any pin.
+_ostler_ollama_plist_runs_pinned() {
+    local _bin
+    _bin="$(_ostler_ollama_plist_bin "$1")" || return 1
+    [[ "$_bin" == "${OLLAMA_PIN_DIR}/ollama" ]]
+}
+
 _ostler_ollama_existing_bin() {
     local _plist="$1" _bin
-    [[ -f "$_plist" ]] || return 1
-    _bin="$(/usr/bin/awk '/<key>ProgramArguments<\/key>/{f=1; next} f && /<string>/{sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit}' "$_plist")" || return 1
-    [[ -n "$_bin" && -x "$_bin" ]] || return 1
+    _bin="$(_ostler_ollama_plist_bin "$_plist")" || return 1
+    [[ -x "$_bin" ]] || return 1
     curl -sf --max-time 5 http://localhost:11434/api/tags >/dev/null 2>&1 || return 1
     printf '%s\n' "$_bin"
 }
@@ -15088,6 +15107,19 @@ OLLAMAPLIST
         warn "The local AI agent lost port 11434 once while starting and then took it. That is a normal handover from a previous copy, not a fault, and the bind error in ${_ollama_err_path} is that moment."  # i18n-exempt
     fi
     ok "$MSG_OK_OLLAMA_RUNNING"
+fi
+
+# ── THE AGENT MUST RUN THE PINNED BINARY (Archie, #2977) ──
+# Whatever path got us here (fresh write, rewrite of a cask-era plist, or the
+# already-running skip), launchd's ProgramArguments[0] must now be
+# ${OLLAMA_PIN_DIR}/ollama. The one exception is a DEFERRED pin (download /
+# sha256 / unpack failed on a working existing install): that keeps the old
+# server on purpose, so it is recorded for the walk, not hidden.
+if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then
+    echo "ollama_server=$(_ostler_ollama_plist_bin "$OLLAMA_PLIST" 2>/dev/null || echo unreadable) pinned=no reason=pin_deferred" >> "$INSTALL_LOG" 2>/dev/null || true
+elif ! _ostler_ollama_plist_runs_pinned "$OLLAMA_PLIST"; then
+    fail_with_code "ERR-07-OLLAMA-AGENT-NOT-PINNED" \
+        "$(printf "$MSG_FAIL_OLLAMA_AGENT_NOT_PINNED" "$(_ostler_ollama_plist_bin "$OLLAMA_PLIST" 2>/dev/null || echo unreadable)" "${OLLAMA_PIN_DIR}/ollama" "$INSTALL_LOG")"
 fi
 
 # ── 3.3b Ollama log rotation ──────────────────────────────────────
