@@ -436,3 +436,84 @@ def test_fathom_unrecognised_json_is_refused(tmp_path):
     p = tmp_path / "x.json"; p.write_text(json.dumps({"items": [{"nope": 1}]}))
     with pytest.raises(ValueError):
         parse_file("fathom", p)
+
+
+# ---- customer path: a flat ~/Downloads, detected by content, plus the record
+# the Doctor's source table reads (key=value, ~/.ostler/state/hydrate/<source>.done).
+from meeting_import.adapters import detect  # noqa: E402
+
+def test_detect_by_content_and_documented_names(tmp_path):
+    (tmp_path / "Synthetic Weekly Call_otter_ai.txt").write_text(OTTER_TXT_REAL)
+    (tmp_path / "ff.json").write_text(json.dumps(FIREFLIES_V))
+    (tmp_path / "fathom.json").write_text(json.dumps(FATHOM_PAGE))
+    (tmp_path / "granola-note.json").write_text(json.dumps(GRANOLA_V1))
+    (tmp_path / "granola-export.csv").write_text(GRANOLA_CSV)
+    (tmp_path / "package.json").write_text(json.dumps({"name": "x", "version": "1"}))   # not a meeting
+    (tmp_path / "holiday.docx").write_bytes(b"PK")                                       # never guessed
+    (tmp_path / "budget.csv").write_text("Title,Summary\nx,y\n")                         # no Granola name
+    got = {p.name: detect(p) for p in tmp_path.iterdir()}
+    assert got == {"Synthetic Weekly Call_otter_ai.txt": "otter", "ff.json": "fireflies",
+                   "fathom.json": "fathom", "granola-note.json": "granola",
+                   "granola-export.csv": "granola", "package.json": None,
+                   "holiday.docx": None, "budget.csv": None}
+
+def test_flat_downloads_end_to_end_with_doctor_record(tmp_path):
+    dl = tmp_path / "Downloads"; dl.mkdir()
+    (dl / "Synthetic Weekly Call_otter_ai.txt").write_text(OTTER_TXT_REAL)
+    (dl / "ff.json").write_text(json.dumps(FIREFLIES_V))
+    (dl / "fathom.json").write_text(json.dumps(FATHOM_PAGE))
+    (dl / "granola-export.csv").write_text(GRANOLA_CSV)
+    (dl / "package.json").write_text(json.dumps({"name": "x"}))
+    state = tmp_path / "hydrate"
+    out = tmp_path / "Conversations"
+    r = importer.import_all(root=dl, loose=True, out_root=out, force=True, directory=FakeDirectory(),
+                            reminders_db_path=tmp_path / "rem.db", sentinel_dir=state)
+    assert r["imported"] == 4 and r["failed"] == 0 and r["by_source"] == {
+        "otter": 1, "fireflies": 1, "fathom": 1, "granola": 1}
+    for f in map(Path, r["folders"]):
+        assert {"summary.md", "transcript.md", "todos.md"} <= {p.name for p in f.iterdir()}
+        assert f.parent.parent == out and len(f.parent.name) == 10
+    rec = dict(l.split("=", 1) for l in (state / "meetings.done").read_text().splitlines())
+    assert rec["source"] == "meetings" and rec["status"] == "ok" and rec["item_count"] == "4"
+    assert rec["payload"] == "fathom=1 fireflies=1 granola=1 otter=1"
+
+def test_doctor_record_says_no_data_and_error_honestly(tmp_path):
+    dl = tmp_path / "Downloads"; dl.mkdir()
+    state = tmp_path / "hydrate"
+    importer.import_all(root=dl, loose=True, out_root=tmp_path / "o", force=True, sentinel_dir=state)
+    rec = dict(l.split("=", 1) for l in (state / "meetings.done").read_text().splitlines())
+    assert rec["status"] == "no_data" and rec["item_count"] == "0"
+    (dl / "broken_otter_ai.docx").write_bytes(b"not a zip")
+    importer.import_all(root=dl, loose=True, out_root=tmp_path / "o", force=True, sentinel_dir=state)
+    rec = dict(l.split("=", 1) for l in (state / "meetings.done").read_text().splitlines())
+    assert rec["status"] == "error" and rec["failed"] == "1"
+
+
+def test_cli_end_to_end_export_files_to_four_artefacts(tmp_path):
+    """The real entry point, in a child process, flag ON, sandboxed HOME."""
+    import os, subprocess
+    dl = tmp_path / "Downloads"; dl.mkdir()
+    (dl / "granola-export.csv").write_text(GRANOLA_CSV)
+    (dl / "Synthetic Weekly Call_otter_ai.txt").write_text(OTTER_TXT_REAL)
+    (dl / "ff.json").write_text(json.dumps(FIREFLIES_V))
+    (dl / "fathom.json").write_text(json.dumps(FATHOM_PAGE))
+    out = tmp_path / "Conversations"
+    env = dict(os.environ, OSTLER_HOME=str(tmp_path / ".ostler"),
+               OSTLER_MEETING_IMPORT_ENABLED="1", PYTHONPATH=str(ROOT))
+    off = subprocess.run([sys.executable, "-m", "meeting_import", "--loose", str(dl), "--out", str(out)],
+                         env=dict(env, OSTLER_MEETING_IMPORT_ENABLED="0"), capture_output=True, text=True, cwd=ROOT)
+    assert off.returncode == 0 and '"disabled"' in off.stdout and not out.exists()   # flag OFF control
+    r = subprocess.run([sys.executable, "-m", "meeting_import", "--loose", str(dl), "--out", str(out)],
+                       env=env, capture_output=True, text=True, cwd=ROOT)
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    assert res["imported"] == 4 and res["failed"] == 0
+    bundles = sorted(p.parent for p in out.rglob("summary.md"))
+    assert len(bundles) == 4
+    for b in bundles:
+        s, t, td = [(b / n).read_text() for n in ("summary.md", "transcript.md", "todos.md")]
+        for doc in (s, t, td):
+            assert doc.startswith("---") and "privacy_level: L2" in doc and "conversation_id:" in doc
+        assert "imported_from:" in s and t.strip()
+    rec = (tmp_path / ".ostler" / "state" / "hydrate" / "meetings.done").read_text()
+    assert "status=ok" in rec and "item_count=4" in rec
