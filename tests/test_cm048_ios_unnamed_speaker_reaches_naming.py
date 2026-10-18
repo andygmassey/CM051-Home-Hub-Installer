@@ -47,8 +47,8 @@ class NamingLLM:
 
         class Result:
             parsed_json = {"labels": [{
-                "raw_label": label["raw_label"], "inferred_person_id": "sam_example",
-                "inferred_display_name": "Sam Example", "confidence": 0.95,
+                "raw_label": label["raw_label"], "inferred_person_id": "sam_smith",
+                "inferred_display_name": "Sam Smith", "confidence": 0.95,
                 "evidence": "synthetic"} for label in labels]}
 
         return Result()
@@ -98,7 +98,7 @@ def test_speaker_1_reaches_naming_and_is_named(settings):
     asked, feedback = _name("Speaker 1", settings)
     assert asked == ["Speaker 1"]
     assert [(l["raw_label"], l["inferred_display_name"], l["apply_mode"]) for l in feedback["labels"]] == [
-        ("Speaker 1", "Sam Example", "auto")]
+        ("Speaker 1", "Sam Smith", "auto")]
     assert feedback["unresolved_labels"] == []
 
 
