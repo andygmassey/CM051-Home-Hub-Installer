@@ -1096,6 +1096,12 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     cards = drop_resting(cards)
     cards = privacy_gate(cards)
     cards = entitlement_gate(cards, entitled, now)
+    # A card must never appear without a working action. The app routes only
+    # open_interest_profile; the consent_grant:<key> verb a consent card
+    # carries has no route from the app to the writer (the Doctor feedback
+    # route rejects it), so the card would show with no button. Held back
+    # until the consent writer is reachable (owed). Walk #27, 2026-10-14.
+    cards = [c for c in cards if c.get("kind") != "consent"]
     cards.sort(key=lambda c: c.get("priority", 0.0), reverse=True)
     cards = dedup_by_id(cards)
     cards = _apply_feed_caps(cards)

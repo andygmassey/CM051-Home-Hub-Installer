@@ -47,12 +47,19 @@
 #      recurring defect (see verify_tagged_commit_is_green.sh, the same shape).
 #   3. FEWER THAN THE FLOOR             -> CANNOT-RUN. The floor is not a
 #      hand-picked constant that goes stale: it is RECOMPUTED every run from
-#      the checked-out tree, counting workflow files whose `pull_request:`
-#      trigger carries no `paths:`/`paths-ignore:` filter (this file excluded
-#      by name). Those files are the ones GUARANTEED to produce a check-run on
-#      every single PR; if fewer of them show up than the tree currently
-#      declares, the enumeration itself is suspect and this refuses to guess
-#      why. Measured 2026-09-12: floor is 30.
+#      the checked-out tree, as the number of check-runs this PR is
+#      GUARANTEED to get (resolve_expected: unfiltered `pull_request:`
+#      workflows whose branches/types admit this PR, every job, every matrix
+#      leg; this file excluded by name). Measured 2026-10-17: 40 check-runs
+#      from 33 workflows. It used to count FILES (30, later 34).
+#   3b. AN EXPECTED CHECK MISSING       -> RED, naming it. Counting alone was
+#      not enough: the total it compared against includes every PATH-FILTERED
+#      check too, so one required check that never reported (a workflow that
+#      failed at startup, with zero jobs) was paid for by any filtered check
+#      that did, and this gate stayed GREEN. Each expected check-run is now
+#      required by identity, (workflow file, name), and check-runs are keyed
+#      the same way, so two workflows' same-named jobs can no longer
+#      supersede each other.
 #   4. SAMPLING ONCE                    -> this polls. A check still
 #      in_progress or queued when we look is not evidence of anything; the
 #      loop waits (bounded by OSTLER_GATE_MAX_WAIT_SECONDS) and re-reads until
@@ -140,8 +147,11 @@
 #   OSTLER_GATE_POLL_INTERVAL_SECONDS  default 20
 #   OSTLER_GATE_MAX_WAIT_SECONDS        default 2700 (45 min). An IDLE window,
 #                                    not a total: the clock restarts whenever
-#                                    any check changes state (queued ->
-#                                    started -> completed). Added after
+#                                    a check starts or finishes, and holds
+#                                    while any check is running. A check that
+#                                    only sits queued restarts nothing, so a
+#                                    lane with nothing running and nothing
+#                                    moving still ends in CANNOT-RUN. Added after
 #                                    probe-tests queued ~17 min then ran ~31
 #                                    min and a total budget gave up (CANNOT-RUN)
 #                                    on every PR that triggers it (PR #2799,
@@ -179,15 +189,43 @@ BLOCKING='failure cancelled timed_out action_required stale'
 GOOD='success skipped neutral'
 
 # ---------------------------------------------------------------------------
-# resolve_floor -- the anti-vacuity floor, recomputed from the tree every run
-# unless OSTLER_GATE_FLOOR overrides it (self-test only; a live run must never
-# set this, or the floor stops meaning anything).
+# resolve_expected -- WHICH check-runs this pull request is guaranteed to get,
+# by workflow file AND name, computed from the tree. Prints one JSON object:
+#   {"floor": N, "workflows": {".github/workflows/x.yml":
+#                               {"names": [...], "unnamed": k}}}
+#
+# 🔴 WHY THIS REPLACED A COUNT OF FILES (CM051, 2026-10-17)
+#
+# The floor used to be "how many workflow files are unconditional", compared
+# with the TOTAL of every check-run on the commit. Path-filtered checks are in
+# that total too -- 50 to 190 of them on a real PR against a floor of 34 -- so a
+# required check that never reported was paid for by any filtered check that
+# did. A pull request that broke an unconditional workflow at STARTUP (zero
+# jobs, zero check-runs) left the total comfortably above the floor and this
+# gate GREEN. That is the very hole the floor existed to close.
+#
+# So the floor is now the EXPECTED check-runs, and each one is required by
+# identity (workflow file + check name), not merely counted. A check-run that
+# is expected and never reports is RED, and the message names it.
+#
+# WHAT COUNTS AS EXPECTED, and why each rule errs towards expecting LESS:
+#   * a `pull_request:` trigger with no paths/paths-ignore filter;
+#   * whose `branches`/`branches-ignore` admit OSTLER_GATE_BASE_REF -- with a
+#     branch filter and no known base ref, the workflow is NOT expected;
+#   * whose `types` include OSTLER_GATE_EVENT_ACTION (default types: opened,
+#     synchronize, reopened) -- with `types` and no known action, NOT expected;
+#   * every job, because a job skipped by its own `if:` or by a failed
+#     `needs:` still reports a check-run (conclusion skipped);
+#   * one name per matrix leg, "<name> (<v1>, <v2>)", when the job name and
+#     the matrix are literal; otherwise the leg counts towards `unnamed`, which
+#     requires that many check-runs from that file without naming them;
+#   * a reusable-workflow call (`uses:` job) counts as ONE unnamed check-run:
+#     its inner names are not knowable from this tree.
+# Expecting too little can only make this gate weaker; expecting a check that
+# GitHub would never create would make it unpassable. Every rule above picks
+# the first failure mode, and the self-test pins each.
 # ---------------------------------------------------------------------------
-resolve_floor() {
-    if [ -n "${OSTLER_GATE_FLOOR:-}" ]; then
-        echo "${OSTLER_GATE_FLOOR}"
-        return 0
-    fi
+resolve_expected() {
     local wf_dir self
     wf_dir="${OSTLER_GATE_WORKFLOWS_DIR:-$REPO_ROOT/.github/workflows}"
     self="${OSTLER_GATE_SELF_WORKFLOW_FILE:-ci-required-gate.yml}"
@@ -196,7 +234,7 @@ resolve_floor() {
         return 2
     fi
     WORKFLOWS_DIR="$wf_dir" SELF_WORKFLOW_FILE="$self" python3 - <<'PY'
-import glob, os, sys
+import glob, itertools, json, os, re, sys
 try:
     import yaml
 except Exception:
@@ -205,45 +243,137 @@ except Exception:
 
 wf_dir = os.environ["WORKFLOWS_DIR"]
 self_file = os.environ["SELF_WORKFLOW_FILE"]
-count = 0
+base_ref = os.environ.get("OSTLER_GATE_BASE_REF", "")
+action = os.environ.get("OSTLER_GATE_EVENT_ACTION", "")
+DEFAULT_TYPES = ["opened", "synchronize", "reopened"]
+
+
+def glob_rx(pat):
+    out, i = [], 0
+    while i < len(pat):
+        if pat.startswith("**", i):
+            out.append(".*"); i += 2
+        elif pat[i] == "*":
+            out.append("[^/]*"); i += 1
+        elif pat[i] == "?":
+            out.append("[^/]"); i += 1
+        else:
+            out.append(re.escape(pat[i])); i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def as_list(v):
+    if v is None:
+        return []
+    return v if isinstance(v, list) else [v]
+
+
+def admits(pr):
+    """Does this pull_request trigger certainly fire for THIS pull request?"""
+    if pr.get("paths") or pr.get("paths-ignore"):
+        return False
+    if "branches" in pr or "branches-ignore" in pr:
+        if not base_ref:
+            return False
+        if "branches" in pr:
+            pats = [str(b) for b in as_list(pr["branches"])]
+            if any(p.startswith("!") for p in pats):
+                return False            # order-dependent negation: do not guess
+            if not any(glob_rx(p).match(base_ref) for p in pats):
+                return False
+        if "branches-ignore" in pr:
+            if any(glob_rx(str(p)).match(base_ref)
+                   for p in as_list(pr["branches-ignore"])):
+                return False
+    if "types" in pr:
+        if not action or action not in [str(t) for t in as_list(pr["types"])]:
+            return False
+    elif action and action not in DEFAULT_TYPES:
+        return False
+    return True
+
+
+def legs(job):
+    """[(suffix or None)] per matrix leg; None = cannot name it."""
+    strat = job.get("strategy") or {}
+    m = strat.get("matrix")
+    if m is None:
+        return [""]
+    if not isinstance(m, dict) or "include" in m or "exclude" in m:
+        return [None]
+    keys = list(m)
+    vals = [m[k] for k in keys]
+    if not all(isinstance(v, list) and v for v in vals):
+        return [None]
+    out = []
+    for combo in itertools.product(*vals):
+        if not all(isinstance(c, (str, int, float)) and not isinstance(c, bool)
+                   for c in combo):
+            out.append(None)
+            continue
+        out.append(" (" + ", ".join(str(c) for c in combo) + ")")
+    return out
+
+
+workflows, floor = {}, 0
 for path in sorted(glob.glob(os.path.join(wf_dir, "*.yml")) + glob.glob(os.path.join(wf_dir, "*.yaml"))):
-    if os.path.basename(path) == self_file:
+    base = os.path.basename(path)
+    if base == self_file:
         continue
     try:
         with open(path) as fh:
             doc = yaml.safe_load(fh)
     except Exception:
-        # A workflow file that cannot even be parsed cannot be proven
-        # unconditional, so it does not raise the floor. Undercounting here
-        # is the safe direction: it can only make the gate MORE willing to
-        # refuse, never less.
+        # A file that cannot be parsed cannot be proven to fire. Expecting
+        # nothing of it is the weaker direction, never the unpassable one.
         continue
     if not isinstance(doc, dict):
         continue
-    # PyYAML 1.1 quirk: a bare `on:` key can load under the boolean key
-    # `True` rather than the string "on" depending on loader/version.
     on = doc["on"] if "on" in doc else doc.get(True)
-    if on is None:
-        continue
-    has_pr = False
-    pr_val = None
-    if isinstance(on, dict):
-        has_pr = "pull_request" in on
-        pr_val = on.get("pull_request")
+    if isinstance(on, str):
+        on = {on: None}
     elif isinstance(on, list):
-        has_pr = "pull_request" in on
-    elif isinstance(on, str):
-        has_pr = (on == "pull_request")
-    if not has_pr:
+        on = {k: None for k in on}
+    if not isinstance(on, dict) or "pull_request" not in on:
         continue
-    # Bare `pull_request:` (value None) or an empty map is unconditional.
-    if pr_val is None or pr_val == {}:
-        count += 1
+    pr = on.get("pull_request") or {}
+    if not isinstance(pr, dict) or not admits(pr):
         continue
-    if isinstance(pr_val, dict) and "paths" not in pr_val and "paths-ignore" not in pr_val:
-        count += 1
-print(count)
+    names, unnamed = [], 0
+    for jid, job in (doc.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        if "uses" in job:
+            unnamed += 1
+            continue
+        jname = str(job.get("name", jid))
+        for suffix in legs(job):
+            if suffix is None or "${{" in jname:
+                unnamed += 1
+            else:
+                names.append(jname + suffix)
+    if names or unnamed:
+        workflows[".github/workflows/" + base] = {"names": names, "unnamed": unnamed}
+        floor += len(names) + unnamed
+print(json.dumps({"floor": floor, "workflows": workflows}, sort_keys=True))
 PY
+}
+
+# ---------------------------------------------------------------------------
+# resolve_floor -- the anti-vacuity floor: the number of EXPECTED check-runs
+# (see resolve_expected), unless OSTLER_GATE_FLOOR overrides it (self-test
+# only; a live run must never set this, or the floor stops meaning anything).
+# ---------------------------------------------------------------------------
+resolve_floor() {
+    if [ -n "${OSTLER_GATE_FLOOR:-}" ]; then
+        echo "${OSTLER_GATE_FLOOR}"
+        return 0
+    fi
+    local exp
+    exp="$(resolve_expected)" || { echo "CANNOT-RUN-FLOOR"; return 2; }
+    [ "$exp" = "CANNOT-RUN-FLOOR" ] && { echo "$exp"; return 2; }
+    python3 -c 'import json,sys; print(json.loads(sys.argv[1])["floor"])' "$exp" \
+        || { echo "CANNOT-RUN-FLOOR"; return 2; }
 }
 
 # ---------------------------------------------------------------------------
@@ -292,6 +422,43 @@ fetch_check_runs() {
 }
 
 # ---------------------------------------------------------------------------
+# fetch_runs <sha> <repo> <outfile> <attempt> -- the workflow RUNS at this
+# commit, which is the only place a check-run's workflow FILE can be read
+# (a check-run carries its run id in its URL, never its path). Needs
+# `actions: read`. Same fixture and failure contract as fetch_check_runs.
+# In fixture mode with no runs fixture it writes [] -- every check-run then
+# keys on its name alone, exactly as before, so older fixtures still mean
+# what they meant.
+# ---------------------------------------------------------------------------
+fetch_runs() {
+    local sha="$1" repo="$2" out="$3" attempt="$4"
+    if [ -n "${OSTLER_RUNS_JSON_SEQUENCE:-}" ]; then
+        local old_ifs="$IFS" seq idx n
+        IFS=':' read -r -a seq <<< "$OSTLER_RUNS_JSON_SEQUENCE"
+        IFS="$old_ifs"
+        n=${#seq[@]}; idx=$((attempt - 1))
+        [ "$idx" -ge "$n" ] && idx=$((n - 1))
+        cp "${seq[$idx]}" "$out" 2>/dev/null || return 1
+        return 0
+    fi
+    if [ -n "${OSTLER_RUNS_JSON:-}" ]; then
+        cp "$OSTLER_RUNS_JSON" "$out" 2>/dev/null || return 1
+        return 0
+    fi
+    if [ -n "${OSTLER_CHECKRUNS_JSON:-}${OSTLER_CHECKRUNS_JSON_SEQUENCE:-}" ]; then
+        printf '[]' > "$out"
+        return 0
+    fi
+    if ! gh api "repos/$repo/actions/runs?head_sha=$sha&per_page=100" --paginate --slurp > "$out" 2>"$out.err"; then
+        [ -s "$out.err" ] && dim "  gh said (runs): $(tr '\n' ' ' < "$out.err" | cut -c1-300)"
+        rm -f "$out.err"
+        return 1
+    fi
+    rm -f "$out.err"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # evaluate <json-file> -- classifies ONE snapshot. Prints a tab-separated
 # line: STATE  SUBVERDICT  TOTAL  COMPLETED  EXCLUDED  DETAIL
 #   STATE       PENDING (keep polling) or DONE (subverdict is final)
@@ -301,13 +468,14 @@ fetch_check_runs() {
 # ---------------------------------------------------------------------------
 evaluate() {
     local f="$1"
-    python3 - "$f" <<'PY'
+    python3 - "$f" "${2:-}" <<'PY'
 import json, os, sys
 
 BLOCKING = {"failure", "cancelled", "timed_out", "action_required", "stale"}
 GOOD = {"success", "skipped", "neutral"}
 
 f = sys.argv[1]
+runs_file = sys.argv[2] if len(sys.argv) > 2 else ""
 own = {n.strip() for n in os.environ.get("OSTLER_GATE_OWN_JOB_NAMES", "CI Required Gate,cut,preflight,dry-run").split(",") if n.strip()}
 try:
     floor = int(os.environ["OSTLER_GATE_FLOOR_RESOLVED"])
@@ -343,6 +511,27 @@ else:
 seen = len(runs)
 runs = [r for r in runs if r.get("name") not in own]
 excluded = seen - len(runs)
+
+# WHICH WORKFLOW FILE each check-run came from. A check-run's URL carries its
+# Actions run id; the runs payload maps that id to the file. A check-run whose
+# run is unknown (a non-Actions app, or a fixture with no runs) keys on "".
+import re as _re
+run_path, run_rows = {}, []
+try:
+    rdoc = json.load(open(runs_file)) if runs_file else []
+except Exception as exc:
+    print(f"PENDING\t-\t0\t0\t0\tunreadable workflow-runs payload this round: {exc}")
+    raise SystemExit(0)
+for page in (rdoc if isinstance(rdoc, list) else [rdoc]):
+    items = page.get("workflow_runs", []) if isinstance(page, dict) else []
+    for w in items:
+        run_rows.append(w)
+        run_path[str(w.get("id"))] = w.get("path") or ""
+
+
+def path_of(r):
+    m = _re.search(r"/actions/runs/(\d+)/job/", str(r.get("details_url") or r.get("html_url") or ""))
+    return run_path.get(m.group(1), "") if m else ""
 
 # ONE CHECK NAME CAN HAVE MULTIPLE ATTEMPTS ON THE SAME COMMIT. A concurrency
 # rule (this repo uses `cancel-in-progress` almost everywhere) cancels an
@@ -384,17 +573,26 @@ excluded = seen - len(runs)
 #     is lower than the successful attempt's id (103562901507) for BOTH
 #     duplicated names, consistent with creation order, and it stays
 #     comparable even while the newer attempt is still queued or running.
+#
+# 🔴 KEYED BY (WORKFLOW FILE, NAME), NOT BY NAME (CM051, 2026-10-17). Keyed by
+# name alone, two DIFFERENT workflows' jobs that share a name were treated as
+# two attempts of one check, and the later one silently decided both. Measured
+# on real PRs that day: `gate` is a job in four workflows, `predicate-self-test`
+# in four, `self-test` in three; PR #2941's 178 check-runs collapsed to 167, so
+# eleven were never graded on their own, and a FAILED `gate` from one workflow
+# was masked by any later passing `gate` from another. Attempts of the SAME
+# check still collapse to the latest, which is what the #1937 fix was for.
 latest_by_name = {}
 collapsed = 0
 for r in runs:
-    name = r.get("name")
-    prior = latest_by_name.get(name)
+    key = (path_of(r), r.get("name"))
+    prior = latest_by_name.get(key)
     if prior is None:
-        latest_by_name[name] = r
+        latest_by_name[key] = r
         continue
     collapsed += 1
     if (r.get("id") or 0) > (prior.get("id") or 0):
-        latest_by_name[name] = r
+        latest_by_name[key] = r
 runs = list(latest_by_name.values())
 
 # The anti-vacuity floor counts DISTINCT check NAMES, never raw check-run
@@ -446,10 +644,68 @@ if pending:
     raise SystemExit(0)
 
 # Every non-self check-run has status == completed from here on.
+#
+# EVERY EXPECTED CHECK MUST HAVE REPORTED. See resolve_expected for what is
+# expected and why. A missing one is decided by its workflow's RUN:
+#   run still queued/in progress   -> PENDING (its jobs may not exist yet)
+#   run completed                  -> RED: it ran and that check never
+#                                     reported (a startup failure is this:
+#                                     conclusion failure, zero jobs)
+#   no run at all, inside grace    -> PENDING
+#   no run at all, after grace     -> RED: the workflow never ran here
+expected = {}
+exp_file = os.environ.get("OSTLER_GATE_EXPECTED_FILE", "")
+if exp_file:
+    try:
+        expected = json.load(open(exp_file)).get("workflows", {})
+    except Exception as exc:
+        print(f"DONE\tCANNOT-RUN\t{total}\t{len(completed)}\t{excluded}\t"
+              f"the expected-check list is unreadable ({exc}) -- refusing to guess it")
+        raise SystemExit(0)
+present = {}
+for r in runs:
+    present.setdefault(path_of(r), set()).add(r.get("name"))
+latest_run = {}
+for w in run_rows:
+    p = w.get("path") or ""
+    if p not in latest_run or (w.get("id") or 0) > (latest_run[p].get("id") or 0):
+        latest_run[p] = w
+try:
+    elapsed = int(os.environ.get("OSTLER_GATE_ELAPSED_SECONDS", "0"))
+    grace = int(os.environ.get("OSTLER_GATE_MISSING_GRACE_SECONDS", "600"))
+except ValueError:
+    elapsed, grace = 0, 600
+waiting, missing = [], []
+for p, want in sorted(expected.items()):
+    got = present.get(p, set())
+    gone = [n for n in want.get("names", []) if n not in got]
+    short = (len(want.get("names", [])) + int(want.get("unnamed", 0))) - len(got)
+    if not gone and short <= 0:
+        continue
+    what = ", ".join(gone) if gone else f"{short} unnamed check-run(s)"
+    w = latest_run.get(p)
+    if w is not None and w.get("status") != "completed":
+        waiting.append(f"{p} (run {w.get('status')}): {what}")
+    elif w is not None:
+        missing.append(f"{p} ran (conclusion {w.get('conclusion')}) but never reported: {what}")
+    elif elapsed < grace:
+        waiting.append(f"{p} (no run yet, {elapsed}s of {grace}s grace): {what}")
+    else:
+        missing.append(f"{p} has NO workflow run at this commit after {elapsed}s: {what}")
+if missing:
+    print(f"DONE\tRED\t{total}\t{len(completed)}\t{excluded}\t"
+          f"{len(missing)} REQUIRED workflow(s) never reported their check(s): "
+          + "; ".join(missing))
+    raise SystemExit(0)
+if waiting:
+    print(f"PENDING\t-\t{total}\t{len(completed)}\t{excluded}\t"
+          f"waiting on {len(waiting)} required workflow(s): " + "; ".join(waiting))
+    raise SystemExit(0)
+
 if total < floor:
     print(f"DONE\tCANNOT-RUN\t{total}\t{len(completed)}\t{excluded}\t"
           f"only {total} non-self check-run(s) ever concluded; the tree's own "
-          f"unconditional-workflow count is {floor}. The enumeration itself is "
+          f"expected check-run count is {floor}. The enumeration itself is "
           f"suspect -- refusing to guess why fewer showed up.")
     raise SystemExit(0)
 
@@ -492,10 +748,32 @@ poll_and_decide() {
         return 2
     fi
 
-    dim "polling check-runs for ${sha:0:12} in $repo -- floor=${floor}, excluding: ${own}"
+    # The expected checks, by identity. A self-test that overrides the floor
+    # without supplying an expected list is testing the count alone, and gets
+    # no identity requirement -- that is how the older fixtures keep meaning
+    # what they meant. A LIVE run always computes it, and cannot skip it.
+    local exp_file
+    exp_file="$(mktemp)"
+    if [ -n "${OSTLER_GATE_EXPECTED_JSON:-}" ]; then
+        cp "$OSTLER_GATE_EXPECTED_JSON" "$exp_file" || { red "CANNOT-RUN: unreadable OSTLER_GATE_EXPECTED_JSON"; return 2; }
+    elif [ -n "${OSTLER_GATE_FLOOR:-}" ]; then
+        printf '{"floor": 0, "workflows": {}}' > "$exp_file"
+    else
+        resolve_expected > "$exp_file" 2>/dev/null
+        if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))["workflows"]' "$exp_file" 2>/dev/null; then
+            red "CANNOT-RUN: could not compute the expected check-runs from the tree."
+            dim "Nothing was measured. This is not a pass."
+            rm -f "$exp_file"
+            return 2
+        fi
+    fi
+    local n_expected
+    n_expected="$(python3 -c 'import json,sys; w=json.load(open(sys.argv[1]))["workflows"]; print(sum(len(v["names"])+v["unnamed"] for v in w.values()))' "$exp_file")"
+
+    dim "polling check-runs for ${sha:0:12} in $repo -- floor=${floor}, ${n_expected} check-run(s) required by identity (base ${OSTLER_GATE_BASE_REF:-unknown}, action ${OSTLER_GATE_EVENT_ACTION:-unknown}), excluding: ${own}"
 
     local start now elapsed attempt=0 tmp state subverdict total completed excluded detail fetch_rc
-    local last_progress sig last_sig="" idle
+    local last_progress sig last_sig="" idle probe running
     start=$(date +%s)
     last_progress=$start
     while true; do
@@ -503,6 +781,10 @@ poll_and_decide() {
         tmp="$(mktemp)"
         fetch_check_runs "$sha" "$repo" "$tmp" "$attempt"
         fetch_rc=$?
+        if [ "$fetch_rc" -eq 0 ]; then
+            fetch_runs "$sha" "$repo" "$tmp.runs" "$attempt"
+            fetch_rc=$?
+        fi
         now=$(date +%s)
         elapsed=$((now - start))
 
@@ -511,25 +793,61 @@ poll_and_decide() {
             detail="could not read check-runs this round"
         else
             IFS=$'\t' read -r state subverdict total completed excluded detail < <(
-                OSTLER_GATE_FLOOR_RESOLVED="$floor" OSTLER_GATE_OWN_JOB_NAMES="$own" evaluate "$tmp")
+                OSTLER_GATE_FLOOR_RESOLVED="$floor" OSTLER_GATE_OWN_JOB_NAMES="$own" \
+                OSTLER_GATE_EXPECTED_FILE="$exp_file" OSTLER_GATE_ELAPSED_SECONDS="$elapsed" \
+                evaluate "$tmp" "$tmp.runs")
         fi
-        # Progress = the (name,status) set changed since the last good read.
-        # An unreadable or unparseable payload yields an empty signature and
-        # is never progress, so a dead API cannot extend the window.
+        # PROGRESS restarts the idle window. It is either of:
+        #   * a check STARTED or FINISHED since the last good read: the
+        #     (name,status) set of the checks that are no longer queued
+        #     changed. A check merely appearing as, or going back to, queued
+        #     resets nothing: a queue is not progress.
+        #   * a check is RUNNING right now. A 30-minute block is working, not
+        #     hung; a check that runs forever is still ended by the hard cap.
+        # The gate's own job(s) are left out of both, or the gate, which is
+        # always running while it polls, would count as its own progress.
+        #
+        # The live payload is `gh api --paginate --slurp`: an ARRAY of pages,
+        # read here exactly as evaluate() reads it. Until 2026-10-18 this read
+        # `.check_runs` off the array, which raised, was swallowed, and left
+        # an empty signature that is never progress -- so on every real PR
+        # the idle window never restarted and the gate gave up 45 minutes
+        # after its first poll however much was happening (#2959, #2962,
+        # #2963, #2973: "2704s with no check changing state" while legs were
+        # starting and finishing). The fixtures were single objects, so the
+        # self-test never saw it.
+        #
+        # An unreadable payload prints nothing and is never progress, so a
+        # dead API cannot extend the window.
         if [ "$fetch_rc" -eq 0 ]; then
-            sig="$(python3 -c '
-import json,sys
+            probe="$(OSTLER_GATE_OWN_JOB_NAMES="$own" python3 -c '
+import json,os,sys
+own = {n.strip() for n in os.environ.get("OSTLER_GATE_OWN_JOB_NAMES", "").split(",") if n.strip()}
 try:
-    d=json.load(open(sys.argv[1]))
-    print("|".join(sorted("%s:%s" % (r.get("name"), r.get("status")) for r in d.get("check_runs", []))))
+    doc = json.load(open(sys.argv[1]))
+    if isinstance(doc, list):
+        runs = []
+        for page in doc:
+            runs.extend((page.get("check_runs") or []) if isinstance(page, dict) else [page])
+    else:
+        runs = doc.get("check_runs") or []
+    runs = [r for r in runs if isinstance(r, dict) and r.get("name") not in own]
+    running = sum(1 for r in runs if r.get("status") == "in_progress")
+    sig = "|".join(sorted("%s:%s" % (r.get("name"), r.get("status"))
+                          for r in runs if r.get("status") != "queued"))
+    print("%d\t%s" % (running, sig))
 except Exception:
     pass' "$tmp" 2>/dev/null)"
-            if [ -n "$sig" ] && [ "$sig" != "$last_sig" ]; then
-                last_sig="$sig"; last_progress=$now
+            if [ -n "$probe" ]; then
+                running="${probe%%$'\t'*}"
+                sig="${probe#*$'\t'}"
+                if [ "$sig" != "$last_sig" ] || [ "$running" -gt 0 ]; then
+                    last_sig="$sig"; last_progress=$now
+                fi
             fi
         fi
         idle=$((now - last_progress))
-        rm -f "$tmp" "$tmp.err" 2>/dev/null
+        rm -f "$tmp" "$tmp.err" "$tmp.runs" 2>/dev/null
 
         dim "  [poll ${attempt}, ${elapsed}s elapsed] EXAMINED ${total} non-self check-run(s) (${completed} completed, ${excluded} excluded as self) -- ${detail}"
 
@@ -551,6 +869,7 @@ except Exception:
         sleep "$interval"
     done
 
+    rm -f "$exp_file"
     case "$subverdict" in
         GREEN)
             green "CI REQUIRED GATE GREEN -- ${total} non-self check-run(s) examined, ${excluded} excluded as self, none failed."
@@ -666,6 +985,7 @@ if [ "${1:-}" = "--self-test" ]; then
             OSTLER_CHECKRUNS_JSON="$TMP/$file.json" \
             OSTLER_GATE_FLOOR="$floor" \
             OSTLER_GATE_MAX_WAIT_SECONDS=1 \
+            OSTLER_GATE_HARD_CAP_SECONDS=3 \
             OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
             poll_and_decide deadbeefdeadbeef owner/repo
         ) >/dev/null 2>&1
@@ -702,6 +1022,7 @@ if [ "${1:-}" = "--self-test" ]; then
             OSTLER_CHECKRUNS_JSON="$TMP/$file.json" \
             OSTLER_GATE_FLOOR="$floor" \
             OSTLER_GATE_MAX_WAIT_SECONDS=1 \
+            OSTLER_GATE_HARD_CAP_SECONDS=3 \
             OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
             poll_and_decide deadbeefdeadbeef owner/repo 2>&1
         )
@@ -724,7 +1045,7 @@ if [ "${1:-}" = "--self-test" ]; then
         "a mixed queue reports both counts and claims neither shape" mixedpending4 4
 
     echo "=== it waits; it does not sample once ==="
-    run_case2 2 "one run still in_progress at the wait window closes -> CANNOT-RUN, not GREEN" onepending3
+    run_case2 2 "one run still in_progress that never settles -> CANNOT-RUN at the hard cap, not GREEN" onepending3
     (
         OSTLER_CHECKRUNS_JSON_SEQUENCE="$TMP/onepending3.json:$TMP/green3.json" \
         OSTLER_GATE_FLOOR=3 \
@@ -749,14 +1070,86 @@ if [ "${1:-}" = "--self-test" ]; then
     ) >/dev/null 2>&1
     rc=$?
     if [ "$rc" -eq 0 ]; then note "PASS  rc=$rc  late-start check finishing inside a restarted window passes"; else note "FAIL  rc=$rc want=0  late-start check"; fail=1; fi
-    # CONTROL: stuck in_progress, no change, longer than the idle window -> CANNOT-RUN (2).
-    (
-        OSTLER_CHECKRUNS_JSON_SEQUENCE="$TMP/allqueued3.json:$TMP/allstarted3.json" \
-        OSTLER_GATE_FLOOR=3 OSTLER_GATE_MAX_WAIT_SECONDS=3 OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
-        poll_and_decide deadbeefdeadbeef owner/repo
-    ) >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" -eq 2 ]; then note "PASS  rc=$rc  a check stuck past the idle window is CANNOT-RUN"; else note "FAIL  rc=$rc want=2  stuck check"; fail=1; fi
+
+    echo "=== a running check is progress; a queued one restarts nothing (live payload shape) ==="
+    # Every fixture below is in the LIVE shape, `gh api --paginate --slurp`:
+    # an array of pages. Until 2026-10-18 the progress signature could not
+    # read that shape, so on real PRs the window never restarted at all.
+    # Scale: one poll is 5 minutes, so the 45-minute idle window is 9 s.
+    mk s_queued3 '[{"total_count":3,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"queued"}]}]'
+    mk s_running3 '[{"total_count":3,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"in_progress"}]}]'
+    mk s_green3 '[{"total_count":3,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"completed","conclusion":"success"}]}]'
+    mk s_queued4 '[{"total_count":4,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"queued"},
+        {"name":"late-one","status":"queued"}]}]'
+    mk s_queued3_self_running '[{"total_count":4,"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"queued"},
+        {"name":"CI Required Gate","status":"in_progress"}]}]'
+    seq_of() {  # seq_of <fixture> <n> -> n colon-joined copies
+        local out="" i=0
+        while [ "$i" -lt "$2" ]; do out="${out:+$out:}$TMP/$1.json"; i=$((i + 1)); done
+        printf '%s' "$out"
+    }
+    gate_seq() {  # gate_seq <sequence> <max-wait> <hard-cap> -> sets rc, out
+        out="$(
+            OSTLER_CHECKRUNS_JSON_SEQUENCE="$1" \
+            OSTLER_GATE_FLOOR=3 OSTLER_GATE_MAX_WAIT_SECONDS="$2" OSTLER_GATE_HARD_CAP_SECONDS="$3" \
+            OSTLER_GATE_POLL_INTERVAL_SECONDS=1 poll_and_decide deadbeefdeadbeef owner/repo 2>&1
+        )"
+        rc=$?
+    }
+    # THE 2973 SHAPE: a 15-minute queue, then a block running for 30 minutes
+    # and seen still running on the next poll, with no other state change,
+    # then green. 50 minutes from the first poll: past the 45-minute window,
+    # and nothing was hung. Must PASS. (The pre-fix gate timed this out.)
+    gate_seq "$(seq_of s_queued3 3):$(seq_of s_running3 7):$TMP/s_green3.json" 9 60
+    if [ "$rc" -eq 0 ]; then note "PASS  rc=$rc  a 15-min queue then a 30-min running block (50 min from the first poll) does not time out"
+    else note "FAIL  rc=$rc want=0  a 15-min queue then a 30-min running block timed out"; fail=1; fi
+    # A running check holds the window by itself: running for twice the idle
+    # window with NO state change, then green. Must PASS.
+    gate_seq "$(seq_of s_running3 6):$TMP/s_green3.json" 3 60
+    if [ "$rc" -eq 0 ]; then note "PASS  rc=$rc  a check running past the idle window, with no state change, is still waited for"
+    else note "FAIL  rc=$rc want=0  a running check was treated as idle"; fail=1; fi
+    # CONTROL: genuinely stuck -- nothing running, no state change at all --
+    # is CANNOT-RUN, and by the IDLE window, not the hard cap.
+    gate_seq "$TMP/s_queued3.json" 3 60
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "with no check changing state" <<< "$out" && ! /usr/bin/grep -q "hard cap" <<< "$out"; then
+        note "PASS  rc=$rc  CONTROL: nothing running and nothing moving is CANNOT-RUN by the idle window"
+    else note "FAIL  rc=$rc want=2  a genuinely stuck queue was not ended by the idle window"; fail=1; fi
+    # A queued check restarts nothing: a second check APPEARING as queued,
+    # again and again, for longer than the hard cap. Counted as progress it
+    # would hold the window open until the cap; it must end by the idle
+    # window instead.
+    flap=""; i=0
+    while [ "$i" -lt 12 ]; do flap="${flap:+$flap:}$TMP/s_queued3.json:$TMP/s_queued4.json"; i=$((i + 1)); done
+    gate_seq "$flap" 3 20
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "with no check changing state" <<< "$out" && ! /usr/bin/grep -q "hard cap" <<< "$out"; then
+        note "PASS  rc=$rc  checks appearing as queued restart nothing: still CANNOT-RUN by the idle window"
+    else note "FAIL  rc=$rc want=2  a queued check was counted as progress"; fail=1; fi
+    # The gate's OWN check-run is always running while it polls. It must not
+    # count, or the gate would never be idle.
+    gate_seq "$TMP/s_queued3_self_running.json" 3 60
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "with no check changing state" <<< "$out"; then
+        note "PASS  rc=$rc  the gate's own running check-run is not progress"
+    else note "FAIL  rc=$rc want=2  the gate counted itself as progress"; fail=1; fi
+    # A check running forever still ends: the hard cap.
+    gate_seq "$TMP/s_running3.json" 3 5
+    if [ "$rc" -eq 2 ] && /usr/bin/grep -q "hard cap" <<< "$out"; then
+        note "PASS  rc=$rc  a check that runs forever is still ended, by the hard cap"
+    else note "FAIL  rc=$rc want=2  a never-ending running check was not capped"; fail=1; fi
     # HARD CAP: never settles; idle window huge, cap must end it. Uses the
     # one-state fixture so the cap (not a state flap) is what trips.
     (
@@ -854,6 +1247,143 @@ YML
         note "FAIL  floor computed as '$computed', want 2"; fail=1
     fi
     rm -rf "$FLOOR_TMP"
+
+    echo "=== expected check-runs, by identity (CM051, 2026-10-17) ==="
+    # Run 11 and 12 are two attempts of workflow a.yml; 22 is b.yml.
+    mk runs_ab '{"workflow_runs":[
+        {"id":11,"path":".github/workflows/a.yml","status":"completed","conclusion":"failure"},
+        {"id":12,"path":".github/workflows/a.yml","status":"completed","conclusion":"success"},
+        {"id":22,"path":".github/workflows/b.yml","status":"completed","conclusion":"success"}]}'
+    U='https://github.com/o/r/actions/runs'
+    # THE COLLISION: two DIFFERENT workflows each have a job named "gate". a.yml's
+    # failed; b.yml's (a higher id) passed. Keyed by name, the pass masked it.
+    mk collide '{"check_runs":[
+        {"id":101,"name":"gate","status":"completed","conclusion":"failure","details_url":"'$U'/11/job/101"},
+        {"id":202,"name":"gate","status":"completed","conclusion":"success","details_url":"'$U'/22/job/202"},
+        {"id":203,"name":"c","status":"completed","conclusion":"success","details_url":"'$U'/22/job/203"}]}'
+    run_case3() {  # run_case3 <want-rc> <label> <checks> <runs> [expected-json] [grace] [maxwait]
+        local want="$1" label="$2" checks="$3" rruns="$4" exp="${5:-}" grace="${6:-600}" mw="${7:-1}"
+        (
+            [ -n "$exp" ] && export OSTLER_GATE_EXPECTED_JSON="$TMP/$exp.json"
+            OSTLER_CHECKRUNS_JSON="$TMP/$checks.json" \
+            OSTLER_RUNS_JSON="$TMP/$rruns.json" \
+            OSTLER_GATE_FLOOR=2 \
+            OSTLER_GATE_MISSING_GRACE_SECONDS="$grace" \
+            OSTLER_GATE_MAX_WAIT_SECONDS="$mw" \
+            OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
+            poll_and_decide deadbeefdeadbeef owner/repo
+        ) > "$TMP/last.out" 2>&1
+        local rc=$?
+        if [ "$rc" -eq "$want" ]; then note "PASS  rc=$rc  $label"; else note "FAIL  rc=$rc want=$want  $label"; fail=1; fi
+    }
+    said() {  # said <text> <label> -- the last verdict must SAY why
+        if [ "$(grep -cF -- "$1" "$TMP/last.out")" -gt 0 ]; then note "PASS  $2"
+        else note "FAIL  $2 -- '$1' not in the verdict"; fail=1; fi
+    }
+    run_case3 1 "GUARD: a.yml's failed 'gate' is NOT masked by b.yml's passing 'gate'" collide runs_ab
+    # ITS CONTROL: the same check-runs with no runs payload key on the name
+    # alone, which is the old behaviour -- and it goes GREEN. That proves the
+    # fixture discriminates: the line above passes because of the keying.
+    (OSTLER_CHECKRUNS_JSON="$TMP/collide.json" OSTLER_GATE_FLOOR=2 OSTLER_GATE_MAX_WAIT_SECONDS=1 \
+     OSTLER_GATE_POLL_INTERVAL_SECONDS=1 poll_and_decide deadbeefdeadbeef owner/repo) >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then note "PASS  CONTROL: keyed by name alone (the old way) the same fixture goes GREEN -- the hole was real"
+    else note "FAIL  CONTROL: name-only keying gave rc=$rc, want 0 -- the collision fixture does not discriminate"; fail=1; fi
+
+    # Attempts of the SAME workflow still collapse to the latest.
+    mk sameflow '{"check_runs":[
+        {"id":101,"name":"gate","status":"completed","conclusion":"cancelled","details_url":"'$U'/11/job/101"},
+        {"id":105,"name":"gate","status":"completed","conclusion":"success","details_url":"'$U'/12/job/105"},
+        {"id":203,"name":"c","status":"completed","conclusion":"success","details_url":"'$U'/22/job/203"}]}'
+    run_case3 0 "a cancelled attempt superseded by a later run of the SAME workflow still passes" sameflow runs_ab
+
+    # Expected by identity: a.yml must report gate AND x; b.yml must report c.
+    printf '%s' '{"floor":3,"workflows":{".github/workflows/a.yml":{"names":["gate","x"],"unnamed":0},".github/workflows/b.yml":{"names":["c"],"unnamed":0}}}' > "$TMP/exp_ax.json"
+    run_case3 1 "a REQUIRED check that never reported is RED, though every reported check passed" sameflow runs_ab exp_ax
+    said "never reported: x" "  ...and the verdict names the missing check"
+    printf '%s' '{"floor":2,"workflows":{".github/workflows/a.yml":{"names":["gate"],"unnamed":0},".github/workflows/b.yml":{"names":["c"],"unnamed":0}}}' > "$TMP/exp_ok.json"
+    run_case3 0 "CONTROL: the same check-runs pass when every required check reported" sameflow runs_ab exp_ok
+
+    # A workflow that FAILS AT STARTUP: its run completed, zero jobs reported.
+    mk startfail_runs '{"workflow_runs":[
+        {"id":12,"path":".github/workflows/a.yml","status":"completed","conclusion":"success"},
+        {"id":22,"path":".github/workflows/b.yml","status":"completed","conclusion":"success"},
+        {"id":33,"path":".github/workflows/dead.yml","status":"completed","conclusion":"failure"}]}'
+    printf '%s' '{"floor":3,"workflows":{".github/workflows/a.yml":{"names":["gate"],"unnamed":0},".github/workflows/b.yml":{"names":["c"],"unnamed":0},".github/workflows/dead.yml":{"names":["d"],"unnamed":0}}}' > "$TMP/exp_dead.json"
+    run_case3 1 "a required workflow that failed at STARTUP (zero check-runs) is RED" sameflow startfail_runs exp_dead
+    said "dead.yml ran (conclusion failure) but never reported: d" "  ...and says it ran and reported nothing"
+    printf '%s' '{"floor":3,"workflows":{".github/workflows/dead.yml":{"names":[],"unnamed":1}}}' > "$TMP/exp_unnamed.json"
+    run_case3 1 "an UNNAMED required check-run (reusable call, expression name) is still required" sameflow startfail_runs exp_unnamed
+
+    # No run at all: waited for inside the grace, RED after it.
+    run_case3 1 "a required workflow with NO run is RED once the grace has passed" sameflow runs_ab exp_dead 1 5
+    said "NO workflow run at this commit" "  ...and says there was no run"
+    run_case3 2 "inside the grace it is waited for, not judged (the idle window closes first: CANNOT-RUN)" sameflow runs_ab exp_dead 600 1
+    # A run still in progress is waited for; when its check appears, GREEN.
+    mk running_runs '{"workflow_runs":[
+        {"id":12,"path":".github/workflows/a.yml","status":"in_progress","conclusion":null},
+        {"id":22,"path":".github/workflows/b.yml","status":"completed","conclusion":"success"}]}'
+    mk only_c '{"check_runs":[
+        {"id":203,"name":"c","status":"completed","conclusion":"success","details_url":"'$U'/22/job/203"}]}'
+    (
+        OSTLER_CHECKRUNS_JSON_SEQUENCE="$TMP/only_c.json:$TMP/sameflow.json" \
+        OSTLER_RUNS_JSON_SEQUENCE="$TMP/running_runs.json:$TMP/runs_ab.json" \
+        OSTLER_GATE_EXPECTED_JSON="$TMP/exp_ok.json" OSTLER_GATE_FLOOR=1 \
+        OSTLER_GATE_MAX_WAIT_SECONDS=10 OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
+        poll_and_decide deadbeefdeadbeef owner/repo
+    ) >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then note "PASS  a required check whose run is still in progress is WAITED for, then passes"
+    else note "FAIL  rc=$rc want=0  an in-progress required run was judged instead of waited for"; fail=1; fi
+
+    echo "=== which check-runs are EXPECTED, computed from the tree ==="
+    EXP_TMP="$(mktemp -d)"
+    cat > "$EXP_TMP/plain.yml" <<'YML'
+on: { pull_request: }
+jobs:
+  a: { runs-on: x, steps: [] }
+  b: { name: "Bee", runs-on: x, if: "github.event_name == 'push'", steps: [] }
+YML
+    cat > "$EXP_TMP/edited-only.yml" <<'YML'
+on: { pull_request: { types: [edited] } }
+jobs: { e: { runs-on: x, steps: [] } }
+YML
+    cat > "$EXP_TMP/main-only.yml" <<'YML'
+on: { pull_request: { branches: [main] } }
+jobs: { m: { runs-on: x, steps: [] } }
+YML
+    cat > "$EXP_TMP/filtered.yml" <<'YML'
+on: { pull_request: { paths: ['x/**'] } }
+jobs: { f: { runs-on: x, steps: [] } }
+YML
+    cat > "$EXP_TMP/matrix.yml" <<'YML'
+on: [pull_request]
+jobs:
+  t: { runs-on: x, strategy: { matrix: { py: ['3.11', '3.12'] } }, steps: [] }
+  inc: { runs-on: x, strategy: { matrix: { include: [{ a: 1 }] } }, steps: [] }
+  expr: { name: "x ${{ matrix.y }}", runs-on: x, steps: [] }
+  call: { uses: ./.github/workflows/other.yml }
+YML
+    cat > "$EXP_TMP/ci-required-gate.yml" <<'YML'
+on: { pull_request: }
+jobs: { gate: { runs-on: x, steps: [] } }
+YML
+    exp_is() {  # exp_is <base> <action> <want-json> <label>
+        local got
+        got="$(OSTLER_GATE_WORKFLOWS_DIR="$EXP_TMP" OSTLER_GATE_BASE_REF="$1" OSTLER_GATE_EVENT_ACTION="$2" resolve_expected)"
+        if [ "$got" = "$3" ]; then note "PASS  $4"
+        else note "FAIL  $4"; note "      got  $got"; note "      want $3"; fail=1; fi
+    }
+    W='.github/workflows'
+    exp_is main synchronize '{"floor": 8, "workflows": {"'$W'/main-only.yml": {"names": ["m"], "unnamed": 0}, "'$W'/matrix.yml": {"names": ["t (3.11)", "t (3.12)"], "unnamed": 3}, "'$W'/plain.yml": {"names": ["a", "Bee"], "unnamed": 0}}}' \
+        "base main, synchronize: every job (even an if:-guarded one), one name per matrix leg, unnameable legs counted, path-filtered/types-excluded/self NOT expected"
+    exp_is release synchronize '{"floor": 7, "workflows": {"'$W'/matrix.yml": {"names": ["t (3.11)", "t (3.12)"], "unnamed": 3}, "'$W'/plain.yml": {"names": ["a", "Bee"], "unnamed": 0}}}' \
+        "a base the branch filter excludes: that workflow is not expected"
+    exp_is '' '' '{"floor": 7, "workflows": {"'$W'/matrix.yml": {"names": ["t (3.11)", "t (3.12)"], "unnamed": 3}, "'$W'/plain.yml": {"names": ["a", "Bee"], "unnamed": 0}}}' \
+        "base and action unknown: branch- and types-filtered workflows are NOT expected (never unpassable)"
+    exp_is main edited '{"floor": 1, "workflows": {"'$W'/edited-only.yml": {"names": ["e"], "unnamed": 0}}}' \
+        "action 'edited': only a workflow whose types include it is expected; default types do not fire on it"
+    rm -rf "$EXP_TMP"
 
     # CONTROL: an OSTLER_GATE_FLOOR override still works (needed so the fixed
     # cases above are hermetic, and useful if a live floor computation is ever
