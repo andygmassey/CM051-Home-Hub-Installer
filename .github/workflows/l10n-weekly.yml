@@ -1,0 +1,68 @@
+name: l10n-weekly
+
+# OUT-OF-BAND translation run. Sends ONLY new or changed English strings
+# (l10n/state.json records the English each translation was made from), then
+# opens ONE PR with the result for review. Never runs on pull_request, so a
+# fork can never reach the key.
+#
+# Needs repository secret L10N_ANTHROPIC_API_KEY. Without it the job reports
+# CANNOT-RUN and exits non-zero rather than pretending there was nothing to do.
+# Optional secret L10N_PR_TOKEN: a PR opened with the default GITHUB_TOKEN does
+# not trigger other workflows, so its checks would not run until pushed again.
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: l10n-weekly
+  cancel-in-progress: false
+
+jobs:
+  translate:
+    if: github.repository == 'andygmassey/CM051-Home-Hub-Installer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: what would be sent (offline)
+        run: python3 -I l10n/ostler_l10n.py diff
+      - name: translate + review + validate + write
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.L10N_ANTHROPIC_API_KEY }}
+          OSTLER_L10N_SPEND_LOG: ${{ runner.temp }}/spend.tsv
+          OSTLER_L10N_JOB: l10n-weekly-cm051
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "CANNOT-RUN: secret L10N_ANTHROPIC_API_KEY is not set"; exit 2
+          fi
+          python3 -m pip install --quiet 'anthropic>=1.15,<2'
+          python3 -I l10n/ostler_l10n.py run
+      - name: spend (also in the PR body)
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/spend.tsv" ]; then
+            { echo '```'; cat "${{ runner.temp }}/spend.tsv"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: open one PR
+        env:
+          GH_TOKEN: ${{ secrets.L10N_PR_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet; then echo "no changes: nothing new or changed in English"; exit 0; fi
+          b="l10n/weekly-$(date -u +%Y-%m-%d)"
+          git config user.name "ostler-l10n"
+          git config user.email "l10n@users.noreply.github.com"
+          git checkout -b "$b"
+          git add -A l10n install.sh.strings.*.sh gui/OstlerInstaller/Resources
+          git commit -m "l10n: weekly translations of new or changed English strings"
+          git push origin "$b"
+          {
+            echo "Weekly out-of-band translation run (l10n/ostler_l10n.py run). Archie review requested."
+            echo; echo '```'; python3 -I l10n/ostler_l10n.py check | tail -15; echo '```'
+            echo; echo "Spend:"; echo '```'; cat "${{ runner.temp }}/spend.tsv" 2>/dev/null; echo '```'
+          } > "${{ runner.temp }}/body.md"
+          gh pr create --base main --head "$b" --title "l10n: weekly translations $(date -u +%Y-%m-%d)" --body-file "${{ runner.temp }}/body.md"

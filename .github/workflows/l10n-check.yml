@@ -1,0 +1,26 @@
+name: l10n-check
+
+# OFFLINE translation gate. No secrets, no network, no API calls: safe on fork PRs.
+#   BLOCKING: placeholder/specifier parity, verbatim answer tokens, catalogue
+#             validity (bash -n, JSON shape), keep-English lines, and no
+#             translation whose English changed since it was made (stale).
+#   NON-BLOCKING: the per-language coverage table printed by `check`.
+# A MISSING translation never fails this: every catalogue falls back to English.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  l10n-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: the gate can fail (dropped %@, lost INSTALL, changed English -> stale)
+        run: python3 -I l10n/ostler_l10n.py self-test
+      - name: translations are drop-in for their English
+        run: python3 -I l10n/ostler_l10n.py check
