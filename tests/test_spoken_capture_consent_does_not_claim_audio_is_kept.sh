@@ -18,16 +18,16 @@ cd "$(dirname "$0")/.."
 fail=0
 check() { # $1 surface, $2 text
     local t="$2"
-    if printf '%s' "$t" | grep -qiE 'keeping the captured audio|audio on your own mac|storing (it|them) locally'; then
+    if grep -qiE 'keeping the captured audio|audio on your own mac|storing (it|them) locally' <<< "$t"; then
         echo "FAIL $1: still claims captured audio is kept: $t"; return 1
     fi
-    if printf '%s' "$t" | grep -qiE 'transcribes captured audio on this Mac'; then
+    if grep -qiE 'transcribes captured audio on this Mac' <<< "$t"; then
         echo "FAIL $1: says audio is transcribed on this Mac, false for iPhone captures: $t"; return 1
     fi
-    if ! printf '%s' "$t" | grep -qF 'on the device that captured it and deletes the audio straight away'; then
+    if ! grep -qF 'on the device that captured it and deletes the audio straight away' <<< "$t"; then
         echo "FAIL $1: does not say audio is deleted on the capturing device: $t"; return 1
     fi
-    if ! printf '%s' "$t" | grep -qF 'including to your own Mac'; then
+    if ! grep -qF 'including to your own Mac' <<< "$t"; then
         echo "FAIL $1: does not say audio is never sent to the owner's Mac: $t"; return 1
     fi
     echo "PASS $1"
