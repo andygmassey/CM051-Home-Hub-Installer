@@ -2,57 +2,62 @@
 
 Brings a new owner's existing meeting history across, locally, on day one.
 Feature flag OFF: set `OSTLER_MEETING_IMPORT_ENABLED=1` to run. No network.
-Not yet in the DMG payload (see "Not done").
+Not in the DMG payload (see "Not done").
 
-Drop files in `~/Documents/Ostler/Imports/<source>/` (`granola`, `otter`,
-`fireflies`, `transcripts`; override with `OSTLER_MEETING_IMPORT_DIR`), then
-`python -m meeting_import`. Output per meeting, via the existing CM048 writer:
+Two ways in:
+- `python -m meeting_import --loose ~/Downloads`: each file's source is
+  detected from its documented name or content (`adapters.detect`);
+  anything it cannot attribute is left alone. Generic VTT/SRT/DOCX are never
+  guessed from a loose folder.
+- `python -m meeting_import [--root DIR]`: a drop folder laid out as
+  `<root>/<source>/` (`granola`, `otter`, `fireflies`, `fathom`,
+  `transcripts`), default `~/Documents/Ostler/Imports`.
+
+Output per meeting, via the existing CM048 writer:
 `~/Documents/Ostler/Conversations/<date>/<slug>-<id>/` with `summary.md`,
-`transcript.md`, `todos.md`, metadata as frontmatter on each.
-
-Note: CM052's ChatGPT drop folder is lowercase `imports/`; this uses the
-`Imports/` the Lane 31 brief names.
+`transcript.md`, `todos.md`, metadata as frontmatter on each. The CLI also
+writes `~/.ostler/state/hydrate/meetings.done` (ok / no_data / error,
+per-source counts) in the key=value shape the Doctor's source table reads.
 
 ## Behaviour
 - Source summary / action items are kept and labelled ("From Granola: ...",
-  topic names end "(from Granola)", todo anchor "from Granola").
+  topics end "(from Granola)", todo anchor "from Granola"). A source with no
+  summary says so plainly; no LLM summary is generated on import.
 - Privacy: `channel="spoken"` through `channel_adapter.make_bundle`, so L2 like
   CM042 calls; `--private` makes L3.
 - Attendees are resolve-only (`people.py`): email exact, else full name exact
   and unique. A single first name or a "Speaker 1" label is never looked up and
   never minted. Linked person URIs go in frontmatter (`linked_person_N`).
-- Action items are NOT queued for Reminders on import (`demo_mode=True` skips
-  the mapping DB). `--push-reminders` opts in; the normal gate then applies.
-  Items with no assignee get owner `unassigned`, which the gate skips.
+- Action items are NOT queued for Reminders on import. `--push-reminders`
+  opts in. Fathom items marked completed are not imported as open todos.
 - Idempotent: id is the source's meeting id, else a hash of title, start and
-  transcript head. The folder slug uses raw attendee names, so linking a person
-  later does not move the folder.
+  transcript head.
 
-## Formats: confirmed vs assumed
-Web fetch of the vendors' docs failed from the build sandbox; vendor facts come
-from search summaries, so none are "read first-hand".
+## Formats (each checked against the vendor's own docs on 2026-10-18)
 
-| Source | Path | Parsed | Status |
+| Source | How the owner gets the file | Parsed | Evidence |
 |---|---|---|---|
-| Otter | Conversation menu > Export (help.otter.ai/hc/en-us/articles/360047733634) | TXT, SRT, DOCX | Export path and formats: confirmed by Otter help (via search). TXT/DOCX line layout: ASSUMED. Bulk export is Business plans and up. Summary/action items are a separate Otter export: not parsed (TODO). |
-| Fireflies | GraphQL API, owner's own key (docs.fireflies.ai/graphql-api/query/transcript) | JSON the owner saves | Fields via search of official schema; snake_case spellings from community samples: ASSUMED. `participants` are emails and may omit external guests. Web-UI downloads not researched. |
-| Granola | Official API (`GET /v1/notes`, `grn_` key, Business/Enterprise) | JSON note, Markdown note | Field names from a community reference: ASSUMED. Transcript endpoint reports conflict. |
-| Granola local cache | `~/Library/Application Support/Granola/` | NOT read | Reportedly encrypted on current builds (community). Not attempted. |
-| Zoom | Cloud transcript `.vtt` (Zoom support KB0064927) | VTT | File type confirmed; `Name: text` cue line ASSUMED. |
-| Teams | Recap > download `.docx` / `.vtt` | DOCX, VTT | One secondary source; layout ASSUMED. |
-| Meet | Google Doc in Drive; File > Download `.docx` | DOCX | Location confirmed; layout ASSUMED. |
+| Granola | Settings > Profile > Generate CSV (every plan; emailed, 24 h link) | CSV | Export path CONFIRMED (docs.granola.ai/help-center/sharing/exporting-notes). Column NAMES not documented: matched by keyword, ASSUMED. |
+| Granola | Public API `GET /v1/notes/{id}?include=transcript` (Business/Enterprise key) | JSON note or `{"notes": [...]}` | Schema CONFIRMED from docs.granola.ai/api-reference/openapi.json (speaker object, ISO start_time, calendar_event). |
+| Otter | Conversation > three dots > Export (TXT on Basic; DOCX/SRT on paid), bulk ZIP on Business | TXT, DOCX, SRT | Layout CONFIRMED from the "Export Examples" image in help.otter.ai/hc/en-us/articles/360047733634. Otter summary export: layout not shown, NOT parsed. |
+| Fireflies | API `transcript(id)` with the owner's key | JSON | Schema CONFIRMED (docs.fireflies.ai/schema/transcript, sentence, summary, meeting-attendee). Bold-assignee grouping of action_items ASSUMED. |
+| Fireflies | Meeting > Download (Pro and up): PDF/DOCX/SRT/CSV/JSON/MD | SRT, DOCX, sentence-list JSON | Formats CONFIRMED (guide.fireflies.ai/articles/3319752033); layouts NOT documented: ASSUMED. CSV/MD/PDF not parsed. |
+| Fathom | API key (User Settings > API Access), `GET /external/v1/meetings?include_transcript=true&include_summary=true&include_action_items=true` | JSON | Schema CONFIRMED from developers.fathom.ai/api-reference/openapi.yaml. No in-app file export is documented by Fathom. |
+| Zoom / Teams / Meet | transcript file | VTT, SRT, DOCX | Speaker-label conventions ASSUMED. |
 
-Every fixture in `tests/test_meeting_import.py` is synthetic and written to
-match these assumptions, so green tests prove the parsers, not the vendors'
-real files. First real-file sample from each vendor should be checked.
+Every fixture is synthetic and built to the documented schema, so green tests
+prove the parsers against the documented format, not against a real file. The
+first real export from each vendor should be checked before the flag goes on.
 
-## Not done / TODO
-- Universal-import detection: `ostler_fda/universal_import.py` has an ordered
-  `_DETECTORS` list (line 570) and `_DISPATCH`. Registering a meeting detector
-  there edits a pinned vendor tree and needs a recorded divergence, so it is
-  left for a deliberate graft. The drop folder works without it.
-- Packaging: no `gui/Makefile` payload input, so it does not ship; shipping it
-  also needs an OS003 BOM row. Not authored here.
+## Not done
+- Live-pipeline handoff: imports write the four artefacts directly. Routing
+  them through CM048 `processor.process` would add graph facts, related-
+  conversation links and lastContact, but its `_step_bundle` calls
+  `write_conversation` with Reminders push ON, so every historical todo would
+  be queued. Needs a CM048 change (a historical-import flag that keeps
+  demo_mode on) before an import can use it.
+- Packaging: not staged into the DMG (gui/Makefile) and no OS003 BOM row; no
+  `ostler-import` arm; the Doctor does not yet SERVE a `meetings` row (the
+  record is written; `vendor/doctor/agent/web_ui.py` `_FDA_EXTRACT_KINDS` and
+  the canonical-source gate need the row added together with packaging).
 - `OxigraphPersonDirectory` is not run against a live graph in CI.
-- Graph edges (`hasParticipant`) and `lastContact` bumps are not written.
-- No LLM summary for sources that supply none; the summary says so plainly.
