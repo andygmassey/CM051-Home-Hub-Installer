@@ -2,7 +2,7 @@
 """Real-provider round trip for the assistant's own email address.
 
 Same real components as assistant_mailbox_e2e.py (install.sh step, Doctor
-module, daemon binary, temporary keychain), but against a REAL iCloud or Gmail
+module, daemon binary, `security` stand-in), but against a REAL iCloud or Gmail
 account for the assistant, with a human sending the owner's mail. The model is
 a local stub: this proves the MAIL path, not the model's answers.
 
@@ -69,7 +69,7 @@ def main() -> int:
     env = dict(os.environ)
     env.pop("OSTLER_REAL_PASSWORD", None)
     env.update({
-        "OSTLER_E2E_LOOPBACK": "1",  # only enables the temporary-keychain path here
+        "OSTLER_E2E_LOOPBACK": "1",  # only enables the stand-in keychain path here
         "HOME": str(home), "OSTLER_HOME": str(ostler), "OSTLER_DIR": str(ostler),
         "ZEROCLAW_CONFIG_DIR": str(cfgdir), "ZEROCLAW_WORKSPACE": str(cfgdir / "workspace"),
         "OSTLER_ASSISTANT_CONFIG": str(cfgdir / "config.toml"),

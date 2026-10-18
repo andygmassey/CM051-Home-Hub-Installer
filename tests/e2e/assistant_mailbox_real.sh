@@ -5,7 +5,9 @@
 # The REAL provider round trip: a real iCloud or Gmail account for the assistant,
 # a human sending the owner's mail. Prepared, not yet run: it needs accounts
 # only Andy can create. The password is read from the environment, never echoed,
-# never put on a command line, and only ever written to a TEMPORARY keychain.
+# never put on a command line, and only ever held by the `security` stand-in
+# (tests/e2e/fakebin/security, a 0600 file in a temp dir removed at exit). No
+# real keychain is created, read or unlocked, not even a throwaway one.
 #
 #   OSTLER_REAL_PROVIDER=icloud            # or gmail
 #   OSTLER_REAL_ADDRESS=<the new assistant account address>
@@ -35,8 +37,6 @@ REPO="$(cd "$HERE/../.." && pwd)"
 for v in OSTLER_REAL_PROVIDER OSTLER_REAL_ADDRESS OSTLER_REAL_OWNER OSTLER_REAL_PASSWORD; do
     [ -n "${!v:-}" ] || { echo "CANNOT-RUN: $v is not set (see the header of this script)"; exit 2; }
 done
-[ "$(uname -s)" = Darwin ] || { echo "CANNOT-RUN: needs macOS (the security tool and Keychain)"; exit 2; }
-command -v security >/dev/null || { echo "CANNOT-RUN: security tool not found"; exit 2; }
 PY="${OSTLER_E2E_PYTHON:-}"
 if [ -z "$PY" ]; then
     for c in python3.11 python3.12 python3.13 python3; do command -v "$c" >/dev/null && { PY="$(command -v "$c")"; break; }; done
@@ -46,28 +46,22 @@ fi
 [ -n "${OSTLER_E2E_DAEMON:-}" ] && [ -x "${OSTLER_E2E_DAEMON}" ] \
     || { echo "CANNOT-RUN: set OSTLER_E2E_DAEMON to the daemon binary (built from ostler-assistant v108/assistant-own-email-daemon)"; exit 2; }
 
+umask 077
 tmp="$(mktemp -d)"
-KC="$tmp/e2e.keychain-db"
-KC_PW="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 24)"
-before_list="$(security list-keychains -d user 2>&1)"
-cleanup() {
-    security delete-keychain "$KC" >/dev/null 2>&1 || true
-    rm -rf "$tmp"
-}
+cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
-security create-keychain -p "$KC_PW" "$KC" >/dev/null 2>&1 || { echo "CANNOT-RUN: could not create a temporary keychain"; exit 2; }
-security set-keychain-settings "$KC" >/dev/null 2>&1
-security unlock-keychain -p "$KC_PW" "$KC" >/dev/null 2>&1 || { echo "CANNOT-RUN: could not unlock the temporary keychain"; exit 2; }
-echo "temporary keychain: $KC (not added to any search list)"
+export PATH="$HERE/fakebin:$PATH"
+export FAKE_SECURITY_STORE="$tmp/fake-keychain.json" FAKE_SECURITY_LOG="$tmp/fake-security.log"
+: > "$FAKE_SECURITY_LOG"
+[ "$(command -v security)" = "$HERE/fakebin/security" ] \
+    || { echo "CANNOT-RUN: the security stand-in is not first on PATH ($(command -v security))"; exit 2; }
+KC="$tmp/e2e.keychain-db"; : > "$KC"
+echo "security: stand-in $HERE/fakebin/security (no real keychain touched)"
 
 export OSTLER_E2E_KEYCHAIN="$KC"
 "$PY" -I "$HERE/assistant_mailbox_real_run.py"
 rc=$?
-
-after_list="$(security list-keychains -d user 2>&1)"
-if [ "$before_list" = "$after_list" ]; then
-    echo "ok:   the user's keychain search list is unchanged"
-else
-    echo "FAIL: the user's keychain search list changed"; rc=1
+if grep -q UNSUPPORTED "$FAKE_SECURITY_LOG"; then
+    echo "FAIL: a security call the stand-in does not model:"; grep UNSUPPORTED "$FAKE_SECURITY_LOG"; rc=1
 fi
 exit "$rc"
