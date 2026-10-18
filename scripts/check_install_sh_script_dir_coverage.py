@@ -221,6 +221,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # so a dropped cp line would ship an installer that never reads older
     # history, with no error anywhere. The needle is the cp line's own form.
     "lib/ostler_catchup.py": ['${SRCROOT}/../lib/ostler_catchup.py'],
+    # Telegram setup helper (public launch). install.sh stages it and writes
+    # the ~/.ostler/bin/ostler-telegram-setup wrapper only when it is present,
+    # warning otherwise. The needle is the cp line's own form.
+    "lib/ostler-telegram-setup.py": ['${SRCROOT}/../lib/ostler-telegram-setup.py'],
     # #550 (2026-08-28): the store-auth shim. install.sh:6523 seeds it from
     # ${SCRIPT_DIR}/lib/ostler_store_auth.py into ${OSTLER_DIR}/lib, and a .pth
     # in every venv imports it so the pinned Python clients authenticate to

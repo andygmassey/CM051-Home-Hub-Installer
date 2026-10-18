@@ -1,0 +1,61 @@
+name: telegram channel (setup helper, Doctor tile, loopback probe judge)
+
+# Public-launch Telegram. ostler-telegram-setup is driven against a fake Bot API
+# on 127.0.0.1 with launchctl stubbed; the Doctor tile renders the daemon's
+# status file through the shared contract fixture; the real-daemon probe's
+# judge must go red on every mutant. No real Telegram account, no real token.
+
+on:
+  pull_request:
+    paths:
+      - 'lib/ostler-telegram-setup.py'
+      - 'tests/test_telegram_setup.py'
+      - 'tests/test_telegram_block_survives_config_regeneration.sh'
+      - 'tests/test_doctor_telegram_tile.py'
+      - 'tests/fixtures/telegram_channel_status.json'
+      - 'vendor/doctor/agent/telegram_status.py'
+      - 'scripts/box_walk_probes/lib/telegram_channel_probe.py'
+      - 'scripts/box_walk_probes/probes/telegram_channel_round_trip.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'install.sh'
+      - 'gui/project.yml'
+      - '.github/workflows/telegram-channel.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  telegram-channel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: The setup helper connects only the owner and stores the token 0600, never in config.toml
+        run: python3 tests/test_telegram_setup.py
+      - name: A DMG re-run keeps [channels.telegram] across the config.toml regeneration
+        if: always()
+        run: bash tests/test_telegram_block_survives_config_regeneration.sh
+      - name: The Doctor tile renders the daemon's status file and nothing else
+        if: always()
+        run: python3 tests/test_doctor_telegram_tile.py
+      - name: The Telegram probe judge catches every mutant
+        if: always()
+        run: set +e; python3 scripts/box_walk_probes/lib/telegram_channel_probe.py --self-test; rc=$?; test "$rc" -eq 1
+      - name: The walk probe's own self-test goes red on known-bad facts
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/telegram_channel_round_trip.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1"; exit 1; fi
+          printf '%s\n' "$out" | grep -q 'negative control behaved' || { echo "no 'negative control behaved' verdict"; exit 1; }

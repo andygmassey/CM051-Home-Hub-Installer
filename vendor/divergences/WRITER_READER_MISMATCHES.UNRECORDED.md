@@ -1605,3 +1605,27 @@ Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness
 ### What a future sync must preserve
 
 `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`.
+
+## doctor: Telegram channel tile (public launch, 2026-10-18)
+
+**Location.** `vendor/doctor/agent/web_ui.py`, three edits in the `doctor`
+tree: the `from telegram_status import render_telegram_status` import directly
+under `from diagnostic_rules import run_all_rules`; the
+`telegram_section = render_telegram_status()` call directly under
+`whatsapp_keepalive_section = render_whatsapp_keepalive()`; and the
+`{telegram_section}` placeholder between `{whatsapp_keepalive_section}` and
+`{source_status_section}` in the dashboard template.
+
+**Shape.** One import, one call, one placeholder. The module it imports,
+`vendor/doctor/agent/telegram_status.py`, is vendor-only (row in
+`vendor/VENDOR_ONLY.tsv`).
+
+**Why no patch.** Same reason as the documents-access entry above: `doctor` is
+`regenerate_forbidden`, so this file is the record. A grep of `doctor.patch`
+for `render_telegram_status` returns nothing, and that means NOT RECORDED
+there, not NOT DIVERGED.
+
+**What a future sync must preserve.** The three edits above plus the
+vendor-only module. Guarded by `tests/test_doctor_telegram_tile.py` (workflow
+`telegram-channel.yml`) and the `render_telegram_status` row in
+`tests/test_the_doctor_dashboard_actually_renders.sh`.

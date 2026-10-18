@@ -1008,6 +1008,18 @@ entries:
       kind: box_walk_probe
       probe: "email_channel_round_trip"
 
+  - id: box-walk-telegram-channel-round-trip
+    title: the owner's Telegram message gets one reply and a 👀; a stranger, a group and a queued message get none
+    incident: >-
+      Public-launch Telegram (an F&F tester asked for it). Default OFF. Upstream
+      replied to any stranger with a pairing prompt, accepted "*" and
+      usernames, and picked a random seen reaction that could be 👍. Driven
+      against a fake Bot API with the token in a 0600 secrets file. ADVISORY
+      in walk_promote_scope.tsv until ostler-assistant #563 is in the cut pin.
+    proof:
+      kind: box_walk_probe
+      probe: "telegram_channel_round_trip"
+
   - id: box-walk-conversation-capture-end-to-end
     title: iPhone/Watch conversation capture works end to end on a real Hub install
     incident: >-
