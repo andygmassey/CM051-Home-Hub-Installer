@@ -144,6 +144,7 @@ else
         PATH="$d/bin:/usr/bin:/bin" /bin/bash -c "
             RECOVERY_KEY='${KEY}'; USER_ID=synthetic-user; SAVED_TO_KEYCHAIN=false
             gui_read() { echo Y; }; ok() { echo \"ok: \$*\"; }; warn() { echo \"warn: \$*\"; }
+            . '${REPO}/install.sh.strings.en-GB.sh'
             . '$WORK/kc.sh'
             echo \"SAVED_TO_KEYCHAIN=\$SAVED_TO_KEYCHAIN\"
         " > "$d/out" 2>&1
@@ -154,6 +155,12 @@ else
     echo "D: swift fails: security calls=$(/usr/bin/wc -l < "$d/security.argv" | tr -d ' ') argv lines; key in security argv=${ns} swift argv=${nw}; $(tail -1 "$d/out")"
     [ "$ns" = 0 ] && [ "$nw" = 0 ] && pass "D: key on no argv when swift fails" || fail "D: key on argv (security=${ns} swift=${nw})"
     /usr/bin/grep -q '^SAVED_TO_KEYCHAIN=false$' "$d/out" && pass "D: failure reported as not saved" || fail "D: claimed saved when swift failed"
+    # The copy the customer sees on that path: says the key is NOT in Keychain
+    # and to write it down, and does not read as an installer failure.
+    /usr/bin/grep -qxF 'warn: Your recovery key was not saved to Keychain. Write it down and keep it somewhere safe, away from this Mac.' "$d/out" \
+        && ! /usr/bin/grep -qiF 'could not save' "$d/out" \
+        && pass "D: the not-saved warning says not saved and write it down, not a failure" \
+        || fail "D: not-saved warning copy wrong: $(/usr/bin/grep '^warn:' "$d/out" | head -1)"
     run_kc 0
     d="$WORK/kc-swift0"
     nw=$(count "$KEY" "$d/swift.argv"); ne=$(count "$KEY" "$d/swift.env")
@@ -161,6 +168,7 @@ else
     [ "$nw" = 0 ] && pass "E: key not on swift argv" || fail "E: key on swift argv"
     [ "$ne" = 1 ] && pass "E: key reached swift via env (control: the stub can see it)" || fail "E: swift never received the key (env count ${ne})"
     /usr/bin/grep -q '^SAVED_TO_KEYCHAIN=true$' "$d/out" && pass "E: saved" || fail "E: not saved when swift succeeded"
+    /usr/bin/grep -qF 'not saved to Keychain' "$d/out" && fail "E: not-saved warning shown although the key WAS saved" || pass "E: no not-saved warning when saved (control)"
 fi
 
 # ── F: setup-failure dump ────────────────────────────────────────────────

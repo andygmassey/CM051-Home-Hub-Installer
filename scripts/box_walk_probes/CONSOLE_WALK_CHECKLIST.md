@@ -55,3 +55,18 @@ answers normally afterwards. FAIL and the exact step number if any expected
 screen did not appear or the Hub does not come back up. This item has no
 CANNOT-RUN state: if the walk plan called for exercising FileVault, the human
 either saw the unlock screen or did not.
+
+## One call capture, then 0 audio files on disk (v1.0.109)
+
+**Why a human is needed.** RemoteCapture needs the Screen Recording and
+Microphone grants, which only the console can give. The measurement itself is
+the ssh probe `call_audio_never_retained`; this item is the capture it needs.
+
+1. From the RemoteCapture menu bar item, start a capture, speak for about 30
+   seconds, stop it.
+2. **Expected:** a transcript appears under `~/Documents/Ostler/Transcripts/YYYY/MM/`.
+3. Re-run the walk probes (`scripts/post_walk_qa.sh <box-host>`).
+   `call_audio_never_retained` must report `VERDICT: PASS -- 0 audio files after N transcript(s)`.
+
+**Record:** PASS only on that probe line. Any audio file left in the capture
+temp dir or the transcripts dirs is a FAIL of Andy's core privacy rule.
