@@ -22939,6 +22939,91 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
         fi
     fi
 
+    # ── Coach database: created KEYED, with its schema, at install ────
+    # (walk #31, v1.0.108). CM048 used to create observations.db lazily, on
+    # the first coaching row. Since #2931 a one-speaker capture is a memo and
+    # is never coached, so on many fresh boxes the db never existed: the walk
+    # probe's forget created a 0-byte stray, GET /api/v1/coach/recent then
+    # 500'd on it, and context-refresh exited 3 on every tick. The installer
+    # now lays the database down itself, through the SAME ostler_security
+    # get_db_connection and key resolver the writer uses, never plaintext.
+    # Idempotent: CREATE TABLE IF NOT EXISTS, so a re-install or upgrade
+    # leaves existing rows alone. The DDL is the writer's (cm048 ingest.py
+    # _write_coach); tests/test_install_creates_the_coach_db_keyed.py
+    # fails if the two ever drift. NOT fatal: the writer still creates the
+    # db lazily, and the reader declares an absent db as empty.
+    # BEGIN _ostler_init_coach_db
+    _ostler_init_coach_db() {
+        local py="$1" db="$2" key_file="${3:-}" out="" rc=0 tmp
+        # A heredoc inside $(...) mis-parses under /bin/bash 3.2, so the
+        # program runs as a plain redirection and its output is read back.
+        tmp="$(mktemp -t ostler-coach-db)" || tmp="${TMPDIR:-/tmp}/ostler-coach-db.$$"
+        OSTLER_DB_KEY_FILE="${key_file:-${OSTLER_DB_KEY_FILE:-}}" "$py" - "$db" >"$tmp" 2>&1 <<'COACHPY' || rc=$?
+import os, sys
+from pathlib import Path
+db = Path(sys.argv[1])
+try:
+    from ostler_security.db_key import resolve_db_key
+    from ostler_security.database import get_db_connection, HAS_SQLCIPHER
+except ImportError as exc:
+    print("CANNOT-RUN ostler_security not importable: %s" % exc)
+    sys.exit(3)
+if not HAS_SQLCIPHER:
+    print("CANNOT-RUN sqlcipher3 missing; refusing to create a plaintext coach db")
+    sys.exit(3)
+key = resolve_db_key().key
+if not key:
+    print("CANNOT-RUN no database key resolved; refusing to create a plaintext coach db")
+    sys.exit(3)
+existed = db.exists() and db.stat().st_size > 0
+db.parent.mkdir(parents=True, exist_ok=True)
+conn = get_db_connection(str(db), key)
+try:
+    conn.execute("""
+            CREATE TABLE IF NOT EXISTS observations (
+                observation_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                conversation_type TEXT,
+                tone TEXT,
+                what_went_well_json TEXT,
+                what_to_work_on_json TEXT,
+                tip_json TEXT,
+                tags_json TEXT,
+                overall_severity INTEGER,
+                confidence REAL,
+                flags_json TEXT,
+                user_id TEXT NOT NULL,
+                visibility TEXT NOT NULL,
+                retention_tier TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE (conversation_id)
+            )
+        """)
+    conn.commit()
+    rows = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+finally:
+    conn.close()
+with open(db, "rb") as fh:
+    if fh.read(16) == b"SQLite format 3\x00":
+        print("FAIL coach db is plaintext after a keyed create")
+        sys.exit(1)
+print("OK %s rows=%d %s" % ("kept" if existed else "created", rows, db))
+COACHPY
+        out="$(tail -3 "$tmp" || true)"
+        rm -f "$tmp"
+        if [[ "$rc" -eq 0 ]]; then
+            info "$(printf "$MSG_INFO_COACH_DB_READY" "$out")"
+        else
+            warn "$(printf "$MSG_WARN_COACH_DB_NOT_CREATED" "$out")"
+        fi
+        return 0
+    }
+    # END _ostler_init_coach_db
+    if [[ -x "$CM048_VENV/bin/python" ]]; then
+        _ostler_init_coach_db "$CM048_VENV/bin/python" "${OSTLER_DIR}/coach/observations.db" "${DB_KEY_FILE:-}"
+    fi
+
     if [[ -x "$CM048_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$CM048_BIN" "$CM048_SYMLINK")"
         # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
