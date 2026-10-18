@@ -81,7 +81,7 @@ _run_block() {
 
     local block; block="$(_extract_block "$file")" || return 2
     [ -n "$block" ] || return 2
-    printf '%s' "$block" | grep -qF 'gui_step_record_rc "$_aiconv_rc"' || return 2
+    grep -qF 'gui_step_record_rc "$_aiconv_rc"' <<< "$block" || return 2
 
     cat > "${run}/stub-producer" <<'STUB'
 #!/usr/bin/env bash

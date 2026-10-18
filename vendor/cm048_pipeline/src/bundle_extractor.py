@@ -31,6 +31,7 @@ re-run on a partial pipeline restart.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -72,11 +73,54 @@ class BundleExtraction:
 
     @classmethod
     def from_dict(cls, data: dict) -> "BundleExtraction":
+        topics = []
+        for topic in list(data.get("topics") or []):
+            if isinstance(topic, dict):
+                topic = dict(topic)
+                topic["name"] = scrub_placeholder_people(topic.get("name", ""))
+                topic["points"] = [
+                    scrub_placeholder_people(pt) if isinstance(pt, str) else pt
+                    for pt in (topic.get("points") or [])
+                ]
+            topics.append(topic)
+        todos = []
+        for todo in list(data.get("todos") or []):
+            if isinstance(todo, dict) and isinstance(todo.get("text"), str):
+                todo = dict(todo)
+                todo["text"] = scrub_placeholder_people(todo["text"])
+            todos.append(todo)
         return cls(
-            overall_summary=str(data.get("overall_summary", "")).strip(),
-            topics=list(data.get("topics") or []),
-            todos=list(data.get("todos") or []),
+            overall_summary=scrub_placeholder_people(
+                str(data.get("overall_summary", "")).strip()
+            ),
+            topics=topics,
+            todos=todos,
         )
+
+
+# The prompt's machine label for a non-user participant is ``other``.
+# Small local models echo it back as prose, capitalised, as if it were a
+# name: "Speaker 1 informed the Other", "Chase X with the Other" (v1.0.108
+# Hub, 2026-10-18 phone capture). That is a placeholder reaching customer
+# copy. The prompt now forbids it; this is the backstop, applied on every
+# parse including a resume from persisted 09_bundle.json. Only the
+# capitalised token is touched, so ordinary English ("the other day")
+# passes through.
+_PLACEHOLDER_PEOPLE = (
+    (re.compile(r"\bthe Other's\b"), "your"),
+    (re.compile(r"\bThe Other's\b"), "Your"),
+    (re.compile(r"\bthe Other\b"), "you"),
+    (re.compile(r"\bThe Other\b"), "You"),
+)
+
+
+def scrub_placeholder_people(text: str) -> str:
+    """Replace the leaked ``the Other`` placeholder with "you"."""
+    if not isinstance(text, str) or "Other" not in text:
+        return text
+    for pattern, repl in _PLACEHOLDER_PEOPLE:
+        text = pattern.sub(repl, text)
+    return text
 
 
 def extract(
@@ -165,7 +209,12 @@ _CHANNEL_GUIDANCE: dict[str, str] = {
         "('um', 'uh', repeats); strip them when writing topic points. "
         "Speaker labels look like '**Andrew:**' or '**Speaker 1:**'. "
         "Multiple speakers per topic is normal; attribute todos to "
-        "the speaker who committed."
+        "the person who has to act: the speaker who committed, or the "
+        "person a request was addressed to. When only one speaker is "
+        "labelled, they are usually talking TO the user, who captured "
+        "the conversation: their 'you', 'please' and 'tell her' are "
+        "actions for the user (owner \"user\"), and the summary calls "
+        "that listener \"you\"."
     ),
     "im": (
         "Source: instant-messaging thread (iMessage / SMS). Messages "

@@ -65,7 +65,7 @@ chk "the marker is written after the SIGKILL (kill@${k:-?} marker@${w:-?})" "$r"
 win="$(awk -v k="$k" 'NR>k && NR<=k+20' "$SRC")"
 n_keys=0
 for key in killed_at_utc waited_s budget_s signal risk; do
-    printf '%s' "$win" | grep -q "${key}=" && n_keys=$((n_keys + 1))
+    grep -q "${key}=" <<< "$win" && n_keys=$((n_keys + 1))
 done
 [ "$n_keys" -eq 5 ] && r=0 || r=1
 chk "the marker records all 5 keys within 20 lines of the kill (found ${n_keys} of 5)" "$r"

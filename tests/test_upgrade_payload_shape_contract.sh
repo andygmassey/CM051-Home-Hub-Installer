@@ -96,7 +96,7 @@ PY
 RECIPE_LINES="$(printf '%s\n' "$RECIPE" | grep -c . || true)"
 ok "isolated the stage-payload recipe ($RECIPE_LINES non-blank lines examined)"
 
-if printf '%s\n' "$RECIPE" | grep -Fq "assistant-agent/$WANT_APP"; then
+if grep -Fq "assistant-agent/$WANT_APP" <<< "$RECIPE"; then
     ok "the cut WRITES the bundle install.sh requires"
 else
     no "the cut does NOT write assistant-agent/$WANT_APP -- upgrade-mode will exit 20 on every DMG"
@@ -117,7 +117,7 @@ fi
 # bundle is the original defect wearing a right-looking path: it hands `cp` a
 # lone binary and drops the _CodeSignature the runtime verify depends on.
 # Scope to AGENT_SRC so the legitimate chmod on the COPIED bundle is not a hit.
-if printf '%s\n' "$RECIPE" | grep -Fq "AGENT_SRC/$WANT_APP/Contents/MacOS"; then
+if grep -Fq "AGENT_SRC/$WANT_APP/Contents/MacOS" <<< "$RECIPE"; then
     no "the recipe resolves the inner binary of the SOURCE bundle -- that discards the signature"
 else
     ok "the recipe takes the source .app as a bundle, not as a path to its inner binary"
@@ -133,7 +133,7 @@ fi
 # --- Surface 4: the cut must verify what it embedded ------------------------
 # Presence is not behaviour. The recipe has to run the same codesign check the
 # runtime will run, or a correctly-shaped but unsigned bundle still ships.
-if printf '%s\n' "$RECIPE" | grep -Fq 'codesign --verify --deep --strict'; then
+if grep -Fq 'codesign --verify --deep --strict' <<< "$RECIPE"; then
     ok "the cut verifies the embedded bundle's signature before sealing"
 else
     no "the cut embeds a bundle it never signature-verifies"
@@ -147,7 +147,7 @@ print(m.group(1) if m else '')
 PY
 )"
 [[ -n "$TEAM" ]] || die "could not extract the Team pin from install.sh"
-if printf '%s\n' "$RECIPE" | grep -Fq "$TEAM"; then
+if grep -Fq "$TEAM" <<< "$RECIPE"; then
     ok "cut-time and runtime pin the SAME Team ($TEAM)"
 else
     no "cut verifies against a different Team pin than the runtime requires"
