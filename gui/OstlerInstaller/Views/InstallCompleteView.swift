@@ -9,7 +9,7 @@
 // CX-56 (DMG ship, 2026-05-24): pairing-QR section added between
 // the service tick list + the CTA buttons. The Hub gateway exposes
 // a §3.3 envelope at POST http://localhost:8000/admin/paircode
-// which we render as a 256x256 QR with an oxblood border. CM031's
+// which we render as a QR (see makeQR) with an oxblood border. CM031's
 // iOS pairing flow scans the QR + verifies the envelope on the iOS
 // side. Fetch fires on .task with a Refresh button for retries
 // (e.g. gateway not yet up immediately after start-services).
@@ -34,6 +34,12 @@ struct InstallCompleteView: View {
     @State private var pairEnvelope: String? = nil
     @State private var pairFetchInFlight: Bool = false
     @State private var pairFetchError: String? = nil
+
+    /// Production passes nothing. Tests and previews seed an envelope so the
+    /// install-complete screen can be rendered with a real QR on it.
+    init(previewPairEnvelope: String? = nil) {
+        _pairEnvelope = State(initialValue: previewPairEnvelope)
+    }
 
     // #944. THE BUTTON BELOW USED TO BE UNCONDITIONAL, and this screen is the
     // last thing a customer sees. install.sh already knows the answer: its
@@ -477,12 +483,11 @@ struct InstallCompleteView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.white)
                 )
-            if let qrImage = Self.makeQRImage(payload: payload, size: 128) {
-                Image(nsImage: qrImage)
+            if let qr = Self.makeQR(payload: payload, minSidePoints: Self.iosQRMinSidePoints) {
+                Image(nsImage: qr.image)
                     .interpolation(.none)
                     .resizable()
-                    .scaledToFit()
-                    .padding(8)
+                    .frame(width: CGFloat(qr.sidePoints), height: CGFloat(qr.sidePoints))
             } else {
                 Image(systemName: "qrcode")
                     .font(.system(size: 56))
@@ -604,10 +609,11 @@ struct InstallCompleteView: View {
                 .foregroundStyle(Color.ostlerInkMuted)
 
             HStack(alignment: .center, spacing: .ostlerSpace3) {
-                // QR panel. Always reserves a 144x144 box so the
-                // layout doesn't jump between loading + loaded.
+                // QR panel. Always reserves at least the typical QR's box
+                // so the layout doesn't jump between loading + loaded.
                 pairingQRPanel
-                    .frame(width: 144, height: 144)
+                    .frame(width: Self.pairingPanelSide(for: pairingQR),
+                           height: Self.pairingPanelSide(for: pairingQR))
 
                 VStack(alignment: .leading, spacing: .ostlerSpace1) {
                     Text(ViewCopy.shared.string(for: "pair_iphone.help"))
@@ -640,6 +646,11 @@ struct InstallCompleteView: View {
         .padding(.vertical, .ostlerSpace1)
     }
 
+    private var pairingQR: QRRender? {
+        guard let envelope = pairEnvelope, !envelope.isEmpty else { return nil }
+        return Self.makeQR(payload: envelope, minSidePoints: Self.pairingQRMinSidePoints)
+    }
+
     @ViewBuilder
     private var pairingQRPanel: some View {
         ZStack {
@@ -651,13 +662,13 @@ struct InstallCompleteView: View {
                         .fill(Color.white)
                 )
 
-            if let envelope = pairEnvelope, !envelope.isEmpty,
-               let qrImage = Self.makeQRImage(payload: envelope, size: 128) {
-                Image(nsImage: qrImage)
+            if let qr = pairingQR {
+                // Natural size, never resampled: the bitmap already holds an
+                // integer number of pixels per module and its own quiet zone.
+                Image(nsImage: qr.image)
                     .interpolation(.none)
                     .resizable()
-                    .scaledToFit()
-                    .padding(8)
+                    .frame(width: CGFloat(qr.sidePoints), height: CGFloat(qr.sidePoints))
             } else if pairFetchInFlight {
                 VStack(spacing: 6) {
                     ProgressView()
@@ -797,38 +808,109 @@ struct InstallCompleteView: View {
         }
     }
 
-    /// Render a CoreImage QR code for the given payload at the
-    /// requested integer pixel size. Uses
-    /// CIFilter.qrCodeGenerator() with a high error-correction
-    /// level (Q = 25%) so the printed QR survives shutter blur on
-    /// the iPhone camera + scuffs on a printed sheet. Returns nil
-    /// when CoreImage fails to render (extremely rare; defensive
-    /// guard so the panel falls through to the placeholder rather
-    /// than crashing).
-    static func makeQRImage(payload: String, size: CGFloat) -> NSImage? {
-        let data = Data(payload.utf8)
+    // ── QR rendering (pairing + iPhone download) ─────────────────
+    //
+    // THE PAIRING QR USED TO BE HARD TO SCAN, and three things made it so.
+    // It was level Q, which for the ~164-byte pairing envelope is version 11,
+    // 61 modules. It was then stretched to a fixed 128pt, which is 2.03pt per
+    // module: a NON-INTEGER scale, so modules came out uneven, about 3cm on
+    // screen in total. And it had no quiet zone of its own beyond the
+    // generator's one module, sitting on an 8pt pad inside an oxblood border,
+    // where the spec asks for four.
+    //
+    // Now: level M (the oa web pairing page's level, Pairing.tsx renders the
+    // same envelope at 224px, level M), drawn from the module MATRIX at an
+    // INTEGER number of points per module, with a 4-module white quiet zone
+    // baked into the bitmap and black-on-white pixels that do not follow the
+    // theme. The bitmap carries `backingScale` pixels per point so a Retina
+    // display shows every module as an exact block, and the view draws it at
+    // its natural size with interpolation off, so nothing is resampled.
+
+    static let qrCorrectionLevel = "M"
+    static let qrQuietZoneModules = 4
+    /// The pairing QR is never smaller than this on screen.
+    static let pairingQRMinSidePoints = 200
+    /// The iPhone-download QR is a 21-byte URL and sits beside other copy.
+    static let iosQRMinSidePoints = 120
+
+    struct QRRender {
+        let image: NSImage
+        /// Symbol width in modules, EXCLUDING the quiet zone.
+        let modules: Int
+        let quietZoneModules: Int
+        let pointsPerModule: Int
+        let correctionLevel: String
+        var sidePoints: Int { (modules + 2 * quietZoneModules) * pointsPerModule }
+    }
+
+    /// Render `payload` as a QR of at least `minSidePoints` on screen, at an
+    /// integer number of points per module, with a 4-module quiet zone.
+    /// Returns nil when CoreImage cannot encode the payload; the panel then
+    /// falls through to its placeholder rather than crashing.
+    static func makeQR(payload: String, minSidePoints: Int, backingScale: Int = 2) -> QRRender? {
         let filter = CIFilter.qrCodeGenerator()
-        filter.message = data
-        // Q = 25% error correction. The §3.3 envelope is typically
-        // 200-400 bytes so the QR ends up at version 8-12; Q keeps
-        // it scannable in the wild.
-        filter.correctionLevel = "Q"
-        guard let output = filter.outputImage else { return nil }
+        filter.message = Data(payload.utf8)
+        filter.correctionLevel = qrCorrectionLevel
+        guard let output = filter.outputImage,
+              output.extent.width > 0, output.extent.height > 0 else { return nil }
 
-        // Scale up to the target size with nearest-neighbour so the
-        // pixels stay crisp on Retina + non-Retina displays. The
-        // generator emits a tiny image (~33x33 for a v4 code); we
-        // need to upscale by an integer factor.
-        let extent = output.extent
-        guard extent.width > 0, extent.height > 0 else { return nil }
-        let scale = size / extent.width
-        let transformed = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-
+        // 1 pixel per module (the generator's native resolution). Read the
+        // matrix back rather than trusting the generator's own margin: the
+        // bounding box of the dark pixels is exactly the symbol, because the
+        // three finder patterns occupy three of its corners.
         let context = CIContext(options: nil)
-        guard let cgImage = context.createCGImage(transformed, from: transformed.extent) else {
-            return nil
-        }
-        return NSImage(cgImage: cgImage, size: NSSize(width: size, height: size))
+        guard let cg = context.createCGImage(output, from: output.extent) else { return nil }
+        let w = cg.width, h = cg.height
+        var gray = [UInt8](repeating: 255, count: w * h)
+        guard let gctx = CGContext(
+            data: &gray, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+        gctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in 0..<h { for x in 0..<w where gray[y * w + x] < 128 {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        } }
+        guard maxX >= minX, maxY >= minY, maxX - minX == maxY - minY else { return nil }
+        let modules = maxX - minX + 1
+
+        let quiet = qrQuietZoneModules
+        let total = modules + 2 * quiet
+        let ppm = max(1, Int((Double(minSidePoints) / Double(total)).rounded(.up)))
+        let pxPerModule = ppm * max(1, backingScale)
+        let sidePx = total * pxPerModule
+        guard let out = CGContext(
+            data: nil, width: sidePx, height: sidePx, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+        out.interpolationQuality = .none
+        out.setShouldAntialias(false)
+        out.setFillColor(gray: 1, alpha: 1)
+        out.fill(CGRect(x: 0, y: 0, width: sidePx, height: sidePx))
+        out.setFillColor(gray: 0, alpha: 1)
+        // `gray` row 0 is the TOP row; CGContext y=0 is the bottom.
+        for my in 0..<modules { for mx in 0..<modules
+            where gray[(minY + my) * w + (minX + mx)] < 128 {
+            let px = (quiet + mx) * pxPerModule
+            let py = (quiet + (modules - 1 - my)) * pxPerModule
+            out.fill(CGRect(x: px, y: py, width: pxPerModule, height: pxPerModule))
+        } }
+        guard let final = out.makeImage() else { return nil }
+        let side = CGFloat(total * ppm)
+        return QRRender(
+            image: NSImage(cgImage: final, size: NSSize(width: side, height: side)),
+            modules: modules, quietZoneModules: quiet, pointsPerModule: ppm,
+            correctionLevel: qrCorrectionLevel
+        )
+    }
+
+    /// The pairing panel's side: the QR plus a 2pt border inset each side,
+    /// and never less than the side a typical envelope needs, so the layout
+    /// does not jump between loading and loaded.
+    static func pairingPanelSide(for render: QRRender?) -> CGFloat {
+        let typical: CGFloat = 61 * 4 + 8   // v9 at M plus quiet zone, 4pt/module
+        guard let r = render else { return typical }
+        return max(typical, CGFloat(r.sidePoints) + 8)
     }
 
     private func openOstlerHub() {

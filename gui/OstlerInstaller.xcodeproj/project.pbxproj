@@ -108,6 +108,7 @@
 		E34095B158EB713C918CD59E /* test_icon_geometry.py in Resources */ = {isa = PBXBuildFile; fileRef = 4B61CA4E5C5CB6A987FF9652 /* test_icon_geometry.py */; };
 		E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */; };
 		E5316E9CFE905AC4CFFAA6C0 /* Outfit-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7872CDF57A4C636DE0B8BAB0 /* Outfit-Bold.ttf */; };
+		E5FEF14736E30AA8A430830A /* PairingQRScanSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EE87087FE6CC65E1CB741A2 /* PairingQRScanSizeTests.swift */; };
 		E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */; };
 		E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260069E8B35BBB27233D9472 /* InstallCompleteView.swift */; };
 		EE2855BEB5855142F70AB7AA /* UninstallerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE22C3D213CA4ADF6586210 /* UninstallerApp.swift */; };
@@ -143,6 +144,7 @@
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		0DBB1F8EC328CB51F5752584 /* CaffeinateTerminationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateTerminationTests.swift; sourceTree = "<group>"; };
 		0E3925E18384B0486F2FA7FD /* MusicRefreshMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicRefreshMode.swift; sourceTree = "<group>"; };
+		0EE87087FE6CC65E1CB741A2 /* PairingQRScanSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingQRScanSizeTests.swift; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
 		17105FDC6EFFD5D0E009D529 /* UninstallFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UninstallFlags.swift; sourceTree = "<group>"; };
 		18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ICON_HASHES.txt; sourceTree = "<group>"; };
@@ -379,6 +381,7 @@
 				254380055987D9C3C6678384 /* OpenWikiDeepLinkTests.swift */,
 				4D1158F4DDBC561F57EAD9A3 /* PairingFailureMessageTests.swift */,
 				BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */,
+				0EE87087FE6CC65E1CB741A2 /* PairingQRScanSizeTests.swift */,
 				9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */,
 				0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */,
 				41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */,
@@ -1364,6 +1367,7 @@
 				0DC6DCED71D464D233EF5727 /* OpenWikiDeepLinkTests.swift in Sources */,
 				1F3FC2CBBA0242E83D80B679 /* PairingFailureMessageTests.swift in Sources */,
 				C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */,
+				E5FEF14736E30AA8A430830A /* PairingQRScanSizeTests.swift in Sources */,
 				42B4B7E6BB21F1B46D49D459 /* PassphraseMismatchUXTests.swift in Sources */,
 				7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */,
 				5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */,
