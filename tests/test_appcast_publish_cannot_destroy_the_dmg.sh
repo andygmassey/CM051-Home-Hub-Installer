@@ -301,7 +301,7 @@ if [ "$py_ok" -eq 0 ]; then
     echo "  The capture-unconditional assertion examined NOTHING. This has NOT" >&2
     echo "  found the workflow correct, and it is the assertion that proves a red" >&2
     echo "  step cannot discard a notarised DMG." >&2
-    echo "  Install it in the job (see .github/workflows/appcast-ship-wiring.yml)." >&2
+    echo "  Install it in the job (see the appcast-ship-wiring block of .github/workflows/fold-macos-always.yml)." >&2
     exit 2
 else
     # THE PROGRAM IS WRITTEN TO A FILE, NOT PIPED IN FROM A HEREDOC INSIDE
@@ -310,7 +310,7 @@ else
     # of a command substitution, so quotes and parens in the EMBEDDED PYTHON
     # can make the whole shell file fail to parse. It parsed under bash 5 and
     # died under 3.2 on the first edit to this block; the "parses under
-    # /bin/bash 3.2" step in appcast-ship-wiring.yml is what caught it.
+    # /bin/bash 3.2" step of the appcast-ship-wiring job is what caught it.
     # A heredoc at statement level has no such problem.
     PYPROG="$WORK/capture_check.py"
     cat >"$PYPROG" <<'PYEOF'

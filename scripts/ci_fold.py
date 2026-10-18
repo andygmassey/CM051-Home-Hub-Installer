@@ -543,6 +543,7 @@ def cmd_generate(args):
     deep = False
     pr_paths, push_paths, push_branches = [], [], None
     push_unfiltered = False
+    pr_unfiltered = 0
     blocks, total_timeout = [], 0
     removals = {}
     # SHARDS: a plain family can run as N parallel legs of one matrix, each
@@ -624,14 +625,21 @@ def cmd_generate(args):
                             f"matrix setup-python; not modelled")
         deep = deep or job["steps"][0].get("with") == {"fetch-depth": 0}
         self_watch = f"{WF_REL}/{wf}"
-        own = [p for p in event_paths(doc, "pull_request") or []
-               if p != self_watch]
+        pr_own = event_paths(doc, "pull_request")
+        if pr_own is None:
+            raise CannotRun(f"ci_fold: {wf} has no pull_request trigger")
+        # A member that ran on EVERY pull request selects on "**", so its
+        # block can never be skipped, and the family runs on every pull
+        # request. Mixing those with path-filtered members is refused below:
+        # the family's trigger would have to widen to "every PR" for all.
+        if not pr_own:
+            pr_unfiltered += 1
+            own = ["**"]
+        else:
+            own = [p for p in pr_own if p != self_watch]
         for p in own:
-            if p not in pr_paths:
+            if pr_own and p not in pr_paths:
                 pr_paths.append(p)
-        if not event_paths(doc, "pull_request"):
-            raise CannotRun(f"ci_fold: {wf} is unfiltered on pull_request; "
-                             f"fold it into an unfiltered family instead")
         pp = event_paths(doc, "push")
         if pp is not None:
             if not pp:
@@ -683,6 +691,11 @@ def cmd_generate(args):
                        "own": own})
         removals.setdefault(wf, []).append(jid)
 
+    if 0 < pr_unfiltered < len(members):
+        raise CannotRun(f"ci_fold: {args.family} mixes {pr_unfiltered} "
+                        f"member(s) that ran on every pull request with "
+                        f"path-filtered ones; a family is one or the other, "
+                        f"so that its trigger stays exact")
     fam_self = f"{WF_REL}/{fam_file}"
     for p in SELECT_ALWAYS + (fam_self,):
         if p not in pr_paths:
@@ -735,8 +748,12 @@ def cmd_generate(args):
         else:
             o += ["    paths:"]
             o += [f"      - {q(p)}" for p in push_paths]
-    o += ["  pull_request:", "    paths:"]
-    o += [f"      - {q(p)}" for p in pr_paths]
+    if pr_unfiltered:
+        o += ["  pull_request:",
+              "    # Unfiltered: every member ran on every pull request."]
+    else:
+        o += ["  pull_request:", "    paths:"]
+        o += [f"      - {q(p)}" for p in pr_paths]
     o += ["",
           "concurrency:",
           "  group: ${{ github.workflow }}-${{ github.event.pull_request.number"
@@ -1070,13 +1087,15 @@ def cmd_check(args):
                     rows.setdefault(t_, (src_, set()))[1].add(pat_)
         except (OSError, ValueError) as e:
             problems.append(f"{ptsv} unreadable: {e}")
+        # apr == [] is a family that runs on EVERY pull request: every row
+        # and its own file trigger it by definition.
         for t_, (_, pats) in rows.items():
-            missing = sorted(pats - set(apr or []))
+            missing = sorted(pats - set(apr or [])) if apr != [] else []
             if missing:
                 problems.append(f"{fam_file}: block {t_} selects on "
                                 f"{missing} but the family is not triggered "
                                 f"by them")
-        if not apr or self_watch not in apr:
+        if apr is None or (apr and self_watch not in apr):
             problems.append(f"{fam_file} does not watch itself")
         for n, (wf, jid) in enumerate(members, 1):
             tag = f"b{n:02d}"
@@ -1193,6 +1212,8 @@ def cmd_check(args):
                                 f"{src_!r}, not {wf}::{jid}")
             want = {p for p in (event_paths(bdoc, "pull_request") or [])
                     if p != f"{WF_REL}/{wf}"}
+            if event_paths(bdoc, "pull_request") == []:
+                want.add("**")     # it ran on every PR: never skippable
             want |= set(SELECT_ALWAYS) | {self_watch}
             lost = sorted(want - pats)
             if lost:

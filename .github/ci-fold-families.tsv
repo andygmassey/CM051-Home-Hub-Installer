@@ -94,3 +94,14 @@ macos-latest	symbol-regression.yml	symbol-regression
 macos-latest	total-steps-denominator-ratchet.yml	ratchet
 macos-latest	zero-payload-is-not-ok.yml	gate
 macos-latest	zero-payload-is-not-ok.yml	self-test
+macos-always	appcast-ship-wiring.yml	appcast-ship-wiring
+macos-always	dry-run-ledger.yml	dry-run-ledger
+macos-always	memory-embeddings.yml	memory-embeddings
+macos-always	model-download-honesty.yml	model-download-honesty
+macos-always	test-wiring.yml	test-wiring
+macos-always	tests-unwired-sweep-al.yml	sweep-macos
+macos-always	tests-unwired-sweep-mz.yml	shell-macos
+macos-always	the-trial-must-actually-end.yml	subscription-spine
+macos-always	unreachable-not-absence.yml	denied-read
+macos-always	unreachable-not-absence.yml	driver-not-box
+macos-always	upgrade-payload-shape.yml	behaviour

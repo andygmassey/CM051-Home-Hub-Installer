@@ -27,7 +27,7 @@
 #
 # TOTAL INSTANCES AT THIS BASELINE: 224 across 76 files.
 #
-.github/workflows/dry-run-ledger.yml	4
+.github/workflows/fold-macos-always.yml	4
 .github/workflows/fold-macos-latest.yml	1
 bin/redact_selftest.sh	1
 bin/rollforward_gate.sh	1

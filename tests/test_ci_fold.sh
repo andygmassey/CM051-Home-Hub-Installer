@@ -323,6 +323,64 @@ PY
 tok 2 "an executed gh call on DEFAULT permissions is refused" "" "gh api repos/o/r/pulls"
 tok 0 "the same call under an explicit contents: read is folded" "contents: read" "gh api repos/o/r/pulls"
 tok 0 "a comment mentioning gh on default permissions is not a call" "" "true  # gh pr list fails when the token expires"
+# ALWAYS: members that ran on every pull request fold into a family that does
+# too, and each block selects on "**", so nothing can skip it. A family that
+# mixes them with path-filtered members is refused: its trigger would widen.
+rm -rf "$T/ub"; mkdir -p "$T/ub/wf"
+for x in ua ub; do
+cat > "$T/ub/wf/always-$x.yml" <<YML
+name: always-$x
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  $x:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/test_$x.sh
+YML
+done
+printf 'ux\talways-ua.yml\tua\nux\talways-ub.yml\tub\n' > "$T/uspec.tsv"
+rm -rf "$T/ua"; cp -R "$T/ub" "$T/ua"
+if python3 "$TOOL" generate ux --dir "$T/ua/wf" --spec "$T/uspec.tsv" >/dev/null 2>&1 \
+   && python3 "$TOOL" check --base-dir "$T/ub/wf" --tree "$T/ua/wf" --spec "$T/uspec.tsv" >/dev/null 2>&1; then
+    pass "an always family (every member ran on every PR) is generated and proven"
+else
+    bad "always family not generated or not proven"
+fi
+python3 - "$T/ua/wf/fold-ux.yml" "$T/ua/ci-fold-paths.tsv" <<'PY' && pass "always: the family runs on every PR and each block selects on **" || bad "always: trigger or rows wrong"
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+on = d.get("on") or d.get(True)
+rows = [l.split("\t") for l in open(sys.argv[2]).read().splitlines() if l and not l.startswith("#")]
+ok = on["pull_request"] is None and {r[1] for r in rows if r[3] == "**"} == {"b01", "b02"}
+sys.exit(0 if ok else 1)
+PY
+umut() {  # umut <label> <want> <file-under-tree> <python-edit>
+    rm -rf "$T/um"; cp -R "$T/ua" "$T/um"
+    python3 - "$T/um/$3" "$4" <<'PY'
+import sys
+p, code = sys.argv[1], sys.argv[2]
+s = open(p).read()
+exec(code)
+open(p, "w").write(s)
+PY
+    if diff -rq "$T/ua" "$T/um" >/dev/null 2>&1; then bad "always mutation was a NO-OP: $1"; return; fi
+    OUT="$(python3 "$TOOL" check --base-dir "$T/ub/wf" --tree "$T/um/wf" --spec "$T/uspec.tsv" 2>&1)"; RC=$?
+    if [ "$RC" -eq 1 ] && grep -qF -- "$2" <<< "$OUT"; then pass "refused: $1"; else bad "NOT refused ($RC): $1 -- $OUT"; fi
+}
+umut "an always block that lost its ** row (a PR could skip it)" "no longer selects on ['**']" \
+    ci-fold-paths.tsv 's = s.replace("ux\tb02\talways-ub.yml::ub\t**\n", "")'
+umut "an always family narrowed to a path filter" "was unfiltered, family is filtered" \
+    wf/fold-ux.yml 's = s.replace("  pull_request:\n    # Unfiltered: every member ran on every pull request.\n", "  pull_request:\n    paths: [src/x.sh]\n", 1)'
+rm -rf "$T/umx"; cp -R "$T/ub" "$T/umx"; cp "$T/pbase/wf/plain-b.yml" "$T/umx/wf/"
+printf 'ux\talways-ua.yml\tua\nux\tplain-b.yml\tpb\n' > "$T/umxspec.tsv"
+python3 "$TOOL" generate ux --dir "$T/umx/wf" --spec "$T/umxspec.tsv" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "generate refuses a family mixing always and path-filtered members" \
+    || bad "mixed always/filtered family not refused (rc=$rc)"
 # SHARDS: a plain family as N parallel legs, every block in exactly one.
 printf 'plain-a.yml::pa\t200\nplain-b.yml::pb\t10\n' > "$T/weights.tsv"
 rm -rf "$T/ps"; cp -R "$T/pbase" "$T/ps"
