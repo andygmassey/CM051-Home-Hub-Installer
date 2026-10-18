@@ -20,6 +20,10 @@
 #      probe prints CANNOT for the self-test route with the reason, sweeps a
 #      read-only GET instead, and still PASSes a clean gateway; with loopback
 #      hosts (the fixture default, the mailsim case) it POSTs it.
+#  10. a PASS with the self-test skipped NAMES it on the verdict line
+#      (`VERDICT: PASS (mailbox self-test CANNOT-RUN: host not loopback)`); a
+#      loopback PASS carries no qualifier; a mutant that drops the qualifier
+#      is caught.
 # Synthetic values only (the lib's SYN_* constants).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
@@ -128,9 +132,27 @@ rc="$(run_arm "http://127.0.0.1:$pc")"
 [ "$rc" -eq 0 ] && /usr/bin/grep -q 'CANNOT POST /api/assistant-mailbox/self-test on .*mailbox host is not loopback; self-test would send real mail' "$work/out" \
     && ok "a real mailbox host: the self-test is not POSTed, CANNOT names why, the rest still PASSes" || { bad "real-host arm rc=$rc"; tail -5 "$work/out"; }
 no_values "real-host arm"
+QUAL='^VERDICT: PASS \(mailbox self-test CANNOT-RUN: host not loopback\) -- '
+/usr/bin/grep -qE "$QUAL" "$work/out" && [ "$(/usr/bin/grep -c '^VERDICT: ' "$work/out")" -eq 1 ] \
+    && ok "a real mailbox host: the verdict line names the skipped self-test" || { bad "verdict not qualified: $(/usr/bin/grep '^VERDICT' "$work/out")"; }
+# Mutant: drop the qualifier; the same arm must be caught.
+qm="$work/qmut"; mkdir -p "$qm/scripts/box_walk_probes/lib" "$qm/scripts/box_walk_probes/probes" "$qm/vendor/cm041/assistant_api"
+cp scripts/box_walk_probes/lib/probe.sh scripts/box_walk_probes/lib/stored_secret_sweep.py "$qm/scripts/box_walk_probes/lib/"
+cp vendor/cm041/assistant_api/hub_contract.yaml "$qm/vendor/cm041/assistant_api/"
+sed 's/^            if grep -q .*CANNOT POST \/api\/assistant-mailbox\/self-test.*then$/            if false; then/' "$PROBE" > "$qm/scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh"
+if cmp -s "$PROBE" "$qm/scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh"; then
+    bad "qualifier mutant did not apply"
+else
+    OSTLER_DIR="$work/ostler" OSTLER_SECRET_SWEEP_BASES="http://127.0.0.1:$pc" bash "$qm/scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh" > "$work/qout" 2>&1
+    ! /usr/bin/grep -qE "$QUAL" "$work/qout" && /usr/bin/grep -q '^VERDICT: PASS -- ' "$work/qout" \
+        && ok "mutant (qualifier dropped) prints a bare PASS, which the check above rejects" || bad "qualifier mutant not distinguishable"
+fi
 cp "$work/cfg.loopback" "$work/ostler/assistant-config/config.toml"
 ! /usr/bin/grep -q 'mailbox host is not loopback' <(OSTLER_DIR="$work/ostler" OSTLER_SECRET_SWEEP_BASES="http://127.0.0.1:$pc" bash "$PROBE" 2>&1) \
     && ok "loopback mailbox hosts: no CANNOT for the self-test (it is POSTed)" || bad "loopback hosts still skipped the self-test"
+OSTLER_DIR="$work/ostler" OSTLER_SECRET_SWEEP_BASES="http://127.0.0.1:$pc" bash "$PROBE" > "$work/out" 2>&1
+/usr/bin/grep -q '^VERDICT: PASS -- ' "$work/out" && ! /usr/bin/grep -q '^VERDICT: PASS (' "$work/out" \
+    && ok "loopback mailbox hosts: a plain PASS, no qualifier" || bad "loopback verdict: $(/usr/bin/grep '^VERDICT' "$work/out")"
 
 # Control sees 0: drive the lib directly with a control file lacking the secret
 # (the probe has no flag for it on purpose); then a dead base through the probe.

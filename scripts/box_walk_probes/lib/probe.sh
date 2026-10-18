@@ -99,6 +99,16 @@ probe_pass() {
     exit "$PROBE_EX_PASS"
 }
 
+# A PASS that skipped part of its question says so ON the verdict line:
+#   VERDICT: PASS (<what was not measured>) -- <detail>
+# A bare PASS would read as "everything was checked". The runner keys on the
+# exit code, so the qualifier never changes how the probe is tallied.
+probe_pass_qualified() {
+    _probe_require_denominator
+    printf 'VERDICT: PASS (%s) -- %s\n' "$1" "$2"
+    exit "$PROBE_EX_PASS"
+}
+
 probe_fail() {
     _probe_require_denominator
     printf 'VERDICT: FAIL -- %s\n' "$1"

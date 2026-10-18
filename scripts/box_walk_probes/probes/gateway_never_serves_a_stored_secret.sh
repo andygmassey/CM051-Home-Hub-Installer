@@ -62,7 +62,13 @@ run_probe() {
     probe_examined "${n}" "judge lines"
     [ "${n}" -gt 0 ] || probe_fail "the judge printed nothing; a silent probe is not a pass"
     case "${rc}" in
-        0)  probe_pass "no route served a stored secret; see the counts above" ;;
+        0)  # Archie: the no-outward-mail guard skipping the self-test must be
+            # NAMED on the verdict line, never a bare PASS.
+            if grep -q '^  CANNOT POST /api/assistant-mailbox/self-test ' <<< "${out}"; then
+                probe_pass_qualified "mailbox self-test CANNOT-RUN: host not loopback" \
+                    "no other route served a stored secret; see the counts above"
+            fi
+            probe_pass "no route served a stored secret; see the counts above" ;;
         78) probe_cannot_run "see the CANNOT line above" ;;
         *)  probe_fail "see the FAIL lines above: each names the route that served a stored secret" ;;
     esac
