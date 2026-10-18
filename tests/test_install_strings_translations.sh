@@ -99,6 +99,10 @@ for l in $LANGS; do
     [ "$(probe "$l")" = "$(want "$l")" ] || bad "loader: OSTLER_LANG=$l value differs from its file"
 done
 [ "$(mark xx)" = "en-GB" ] || bad "loader: unknown OSTLER_LANG did not fall back to en-GB"
+# A key the translation lacks (added to en-GB after the last run) prints
+# English, not an empty string: drop one key from the German scratch copy.
+/usr/bin/sed -i.bak '/^MSG_STEP_CHECKING_PREREQUISITES=/d' "$scratch/install.sh.strings.de.sh" && rm -f "$scratch/install.sh.strings.de.sh.bak"
+[ "$(probe de)" = "$(want en-GB)" ] || bad "loader: a key missing from de printed '$(probe de)', not the English"
 
 # 5. GUI JSON catalogues.
 /usr/bin/python3 -I - $LANGS <<'PY' || fail=1

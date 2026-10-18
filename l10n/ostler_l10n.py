@@ -789,10 +789,9 @@ def survey(cfg):
                     n["stale"] += 1
                 else:
                     n["translated"] += 1
-            if c.spec["type"] == "shell" and os.path.exists(c.path(lang)):
-                missing = set(units) - set(tr)
-                if missing:
-                    errs.append(f"{c.id} {lang}: {len(missing)} keys missing from the file (run `stale` to rewrite it)")
+            # A shell key missing from a translation is NOT an error: install.sh
+            # sources en-GB first and the language file on top, so it prints
+            # English. Coverage (above) counts it as an English fallback.
     return errs, stale, cov
 
 
