@@ -24,7 +24,10 @@
 #      run with a stub `ollama` that writes a fake store: a good pull reaches
 #      the end with both models verified; a registry that serves a DIFFERENT
 #      model for the chat tag stops the install with ERR-13-MODEL-DIGEST-MISMATCH;
-#      a stale pre-installed embed model is re-pulled, not trusted.
+#      a model ALREADY on disk and serving (an existing customer's older copy,
+#      e.g. a 0.34 GGUF) is KEPT: not pin-checked, not re-pulled, recorded as
+#      model_pin=... existing=kept for the walk (#2972, Archie). The pin is a
+#      promise about what we PULL.
 #
 # Exit 0 all pass, 1 any FAIL, 2 CANNOT-RUN.
 #
@@ -55,7 +58,7 @@ lift() {   # lift <install.sh> <out>
       /^OSTLER_MODEL_PINS=\(/                {p=1}
       p                                       {print}
       p && /^\)$/                             {p=0}
-      /^(ostler_model_canonical|ostler_model_pinned_digest|ostler_verify_model_digest|ostler_require_model_digest|_gui_ollama_pull|ollama_pull_with_retry)\(\) \{/ {f=1}
+      /^(ostler_model_canonical|ostler_model_pinned_digest|ostler_verify_model_digest|ostler_require_model_digest|ostler_note_existing_model|_gui_ollama_pull|ollama_pull_with_retry)\(\) \{/ {f=1}
       f                                       {print}
       f && /^}$/                              {f=0}
     ' "$1" > "$2"
@@ -237,15 +240,19 @@ chmod +x "$W/bin/ollama" "$W/bin/curl" "$W/bin/mktemp"
 awk '/^    python3 -I - "\$@" <<'"'"'PY'"'"'$/{f=1; next} f&&/^PY$/{f=0} f{print}' "$0" > "$W/mkstore.py"
 [ -s "$W/mkstore.py" ] || { echo "CANNOT-RUN: could not extract the store writer"; exit 2; }
 
-scenario() {   # scenario <name> <preinstalled-embed-seed|-> <chat-seed>  -> prints "EXIT n" "CODE c" "PULLS ..." "ERRS n" OKLINE...
-    local name="$1" pre="$2" chat="$3" st="$W/c_$1"
-    mkdir -p "$st/models"; cp "$W/mkstore.py" "$st/mkstore.py"
+scenario() {   # scenario <name> <preinstalled-embed-seed|-> <chat-seed> [preinstalled-chat-seed]  -> prints "EXIT n" "CODE c" "PULLS ..." "ERRS n" "PINREC ..." OKLINE...
+    local name="$1" pre="$2" chat="$3" prechat="${4:--}" st="$W/c_$1"
+    mkdir -p "$st/models"; cp "$W/mkstore.py" "$st/mkstore.py"; : > "$st/pulls"
     local ge gc
     ge="$(python3 -I "$st/mkstore.py" "$W/pin_$name" nomic-embed-text latest good-nomic-embed-text)"
     gc="$(python3 -I "$st/mkstore.py" "$W/pin_$name" qwen3.5 9b good-qwen3.5)"
     if [ "$pre" != "-" ]; then
         python3 -I "$st/mkstore.py" "$st/models" nomic-embed-text latest "$pre" >/dev/null
-        echo "nomic-embed-text:latest    0a109f422b47    274 MB    1 day ago" > "$st/list"
+        echo "nomic-embed-text:latest    0a109f422b47    274 MB    1 day ago" >> "$st/list"
+    fi
+    if [ "$prechat" != "-" ]; then
+        python3 -I "$st/mkstore.py" "$st/models" qwen3.5 9b "$prechat" >/dev/null
+        echo "qwen3.5:9b    6488c96fa5fa    6.6 GB    3 weeks ago" >> "$st/list"
     fi
     PATH="$W/bin:/usr/bin:/bin" STATE="$st" OLLAMA_MODELS="$st/models" SEED_qwen3_5="$chat" \
     GE="$ge" GC="$gc" FNS="$W/fns.sh" SEC="$W/section.sh" STRINGS="$STRINGS" bash -c '
@@ -253,7 +260,7 @@ scenario() {   # scenario <name> <preinstalled-embed-seed|-> <chat-seed>  -> pri
         trap "echo x >> \"\$STATE/errs\"" ERR
         . "$STRINGS"
         OSTLER_GUI=0; PULL_MODEL=y; AI_MODEL=qwen3.5:9b; AI_MODEL_SIZE="~6.6 GB"
-        OSTLER_DIR="$STATE"; INSTALL_LOG="$STATE/log"
+        OSTLER_DIR="$STATE"; INSTALL_LOG="$STATE/log"; OSTLER_MODEL_PIN_STATE_FILE="$STATE/model-pins"
         progress(){ :; }; info(){ :; }; warn(){ :; }; gui_emit(){ :; }; gui_log(){ :; }; sleep(){ :; }
         ok(){ echo "OKLINE $*"; }
         fail_with_code(){ echo "CODE $1"; exit 1; }
@@ -265,6 +272,7 @@ scenario() {   # scenario <name> <preinstalled-embed-seed|-> <chat-seed>  -> pri
     echo "EXIT $?"
     echo "PULLS $(tr '\n' ' ' < "$st/pulls" 2>/dev/null)"
     echo "ERRS $(cat "$st/errs" 2>/dev/null | wc -l | tr -d ' ')"
+    sed 's/^/PINREC /' "$st/model-pins" 2>/dev/null
 }
 
 r="$(scenario good - good-qwen3.5)"
@@ -283,15 +291,29 @@ else
 fi
 
 r="$(scenario stale STALE-OLD good-qwen3.5)"
-if grep -qx 'EXIT 0' <<<"$r" && grep -q '^PULLS .*nomic-embed-text' <<<"$r"; then
-    pass "C stale pre-installed embed model is re-pulled and then verified, not trusted"
+if grep -qx 'EXIT 0' <<<"$r" && grep -qx 'REACHED-END' <<<"$r" && ! grep -q '^PULLS .*nomic-embed-text' <<<"$r" \
+   && grep -q '^PINREC model_pin=nomic-embed-text:latest existing=kept pin_check=skipped on_disk=differs ' <<<"$r" \
+   && ! grep -q '^CODE ' <<<"$r" && grep -qx 'ERRS 0' <<<"$r"; then
+    pass "C an existing embed model that differs from the pin is KEPT: not re-pulled, no stop, recorded on_disk=differs"
 else
-    bad "C stale pre-installed embed model: $(tr '\n' ';' <<<"$r")"
+    bad "C existing (differing) embed model was not kept: $(tr '\n' ';' <<<"$r")"
+fi
+
+# An existing customer's chat model written by an older Ollama (the 0.34 GGUF
+# shape: a different config digest under the same tag) must not stop the install.
+r="$(scenario existing034 good-nomic-embed-text good-qwen3.5 OLLAMA-034-GGUF)"
+if grep -qx 'EXIT 0' <<<"$r" && grep -qx 'REACHED-END' <<<"$r" && ! grep -q '^PULLS .*qwen3.5' <<<"$r" \
+   && grep -q '^PINREC model_pin=qwen3.5:9b existing=kept pin_check=skipped on_disk=differs ' <<<"$r" \
+   && ! grep -q '^CODE ' <<<"$r" && grep -qx 'ERRS 0' <<<"$r"; then
+    pass "C an existing customer's 0.34-era chat model is KEPT: no ERR-13 stop, not re-pulled, recorded"
+else
+    bad "C existing 0.34-era chat model tripped the pin: $(tr '\n' ';' <<<"$r")"
 fi
 
 r="$(scenario fresh good-nomic-embed-text good-qwen3.5)"
-if grep -qx 'EXIT 0' <<<"$r" && ! grep -q '^PULLS .*nomic-embed-text' <<<"$r"; then
-    pass "C control: a correct pre-installed embed model is verified and NOT re-pulled"
+if grep -qx 'EXIT 0' <<<"$r" && ! grep -q '^PULLS .*nomic-embed-text' <<<"$r" \
+   && grep -q '^PINREC model_pin=nomic-embed-text:latest existing=kept pin_check=skipped on_disk=match ' <<<"$r"; then
+    pass "C control: a correct pre-installed embed model is kept, NOT re-pulled, and recorded on_disk=match"
 else
     bad "C control, correct pre-installed embed model: $(tr '\n' ';' <<<"$r")"
 fi

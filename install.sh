@@ -1991,6 +1991,10 @@ OSTLER_MODEL_PINS=(
     "qwen3.5:9b              sha256:08f9698c1116d2ba3d2c1751f6e98919823e13bb28ff5eb7451c7bc9b40907c5"
     "gemma4:e2b              sha256:3ff8a734c316b74964b7c7f7318e56ad85077da655a985aaa73f466c450d993a"
     "nomic-embed-text:latest sha256:31df23ea7daa448f9ccdbbcecce6c14689c8552222b80defd3830707c0139d4f"
+    # TODO(#2990): "qwen3.5:4b  sha256:<config digest>" -- #2990 moves the 16 GB
+    # tier to qwen3.5:4b. That PR must add this row (resolved by the recipe
+    # above) in the same diff, or its fresh 16 GB installs stop on
+    # ERR-13-MODEL-UNPINNED. tests/test_model_digest_pins.sh arm A enforces it.
 )
 
 # A name with no tag is `:latest`, exactly as `ollama pull` reads it.
@@ -2093,6 +2097,34 @@ ostler_require_model_digest() {
         *) fail_with_code "ERR-13-MODEL-DIGEST-UNREADABLE" \
                "$(printf "$MSG_FAIL_MODEL_DIGEST_UNREADABLE" "${model}" "${OSTLER_MODEL_DIGEST_DETAIL}")" ;;
     esac
+}
+
+# ostler_note_existing_model <model>
+#   A model ALREADY on disk and serving (an existing customer's, e.g. a 0.34
+#   GGUF copy) is NOT pin-checked and NOT re-pulled: the pin is a promise
+#   about what we PULL, and stopping a working Hub because the copy it already
+#   serves predates the pin would break it for nothing (Archie, #2972). The
+#   verifier still runs, for the record only, and the result is written to
+#   the install log and ~/.ostler/state/model-pins for the walk. Never fails
+#   the install; never fires the ERR trap.
+ostler_note_existing_model() {
+    local model rc=0 verdict f
+    model="$(ostler_model_canonical "$1")"
+    ostler_verify_model_digest "$model" || rc=$?
+    case "$rc" in
+        0) verdict="match" ;;
+        1) verdict="differs" ;;
+        3) verdict="unpinned" ;;
+        *) verdict="unreadable" ;;
+    esac
+    f="${OSTLER_MODEL_PIN_STATE_FILE:-${HOME}/.ostler/state/model-pins}"
+    mkdir -p "$(dirname "$f")" 2>/dev/null || true
+    printf 'model_pin=%s existing=kept pin_check=skipped on_disk=%s got=%s\n' \
+        "$model" "$verdict" "${OSTLER_MODEL_DIGEST_GOT:--}" >> "$f" 2>/dev/null || true
+    printf 'model_pin=%s existing=kept pin_check=skipped on_disk=%s got=%s want=%s\n' \
+        "$model" "$verdict" "${OSTLER_MODEL_DIGEST_GOT:--}" "${OSTLER_MODEL_DIGEST_WANT:--}" \
+        >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null || true
+    return 0
 }
 
 # ── --allow-plaintext loud warning ─────────────────────────────────
@@ -3550,14 +3582,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8724) captures the path BY
+    # _ostler_write_store_curl_config (defined :8756) captures the path BY
     # VALUE and never re-reads it:
-    #     :8725   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8770   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8779 and :16242, both of which run
+    #     :8757   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8802   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8811 and :16274, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3536 above has just deleted
-    # that tree and :3540 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3568 above has just deleted
+    # that tree and :3572 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3572,13 +3604,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17022, where the note reads
+    # WhatsApp Web session path did it again at :17054, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17039 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17071 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3587,13 +3619,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6102 against a definition at :8724. Top-level
+    # writer's own definition: :6134 against a definition at :8756. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8779, :16242) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8811, :16274) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19185 / :19363 / :19520 / :19965 path. There the
+    # :19217 / :19395 / :19552 / :19997 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -22641,19 +22673,21 @@ fi
 
 progress "Downloading AI models (this is the big one)" "ai_models"
 
-# OS003 #233: an "already available" model is verified against its pin too,
-# and a mismatch there is re-pulled once before it is allowed to fail: a copy
-# left by an older install or by hand is not the model this installer ships.
-if ollama list 2>/dev/null | grep -q "nomic-embed-text" && ostler_verify_model_digest nomic-embed-text; then
+# OS003 #233, as amended on #2972: the pin is checked on what we PULL. A model
+# already on disk and serving is kept as it is (ostler_note_existing_model
+# records how it compares, for the walk); a model we pull now must match its
+# pin or the install stops.
+if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
+    ostler_note_existing_model nomic-embed-text
 else
     info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
     if ! ollama_pull_with_retry nomic-embed-text; then
         fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT"
     fi
     ok "$MSG_OK_EMBEDDING_MODEL_READY"
+    ostler_require_model_digest nomic-embed-text
 fi
-ostler_require_model_digest nomic-embed-text
 
 # CX-43 / #177 -- prove the embedding engine actually returns vectors
 # before anything relies on it. A running Ollama with a broken runner
@@ -22705,8 +22739,9 @@ rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
 
 if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
-    if ollama list 2>/dev/null | grep -q "${AI_MODEL}" && ostler_verify_model_digest "${AI_MODEL}"; then
+    if ollama list 2>/dev/null | grep -q "${AI_MODEL}"; then
         ok "$(printf "$MSG_OK_ALREADY_AVAILABLE" "${AI_MODEL}")"
+        ostler_note_existing_model "${AI_MODEL}"
     else
         # Show the licence summary before the pull so the user knows
         # what they are accepting. Default Ostler models (Qwen family)
@@ -22729,8 +22764,8 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
             fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")"
         fi
         ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
+        ostler_require_model_digest "${AI_MODEL}"
     fi
-    ostler_require_model_digest "${AI_MODEL}"
 else
     info "$(printf "$MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA" "${AI_MODEL}")"
 fi
