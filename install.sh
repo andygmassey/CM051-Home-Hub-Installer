@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8586) captures the path BY
+    # _ostler_write_store_curl_config (defined :8652) captures the path BY
     # VALUE and never re-reads it:
-    #     :8587   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8632   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8641 and :16104, both of which run
+    #     :8653   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8698   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8707 and :16170, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16884, where the note reads
+    # WhatsApp Web session path did it again at :16950, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16901 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16967 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5964 against a definition at :8586. Top-level
+    # writer's own definition: :6030 against a definition at :8652. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8641, :16104) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8707, :16170) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19047 / :19225 / :19382 / :19827 path. There the
+    # :19115 / :19293 / :19450 / :19895 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4177,6 +4177,72 @@ _OSTLER_TEE_CMD="$(_ostler_select_tee_cmd)"
 exec 9>&2
 OSTLER_MARKER_FD=9
 export OSTLER_MARKER_FD
+
+# v1.0.109 BLOCKER: THE RECOVERY KEY MUST NEVER REACH ${INSTALL_LOG}.
+#
+# fd 8 is a dup of stdout taken HERE, before the tee, for the same reason
+# as fd 9 above: it is the customer's real terminal, and nothing written to
+# it passes through the tee. The recovery-key reveal writes the key to fd 8
+# ONLY; the log gets "recovery key shown (N chars)". Until this, the reveal
+# echoed the key to stdout, so every install.log (and every support upload,
+# failsafe copy and Time Machine snapshot of one) held the key that
+# unwraps the DEK.
+exec 8>&1
+OSTLER_TTY_FD=8
+
+# _ostler_scrub_recovery_key_from_logs FILE...
+#
+# Upgrade scrub. Logs written by earlier installers carry the key on the
+# first non-blank line after "Your recovery key:", and the raw
+# RECOVERY_PHRASE= line if setup output was ever echoed. Rewrite those lines
+# in place, every run, every file given. Nothing else in the file changes.
+# Never fails the install: a log we cannot rewrite is reported, not fatal.
+_ostler_scrub_recovery_key_from_logs() {
+    local _f _tmp _n
+    for _f in "$@"; do
+        [[ -f "$_f" && ! -L "$_f" ]] || continue
+        if ! /usr/bin/grep -q -a -E 'Your recovery key:|RECOVERY_PHRASE=' "$_f"; then
+            continue
+        fi
+        _tmp="${_f}.scrub.$$"
+        if /usr/bin/awk '
+            BEGIN { pending = 0 }
+            /RECOVERY_PHRASE=[^<]/ { sub(/RECOVERY_PHRASE=.*/, "RECOVERY_PHRASE=<redacted>"); n++; print; next }
+            pending > 0 {
+                plain = $0
+                gsub(/\033\[[0-9;]*[A-Za-z]/, "", plain)
+                gsub(/[ \t\r]/, "", plain)
+                if (plain == "<recoverykeyredactedfromthislog>") { pending = 0 }
+                else if (plain != "") { print "    <recovery key redacted from this log>"; n++; pending = 0; next }
+                pending--
+            }
+            /Your recovery key:/ { pending = 3 }
+            { print }
+            END { printf "%d\n", n > "/dev/stderr" }
+        ' "$_f" > "$_tmp" 2> "${_tmp}.n" \
+            && /bin/chmod 600 "$_tmp" \
+            && /bin/mv -f "$_tmp" "$_f"; then
+            _n="$(/bin/cat "${_tmp}.n" 2>/dev/null)"
+            echo "recovery-key scrub: ${_f}: ${_n:-0} line(s) redacted"
+        else
+            echo "WARN: recovery-key scrub could not rewrite ${_f}" >&2
+            /bin/rm -f "$_tmp"
+        fi
+        /bin/rm -f "${_tmp}.n"
+    done
+    return 0
+}
+_ostler_scrub_targets=(
+    "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/logs"/install.log*
+    "${LOGS_DIR}"/install.log*
+    "${TMPDIR:-/tmp}"/ostler-diag-*/install*.log
+)
+if [[ -w "${LOGS_DIR}" ]]; then
+    _ostler_scrub_recovery_key_from_logs "${_ostler_scrub_targets[@]}" >> "${INSTALL_LOG}" 2>&1 || true
+else
+    _ostler_scrub_recovery_key_from_logs "${_ostler_scrub_targets[@]}" >&2 || true
+fi
+unset _ostler_scrub_targets
 
 if [[ -w "${LOGS_DIR}" ]]; then
     {
@@ -17529,7 +17595,9 @@ except Exception as e:
             warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
         else
             warn "$MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT"
-            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -15
+            # v1.0.109: SETUP_OUTPUT can carry RECOVERY_PHRASE=<key> (printed
+            # before the DB-key step that can raise), and stdout is the tee.
+            echo "$SETUP_OUTPUT" | sed -e 's/^RECOVERY_PHRASE=.*/RECOVERY_PHRASE=<redacted>/' -e 's/^/    /' | head -15
             fail_with_code "ERR-09-PASSKEY-SETUP" "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
@@ -39656,12 +39724,27 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     # customer an earlier run covered it. A mint that is never delivered
     # is a diagnosed, disclosed gap now, not a permanent, silent one.
     gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
+    # v1.0.109 BLOCKER: the key goes to fd 8 (the real terminal, dup'd
+    # before the tee near the top) and NOWHERE ELSE. stdout is the tee, so
+    # an echo here wrote the key into install.log on every install. The log
+    # gets the fact and the length, never the value.
+    #
+    # Under OSTLER_GUI=1 the GUI's delivery is the RECOVERY_KEY marker
+    # above (fd 9, RecoveryKeyView). fd 8 there is the GUI's stdout pipe,
+    # which feeds logLines and the Log drawer's Copy button, so the plain
+    # block is NOT written there either: RecoveryKeyView.swift says the
+    # value must never reach logLines.
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Your recovery key:${NC}"
-    echo ""
-    echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+        {
+            echo -e "  ${BOLD}Your recovery key:${NC}"
+            echo ""
+            echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+        } >&"${OSTLER_TTY_FD:-8}"
+    fi
+    echo "  recovery key shown (${#RECOVERY_KEY} chars)"
     echo ""
     # #1540. The honest boundary: we HANDED IT OVER. Whether the human
     # wrote it down is not knowable from here, and claiming otherwise
@@ -39763,8 +39846,8 @@ PY
         # out of Time Machine backups and Migration Assistant – matching
         # OstlerPasskeyHelper / CM031 / ostler_security elsewhere.
         # The `security` CLI cannot set these attributes, so we shell
-        # out to swift when available, and fall back to the CLI otherwise.
-        SAVED_TO_KEYCHAIN_VIA="cli"
+        # out to swift (guaranteed by the CLT gate; no CLI fallback, see below).
+        SAVED_TO_KEYCHAIN_VIA="none"
         SWIFT_BIN=""
         if command -v swift &>/dev/null; then
             SWIFT_BIN="swift"
@@ -39805,22 +39888,19 @@ SWIFTEOF
             fi
             rm -f "$KC_HELPER"
         fi
-        # Fallback: `security` CLI. Default accessibility class is
-        # kSecAttrAccessibleWhenUnlocked (item travels in Time Machine
-        # backups / Migration Assistant). Acceptable for first-run when
-        # swift isn't available – the user is told to write it down.
+        # v1.0.109: NO `security add-generic-password -w <key>` FALLBACK.
+        # It put the recovery key on argv, readable by any process via ps
+        # for the life of the call. It is not needed: the CLT wait (search
+        # ERR-02-PREREQ-XCODE-CLI) is top-level and fails the install unless
+        # `xcode-select -p` succeeds, and CLT ships swift, so SWIFT_BIN is
+        # set on every run that reaches this line. `security -i` (commands on
+        # stdin) was measured and rejected: it exits 0 when its command
+        # fails, so a save could not be told from a non-save. If swift does
+        # fail at runtime, the customer is told to write the key down, which
+        # is the honest outcome, and the CLI's weaker accessibility class
+        # (item travels in Time Machine / Migration Assistant) is gone too.
         if [[ "$SAVED_TO_KEYCHAIN" == false ]]; then
-            if security add-generic-password \
-                -a "${USER_ID}" \
-                -s "Ostler Recovery Key" \
-                -w "${RECOVERY_KEY}" \
-                -T "" \
-                -U 2>/dev/null; then
-                ok "$MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER"
-                SAVED_TO_KEYCHAIN=true
-            else
-                warn "$MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE"
-            fi
+            warn "$MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE"
         fi
     fi
 
