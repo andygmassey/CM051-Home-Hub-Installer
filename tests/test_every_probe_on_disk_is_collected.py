@@ -46,6 +46,11 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/companion_unpair.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it and calls "
+        "companion_walk_baseline before the pairing probes and "
+        "companion_walk_unpair after every measurement, so the walk leaves no "
+        "synthetic companion paired. It has no PROBE_NAME and no verdict.",
     "lib/scale_fixture_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it after "
         "usage_seed and calls scale_fixture_apply, which replays the synthetic "
@@ -168,6 +173,26 @@ EXEMPT: dict[str, str] = {
         "it anyway. It IS invoked, through its permanent.yaml row, and "
         "post_walk_qa.sh runs the manifest verifier alongside the walk, so its "
         "result does reach the QA output under the manifest section.",
+    "lib/real_person_choose.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it before "
+        "the phase-2 loop and calls real_person_choose right before "
+        "hub_screens_render_for_a_customer, only to export "
+        "HUB_SCREENS_REAL_PERSON (env only, name never logged). It makes no "
+        "measurement and has no PROBE_NAME or verdict; its invocation is "
+        "pinned by scripts/tests/test_full_walk_chooses_the_real_person.sh.",
+    "lib/promote_order.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it just "
+        "before the phase-2 loop and calls promote_order, which only REORDERS "
+        "the probes already collected so the previous walk's FAILs run first "
+        "(a probe declaring WALK_WRITES is never moved). It makes no "
+        "measurement, has no PROBE_NAME and no probe_pass/probe_fail verdict, "
+        "and adds or drops nothing; collecting it would run a reorder helper "
+        "as if it were a measurement. Its invocation and its order guarantees "
+        "are pinned by tests/test_a_writing_probe_declares_it_and_is_never_"
+        "promoted.sh, tests/test_a_pairing_reader_runs_before_the_pairing_"
+        "mutator.sh (promoted lists) and arm G of scripts/tests/"
+        "test_the_early_pass_rechecks_last_walks_failures.sh (the runner "
+        "really reorders).",
     "lib/wiki_summaries_wait.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2, below the usage seed and above the phase-2 loop, "

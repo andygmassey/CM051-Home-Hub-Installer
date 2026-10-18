@@ -43,6 +43,13 @@ struct OstlerInstallerApp: App {
     @StateObject private var coordinator = InstallerCoordinator()
     @NSApplicationDelegateAdaptor(InstallerAppDelegate.self) private var appDelegate
 
+    init() {
+        // The scheduled Apple Music refresh launches this executable with
+        // --music-refresh (LaunchAgent com.ostler.music-refresh). It must
+        // run before any scene exists and then exit; see MusicRefreshMode.
+        MusicRefreshMode.runIfRequested()
+    }
+
     var body: some Scene {
         Window("Ostler Installer", id: "main") {
             ContentView()

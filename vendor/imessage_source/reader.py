@@ -29,11 +29,126 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# A chat.db SCHEMA MISMATCH must fail LOUD, never return an empty list.
+#
+# chat.db is a system file whose schema macOS can change between releases. When
+# a SELECT names a column the installed schema no longer has, sqlite raises
+# OperationalError("no such column: ..."). This reader used to log that and
+# `return []`, which is INDISTINGUISHABLE at the consumer from "you have not
+# messaged anyone". Walk #30 ingested 0 of 1075 iMessages exactly this way (a
+# chat.db without `account_login`) and the whole owner-knowledge run scored
+# 0/80 while every source still reported "ok". A benign empty store raises
+# nothing and returns zero rows, so the OperationalError arm is ONLY ever a
+# reader/schema fault: it is re-raised as ChatDbSchemaError so the consumer
+# (ostler_fda.extract_all) records the source as "error" (Doctor-visible)
+# instead of a green zero. The one OperationalError that is NOT a schema fault,
+# a transient "database is locked" while Messages writes, is left as a
+# degrade-to-empty for that one tick (an outage, not a broken reader).
+#
+# Kept in step with vendor/ostler_fda/imessage.py; recorded in
+# vendor/divergences/ASSISTANT_OWN_SENDS.UNRECORDED.md.
+# ---------------------------------------------------------------------------
+class ChatDbSchemaError(RuntimeError):
+    """A chat.db query failed because the on-disk schema did not match what
+    this reader SELECTs. Raised LOUD, never swallowed into an empty list."""
+
+
+_SCHEMA_ERROR_MARKERS = (
+    "no such column",
+    "no such table",
+    "no such function",
+    "has no column named",
+    "malformed database schema",
+)
+
+
+def _raise_if_schema_mismatch(exc: sqlite3.OperationalError, what: str) -> None:
+    """Re-raise a schema-shaped OperationalError as ChatDbSchemaError.
+
+    A no-op for any other OperationalError (e.g. a transient lock), so the
+    caller keeps its existing degrade-to-empty for that narrow case.
+    """
+    if any(marker in str(exc).lower() for marker in _SCHEMA_ERROR_MARKERS):
+        raise ChatDbSchemaError(
+            f"iMessage chat.db {what} failed on a schema mismatch ({exc}). "
+            "This is a reader/schema fault (a macOS update likely changed the "
+            "chat.db columns), not an empty history, so it is refused rather "
+            "than reported as 0 messages."
+        ) from exc
+
+
 MAC_EPOCH_OFFSET = 978307200  # 2001-01-01T00:00:00Z in Unix seconds
 DEFAULT_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 
 # chat.style values: 43 = group, 45 = individual (1:1).
 _CHAT_STYLE_GROUP = 43
+
+
+# ---------------------------------------------------------------------------
+# The assistant's own sends are not the owner's words.
+#
+# The morning brief and the evening wrap go out by iMessage to the owner's
+# own number, FROM the owner's Apple ID. chat.db therefore records them with
+# is_from_me=1, and this reader used to bundle them as the owner speaking:
+# measured on the walk box 2026-10-14, 141 assistant sends with is_from_me=1
+# (plus 148 inbound copies), 9 bundles and 7 facts extracted from them.
+#
+# What the sender actually stamps, read from ostler-assistant
+# crates/zeroclaw-channels/src/imessage.rs (send -> apply_message_prefix):
+# every outbound iMessage starts with the identity prefix, default the robot
+# emoji, and that channel's own echo guard (is_bot_identity_prefixed) already
+# treats a leading robot emoji as "can only have come from this assistant".
+# There is no persisted delivery log to match against: the channel's
+# recent-send buffer is in memory and capped at 20, and cron_runs.output holds
+# the pre-send text (markdown not yet flattened, prefix not yet applied).
+#
+# ASSISTANT_SEND_MARKER is an invisible marker the sender appends to every
+# outbound message (ostler-assistant, same change set), so a customer who
+# empties the visible prefix is still covered. Both checks must stay in step
+# with the copies in whatsapp_source/reader.py, email_source/reader.py and
+# ostler_fda/imessage.py; tests/test_assistant_sends_are_not_owner_input.py
+# holds them to one table.
+#
+# The PREFIX rule applies only to rows the owner's account sent (is_from_me,
+# or the inbound copy in the owner's own self-chat: the self-chat shows one of
+# each). A contact's message that opens with the same emoji is kept. The
+# invisible marker applies in every direction.
+# ---------------------------------------------------------------------------
+ASSISTANT_SEND_PREFIX = "\U0001F916"  # robot face, the identity prefix
+ASSISTANT_SEND_MARKER = "\u2063\u2064\u2063"  # invisible sep, plus, sep
+
+
+def _owner_sent(row) -> bool:
+    """Was this row sent from the owner's own account?
+
+    is_from_me=1, or the inbound copy in the owner's Note-to-Self chat: a
+    one-handle chat whose handle IS the account it was received on (the
+    same test ostler-assistant's POLL_QUERY_SELF_CHAT uses). The brief lands
+    in that chat as both an outgoing and an inbound row.
+    """
+    if row["is_from_me"]:
+        return True
+    hid = row["handle_id"] or ""
+    login = row["account_login"] or ""
+    return bool(hid) and row["n_handles"] == 1 and login in ("E:" + hid, "P:" + hid)
+
+
+def is_assistant_send(text: Optional[str], from_owner: bool = False) -> bool:
+    """True when ``text`` was written by the Ostler assistant, not a person.
+
+    The invisible marker counts in any direction: only the assistant stamps
+    it. The robot-emoji PREFIX counts only on a row the owner's own account
+    sent (``from_owner``), because that is the only place the assistant's
+    sends appear with it. A contact whose message happens to open with the
+    same emoji is a person, and their words are kept.
+    """
+    if not text:
+        return False
+    if ASSISTANT_SEND_MARKER in text:
+        return True
+    return from_owner and text.lstrip().startswith(ASSISTANT_SEND_PREFIX)
 
 
 @dataclass
@@ -155,6 +270,7 @@ def extract_conversations(
             (min_messages,),
         ).fetchall()
     except sqlite3.OperationalError as exc:
+        _raise_if_schema_mismatch(exc, "conversation query")
         logger.error("Failed to query iMessage conversations: %s", exc)
         return []
     finally:
@@ -214,7 +330,11 @@ def extract_messages(
                 m.date                     AS date,
                 m.cache_has_attachments    AS has_attachment,
                 m.service                  AS service,
-                COALESCE(h.id, 'me')       AS sender
+                COALESCE(h.id, 'me')       AS sender,
+                h.id                       AS handle_id,
+                c.account_login            AS account_login,
+                (SELECT COUNT(*) FROM chat_handle_join x
+                  WHERE x.chat_id = c.ROWID) AS n_handles
             FROM message m
             JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
             JOIN chat c                ON c.ROWID = cmj.chat_id
@@ -226,14 +346,19 @@ def extract_messages(
             (chat_id, limit),
         ).fetchall()
     except sqlite3.OperationalError as exc:
+        _raise_if_schema_mismatch(exc, "message query")
         logger.error("Failed to query messages for %s: %s", chat_id, exc)
         return []
     finally:
         conn.close()
 
     out: list[Message] = []
+    dropped_assistant = 0
     for row in rows:
         if row["date"] is None:
+            continue
+        if is_assistant_send(row["text"], from_owner=_owner_sent(row)):
+            dropped_assistant += 1
             continue
         out.append(
             Message(
@@ -246,6 +371,10 @@ def extract_messages(
                 has_attachment=bool(row["has_attachment"]),
                 service=(row["service"] or "iMessage"),
             )
+        )
+    if dropped_assistant:
+        logger.info(
+            "Dropped %d assistant-sent message(s) from one thread", dropped_assistant
         )
     out.reverse()  # chronological
     return out

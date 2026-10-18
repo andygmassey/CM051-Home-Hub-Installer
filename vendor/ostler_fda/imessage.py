@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,6 +30,56 @@ from typing import Optional
 from .settling_progress import report_settling_progress
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# A chat.db SCHEMA MISMATCH must fail LOUD, never return an empty list.
+#
+# chat.db is a system file whose schema macOS can change between releases. When
+# a SELECT names a column the installed schema no longer has, sqlite raises
+# OperationalError("no such column: ..."). This reader used to log that and
+# `return []`, which is INDISTINGUISHABLE at the consumer from "you have not
+# messaged anyone". Walk #30 ingested 0 of 1075 iMessages exactly this way (a
+# chat.db without `account_login`) and the whole owner-knowledge run scored
+# 0/80 while every source still reported "ok". A benign empty store raises
+# nothing and returns zero rows, so the OperationalError arm is ONLY ever a
+# reader/schema fault: it is re-raised as ChatDbSchemaError so the consumer
+# (extract_all) records the source as "error" (Doctor-visible) instead of a
+# green zero. The one OperationalError that is NOT a schema fault, a transient
+# "database is locked" while Messages writes, is left as a degrade-to-empty for
+# that one tick (an outage, not a broken reader).
+#
+# Kept in step with vendor/imessage_source/reader.py; recorded in
+# vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md.
+# ---------------------------------------------------------------------------
+class ChatDbSchemaError(RuntimeError):
+    """A chat.db query failed because the on-disk schema did not match what
+    this reader SELECTs. Raised LOUD, never swallowed into an empty list."""
+
+
+_SCHEMA_ERROR_MARKERS = (
+    "no such column",
+    "no such table",
+    "no such function",
+    "has no column named",
+    "malformed database schema",
+)
+
+
+def _raise_if_schema_mismatch(exc: sqlite3.OperationalError, what: str) -> None:
+    """Re-raise a schema-shaped OperationalError as ChatDbSchemaError.
+
+    A no-op for any other OperationalError (e.g. a transient lock), so the
+    caller keeps its existing degrade-to-empty for that narrow case.
+    """
+    if any(marker in str(exc).lower() for marker in _SCHEMA_ERROR_MARKERS):
+        raise ChatDbSchemaError(
+            f"iMessage chat.db {what} failed on a schema mismatch ({exc}). "
+            "This is a reader/schema fault (a macOS update likely changed the "
+            "chat.db columns), not an empty history, so it is refused rather "
+            "than reported as 0 messages."
+        ) from exc
+
 
 # Settling-progress cadence: emit a shard update whenever more than this many
 # seconds have passed since the last emit, or at the end of the loop. Per the
@@ -43,6 +95,45 @@ _SETTLING_SHARD = "imessage"
 
 MAC_EPOCH_OFFSET = 978307200
 DEFAULT_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
+
+
+# The assistant's own sends are not the owner's words. The brief and wrap go
+# out from the owner's Apple ID, so chat.db marks them is_from_me=1. Same rule
+# and same constants as imessage_source/reader.py (see the note there);
+# tests/test_assistant_sends_are_not_owner_input.py holds the copies in step.
+ASSISTANT_SEND_PREFIX = "\U0001F916"  # robot face, the identity prefix
+ASSISTANT_SEND_MARKER = "\u2063\u2064\u2063"  # invisible sep, plus, sep
+
+
+def _owner_sent(row) -> bool:
+    """Was this row sent from the owner's own account?
+
+    is_from_me=1, or the inbound copy in the owner's Note-to-Self chat: a
+    one-handle chat whose handle IS the account it was received on (the
+    same test ostler-assistant's POLL_QUERY_SELF_CHAT uses). The brief lands
+    in that chat as both an outgoing and an inbound row.
+    """
+    if row["is_from_me"]:
+        return True
+    hid = row["handle_id"] or ""
+    login = row["account_login"] or ""
+    return bool(hid) and row["n_handles"] == 1 and login in ("E:" + hid, "P:" + hid)
+
+
+def is_assistant_send(text: Optional[str], from_owner: bool = False) -> bool:
+    """True when ``text`` was written by the Ostler assistant, not a person.
+
+    The invisible marker counts in any direction: only the assistant stamps
+    it. The robot-emoji PREFIX counts only on a row the owner's own account
+    sent (``from_owner``), because that is the only place the assistant's
+    sends appear with it. A contact whose message happens to open with the
+    same emoji is a person, and their words are kept.
+    """
+    if not text:
+        return False
+    if ASSISTANT_SEND_MARKER in text:
+        return True
+    return from_owner and text.lstrip().startswith(ASSISTANT_SEND_PREFIX)
 
 
 @dataclass
@@ -146,7 +237,7 @@ def extract_conversations(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, db_path):
             raise PermissionError(
                 "Cannot read iMessage history. Grant Full Disk Access."
             ) from e
@@ -174,8 +265,9 @@ def extract_conversations(
             ORDER BY last_msg DESC
         """, (min_messages,)).fetchall()
     except sqlite3.OperationalError as e:
-        logger.error("Failed to query iMessage: %s", e)
         conn.close()
+        _raise_if_schema_mismatch(e, "conversation query")
+        logger.error("Failed to query iMessage: %s", e)
         return []
 
     conn.close()
@@ -282,7 +374,7 @@ def extract_messages(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, db_path):
             raise PermissionError(
                 "Cannot read iMessage history. Grant Full Disk Access."
             ) from e
@@ -297,7 +389,11 @@ def extract_messages(
                 m.is_from_me,
                 m.date,
                 m.cache_has_attachments as has_attachment,
-                COALESCE(h.id, 'me') as sender
+                COALESCE(h.id, 'me') as sender,
+                h.id as handle_id,
+                c.account_login as account_login,
+                (SELECT COUNT(*) FROM chat_handle_join x
+                  WHERE x.chat_id = c.ROWID) as n_handles
             FROM message m
             JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
             JOIN chat c ON c.ROWID = cmj.chat_id
@@ -307,8 +403,9 @@ def extract_messages(
             LIMIT ?
         """, (chat_id, limit)).fetchall()
     except sqlite3.OperationalError as e:
-        logger.error("Failed to query messages: %s", e)
         conn.close()
+        _raise_if_schema_mismatch(e, "message query")
+        logger.error("Failed to query messages: %s", e)
         return []
 
     conn.close()
@@ -316,6 +413,8 @@ def extract_messages(
     messages = []
     for row in rows:
         if row["date"] is None:
+            continue
+        if is_assistant_send(row["text"], from_owner=_owner_sent(row)):
             continue
 
         messages.append(Message(

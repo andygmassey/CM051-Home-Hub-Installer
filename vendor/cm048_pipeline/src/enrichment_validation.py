@@ -94,6 +94,15 @@ EXPECTED_HEADINGS_BY_PROMPT: dict[str, list[str]] = {
         "Next steps",
         "Cleaned transcript",
     ],
+    # A single-speaker capture (voice memo, dictated note). Chosen by the
+    # pipeline from the speaker count, never by the classifier: see
+    # src/capture_truth.py. No roster, no location, no "people mentioned".
+    "02_enrich_voice_memo": [
+        "Summary",
+        "Topics covered",
+        "Commitments",
+        "Cleaned transcript",
+    ],
     "02_enrich_email_thread": [
         "Summary",
         "Key topics",
@@ -440,3 +449,117 @@ def strip_reminders_sidecar(text: str) -> tuple[str, int]:
         out.append(new.rstrip() if n else line)
         i += 1
     return "\n".join(out), removed
+
+
+# ---------------------------------------------------------------------------
+# `### Participants` roster: display names only (walk #23)
+# ---------------------------------------------------------------------------
+# The enrichment prompts show the model `{user_name} (user)` and
+# `{other_name} (new acquaintance, ex-[company])` as the SHAPE of a roster
+# bullet. The model copies the role tags (and sometimes the literal
+# `(other_name)`), and a participant with no resolved name carries its raw
+# phone number or address in `metadata.participants[*].display`. The wiki
+# renders the summary verbatim, so a customer read
+# "Owner (user) (user) +<number> (other_name) (new acquaintance, ...".
+# Normalised here, deterministically, from the names the pipeline already
+# holds in metadata.participants (no new resolver): owner -> "You", a
+# resolved display name stays, a bare number/address -> "an unknown contact".
+_PARTICIPANTS_HEADING = re.compile(r"^#{2,4}\s*Participants\s*$", re.I)
+_ANY_HEADING = re.compile(r"^#{1,6}\s+\S")
+_PAREN = re.compile(r"\([^()]*\)")
+_PHONE_SHAPE = re.compile(r"^\+?[\d\s().\-]{6,}$")
+_UNKNOWN_CONTACT = "an unknown contact"
+_OWNER_LABEL = "You"
+
+
+def _is_handle(name: str) -> bool:
+    return "@" in name or (
+        bool(_PHONE_SHAPE.match(name)) and sum(c.isdigit() for c in name) >= 6
+    )
+
+
+_ROLE_TAG_ANYWHERE = re.compile(
+    r"[ \t]*\((?:user|other|other_name|user_name|other:[\w-]+)\)", re.I
+)
+
+
+def scrub_scaffolding(text: str, participants: list[dict] | None) -> str:
+    """Body-wide: role tags the model copied from the prompt shape, and the
+    raw number/address of a participant with no resolved name. Deterministic;
+    only exact copied tags and exact known handle strings are touched."""
+    text = _ROLE_TAG_ANYWHERE.sub("", text)
+    for p in participants or []:
+        display = str(p.get("display") or "").strip()
+        label = display if display and not _is_handle(display) else _UNKNOWN_CONTACT
+        for key in ("display", "id"):
+            raw = str(p.get(key) or "").strip()
+            if raw and _is_handle(raw) and len(raw) >= 6:
+                text = text.replace(raw, label)
+    return text
+
+
+def sanitise_participants_section(
+    text: str, participants: list[dict] | None, user_name: str = ""
+) -> str:
+    """Rewrite the `### Participants` bullets as de-duplicated display names,
+    then scrub copied role tags and raw handles from the rest of the body."""
+    return scrub_scaffolding(
+        _sanitise_participants_roster(text, participants, user_name), participants
+    )
+
+
+def _sanitise_participants_roster(
+    text: str, participants: list[dict] | None, user_name: str = ""
+) -> str:
+    participants = participants or []
+    owner_names = {user_name.strip().lower()} - {""}
+    resolved: dict[str, str] = {}
+    for p in participants:
+        display = str(p.get("display") or "").strip()
+        pid = str(p.get("id") or "").strip()
+        if p.get("role") == "user" and display and not _is_handle(display):
+            owner_names.add(display.lower())
+        if display and not _is_handle(display):
+            if pid:
+                resolved[pid.lower()] = display
+
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        out.append(lines[i])
+        if not _PARTICIPANTS_HEADING.match(lines[i].strip()):
+            i += 1
+            continue
+        j = i + 1
+        while j < len(lines) and not _ANY_HEADING.match(lines[j]):
+            j += 1
+        block = lines[i + 1:j]
+        bullets = [b for b in block if re.match(r"^\s*[-*]\s+", b)]
+        if not bullets:
+            out.extend(block)
+            i = j
+            continue
+        names: list[str] = []
+        for b in bullets:
+            body = re.sub(r"^\s*[-*]\s+", "", b)
+            prev = None
+            while prev != body:  # nested tags
+                prev, body = body, _PAREN.sub("", body)
+            body = re.sub(r"\([^)]*$", "", body)  # unclosed trailing tag
+            body = re.sub(r"\{[a-z_]+\}", "", body)
+            for part in re.split(r"\s*,\s*", body):
+                part = part.strip(" \t*_`")
+                if not part or part.lower() in ("user", "other_name", "user_name"):
+                    continue
+                if part.lower() in owner_names or part.lower() == "you":
+                    part = _OWNER_LABEL
+                elif _is_handle(part):
+                    part = resolved.get(part.lower(), _UNKNOWN_CONTACT)
+                if part not in names:
+                    names.append(part)
+        out.extend(f"- {n}" for n in names)
+        if block and block[-1].strip() == "":
+            out.append("")
+        i = j
+    return "\n".join(out)

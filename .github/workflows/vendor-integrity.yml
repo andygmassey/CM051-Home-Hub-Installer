@@ -15,6 +15,11 @@ on:
   pull_request:
     paths:
       - 'tests/test_an_identifier_is_not_a_taste.py'
+      # The Time Machine exclusion test runs install.sh's helper AND the
+      # Doctor's live rule, so it is watched from both sides.
+      - 'tests/test_time_machine_exclusion_is_measured.sh'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
       - 'vendor/cm059_editor/compiler/interest_profile.py'
       - 'vendor/**'
       # context-refresh/ holds a grafted (divergent) vendored copy of
@@ -59,6 +64,7 @@ on:
       - 'tests/test_canonical_keys_must_not_merge.py'
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
+      - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -133,6 +139,14 @@ on:
       # the only workflow that checks it.
       - 'tests/test_a_dead_wiki_announces_itself.py'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
+      - 'tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh'
+      - 'bin/ostler-engine-supervisor.sh'
+      # The listener watchdog (2026-10-17 incident) and its walk probe: both
+      # tests are RUN below, so both are watched here.
+      - 'tests/test_listener_watchdog_restarts_a_dead_listener.sh'
+      - 'tests/test_listener_watchdog_walk_probe.sh'
+      - 'scripts/box_walk_probes/probes/listener_watchdog_recovers_a_wedged_listener.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
       # The vendor-pair drift gate (#449): the copy that RUNS vs the copy that
       # is REVIEWED. Watched because the step below RUNS it -- a run: with no
@@ -449,6 +463,12 @@ jobs:
         if: always()
         run: bash tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh
 
+      # Walk #27 item 2: the digest re-runs when the interest profile fills,
+      # and the real reader turns that profile into Preferences lines.
+      - name: the context digest catches up when the interest profile lands
+        if: always()
+        run: bash tests/test_digest_refreshes_when_the_interest_profile_lands.sh
+
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
       # WHY THIS STEP EXISTS SEPARATELY FROM THE ONE ABOVE. A module-level check
@@ -565,6 +585,15 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # Status-honesty sweep I1 (walk #28, privacy). The installer said three
+      # folders were excluded from Time Machine after `tmutil addexclusion ...
+      # 2>/dev/null || true`. Runs the real install.sh helper and call site
+      # under set -Eeuo pipefail against a fake tmutil that honours, refuses,
+      # or exits 0 and does nothing; then the Doctor's live rule against the
+      # same fake. Needs the Doctor deps installed above; exit 2 is CANNOT-RUN.
+      - name: A Time Machine exclusion is read back, never assumed
+        if: always()
+        run: bash tests/test_time_machine_exclusion_is_measured.sh
       # Runs after the requirements install above: it imports the shipped app.
       - name: The Hub reads the Doctor like the app does (#2552, #2538)
         if: always()
@@ -656,6 +685,25 @@ jobs:
       - name: The container engine is supervised, and recovery actually fires
         if: always()
         run: bash tests/test_container_engine_liveness_and_recovery.sh
+
+      - name: The engine supervisor judges the store ports, not colima list
+        if: always()
+        run: bash tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh
+
+      # THE DAEMON WAS ALIVE AND ITS :8443 LISTENER WAS DEAD FOR 4 HOURS.
+      #
+      # Andy's box, 2026-10-17: launchd saw a running process, so nothing
+      # respawned it, and the iPhone app sat on "Hub unreachable". The
+      # watchdog install.sh writes (LISTENERWDEOF) is driven against a fake
+      # :8443 the test SIGSTOPs; the Doctor reads the state file that run
+      # wrote; every guard is mutated out and must turn the suite red.
+      - name: The listener watchdog restarts a dead listener, and the Doctor shows it
+        if: always()
+        run: bash tests/test_listener_watchdog_restarts_a_dead_listener.sh
+
+      - name: The listener watchdog walk probe recovers a SIGSTOPped daemon (fake harness)
+        if: always()
+        run: bash tests/test_listener_watchdog_walk_probe.sh
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #

@@ -277,16 +277,27 @@ def measure_stores():
 
     out["user_asserted_facts"] = sparql_count('?f a pwg:PersonFact ; pwg:factSource "user_asserted" .')
     import datetime
-    since = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
-    today = datetime.date.today().isoformat()
-    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-    ahead = (datetime.date.today() + datetime.timedelta(days=8)).isoformat()
+    # UTC, and bounded by NOW, exactly as generate_pwg_context.py reads them
+    # (_today() is UTC; _meeting_rows keeps a past row only when its
+    # "YYYY-MM-DD HH:MM" is <= now, an upcoming one only when >= now). The
+    # calendar ingest stores UTC ("2026-10-18 01:00:00+00:00", 30 days ahead).
+    # Walk #31 (v1.0.108): this count used LOCAL dates and no now-bound, so on a
+    # UTC+8 box after midnight it counted an entry later that day and graded
+    # the generator's correct "Recent meetings: nothing stored" as a lie.
+    utcnow = datetime.datetime.utcnow()
+    today_utc = utcnow.date()
+    since = (today_utc - datetime.timedelta(days=7)).isoformat()
+    today = today_utc.isoformat()
+    tomorrow = (today_utc + datetime.timedelta(days=1)).isoformat()
+    ahead = (today_utc + datetime.timedelta(days=8)).isoformat()
+    now_s = utcnow.strftime("%Y-%m-%d %H:%M")
+    at = 'REPLACE(SUBSTR(STR(?d), 1, 16), "T", " ")'
     # The same windows and predicates generate_pwg_context.py reads (#2654):
     # past 7 days for Recent meetings; calendar PersonFacts plus the next 7
     # days of pwg:Meeting for Calendar events by owner.
-    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (since, tomorrow))
+    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s <= "%s")' % (since, tomorrow, at, now_s))
     cal_facts = sparql_count('?f a pwg:PersonFact ; pwg:factDomain "calendar" ; pwg:factText ?t .')
-    cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (today, ahead))
+    cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s >= "%s")' % (today, ahead, at, now_s))
     out["calendar_events"] = None if cal_facts is None or cal_ahead is None else cal_facts + cal_ahead
     uid = ""
     try:
@@ -321,12 +332,37 @@ def hydration_ready(d):
     return all(by_key.get(k) == "done" for k in DIGEST_PHASES), detail
 
 
-def hydration():
-    try:
-        d = _http("http://127.0.0.1:8089/api/v1/hydration/status", timeout=10)
-        return hydration_ready(d)
-    except Exception as exc:
-        return False, "unreadable ({})".format(str(exc)[:60])
+HYDRATION_URL = "http://127.0.0.1:8089/api/v1/hydration/status"
+
+
+def hydration(fetch=None, sleep=None, clock=None, budget_s=30, backoff_s=2):
+    """(ready, detail). Retries a 5xx inside budget_s (walk #24: one transient
+    502, 200 in 0.4s a moment later, read as CANNOT-RUN). A non-5xx error, or the
+    budget running out, is reported as before. The detail records the attempts
+    and the final status, so a retried pass is visible in the record."""
+    import time
+    import urllib.error
+    fetch = fetch or (lambda: _http(HYDRATION_URL, timeout=10))
+    sleep = sleep or time.sleep
+    clock = clock or time.time
+    t0, attempts, statuses = clock(), 0, []
+    while True:
+        attempts += 1
+        try:
+            d = fetch()
+            ready, detail = hydration_ready(d)
+            statuses.append("200")
+            return ready, "{}; attempts={} statuses={}".format(detail, attempts, ",".join(statuses))
+        except urllib.error.HTTPError as exc:
+            statuses.append(str(exc.code))
+            if 500 <= exc.code < 600 and clock() - t0 + backoff_s < budget_s:
+                sleep(backoff_s)
+                continue
+            why = "5xx persisted past the {}s budget".format(budget_s) if exc.code >= 500 else "non-5xx"
+            return False, "unreadable (HTTP {}; {}; attempts={} statuses={})".format(
+                exc.code, why, attempts, ",".join(statuses))
+        except Exception as exc:
+            return False, "unreadable ({}; attempts={})".format(str(exc)[:60], attempts)
 
 
 def ask_chat(question, seed_org, deadline_s=300):

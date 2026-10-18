@@ -402,3 +402,5 @@ self_test() {
 }
 
 probe_main "$@"
+
+# WALK_WRITES: pairs a synthetic companion for real (POST to :8443 /auth/pair/init + register) and persists a bearer token that nothing revokes

@@ -284,6 +284,65 @@ ENGINE_SUPERVISOR_MISSING_FIX_COMMAND = (
 )
 
 
+# ── the companion listener watchdog's own report ─────────────────────
+#
+# Measured 2026-10-17 on Andy's box: the daemon process was alive at 0% CPU
+# for 4 h while its :8443 listener (the one the iPhone app uses) was dead, and
+# nothing noticed. bin: ostler-listener-watchdog (install.sh LISTENERWDEOF)
+# writes ~/.ostler/state/listener_watchdog.json; check_listener_watchdog reads
+# it. Customer copy: "the Ostler iPhone app", never "companion".
+
+LISTENER_DEGRADED_TITLE = (
+    "The Ostler iPhone app cannot reach your Hub, and automatic restarts have paused"
+)
+LISTENER_DEGRADED_DETAIL_FMT = (
+    "The part of your Hub the iPhone app connects to has stopped answering. "
+    "Ostler restarted it {restarts} time(s) in the last hour (most recently "
+    "{last_restart}) and it did not stay up, so it has stopped retrying until "
+    "the hour is up. What the Hub looked like before each restart is saved in "
+    "{capture}."
+)
+LISTENER_DEGRADED_FIX = "Restart the Hub by hand"
+LISTENER_DEGRADED_FIX_COMMAND = (
+    "launchctl kickstart -k gui/$(id -u)/com.creativemachines.ostler.assistant"
+)
+
+LISTENER_UNVERIFIED_TITLE = (
+    "The Ostler iPhone app cannot reach your Hub"
+)
+LISTENER_UNVERIFIED_DETAIL_FMT = (
+    "The part of your Hub the iPhone app connects to stopped answering. "
+    "Ostler restarted it at {last_restart} but it has not answered since "
+    "({detail}). It will try again in a few minutes. Diagnostics are saved in "
+    "{capture}."
+)
+LISTENER_UNVERIFIED_FIX = LISTENER_DEGRADED_FIX
+LISTENER_UNVERIFIED_FIX_COMMAND = LISTENER_DEGRADED_FIX_COMMAND
+
+LISTENER_RECOVERED_TITLE = (
+    "Your Hub restarted itself so the iPhone app could reconnect"
+)
+LISTENER_RECOVERED_DETAIL_FMT = (
+    "The part of your Hub the iPhone app connects to stopped answering, and "
+    "Ostler restarted it at {last_restart}. It is answering again. Restarts "
+    "in the last hour: {restarts}. Diagnostics are saved in {capture}."
+)
+LISTENER_RECOVERED_FIX = "Nothing to do unless this keeps happening"
+LISTENER_RECOVERED_FIX_COMMAND = "ls ~/.ostler/logs/listener-watchdog/"
+
+LISTENER_STATE_UNREADABLE_TITLE = (
+    "Couldn't check whether the iPhone app can reach your Hub"
+)
+LISTENER_STATE_UNREADABLE_DETAIL = (
+    "The watchdog that keeps the iPhone app's connection to your Hub alive "
+    "left a status file the Doctor cannot read, so its state is unknown."
+)
+LISTENER_STATE_UNREADABLE_FIX = "Check the watchdog's log"
+LISTENER_STATE_UNREADABLE_FIX_COMMAND = (
+    "tail -n 50 ~/.ostler/logs/listener-watchdog.log"
+)
+
+
 # ── check_import_readiness ───────────────────────────────────────────
 
 
@@ -787,6 +846,28 @@ SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT = (
     "launchctl kickstart -k gui/$(id -u)/{label}"
 )
 
+# G1 (TCC sweep 2026-10-15). A tick that exits 75 was REFUSED by macOS, not
+# broken: ostler-fda exits 75 when the only problem was a read macOS would not
+# allow. "Restart the job" is the wrong advice for that, so it gets its own
+# card that points at the permission instead.
+SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION = 75
+SCHEDULED_AGENT_NEEDS_PERMISSION_TITLE_FMT = (
+    "Ostler needs Full Disk Access to keep {feeds} up to date"
+)
+SCHEDULED_AGENT_NEEDS_PERMISSION_DETAIL_FMT = (
+    "Since {since}, macOS has stopped the Ostler assistant reading some of "
+    "your Mac's own apps, so nothing new has been added from them. What "
+    "Ostler already holds is kept, but it is not being refreshed."
+)
+SCHEDULED_AGENT_NEEDS_PERMISSION_FIX = (
+    "Open System Settings, Privacy & Security, Full Disk Access, and turn it "
+    "on for the Ostler assistant. The next hourly update picks it up."
+)
+SCHEDULED_AGENT_NEEDS_PERMISSION_FIX_COMMAND = (
+    "open 'x-apple.systempreferences:com.apple.preference.security?"
+    "Privacy_AllFiles'"
+)
+
 # NEVER-RAN. Deliberately a different title, different severity and a
 # different fix from FAILING, because it is a different fault: the job is
 # registered and launchd has simply never started it. Reporting this as
@@ -915,3 +996,34 @@ PENDING_FACTS_FIX = (
     "Leave the assistant idle for a few minutes. If this stays, restart the "
     "Assistant API from Doctor."
 )
+QUARANTINED_FACTS_TITLE_FMT = "{n} saved fact{s} could not be read and were set aside"
+QUARANTINED_FACTS_DETAIL = (
+    "Your assistant saved these facts, but they could not be processed after "
+    "several tries, so it stopped retrying them. They are kept safely and "
+    "nothing else is held up."
+)
+QUARANTINED_FACTS_FIX = (
+    "Tell your assistant the fact again and it will be saved afresh."
+)
+
+# ── Time Machine exclusion (status-honesty sweep I1, walk #28) ────────────
+TM_SECRETS_NOT_EXCLUDED_TITLE = "Ostler's secrets folder is NOT excluded from Time Machine"
+TM_FOLDER_NOT_EXCLUDED_TITLE_FMT = "{folder} is NOT excluded from Time Machine"
+TM_NOT_EXCLUDED_DETAIL_FMT = (
+    "Time Machine reports {folder} as included in backups. Ostler keeps its "
+    "keys, settings and your unencrypted data here, so your backup disk may "
+    "hold a copy of them."
+)
+TM_NOT_EXCLUDED_FIX = (
+    "Exclude the folder from Time Machine. If the command below does not "
+    "change this, add the folder in System Settings, General, Time Machine, "
+    "Options."
+)
+TM_NOT_EXCLUDED_FIX_COMMAND_FMT = "tmutil addexclusion {folder}"
+TM_CANNOT_CHECK_TITLE = "Could not check whether Ostler's folders are kept out of Time Machine"
+TM_CANNOT_CHECK_DETAIL_FMT = (
+    "The Time Machine tool did not answer ({reason}), so this check did not "
+    "run. It is not a pass."
+)
+TM_CANNOT_CHECK_FIX = "Run the command below in Terminal and look for [Excluded]."
+TM_CANNOT_CHECK_FIX_COMMAND = "tmutil isexcluded ~/.ostler"
