@@ -60,7 +60,19 @@ final class StepCatalog {
                 let steps: [String: StepMeta]
             }
             // Decode as a generic dictionary first.
-            if let root = try? JSONDecoder().decode([String: StepMeta].self, from: data) {
+            if var root = try? JSONDecoder().decode([String: StepMeta].self, from: data) {
+                // Installer language overlay: a step present in
+                // HintCopy.<lang>.json replaces its English entry; a step
+                // missing from it (or an unreadable file) stays English.
+                if let name = InstallerLanguage.resourceName("HintCopy") {
+                    if let lurl = Bundle.main.url(forResource: name, withExtension: "json"),
+                       let ldata = try? Data(contentsOf: lurl),
+                       let lroot = try? JSONDecoder().decode([String: StepMeta].self, from: ldata) {
+                        root = StepCatalog.overlay(base: root, localized: lroot)
+                    } else {
+                        NSLog("\(name).json missing or malformed -- step copy stays in English")
+                    }
+                }
                 self.byId = root
                 self.ordered = StepCatalog.canonicalOrder.compactMap { root[$0] }
                 if self.ordered.isEmpty {
@@ -73,6 +85,17 @@ final class StepCatalog {
                 self.byId = Dictionary(uniqueKeysWithValues: self.ordered.map { ($0.id, $0) })
             }
         }
+    }
+
+    /// Replace each base step with its translated entry when the ids match.
+    /// Ids only in the translation are ignored, so a stale translation file
+    /// can never add a sidebar row the installer does not have.
+    static func overlay(base: [String: StepMeta], localized: [String: StepMeta]) -> [String: StepMeta] {
+        var out = base
+        for (id, meta) in localized where base[id] != nil && meta.id == id {
+            out[id] = meta
+        }
+        return out
     }
 
     func meta(for id: String) -> StepMeta? {
