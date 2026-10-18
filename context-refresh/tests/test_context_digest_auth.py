@@ -86,6 +86,13 @@ _TIMELINE = {
     ],
 }
 _COACH = {"observations": []}
+_EMPLOYER = {"found": True, "employer": "Acme Corp",
+             "job_title": "engineer", "start_date": "2024-01-01",
+             "former_employers": []}
+_PREFERENCES = {"interests": [
+    {"subject": "Fixture gardening", "domain": "Hobbies",
+     "polarity": "positive", "privacy": "L2"},
+]}
 
 _EMPTY_SPARQL = {"head": {"vars": []}, "results": {"bindings": []}}
 
@@ -138,6 +145,10 @@ class _FakeHubHandler(BaseHTTPRequestHandler):
             self._send(200, _TIMELINE)
         elif path == "/api/v1/coach/recent":
             self._send(200, _COACH)
+        elif path == "/api/v1/employer":
+            self._send(200, _EMPLOYER)
+        elif path == "/api/v1/preferences":
+            self._send(200, _PREFERENCES)
         else:
             self._send(404, {"error": "not found"})
 
@@ -182,6 +193,13 @@ def _base_env(workspace: Path) -> dict:
     env["no_proxy"] = "127.0.0.1,localhost,::1"
     env["NO_PROXY"] = env["no_proxy"]
     env["ZEROCLAW_WORKSPACE_DIR"] = str(workspace)
+    # Owner identity and the store bearer are read from $OSTLER_DIR and the
+    # env; pin both so a developer's own install cannot reach the run.
+    for name in ("USER_ID", "USER_NAME", "USER_EMAIL", "WIKI_OPERATOR_NAME",
+                 "WIKI_OPERATOR_EMAILS", "OSTLER_OXIGRAPH_TOKEN", "OXIGRAPH_TOKEN"):
+        env.pop(name, None)
+    env["OSTLER_DIR"] = str(workspace / "no-ostler-dir")
+    env["OSTLER_OXIGRAPH_TOKEN_FILE"] = str(workspace / "no-oxigraph-token")
     return env
 
 
@@ -257,12 +275,49 @@ def test_context_md_written_with_valid_token(hub, tmp_path):
     # It carries real content from the AUTHENTICATED surface, not just the
     # digest's own boilerplate. Oxigraph returned zero bindings, so every one
     # of these strings had to come through a bearer-guarded route.
-    assert "Fixture Person" in body
+    assert "Acme Corp" in body
     assert "Fixture standup" in body
-    assert "## People you interact with most" in body
+    assert "## About you" in body
+    assert "- Work: Acme Corp" in body
 
     assert result.returncode == _EXIT_OK, (
         f"expected clean exit, got {result.returncode}\nstderr={result.stderr}"
+    )
+
+
+def test_the_digest_names_exactly_one_route_to_the_graph(hub, tmp_path):
+    """The shipped digest must name the pwg_ tools and nothing else.
+
+    It used to end by telling the model to fetch people live with the
+    http_request tool against http://127.0.0.1:8090/api/v1/people/*. That
+    route works, and install.sh enables allow_private_hosts for it on
+    purpose, but it is invisible to everything that asks WHICH tool answered
+    a turn: assistant_answers_grounded grades on a pwg_ tool having run, so a
+    correct answer fetched that way scores memory_only, one of the two shapes
+    behind that probe's FAIL on the v1.0.79 walk.
+
+    ASSERTED ON THE FILE THE INSTALL WRITES, not on the source that builds
+    it, because this file IS the copy that ships and a grep of the generator
+    would pass on prose that never reaches a customer.
+
+    MUST-MISS AND MUST-HIT TOGETHER: a digest naming NEITHER route would
+    satisfy the must-miss while telling the model nothing.
+    """
+    workspace = tmp_path / "workspace"
+    _run(hub, workspace, token=_GOOD_TOKEN)
+    body = (workspace / "CONTEXT.md").read_text(encoding="utf-8")
+    assert body.strip(), "no digest to inspect"
+
+    assert "http_request tool" not in body, (
+        "the shipped digest instructs a second route to the graph; a turn "
+        "that follows it reaches the real graph and is graded memory_only"
+    )
+    assert "/api/v1/people/search" not in body, (
+        "the shipped digest still hands the model a raw graph URL to fetch"
+    )
+    assert "pwg_people" in body, (
+        "the lookup paragraph must name the route it DOES want, or it is a "
+        "refusal with no destination"
     )
 
 
@@ -296,7 +351,7 @@ def test_exits_non_zero_when_token_absent(hub, tmp_path):
     result = _run(hub, workspace, token=None)
 
     assert result.returncode != 0, (
-        "a run that produced zero of six sections exited 0 -- this is the "
+        "a run that produced zero of seven sections exited 0 -- this is the "
         "original defect.\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
@@ -329,7 +384,7 @@ def test_failure_message_names_the_measured_status(hub, tmp_path):
         f"stderr={result.stderr}"
     )
     assert "/api/v1/timeline" in result.stderr
-    assert "0 of 6 sections produced content" in result.stderr
+    assert "0 of 7 sections produced content" in result.stderr
 
 
 def test_failure_message_does_not_invent_a_cause(hub, tmp_path):

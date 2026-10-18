@@ -37,6 +37,7 @@ import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SUBJECT = REPO / "tests" / "test_the_cut_checklist_is_complete.py"
+BY_REPO = {}
 MANIFEST = REPO / "cut-manifests"
 
 PASS = FAIL = 0
@@ -68,9 +69,26 @@ def registered_issue_numbers():
         return [int(x) for x in re.findall(r"\d+", p.stem)]
 
     newest = max(manifests, key=key)
-    ids = [int(m.group(1)) for m in
-           re.finditer(r"^  - issue:\s*(\d+)\s*$", newest.read_text(encoding="utf-8"),
-                       re.MULTILINE)]
+    # ── PER REPO, BECAUSE THE SUBJECT IS NOW PER REPO ──────────────────────
+    # Rows gained a `repo:` field, because a bare number is ambiguous: GitHub
+    # numbers issues and pull requests from one counter per repo and both
+    # repos reach four digits. The subject queries each repo separately, so a
+    # stub that answers every repo with the SAME flat list makes every row
+    # belonging to the other repo look unregistered. Read the pairs.
+    text = newest.read_text(encoding="utf-8")
+    pairs = re.findall(r"^  - issue:\s*(\d+)\s*\n    repo:\s*(\S+)", text, re.MULTILINE)
+    ids = [int(n) for n, _ in pairs]
+    global BY_REPO
+    BY_REPO = {}
+    for n, rp in pairs:
+        BY_REPO.setdefault(rp, []).append(int(n))
+    flat = [int(m.group(1)) for m in
+            re.finditer(r"^  - issue:\s*(\d+)\s*$", text, re.MULTILINE)]
+    if flat and len(flat) != len(pairs):
+        print(f"  [CANNOT-RUN] {len(flat)} issue rows but {len(pairs)} carry a `repo:` field. "
+              f"A row without one cannot be routed to a repo, and guessing is the defect "
+              f"this field exists to end.")
+        raise SystemExit(2)
     if not ids:
         print(f"  [CANNOT-RUN] parsed ZERO issue rows out of {newest.name}. That is a "
               f"broken predicate, not an empty register.")
@@ -83,8 +101,30 @@ def run_with_stub(issues):
 
     `issues` is a list of (number, [labels]).
     """
-    payload = json.dumps([{"number": n, "labels": [{"name": x} for x in labs]}
-                          for n, labs in issues])
+    # The subject asks each repo separately, so the stub must answer each
+    # repo separately. Answering both with one list would report every CM051
+    # row as an unregistered HR015 issue and vice versa.
+    #
+    # HR015 rows are scoped by a `[LAUNCH]` title prefix, so the stub has to
+    # supply titles too. A stub that returns numbers with no titles makes the
+    # subject correctly report that it cannot scope at all.
+    def _payload(nums):
+        return json.dumps([{"number": n,
+                            "title": f"[LAUNCH] fixture issue {n}",
+                            "labels": [{"name": x} for x in labs]}
+                           for n, labs in issues if n in nums])
+    cm = set(BY_REPO.get("CM051", []))
+    hr = set(BY_REPO.get("HR015", []))
+    # Arm-specific additions ONLY: numbers this arm invented, not rows the
+    # manifest already carries. Rows declaring `repo: none` are registered and
+    # deliberately belong to NEITHER repo's open list, so feeding them to CM051
+    # would report 99 registered rows as unregistered CM051 issues.
+    known = set()
+    for v in BY_REPO.values():
+        known |= set(v)
+    extra = {n for n, _ in issues} - known
+    payload_cm = _payload(cm | extra)
+    payload_hr = _payload(hr)
     with tempfile.TemporaryDirectory() as tmp:
         stub = pathlib.Path(tmp) / "gh"
         stub.write_text(
@@ -93,7 +133,9 @@ def run_with_stub(issues):
             # a subject that starts asking gh something new fails loudly here
             # rather than silently getting an issue list as the answer.
             'case "$*" in\n'
-            "  *'issue list'*) cat <<'JSON'\n" + payload + "\nJSON\n"
+            "  *HR015*) cat <<'JSON'\n" + payload_hr + "\nJSON\n"
+            "    ;;\n"
+            "  *'issue list'*) cat <<'JSON'\n" + payload_cm + "\nJSON\n"
             "    ;;\n"
             "  *'auth status'*) exit 0 ;;\n"
             "  *) echo \"stub: unexpected gh call: $*\" >&2; exit 3 ;;\n"
@@ -158,6 +200,37 @@ def main():
            "names the real gap rather than the alarm")
     else:
         bad(f"alarm + real gap did not fail correctly: rc={rc}\n{out[-700:]}")
+
+    # ARM 6. THE PREFIX THAT MADE PROPERTY 2 BLIND FOR ITS ENTIRE LIFE.
+    # Every real row writes its status as `gate: 'GATE: NONE YET. ...'`. The
+    # detector in the gate was startswith("NONE"), which matches none of them.
+    # Measured on v1.0.99 the day it was found: 112 rows said NONE YET and the
+    # gate counted 0, while printing a PASS saying every issue was gated.
+    # PROPERTY 2 is the check that BLOCKS A CUT, so a cut could be tagged with
+    # every row unproven. This arm asserts the detector sees the spelling the
+    # manifests ACTUALLY USE, and still lets a genuinely gated row through.
+    import importlib.util as _ilu
+    _f = pathlib.Path(__file__).with_name("test_the_cut_checklist_is_complete.py")
+    _spec = _ilu.spec_from_file_location("_cutchk", _f)
+    _m = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_m)
+    _seen = getattr(_m, "_is_ungated", None)
+    if _seen is None:
+        bad("the cut checklist gate exposes no _is_ungated predicate to test; "
+            "PROPERTY 2 cannot be verified from here")
+    else:
+        _catch = ["GATE: NONE YET. Triage pending.", "NONE YET",
+                  "  gate: none yet, lowercase and padded"]
+        _pass  = ["GATED by entry probe-doctor-page-renders-for-a-customer.",
+                  "DEFERRED to v1.0.1 by Andy 2026-09-10, reason written in full here."]
+        _missed = [g[:44] for g in _catch if not _seen({"gate": g})]
+        _false  = [g[:44] for g in _pass  if _seen({"gate": g})]
+        if not _missed and not _false:
+            ok(f"the ungated detector sees the spelling manifests actually use "
+               f"({len(_catch)} caught, including the `GATE: ` prefix that hid 112 "
+               f"rows) and does not flag a gated row ({len(_pass)} controls)")
+        else:
+            bad(f"ungated detector is wrong. MISSED, so they read as gated: "
+                f"{_missed}. FALSE POSITIVES, a gated row flagged: {_false}")
 
     print(f"\n== {PASS} pass / {FAIL} fail / {PASS+FAIL} total ==")
     return 1 if FAIL else 0

@@ -160,6 +160,7 @@ class BaseClient(ABC, Generic[T]):
         url: str,
         params: Optional[Dict[str, Any]] = None,
         json_data: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Make an HTTP request with rate limiting and retry logic.
@@ -169,11 +170,18 @@ class BaseClient(ABC, Generic[T]):
             url: Full URL to request
             params: Query parameters
             json_data: JSON body for POST requests
+            headers: Optional overrides merged over _get_headers(). Added so a
+                caller that needs a different Accept header (WikidataClient's
+                SPARQL endpoint wants application/sparql-results+json, not
+                this class's default application/json) does not have to
+                reimplement retry/rate-limit handling to get one. See
+                WikidataClient._sparql_query for the caller this exists for.
 
         Returns:
             Response JSON or None on failure
         """
         last_error = None
+        _headers = {**self._get_headers(), **(headers or {})}
 
         for attempt in range(self.max_retries):
             try:
@@ -189,7 +197,7 @@ class BaseClient(ABC, Generic[T]):
                         url=url,
                         params=params,
                         json=json_data,
-                        headers=self._get_headers(),
+                        headers=_headers,
                     )
 
                     # Handle rate limiting

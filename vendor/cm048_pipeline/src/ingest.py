@@ -34,6 +34,10 @@ import sys
 try:
     from ostler_security.database import get_db_connection as _secure_connect
     from ostler_security.posture import record_posture
+    # Bracketed with the two above on purpose: a vendored ostler_security
+    # too old to carry db_key would otherwise leave this pipeline writing
+    # every coach row in plaintext with nothing saying so.
+    from ostler_security.db_key import resolve_db_key
 except ImportError as exc:
     raise RuntimeError(
         "ostler_security is required but not installed in this Python "
@@ -42,11 +46,32 @@ except ImportError as exc:
         "pip install /path/to/HR015/ostler_security/"
     ) from exc
 
-# Posture is recorded based on whether a key exists in env at import
-# time. CM048's run-loop reads the key from settings rather than env,
-# so this marker is a "best-known" startup snapshot. The per-write
-# warning still fires if a particular invocation gets no key.
-_KEY_SOURCE = "OSTLER_DB_KEY" if os.environ.get("OSTLER_DB_KEY") else None
+# Posture is recorded from whatever key this process can actually
+# resolve at import time: the OSTLER_DB_KEY environment variable first
+# (unchanged), then the protected key file the installer writes.
+#
+# 🔴 TWO SEPARATE BREAKS MET HERE, AND EITHER ONE ALONE WAS FATAL.
+#
+#   1. Nothing ever set OSTLER_DB_KEY. Measured across the tree: 17
+#      mentions, 3 readers, 0 setters, with OSTLER_AI_CONVERSATIONS_DIR
+#      found being set in a plist by the identical query as the control.
+#
+#   2. Even with it set, this pipeline would still have written
+#      plaintext. The coach write below read the key from
+#      `getattr(settings, 'encryption_key_hex', None)`, and Settings has
+#      no such field -- not in settings.py, not anywhere in the package.
+#      The getattr therefore returned None on every call that has ever
+#      run, so the `if encryption_key` branch was dead code and the
+#      plaintext branch was unconditional.
+#
+# The comment that used to sit here said the run-loop "reads the key
+# from settings rather than env", which made the marker sound like a
+# conservative approximation of a working path. There was no working
+# path. _ENCRYPTION_KEY below is now what the writer actually falls back
+# to, so the marker and the write agree.
+_DB_KEY = resolve_db_key()
+_ENCRYPTION_KEY = _DB_KEY.key
+_KEY_SOURCE = _DB_KEY.source
 if _KEY_SOURCE:
     record_posture(
         "cm048-ingest",
@@ -58,7 +83,11 @@ else:
     record_posture(
         "cm048-ingest",
         "disabled",
-        reason="no_key",
+        # The resolver's reason, not a hardcoded "no_key": "nothing was
+        # configured" and "a key file exists and I refused to read it
+        # because its mode lets another local account read it" must not
+        # reach Doctor as the same string.
+        reason=_DB_KEY.reason,
         backend="plaintext",
     )
 
@@ -73,10 +102,12 @@ def _warn_plaintext_once(db_path: str, encryption_key: str | None) -> None:
     if _PLAINTEXT_WARNED:
         return
     _PLAINTEXT_WARNED = True
+    detail = f" {_DB_KEY.detail}" if _DB_KEY.detail else ""
     print(
         f"WARNING: opening {db_path} as plaintext SQLite "
-        "(encryption key not provided). Set OSTLER_DB_KEY or pass "
-        "an encryption_key in settings to enable at-rest encryption.",
+        f"(no database key: {_DB_KEY.reason}).{detail} "
+        "Recover the key with `ostler-unlock --install-key-file`, or set "
+        "OSTLER_DB_KEY, to enable at-rest encryption.",
         file=sys.stderr,
         flush=True,
     )
@@ -85,9 +116,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+import phonenumbers
 
 from .turtle_escape import escape_turtle_iri_path, escape_turtle_literal
 from . import outstanding_todos as _outstanding_todos
+from .participants import normalise_participants
 from .schemas import (
     Classification,
     ExtractedFact,
@@ -158,13 +191,45 @@ def _participant_uri_key(channel: str, raw: str) -> str:
     return raw.strip()
 
 
+def _whatsapp_jid_is_genuine_phone(local: str) -> bool:
+    """True when a WhatsApp JID's local part is an actual, valid phone
+    number -- not merely a run of digits (CM051 #2578, the same unguarded
+    digit check as CM051 #2543).
+
+    WhatsApp's LID privacy system can present a 14-15 digit linked-device id
+    through the ordinary ``@s.whatsapp.net``-suffixed JID, the same suffix a
+    genuine phone-rooted JID uses. ``local.isdigit()`` alone accepts both
+    shapes identically, so an LID sailed through dressed as a phone number
+    in the surfaced ``pwg:chatIdentifier`` literal.
+
+    ``phonenumbers.is_valid_number`` is the discriminator: a genuine phone
+    number validates; a LID -- 14-15 digits with no genuine country-code
+    structure -- does not, even when its leading digits happen to form a
+    real country code. SAME technique already used in ostler_fda's
+    ``_whatsapp_jid_is_genuine_phone`` (CM051 #2543) and CM041's
+    ``identity_resolver.normalise.is_valid_phone`` -- reused here, not
+    reimplemented from scratch, because this tree has no dependency on
+    either of those packages and ships independently.
+    """
+    if not local.isdigit():
+        return False
+    try:
+        parsed = phonenumbers.parse("+" + local, None)
+    except phonenumbers.NumberParseException:
+        return False
+    return phonenumbers.is_valid_number(parsed)
+
+
 def _normalise_chat_identifier(channel: str, raw: str) -> str:
     """Human-facing chat identifier literal (NOT the URI key).
 
     WhatsApp participants arrive as a JID (``<e164>@s.whatsapp.net``);
     this presents the ``+<e164>`` phone so the surfaced
     ``pwg:chatIdentifier`` reads as a phone (and mirrors pwg_ingest's
-    own ``identifierValue`` via ``_whatsapp_phone_e164``). iMessage/SMS
+    own ``identifierValue`` via ``_whatsapp_phone_e164``) ONLY when the
+    local part is a genuine, valid phone number (CM051 #2578) -- an
+    LID presented through this same suffix is returned verbatim instead
+    of being formatted as a bogus "+<LID digits>" phone. iMessage/SMS
     handles pass through verbatim.
 
     NOTE: this is deliberately NOT used to derive the Person URI key --
@@ -177,7 +242,7 @@ def _normalise_chat_identifier(channel: str, raw: str) -> str:
     raw = raw.strip()
     if channel == "whatsapp":
         local = raw.split("@", 1)[0] if "@" in raw else raw
-        return ("+" + local) if local.isdigit() else raw
+        return ("+" + local) if _whatsapp_jid_is_genuine_phone(local) else raw
     return raw
 
 
@@ -656,7 +721,7 @@ def _participant_identity_triples(
     fabricate a Person node from a name we cannot key.
     """
     channel = (metadata.get("channel") or "").strip().lower()
-    participants = metadata.get("participants") or []
+    participants = normalise_participants(metadata.get("participants"))
     if not isinstance(participants, list):
         return []
 
@@ -1019,7 +1084,15 @@ def _write_coach(
         return 1
 
     settings.coach_db_path.parent.mkdir(parents=True, exist_ok=True)
-    encryption_key = getattr(settings, 'encryption_key_hex', None)
+    # `encryption_key_hex` is not a field on Settings and never has been,
+    # in this package or anywhere it is loaded from, so this getattr has
+    # returned None on every invocation since it was written and the
+    # branch below was dead. It is KEPT rather than deleted because a
+    # per-install settings override is a legitimate future shape and
+    # removing it would silently take that option away; what it no longer
+    # does is decide the answer on its own. `or _ENCRYPTION_KEY` is what
+    # makes the key the installer delivers actually reach the database.
+    encryption_key = getattr(settings, 'encryption_key_hex', None) or _ENCRYPTION_KEY
     # ostler_security is guaranteed importable (hard-fails at module
     # load if not). The remaining branch is whether a key is set.
     if encryption_key:
@@ -1074,7 +1147,7 @@ def _write_coach(
                 json.dumps(obs.get("flags") or {}),
                 settings.user_id,
                 "private",
-                "tier-1-forever",
+                COACH_RETENTION_TIER,
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
@@ -1116,7 +1189,56 @@ def _deterministic_id(conversation_id: str, kind: str, content: str) -> str:
     return str(uuid.uuid5(ns, seed))
 
 
+# ── Retention tiers ──────────────────────────────────────────────────
+#
+# 🔴 THIS FIELD IS WRITTEN ON EVERY RECORD AND READ BY NOTHING. Say that
+# out loud before using it to answer any question about data retention.
+#
+# MEASURED 2026-09-16 on origin/main, `git grep -n retention_tier -- .`:
+# 11 hits. Four in this file (the Qdrant payload, the SQLite DDL, the
+# INSERT column list, and this function); seven in CM048 prose and prompt
+# templates. READERS: 0. TESTS: 0. SWEEPERS: 0 -- no scheduled job, no
+# launchd plist, nothing anywhere in the repo deletes or ages out a record
+# on the strength of its tier. Positive control for that search shape:
+# `qdrant` in vendor/cm019_preferences resolves to 10 files of 84.
+#
+# The consequence, stated plainly so nobody has to rediscover it: there is
+# NO right-to-erasure mechanism behind these tiers. A record stamped
+# "tier-3-years" is kept exactly as long as one stamped "tier-1-forever",
+# which is forever. The tier is a classification we compute and store, not
+# a promise we keep. Do not describe it to a customer, in copy or in a
+# privacy policy, as though it expires anything.
+#
+# The durations live HERE rather than inside the tier names, which used to
+# be the entire specification. A name is not parseable policy: CM048's own
+# prompt 03_relationship_signal.md writes "tier-1 forever" with a space, a
+# form no code produces and no reader could have matched. A sweeper, when
+# one is built, reads this mapping; until then it is what makes the claim
+# auditable instead of implied.
+#
+# Filed: PRIVACY_ENFORCEMENT_GAPS.md at the repo root.
+#
+# None means "kept indefinitely"; an int is a retention period in days.
+RETENTION_TIERS: dict = {
+    "tier-1-forever": None,
+    "tier-2-decade": 3652,   # 10 years
+    "tier-3-years": 1095,    # 3 years
+}
+
+# The tier for a record whose retention is not a function of its content:
+# a coaching observation is about the customer's own conduct, so it is not
+# classified per-conversation. Named rather than inlined so the literal
+# cannot drift from RETENTION_TIERS.
+COACH_RETENTION_TIER = "tier-1-forever"
+
+
 def _retention_tier_for(classification: Classification) -> str:
+    """Classify a conversation's retention tier. See RETENTION_TIERS.
+
+    Every returned value is a key of RETENTION_TIERS, and
+    tests/test_the_retention_tier_is_written_and_read_by_nothing.py holds
+    that invariant plus the reader count above.
+    """
     if classification.sensitivity.level in ("sensitive", "highly-sensitive"):
         return "tier-1-forever"
     if classification.stakes == "high":

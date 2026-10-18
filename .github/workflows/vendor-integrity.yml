@@ -14,6 +14,13 @@ name: vendor-integrity
 on:
   pull_request:
     paths:
+      - 'tests/test_an_identifier_is_not_a_taste.py'
+      # The Time Machine exclusion test runs install.sh's helper AND the
+      # Doctor's live rule, so it is watched from both sides.
+      - 'tests/test_time_machine_exclusion_is_measured.sh'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
       - 'vendor/**'
       # context-refresh/ holds a grafted (divergent) vendored copy of
       # ostler-assistant's generate_pwg_context.py. It lives outside vendor/
@@ -35,20 +42,77 @@ on:
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/test_vendor_manifest_is_valid_toml.py'
+      # Watched because the step below RUNS it, plus the two files it READS
+      # that nothing here watched yet. Its SUBJECT, vendor/VENDOR_MANIFEST.toml,
+      # is already covered by the vendor/** glob at the top of this list, so it
+      # is deliberately NOT repeated: a second entry would read as coverage this
+      # change added and it is not. permanent.yaml is where the test takes its
+      # rules from, and gui/Makefile carries the two copy lines that make the
+      # manifest shipped at all, which the test asserts and refuses on rather
+      # than passing if they move.
+      - 'tests/test_the_shipped_vendor_manifest_names_no_operator.py'
+      - 'tests/test_the_pii_scan_reads_every_file_in_the_tree.py'
+      - 'scripts/verify_loopback_clients_authenticate.py'
+      - 'tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh'
+      - 'scripts/verify_cut_manifest.py'
+      - 'cut-manifests/permanent.yaml'
+      - 'gui/Makefile'
       # The D024 harness. A path entry alone would only make the workflow
       # TRIGGER; the run step above is what makes it CHECK. Both are needed,
       # and the pair is the point: the gate must fire on changes to itself.
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'tests/test_canonical_keys_must_not_merge.py'
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
+      - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
+      - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
+      # The two behavioural gates added with the credential-route refusal and
+      # the Front Page add verb. Both BOOT the shipped Doctor over real HTTP,
+      # so both are watched here as well as run below: a path entry alone only
+      # makes the workflow trigger, and a run with no path entry is a gate that
+      # never fires on a change to itself.
+      - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_every_conversation_produces_all_four_artefacts.py'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
+      - 'tests/test_doctor_routines_are_measured_live.py'
+      - 'tests/test_the_hub_reads_the_doctor_like_the_app.py'
+      - 'tests/test_remote_access_reads_the_installers_tailscale.py'
+      - 'vendor/doctor/agent/routine_status.py'
+      - 'vendor/doctor/agent/remote_access.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'vendor/doctor/agent/pair_status.py'
+      - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
+      - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_the_doctor_dashboard_actually_renders.sh'
+      - 'tests/test_the_doctor_page_is_on_brand.py'
+      # The four files that carry the Doctor's palette. The brand gate reads all
+      # four, so all four must re-trigger it; the page was off-brand in three of
+      # them at once and a filter naming only web_ui.py would have missed two.
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/first_run.py'
+      - 'vendor/doctor/agent/apple_style.css'
+      # Watched because the step below RUNS it. Its tile half is the only place
+      # the keepalive's five customer-facing verdicts are actually rendered
+      # with the Doctor's real deps present.
+      - 'tests/test_whatsapp_keepalive_repairs_and_reports.sh'
+      - 'assistant-agent/ostler-whatsapp-keepalive.sh'
+      - 'assistant-agent/launchd/com.creativemachines.ostler.whatsapp-keepalive.plist'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
       # reason recorded above: a path entry only makes the workflow trigger.
       # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
       # are watched -- a change to the shell pause reader can break the
       # Python/shell contract without touching vendor/ at all.
       - 'tests/test_doctor_governor_routes_vendored.sh'
+      # #1164: the #282 re-vendor guard had 0 automated callers for 28 cuts.
+      # Both it AND the ratchet over it are watched here, for the reason given
+      # above: a run with no path entry is a gate that never fires on a change
+      # to itself, and the thing most likely to change is the residue the
+      # ratchet pins.
+      - 'tests/test_the_governor_revendor_guard_is_actually_run.sh'
+      - 'scripts/verify_doctor_governor_revendor.sh'
       - 'lib/ostler-resource-tier.sh'
       - 'tests/vendor_import_resolution_baseline.txt'
       # The __main__-guard reachability gate. It scans vendor/, scripts/ and
@@ -75,6 +139,14 @@ on:
       # the only workflow that checks it.
       - 'tests/test_a_dead_wiki_announces_itself.py'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
+      - 'tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh'
+      - 'bin/ostler-engine-supervisor.sh'
+      # The listener watchdog (2026-10-17 incident) and its walk probe: both
+      # tests are RUN below, so both are watched here.
+      - 'tests/test_listener_watchdog_restarts_a_dead_listener.sh'
+      - 'tests/test_listener_watchdog_walk_probe.sh'
+      - 'scripts/box_walk_probes/probes/listener_watchdog_recovers_a_wedged_listener.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
       # The vendor-pair drift gate (#449): the copy that RUNS vs the copy that
       # is REVIEWED. Watched because the step below RUNS it -- a run: with no
@@ -126,6 +198,82 @@ jobs:
       # stayed green, so the format claim in the filename was asserted nowhere.
       - name: VENDOR_MANIFEST.toml is valid TOML
         run: python3 tests/test_vendor_manifest_is_valid_toml.py
+
+      # THE SAME FILE IS SHIPPED. gui/Makefile:1215 sets VENDOR_MANIFEST_SRC to
+      # $SRC_ROOT/vendor/VENDOR_MANIFEST.toml and :1249 copies it into the .app as
+      # ostler-payload/vendor-manifest.toml, so its PROSE is customer-facing bytes.
+      # The v1.0.83 cut was refused at "Build, sign, notarise, staple" on exactly
+      # that: one no-operator-hostname hit in the payload copy, arrived in #1881,
+      # 0 at tag v1.0.82 and 1 at v1.0.83. Every PR check on #1881 was green,
+      # because .github/scripts/operator-pii-scan.sh has no hostname alternative
+      # in its master pattern -- that pattern lives only in cut-manifests/
+      # permanent.yaml, which runs at CUT time. So the one instrument carrying it
+      # could not fire until a tag had been spent. This step moves the same rules
+      # to PR time for the one file the cut copies in verbatim. It declares no
+      # pattern of its own: it READS the no-operator-* rows out of permanent.yaml,
+      # so it cannot drift from the gate it anticipates and no second copy of an
+      # operator identifier enters the tree to make it work.
+      # PyYAML IS NOT PRESENT ON THE HOSTED RUNNER AND THE TEST SAYS SO RATHER
+      # THAN PASSING. Measured on run 34398125323: "[CANNOT-RUN] PyYAML is not
+      # importable, so the rules cannot be read", exit 2, on Python 3.11.16.
+      # That is the test behaving correctly and the job being red for a reason
+      # that is not the subject, so the dependency is installed here instead of
+      # the check being softened. Copied from the estate's existing step at
+      # .github/workflows/appcast-ship-wiring.yml:81, fallbacks and all.
+      - name: PyYAML must be present, or the rules cannot be read
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      - name: The shipped vendor manifest obeys the cut's own operator-PII rules
+        if: always()
+        run: python3 tests/test_the_shipped_vendor_manifest_names_no_operator.py
+
+      # The scan that test relies on must be able to READ the whole tree. The
+      # v1.0.92 cut proved it could not: 660 files in the built .app carried a
+      # suffix nobody had enumerated, so the operator-PII rows returned
+      # CANNOT-RUN and no DMG was ever produced. This asserts both halves of
+      # the fix -- that the newly reachable shapes really are scanned, and that
+      # a file which genuinely cannot be read still refuses rather than passing.
+      - name: The operator-PII scan reads every file in the tree
+        if: success() || failure()
+        run: python3 tests/test_the_pii_scan_reads_every_file_in_the_tree.py
+
+      # AN IDENTIFIER IS NOT A TASTE (#959). interest_profile.subject_is_identifier
+      # refuses a subject that IS an email address or a phone number, because
+      # with the unreachable 0.28 floor lowered the v1.0.100 box's front page
+      # rendered four interest cards and every one was a contact identifier.
+      # The refusal was correct and WIRED, and NOTHING NAMED IT: 0 files across
+      # tests/, scripts/ and workflows against a control of 7 naming
+      # interest_profile. So the call site could be deleted and every gate here
+      # would stay green while the page filled with the customer's own phone
+      # numbers again.
+      - name: an identifier is not a taste, and the refusal is guarded
+        if: always()
+        run: python3 tests/test_an_identifier_is_not_a_taste.py
+
+      # A client that cannot authenticate is refused in production and usually
+      # says nothing about it. The front page rendered interest cards only for
+      # roughly two dozen walks because its signal fetch 401'd and the failure
+      # was swallowed as "no live signals". This turns that into a pre-merge
+      # failure instead of something a customer notices before we do.
+      - name: Every loopback client of a gated service authenticates
+        if: success() || failure()
+        run: python3 scripts/verify_loopback_clients_authenticate.py .
+
+      # The gate above was reviewed adversarially and four working bypasses were
+      # found, including a comment mentioning "Authorization" counting as a
+      # credential. This fires each of those shapes at it, plus two negative
+      # controls, so the gate cannot silently weaken back.
+      - name: The loopback-auth gate cannot be bypassed
+        if: success() || failure()
+        run: bash tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         if: always()
@@ -207,6 +355,28 @@ jobs:
         if: always()
         run: python3 tests/test_vendor_entrypoint_resolution.py
 
+      - name: every conversation produces all four artefacts
+        # always(), so an earlier red cannot hide a locked directive going
+        # unenforced. The rule it guards is non-negotiable for launch.
+        if: always()
+        run: python3 tests/test_every_conversation_produces_all_four_artefacts.py
+      - name: the Doctor status poll has a fork budget
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red, and a fork budget that silently stops
+        # being measured is the same defect it exists to catch.
+        if: always()
+        run: python3 tests/test_the_doctor_status_poll_has_a_fork_budget.py
+
+      # v1.0.106: the Doctor's Data sources tab and remote-access switch read
+      # each routine's own surfaces and the installer's own tailscaled.
+      - name: The Doctor's routine table is measured live
+        if: always()
+        run: python3 tests/test_doctor_routines_are_measured_live.py
+
+      - name: Remote access reads and drives the installer's Tailscale
+        if: always()
+        run: python3 tests/test_remote_access_reads_the_installers_tailscale.py
+
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
       # constants `from web_ui_copy` -- the import-resolution guard above
       # checks the MODULE resolves but NOT the NAMES, so a stale string
@@ -277,6 +447,27 @@ jobs:
       - name: the Front Page tick emits the interest-profile artefact
         if: always()
         run: bash tests/test_frontpage_tick_emits_interest_profile.sh
+
+      # CM051 walk #5, finding 2: the compiled wiki's "Needs you now" and the
+      # live app's front_page.json showed ZERO cards in common. Reproduced
+      # read-only on macmini16-walk: the compose service definition was never
+      # the bug (mount + env correct, feed genuinely read and used) -- the gap
+      # is that nothing ever told the wiki a NEW front_page.json had landed:
+      # this tick runs hourly, wiki-recompile ships daily by deliberate v1
+      # design (#20), and the two are not linked. Behavioural test (not a
+      # grep): runs the tick's real Step 3 logic against a fake OSTLER_DIR and
+      # a stub wiki-recompile-tick.sh, proves a changed feed triggers exactly
+      # one background recompile, an unchanged one triggers none, and carries
+      # its own negative control.
+      - name: the Front Page tick recompiles the wiki when front_page.json changes
+        if: always()
+        run: bash tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh
+
+      # Walk #27 item 2: the digest re-runs when the interest profile fills,
+      # and the real reader turns that profile into Preferences lines.
+      - name: the context digest catches up when the interest profile lands
+        if: always()
+        run: bash tests/test_digest_refreshes_when_the_interest_profile_lands.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
@@ -373,6 +564,58 @@ jobs:
         # matches it rather than widening a shared predicate at cut time.
         run: python3 ./tests/test_doctor_silent_failure_grafts.py
 
+      # The Doctor's four credential routes, and the Front Page add verb.
+      #
+      # Both gates BOOT the shipped app and drive it over HTTP, because the
+      # thing under test is what a request gets back, not what the source says.
+      # They need the Doctor's own runtime deps; without them both exit 2
+      # (CANNOT-RUN) and CI goes red, which is correct -- a subject that could
+      # not be loaded is not one that passed.
+      - name: Install the vendored Doctor's runtime deps (behavioural gates)
+        if: always()
+        run: python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+
+      # web_ui.py has 34 routes, zero uses of Depends(, and one middleware:
+      # CORS with allow_origins=["*"]. Four routes vend or rotate a credential,
+      # and a bodyless POST is a CORS simple request, so any page the customer
+      # opened could mint a ZeroClaw device bearer and read it back. This
+      # asserts the refusal AND the success: the shipped iOS Companion sends no
+      # credential at all, so a gate that only proved the refusal could not
+      # tell a closed hole from a broken pairing flow.
+      - name: Credential routes refuse cross-site, and still serve the real callers
+        if: always()
+        run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # Status-honesty sweep I1 (walk #28, privacy). The installer said three
+      # folders were excluded from Time Machine after `tmutil addexclusion ...
+      # 2>/dev/null || true`. Runs the real install.sh helper and call site
+      # under set -Eeuo pipefail against a fake tmutil that honours, refuses,
+      # or exits 0 and does nothing; then the Doctor's live rule against the
+      # same fake. Needs the Doctor deps installed above; exit 2 is CANNOT-RUN.
+      - name: A Time Machine exclusion is read back, never assumed
+        if: always()
+        run: bash tests/test_time_machine_exclusion_is_measured.sh
+      # Runs after the requirements install above: it imports the shipped app.
+      - name: The Hub reads the Doctor like the app does (#2552, #2538)
+        if: always()
+        run: python3 tests/test_the_hub_reads_the_doctor_like_the_app.py
+
+      # #947. The pairing envelope validated hub_addr as a non-empty string and
+      # encoded it verbatim into the QR the customer scans. A link-local address
+      # with a zone index scans perfectly and can never connect, because the zone
+      # names an interface on the HUB. `if: always()` so an earlier red cannot
+      # delete this measurement.
+      - name: The pairing QR must refuse an address the phone cannot open
+        if: always()
+        run: python3 tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py
+
+      # CM059 #24's masthead control POSTs {action:'add', subject}; the Doctor's
+      # allowlist excluded "add" and demanded a card_id, so the customer got a
+      # 400. The last assertion is the one that matters: it runs the compile the
+      # next full recompile runs and requires the added subject to come out.
+      - name: The Front Page add verb reaches the store and survives a compile
+        if: always()
+        run: bash tests/test_editor_feedback_accepts_the_add_verb.sh
+
       # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
       # and NOTHING said so. No alert, no card, no banner -- it was found only
       # because someone was asked to open the URL. Before the fix, the entire
@@ -385,6 +628,43 @@ jobs:
       # what makes that drop loud. Every assertion in it has a NEGATIVE
       # control beside it -- the same rule on a healthy snapshot must stay
       # silent -- so it cannot pass by firing on everything.
+      - name: The Doctor dashboard actually renders (not just answers)
+        if: always()
+        # WIRED HERE DELIBERATELY, beside the other two doctor tests, because
+        # this job pip-installs vendor/doctor/agent/requirements.txt above. The
+        # test reports CANNOT-RUN when fastapi is absent, and a CANNOT-RUN that
+        # nobody notices is a zero-denominator pass. Wired anywhere without the
+        # requirements it would prove nothing while reading green.
+        run: bash tests/test_the_doctor_dashboard_actually_renders.sh
+
+      - name: The Doctor page is on brand, measured on the rendered page
+        if: always()
+        # SAME JOB AS THE RENDER TEST, AND FOR THE SAME REASON: it renders the
+        # page, so it needs vendor/doctor/agent/requirements.txt, which this job
+        # installs above. It exits 2 when it cannot render, so a missing dep is
+        # a refusal rather than a quiet pass.
+        run: python3 tests/test_the_doctor_page_is_on_brand.py
+
+      # THE WHATSAPP KEEPALIVE TILE, wired here for the reason the step above
+      # states about itself. This file's script half runs on macOS in
+      # launchagent-success-verification.yml, where it belongs -- the product
+      # is macOS and the subject is a LaunchAgent. But its TILE half imports
+      # the vendored Doctor renderer, which pulls status_collector, which
+      # imports httpx. That is absent on the macOS runner, so the tile arms
+      # there report CANNOT-RUN and are NOT measured.
+      #
+      # A CANNOT-RUN that is CANNOT-RUN on every run is an arm that never runs.
+      # This job pip-installs the Doctor's requirements above, so the same file
+      # run here DOES measure them: each of the five keepalive verdicts must
+      # reach the page with its own words, an unrecognised verdict must render
+      # nothing, and needs_customer must say only the customer can fix it.
+      #
+      # Both wirings are deliberate and neither is redundant: this one cannot
+      # test the LaunchAgent surface and that one cannot test the tile.
+      - name: The WhatsApp keepalive verdict reaches the Doctor page
+        if: always()
+        run: /bin/bash tests/test_whatsapp_keepalive_repairs_and_reports.sh
+
       - name: A dead wiki announces itself
         if: always()
         run: python3 ./tests/test_a_dead_wiki_announces_itself.py
@@ -405,6 +685,25 @@ jobs:
       - name: The container engine is supervised, and recovery actually fires
         if: always()
         run: bash tests/test_container_engine_liveness_and_recovery.sh
+
+      - name: The engine supervisor judges the store ports, not colima list
+        if: always()
+        run: bash tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh
+
+      # THE DAEMON WAS ALIVE AND ITS :8443 LISTENER WAS DEAD FOR 4 HOURS.
+      #
+      # Andy's box, 2026-10-17: launchd saw a running process, so nothing
+      # respawned it, and the iPhone app sat on "Hub unreachable". The
+      # watchdog install.sh writes (LISTENERWDEOF) is driven against a fake
+      # :8443 the test SIGSTOPs; the Doctor reads the state file that run
+      # wrote; every guard is mutated out and must turn the suite red.
+      - name: The listener watchdog restarts a dead listener, and the Doctor shows it
+        if: always()
+        run: bash tests/test_listener_watchdog_restarts_a_dead_listener.sh
+
+      - name: The listener watchdog walk probe recovers a SIGSTOPped daemon (fake harness)
+        if: always()
+        run: bash tests/test_listener_watchdog_walk_probe.sh
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #
@@ -453,17 +752,32 @@ jobs:
         if: always()
         run: bash tests/test_doctor_proxy_paths_predicate.sh
 
+      # Part 1b of the step below (CM051 #2559 review) actually IMPORTS the
+      # vendored ical-server.py, same cwd/sys.path shape as the real launchd
+      # service: identity_resolver (sibling tree, rapidfuzz already installed
+      # above) + ostler_security (cryptography is its only import-time cost;
+      # sqlcipher3 degrades gracefully and is not needed here). Installed as
+      # its own step so a missing dependency here is legible as THIS gate's
+      # install failing, not a mysterious CANNOT-RUN three steps later.
+      - name: Install cryptography (ical-server import smoke test, #2559)
+        if: always()
+        run: python3 -m pip install --quiet cryptography
+
       # The ical-server vendor regression, which asserts the shipped routes,
-      # the LaunchAgent block, the loopback bind, the port override AND the
-      # Doctor proxy paths.
+      # the LaunchAgent block, the loopback bind, the port override, the
+      # Doctor proxy paths, AND (since #2559) that the file actually IMPORTS
+      # under the real vendor topology -- py_compile alone is syntax-only and
+      # does not execute a single `from X import Y`, which is exactly how a
+      # missing `read_across_graphs` symbol in a sibling vendored tree shipped
+      # past every prior gate and was only caught by a box proof.
       #
-      # It has existed since CX-P0A (2026-05-26) and until this commit NOTHING
-      # RAN IT. Its wrapper carried the label `UNWIRED` in tests/TEST_WIRING.tsv
-      # in its own words, and the invocation count outside tests/ was zero,
-      # measured with a live positive control. It was also green, which is why
-      # it survived: a gate that is green and unreachable reports identically
-      # to a gate that is working.
-      - name: ical-server vendor regression (routes + proxy paths + bind)
+      # It has existed since CX-P0A (2026-05-26) and until a later commit
+      # NOTHING RAN IT. Its wrapper carried the label `UNWIRED` in
+      # tests/TEST_WIRING.tsv in its own words, and the invocation count
+      # outside tests/ was zero, measured with a live positive control. It was
+      # also green, which is why it survived: a gate that is green and
+      # unreachable reports identically to a gate that is working.
+      - name: ical-server vendor regression (routes + proxy paths + bind + import)
         if: always()
         run: bash tests/test_ical_server_vendor_wired.sh
 
@@ -478,3 +792,22 @@ jobs:
       # vendor/doctor/ under a new name (the original had dev-machine
       # paths hard-coded, which is why it was pulled) and re-add the
       # step here.
+
+      # #1164. scripts/verify_doctor_governor_revendor.sh has been in the tree
+      # since the #282 graft with NO automated caller: its only wiring was a
+      # sentence in a comment, and the same cut-manifest row reported that fact
+      # unchanged through 28 manifests, v1.0.72 to v1.0.99.
+      #
+      # It was never simply wired because it EXITS 1 ON A HEALTHY TREE by
+      # design: the re-vendor has not happened, the config_panel half was
+      # deliberately not adopted, and exactly ONE of its nine checks fails as
+      # the honest state of the pin. `run: bash scripts/verify_...` would paint
+      # CI permanently red and the next person would delete it.
+      #
+      # So it is graded as a RATCHET over its OUTPUT rather than its exit code.
+      # More than one failure is a regression; ZERO failures means the
+      # re-vendor landed and the guard's scope note needs updating, which is
+      # good news and still a stop rather than a silent pass.
+      - name: the governor re-vendor guard is actually run (#1164)
+        if: always()
+        run: bash tests/test_the_governor_revendor_guard_is_actually_run.sh

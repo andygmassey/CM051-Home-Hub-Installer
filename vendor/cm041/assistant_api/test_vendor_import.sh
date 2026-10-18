@@ -32,13 +32,10 @@ if [[ ! -f "$INSTALL_SH" ]]; then
 fi
 
 # -------------------------------------------------------------------
-# Part 1: ical-server.py imports cleanly under Python 3.
+# Part 1a: ical-server.py parses as Python 3 (syntax only).
 # -------------------------------------------------------------------
-# We do not exercise the import (it requires ostler_security on the
-# venv path, which is installed by install.sh Phase 7 and not by this
-# regression test). We do a syntax-only check via py_compile -- that
-# catches the "ical-server.py got truncated / corrupted" failure mode
-# without needing a venv.
+# Catches the "ical-server.py got truncated / corrupted" failure mode
+# without needing anything on the import path at all.
 
 if ! python3 -m py_compile "$ICAL_SERVER_PY" 2>/dev/null; then
     echo "FAIL: ical-server.py does not parse as Python 3" >&2
@@ -46,6 +43,68 @@ if ! python3 -m py_compile "$ICAL_SERVER_PY" 2>/dev/null; then
     exit 1
 fi
 echo "PASS: ical-server.py parses as Python 3"
+
+# -------------------------------------------------------------------
+# Part 1b: ical-server.py IMPORTS cleanly, same cwd + sys.path shape
+# as the real launchd service (CM051 #2559 review).
+# -------------------------------------------------------------------
+# py_compile above is syntax-only: it does NOT execute a single `from X
+# import Y` line, so it cannot see a missing symbol in another package.
+# That is exactly the bug a box proof caught and CI did not: this file
+# imported `read_across_graphs` from `identity_resolver.compartment`,
+# which the sibling vendored identity_resolver tree (a SEPARATE pin)
+# does not carry, so the service ImportErrored at startup. Nothing
+# before this ran the import, so nothing was red.
+#
+# This mirrors install.sh's actual staging topology rather than
+# inventing a parallel one:
+#   - WorkingDirectory = this file's own directory (so sibling imports
+#     like `_vendor` resolve the same way sys.path[0] resolves them for
+#     the real script);
+#   - PYTHONPATH = vendor/cm041 (identity_resolver is staged as a
+#     sibling under ${OSTLER_DIR}/import-pipeline, same shape) plus
+#     vendor/ (ostler_security is staged under its own security dir,
+#     same shape -- see install.sh's ICAL_PLIST PYTHONPATH comment and
+#     the `cp -R .../identity_resolver` / `cp -R .../ostler_security`
+#     staging lines);
+#   - imported via importlib, never executed as `__main__`, so the
+#     `if __name__ == "__main__":` HTTP-serving block never runs and no
+#     port is bound.
+#
+# ostler_security's own import-time cost is just `cryptography`
+# (sqlcipher3 is optional and already degrades gracefully inside
+# database.py); identity_resolver needs `rapidfuzz`. Neither is heavy,
+# and CI installs them in the step that calls this script.
+#
+# CANNOT-RUN (not a silent pass) when those two packages are not
+# importable at all, because that is an environment gap, not evidence
+# the vendored code imports cleanly -- the two must not read the same.
+VENDOR_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if ! python3 -c "import cryptography, rapidfuzz" >/dev/null 2>&1; then
+    echo "CANNOT-RUN: Part 1b needs cryptography + rapidfuzz importable; neither is on this interpreter's path. Install them (pip install cryptography rapidfuzz) and re-run -- this is an environment gap, not a pass." >&2
+    exit 2
+fi
+
+IMPORT_RC=0
+IMPORT_OUT="$(cd "$SCRIPT_DIR" && PYTHONPATH="$VENDOR_ROOT/cm041:$VENDOR_ROOT" python3 -c '
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("ical_server_import_smoke", "ical-server.py")
+m = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(m)
+except Exception as exc:
+    print(f"IMPORT_FAILED: {type(exc).__name__}: {exc}")
+    sys.exit(1)
+print("IMPORT_OK")
+' 2>&1)" || IMPORT_RC=$?
+if [[ $IMPORT_RC -ne 0 ]] || ! grep -q "^IMPORT_OK$" <<<"$IMPORT_OUT"; then
+    echo "FAIL: ical-server.py does not import cleanly (same cwd/sys.path shape as the launchd service):" >&2
+    echo "$IMPORT_OUT" >&2
+    exit 1
+fi
+echo "PASS: ical-server.py imports cleanly (real identity_resolver + ostler_security on the path, same shape as the launchd service)"
 
 # -------------------------------------------------------------------
 # Part 2: every production iOS endpoint is registered.

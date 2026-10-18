@@ -17,12 +17,18 @@ Usage:
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 from .enex_parser import ParsedNote
+from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
 
 logger = logging.getLogger(__name__)
+
+# One run id per process for the lifetime of this module, used to group
+# usage-journal rows from the same ingest run.
+_USAGE_RUN_ID = "cm024k-ingest-" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # Compartment level names
@@ -329,6 +335,18 @@ class PrivacyClassifier:
                 response = requests.post(url, json=payload, timeout=60)
                 response.raise_for_status()
                 data = response.json()
+
+            try:
+                input_tokens, output_tokens = tokens_from_ollama(data)
+                record_usage(
+                    model=self.llm_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    purpose="ingesting",
+                    session_id=_USAGE_RUN_ID,
+                )
+            except Exception as usage_err:
+                logger.warning(f"Usage journal recording failed: {usage_err}")
 
             return self._parse_llm_response(data.get('response', ''))
 

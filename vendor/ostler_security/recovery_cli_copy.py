@@ -131,6 +131,42 @@ RECOVERY_COMPLETE_LINE = (
 )
 
 
+# ── Wrong subsystem for this installation ─────────────────────────────
+#
+# Read this block as the customer who needs it: someone who has lost
+# their passphrase, is holding the recovery key Ostler showed them, and
+# has reached for the command with "recovery" in its name. Everything
+# they see here has to be true, has to name the command that will
+# actually work, and must not send them anywhere else.
+#
+# What they used to get instead was "No recovery-wrapped DEK found on
+# this machine", followed by advice to restore from Time Machine first.
+# On a correctly installed Mac that is a confident wrong answer at the
+# worst possible moment: it tells a customer whose install is fine that
+# Ostler was never set up here.
+
+
+WRONG_SUBSYSTEM_HEADER = (
+    "This command cannot unlock Ostler on this Mac."
+)
+WRONG_SUBSYSTEM_LINE_1 = (
+    "Nothing is wrong and nothing has been lost. Ostler on this Mac is "
+    "protected by the passphrase you chose when you installed it. This "
+    "command only opens installations that were set up a different way."
+)
+WRONG_SUBSYSTEM_LINE_2 = "Run this instead:"
+WRONG_SUBSYSTEM_COMMAND = "    ostler-unlock --recovery-key"
+WRONG_SUBSYSTEM_LINE_3 = (
+    "It asks for the recovery key Ostler showed you at the end of the "
+    "install, the one made of short blocks of letters and numbers "
+    "separated by dashes. Type it exactly as it was shown to you."
+)
+WRONG_SUBSYSTEM_LINE_4 = (
+    "If you still remember your passphrase, ostler-unlock --passphrase "
+    "will unlock it just as well."
+)
+
+
 # ── argparse strings ──────────────────────────────────────────────────
 
 

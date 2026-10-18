@@ -3,18 +3,19 @@
 # ============================================================================
 # assistant_answers_grounded is BLOCKING, and until 2026-09-07 it adjudicated
 # on FRAME SHAPES ONLY: a pwg_ tool fired, returned OK, the turn completed ->
-# grounded. Measured on Archie's seeded v1.0.74 walk: the assistant called
-# pwg_people, got OK, and told the customer it had "no explicit information"
-# about where she works while the graph served the fact on two endpoints. The
-# probe scored it GREEN. A blocking probe that passes a wrong answer is worse
-# than none.
+# grounded. Measured ad hoc on a v1.0.74 box and recorded in ostler-assistant
+# b4118b45's commit message (NOT a walk: the v1.0.74 walk ran unseeded and
+# failed): the assistant called pwg_people, got OK, and told the customer it
+# had "no explicit information" about where she works while the graph served
+# the fact on two endpoints. The probe scored it GREEN. A blocking probe that
+# passes a wrong answer is worse than none.
 #
 # The probe now asserts CONTENT on the seeded turn: the reply must carry the
 # fixture fact, computed on the box, with only a YES/NO crossing the wire.
 # This test locks three things about that change:
 #
 #   1  THE PROBE'S OWN CONTROL FIRES. --self-test exits 1 without BROKEN and
-#      its EXAMINED line names the fixture count, so the eleven fixtures --
+#      its EXAMINED line names the case count, so all sixty-two fixtures and cases --
 #      including Archie's real must-FAIL and the constructed must-PASS --
 #      all ran.
 #   2  THE PRE-FIX ADJUDICATOR IS THE CONTROL. The function as it stood on
@@ -58,9 +59,9 @@ printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_p
 out="$(/bin/bash "$PROBE" --self-test 2>&1)"; rc=$?
 [[ "$rc" -eq 1 ]] || fail arm-1 "--self-test exited ${rc}, expected 1 (a negative control that cannot go red proves nothing): ${out}"
 [[ "$(count 'VERDICT: BROKEN' "$out")" -eq 0 ]] || fail arm-1 "--self-test reported BROKEN: ${out}"
-[[ "$(count 'EXAMINED: 23 ' "$out")" -eq 1 ]] || fail arm-1 "--self-test did not examine the 23 fixtures and cases this change declares: $(printf '%s\n' "$out" | grep '^EXAMINED')"
+[[ "$(count 'EXAMINED: 62 ' "$out")" -eq 1 ]] || fail arm-1 "--self-test did not examine the 62 fixtures and cases this change declares: $(printf '%s\n' "$out" | grep '^EXAMINED')"
 [[ "$(count 'fact_missing' "$out")" -ge 1 ]] || fail arm-1 "--self-test's verdict does not name fact_missing, so the seeded fixture was not what fired: ${out}"
-echo "PASS [arm-1]: the probe's --self-test fires on 23 fixtures and names fact_missing"
+echo "PASS [arm-1]: the probe's --self-test fires on 62 fixtures and cases and names fact_missing"
 
 # ── arm 2: the pre-fix adjudicator is the control ────────────────────────
 # Verbatim from origin/main a340ce91, 2026-09-07. It knows no reply_fact.

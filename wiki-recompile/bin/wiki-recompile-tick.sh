@@ -53,6 +53,29 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
 
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
 
+# >>> owner-tz (CM044 compiled timestamps are owner-local; see compiler/local_time.py)
+# Prints the Mac's IANA zone (e.g. Asia/Hong_Kong) from the /etc/localtime
+# symlink. Missing/unreadable/odd target -> prints NOTHING and says so on
+# stderr; the wiki then labels its times "UTC" rather than passing UTC off as
+# local. Re-derived every call because the owner may travel.
+ostler_owner_tz() {
+    local link="${1:-/etc/localtime}" target zone
+    if ! target="$(readlink "$link" 2>/dev/null)" || [[ -z "$target" ]]; then
+        echo "owner-tz: cannot read zone from $link; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    zone="${target#*zoneinfo/}"
+    if [[ "$zone" == "$target" || -z "$zone" || ! "$zone" =~ ^[A-Za-z0-9_+/-]+$ ]]; then
+        echo "owner-tz: unrecognised zone target '$target'; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    printf '%s\n' "$zone"
+}
+# <<< owner-tz
+
+OSTLER_TZ="$(ostler_owner_tz)"
+export OSTLER_TZ
+
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
@@ -102,6 +125,33 @@ if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
     fi
 fi
 # --------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES (Ostler #30).
+#
+# The wiki compiler can look places up on OpenStreetMap (name AND coordinates),
+# artists on MusicBrainz and Wikipedia, and organisations on Wikipedia. Each is
+# off unless the container sees OSTLER_PUBLIC_LOOKUPS=agreed (CM044
+# compiler/public_lookups.py). The compose service maps it from the caller's
+# environment with a default of off, and every compile below sets it from this
+# function on the command itself.
+#
+# The answer is read from the FILE, ~/.ostler/config/.env, on EVERY compile, so
+# a later change of mind takes effect at the next compile and a variable left
+# over in a caller is never mistaken for the customer's answer. Missing file,
+# unreadable file, missing key, empty, or anything but "accepted" is OFF.
+# Exported so the detached full-compile `bash -c` re-reads it at the moment
+# that compile starts, not when the tick did.
+# ---------------------------------------------------------------------------
+ostler_public_lookups_flag() {
+    local f="${1:-${OSTLER_DIR:-$HOME/.ostler}}/config/.env" v=""
+    if [ -r "$f" ]; then
+        v="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$f" | tail -n 1)" || v=""
+        v="${v%\"}"; v="${v#\"}"
+    fi
+    if [ "$v" = "accepted" ]; then printf 'agreed'; else printf 'off'; fi
+}
+export -f ostler_public_lookups_flag
 
 # ---------------------------------------------------------------------------
 # Sanity: compose file present?
@@ -274,7 +324,9 @@ log "wiki-recompile tick start (phase 1: fast baseline, OSTLER_WIKI_SKIP_LLM=1)"
 # still surfaces its last lines without holding a TTY.
 WIKI_COMPILE_TIMEOUT="${WIKI_COMPILE_TIMEOUT:-1800}"
 _compile_log="$(mktemp -t wiki-recompile.XXXXXX)"
-docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null >"$_compile_log" 2>&1 &
+_public_lookups="$(ostler_public_lookups_flag "$OSTLER_DIR")"
+log "public look-ups for this compile: ${_public_lookups}"
+OSTLER_PUBLIC_LOOKUPS="$_public_lookups" docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null >"$_compile_log" 2>&1 &
 _compile_pid=$!
 # Watchdog: stdio detached to /dev/null so it never holds a parent pipe
 # open. Killed the instant the compile returns, so it only ever fires on a
@@ -361,9 +413,73 @@ if [ -f "$_bg_pidfile" ]; then
         _bg_running=true
     fi
 fi
+
+# No-SOON-AFTER guard (CM051 walk #5 follow-up, Archie review round 1 on
+# #2633): the anti-STACKING check above only stops two backfills
+# overlapping; it does nothing to stop a new one starting the moment the
+# previous one finishes. editor-frontpage-tick.sh now kickstarts this whole
+# tick on every front_page.json change, which Phase 1 (above) handles
+# cheaply -- but without a time floor here, a box where Phase 2 finishes in
+# minutes (a thin graph, as on a walk box) would restart the LLM backfill on
+# every such trigger, turning the deliberate daily cost (CM051 #20's "daily
+# vs hourly" decision) into a near-continuous one. This floor is independent
+# of WHO triggered the tick -- the regular daily schedule, the first-day
+# catch-up, or the front-page change -- so it protects the cost decision
+# regardless of trigger source rather than special-casing one caller.
+#
+# 🔴 ROUND 2 (Archie): keying the floor on the last START, not the last
+# SUCCESSFUL completion, meant a Phase 2 killed mid-way through FIRST-RUN
+# hydration -- which the v1.0.107 fix just above this block says happens
+# routinely: the stall watchdog, a bounced box, a crashed Colima VM -- wrote
+# a start timestamp and then blocked every retry for a full day on nothing
+# but a timer, with the wiki left hidden the whole time. hydration.complete()
+# (CM044 compiler/compile.py:1403) is only ever reached by a full compile
+# that is ALLOWED TO FINISH; a half-finished one must never cost a day.
+#
+# Fix: the floor is keyed on the last SUCCESSFUL completion (written
+# inside the detached subshell below, only on _rc = 0), not the start.
+# A run that is killed or fails writes nothing, so it cannot floor out its
+# own retry -- "has Phase 2 ever actually finished" is exactly the
+# condition that already protects an interrupted first run, with no extra
+# signal needed.
+#
+# 🔴 ROUND 3 (Archie, walk #6): an earlier version of this fix ALSO gated
+# the floor on CM044's wiki_hydration.json reporting complete=true, on the
+# theory that the floor's cost-bounding purpose only applies once there is
+# a steady state to bound. MEASURED to be wrong: every compile (CM044
+# compiler/compile.py) rewrites wiki_hydration.json with complete=false
+# partway through its own run, including ordinary STEADY-STATE recompiles
+# on a box that finished hydrating long ago. The hydration check therefore
+# read "not complete" on every tick, unconditionally, and the floor never
+# applied at all -- the full summary backfill relaunched 5 minutes after
+# the previous one finished, every time, which is precisely the
+# near-continuous cost this floor exists to prevent.
+#
+# Dropped the hydration condition entirely. The completion-file check below
+# is already sufficient on its own: no file means Phase 2 has never
+# completed (first run, or every prior attempt was interrupted), so nothing
+# can be floored -- there is nothing recorded to measure a floor against.
+WIKI_PHASE2_MIN_INTERVAL_SECONDS="${WIKI_PHASE2_MIN_INTERVAL_SECONDS:-86400}"
+_phase2_last_complete_file="${OSTLER_DIR}/state/wiki-recompile/last-phase2-complete-epoch"
+_phase2_too_soon=false
+if [ "$_bg_running" != true ] && [ -f "$_phase2_last_complete_file" ]; then
+    _last_complete="$(cat "$_phase2_last_complete_file" 2>/dev/null || true)"
+    if [ -n "${_last_complete:-}" ] && [ "$_last_complete" -eq "$_last_complete" ] 2>/dev/null; then
+        _now_epoch="$(date -u +%s)"
+        _elapsed=$((_now_epoch - _last_complete))
+        if [ "$_elapsed" -lt "$WIKI_PHASE2_MIN_INTERVAL_SECONDS" ]; then
+            _phase2_too_soon=true
+            log "wiki summary backfill last completed ${_elapsed}s ago (floor ${WIKI_PHASE2_MIN_INTERVAL_SECONDS}s); not launching another yet"
+        fi
+    fi
+fi
+
 if [ "$_bg_running" = true ]; then
     log "wiki summary backfill already running (pid ${_bg_prev_pid}); not launching another"
+elif [ "$_phase2_too_soon" = true ]; then
+    : # already logged above
 else
+    mkdir -p "$(dirname "$_phase2_last_complete_file")" 2>/dev/null || true
     # --- Shared background-LLM slot lock (v1.0.0 chat-saturation fix) ------
     # The full-summary backfill is the single biggest Ollama producer on the
     # box. It MUST share the one background-LLM slot lock with the
@@ -391,10 +507,42 @@ else
     # and only ticks daily; a yield would cost a whole day.
     _slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
     _slot_lib="${OSTLER_INGEST_SLOT_LIB:-$HOME/.ostler/lib/ostler-ingest-slot.sh}"
+    # SECOND LAYER AGAINST THE SAME v1.0.107 DEFECT, independent of the
+    # AbandonProcessGroup plist key. `nohup ... & disown` only stops THIS
+    # shell sending SIGHUP on its own exit; neither changes the detached
+    # process's process group, so by default it stays a member of THIS
+    # script's group -- the one launchd tracks and kills in full the moment
+    # this script (the LaunchAgent's main process) exits. `set -m` turns on
+    # job control, and under job control bash makes every backgrounded
+    # pipeline the leader of a BRAND NEW process group rather than inheriting
+    # this one. Measured: without it, `ps -o pgid=` on the backgrounded job
+    # prints THIS script's pgid; with it, the job's own pid. A kill aimed at
+    # the old group -- launchd's default, or this script's own parent dying
+    # for any other reason -- then cannot reach it at all, with no dependency
+    # on launchd configuration being correct. Silent when not attached to a
+    # terminal (measured: no extra "[1] PID" / "Done" lines land in the log
+    # this redirects to), so it costs nothing to leave on.
+    set -m
     nohup bash -c '
+        # FIRST STATEMENT, BEFORE ANYTHING ELSE CAN FAIL OR BLOCK (v1.0.107
+        # launchd process-group defect). If the LaunchAgent that forked this
+        # process is reaped before this subshell finishes -- which is what
+        # happens without AbandonProcessGroup in the plist, see the comment
+        # on that key -- launchd kills every process in the jobs process
+        # group, this one included, and a kill that lands before the first
+        # print leaves a 0-byte log indistinguishable from "never launched".
+        # Printing here, before cd, before sourcing anything, before the
+        # slot acquire, turns that into "started at T, never seen again".
+        printf "%s wiki-summaries: process started (pid %s)\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$"
         set -u
-        _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"
+        _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"; _complete_file="$5"
         cd "$_wd" || exit 1
+        # Re-read the recorded public look-up answer NOW, when this compile
+        # starts (Ostler #30). Function missing (an older caller): off.
+        _lookups="$(ostler_public_lookups_flag "$_wd" || true)"
+        [ "$_lookups" = "agreed" ] || _lookups=off
+        OSTLER_PUBLIC_LOOKUPS="$_lookups"; export OSTLER_PUBLIC_LOOKUPS
+        printf "%s wiki-summaries: public look-ups for this compile: %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lookups"
         exec </dev/null
         mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
 
@@ -406,22 +554,80 @@ else
             # source: the lib resolves its tunables at source time.
             OSTLER_SLOT_MAX_HOLD_SECS="${OSTLER_SLOT_WIKI_MAX_HOLD_SECS:-3600}"
             export OSTLER_SLOT_MAX_HOLD_SECS
+            # THE STALL WATCHDOG MUST BE DISARMED FOR THIS PAYLOAD, AND ONLY
+            # THIS ONE (v1.0.107 hydration-never-completes defect).
+            #
+            # The library'\''s stall check (_ostler_slot_tree_cpu, invoked from
+            # _ostler_slot_watchdog) measures cumulative CPU of the HOST
+            # process tree under the watched pid via `ps`/`pgrep` on THIS
+            # Mac. For the conversation feeds that watched pid IS the real
+            # work -- a host Python process that shells out to a host
+            # subprocess, so the tree is visible and the measurement is
+            # honest. For `docker compose run wiki-compiler` it is not: the
+            # watched pid is the docker CLIENT, and the actual compile runs
+            # inside the container runtime'\''s own VM (Docker Desktop'\''s
+            # LinuxKit VM, or the Colima VM) -- a process tree this Mac'\''s
+            # `ps` cannot see at all, by construction. The client reads back
+            # as burning ZERO cpu for its entire life, no matter how hard
+            # the container is working, which is exactly the signature the
+            # watchdog is built to call HUNG.
+            #
+            # MEASURED (v1.0.107): every full (non-SKIP_LLM) backfill
+            # crossed the default stall window and was TERM'\''d then KILL'\''d
+            # mid-"rendering conversations" -- the one phase slow enough to
+            # run past it -- every time. hydration.complete() (CM044
+            # compiler/compile.py:1403) is only ever reached by a full
+            # compile that is allowed to finish, so the wiki never left
+            # "hydrating": the watchdog was killing the one pass that could
+            # flip it, over and over, each tick re-launching into the same
+            # fate. tests/test_a_hung_slot_holder_is_stopped.sh'\''s negative
+            # controls cover a host subprocess tree; none of them cover a
+            # container client, which is why this shipped.
+            #
+            # The max-hold bound set above is UNAFFECTED and stays armed:
+            # it is a clock, not a cpu read, and it only fires once another
+            # feed is actually enrolled and waiting -- exactly the
+            # behaviour a multi-hour backfill needs. Only the cpu-based
+            # stall check, which cannot observe this payload at all, is
+            # disarmed.
+            OSTLER_SLOT_STALL_SECS=0
+            export OSTLER_SLOT_STALL_SECS
             . "$_lib"
             command -v ostler_slot_acquire >/dev/null 2>&1 && _active=1
         fi
 
         if [ "$_active" = "1" ]; then
+            printf "%s wiki-summaries: starting, slot %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_slot"
             # Blocking acquire, but each attempt is internally bounded, so
             # this can no longer spin against a holder that never yields.
+            # AND IT MUST NEVER AGAIN EXIT WITHOUT WRITING A LINE (#2112):
+            # every yield prints who holds it, so a quiet log is a real
+            # symptom again, not the expected output of this call site.
             until ostler_slot_acquire "wiki-recompile"; do
+                printf "%s wiki-summaries: yielded; holder is %s (pid %s). Enrolled, retrying.\n" \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    "$(cat "$_slot/holder" 2>/dev/null || echo "not recorded")" \
+                    "$(cat "$_slot/pid" 2>/dev/null || echo "not recorded")"
                 sleep 10
             done
+            printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            _rc=0
             if [ -n "$_workers" ]; then
-                ostler_slot_run docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler
+                ostler_slot_run docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler || _rc=$?
             else
-                ostler_slot_run docker compose --profile compile run --rm -T wiki-compiler
+                ostler_slot_run docker compose --profile compile run --rm -T wiki-compiler || _rc=$?
             fi
-            exit $?
+            if [ "$_rc" = "0" ]; then
+                printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                # Floor is keyed on this, not on when the attempt STARTED
+                # (Archie review round 2): only a compile that actually
+                # finished should ever start the cost-floor clock.
+                date -u +%s > "$_complete_file" 2>/dev/null || true
+            else
+                printf "%s wiki-summaries: compile FAILED (exit %s). The wiki will show pages without summaries until the next daily compile.\n" \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_rc"
+            fi
+            exit "$_rc"
         fi
 
         # Fail-safe: installer has not delivered the lib yet. Unchanged
@@ -439,12 +645,17 @@ else
         # Pass the tier-capped parallel summary worker count to the compile
         # container only when the governor resolved one; otherwise let the
         # compiler use its own default (pre-governor behaviour).
+        _rc=0
         if [ -n "$_workers" ]; then
-            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler
+            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler || _rc=$?
         else
-            docker compose --profile compile run --rm -T wiki-compiler
+            docker compose --profile compile run --rm -T wiki-compiler || _rc=$?
         fi
-    ' _ "$_slot" "$OSTLER_DIR" "$WIKI_TIER_WORKERS" "$_slot_lib" >"$_bg_log" 2>&1 &
+        if [ "$_rc" = "0" ]; then
+            date -u +%s > "$_complete_file" 2>/dev/null || true
+        fi
+        exit "$_rc"
+    ' _ "$_slot" "$OSTLER_DIR" "$WIKI_TIER_WORKERS" "$_slot_lib" "$_phase2_last_complete_file" >"$_bg_log" 2>&1 &
     _bg_new_pid=$!
     printf '%s\n' "$_bg_new_pid" > "$_bg_pidfile"
     disown || true

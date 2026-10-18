@@ -56,8 +56,8 @@ if [[ -z "$ACTIVATION_BLOCK" ]]; then
     exit 1
 fi
 
-BUNDLED_LINE=$(echo "$ACTIVATION_BLOCK" | grep -n "'assistant_api'" | grep -v "vendor" | head -1 | cut -d: -f1)
-DEV_LINE=$(echo "$ACTIVATION_BLOCK" | grep -n "'vendor', 'cm041', 'assistant_api'" | head -1 | cut -d: -f1 || true)
+BUNDLED_LINE=$(grep -n "'assistant_api'" <<<"$ACTIVATION_BLOCK" | grep -v "vendor" | head -1 | cut -d: -f1)
+DEV_LINE=$(grep -n "'vendor', 'cm041', 'assistant_api'" <<<"$ACTIVATION_BLOCK" | head -1 | cut -d: -f1 || true)
 
 if [[ -z "$BUNDLED_LINE" ]]; then
     echo "FAIL [case-2]: activation block has no bundled-path entry"

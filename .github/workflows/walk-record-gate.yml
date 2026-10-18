@@ -28,6 +28,7 @@ name: walk-record-gate
 on:
   pull_request:
     paths:
+      - 'tests/test_probe_memory_purge_counts_only_real_deletions.sh'
       - 'scripts/verify_walk_record.sh'
       - 'tests/test_a_remote_url_is_quoted_against_zsh_globbing.sh'
       - 'scripts/ttywalk.sh'
@@ -37,6 +38,11 @@ on:
       - 'scripts/box_walk_probes/**'
       - 'tests/test_promote_scope_refuses_on_the_artefact.sh'
       - 'tests/test_promote_scope_only_ever_grows.sh'
+      # broken_probe visibility in the scoped adjudication, and its guard.
+      # scripts/post_walk_qa.sh (the broken_probe writer) is already watched
+      # above; this test file is the other trigger a run: step needs, or
+      # editing it would be dark on self-edit.
+      - 'tests/test_a_broken_probe_blocks_the_promote.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/verify_walk_record.sh'
       - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
@@ -51,11 +57,81 @@ on:
       - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
       - 'scripts/box_walk_probes/probes/assistant_answers_grounded.sh'
       - 'scripts/tests/test_grounded_probe_asserts_the_fact.sh'
+      # #1125 / #1597 / #1113: the store map, the unobserved turn, and the
+      # tools-offered discriminator. The sibling probe is listed too because
+      # this test cross-reads its REQUIRED_TOOLS line as the runtime registry,
+      # so an edit there that renamed or narrowed it would be dark otherwise.
+      - 'scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh'
+      - 'scripts/box_walk_probes/probes/assistant_prompt_names_every_pwg_tool.sh'
+      # The parser grades full_response, the answer, not the chunk draft.
+      - 'scripts/tests/test_grounded_probe_grades_the_answer.sh'
+      - 'scripts/tests/test_run_box_walk_records_phase1_verdicts.sh'
+      - 'scripts/tests/test_read_only_walk_never_writes.sh'
+      - 'scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh'
+      - 'scripts/tests/test_full_walk_chooses_the_real_person.sh'
+      - 'tests/test_real_person_pick_richest.py'
+      - 'tests/test_real_person_slug_from_api.py'
+      - 'tests/test_merge_survivor_takes_highest_name_tier.py'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'tests/test_chat_wait_is_sized_from_measured_turns.py'
+      - 'tests/test_real_person_miss_inputs_are_printed.py'
+      - 'tests/test_real_person_link_miss_classified.py'
+      - 'tests/test_owner_digest_hydration_retries_5xx.py'
+      - 'tests/test_owner_digest_counts_only_meetings_that_happened.py'
+      - 'scripts/box_walk_probes/lib/owner_digest.py'
+      - 'scripts/tests/test_walk_screens_never_land_in_the_repo.sh'
+      - 'scripts/box_walk_probes/lib/real_person_choose.sh'
+      - 'scripts/box_walk_probes/lib/real_person_pick.py'
+      - 'tests/test_console_only_register_names_real_probes.py'
+      - 'scripts/box_walk_probes/console_only_probes.tsv'
+      - 'scripts/early_repeat_fail_pass.sh'
+      - 'scripts/lib_walk_store.sh'
+      - 'scripts/record_walk.sh'
+      - 'tests/test_a_test_cannot_reach_the_real_walk_store.sh'
+      - 'tests/test_a_writing_probe_declares_it_and_is_never_promoted.sh'
+      - 'scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh'
       - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
+      - 'tests/test_the_walk_seeds_the_grounded_probe.sh'
+      - 'tests/test_every_opening_starts_from_clean_memory.sh'
+      - 'tests/test_precondition_one_settles_like_every_later_opening.sh'
+      - 'scripts/box_walk_probes/probes/assistant_grounds_the_opening_turn.sh'
+      - 'tests/test_every_walk_ssh_gives_up_on_a_dead_link.sh'
+      - 'tests/test_the_seed_forgets_what_the_walk_taught.sh'
+      - 'scripts/box_walk_probes/lib/daemon_memory.sh'
+      - 'tests/test_the_walk_waits_for_converge.sh'
+      - 'tests/test_the_converge_wait_resolves_the_credential_path.sh'
+      - 'scripts/box_walk_probes/lib/converge_wait.sh'
+      - 'scripts/box_walk_probes/lib/grounding_seed.sh'
+      # The preference seed: the same discipline on the other write route.
+      # The lib, its test and the fixture-facing docs all go in the watch
+      # set together, or a PR could narrow the lib without running the test
+      # that guards it (the 'DARK ON SELF-EDIT' case this file already
+      # records for test_post_walk_qa_measures_the_artefact.sh).
+      - 'scripts/box_walk_probes/lib/preference_seed.sh'
+      - 'tests/test_the_walk_seeds_the_preference_pair.sh'
+      - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
+      # The conversation seed: the third write route, and the only one that
+      # needs a model call. Same rule as the two lines above -- the lib and
+      # its test go in the watch set together, or a PR could narrow the lib
+      # (drop the topics read-back, soften the person check on a PUBLIC repo)
+      # without running the suite that guards it.
+      - 'scripts/box_walk_probes/lib/conversation_seed.sh'
+      - 'tests/test_the_walk_seeds_the_conversation.sh'
+      # The usage seed: the same discipline on the producer that had nothing
+      # to write. Lib and test together, for the reason above -- a PR could
+      # otherwise narrow the lib without running the test that guards it.
+      - 'scripts/box_walk_probes/lib/usage_seed.sh'
+      - 'tests/test_the_walk_seeds_the_usage_producer.sh'
+      # The wiki summaries wait: the same discipline on the producer that
+      # writes from a DETACHED backfill. Lib and test together, for the reason
+      # above -- a PR could otherwise narrow the lib (read an empty log as a
+      # finished compile) without running the test that guards it.
+      - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
+      - 'tests/test_the_walk_waits_for_wiki_summaries.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -80,10 +156,15 @@ on:
       - 'tests/test_walk_driver_does_not_inherit_a_stale_result.sh'
       - 'tests/test_walk_driver_requires_a_completion_marker.sh'
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
+      - 'tests/test_walk_driver_takes_owner_from_a_local_file.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
+      # The same probe's per-port table, guarded for the OTHER way it goes
+      # stale: pointers. Twelve install.sh line numbers, twelve stale (#1595).
+      - 'tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh'
       - 'scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh'
+      - 'tests/test_a_self_test_denominator_counts_itself.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_no_store_port_probe_reads_the_credential.sh'
       # Walk-failure classification: the records themselves, the tool that
@@ -96,8 +177,18 @@ on:
       - 'scripts/payload_delta.sh'
       - 'gui/Makefile'
       - 'tests/test_a_walk_failure_is_classified.sh'
+      # THE JOIN BETWEEN A WALK AND ITS RECORD. Measured on origin/main
+      # 2026-09-23: the writer had ZERO executable invocations outside tests/
+      # (control: 8 files inside it), so two walks on real hardware left no
+      # record any gate could read. scripts/record_walk.sh is the call, and
+      # scripts/ttywalk.sh is where it is made -- both watched, because a
+      # change to either can re-dark the writer, and the test that guards it
+      # is listed too or editing it would be dark on self-edit.
+      - 'scripts/record_walk.sh'
+      - 'tests/test_a_completed_walk_records_itself.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
+      - 'scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh'
       - '.github/workflows/walk-record-gate.yml'
   push:
     branches: [main]
@@ -181,6 +272,13 @@ jobs:
       - name: A probe's pgrep is scoped to this account
         if: always()
         run: bash tests/test_probe_pgrep_is_scoped_to_this_account.sh
+
+      # A 200 from the daemon's memory DELETE is not a deletion: it answers
+      # deleted=false when forget() removed nothing, and the opening-turn
+      # battery stopped as CANNOT-RUN on "FORGOT 3 0" for rows still present.
+      - name: The probe's memory purge counts only real deletions
+        if: always()
+        run: bash tests/test_probe_memory_purge_counts_only_real_deletions.sh
 
       # The third instance of the same class in one night, and the one that
       # actually spent a red. The pairing probe captured curl's stdout and never
@@ -332,6 +430,22 @@ jobs:
         if: always()
         run: bash tests/test_promote_scope_refuses_on_the_artefact.sh
 
+      # A BROKEN PROBE MUST NOT BE INVISIBLE TO THE SCOPED ADJUDICATION.
+      #
+      # The awk that builds the scoped promote's non-pass list matched
+      # failed_probe and not_measured_probe rows only. broken_probe rows --
+      # written by the BROKEN_NAMES loop in post_walk_qa.sh for a probe that
+      # failed its own negative control and measured nothing -- were never
+      # read. A record could carry a broken probe alongside a failed_probe the
+      # scope file declares advisory and reach "every ARTEFACT-OWNED probe
+      # passed", exit 0, with the broken probe never considered. This drives
+      # the real gate over synthetic records and proves a broken probe is
+      # unconditionally blocking -- never scopable to advisory -- while an
+      # identical record without it still passes.
+      - name: A broken probe blocks the promote
+        if: always()
+        run: bash tests/test_a_broken_probe_blocks_the_promote.sh
+
       - name: The blocking set only ever grows
         if: always()
         run: bash tests/test_promote_scope_only_ever_grows.sh
@@ -368,6 +482,36 @@ jobs:
           bash tests/test_post_walk_qa_measures_the_artefact.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The writer harness could not locate its anchors in scripts/post_walk_qa.sh. NOTHING about the writer has been measured. Do not debug post_walk_qa.sh on the strength of this line -- re-point the anchors in tests/test_post_walk_qa_measures_the_artefact.sh, and do not delete the arms."
+          fi
+          exit "$rc"
+
+      # ── THE WALK MUST RECORD ITSELF ────────────────────────────────────
+      #
+      # Everything above judges a record that EXISTS. This judges whether one
+      # ever gets written. scripts/post_walk_qa.sh has written walk records
+      # correctly since 2026-08-21 and NOTHING CALLED IT: 0 executable
+      # invocations outside tests/ on origin/main 2026-09-23, against a control
+      # of 8 inside it. The deliverable the launch directive names was produced
+      # only when a human remembered a second command, and on 2026-09-23 two
+      # walks on real hardware produced none.
+      #
+      # The suite runs the recorder against stub writers, so all three outcomes
+      # -- RECORDED, DECLINED, CANNOT-RUN -- are exercised on a runner with no
+      # box. It was proved RED against unmodified origin/main (arm 1 FAIL,
+      # rc=1) and its freshness control was mutation-tested: disabling the
+      # `-nt` check makes a dead writer report `RECORDED verdict=CLEAN` over a
+      # previous walk's file, and arm 4 catches it.
+      #
+      # rc=2 IS NOT rc=1, same as the arms above: 2 means the harness could not
+      # set up and NOTHING was measured.
+      - name: A completed walk must record itself, and say so when it cannot
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          bash tests/test_a_completed_walk_records_itself.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The walk-recording harness could not set itself up, or scripts/record_walk.sh is absent. NOTHING about the join between a walk and its record has been measured. Re-point the anchors in tests/test_a_completed_walk_records_itself.sh; do not delete the arms."
           fi
           exit "$rc"
 
@@ -420,6 +564,10 @@ jobs:
           fi
           exit "$rc"
 
+      - name: The walk owner comes from a driver-local file, is withheld, and synthetic is declared
+        if: always()
+        run: bash tests/test_walk_driver_takes_owner_from_a_local_file.sh
+
       # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
       # ABOUT. Measured on ttywalk run 3: the marker read
       # `status=ok failed_steps=1 errors=0`, the failed step was health_check
@@ -461,6 +609,22 @@ jobs:
         if: always()
         run: bash tests/test_a_security_note_cannot_claim_a_flag_is_off.sh
 
+      # The third way this table has gone stale, and the only one that fails
+      # SILENTLY. A wrong line number still resolves -- to something else --
+      # so a reader following it is not told anything is wrong. Measured at
+      # d0c207fd: twelve install.sh:<line> pointers in this probe, twelve
+      # stale, landing on the Gatekeeper quarantine dialog, a launchctl print
+      # branch, Safari's History.db path, a bare `fi` and a plist header. Two
+      # of seven port rows named a verification point under a paragraph
+      # claiming every row named one.
+      #
+      # if: always() -- this and the security-note step above guard the same
+      # table against two different kinds of drift. Learning about one but not
+      # the other on a red run is how the second gets forgotten.
+      - name: The store-port table cites grep anchors, not line numbers (#1595)
+        if: always()
+        run: bash tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh
+
       - name: Port probe agrees with install.sh's own two-instrument table
         if: always()
         run: |
@@ -493,6 +657,23 @@ jobs:
         # `zsh -c` where zsh exists, and one mutant per arm proved landed.
         run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
 
+      - name: A self-test denominator is COUNTED, never TYPED
+        if: always()
+        # #2120 and #2138. run_box_walk.sh phase 1 puts each probe's self-test
+        # line into walks/v1.0.NN.tsv, so "behaved correctly on all N cases" is
+        # a number a person reads to decide whether a build is shippable.
+        #
+        # MEASURED on origin/main: people_stores_reconcile, one of the five
+        # BLOCKING probes, declared 32 while FORTY ONE distinct assertions
+        # fired, and 0 files named the number. Wrong by nine, checked by
+        # nothing.
+        #
+        # This asserts the declared count against a SECOND reading of the same
+        # run -- the outcome lines it printed -- because that is what catches
+        # an arm added without its tick, which is #2138. A mutant restoring the
+        # typed 32 turns three arms red.
+        run: bash tests/test_a_self_test_denominator_counts_itself.sh
+
       - name: The grounded probe asserts the fact, not the frame shape
         if: always()
         # assistant_answers_grounded is BLOCKING and scored a wrong answer
@@ -504,6 +685,321 @@ jobs:
         # grounded on the measured transcript while the fixed one returns
         # fact_missing, and kills a mutant with the assertion removed.
         run: /bin/bash scripts/tests/test_grounded_probe_asserts_the_fact.sh
+
+      # 2026-09-10: the parser graded the chunk accumulator the client is told to
+      # discard; the 0.4.79 guard's corrected reply travels only in full_response.
+      - name: the grounded probe grades the answer, not the draft
+        if: always()
+        run: /bin/bash scripts/tests/test_grounded_probe_grades_the_answer.sh
+
+      # #1125, #1597 and the probe-side half of #1113, all three the same class:
+      # the BLOCKING grounding probe grading something it could not see and
+      # calling the result `grounded`.
+      #
+      #   #1125  any pwg_ tool satisfied the success arm, so pwg_overview -- a
+      #          COUNT of how many preferences the graph holds -- scored 10/10
+      #          grounded on "what are my interests?", identically to the cell
+      #          that called pwg_preferences 10/10.
+      #   #1597  that arm's FALLTHROUGH was `echo "grounded"`. Measured on
+      #          origin/main e0fb21bf: three transcripts with a pwg tool called
+      #          and NO pwg tool_result frame anywhere each read grounded. Zero
+      #          successes observed, reported as the customer's data reached.
+      #   #1113  `no_tool_call` was printed both for a model that held eight
+      #          graph tools and declined them and for one the daemon offered
+      #          none (`tools=` empty in its own telemetry). Two owners, one
+      #          word.
+      #
+      # Seven arms: the probe's own control fires and its declared denominator
+      # is recounted from the file; the pre-fix adjudicator returns grounded on
+      # all four fixtures the fixed one now names or refuses; the fixed one
+      # narrows without reddening the must-misses; the battery's store map is
+      # cross-read against the runtime tool registry in both directions; ten
+      # mutants are each caught; the map scanner REFUSES when blinded and goes
+      # quiet when restored; and the tools-offered discriminator is driven
+      # through the real run_probe with its counter frozen as the mutant.
+      - name: the grounded probe names the store, and refuses a turn it never observed
+        if: always()
+        run: /bin/bash scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh
+      - name: run_box_walk.sh records phase 1 verdicts for the manifest replay
+        if: always()
+        run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
+      - name: CM051 #2564 -- a read-only walk never runs a writer
+        # `--only` used to run every seed/kickstart regardless of which probe
+        # it selected, which wrote a synthetic person into Andy's own box
+        # mid-walk. Seven arms against a staged runner with the five writers
+        # replaced by sentinels, plus a mutation control proving the guard
+        # this test depends on is the one actually caught.
+        if: always()
+        run: /bin/bash scripts/tests/test_read_only_walk_never_writes.sh
+      - name: A full walk hands the screens probe write mode (DMG #22)
+        if: always()
+        run: /bin/bash scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh
+
+      - name: A full walk chooses a real person for the screens probe, env only, name never logged (DMG #23)
+        if: always()
+        run: /bin/bash scripts/tests/test_full_walk_chooses_the_real_person.sh
+      - name: The real-person chooser prefers the richest candidate (DMG #24)
+        if: always()
+        run: python3 tests/test_real_person_pick_richest.py
+      - name: The API slug reaches the screens probe; link fingerprint is hash-only (DMG #24)
+        if: always()
+        run: python3 tests/test_real_person_slug_from_api.py
+      - name: A merge survivor takes the highest-tier name; the walk assertion counts phone-named survivors (DMG #27)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pyoxigraph httpx phonenumbers rapidfuzz qdrant-client
+          python3 tests/test_merge_survivor_takes_highest_name_tier.py
+      - name: The chat wait is a budget from measured turns, ends on done, capped (DMG #26)
+        if: always()
+        run: python3 tests/test_chat_wait_is_sized_from_measured_turns.py
+      - name: anchor=False prints the classifier inputs; each ask reports status and elapsed (DMG #25)
+        if: always()
+        run: python3 tests/test_real_person_miss_inputs_are_printed.py
+      - name: A reply that linked someone else is classified harness vs product from evidence (DMG #25)
+        if: always()
+        run: python3 tests/test_real_person_link_miss_classified.py
+      - name: owner_digest retries a transient 5xx inside its budget (DMG #24)
+        if: always()
+        run: python3 tests/test_owner_digest_hydration_retries_5xx.py
+      - name: owner_digest counts only meetings that have happened, in UTC (walk #31)
+        if: always()
+        run: python3 tests/test_owner_digest_counts_only_meetings_that_happened.py
+
+      - name: Screens evidence never lands in the public repo checkout (DMG #23)
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_screens_never_land_in_the_repo.sh
+
+      - name: The console-only register parses and names real probes
+        if: always()
+        run: python3 tests/test_console_only_register_names_real_probes.py
+
+      - name: The early pass re-checks the last walk's failures read-only, and --only takes a list
+        # ttywalk's early repeat-failure pass: informational, read-only, never in
+        # the verdict or walks/. 24 checks, each absence paired with a positive
+        # control. `if: always()` for the same reason as every sibling here.
+        if: always()
+        run: /bin/bash scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh
+
+      - name: A probe that writes declares it, and a declared writer is never promoted
+        # Lint (unmarked kickstart / -X POST / INSERT / DELETE fails, each shape
+        # with a control) plus the real promote_order on the real probes.
+        if: always()
+        run: /bin/bash tests/test_a_writing_probe_declares_it_and_is_never_promoted.sh
+
+      - name: No walk-record test can reach the real walk store
+        # HOME is a sentinel; the store env is unset; the sentinel .ostler tree
+        # must be byte-identical afterwards. Two controls inside prove it fires.
+        if: always()
+        run: /bin/bash tests/test_a_test_cannot_reach_the_real_walk_store.sh
+
+      - name: The walk record says whether the box was SEEDED before the grounded probe asked
+        # `if: always()` REQUIRED, same reason as every sibling here: a red in an
+        # earlier step would otherwise SKIP this one, and a skipped gate reads
+        # as a passing gate in the check list.
+        if: always()
+        # 🔴 assistant_answers_grounded is red on 17 of the 21 committed walk
+        # records, and an UNSEEDED box and a BROKEN product produce THE SAME
+        # RED. grounding_seed.sh has always computed the state -- seeded,
+        # skipped, absent, failed, unrun -- and NOTHING consumed it, while
+        # run_box_walk.sh threw away the exit code with `|| true` on top. So
+        # every one of those 17 reds has been ambiguous and the record looked
+        # complete either way.
+        #
+        # This asserts the READER, because a field written and never
+        # interpreted is the same defect one layer along. Its MUST-MISS arm
+        # requires seeded and skipped to produce DIFFERENT sentences, so a
+        # reader that echoed the value instead of grading it would fail.
+        run: /bin/bash scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh
+
+      # THE OTHER HALF OF THAT PROBE. The step above proves the probe can tell
+      # a carried fact from a missing one. It cannot see whether the walk ever
+      # GIVES it a fact to look for, and until now the walk did not: nothing
+      # set OSTLER_GATE_KNOWN_PERSON or OSTLER_GATE_EXPECT_FACT, so the probe
+      # ran unseeded and its content assertion did not exist. That is the
+      # configuration recorded FAILED in walks/v1.0.74.tsv.
+      #
+      # This pins the wiring itself: the runner sources lib/grounding_seed.sh
+      # and calls it ABOVE the phase-2 loop, the gate values are exported ONLY
+      # on the loader's exit 0, and every other outcome exports nothing and
+      # says why. Its own mutation arm removes the exports and requires the
+      # exit-0 assertion to stop passing.
+      # zsh, SO THE LOGIN-SHELL ARMS ARE MEASUREMENTS RATHER THAN CANNOT-RUN.
+      # `ssh host "cmd"` hands the remote text to the account's LOGIN shell,
+      # which on the walk boxes is zsh, while a runner and local mode use sh.
+      # Two suites below carry an arm that runs the real remote text under zsh
+      # and both were reporting CANNOT-RUN on ubuntu-latest for want of the
+      # binary (the usage seed's section 8, run 34389415936). A CANNOT-RUN is
+      # not a pass, so those arms were costing a line of output and asserting
+      # nothing. The update runs first because the runner image's package index
+      # can be stale enough to 404 the fetch, which would redden the job over a
+      # missing mirror rather than over anything this repo did.
+      - name: zsh, so the login-shell arms measure instead of skipping
+        run: sudo apt-get update -qq && sudo apt-get install -y zsh
+
+      - name: The walk seeds the grounded probe, and a failed seed is not a FAIL
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_grounded_probe.sh
+
+      - name: Every opening of the opening-turn battery starts from clean memory
+        if: always()
+        run: /bin/bash tests/test_every_opening_starts_from_clean_memory.sh
+
+      - name: Precondition 1 settles a consolidation re-write the same way every later opening already does
+        if: always()
+        run: /bin/bash tests/test_precondition_one_settles_like_every_later_opening.sh
+
+      - name: Every walk ssh gives up on a dead link instead of hanging the walk
+        if: always()
+        run: /bin/bash tests/test_every_walk_ssh_gives_up_on_a_dead_link.sh
+
+      - name: The seed forgets what an earlier run taught the daemon about the seed person, and nothing else
+        if: always()
+        run: /bin/bash tests/test_the_seed_forgets_what_the_walk_taught.sh
+
+      # THE OTHER WRITE ROUTE. The step above gives the grounded probe a PERSON.
+      # Nothing gave the walk a PREFERENCE, so an empty preference wiki, an
+      # ingest that never ran and a broken write route were three faults
+      # wearing one face. On v1.0.81 it was the first of those: cm019_setup
+      # logged "already set up" with elapsed_s=0 and install.log holds no
+      # ingest-dir and no "Files processed".
+      #
+      # Pins the wiring, the currency check and both floor arms: the runner
+      # sources lib/preference_seed.sh above the phase-2 loop; the staged
+      # cm019 tree is compared BY CONTENT against the cm019 bundle inside the
+      # ARTEFACT (never this checkout, which can agree with the DMG while the
+      # box lags); and the profile must show BOTH an interest that cleared the
+      # 0.28 floor and a row that was screened by it, because one arm alone
+      # cannot tell a working screen from an absent one. Its mutation arm
+      # disables the suppressed check and requires the suite to notice.
+      - name: The walk seeds the preference pair, and both sides of the floor
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_preference_pair.sh
+
+      - name: The cm019 bundle accepts the payload root the driver passes
+        if: always()
+        run: /bin/bash tests/test_cm019_bundle_accepts_the_payload_root.sh
+
+      # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
+      # two steps above give the walk a PERSON and a PREFERENCE. Nothing had
+      # ever put a CONVERSATION through the conversation pipeline, and that
+      # pipeline is the only writer of two things three probes read: the
+      # conversations Qdrant collection, which the installer pre-creates EMPTY
+      # (install.sh:18448), and the pwg:ConversationTopic nodes /api/v1/topics
+      # serves to pwg_topics. Nothing is processed at install time
+      # (install.sh:19178-19180 checks --help and an import and stops), so on a
+      # cold box those probes measured an empty store and could not tell that
+      # from a broken one.
+      #
+      # Pins the wiring, the fixture and the three-outcome discipline: the
+      # runner sources lib/conversation_seed.sh above the phase-2 loop and
+      # after the other two seeds; the fixture carries NO PERSON, with a
+      # must-fail arm that plants a name and requires the suite to refuse it,
+      # because CM051 is a PUBLIC repo; the conversations and topics read-backs
+      # are reported as SEPARATE verdicts, because a step-09 timeout yields a
+      # point and no topic; a zero usage journal is a FINDING naming the absent
+      # vendored producer and never a CANNOT-RUN; and the forget deletes only
+      # by the conversation id and sha1(id)[:8], proven by a decoy bundle that
+      # must survive. Its mutation arm disables the topics assertion and
+      # requires the suite to notice.
+      - name: The walk seeds one conversation, and a seed that did not work is not a FAIL
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_conversation.sh
+      # THE PRODUCER THAT HAD NOTHING TO WRITE. The two steps above give a
+      # probe CONTENT. usage_journal_producers needed WORK: on v1.0.81
+      # cm051_ostler_fda_ingest was absent from a journal holding 557 parsed
+      # rows, and the writer was not the reason. A row is written only on a
+      # MEASURED embedding call (pwg_ingest.py:65-66), and the one ingest leg
+      # with guaranteed input on a wiped box was skipped by a hydrate sentinel
+      # that ttywalk's --reset does not clear (install.sh:26392-26413 gating
+      # :29374). So "the writer is broken" and "the writer was never asked"
+      # printed identically.
+      #
+      # Pins the wiring and the three-outcome discipline: the runner sources
+      # lib/usage_seed.sh above the phase-2 loop with the forget below it; the
+      # runtime assumption (a real /api/embed reporting a USABLE
+      # prompt_eval_count, observed once on the walk box at
+      # 2026-09-09T17:42:35Z under Ollama 0.33.3 and re-measured every walk
+      # because one box is not every box) is measured before anything is built
+      # on it and is CANNOT-RUN when absent or zero; the JOURNAL DELTA is the verdict and the sweep's exit code
+      # never is; a zero delta on a status-ok sweep is a named FINDING. Its
+      # mutation arm disables the delta check and requires the suite to notice.
+      # The stub box runs the real remote command text through /bin/sh, so this
+      # needs no box and no network.
+      - name: The walk runs the people sweep, so the FDA usage producer is measured
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_usage_producer.sh
+
+      # THE PRODUCER THAT WRITES FROM A DETACHED BACKFILL. The step above makes
+      # the FDA producer write. cm044_wiki_compiler writes a cm044-compile- row
+      # only from the wiki compiler's summary pass, which wiki-recompile-tick.sh
+      # runs as a nohup'd background backfill (:394-451) that nothing in the
+      # walk waited for. Measured on the v1.0.82 walk at 18:53:06Z: the
+      # install-time tick had launched the backfill at 18:48:11Z, the summaries
+      # log was still 0 bytes, and usage_journal_producers had read the journal
+      # at about 18:51Z; cm044 rows: 0 (v1.0.81, a long-lived box: 553). And
+      # at 19:08Z, twenty minutes after the launch, the log was STILL 0 bytes,
+      # no process of ours was alive, both LaunchAgents read "not running,
+      # runs 1, last exit code 0": the backfill was gone and had written
+      # nothing while every liveness signal read green.
+      #
+      # Pins the wiring and the three-outcome discipline: the runner sources
+      # lib/wiki_summaries_wait.sh below the usage seed and above the phase-2
+      # loop; the kickstart text is exactly `kickstart -k
+      # gui/<id -u>/com.creativemachines.ostler.wiki-recompile`; completion is
+      # LIVENESS AND GROWTH, never the pid alone: the wrapper pid, the log's
+      # size growing, the slot holder, the account's processes naming the
+      # compiler (real pgrep -u against a real stub process), the container;
+      # a live pid with a 0-byte log is the FINDING "wrote nothing, still
+      # alive", a growing log at the budget is CANNOT-RUN "not converged in
+      # time", a dead wrapper with a 0-byte log and nothing alive is the 19:08Z
+      # FINDING "wrote nothing" reached without burning the budget, a positive
+      # delta is CONVERGED, a zero delta on a finished compile is a FINDING
+      # naming cm044_wiki_compiler as a present producer that did not write,
+      # and a refused kickstart, absent label plus absent tick, a tick that
+      # ends without a backfill, an unreadable box and an explicit skip are
+      # each a named CANNOT-RUN; the diagnostic block is printed and the
+      # summaries log's content never is (a name-shaped canary). Its mutation
+      # arm disables the delta check and requires the suite to notice. The
+      # stub box runs the real remote command text through /bin/sh against a
+      # real background process and the real pidfile path, so this needs no
+      # box and no launchd.
+      - name: The walk waits for the wiki summary backfill, so cm044_wiki_compiler has written before the journal is read
+        if: always()
+        run: /bin/bash tests/test_the_walk_waits_for_wiki_summaries.sh
+
+      # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
+      # grounded probe a fact to look for; this gives the two COUNT-reading
+      # probes a settled graph to read. On v1.0.78 they measured mid
+      # convergence: contacts read 1629 during the walk and 1920 an hour later
+      # on the same untouched box, and a disagreement measured then is not a
+      # store defect.
+      #
+      # It waits on MEASURED stability of two independent stores, never on the
+      # dedupe-converge.done marker, which the converge writes in the same
+      # second as "hit max_rounds=10 without a fixpoint" and therefore means
+      # only that the process exited. The arm that matters most asserts that
+      # stores holding steady while DISAGREEING still count as stable, because
+      # requiring agreement would mean people_stores_reconcile could never fail.
+      - name: The walk waits for the stores to stop moving, and never scores a pass for waiting
+        if: always()
+        run: /bin/bash tests/test_the_walk_waits_for_converge.sh
+
+      # #1851: AND IT ACTUALLY READS THEM. The suite above proves the stability
+      # DECISION and stubs the reader, so nothing in it ever executed the
+      # command that crosses _cw_box_exec. The credential path was interpolated
+      # single-quoted while it still carried a literal $HOME, the remote shell
+      # never expanded it, curl exited 26 before issuing a request, and both
+      # stores read "x" on every reading. On the v1.0.79 walk that produced 45
+      # consecutive "unreadable: x x" lines against two healthy stores, and both
+      # people probes ended CANNOT-RUN by the harness's own hand.
+      #
+      # This arm crosses that seam: a real credential file at the real expanded
+      # path under a redirected HOME, a store on an ephemeral loopback port that
+      # RECORDS what reached it, and a must-fail arm restoring the old quoting
+      # that must print "x x" and must leave the store untouched.
+      - name: The converge wait resolves the credential path before it quotes it
+        if: always()
+        run: /bin/bash tests/test_the_converge_wait_resolves_the_credential_path.sh
 
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
         if: always()
@@ -522,6 +1018,12 @@ jobs:
           printf 'artefact_sha256_source\tmeasured(shasum -a 256 of the citest artefact)\n' >> walks/v0.0.0-citest.tsv
           printf 'walked_at\t2026-01-01T00:00:00Z\n' >> walks/v0.0.0-citest.tsv
           printf 'box_fp\tcitestcitest0000\n'    >> walks/v0.0.0-citest.tsv
+          # walk_kind: verify_walk_record.sh refuses any record that does not
+          # declare a CONSOLE walk, and it refuses at the exit-0 door. Without
+          # this the POSITIVE CONTROL below scores rc=2 and every refusal this
+          # job asserts afterwards would prove nothing.
+          printf 'walk_kind\tconsole\n'          >> walks/v0.0.0-citest.tsv
+          printf 'walk_kind_source\tdeclared: synthetic CI control record\n' >> walks/v0.0.0-citest.tsv
           printf 'pass\t14\n'                    >> walks/v0.0.0-citest.tsv
           printf 'fail\t0\n'                     >> walks/v0.0.0-citest.tsv
           printf 'cannot_run\t0\n'               >> walks/v0.0.0-citest.tsv

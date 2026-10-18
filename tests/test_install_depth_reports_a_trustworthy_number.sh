@@ -11,7 +11,46 @@ D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL="${D}/../scripts/install_depth.sh"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 fails=0
+# ── THREE OUTCOMES, THREE BRANCHES ────────────────────────────────────────
+#
+# This used to be `chk "label" "$(producer | awk ...)" "want"`, which has TWO
+# branches for THREE outcomes. A command substitution in ARGUMENT POSITION
+# discards the producer's exit status structurally, so `set -euo pipefail` on
+# line 9 cannot see it. Measured with a producer that exits 3: chk ran, got
+# empty, the script continued, and the outer rc was 0.
+#
+# So when scripts/install_depth.sh DIED, this printed
+#
+#     FAIL gui marker step -- got  want config_save
+#
+# which reads as "the tool said the wrong thing". It had actually said nothing
+# at all. A producer-side death wearing the format of a content verdict is the
+# defect class this whole branch is about, and the write fix alone would have
+# left the next death of that script printing the same misleading line.
+#
+# chk_cmd RUNS the producer, keeps its status, and refuses rather than grading
+# when it is non-zero or silent.
 chk() { if [[ "$2" == "$3" ]]; then printf 'ok   %s -- %s\n' "$1" "$2"; else printf 'FAIL %s -- got %s want %s\n' "$1" "$2" "$3" >&2; fails=$((fails+1)); fi; }
+chk_cmd() {
+    # $1 = label, $2 = expected, rest = the command to run
+    local label="$1" want="$2"; shift 2
+    local out rc
+    out="$("$@" 2>/dev/null)"; rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf 'CANNOT-RUN %s -- the producer exited %s. NOT a wrong answer and NOT a pass.\n' \
+            "$label" "$rc" >&2
+        fails=$((fails+1)); return
+    fi
+    if [[ -z "$out" ]]; then
+        printf 'CANNOT-RUN %s -- the producer exited 0 and emitted NOTHING. A silent\n' "$label" >&2
+        printf '           success is not an answer, so this refuses rather than comparing\n' >&2
+        printf '           the empty string against %s.\n' "$want" >&2
+        fails=$((fails+1)); return
+    fi
+    chk "$label" "$out" "$want"
+}
+# The field readers, as functions so chk_cmd can own their exit status.
+_depth_field() { "$TOOL" "$2" | awk -F'\t' -v k="$1" '$1==k{print $2}'; }
 
 [[ -x "$TOOL" ]] || { printf 'FAIL: %s is not executable\n' "$TOOL" >&2; exit 1; }
 
@@ -21,8 +60,8 @@ chk() { if [[ "$2" == "$3" ]]; then printf 'ok   %s -- %s\n' "$1" "$2"; else pri
 
 # The marker wire is authoritative and must be read exactly.
 printf '[gui-marker] STEP_BEGIN id=config_save phase=3 idx=6 total=41\n' > "$WORK/g.log"
-chk "gui marker depth" "$("$TOOL" "$WORK/g.log" | awk -F'\t' '$1=="install_depth"{print $2}')" "6"
-chk "gui marker step"  "$("$TOOL" "$WORK/g.log" | awk -F'\t' '$1=="install_last_step"{print $2}')" "config_save"
+chk_cmd "gui marker depth" "6" _depth_field install_depth "$WORK/g.log"
+chk_cmd "gui marker step" "config_save" _depth_field install_last_step "$WORK/g.log"
 
 # An empty log MUST report 0. A depth tool that reports nothing as complete is
 # the failure mode that matters.

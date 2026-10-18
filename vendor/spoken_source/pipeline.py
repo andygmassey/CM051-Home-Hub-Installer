@@ -75,10 +75,14 @@ logger = logging.getLogger(__name__)
 # abandoned.
 _DISPATCH_TIMEOUT_DEFAULT_SECS = 900
 
-# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
-# returns, so "this document is slow" is never confused with "this
-# document is broken" by whoever reads the log next.
-DISPATCH_TIMEOUT_RC = 75
+# 124, the timeout(1) convention. Deliberately distinct from any code
+# pwg-convo itself returns, so "this document is slow" is never confused
+# with "this document is broken" by whoever reads the log next. NOT 75:
+# `pwg-convo process` exits 75 (EX_TEMPFAIL) when its model or gateway
+# cannot be REACHED, and a catch-up caller reads 75 as an outage (no poison
+# attempt) but 124 as a possibly item-specific hang (counted, unless a
+# health probe finds the sink down).
+DISPATCH_TIMEOUT_RC = 124
 
 
 def _dispatch_timeout_secs():

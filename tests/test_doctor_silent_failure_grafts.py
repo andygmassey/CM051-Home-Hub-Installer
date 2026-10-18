@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two silent-failure grafts in the vendored Doctor must stay grafted.
+"""Four silent-failure grafts in the vendored Doctor must stay grafted.
 
 WHY A GATE RATHER THAN A COMMENT
 
@@ -323,6 +323,142 @@ else:
     else:
         bad("NEGATIVE CONTROL FAILED: the rule fires when the engine is reachable and merely "
             "idle, so the control above proves nothing about the unreachable case.")
+
+
+# =========================================================================
+# GRAFT D -- v1.0.107 walk #5 item 1: A BLOCKING BOX-STATUS CALL STARVED
+# EVERY OTHER ROUTE ON THE DOCTOR'S ONE EVENT LOOP
+# =========================================================================
+#
+# The Hub header pill read "Status unavailable" on every route except Home
+# (Bursar, People, Personal wiki). Doctor's own access log showed 200 OK for
+# every logged /api/v1/box-status call -- the server never errored, so the
+# symptom is the CLIENT's 15s fetch timing out.
+#
+# api_box_status() is `async def` but called its aggregator directly:
+# `return _box_status()`. box_status.py's own "FORK BUDGET" comment already
+# documents that `top -l 2` "BLOCKS FOR ABOUT A SECOND" on a cache miss, and
+# its other probes carry their own subprocess timeouts (3s/3s/4s/6s/5s).
+# uvicorn runs ONE event loop for the whole Doctor process; a synchronous
+# call inside an `async def` handler blocks THAT LOOP, not just its own
+# request -- every other concurrent /api/v1/* request the Doctor is holding
+# stalls with it, including a DIFFERENT TAB'S OWN box-status poll. Measured
+# on macmini16-walk: a cache-miss box-status call took 1.43s against a
+# ~0.03s cache hit; the chained probe timeouts reach past the Hub's 15s
+# client fetch timeout in the worst case. People/Wiki/Bursar each add their
+# own concurrent Doctor requests on top of the chip's poll, which is why the
+# stall landed on those routes and not the lighter Home route.
+#
+# Fix: run the aggregator via `asyncio.to_thread` so a slow or cache-missed
+# probe no longer blocks the loop every other concurrent request shares.
+
+_wu_path = os.path.join(AGENT, "web_ui.py")
+if not os.path.isfile(_wu_path):
+    bad(f"no {_wu_path} -- Graft D cannot even be located")
+else:
+    _src_wu = open(_wu_path, encoding="utf-8").read()
+    try:
+        _tree_wu = ast.parse(_src_wu)
+    except SyntaxError as exc:
+        cannot_run(f"web_ui.py did not parse: {exc}")
+
+    _api_box_status_node = None
+    for node in ast.walk(_tree_wu):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "api_box_status":
+            _api_box_status_node = node
+            break
+
+    if _api_box_status_node is None:
+        bad("api_box_status not found in web_ui.py -- Graft D cannot even be located")
+    else:
+        _api_box_status_src = ast.get_source_segment(_src_wu, _api_box_status_node) or ""
+
+        if "asyncio.to_thread" not in _api_box_status_src:
+            bad("api_box_status calls its aggregator directly, not through "
+                "asyncio.to_thread -- a slow box_status() call (subprocess cache "
+                "miss) blocks EVERY concurrent /api/v1/* request on the Doctor's "
+                "one event loop, which is how a page that merely adds its own "
+                "concurrent requests (People, Wiki, Bursar) can starve a "
+                "different tab's box-status poll into the client's 15s timeout")
+        else:
+            ok("api_box_status runs its aggregator via asyncio.to_thread "
+               "(does not block the shared event loop)")
+
+            # BEHAVIOURAL CONTROL: exec the REAL shipped function (decorator
+            # stripped -- it references `app`/`JSONResponse`, neither of which
+            # this control needs or stubs) and prove a slow aggregator no
+            # longer starves a concurrent coroutine on the same loop. Stub
+            # `box_status` in sys.modules so the function's own
+            # `from box_status import box_status as _box_status` resolves to a
+            # synchronous stand-in that blocks for a fixed, measured duration
+            # -- the same shape as a real subprocess.run() cache miss --
+            # without shelling out to anything.
+            import asyncio
+            import time
+            import types
+
+            BLOCK_SECONDS = 0.25
+
+            def _slow_box_status():
+                time.sleep(BLOCK_SECONDS)
+                return {"state": "busy"}
+
+            _stub_mod = types.ModuleType("box_status")
+            _stub_mod.box_status = _slow_box_status
+            _saved_mod = sys.modules.get("box_status")
+            sys.modules["box_status"] = _stub_mod
+
+            # Strip the FastAPI decorator (`@app.get(...)`) before exec: it
+            # references `app`/`JSONResponse`, neither of which this control
+            # needs or stubs, and the function body references neither.
+            _api_box_status_node.decorator_list = []
+
+            try:
+                _ns = {"asyncio": asyncio}
+                exec(compile(ast.Module(body=[_api_box_status_node], type_ignores=[]),
+                             "<api_box_status>", "exec"), _ns)
+                _api_box_status = _ns["api_box_status"]
+
+                async def _heartbeat():
+                    start = time.monotonic()
+                    # A starved loop cannot resume this until the blocking
+                    # aggregator call returns.
+                    await asyncio.sleep(0)
+                    return time.monotonic() - start
+
+                async def _race():
+                    return await asyncio.gather(_api_box_status(), _heartbeat())
+
+                _result, _heartbeat_elapsed = asyncio.run(_race())
+            finally:
+                if _saved_mod is not None:
+                    sys.modules["box_status"] = _saved_mod
+                else:
+                    del sys.modules["box_status"]
+
+            STARVE_FLOOR = BLOCK_SECONDS * 0.5  # a starved loop delays it by ~BLOCK_SECONDS
+            if _heartbeat_elapsed < STARVE_FLOOR:
+                ok(f"BEHAVIOURAL: a concurrent coroutine resumed in "
+                   f"{_heartbeat_elapsed * 1000:.0f}ms while the REAL, shipped "
+                   f"api_box_status ran a {BLOCK_SECONDS * 1000:.0f}ms blocking "
+                   "aggregator call -- the event loop was not starved")
+            else:
+                bad(f"BEHAVIOURAL FAILED: a concurrent coroutine took "
+                    f"{_heartbeat_elapsed * 1000:.0f}ms to resume against a "
+                    f"{BLOCK_SECONDS * 1000:.0f}ms blocking aggregator call -- "
+                    "the shipped api_box_status is still starving the shared "
+                    "event loop")
+
+            # CONTROL: the stubbed aggregator itself must actually have taken
+            # ~BLOCK_SECONDS -- otherwise the behavioural check above could
+            # pass for the trivial reason that nothing slow ever ran.
+            if _result is not None and isinstance(_result, dict) and _result.get("state") == "busy":
+                ok("CONTROL: the stubbed slow aggregator did run (result reached "
+                   "the caller), so the behavioural check above measured a real "
+                   "race, not a no-op")
+            else:
+                bad(f"CONTROL FAILED: api_box_status returned {_result!r}, not the "
+                    "stub's result -- the behavioural check above proves nothing")
 
 print(f"\n=== {PASS} passed / {FAIL} failed ===")
 sys.exit(1 if FAIL else 0)

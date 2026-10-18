@@ -33,6 +33,8 @@ import logging
 import os
 import re
 import subprocess
+import time
+import threading
 import urllib.request
 from typing import Any, Optional
 
@@ -45,6 +47,74 @@ logger = logging.getLogger(__name__)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 
 # ── Load (primary - drives the chip colour) ─────────────────────────────────
+
+
+# ── FORK BUDGET ────────────────────────────────────────────────────────────
+#
+# THE DEFECT THIS EXISTS TO FIX. Every status poll ran FIVE subprocesses, and
+# the Hub WebView polls this route about once a second. Measured on a live box:
+# 58,914 forks in about 40 hours, against a control of 0 to 44 for every
+# comparable daemon on the same machine. macOS classifies that as inefficient
+# and SIGTERMs the process (launchctl: "immediate reason = inefficient",
+# "last terminating signal = Terminated: 15"), KeepAlive respawns it, and every
+# open Doctor tab is dropped mid-session.
+#
+# It was invisible for two reasons worth remembering. The exit code stays 0, so
+# no health check we own could see it. And a respawn is indistinguishable from
+# a daemon that was simply always running, unless you count forks.
+#
+# The heaviest offender is `top -l 2`, which BLOCKS FOR ABOUT A SECOND taking
+# its second sample. At a one-second poll interval that guarantees overlapping
+# invocations, which is the state macOS is actually objecting to.
+#
+# WHY A CACHE AND NOT A SLOWER POLL. The poll interval is set by the native
+# WebView, not by this file. A fix that lives in the caller protects one caller;
+# a fork budget here holds no matter who calls, how often, or how many tabs are
+# open. Freshness is chosen per probe by how fast the underlying number can
+# actually move, so nothing shown to the customer becomes misleading:
+#
+#   hw.memsize      never, for the life of the machine -> cached permanently
+#   vm_stat         moves continuously, but not usefully inside 10s
+#   ps              process list, 10s
+#   top -l 2        the expensive one, and CPU attribution is a trend, 30s
+#   resource tier   derived from hardware, effectively static, 60s
+#
+# A cached value is returned on a miss ONLY if the refresh raises, so a
+# transient failure shows the last known reading rather than a hole, which is
+# the same fail-soft contract the callers already have.
+_CACHE: dict[str, tuple[float, Any]] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _cached(key: str, ttl: float, produce):
+    """Return ``produce()``, at most once per ``ttl`` seconds.
+
+    ``ttl`` of ``None`` means cache for the life of the process.
+    """
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit is not None:
+            stamp, value = hit
+            if ttl is None or (now - stamp) < ttl:
+                return value
+    try:
+        value = produce()
+    except Exception:
+        with _CACHE_LOCK:
+            hit = _CACHE.get(key)
+        if hit is not None:
+            return hit[1]
+        raise
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.monotonic(), value)
+    return value
+
+
+def _cache_clear() -> None:
+    """Drop every cached probe. For tests, and for a forced refresh."""
+    with _CACHE_LOCK:
+        _CACHE.clear()
 
 
 def probe_load() -> Optional[dict[str, Any]]:
@@ -77,7 +147,7 @@ def probe_load() -> Optional[dict[str, Any]]:
 # ── Memory ──────────────────────────────────────────────────────────────────
 
 
-def _total_ram_bytes() -> Optional[int]:
+def _uncached__total_ram_bytes() -> Optional[int]:
     try:
         out = subprocess.run(
             ["sysctl", "-n", "hw.memsize"],
@@ -88,7 +158,7 @@ def _total_ram_bytes() -> Optional[int]:
         return None
 
 
-def probe_memory() -> Optional[dict[str, Any]]:
+def _uncached_probe_memory() -> Optional[dict[str, Any]]:
     """Used / total RAM via ``hw.memsize`` + ``vm_stat`` (macOS, stdlib only).
 
     "Used" excludes the purgeable/free pages; we treat (active + wired +
@@ -159,8 +229,96 @@ def probe_llm() -> dict[str, Any]:
         "resident": True,
         "model": first.get("name"),
         "vram_gb": round(vram / 1024 ** 3, 1),
-        "keep_alive": first.get("expires_at"),
+        "keep_alive": _keep_alive_for_a_person(first.get("expires_at")),
     }
+
+
+# ── A SENTINEL IS NOT A DATE, AND THE CUSTOMER WAS BEING SHOWN ONE ──────────
+#
+# MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint a customer's
+# own Hub status endpoint puts on the wire:
+#
+#     GET http://127.0.0.1:8089/api/v1/box-status
+#     llm.keep_alive = "2318-12-29T02:25:59.162660807+08:00"
+#
+# CONTROLS taken in the same read so the finding is not a pattern artefact: the
+# payload was 1478 bytes, so it was really read; the same regex shape found
+# exactly one far-future date and zero ordinary ones, which matches a payload
+# carrying this single timestamp rather than a predicate matching everything.
+#
+# WHAT THE VALUE MEANS. install.sh starts Ollama with OLLAMA_KEEP_ALIVE=-1,
+# which is Ollama's way of saying "keep the model resident indefinitely". Ollama
+# expresses that as an expires_at roughly three centuries out. So the number is
+# not wrong and it is not a bug in Ollama: it is an internal sentinel that this
+# function piped to a customer-facing surface unchanged. A person reading their
+# own status endpoint emitted the year 2318.
+#
+# 🔴 CORRECTED 2026-09-18, and the correction matters because it changes what
+# this fix claims. AN EARLIER VERSION OF THIS COMMENT SAID A CUSTOMER'S DOCTOR
+# PAGE SHOWED THEM THE YEAR 2318. No page shows it. The endpoint IS consumed,
+# by the Hub front end in ostler-assistant, and measured there: pct appears in
+# 8 files, resident in 5, vram_gb in 2, keep_alive in 0, and the BoxLlm
+# interface declares exactly four fields, none of them keep_alive.
+#
+# So the accurate statement is narrower and still worth fixing: the value was
+# WRONG ON THE WIRE on every Hub with a resident model, and rendered by
+# nothing. install.sh sets OLLAMA_KEEP_ALIVE=-1 twice, on purpose, so the
+# sentinel was emitted always rather than occasionally.
+#
+# WHY THE WRONG VERSION SURVIVED REVIEW: the question "does a customer see
+# this?" cannot be answered from inside CM051 at all, because the front end
+# that consumes every /api/v1/ surface is not in this repository. A search here
+# returns zero with a working control and is simply about the wrong corpus.
+# A CONTROL PROVES THE PREDICATE, NOT THE CORPUS.
+#
+# WHY A THRESHOLD AND NOT A LITERAL. Pinning the exact string would break the
+# moment Ollama picks a different far date, and would fail silently -- the
+# sentinel would start rendering as a date again with nothing to notice. Any
+# expiry more than ten years out cannot be a real keep-alive window on a machine
+# that reboots, so the threshold IS the meaning rather than a guess at it.
+#
+# THREE ANSWERS, NOT TWO. None passes through as None (no model resident, and
+# the caller already renders that as idle). A parseable near date passes through
+# unchanged, because that IS a real expiry a customer may want. An unparseable
+# value passes through unchanged too: this function's job is to translate a
+# sentinel, not to swallow a value it does not recognise, and hiding an
+# unexpected string would trade a visible oddity for an invisible one.
+_KEEP_ALIVE_INDEFINITE = "indefinite"
+_KEEP_ALIVE_SENTINEL_YEARS = 10
+
+
+def _keep_alive_for_a_person(expires_at):
+    """Turn the far-future expires_at sentinel into what it actually means.
+
+    Worded to avoid a capitalised verb immediately in front of a product name:
+    the person-name guard reads that pair as a forename and surname, and it is
+    right to. A permit would have been the wrong fix for a line I am writing
+    fresh -- permits are for values that ARE the fact, like a registrant name in
+    a vendored file, not for prose I can simply phrase differently.
+    """
+    if not expires_at:
+        return expires_at
+    try:
+        import datetime as _dt
+        raw = str(expires_at)
+        # Ollama emits nanosecond precision; datetime.fromisoformat takes at
+        # most microseconds, so the fraction is trimmed rather than the whole
+        # value being discarded on a digit count.
+        if "." in raw:
+            head, _, tail = raw.partition(".")
+            frac = ""
+            i = 0
+            while i < len(tail) and tail[i].isdigit():
+                frac += tail[i]
+                i += 1
+            raw = head + "." + frac[:6] + tail[i:]
+        parsed = _dt.datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return expires_at
+    now = _dt.datetime.now(parsed.tzinfo) if parsed.tzinfo else _dt.datetime.now()
+    if (parsed - now).days > _KEEP_ALIVE_SENTINEL_YEARS * 365:
+        return _KEEP_ALIVE_INDEFINITE
+    return expires_at
 
 
 # ── Load attribution (I-2) - whose load is it? ──────────────────────────────
@@ -176,6 +334,12 @@ _OSTLER_NAMES = {
     "uvicorn", "web_ui",
     "com.docker.backend", "com.docker.virtualization", "com.docker.hyperkit",
     "qemu-system-aarch64", "vpnkit",
+    # CM051 #2538: the shipped stack runs its containers in a colima VM on
+    # Apple's Virtualization framework, and Ollama's model runner is
+    # llama-server. Neither name was here, so Ostler's own VM and model runner
+    # were billed to "Other apps" while "Ostler itself is using ~0%".
+    "com.apple.Virtualization.VirtualMachine", "colima", "limactl",
+    "llama-server",
 }
 # Precise argv hints ONLY - every Ostler wrapper/pipeline runs out of
 # ``~/.ostler/``; the Doctor runs as ``doctor.agent.web_ui``. Deliberately NOT
@@ -219,6 +383,9 @@ _LABELS = {
     "uvicorn": "Ostler Doctor", "web_ui": "Ostler Doctor",
     "com.docker.backend": "Ostler databases", "com.docker.virtualization": "Ostler databases",
     "com.docker.hyperkit": "Ostler databases", "qemu-system-aarch64": "Ostler databases",
+    "com.apple.Virtualization.VirtualMachine": "Ostler databases",
+    "colima": "Ostler databases", "limactl": "Ostler databases",
+    "llama-server": "Ostler model",
 }
 
 
@@ -250,7 +417,7 @@ def _categorise(name: str, argv: str, user: str) -> str:
 _TOP_ROW = re.compile(r"^\s*(\d+)\s+([\d.]+)\s+(.+?)\s*$")
 
 
-def _ps_user_map() -> dict[int, tuple[str, str]]:
+def _uncached__ps_user_map() -> dict[int, tuple[str, str]]:
     """pid → (user, argv) via a single `ps` call.
 
     The authoritative process name is the basename of argv's first token -
@@ -316,7 +483,7 @@ def _parse_top_second_sample(out: str) -> list[tuple[int, float, str]]:
     return rows
 
 
-def probe_attribution() -> Optional[dict[str, Any]]:
+def _uncached_probe_attribution() -> Optional[dict[str, Any]]:
     """Top CPU contributors bucketed by owner. ``None`` if the probe fails."""
     try:
         out = subprocess.run(
@@ -418,7 +585,7 @@ def probe_settling() -> Optional[dict[str, Any]]:
 # ── Top-level aggregator ────────────────────────────────────────────────────
 
 
-def _governor() -> dict[str, Any]:
+def _uncached__governor() -> dict[str, Any]:
     """Re-read the live governor tier the same way the governor-status route
     does, fail-soft to a minimal unknown payload."""
     enabled = True
@@ -588,11 +755,46 @@ def box_status() -> dict[str, Any]:
             # Carried through so "not paused" and "cannot tell" are
             # distinguishable at the API surface, not only in the log.
             "unavailable": bool(pause.get("pause_unavailable")),
+            # A timed pause expired but the brief and wrap could not be
+            # switched back on: say why instead of "not paused".
+            "cron_resume_error": pause.get("cron_resume_error", ""),
         },
         "settling": settling,
         "running": _running(governor, settling),
         "attribution": attribution,
     }
+
+
+# ── THE FORK-BUDGETED WRAPPERS ─────────────────────────────────────────────
+# ABOVE the __main__ guard ON PURPOSE. They were appended to the end of the
+# file, which put them AFTER it, so `python3 box_status.py` raised NameError
+# while every test that IMPORTS the module passed. A vendor gate caught it and
+# said the thing worth keeping: tests that import the module cannot catch this.
+# It is the same shape as everything else found this week, a fix that exists
+# and cannot be reached, so it is written down here rather than just moved.
+def _total_ram_bytes() -> Optional[int]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('ram', None, _uncached__total_ram_bytes)
+
+
+def probe_memory() -> Optional[dict[str, Any]]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('memory', 10.0, _uncached_probe_memory)
+
+
+def _ps_user_map() -> dict[int, tuple[str, str]]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('ps', 10.0, _uncached__ps_user_map)
+
+
+def probe_attribution() -> Optional[dict[str, Any]]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('attribution', 30.0, _uncached_probe_attribution)
+
+
+def _governor() -> dict[str, Any]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('governor', 60.0, _uncached__governor)
 
 
 if __name__ == "__main__":  # function-verification entrypoint

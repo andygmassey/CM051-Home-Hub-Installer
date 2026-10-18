@@ -1,0 +1,1595 @@
+# Writer/reader vocabulary fixes NOT captured by a divergence patch
+
+**Hand-built 2026-09-16, CM051 #1974. Location and shape only, never content.**
+
+Three vendored trees were edited by that PR, and this file has since been
+extended in place by later PRs that hit the same refusals. For each one, the
+proper record is its `divergence_patch`, and for each one the regeneration tool
+was RUN and could not produce it here. This file is the missing half, written
+by hand, following the pattern already set by
+`cm041_contact_syncer.UNRECORDED.md`.
+
+Each later entry states when it was added and re-states the refusal it was
+measured against. Inheriting an earlier PR's refusal without re-running the
+tool would be the same thing as inheriting an ack: a debt with nobody's name
+on it.
+
+It is a record, not an instrument. Nothing reads it and it cannot be applied.
+Its whole job is to stop the next `sync_vendor.sh` deleting these edits without
+anyone knowing they existed.
+
+## Why there is no patch, per tree, measured rather than assumed
+
+Each line below is the actual outcome of
+`scripts/regenerate_divergence_patch.sh <tree> --write`, run on 2026-09-16 with
+`HR015` and `CM041` exported to the local source checkouts.
+
+| tree | outcome | what the tool said |
+|---|---|---|
+| `ostler_fda` | **REFUSED**, exit 1 | "the written patch does not reconstruct the vendored tree", then "RESTORED the previous patch -- nothing was left broken". Its self-verification step caught its own output and rolled back. |
+| `cm041/assistant_api` | **CANNOT-RUN**, exit 2 | `pinned_sha 9be482d3 not present in` the local CM041 checkout. The pin cannot be materialised, so there is nothing to diff against. |
+| `doctor` | **REFUSED**, exit 1 | "this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo." The source has ADVANCED past the pin, so the tool refuses on its advance limb. |
+
+All three refusals are DIFFERENT, and that matters: this is not one broken
+environment producing one symptom three times. One tool failed its own
+round-trip check, one could not find the pin, one found the source ahead of the
+pin. Each is the tool working correctly and declining to write a patch that
+would be a lie. None of them is a reason to skip recording the divergence,
+which is what this file is for.
+
+Two further facts about the environment, because a reader deciding whether to
+retry needs them:
+
+- The `ostler_fda` DRY RUN completed and proposed a 1169-line change whose
+  bulk was the REMOVAL of an `apple_mail_mbox.py` delta. That is a retraction,
+  not a new claim, and it is consistent with the vendored file having been
+  reconciled with source since the patch was last written. It is NOT evidence
+  that this PR's edits were captured.
+- The local `$HR015` checkout is 81 commits ahead of the `ostler_fda` pin but
+  **zero** of those 81 touch `ostler_fda`, so the subtree at HEAD equals the
+  subtree at the pin. The source was fit for the comparison; the failure is in
+  the patch round-trip, not in the source.
+
+**A grep of any of these three patches for the lines below will return
+nothing, and that means NOT RECORDED. It does not mean NOT DIVERGED.**
+
+## The edits, by location and shape
+
+### `vendor/ostler_fda/pwg_ingest.py` -- the people payload gained the key its reader filters on
+
+- `_load_people_from_oxigraph()`: one added SPARQL query selecting
+  `MAX(?d)` over `pwg:lastContactIMessage|WhatsApp|Calendar|Email`, grouped by
+  person; result folded onto each person dict as `last_contact`.
+- new module-level helper `_last_contact_epoch()`: ISO date to epoch seconds,
+  returning `0` for absent or unparseable rather than `now()`.
+- `ingest_people_to_qdrant()` payload: `"last_contact"` stops being a hardcoded
+  empty string and carries the real date; `"last_contact_ts"` is added.
+
+Shape: +1 query, +1 helper, 2 changed payload keys. No I/O boundary moved, no
+new dependency, no change to the collection, the point ids or the vector size.
+
+### `vendor/cm041/assistant_api/ical-server.py` -- the facts query gained the vocabulary customers' data is actually in
+
+- `_memory_query_facts()`: the single-arm `pwg:PersonFact` SPARQL becomes a
+  two-arm UNION. Arm one is the previous query, character for character. Arm
+  two reads `<urn:ostler:Fact>` inside `GRAPH ?g`, scoped by a case-folded
+  comparison on `<urn:ostler:userId>`, withholding `privacyLevel` `L3`, and
+  mapping `signalStrength` to a numeric `?conf`.
+
+Shape: one function, one string literal. No route, no response shape, no
+handler and no storage call changed.
+
+### `vendor/doctor/agent/import_notion.py` and `import_obsidian.py` -- the knowledge imports point at the collection that is read
+
+- new module constant `KNOWLEDGE_COLLECTION = "evernote_knowledge"`.
+- `_collection_for_source()` returns it instead of `f"{source}_knowledge"`.
+  The parameter is kept for call-site compatibility and ignored.
+
+Shape: +1 constant and 1 changed return, in each of two sibling files.
+`import_evernote.py` is NOT touched: it already returned this collection.
+
+### `vendor/doctor/agent/web_ui.py` -- the source table covers the FDA extract family (CM051 #1587, 2026-09-16)
+
+Same tree, same reason there is no patch, and the refusal was RE-MEASURED for
+this entry rather than inherited. `scripts/regenerate_divergence_patch.sh
+doctor`, run 2026-09-16 with `HR015` pointed at the local source checkout,
+printed the 43 upstream commits past the pin and then:
+
+    REFUSED: this is a RE-PIN, not a graft to record.
+
+so the advance limb still holds and there is still no patch to write here.
+
+- new module constant `_FDA_EXTRACT_KINDS`, a two-entry dict beside
+  `_SOURCE_KINDS`. It is the CONDITIONAL row register: a name in it joins the
+  table only when its hydrate sentinel exists on disk, because those sources
+  are the ones the customer picks and an unconditional row would show amber
+  "not run yet" for a source somebody declined.
+- `read_source_status()`: builds a local `kinds` dict from `_SOURCE_KINDS` plus
+  any `_FDA_EXTRACT_KINDS` entry whose sentinel is present, and iterates that
+  instead of `_SOURCE_KINDS` directly. Two added lines of loop, one changed
+  iteration target.
+- `render_source_status()`: `_LABEL` and `_COLOUR` each gain `cannot_run` and
+  `timeout`. Both are declared install.sh statuses that had no entry, so the
+  cell fell through to the raw identifier and a customer with Full Disk Access
+  ungranted read the word "cannot_run" in their own panel.
+- `render_source_status()`: the Items cell prints nothing for `cannot_run`,
+  `not_run` and `unreadable`. The cannot-run recorder writes `item_count=0`
+  because the change-detection helper it shares needs a number; printing that
+  0 beside "could not look" is a fabricated count.
+
+Shape: +1 constant, +1 loop in one reader, +4 label/colour entries and +1
+guard in one renderer.
+
+## What a future sync must preserve
+
+If `sync_vendor.sh` refuses on any of these three trees, the refusal is
+EXPECTED and correct, and `SYNC_ACCEPT_DIVERGENCE_LOSS=1` would silently
+restore all five defects this PR closed. The remedy is to re-run the
+regeneration once the blockers above are cleared -- fetch the CM041 pin, and
+establish why the `ostler_fda` patch does not round-trip -- not to accept the
+loss.
+
+`vendor/cm019_preferences` is the fourth tree edited and is NOT listed here: it
+carries `verify = "skip"` and an empty `divergence_patch` by design, and its
+record lives in `CM019_DIVERGENCE_REGISTRY.md`, which this PR also updates.
+
+---
+
+## ADDED 2026-09-18, CM051 #2129. `cm041/identity_resolver`, and the tool was RE-RUN.
+## ADDED 2026-09-18, CM051 #2131. `cm041/assistant_api`, and the tool was RE-RUN.
+
+Per the rule at the top of this file, the refusal below was measured TODAY
+rather than inherited from the 2026-09-16 entry. Inheriting a refusal is
+inheriting an ack: a debt with nobody's name on it.
+
+SCOPE NARROWED AFTER REVIEW. This entry first covered BOTH this tree and
+`cm041/assistant_api`. Archie caught the hazard: #2131 makes the assistant_api
+graft and touched no register file, so if it merged first, or if this PR were
+held or closed, that graft would have shipped unrecorded. Worse, it is the one
+graft a pin can never describe even in principle, because it has no upstream
+commit. Its record now lives in #2131 itself. Each PR carries its own half and
+the merge order stops mattering.
+THIS ENTRY LIVES IN THE PR THAT MAKES THE GRAFT, DELIBERATELY. It was first
+written into CM051 #2129 alongside the identity_resolver half, and Archie
+caught the hazard in that: #2131 touches no register file at all, so if it
+merged first, or if #2129 were held or closed, this graft would ship with
+nothing recording it. An ordering requirement that lives only in a merge loop
+is not recorded anywhere. Each PR now carries its own record and the order
+stops mattering.
+
+The local CM041 checkout was UNSHALLOWED first, because a `--depth 1` clone
+cannot materialise a historic pin and the tool would have reported CANNOT-RUN
+for a reason that was mine and not the repo's. The pin resolves in it now and a
+fabricated SHA does not, so the check discriminates.
+
+`scripts/regenerate_divergence_patch.sh cm041/identity_resolver`, CM041
+exported to that checkout:
+
+| tree | outcome | what the tool said |
+|---|---|---|
+| `cm041/identity_resolver` | **REFUSED**, exit 1 | "this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo. Move the pin first, re-apply the graft on the new base, then run this tool if a divergence remains." It listed 16 unshipped commits touching this tree. |
+
+### Why the pin was NOT moved, which is what the tool's advice assumes
+
+Measured: 16 commits sit between this tree's pin and CM041 main, and FOURTEEN of
+them are on this tree's own `hold_ack_shas` list, which has exactly 14 entries.
+Moving the pin to main would have silently un-held every commit classified
+individually on 2026-09-06 and pulled them into the cut.
+
+A pin naming an older commit than the content is a recorded debt. A pin moved to
+main would be an unrecorded scope change that also undoes a deliberate hold.
+
+There is a second reason, independent of the hold: `pinned_sha` and
+`divergence_patch` are a RECONSTRUCTION PAIR, not a label. Editing the SHA alone
+leaves the patch as diff(old pin, old tree), so the pair reconstructs nothing and
+the manifest asserts a round-trip that no longer holds.
+
+### What was grafted, location and shape only, never content
+
+`vendor/cm041/identity_resolver/`, carrying CM041 #162 (`cc0150f2`) and #163
+(`aee68c24`), applied as those PRs' source hunks rather than by syncing the
+tree, for the reason above:
+
+- `batch_resolver.py`: +1 function, `sweep_qdrant_orphans_of_merged_people`, and
+  its report type. One new `httpx.Client(trust_env=False)` against the
+  customer's local Oxigraph.
+- `resolver.py`: +1 step in `merge_persons` retiring the discard's type; and
+  `find_by_identifier` now follows `mergedInto` to the survivor via a new
+  `follow_merge_chain`.
+- `repair_merge_consistency.py`: new file, 8238 bytes, byte-identical to CM041
+  main.
+`scripts/regenerate_divergence_patch.sh cm041/assistant_api`, CM041 exported to
+that checkout:
+
+| tree | outcome | what the tool said |
+|---|---|---|
+| `cm041/assistant_api` | **REFUSED**, exit 1 | "this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo. Move the pin first, re-apply the graft on the new base, then run this tool if a divergence remains." It listed one unshipped commit: `82f4537 feat(cost): complete the CM041 usage-journal producers`. |
+
+### Why the pin was NOT moved, which is what the tool's advice assumes
+
+Measured: this tree has exactly ONE commit between its pin and CM041 main, and
+it IS the single entry on its own `hold_ack_shas` list. Moving the pin would
+have silently un-held the one commit somebody held deliberately on 2026-09-06.
+
+A pin naming an older commit than the content is a recorded debt. A pin moved
+to main would be an unrecorded scope change that also undoes a hold.
+
+There is a second reason, independent of the hold: `pinned_sha` and
+`divergence_patch` are a RECONSTRUCTION PAIR, not a label. Editing the SHA
+alone leaves the patch as diff(old pin, old tree), so the pair reconstructs
+nothing and the manifest asserts a round-trip that no longer holds.
+
+### The case a pin cannot describe even in principle
+
+This graft has NO upstream commit. `_forget_audit_has` was written in CM051,
+not in CM041, so no CM041 SHA describes the vendored `ical-server.py` and none
+ever will. A vendored tree can contain code that exists nowhere upstream, which
+means `pinned_sha` is not and can never be a description of what is vendored.
+Only pin plus patch is, and where the code is locally authored, only a record
+is. This file is that record.
+
+### What was grafted, location and shape only, never content
+
+`vendor/cm041/assistant_api/ical-server.py`:
+
+- `+1` function, `_forget_audit_has`, THREE-state: True when an audit line for
+  the slug exists, False when the log is readable and holds none, None when the
+  log could not be read at all.
+- The not-found arm of `api_people_forget` now distinguishes "never found" from
+  "already erased" and reports `not_found` rather than `already_forgotten`.
+  HTTP status deliberately unchanged at 200, because the iOS Companion's
+  ForgetPersonService was written against that and cannot be re-tested from
+  here; the BODY is what lied, so the body is what changed.
+
+Shape: +1 function, +1 rewritten branch in one handler.
+
+### What a future sync must preserve
+
+A `sync_vendor.sh` refusal on this tree is EXPECTED and correct.
+`SYNC_ACCEPT_DIVERGENCE_LOSS=1` would restore a people count that is wrong in
+both stores at once, and a sync that resurrects people the graph merged away.
+The remedy is to re-pin DELIBERATELY, with the 14 held commits adjudicated one
+at a time the way they were held, then re-apply this graft on the new base.
+`SYNC_ACCEPT_DIVERGENCE_LOSS=1` would restore a forget that tells a customer it
+erased somebody it never found. The remedy is to re-pin DELIBERATELY, with the
+held commit adjudicated the way it was held, then re-apply this graft on the
+new base.
+
+---
+
+## Added 2026-09-19, CM051 #2133 -- `doctor`, the year-2318 sentinel
+
+### The refusal, RE-MEASURED rather than inherited
+
+This file's own header says an entry must re-state the refusal it was measured
+against, because inheriting an earlier PR's refusal is inheriting an ack: a debt
+with nobody's name on it. So the tool was run again, today, for this tree:
+
+    scripts/regenerate_divergence_patch.sh doctor
+      exit 1, REFUSED
+      "this is a RE-PIN, not a graft to record"
+      48 upstream commits listed
+      vendor/divergences/doctor.patch: 0 lines of diff, nothing written
+
+It is a DIFFERENT refusal from the three above. Those were a patch that would
+not reconstruct the tree, a pin that could not be materialised, and a scrubbed
+value that must not be copied back. This one is the tool correctly refusing to
+fold 48 upstream commits into the patch and record them as local edits.
+
+The pin is `b0b383109e6e1e6ec296af0b0944df9291356042`. The count was checked
+against the tracker rather than a local cache: an earlier reading of 24 came
+from an `origin/main` this account cannot refresh, and was wrong by exactly
+half. A figure computed against an unfetchable remote is a figure about a
+moment nobody chose.
+
+### What was grafted, location and shape only, never content
+
+`vendor/doctor/agent/box_status.py`:
+
+- `+1` helper that formats an Ollama keep-alive sentinel for a person, and the
+  one call site that used to put `expires_at` on the wire raw.
+- Measured on a live box: the box-status endpoint emitted a `keep_alive` in the
+  year 2318. `install.sh` starts Ollama with `OLLAMA_KEEP_ALIVE=-1`, which
+  Ollama expresses as an `expires_at` roughly three centuries out. The value is
+  correct and it is an internal sentinel; piping it to a customer surface
+  unchanged is the defect.
+
+Shape: +1 helper, +1 changed call site, in one module.
+
+### What a future sync must preserve
+
+A `sync_vendor.sh` refusal on this tree is EXPECTED and correct while the pin is
+48 commits behind. `SYNC_ACCEPT_DIVERGENCE_LOSS=1` would delete this graft and
+put the year 2318 back on a customer's own status page. The remedy is the
+re-pin, which is separately blocked: two vendored importers under this tree hold
+content that exists in NO upstream commit, confirmed by an exhaustive blob walk
+with a control, so a re-pin today reverts two working files while advancing the
+rest.
+
+## Added 2026-09-19, CM051. `doctor`, FIVE grafts recorded NOWHERE
+
+Found while working row 2219, which names ONE unrecorded delta in this tree.
+There are more, and this entry is the rest of them.
+
+### The refusal, RE-MEASURED rather than inherited
+
+Per this file's own rule, the tool was run again today rather than the earlier
+refusal being reused:
+
+    HR015=<the HR015 checkout> scripts/regenerate_divergence_patch.sh doctor
+      exit 1, REFUSED
+      "The SOURCE has advanced past the pin. Unshipped commits touching this tree:"
+      48 upstream commits listed
+      nothing written
+
+It is the same refusal the #2133 entry above measured, and that is the point
+worth stating: the mechanism that would record a graft is unavailable EXACTLY
+while the pin is held, and a held pin is this tree's normal state. So every
+edit made to this tree between re-pins is unrecordable by the tool, by
+construction, and has to arrive here by hand or not at all.
+
+### How these five were found, and what the search could not see
+
+Eight commits have touched `vendor/doctor/` since 2026-09-16. Each was probed
+by taking up to five of its own added lines, longer than 45 characters and
+neither blank nor a comment, and searching `vendor/divergences/doctor.patch`
+for them.
+
+  * ALL EIGHT scored 0 of 5. None is in the patch.
+  * CONTROLS, both directions: a line lifted from the patch itself scores 1,
+    and a fabricated line scores 0. The probe discriminates.
+
+Of the eight, two are already recorded in this file by PR number (#2133, #2027)
+and one by description (the Notion and Obsidian importers, in the section
+above). The remaining FIVE are recorded in neither the patch nor this file.
+
+  * THE SEARCH WAS WIDENED BEFORE THE CLAIM WAS MADE, because a PR-number probe
+    would miss anything recorded by prose. Each of the five was searched for
+    again by description: keepalive, fork budget, forked, pairing QR, beta,
+    licence acknowledgement. All zero, against a control term from this file
+    that scores 1 and a fabricated term that scores 0. That is how the Notion
+    and Obsidian entry was found and excluded.
+
+### What was grafted, location and shape only, never content
+
+`c56ddecb` (#2061), `vendor/doctor/agent/dashboard_components.py`: +60 / -36.
+The licence acknowledgement panel, and a map that existed in two places.
+
+`b3c80daa` (#2019), `diagnostic_copy.py` +46, `diagnostic_rules.py` +177.
+The beta window as the entitlement, with the tester warned first.
+
+`4fbb5d3e` (#2042), `pair_status.py`: +57. The pairing QR could carry an
+address the phone cannot open.
+
+`1828fc9d` (#1984), four modules: `dashboard_components.py` +189,
+`web_ui.py` +16, `web_ui_copy.py` +75, `whatsapp_pair.py` +165. The keepalive
+that diagnosed the wrong object, fixed nothing and exited 0.
+
+`c7a961cd` (#1979), `box_status.py`: +107 / -5. The status daemon fork budget,
+after 58,914 forks in 40 hours got it killed by macOS.
+
+Shape: five grafts, 892 added lines, across seven modules in one tree.
+
+### What a future sync must preserve
+
+A `sync_vendor.sh` refusal on this tree is EXPECTED and correct while the pin
+is 48 commits behind. `SYNC_ACCEPT_DIVERGENCE_LOSS=1` would delete all five.
+What a customer would get back, in the order above: a Doctor that cannot check
+the licence acknowledgement, no beta entitlement window, a pairing QR their
+phone cannot open, a keepalive that reports on an object nobody runs, and a
+status daemon that forks until macOS kills it and the Doctor goes quiet.
+
+None of the five is a candidate for the patch until the pin moves, and the
+re-pin is separately blocked for the reason the #2133 entry records.
+
+## Added 2026-09-24. `ostler_fda`, the photo-event writer that was never merged
+
+### The refusal, measured
+
+`HR015="<HR015 checkout>" scripts/regenerate_divergence_patch.sh ostler_fda`
+was run and REFUSED with "this is a RE-PIN, not a graft to record": the source
+has advanced past pin c4e7396f by one commit touching this tree (28662818,
+HR015 #977). Regenerating would fold that commit into ostler_fda.patch as a
+local edit, so the graft is recorded here and a grep of the patch for it
+returns nothing, which means NOT RECORDED, not NOT DIVERGED.
+
+### What was grafted, location and shape only
+
+- `vendor/ostler_fda/pwg_ingest.py`: new `ingest_photo_events` (writes one
+  `pwg:PhotoEvent` per row of photos_events.json with `pwg:photoDate`,
+  `pwg:photoLatitude`, `pwg:photoLongitude`, `pwg:photoPlace`, and
+  `pwg:photoAttendee` only with the faces opt-in), new `ingest_photos`
+  (events plus face people), and the `"photos"` dispatch entry now names
+  `ingest_photos`. `ingest_photos_people` and `ingest_photo_events` join
+  `_DISPATCH_EXEMPT` because `ingest_photos` runs both.
+- `vendor/ostler_fda/extract_all.py`: with faces off, face labels are cleared
+  from every event before photos_events.json is written.
+
+WHY: photos_events.json had no reader. CM044's wiki queries `pwg:PhotoEvent`
+and nothing wrote one; HR015 PR #143 built the writer and was closed unmerged
+as a stale draft. Measured on a walked box: "[ok] Photos: 0 people, 1298
+events (faces=off)" then "No Photos data to ingest", 10 of 10 runs.
+
+### What a future sync must preserve
+
+Both edits. Upstream HR015 `ostler_fda` should take them back; until it does,
+a sync that accepts divergence loss restores the dark writer. Gate:
+`tests/test_photo_events_reach_the_graph.py`, wired in privacy-spine.yml.
+
+## Added 2026-09-26. `ostler_fda`, photo events carry a place name (#2415)
+
+### The refusal, measured
+
+`HR015="<HR015 checkout>" scripts/regenerate_divergence_patch.sh ostler_fda --write`
+was re-run for this PR against a fresh HR015 checkout and REFUSED with "this
+is a RE-PIN, not a graft to record": the source is still one commit past pin
+c4e7396f on this tree (2866281, HR015 #977). Same limb as the 2026-09-24
+entry, measured again rather than inherited.
+
+### What was grafted, location and shape only
+
+- `vendor/ostler_fda/photos_metadata.py`: new `_place_label` (decodes the
+  NSKeyedArchiver reverse-geocode archive to a city-level "City, Country"
+  label; street, postcode and formatted address are never read), the macOS 26
+  query in `extract_photo_events` joins `ZADDITIONALASSETATTRIBUTES` for
+  `ZREVERSELOCATIONDATA`, and `PhotoEvent.location` is set from
+  `_place_label` instead of `None`. `import plistlib` added.
+
+WHY: `pwg:photoPlace` is written only when a label exists, and CM044 matches a
+photo to a place page only by that label, so "Photos here" was always empty.
+Local macOS 26.4 library: 0 of 1291 events labelled before, 970 after.
+
+### What a future sync must preserve
+
+The edit above. Gate: `tests/test_photo_events_carry_place_names.py`, wired in
+privacy-spine.yml.
+
+FOLLOW-UP (v1.0.108): `_place_label.deref` returns None for UID 0 and for the
+literal string "$null". `$objects[0]` in an NSKeyedArchiver archive is that
+null sentinel, so an address with no city pointed `_city` at UID 0, deref gave
+"$null", the `_city or _subAdministrativeArea or _state` fallback never ran and
+the place was written as "$null, <country>" (CM044 #362 guards the reader
+side). Sweep: `_place_label` is the only NSKeyedArchiver decoder in this repo
+(git grep for `plistlib.UID` / `$objects` / `$top`: one file). Still no HR015
+twin owed: `_place_label` exists only here (HR015 main has 0 `def _place_label`
+in `ostler_fda/photos_metadata.py`). Same gate, which now builds archives with
+fields at UID 0.
+
+## Added 2026-09-28, CM051 v1.0.106 (FIX106-B) -- `doctor`, routines and remote access
+
+Tool re-run on 2026-09-28: `scripts/regenerate_divergence_patch.sh doctor`
+refused again (the tree's regeneration ban is checked before the source
+checkout). So these edits are recorded here by location and shape.
+
+- `vendor/doctor/agent/routine_status.py` -- NEW FILE. `read_routine_status()`:
+  one row per recurring ingest routine (label, interval from its LaunchAgent
+  plist, launchd loaded/running/last exit, last run from its log mtime, the
+  counts its last run printed, health with a reason). No FastAPI imports.
+- `vendor/doctor/agent/remote_access.py` -- NEW FILE. `status()` and
+  `set_enabled()` for the INSTALLER's tailscaled through
+  `$OSTLER_DIR/tailscale/tailscaled.sock`, with install.sh's own
+  `up --hostname=ostler-hub`.
+- `vendor/doctor/agent/web_ui.py` -- three routes added next to
+  `/api/v1/box-status`: `GET /api/v1/routines`, `GET /api/v1/remote-access`,
+  `POST /api/v1/remote-access` (the /api/v1/pause cross-site guard).
+
+A future sync must keep both files and the three routes. Guarded by
+tests/test_doctor_routines_are_measured_live.py and
+tests/test_remote_access_reads_the_installers_tailscale.py (vendor-integrity.yml).
+
+## Added 2026-10-01, CM051 v1.0.107 (people-correctness agent) -- `ostler_fda`, a WhatsApp LID stopped being written as a phone number (#2543)
+
+Not re-run against this PR specifically (the tool's prior refusal on this
+tree, logged above under "The refusal, measured", was a round-trip
+self-check failure and a RE-PIN limb -- neither is affected by a graft that
+does not move the pin -- and re-running it carries real risk of a long hang
+against a contended HR015 checkout, which is why it was not attempted again
+here). Recorded by location and shape only, following the established
+pattern for this tree rather than a fresh tool run.
+
+### What was grafted, location and shape only
+
+- `vendor/ostler_fda/pwg_ingest.py`: new `_whatsapp_jid_is_genuine_phone(local)`,
+  validating with `phonenumbers.is_valid_number` rather than `str.isdigit()`.
+  `_whatsapp_display_name` and `_whatsapp_phone_e164` both call it before
+  treating a WhatsApp JID's local part as a phone number; `_whatsapp_phone_e164`
+  now returns `None` (was: always a string) when the local part is all-digits
+  but not a genuine phone. Both call sites inside `ingest_whatsapp` (the
+  "create" branch and the separate "person already exists" enrich branch) now
+  write `pwg:identifierType "whatsapp_lid"` instead of `"phone"` when that
+  happens, and the enrich branch additionally now writes the NORMALISED E.164
+  value instead of the raw JID local-part it wrote before (a second,
+  independent format-mismatch bug in the same branch, unrelated to the LID
+  fix but found and fixed alongside it). `import phonenumbers` added;
+  `phonenumbers>=8.13.0` added to `pyproject.toml`'s `dependencies`.
+
+WHY: WhatsApp's LID privacy system can present a 14-15 digit linked-device id
+through the ORDINARY `@s.whatsapp.net` phone-JID suffix, not only the
+`@lid`-suffixed form the existing BW-4 guard already catches. Every digit
+check in this module asked only "is the local part all-digits", true for
+both a genuine phone-rooted JID and an LID presented this way, so the LID
+sailed through as a `"phone"` identifier AND, via the display-name helper,
+as the literal digits in `pwg:displayName` -- CM051 #2543, "15-digit phone
+numbers shown twice" on the v1.0.106 walk. Traced from the consumer
+(read-only, counts-only query against the live Oxigraph store on the walk
+box): 19 people carried a LID-shaped `"phone"` identifier; 12 of those also
+carried the same LID digits directly as `pwg:displayName`, and all 12 had a
+full 36-char dashed-UUID person URI -- this tree's own `uuid5`-based minting
+convention (`_person_id_from_identifier`), not CM041's. Confirmed the same
+defect in BOTH the HR015 source (fixed separately, HR015 PR #1017, kept
+converging per Archie's instruction) and this vendored copy, byte-for-byte
+identical logic, before grafting here.
+
+### What a future sync must preserve
+
+Both call sites' `id_type`/`id_value` branching inside `ingest_whatsapp`, and
+the new `_whatsapp_jid_is_genuine_phone` helper. Gate:
+`vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py`, including a test
+proving the discriminator is proven rather than assumed -- a synthetic
+15-digit string whose LEADING digits form a real, allocated country code
+(the UK's, "44") is still rejected, because validity depends on the FULL
+number matching an allocated length/pattern, not merely sharing a calling
+code prefix. One pre-existing test in
+`vendor/ostler_fda/tests/test_provisional_display_name.py` used the UK
+mobile OFCOM drama range (+44 7700 900xxx), which is reserved but NOT
+phonenumbers-valid (checked, not assumed) -- swapped for the OFCOM
+LANDLINE drama range (020 7946 0xxx), which is both reserved and valid, so
+the test still exercises the real code path instead of silently hitting the
+new "not a genuine phone" branch.
+
+### A related, NOT fixed, out-of-scope finding from the same sweep
+
+`vendor/cm048_pipeline/src/ingest.py`'s `_normalise_chat_identifier` carries
+a DELIBERATE, documented duplicate of this same digit-check pattern
+(`("+" + local) if local.isdigit() else raw`, no validity check) for its
+human-facing `pwg:chatIdentifier` literal -- the file's own comment states
+it is "duplicated (not imported) because CM048 ships independently of
+ostler_fda". Same vulnerability class, different tree, different pin, and
+outside what CM051 #2543 named. Not touched here; flagged for whoever owns
+`cm048_pipeline`'s next pass.
+## Added 2026-10-01, CM051 v1.0.107 (people-correctness agent) -- `cm041/identity_resolver`, a one-time repair for already-written WhatsApp-LID-as-phone rows (#2543)
+
+**UPDATED 2026-10-01 (same day, Archie): CM041 PR #181 MERGED as
+`b9deb6efab984730326106c4c1bc929c0f79599b`.** The graft below was first cut
+from #181's commit `9086498`, a point on that PR's branch that PREDATES the
+Qdrant-payload patch and the backup/restore machinery Archie's review then
+required (#181 HELD, then re-reviewed, then merged). That graft has been
+REPLACED with the content at the merge commit, not re-dated in place --
+`9086498` is stale and must not be read as current. `cmp`/sha256 against
+`source@b9deb6ef` is the proof, not the PR-merged state alone.
+
+Not run against the regeneration tool. `identity_resolver` carries no
+`regenerate_forbidden` flag (unlike `contact_syncer`), but the pin
+(`pinned_sha = 9e260949ca9776c72038dc4734352e9508c0c494`, see
+VENDOR_MANIFEST.toml) sits far behind `b9deb6ef` on a tree already carrying
+many individually-adjudicated grafts and an existing unrecorded-divergence
+debt (`resolver.py`/`batch_resolver.py` do not reconstruct from the pin plus
+patch; see that row's own history). Re-pinning the whole tree is a separate,
+larger decision than landing this one fix, so this stays a targeted graft of
+two files, by location and shape, per this file's established pattern,
+rather than attempted against the regeneration tool and refused for the log.
+
+### What was grafted, location and shape only
+
+- `vendor/cm041/identity_resolver/normalise.py`: `is_valid_phone(raw,
+  default_country_code)`. Unchanged between `9086498` and `b9deb6ef`
+  (diffed to confirm), and the vendored copy is byte-identical to
+  `source@b9deb6ef:identity_resolver/normalise.py` (sha256
+  `a0aeb1427bf62fd006e5cefdc523409ca9fed8e28bd130b9cad0acd802e9d7c4`, both
+  sides).
+- `vendor/cm041/identity_resolver/repair_lid_as_phone.py` -- NEW FILE.
+  Idempotent, dry-run-default repair for CM051 #2543's two writer
+  fingerprints: Pass A1 (CM041 whatsapp_bridge -- a bogus "phone"
+  identifier with a sibling "whatsapp_lid" identifier sharing the same
+  invalid value) and Pass A2 (ostler_fda's ingest_whatsapp, the writer that
+  actually ships, CM051 #2577 -- only one invalid "phone" identifier, no
+  sibling, scoped by `pwg:source "whatsapp_fda"`). ALSO patches the matching
+  Qdrant `people` payload (the Hub People list and `people_stores_reconcile`
+  read Qdrant, not Oxigraph) and backs up every changed row to a jsonl under
+  `~/.ostler/backups/` before writing, restorable via
+  `--restore-from-backup`. Reproduced verbatim from
+  `source@b9deb6ef:identity_resolver/repair_lid_as_phone.py`, not
+  paraphrased -- byte-identical, sha256
+  `a75fb9dea3a604da2fab39b52e98c8389c57c5db56c4fd44e3e37684b4e38caf` both
+  sides (`cmp` also run, exit 0).
+
+WHY: the writer-side fix (this tree's existing `_canonical_key_conflict`/
+`_identifier_match_trustworthy` grafts plus PR #181's forward-fix) stops NEW
+bad rows. It does nothing for rows a box already wrote before either fix
+existed. Measured, read-only, on the macmini16-walk box: 33 rows match the
+ostler_fda signature, 0 match the CM041 bridge signature (that writer has
+never run there -- see CM051 #2570's tracking note on this same tree for the
+corroborating 0-whatsapp_lid-identifiers finding).
+
+### What a future sync must preserve
+
+Both files. Gate: `tests/test_repair_lid_as_phone_vendored.py` at the CM051
+repo root (not under `vendor/cm041/identity_resolver/tests/`, which this
+tree does not vendor at all -- following the same top-level placement
+`tests/test_migration_marker_guard_fresh_install.py` already uses for a
+vendored-module test). Also: `install.sh`'s one-time upgrade step (marker
+`state/repair_lid_as_phone_v1.done`, same pattern as
+`state/email_reclassify_v3.done`) invokes
+`identity_resolver.repair_lid_as_phone` by module name -- a future re-vendor
+that renames or drops the file breaks that invocation silently (ImportError
+inside a subshell, swallowed into the step's own failure-retry path) unless
+`tests/test_repair_lid_as_phone_marker_skip.sh`'s extraction-and-run check
+is kept passing.
+
+## Added 2026-10-01, CM051 #2526/#2529 -- `doctor`, a dedicated routine is believed over a stale sentinel
+
+Tool re-run on 2026-10-01: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree (checked
+before the source checkout; declared reason unchanged since #2219). So this
+edit is recorded here by location and shape, not by patch.
+
+- `vendor/doctor/agent/web_ui.py`, inside `read_source_status()`'s ongoing-
+  status merge loop: two new module-level helpers,
+  `_SOURCE_ROUTINE_LABELS` (which dedicated LaunchAgent routine, if any,
+  speaks for a given canonical source -- email, imessage, whatsapp) and
+  `_ROUTINE_COUNT_KEYS` (an explicit per-routine allowlist of which key in
+  that routine's `latest` log counts is a trustworthy count; today only
+  `"emitted"`, the one key `routine_status.py`'s own regex fallback pins by
+  code). New functions `_routine_evidence()` and `_routine_run_count()`.
+  When a source's fda-rerun-tick activity record is silent (`ongoing=never`)
+  but its OWN dedicated routine reports a healthy, completed run, the row's
+  `ongoing`/`last_run_at`/`last_success_at` are now taken from that routine
+  instead of staying `never` forever. A stale `no_data`/`not_run`/
+  `unreadable` install-time `status` is upgraded to `ok` only when that
+  routine also supplies an explicitly-keyed, real count -- written to a NEW
+  field, `last_run_count`, never to `item_count` (the install-time total,
+  which this change never touches).
+- `vendor/doctor/agent/routine_status.py`: unchanged. This reuses its
+  existing `read_routine_status()` reader rather than re-implementing it.
+
+A future sync must keep `_SOURCE_ROUTINE_LABELS`, `_ROUTINE_COUNT_KEYS`,
+`_routine_evidence`, `_routine_run_count`, the `last_run_count` field on every
+`/api/v1/sources` row, and the merge-loop call site that consults them.
+Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh
+(cold-box-source-truth.yml) and the pre-existing
+tests/test_source_status_reports_ongoing_not_just_install.sh /
+tests/test_the_source_table_covers_the_fda_extract_family.sh, both updated
+only to extract the two new helper functions.
+## Added 2026-10-01, CM051 #2574 -- `doctor`, Hub config read admitted + Ostler's VM/model runner
+
+Tool re-run on 2026-10-01: `scripts/regenerate_divergence_patch.sh doctor`
+REFUSED again, this time on the tree's own `regenerate_forbidden` ban (checked
+BEFORE the source checkout, so it fires independently of whether an HR015
+checkout is reachable): "the Doctor source-status panel ... EXISTS ONLY IN
+THIS REPOSITORY ... never by clearing the flag" (board #2219, full reasoning
+in `DOCTOR_SOURCE_STATUS_PANEL_2219.md`). Same tree as the two entries above,
+different refusal reason than either of them, measured rather than inherited.
+
+- `vendor/doctor/agent/web_ui.py` -- new `_hub_read_refusal()`, called by
+  `api_config_get` in place of `_cross_site_refusal`. `_cross_site_refusal`
+  admitted only `Sec-Fetch-Site: same-origin` or absent, so GET
+  `/api/v1/config` 403'd both the Hub's own Tauri webview (stamped
+  cross-site from `tauri://localhost`) and a browser-served Hub on :8000
+  (stamped same-site) -- the Settings and Governor pages could never read
+  back a customer's own saved config. `_hub_read_refusal` admits the read
+  when `Origin` is the Hub's webview or a loopback page
+  (`editor_feedback.origin_is_local`, the same predicate the editor feedback
+  route already trusts), else falls through to the unchanged guard. Writes
+  are untouched: they still go through `_cross_site_refusal` and the
+  `doctor_post` native bridge.
+- `vendor/doctor/agent/box_status.py` -- `_OSTLER_NAMES` gained
+  `com.apple.Virtualization.VirtualMachine`, `colima`, `limactl`,
+  `llama-server` (the shipped stack's container VM and model runner, which
+  were billed to "Other apps" while "Ostler itself" read ~0%), with matching
+  `_LABELS` entries ("Ostler databases" / "Ostler model").
+
+WHY: both measured directly against the shipped tree, not HR015 source --
+`tests/test_the_hub_reads_the_doctor_like_the_app.py` read 5 of 8 FAIL before
+this PR against the app's real request shape (Origin/Sec-Fetch-Site as the
+Tauri webview sends them), 8 of 8 after.
+
+### What a future sync must preserve
+
+Both edits in both files. Gate:
+`tests/test_the_hub_reads_the_doctor_like_the_app.py`, wired into
+`vendor-integrity.yml`. Ledger:
+[HR015-Gaming-PC@406397d](https://github.com/andygmassey/HR015-Gaming-PC/commit/406397dccc6bdaf6cf3d0a9c6a6b1f1587346ff6).
+
+## Added 2026-10-01, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver` re-pinned 9e260949 -> fce36b9e, ONE line stays unrecorded
+
+The re-pin moves this tree onto CM041 main, which now carries #181 itself
+(b9deb6ef is an ancestor of fce36b9e). So the #181 graft recorded in the entry
+above is no longer a divergence: `normalise.py` and `repair_lid_as_phone.py`
+take upstream, and the regenerated `cm041_identity_resolver.patch` describes
+every other difference.
+
+EXCEPT ONE LINE. `repair_lid_as_phone.py` keeps
+`CONTROL_LID_PHONE_VALUE = "9" * 15` where upstream writes the same value as a
+single 15-digit literal. The patch cannot carry that hunk: its `-` side is
+upstream's literal, and `.github/scripts/ci-pii-shape-scan.sh` (run by the
+pre-commit hook and CI as `scan`) refuses ANY 15-plus digit run, in any path,
+by shape. So the hunk was removed from the patch by hand and the line is
+declared here instead.
+
+### What a future sync must preserve
+
+The composed literal, functionally identical value. Consequence:
+`verify_vendor_fresh.sh` reports this tree as differing from
+source@pinned_sha+patch by exactly this one line (main already reported it
+as DIFFERING, by the whole #181 graft). Retire this entry if CM041 composes the
+literal upstream.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, a kinship word never becomes a permanent displayName (CM041 #185, CM051 #2556)
+
+`vendor/cm041/identity_resolver/resolver.py`'s `create_person`:
+`choose_canonical_display_name` has no opinion on a single-candidate list of
+exactly "Mum" (not junk, not a unix login, not an email -- it passes
+straight through), so the fallback `or identity.display_name` was the one
+unguarded path in this module. Added one `if is_relationship_label(display_
+name): display_name = ""` check right after that fallback, plus the import
+`from contact_syncer.relationship_labels import is_relationship_label` (the
+SAME predicate, not a new one -- see `cm041_contact_syncer.UNRECORDED.md`
+for the six `contact_syncer` write sites this same change touches). Matches
+the WHOLE label only: "Mum Zhang" is a plausible real name and is never
+touched.
+
+Not run against the regeneration tool for this change: checked for a
+circular import first (`contact_syncer/__init__.py` is empty and
+`identity_resolver/__init__.py` lazily re-exports `.resolver`, so this
+cross-package import is safe in both directions) and confirmed both
+packages still import cleanly in the vendored tree before writing this
+down.
+
+### What a future sync must preserve
+
+The import and the one-line guard in `create_person`. Guarded by
+`tests/test_kinship_label_write_guard_vendored.py` (CM051 repo root).
+Retire by landing CM041 #185 and re-pinning.
+
+## Added 2026-10-02, CM051 board #2562-C -- `doctor`, a direct activity record must not block a routine's real count
+
+Tool re-run on 2026-10-02: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree. Recorded
+here by location and shape.
+
+- `vendor/doctor/agent/web_ui.py`, `read_source_status()`'s ongoing-status
+  merge loop: the `if row["ongoing"] == "active": continue` short-circuit
+  (added for #2526/#2529, see the entry above) skipped the dedicated-routine
+  count lookup whenever fda-rerun's own activity record already set
+  `ongoing=active` -- which measured true for email and imessage on a walk
+  box, because that activity record answers the SAME narrow question the
+  install-time sentinel already answers (new correspondents found in a
+  window), not "does this source have real content". Both rows stayed
+  `status=no_data` with no count, while the dedicated email-ingest routine's
+  own log had just emitted real messages and iMessage's own settling ledger
+  showed tens of thousands of messages done. Fix: the dedicated-routine
+  lookup and count upgrade now run regardless of which path proved
+  `ongoing`; only the `ongoing`/`last_run_at`/`last_success_at` fields stay
+  reserved for a direct activity record when one exists (`direct_activity`
+  flag), because a routine's own run time is not evidence about WHEN
+  fda-rerun's unrelated tick last succeeded.
+
+A future sync must keep the `direct_activity` flag and the count lookup
+positioned after it rather than inside the old `continue` branch. Guarded by
+`tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh`
+(cold-box-source-truth.yml), limb 5 (updated) and the new limb named "board
+#2562-C" pinning this exact shape.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, two walk-found phone defects (CM051 walk-defects D and E)
+
+A cold v1.0.107 install walk found two live phone defects the #2545 fix
+(CM041 #182) did not close:
+
+**D -- `vendor/cm041/identity_resolver/normalise.py`**: added a new function,
+`is_possible_phone`. `normalise_phone` is a pass-through formatter (returns
+the ORIGINAL STRING UNCHANGED when it cannot parse/validate), and the
+existing `is_valid_phone` (`phonenumbers.is_valid_number`) is TOO STRICT a
+gate for a general contacts-field write -- it rejects numbers in ranges
+`phonenumbers` has not catalogued as currently assigned, including this
+repo's own OFCOM drama-reserved mobile fixture (`+44 7700 900200`, used as
+the canonical "obviously a phone" value across dozens of this suite's own
+tests), measured `is_valid_phone` **False**. `is_possible_phone`
+(`phonenumbers.is_possible_number`) checks digit-count plausibility only:
+still refuses a 14/15-digit WhatsApp-LID/internal-id shape (wrong length for
+any real number, with or without a default country code configured) while
+accepting real numbers in unvalidated ranges. Reused, not reinvented --
+mirrors `is_valid_phone`'s own parse strategy exactly, swapping only the
+final validity check. Matches CM041 PR #186 (upstream, not yet merged at
+time of writing).
+
+**E -- `vendor/cm041/identity_resolver/batch_resolver.py`, `execute()`**: a
+RULE-2-refused auto-merge (two Person nodes share a phone/email value but
+carry DIFFERENT canonical keys -- icloud_contact_uid / whatsapp_lid /
+linkedin_url) used to `continue` with nothing but a log line. Measured live
+on a walk box: `detect()` re-classifies the SAME pair as a high-confidence
+auto-merge candidate every `converge()` round (same names-agree verdict,
+same confidence), `execute()` refuses it every round (correctly -- RULE 2 is
+not relaxed by this change), and the pair never once reaches
+`report.needs_review` -- rounds 2 onward plateaued at an IDENTICAL refused
+count every round on the measured box, 0 of it ever surfaced. That silent,
+permanent drop is what "CM051 #2545 is not fixed on the box" measures as for
+these pairs: not a merge failure, a REPORTING failure that hides a real,
+human-actionable duplicate from whatever reads `needs_review` (the Doctor
+"tidy your contacts" queue, support bundles). Fix: on a RULE-2 veto, append a
+`DuplicateMatch` to `report.needs_review` naming the conflicting canonical-
+key type, instead of only logging it. No merge decision, rule or threshold
+changes -- RULE 2 still vetoes the same merges it always did.
+
+THIS TREE HAS NO `converge()` METHOD OR RULE-2-ON-EXECUTE() VETO IN CM041
+SOURCE AT ALL (checked: `identity_resolver/batch_resolver.py` at CM041
+`origin/main` as of this entry has neither). That gap already existed before
+this entry (see the `cm041/identity_resolver` manifest row's own note on
+`converge()` being vendor-only, added 2026-07-15) and is NOT newly
+introduced by this change -- this entry only adds the needs_review routing
+ON TOP of the existing vendor-only veto. Upstreaming the whole mechanism into
+CM041 source is a separate, larger piece of work, flagged but out of scope
+here.
+
+### What a future sync must preserve
+
+`is_possible_phone` in `normalise.py` (additive; does not touch
+`is_valid_phone`'s existing behaviour or callers). In `batch_resolver.py`'s
+`execute()`, the `report.needs_review.append(DuplicateMatch(...))` call
+inside the RULE-2-veto branch, immediately before its `continue`. Guarded by
+`tests/test_converge_path_enforces_rule2.sh` (CM051 repo root, extended) and
+`identity_resolver/tests/test_is_possible_phone_accepts_unvalidated_ranges.py`
+(CM041 source). Retire by landing CM041 PR #186 (D's half; E's half has no
+upstream counterpart yet) and re-pinning.
+
+## Added 2026-10-03, CM051 board #2562-C round 2 -- `doctor`, a count only has to come from SOMEWHERE real, not from the freshest place
+
+Tool re-run on 2026-10-03: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree. Recorded
+here by location and shape.
+
+- `vendor/doctor/agent/web_ui.py`: two fixes to the count lookup added for
+  board #2562-C (see the entry above).
+  1. `_best_routine_count()` (new): the count is now taken from ANY healthy
+     routine mapped to a source, checked in declaration order, not only the
+     freshest one `_routine_evidence()` picks for the ongoing question.
+     MEASURED on a walk box: email maps to email-bundle (900s, no count ever)
+     and email-ingest (3600s, the one with a real "Emitted N message" log
+     line); email-bundle is fresher almost every time either is checked
+     purely because it runs four times as often, so picking "freshest" for
+     the count starved email of a real figure it already had.
+  2. `_settling_progress_total()` + `_SETTLING_PROGRESS_FILES` (new): a
+     source with NO routine that ever logs a count (iMessage has no sibling
+     "ingest" routine the way email does) now reads a STORE total from
+     `state/settling_progress.d/<file>.json` when one is declared for it.
+     MEASURED on a walk box: `messages.imessage.json` held
+     `{"done": 20850, "total": 29021}` while `/api/v1/sources` still said
+     item_count 0. Declared per source on purpose: the same day, `emails.json`
+     held `{"done": 0, "total": 0}` while email-ingest had just emitted
+     thousands of real messages, so that file answers a different question
+     for email and must never be read for it. Only `imessage` and `whatsapp`
+     are declared; `whatsapp` by the same reasoning as imessage, not
+     separately measured this round.
+
+A future sync must keep `_best_routine_count`, `_settling_progress_total` and
+`_SETTLING_PROGRESS_FILES`, and the merge-loop call sites that now run
+regardless of whether a direct activity record already set `ongoing`.
+Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh
+(cold-box-source-truth.yml), new limbs 8-11. Sibling tests
+(test_source_status_reports_ongoing_not_just_install.sh,
+test_the_source_table_covers_the_fda_extract_family.sh,
+test_source_status_contract.sh) updated only to extract/import the two new
+functions and `json`; all still pass.
+
+## Added 2026-10-03, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, the 14-digit possible-but-invalid gap in is_possible_phone (walk #2, item D)
+
+v1.0.107 walk #2 (cold Mini16) found 7 of 2,345 People rows still carried an
+exactly-14-digit `+`-prefixed phone identifier, produced by the SAME
+`contact_syncer` writer the first `is_possible_phone` graft already gated
+(confirmed from the consumer: `person_<hex>` and the identifier's embedded
+hex matched on all 7, a single-writer mint). `is_possible_phone` returned
+True for every one of the 7 stored values; `is_valid_phone` returned False.
+
+Root cause: `phonenumbers.is_possible_number()` checks digit-count
+plausibility per country, and a `+`-prefixed 14-digit value can be
+"possible" under SOME country's numbering plan even though it is not a real
+phone number. The first graft only proved the gate closes BARE digits with
+no leading `+` (which fail to parse at all with no default country code),
+not this shape.
+
+Fix, in `vendor/cm041/identity_resolver/normalise.py`'s `is_possible_phone`:
+in the 14+ digit zone (E.164's own ceiling is 15), also require
+`is_valid_number`, the stricter check deliberately avoided for shorter
+numbers specifically to keep accepting real customers in unvalidated
+ranges. Below 14 digits, `is_possible_number` alone is still trusted (the
+OFCOM mobile fixture used throughout this suite is 12 digits and is
+unaffected). Matches CM041 PR #187 (upstream, not yet merged at time of
+writing).
+
+### What a future sync must preserve
+
+The digit-count check added to `is_possible_phone`, immediately after its
+existing `is_possible_number` check. Guarded by
+`tests/test_vendored_is_possible_phone_14_digit_gap.py` (CM051 repo root,
+mirroring CM041 PR #187's own test suite). Retire by landing CM041 PR #187
+and re-pinning.
+
+## Added 2026-10-03, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, a duplicate pair's evidence names every shared identifier, not just the winner (walk #3, item E)
+
+v1.0.107 walk #3 (cold Mini16) found E still failing: 12 of 47 duplicated
+phone numbers were on NO review card, while 35 were correctly surfaced via
+`/api/v1/contacts/diff`. Traced from the consumer on the box: the pair is
+NOT invisible to the resolver -- `detect_phone_matches` DOES produce a
+match for it, and the pair IS merged or listed for review. The gap is in
+`consolidate_matches`: it keeps only the HIGHEST-confidence match per pair,
+so a pair that ALSO shares an email is filed under `email_match`
+(confidence 1.0, beats `phone_match`'s 0.95 ceiling), and that winning
+item's evidence never mentioned the phone at all. Measured directly: 34 of
+104 phone-matched pairs were won by a different strategy this way.
+
+Fix, in `vendor/cm041/identity_resolver/tidy.py`'s `_duplicate_items`:
+before consolidating, index every raw match by its person-pair. When
+building each surviving item, if any OTHER strategy also matched the same
+pair, append its details to the winning item's evidence and record the
+strategy names under `evidence["other_strategies"]`. No change to which
+strategy wins, no change to auto/review thresholds or RULE 2. Matches
+CM041 PR #188 (upstream, not yet merged at time of writing).
+
+Companion fix, `scripts/box_walk_probes/lib/customer_read.py`: the walk
+probe's own phone-review check filtered `/api/v1/contacts/diff` items by
+`evidence["strategy"].startswith("phone")`, which is exactly the filter
+that made these 34 pairs invisible to the probe even once this fix lands.
+Removed the filter entirely -- the probe now scans every item's evidence
+text for a phone-shaped substring regardless of which strategy nominally
+won, which is both correct and more robust to a future strategy rename.
+
+### What a future sync must preserve
+
+The `other_matches_by_pair` indexing and the `evidence["other_strategies"]`
+enrichment in `_duplicate_items`. Guarded by
+`tests/test_vendored_tidy_cross_strategy_phone_visibility.py` (CM051 repo
+root, mirroring CM041 PR #188's own test suite). Retire by landing CM041
+PR #188 and re-pinning.
+
+## Added 2026-10-03, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, same-strategy siblings folded into evidence too (walk #4, item E)
+
+v1.0.107 walk #4 (cold Mini16) found E improved from 12/47 to 1/43
+unreviewed after walk #3's fix landed, but one shape still escaped. Traced
+from the consumer: two people shared TWO DIFFERENT phone numbers, so
+`detect_phone_matches` produced two `phone_match` `DuplicateMatch` objects
+for the same pair-key. `consolidate_matches` keeps only the
+highest-confidence match per pair, and with both at the same confidence (a
+tie), it kept whichever was built first -- the walk #3 fix only folded in
+matches whose STRATEGY differed from the winner's, so a same-strategy
+sibling (same strategy name, different value) was still silently dropped
+from every item's evidence.
+
+Fix, in `vendor/cm041/identity_resolver/tidy.py`'s `_duplicate_items`:
+filter the per-pair sibling matches by object identity instead of strategy
+name, so a same-strategy/different-value match is folded into `details`
+exactly like a cross-strategy one already was.
+`evidence["other_strategies"]` keeps its original, narrower meaning
+(distinct OTHER strategy names) unchanged. Matches CM041 PR #189 (upstream,
+not yet merged at time of writing).
+
+### What a future sync must preserve
+
+The `is not m` object-identity filter (replacing the walk #3 fix's
+`strategy != m.strategy` filter) when building `other_matches` in
+`_duplicate_items`. Guarded by
+`tests/test_vendored_tidy_cross_strategy_phone_visibility.py`'s
+`test_a_pair_sharing_two_different_phone_numbers_mentions_both` (CM051 repo
+root, mirroring CM041 PR #189's own test). Retire by landing CM041 PR #189
+and re-pinning.
+
+## Added 2026-10-04, CM051 v1.0.107 (Aesop) -- `doctor`, box-status chip stops blocking the Doctor's event loop (walk #5, item 1)
+
+v1.0.107 walk #5 (macmini16-walk): the Hub header status pill read "Status
+unavailable" on every route except Home (Bursar, People, Personal wiki all
+showed it). Doctor's own access log showed 200 OK for every logged
+`/api/v1/box-status` call, so the symptom is not the server erroring -- it
+is the client's 15s fetch timing out.
+
+Traced to `agent/web_ui.py`'s `api_box_status()`: `async def` route that
+called the synchronous, subprocess-shelling aggregator directly
+(`return _box_status()`). `box_status.py`'s own "FORK BUDGET" comment
+already documents `top -l 2` "BLOCKS FOR ABOUT A SECOND" on a cache miss,
+and its other probes (`ps`, `vm_stat`, the attribution breakdown) carry
+their own subprocess timeouts (3s/3s/4s/6s/5s). uvicorn runs ONE event loop
+for the whole Doctor process; a synchronous call inside an `async def`
+handler blocks that loop for every concurrent request it is holding, not
+just its own. Measured directly on macmini16-walk: a cache-miss box-status
+call took 1.43s against a ~0.03s cache hit (burst test, cold cache after the
+30s `top` TTL). People/Wiki/Bursar each add their own concurrent `/api/v1/*`
+requests to the Doctor on top of the header chip's own poll; Home does not,
+which is why the stall landed on those three routes and not Home.
+
+Fix: `return await asyncio.to_thread(_box_status)`, plus `import asyncio` at
+module level. The blocking aggregator now runs on a worker thread, so a slow
+or cache-missed probe no longer starves every other concurrent request the
+Doctor is serving.
+
+### What a future sync must preserve
+
+The `import asyncio` at module level and `await asyncio.to_thread(_box_status)`
+in `api_box_status()` (`agent/web_ui.py`). Guarded by GRAFT D in
+`tests/test_doctor_silent_failure_grafts.py`: a structural check that the
+route's source calls `asyncio.to_thread`, plus a behavioural control that
+execs the REAL shipped function with a stubbed, deliberately slow
+`box_status.box_status` and proves a concurrent coroutine on the same event
+loop is not delayed by it. Retire this entry if/when `doctor` re-pins past
+this commit with the fix intact upstream.
+
+## Added 2026-10-05, CM051 v1.0.107 (Aesop) -- `doctor`, the rendered Items column now prefers a live count over a stale sentinel (walk candidate #9)
+
+v1.0.107 walk candidate #9, Andy's console walk, read-only: the Doctor's
+"Where your data came from" table (`render_source_status()`,
+`agent/web_ui.py`) printed "email ... read in ... 0" and
+"imessage ... read in ... 0" while `/api/v1/sources` itself already knew
+better -- `last_run_count` on both rows held the real figures (11,883 and
+29,157 respectively), via the existing #2526/#2529 live-count mechanism.
+That mechanism was working; the one human-visible renderer of its output
+had simply never been taught the field exists, so the Items column kept
+reading the install-time `item_count` alone -- 0 whenever a run found no
+NEW items, which answers a narrower question than "how much is there".
+
+Fix: `render_source_status()` now overrides its `item_count` read with
+`last_run_count` whenever the latter says MORE (never less, so a stale
+sentinel can never make a demonstrably larger real total disappear, and
+never when there is nothing live to prefer). `item_count` itself, and
+`read_source_status()`'s own `last_run_count` computation, are both
+UNCHANGED -- this is a render-layer fix only.
+
+### What a future sync must preserve
+
+The `last_run_count` comparison block in `render_source_status()`
+(`agent/web_ui.py`). Guarded by the new
+`tests/test_the_source_table_items_column_shows_the_live_count.sh`: RED on
+origin/main (2 of 4 assertions fail, matching the measured walk symptom),
+GREEN with the fix. Also fixed, same diff: a pre-existing test-isolation
+gap in the sibling `tests/test_the_source_table_items_column_is_the_number_it_claims.sh`
+(missing `OSTLER_DIR` export let `_settling_progress_total` read whatever
+real settling-progress files happen to exist on the machine running the
+test, rather than its own sandbox -- measured leaking two of that test's
+eight assertions on a dev Mac with real `~/.ostler` state on disk).
+
+## doctor: extension credential widened to the save route (CM051 Lane 6)
+
+Tree `doctor`, file `agent/proxy.py`. Not a writer/reader vocabulary fix:
+recorded here because this file is the doctor tree's declared
+`unrecorded_divergence` pointer and the edit has no patch.
+
+Location and shape. `_EXTENSION_ONLY_PATH` (one path) gains a sibling
+tuple `_EXTENSION_WRITE_PATHS = (_EXTENSION_ONLY_PATH, "/api/safari/save")`,
+and `_is_extension_credential` compares the concrete upstream path against
+that tuple instead of the single constant. Method, loopback and own-token
+conditions are unchanged; no prefix match, no env var. Two comment lines
+and one log string follow. Reason: the extension's "Save to Knowledge"
+button is a second WRITE from the same extension, and a Hub-only customer
+(no paired iPhone) authenticates only with the extension token.
+
+Pinned by `tests/test_extension_credential_covers_the_save_route.py`, which
+also pins that reads, remote callers, wrong tokens and every other path
+(including look-alikes such as `/api/safari/save/` and `/api/safari/saved`)
+stay refused. There is no HR015 upstream twin yet: OWED, and a
+security-boundary change that wants a human read before it ships.
+
+## doctor: parked memory facts get a Doctor row (CM051 #2747, CM041 #209)
+
+Tree `doctor`, files `agent/diagnostic_rules.py` and `agent/diagnostic_copy.py`.
+Recorded here because this file is the doctor tree's `unrecorded_divergence`
+pointer and the edit has no patch.
+
+Location and shape. `diagnostic_rules.py`: six copy names added to the
+`from diagnostic_copy import (...)` list; after `LICENCE_WARN_BEFORE_EXPIRY_DAYS`,
+`ASSERT_SPOOL_STALE_PENDING_SECONDS`, `_ostler_assert_spool_status_path` and
+`check_parked_facts` (reads the ical-server's counts-only
+`~/.ostler/state/assert_spool_status.json`; a warning row for parked facts
+and one for pending older than an hour; silent on an absent file); the rule
+appended to `ALL_RULES`. `diagnostic_copy.py`: six strings appended.
+
+Pinned by `tests/test_memory_assert_answers_inside_the_probe_timeout.py`
+`test_a_parked_fact_shows_in_the_doctor_and_resolved_ones_do_not`, red with the
+rule removed. There is no HR015 upstream twin yet: OWED.
+Tree `ostler_fda` (Lane 18): new `forget_tombstone.py` (byte-identical to CM041) and `pwg_ingest.py` `_is_forgotten`, which makes ingest_imessage, ingest_whatsapp, ingest_calendar, ingest_photos_people and ingest_mail_contacts skip a forgotten person. HR015 twin owed; `ostler_fda.patch` not regenerated.
+## doctor: the pre-meeting brief sender joins the scheduled-agent card (CM051 #2707)
+
+Tree `doctor`, file `agent/diagnostic_rules.py`. Not a writer/reader
+vocabulary fix: recorded here because this file is the doctor tree's declared
+`unrecorded_divergence` pointer and the edit has no patch.
+
+Location and shape. One row appended to the `_SCHEDULED_AGENTS` tuple:
+`("com.ostler.meeting-brief-sender", "your pre-meeting briefs",
+"meeting-brief-sender", 600)`, plus a three-line comment. No rule logic,
+copy or severity changed. Reason: from cut #16 the sender ships ON and exits
+75 (a due brief not delivered) or 78 (no brief channel configured); without
+the row launchd records that exit code and nothing reads it.
+
+Pinned by `tests/test_scheduled_agent_failure_is_loud.sh` limb 13, which goes
+red with the row removed (measured: 2 FAIL) and green with it. There is no
+HR015 upstream twin yet: OWED.
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
+
+Tree `ostler_fda`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: `dedupe_merge.py` `_merge_pair` (reason `exact_identifier_merge_all_triples_moved`), `repair_role_address_people.py` before each full-node delete, `repair_placeholder_names.py` where a kinship name is deleted, and `pwg_ingest.py`: the people sweep now prunes against a fresh graph read (`_current_person_uris`; unreadable or empty falls back to the snapshot) and records each pruned vector's URI digest before deleting it (reason `vector_pruned_node_absent`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
+
+## iMessage alphanumeric sender ids never become a Person (CM051 F7, walk #16)
+
+Tree `ostler_fda`. NEW CM051-side behaviour. `role_addresses.py` gains `is_sender_id_identifier` (appended at the end of the file); `pwg_ingest.py` imports it and `ingest_imessage` skips a participant for which it is true, immediately before the existing `_observe_identifier` role-address skip. "Google", "2inldn", "3d1ohk" and "001" were stored as an identifier of type `email` on a new `pwg:Person` because the participant was neither an email nor a phone number and the old code defaulted to `email`. A phone number is a string of `0-9 + - ( ) . space` with at least 7 digits; an email contains `@`; anything else non-empty is a sender id. The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The `is_sender_id_identifier` skip in `ingest_imessage`. Guarded by `tests/test_people_have_human_evidence.py` (`test_imessage_ingest_does_not_mint_a_person_for_a_sender_id`, red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## doctor: a state for "Ostler's Reminders list was removed" (CM051, 2026-10-11)
+
+Tree `doctor`, files `vendor/doctor/agent/reminders_runtime.py`,
+`vendor/doctor/agent/dashboard_components.py`,
+`vendor/doctor/agent/web_ui_copy.py`, `vendor/doctor/agent/web_ui.py`:
+
+- `reminders_runtime.py`: new `STATE_LIST_REMOVED`; `read_reminders_runtime`
+  returns it (with `removed_count`) when any `reminders_map` row has
+  `status='reminders_list_removed'`, checked before `permission_denied`;
+- `web_ui_copy.py`: `REMINDERS_RUNTIME_STATUS_LIST_REMOVED` and
+  `REMINDERS_RUNTIME_DETAIL_LIST_REMOVED` ("Ostler's Reminders list was
+  removed; turn reminders back on?");
+- `dashboard_components.py`: colour, icon and copy maps carry the new state, plus a
+  "Turn reminders back on" button;
+- `web_ui.py`: new `POST /api/v1/reminders/turn-on` (Hub-local Host and
+  cross-site guard, same as the credential routes) calling
+  `reminders_runtime.turn_reminders_back_on`, which forgets
+  `~/.ostler/reminders_list_id` and flips parked rows to `pending`.
+
+WHY (writer/reader vocabulary, same class as the entries above): the
+assistant (`ostler-assistant` `crates/ostler-reminders`) now writes status
+`reminders_list_removed` when the customer deletes the dedicated "Ostler"
+Reminders list and pauses pushes. Doctor's reader had no word for it and
+would have shown a healthy "Reminders are syncing". This record is
+location and shape only; `doctor.patch` is not regenerated here. Test:
+`tests/test_doctor_reminders_list_removed.py`.
+
+## 2026-10-14: `ostler_fda` `imessage.py` drops the assistant's own sends
+
+`imessage.py` gains `ASSISTANT_SEND_PREFIX`, `ASSISTANT_SEND_MARKER` and
+`is_assistant_send()`; `extract_messages` skips rows it matches. The
+`whatsapp_source` and `email_source` readers import this predicate. Full
+record, the reason, and the regeneration outcome:
+`ASSISTANT_OWN_SENDS.UNRECORDED.md`. Test:
+`tests/test_assistant_sends_are_not_owner_input.py`.
+## doctor: the iMessage FDA cards never open chat.db (CM051 #30, studio29 follow-on)
+
+Tree `doctor`, file `vendor/doctor/agent/diagnostic_rules.py`. Recorded here
+because this tree is `regenerate_forbidden`. Inserted mid-file, not appended,
+so it does not collide with an open PR appending to this record.
+
+- `_imessage_chat_db_readable()` no longer does `sqlite3.connect` on
+  `~/Library/Messages/chat.db`. It returns the verdict of the most recent
+  record the SIGNED assistant's ticks wrote: the reply-debt snapshot
+  `state/reply_debt/imessage_threads.json` (`status` ok / absent / unreadable,
+  run-source imessage) and `imports/fda/extraction_summary.json`
+  (`sources.imessage.status` ok / not_found / no_fda, run-source fda-rerun).
+  No record means False, so the card stays.
+- NEW helpers `_ostler_engine_root`, `_parse_utc`, `_load_json`,
+  `_imessage_read_evidence`. The name `_imessage_chat_db_readable` is kept for
+  `check_imessage_fda`, `check_imessage_capture_stalled` and
+  `tests/test_imessage_fda_probe.sh`.
+- `state/source_activity/imessage.tsv` is deliberately NOT used: it reports
+  the ingest of the extract JSON, which still succeeds on a stale JSON after
+  the chat.db read starts failing.
+
+WHY: com.ostler.doctor is launched by launchd as a bare venv python, so its
+chat.db open was attributed by TCC to python3.11 on every poll. That was a
+second "python3.11" Full Disk Access request, and the card it was meant to
+dismiss could never clear. Guarded by `tests/test_doctor_never_opens_chat_db.py`
+(job in `.github/workflows/reply-debt-never-reads-protected-data.yml`).
+HR015 `doctor/` needs the same change, or a re-graft reverts it.
+
+## Apple Music: native library reader, XML kept as fallback (CM051, walk #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour in `apple_music.py` and the `apple_music` arm of `extract_all.py`. `extract_library()` now tries the signed `ostler-music-library` helper first (Apple's iTunesLibrary framework, "Media & Apple Music" permission), located only through `OSTLER_MUSIC_LIBRARY_HELPER`, and falls back to the existing XML reader. With no helper located the behaviour is the old XML-only path. New: `read_native_library`, `library_from_helper_json`, `to_preference_export`, `write_preference_export`, `MusicLibrary.reader/native_status/native_detail`, `Track.added/skip_count/disliked` (defaulted, so existing `Track(...)` calls are unchanged), `Playlist.smart`, CLI `--helper`. `extract_all` writes `ostler_apple_music_library.json` beside `apple_music.json` when there are tracks, and its summary carries `reader` and `native_status`. A later run whose native read is refused (the launchd re-run holds no Media & Apple Music grant and must never prompt) keeps the earlier export and reports its track count with `reader: previous_export` (`previous_export_track_count`). Every helper failure (refused permission, empty library, crash, garbage, hang past `OSTLER_MUSIC_LIBRARY_HELPER_TIMEOUT`, default 180 s) returns an empty library, never an exception. The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`read_native_library` before the XML read in `extract_library`, and the export write in the `apple_music` arm. Guarded by `tests/test_apple_music_library_reader.py` (21 tests, all red on origin/main). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## doctor: an Apple Music row in the source table (CM051 walk #27)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`: `_FDA_EXTRACT_KINDS` gains `"apple_music": "source"`, so the "Where your data came from" table shows an apple music row once install.sh records one. Writer side, in install.sh: `apple_music` in `OSTLER_SENTINEL_SOURCES`, `apple_music:apple_music` in `OSTLER_FDA_SOURCE_ROWS`, `_hydrate_fda_record_apple_music` fed by `_hydrate_record_fda_extract` (`total_tracks` is the count; a 0-track read is recorded as `cannot_run media_library_not_granted` when the Music framework refused, or `no_data` when there was nothing to read, never a measured zero). Same conditional-row shape as `photos` and `reminders`. Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (red on this branch before the row) and `tests/test_source_status_canonical_matches_recorders.sh`. `doctor.patch` is NOT regenerated.
+
+## The owner's own addresses never become People (DMG #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/owner_addresses.py` (NEW FILE): computes the owner's exact addresses from (1) the Contacts me card (`ZABCDRECORD.ZME` -> `ZABCDEMAILADDRESS`, every AddressBook source), (2) Mail accounts (`Accounts4.sqlite` `ZACCOUNT.ZUSERNAME`), (3) From addresses of messages in a Sent mailbox, (4) the sole To recipient of non-list INBOX mail (`list_id_hash` and `unsubscribe_type` both zero) from at least two distinct non-owner senders, all from the Mail Envelope Index. Never a domain. Read-only (`immutable=1`). Writes `owner_addresses.json` into the FDA output dir; `load_owner_addresses` / `is_owner_address` read it.
+- `vendor/ostler_fda/extract_all.py`: `run_all` calls `owner_addresses.collect` just before the summary is saved (counts only into `summary["owner_addresses"]`; never fatal).
+- `vendor/ostler_fda/pwg_ingest.py`: imports `load_owner_addresses, is_owner_address`; `ingest_imessage`, `ingest_whatsapp`, `ingest_calendar` and `ingest_mail_contacts` load the set once and `continue` past an owner address immediately before the existing `_observe_identifier` skip; calendar and mail return `owner_addresses_skipped`.
+
+WHY: measured read-only on the DMG #27 walk box, 15 `calendar_fda` Person nodes held an address on the owner's own domain (the owner attends their own invites). Delivered-To is NOT INSTRUMENTED (the Envelope Index does not store it). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`owner_addresses.py`, the `collect` call in `run_all`, and the four `is_owner_address` skips. Guarded by `tests/test_owner_addresses_are_not_people.py` (wired in `.github/workflows/privacy-spine.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## dedupe_merge: a merge survivor keeps one displayName, chosen upward only (DMG #27 KNOWN-ISSUE 1)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/dedupe_merge.py`. NEW CM051-side behaviour. `_merge_pair` reads the survivor's and the duplicate's `pwg:displayName` values BEFORE the outbound move, then (after the move, before the tombstone) calls the new `_elect_survivor_name`: the survivor ends with ONE `displayName`, the duplicate's best name winning only when it is a HIGHER tier than the survivor's own (phone < email < human, ranked by `pwg_ingest._display_name_tier`, imported lazily, never copied); every losing name becomes `pwg:alternateName`; a kinship word is never elected and is also kept as `pwg:alternateName` (never deleted); `displayNameProvisional` is cleared when the winner is a human name. New helpers appended after `_merge_pair`: `_display_names`, `_escape`, `_tier_fn`, `choose_survivor_name`, `_elect_survivor_name`. WHY: the outbound move carried the duplicate's displayName onto the survivor, which then held a phone or email beside a human name (measured read-only on the walk box: 257 such survivors, every one with an undated `mergedInto`, which only this writer leaves). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The name read before the move and the `_elect_survivor_name` call in `_merge_pair`. Guarded by `tests/test_dedupe_merge_name_tier_upward_only.py` (red on origin/main, wired in `.github/workflows/dedupe-merge-rule-2.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## Apple Music records keep every artist and genre (CM051 #28)
+
+Tree `ostler_fda`. `apple_music.to_records` called `top_artists(limit=200)` and `top_genres(limit=100)`, so `apple_music.json` held at most 200 artists and 100 genres of the owner's library. Both now pass `limit=None` (ranking unchanged; `top_artists`/`top_genres` accept `Optional[int]`, and `[:None]` keeps all). Display callers (`library_stats`, top 10) are unchanged. Guarded by `tests/test_owner_data_is_never_capped_at_storage.py::test_apple_music_records_keep_every_artist_and_genre`. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+## Machine senders are not People; a human who replied is (DMG #27)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/machine_senders.py` (NEW FILE): `noreply_reason` (no-reply / mailer-daemon / bounces / notifications / calendar-notification local parts; calendar-system domains such as shared Google calendars and the iCloud invitation sender; a notification first-label domain), `header_reason` (List-Id, List-Unsubscribe, Auto-Submitted other than "no", Precedence bulk/list/junk), `mail_evidence` over the Mail Envelope Index (per-sender message and list-flag counts from `list_id_hash` / `unsubscribe_type`; correspondents = To/Cc of Sent mail plus senders of non-list mail in a conversation holding a Sent message), `classify`, `collect` (writes `machine_senders.json`), `load`.
+- `vendor/ostler_fda/extract_all.py`: the Apple Mail block calls `machine_senders.collect` after writing `apple_mail_contacts.json` (counts only into `summary["machine_senders"]`).
+- `vendor/ostler_fda/pwg_ingest.py`: imports `machine_senders`; `ingest_calendar` skips an attendee with a `noreply_reason`; `ingest_mail_contacts` skips a machine sender, and lets a recorded CORRESPONDENT past the role-address skip; `_person_id_from_identifier` gains keyword `correspondent=False`, which only that call sets. Both return `machine_senders_skipped`.
+
+WHY: measured read-only on the DMG #27 walk box, `calendar_fda` minted People for calendar-system addresses and `apple_mail_fda` for a notification subdomain. Auto-Submitted and Precedence are NOT INSTRUMENTED on the Envelope Index path (the index does not store them). The HR015 twin is OWED; `vendor/divergences/ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`machine_senders.py`, the `collect` call, the two ingest skips, the correspondent pass-through and the `correspondent` keyword. Guarded by `tests/test_machine_senders_are_not_people.py` (wired in `.github/workflows/privacy-spine.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## A merged person is never re-created by the next ingest (DMG #27, shape sweep S2)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. New `_StoreUnavailable`, `_resolve_merged` (follows `pwg:mergedInto` to the live survivor, at most 16 hops, cycle-safe), `_live_person`. `_person_exists` now answers True for a `pwg:mergedInto` tombstone as well as any typed node, and RAISES `_StoreUnavailable` on a store error (it answered False). `_identifier_exists` answers True on a store error (fail closed). `ingest_imessage`, `ingest_whatsapp`, `ingest_calendar`, `ingest_mail_contacts` and `ingest_photos_people` resolve their URI (or the identifier holder) to the live survivor before creating or writing, and SKIP the person on a store error (iMessage and WhatsApp now report `people_lookup_failed`; calendar and mail no longer create on a failed identifier lookup). `ingest_photo_events` points `photoAttendee` at the survivor. `_load_people_from_oxigraph` and `_current_person_uris` exclude nodes carrying `pwg:mergedInto`, so the people index stops indexing, and prunes, merged-away nodes.
+
+WHY: dedupe_merge leaves an untyped tombstone; `_person_exists` (`<uri> a ?t`) could not see it, so the next tick re-minted the merged person on its uuid5 URI. Measured on the DMG #27 walk box: 145 merged nodes typed Person again (138 WhatsApp, 6 iMessage) and 144 duplicate Qdrant people points. The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The merge-aware `_person_exists`, `_resolve_merged` / `_live_person` at every writer, the fail-closed skips, and the two `FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }` filters. Guarded by `tests/test_merged_people_are_not_recreated.py` (job `merged-people-not-recreated` in `.github/workflows/forget-tombstone.yml`).
+## Contacts has its own recurring reader; fda-rerun no longer claims it (G3, TCC sweep 2026-10-15) -- `doctor`
+
+Tree `doctor`, two files. NEW CM051-side behaviour, paired with `install.sh`: `bin/ostler-contact-resync` is now a permanent reader, scheduled on every install, that writes `state/source_activity/contacts.tsv`. The ostler-fda tick now re-embeds Reminders and writes `state/source_activity/reminders.tsv`.
+
+- `vendor/doctor/agent/routine_status.py`, `_ROUTINES`: new row `("com.ostler.contact-resync", "Contacts", "contact-resync")`; the fda-rerun row reads "Calendar, Notes, Photos, Reminders, Safari" (it never read contacts).
+- `vendor/doctor/agent/diagnostic_rules.py`, `_SCHEDULED_AGENTS`: the fda-rerun feeds string drops "contacts" and gains "reminders".
+
+WHY: Contacts showed "Up to date" from fda-rerun's health while nothing read the address book after install. The HR015 twin is OWED; `vendor/divergences/doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The contact-resync routine row and the corrected feed strings. Guarded by `tests/test_contacts_and_reminders_are_reread.sh` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `doctor/` and re-pinning.
+
+## A refused read is not a fresh source (G1, TCC sweep 2026-10-15) -- `doctor`
+
+Tree `doctor`, three files. NEW CM051-side behaviour, paired with the `ostler-fda` wrapper in `install.sh`, which now records `last_status=cannot_run` (and keeps `last_success_at`) for a source macOS refused, and exits 75.
+
+- `vendor/doctor/agent/web_ui.py`, `read_source_status`: when a source's activity record says `cannot_run`, the row's `status` becomes `cannot_run`, the install verdict moves to `install_status`, and `detail` is plain customer copy naming Full Disk Access. `_read_source_activity`: a multi-key source (browsing) with any `cannot_run` half is `cannot_run`, not `error`, and its `last_success_at` is the OLDEST half's.
+- `vendor/doctor/agent/diagnostic_copy.py`: new `SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION` (75) and the `SCHEDULED_AGENT_NEEDS_PERMISSION_*` title, detail, fix and fix command.
+- `vendor/doctor/agent/diagnostic_rules.py`, `check_scheduled_agents`: a failing agent whose last exit is 75 gets the needs-permission card (`agent_state=needs_permission`) instead of "restart the job".
+
+WHY: install-time `status=ok` plus a refused tick made the panel read "Up to date, just now" for a source nothing could read. The HR015 twin is OWED; `vendor/divergences/doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The `cannot_run` branch in `read_source_status`, the refusal-aware merge in `_read_source_activity`, and the exit-75 card. Guarded by `tests/test_fda_refusal_is_not_fresh.sh` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `doctor/` and re-pinning.
+## A refusal is classified by errno and sqlite code, not by one message (CM051 G1 follow-up, sweep V26) -- `ostler_fda`
+
+Tree `ostler_fda`. NEW vendor-only `vendor/ostler_fda/tcc_refusal.py` (`is_fda_refusal`, registered in `vendor/VENDOR_ONLY.tsv`). The connect-time `except sqlite3.OperationalError` in `apple_mail.py`, `apple_notes.py`, `calendar.py`, `imessage.py` (2 sites), `photos_metadata.py` (2 sites), `reminders.py` and `safari_history.py` now raise PermissionError when `is_fda_refusal(e, <db path>)`, in place of the literal `"authorization denied"` test. `chrome_history.py` and `whatsapp_history.py` add the same check ahead of their existing text test. `extract_all.py`: every per-source catch-all now goes through `_failure_status(e)`, which reports `no_fda` for an escaped refusal.
+
+WHY: a refused open() reaches Python as SQLITE_CANTOPEN "unable to open database file" (code 14), which the literal test missed, so a refusal was reported as `error` and #2908 could not record `cannot_run`. Measured with a chmod-000 fixture: every reader above raised OperationalError, and Calendar returned normally (an empty result). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`tcc_refusal.py`, the eleven `is_fda_refusal` call sites, and `_failure_status`. Guarded by `tests/test_fda_refusal_surfaces.py` (wired in `.github/workflows/fda-rerun-ingests.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+---
+
+## ostler_fda: forget_tombstone.py kept byte-identical with cm041/identity_resolver (walk #28, sweep V22)
+
+`vendor/ostler_fda/forget_tombstone.py` takes the same change as the
+cm041/identity_resolver copy: an unreadable tombstone file is never
+overwritten (left in place, bytes copied aside, `record()` returns False), and
+`problem()` names it. The two copies are asserted byte-identical by
+`vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py`.
+The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+## Doctor source rows: one honest total, in a declared unit (v1.0.107 walk #28)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour. New `_SOURCE_TOTAL_UNITS`, `_SENTINEL_COUNT_IN_UNIT`, `_SETTLING_DONE_FILES`, `_EXTRACT_SUMMARY_KEYS`, `_BROWSING_EXTRACTS`, `_PAGES_CACHE` and helpers `_ostler_state_root`, `_positive_int`, `_settling_done`, `_extract_summary_count`, `_distinct_pages`, `_canonical_total`, all inside the reader block. `read_source_status` now sets, per row, `item_count` = the total in `item_unit` (or None), `item_count_from`, `install_item_count` (the raw sentinel figure, kept) and `last_run_count_from` (`routine` or `settling_progress`). `render_source_status` prints `<n> <unit>`, drops the old `max(item_count, last_run_count)` override, and shows a routine's per-run figure only when there is no total, worded "in the last check".
+
+WHY: Andy's console walk of candidate #28 read Mail as the last tick's delta, WhatsApp people (one per DM chat) as messages, Safari visits as pages, Photos with no unit and Notes as four numbers. NO HR015 twin is owed: the source-status panel exists only in this repo (VENDOR_MANIFEST `regenerate_forbidden_reason` for `doctor`; measured 2026-10-15, HR015 `doctor/agent/web_ui.py` on main has 0 `def read_source_status`). `doctor.patch` is NOT regenerated.
+
+FOLLOW-UP (same PR, #2920): `_mail_available_total` and `_source_count_label`. Every row carries `count_label` (the exact words the table prints) and `count_kind` (`total` or `last_check`, the flag from the closed duplicate #2922). Mail also carries `item_of`, the Mail store size, and reads "N of M emails read", or "N emails read" with no "of" when M is unknown, zero, or smaller than N.
+
+### What a future sync must preserve
+
+The unit table, `_canonical_total` and the render change. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.
+
+## Mail store size recorded at extract time (v1.0.107 walk #28, follow-up on #2920)
+
+Tree `ostler_fda`. `vendor/ostler_fda/apple_mail.py`: new `envelope_index_total(db_path=None)`, a read-only `COUNT(*)` over the Envelope Index `messages` table, rows with `deleted` set left out when the schema has that column; None (never 0) when the store is missing, unreadable, empty or of unknown schema. `vendor/ostler_fda/extract_all.py`: the Apple Mail block records it as `summary["sources"]["apple_mail"]["mailbox_total"]`, only when it is not None.
+
+WHY: Andy flagged the Doctor's Mail row as misleading; the box's Mail store held about 353,842 messages and the row gave no sense of that. The Doctor reads the recorded figure and never opens Mail's database itself. The HR015 twin (`ostler_fda/apple_mail.py`, `ostler_fda/extract_all.py`) is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`envelope_index_total` and the `mailbox_total` record. Guarded by `tests/test_doctor_rows_show_one_honest_total.sh` (wired in `.github/workflows/hydrate-sentinel.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+## An organisation's own mailbox is not a Person (v1.0.107 walk, candidate #28)
+
+Tree `ostler_fda`, two files:
+
+- `vendor/ostler_fda/machine_senders.py`: new `domain_brand_names` and `organisation_reason` (an automation word as a local-part token, the local part equal to the sender's own domain name including affix and short-TLD spellings, or a bulk sub-domain such as `e.` / `email.` / `news.`). `classify` records a NON-correspondent with an `organisation_reason` as machine. No company list.
+- `vendor/ostler_fda/pwg_ingest.py`: `ingest_mail_contacts` and `ingest_calendar` skip an address with an `organisation_reason` unless it is a recorded correspondent (calendar now loads the correspondent set too). Counted in `machine_senders_skipped`.
+
+WHY: Andy's console walk listed organisations as people; one wrote from `<brand>@<brand's domain>`. Same shape rule as CM044 #344 (wiki reader) and `people_rules._name_is_sender_domain` (Hub reader). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated (this tree already fails to round-trip on origin/main, see the top of this file).
+
+### What a future sync must preserve
+
+`organisation_reason`, its use in `classify`, and both ingest skips with the correspondent pass-through. Guarded by `tests/test_organisation_senders_are_not_people.py` (`.github/workflows/people-have-human-evidence.yml`). Retire by landing the change in HR015 `ostler_fda/` and re-pinning.
+
+## Apple Music refreshes daily and at login, not only at install (CM051 v1.0.108)
+
+Tree `ostler_fda`. `vendor/ostler_fda/apple_music.py`: `read_native_library` is split so its output parsing is the new `library_from_helper_output(stdout, returncode)`; behaviour of `read_native_library` is unchanged (same bounds, same statuses). The new function is shared with the scheduled refresh. New CM051-only file `vendor/ostler_fda/apple_music_refresh.py` is declared in `vendor/VENDOR_ONLY.tsv` (renders the two LaunchAgents, arms on the install's native read, diffs the library, stores only changed tracks through the CM019 ingest). Guarded by `tests/test_apple_music_scheduled_refresh.py` (32 tests, collection error on origin/main) and `tests/test_apple_music_library_reader.py` (unchanged, still green). The HR015 twin is OWED; `ostler_fda.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+`library_from_helper_output` in `apple_music.py` and its single call at the end of `read_native_library`. Losing it leaves `apple_music_refresh.py` importing a name that does not exist, and the scheduled refresh logs `could not look` forever.
+
+---
+
+## doctor: live Time Machine exclusion rule (walk #28, sweep I1)
+
+`vendor/doctor/agent/diagnostic_rules.py` gains `_tm_isexcluded()` and
+`check_time_machine_exclusion()` (registered last in `ALL_RULES`);
+`vendor/doctor/agent/diagnostic_copy.py` gains the `TM_*` copy. The rule asks
+`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Documents/Ostler`
+and `~/.colima` (each only if it exists): "[Excluded]" is silent, "[Included]"
+is a warning naming the folder ("Ostler's secrets folder is NOT excluded from
+Time Machine" for `~/.ostler`), anything else is an info "could not check",
+never a pass. Not applicable off macOS when tmutil is absent. The installer
+half is in install.sh `_ostler_harden_at_rest`. `doctor.patch` is NOT
+regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
+`tests/test_time_machine_exclusion_is_measured.sh` (vendor-integrity.yml).
+
+---
+
+## doctor: an expired timed Pause re-enables the daemon cron (status-honesty sweep D1)
+
+`vendor/doctor/agent/pause_control.py`: `read_state()` calls the new
+`_reconcile_expired_pause()` when a timed pause has elapsed. It mirrors the
+resume to the daemon cron and the Settings checkbox first, then clears the stale
+governor.env lines; on failure it leaves the file for a retry and returns
+`cron_resume_error`. `_mirror_settings_panel()` now returns its errors (logged,
+and handed back as `mirror_errors` by `set_pause`/`resume`) instead of
+swallowing them. `vendor/doctor/agent/box_status.py` carries
+`pause.cron_resume_error` through. WHY: set_pause switched the cron off and
+nothing switched it back on, so the 09:00 brief and 18:00 wrap never fired
+again while every screen read "not paused".
+
+### What a future sync must preserve
+
+The reconcile on the expiry branch of `read_state`, and the non-swallowing
+mirror. Guarded by `tests/test_pause_expiry_reenables_cron.py` (workflow
+`status-honesty-pause.yml`).
+
+---
+
+## ostler_fda: a refused Apple Mail walk is not a complete one (status-honesty sweep V1)
+
+`vendor/ostler_fda/apple_mail_mbox.py`: `discover_emlx_files()` raises when the
+mail ROOT cannot be read (previously logged and walked as empty, so the tick
+wrote `backfill_complete=true` and exited 0), and collects sub-directory errors
+into an optional `errors` list. `emit_mbox()` holds the forward edge, the
+backward edge and `backfill_complete` when any directory was unreadable, logs an
+ERROR, and records posture `mailbox_unreadable` instead of `success`.
+
+### What a future sync must preserve
+
+The root-raise and the held edges. Guarded by
+`tests/test_apple_mail_refused_walk_is_not_complete.py` (workflow
+`status-honesty-ingest.yml`).
+
+---
+
+## doctor: Reminders tile and all-clear banner measure the outcome (status-honesty sweep D2, D3)
+
+D2: `vendor/doctor/agent/reminders_runtime.py` gains `STATE_PUSH_FAILING`
+(rows exist, at least one `failed`, none `pushed`) and `STATE_CANNOT_READ` (the
+mapping DB exists and could not be read; it used to read as no-data and hide the
+tile). `dashboard_components.py` renders both (amber, grey) and `web_ui_copy.py`
+carries the `REMINDERS_RUNTIME_*PUSH_FAILING` and `*CANNOT_READ` copy.
+D3: `vendor/doctor/agent/web_ui.py` gains `_bundle_routine_findings()`, called by
+`_append_all_clear()`: a failing or stale recurring routine, or an unreadable
+routine status, replaces "Everything looks healthy" with a warning.
+
+### What a future sync must preserve
+
+The two new states and the routine check before the all-clear. Guarded by
+`tests/test_reminders_tile_is_not_green_when_every_push_failed.py` and
+`tests/test_all_clear_counts_the_bundle_routines.py` (workflow
+`status-honesty-meetings-doctor.yml`).
+## Doctor shows full-history catch-up progress per source (v1.0.108)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour, and like the rest of the source-status panel it has never existed upstream. `read_source_status` gains a `catchup_dir` parameter and sets `row["catchup"]` from the watermarks `lib/ostler_catchup.py` writes under `state/catchup/` (new `_catchup_state_dir`, `_read_catchup_by_row`: a row is complete only when every catch-up source mapped to it is; otherwise the least advanced "back to" date wins). `render_source_status` gains a History column via `_catchup_phrase` ("Catching up, back to March 2021", "Catching up, waiting for a quiet moment", "All of your history is read", blank when catch-up never ran for that row).
+
+### What a future sync must preserve
+
+The `catchup` field, the History column and the three helpers. Guarded by `tests/test_doctor_shows_catchup_progress.sh` (red on origin/main, wired in `.github/workflows/catchup-machinery.yml`).
+
+## `ostler_fda/sink_health.py`: one sink health predicate for the catch-up (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side file, no upstream. `sink_healthy()` is true only when Ollama answers `/api/tags` AND the Qdrant and Oxigraph stores answer 2xx through the store proxy with the install credential. The store half is NOT re-implemented: it runs `bin/ostler-engine-supervisor.sh --probe-ports`, the supervisor's own port-judged predicate (added on `fix/colima-hung-vm-recovery`, so that branch must merge with or before this one). Anything unjudgeable (supervisor absent or without the subcommand, no credential) is not healthy. The iMessage and WhatsApp catch-up adapters call it when a dispatch times out (exit 124): healthy means the document hung and the attempt counts toward quarantine; unhealthy raises `ConnectionError` and counts nothing. Guarded by `tests/test_catchup_messages.py` (`test_sink_healthy_needs_ollama_and_the_stores`, `test_a_timeout_with_ollama_up_and_stores_down_counts_no_attempt`, `test_a_hanging_item_with_a_healthy_sink_is_quarantined_and_the_rest_proceeds`, `test_a_timeout_with_a_dead_sink_counts_no_attempt`).
+## Browser history catch-up walks Safari and Chrome back past the install window (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/safari_history.py`, `vendor/ostler_fda/chrome_history.py`: `extract_history` gains keyword-only `since` / `until` absolute bounds (with neither, the SQL and its parameters are exactly the install-time query), and each module gains `oldest_visit()`.
+- `vendor/ostler_fda/catchup_browser.py` (NEW FILE): `SafariAdapter` / `ChromeAdapter` for `lib/ostler_catchup.py` (doctor_row `browsing`), 30-day windows from now minus OSTLER_SAFARI_BACKFILL_DAYS / OSTLER_BROWSER_BACKFILL_DAYS back to the oldest visit, through `to_timeline_entries` and `pwg_ingest.ingest_browser_history`; a window is done only when `sent == total`. `adapters()` honours OSTLER_FDA_SOURCES and leaves Chrome out when it is not installed.
+
+WHY: install.sh reads 1825 days of browsing and nothing ever read further back.
+
+### What a future sync must preserve
+
+The two keyword bounds, `oldest_visit`, and `catchup_browser.py`. Guarded by `tests/test_catchup_browser.py` (red on origin/main, wired in `.github/workflows/catchup-browser.yml`).
+
+## `ingest_browser_history` flags a vector-store outage as `sink_unavailable` (catch-up, v1.0.108)
+
+Tree `ostler_fda`, file `vendor/ostler_fda/pwg_ingest.py`. The two `"status": "error"` returns of `ingest_browser_history` (the embed/upsert raised; or every chunk failed to land) gain `"sink_unavailable": True`. `catchup_browser` reads it and raises `ConnectionError`, so a Qdrant or Ollama outage is not counted as a poison attempt toward quarantine. A partial landing (0 < sent < total) is unchanged and still counts. Guarded by `tests/test_catchup_browser.py::test_an_embed_or_vector_store_outage_is_not_a_failed_window`.
+## Photos older than the first year are walked by the catch-up (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, two files:
+
+- `vendor/ostler_fda/photos_metadata.py`: `extract_photo_events` gains optional absolute `since` / `until` bounds (both default None, and with both None the three schema queries and their parameters are byte-identical to before); new `oldest_asset_date`.
+- `vendor/ostler_fda/catchup_photos.py` (NEW FILE): the `photos` adapter for `lib/ostler_catchup.py`. 30-day windows backwards from now - 365 d to the oldest non-trashed asset, extracted with extract_all's faces rule and written through the shipped `pwg_ingest.ingest_photo_events` (uuid5-keyed PhotoEvents). Runs only when the install recorded a Photos result (`state/hydrate/photos.done`) and never when `OSTLER_FDA_SOURCES` omits photos_metadata.
+
+WHY: extract_all reads Photos with `since_days=365` and nothing read further back. Measured on a 6,500-asset, 7-year fixture: the install path covers 929 of 6,500.
+
+### What a future sync must preserve
+
+The `since` / `until` parameters, `oldest_asset_date`, and `catchup_photos.py`. Guarded by `tests/test_catchup_photos_ai.py` (red on origin/main, wired in `.github/workflows/catchup-photos-ai.yml`). Registered by install.sh as `bin/catchup.d/30-photos.sh`.
+## Mail correspondents: full-history catch-up past the top 50 (v1.0.108)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, three files:
+
+- `vendor/ostler_fda/catchup_mail.py` (NEW FILE): two catch-up adapters for `lib/ostler_catchup.py`. `MailContacts` walks the whole Envelope Index newest to oldest (keyset on date_received, ROWID; no window, no 100,000 limit, no top 50), counts each sender once per message ROWID in the catch-up ledger, and hands an address to `pwg_ingest.ingest_mail_contacts` the moment it reaches `MAIL_CONTACT_MIN_COUNT`, with the install's owner-address and machine-sender files beside it. `MailBodies` mirrors email-ingest's own backward sweep (`apple_mail_mbox_checkpoint.json`) into Doctor and processes nothing.
+- `vendor/ostler_fda/apple_mail.py`: the three Envelope Index SELECT shapes move into `_MESSAGE_SHAPES` / `query_message_rows`, and the sender normalisation into `normalise_sender`, shared by `extract_messages`, `frequent_contacts` and the catch-up. Install-time behaviour unchanged.
+- `vendor/ostler_fda/pwg_ingest.py`: the literal 3 in `ingest_mail_contacts` becomes `MAIL_CONTACT_MIN_COUNT`, so the catch-up qualifies an address at exactly the point the ingest accepts it.
+
+### What a future sync must preserve
+
+`catchup_mail.py`, `query_message_rows` / `normalise_sender`, and `MAIL_CONTACT_MIN_COUNT`. Guarded by `tests/test_catchup_mail.py` (red on origin/main, wired in `.github/workflows/catchup-mail.yml`).
+## Full-history catch-up for Google Takeout and dropped mailboxes (v1.0.108, catch-up 6/6)
+
+Tree `ostler_fda`. NEW CM051-side behaviour, two files:
+
+- `vendor/ostler_fda/catchup_mbox.py` (NEW FILE): finds every `takeout-*.zip` part and every `.mbox` member (install.sh 9.4 takes the first zip and its first member), extracts each once, and walks each distinct mailbox for `lib/ostler_catchup.py` in three phases: a header index in bounded byte-offset slices with no date window and no message cap, the full correspondent map through `_persist_mail_contacts`, then threads newest first through `_email_thread_to_payload` / `_persist_conversations`. A thread CM048 already holds (`processing/email_*_<key hash>`) is not sent again; messages the install's caps cut off go as one continuation bundle.
+- `vendor/ostler_fda/universal_import.py`: `_dispatch_mbox` queues the mailbox it read (`catchup_mbox.queue_mailbox`, never fatal) so catch-up finishes it. The install-time caps (250,000 messages, 20,000 threads, five years, 4,000 body characters) are unchanged.
+
+### What a future sync must preserve
+
+`catchup_mbox.py` and the `queue_mailbox` call in `_dispatch_mbox`. Also (tree `ostler_fda`, file `vendor/ostler_fda/catchup_mbox.py`): `sweep_gone_sources` (a vanished Takeout zip leaves no extraction behind; state in `state/catchup/takeout-source-gone.json`) and `extract_member`'s cap from `ostler_catchup.tick_remaining()`; guarded by `test_a_takeout_zip_that_vanishes_mid_walk_leaves_nothing_behind` and `test_the_extraction_cap_is_the_ticks_remaining_budget`. Guarded by `tests/test_catchup_takeout.py` (red on origin/main, wired in `.github/workflows/catchup-takeout.yml`).
+## Doctor shows the Downloads watcher, and why what it found did not import (#30)
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`. NEW CM051-side behaviour. `read_source_status` gains a nested `_downloads_exports_row` (nested on purpose: the source-table tests rebuild that function from the AST with a hand-written helper list, and a new module-level helper would NameError every one of them) and appends one `downloads_exports` row, kind `watcher`, after the per-source loop and before the catch-up merge. It reads `state/source_activity/downloads_exports.tsv`, which the Downloads watcher (`ostler-scan-exports`, the install.sh heredoc) now writes on every run: `last_status` (ok, no_data, not_imported, error, cannot_run, waiting), this run's `found`, `imported`, `already_imported`, `skipped`, `failed`, and `reason`. The row carries those plus `count_label` "N found, K imported" (`count_kind` `last_check`). No record gives `not_run` with a reason and no count; an unknown status reads as `error`, never as a healthy word. `render_source_status` prints the source as "Downloads folder", labels `not_imported` "found, not imported" and `waiting` "waiting for a download", and prints a row's `reason` under its status.
+
+WHY: a synthetic walk box (studio29, v1.0.107 candidate) had a loose calendar.ics, emails.mbox and contacts.vcf in Downloads; the watcher imported none, wrote nothing, and the Doctor had no row for it, so "found nothing", "could not look" and "found three, imported none" were the same silence. As with the rows above, NO HR015 twin exists yet for the source-status panel; the HR015 port is owed after #30.
+
+### What a future sync must preserve
+
+The `downloads_exports` row, its record vocabulary, and the reason line in the render. Guarded by `tests/test_doctor_shows_why_downloads_exports_did_not_import.sh`, which runs the SHIPPED watcher to write the record and the SHIPPED reader and renderer to show it (red before this change: no row; wired in `.github/workflows/downloads-watcher-survives-an-export.yml`). Retire by landing the change in HR015 `doctor/agent/` and re-pinning.
+
+## The first backfill window widens when the default holds too little (#30)
+
+Tree `ostler_fda`. `vendor/ostler_fda/backfill_ladder.py`: new `widen_first_window`, `is_first_window`, the `MIN_FIRST_WINDOW_*` and `WIDEN_RUNGS` constants, appended after `resolve_backfill_days`. `vendor/ostler_fda/extract_all.py`: the iMessage, WhatsApp and Apple Mail blocks pass their extract through `widen_first_window` (three call sites, no other change).
+
+WHY: on a synthetic install whose every message was older than 45 days the first iMessage window held 0 conversations on day one. On a source's FIRST run only, if the window holds fewer than 2,000 messages and fewer than 50 conversations/threads, it widens backwards (90, 180, 365, 730, 1095, 1825, 3650, 36500 days) until either minimum is met, the history is exhausted, or a 180 s budget is spent. The chosen window is logged per source, counts only. An explicit OSTLER_*_BACKFILL_DAYS pin is never widened. A marker `state/first_window_<source>.json` makes later runs ordinary. Widening runs only while quiet (the catch-up's `busy_reason` is checked before every batch; the install foreground counts as busy), and each batch is bounded by the budget. A deferred source is queued in `state/first_window_pending_<source>`; `ostler-scan-exports` finishes it on the first quiet firing after install.
+
+### What a future sync must preserve
+
+`widen_first_window` and the three call sites. Guarded by `tests/test_first_window_adaptive.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in HR015 `ostler_fda` and re-pinning.
+
+Follow-up (tree `ostler_fda`, `vendor/ostler_fda/backfill_ladder.py`): `_default_busy`, `_bounded` and the `busy` / `run_source` parameters of `widen_first_window`, plus the pending queue. Guarded by the same test file.
+
+## The first iMessage BUNDLE window widens when the default holds too little (#30, A3 follow-up)
+
+Tree `imessage_source`, `vendor/imessage_source/pipeline.py`: new `_widen_first_window`, `_install_running` and the `FIRST_WINDOW_*` constants; one call in `process_imessage`. Tree `ostler_fda`, `vendor/ostler_fda/backfill_ladder.py`: new `finish_pending_first_windows` (re-extract the queued sources, then the same `pwg_ingest.ingest_all` the recurring tick runs).
+
+WHY: conversation bundles come from the imessage-bundle agent reading chat.db with `--since-days 30` (2 in the daytime clamp) and a forward watermark, NOT from imports/fda. Widening imports/fda alone left a sparse owner with 0 conversations on day one. On the first tick only, if the window holds under 2,000 messages and under 50 threads, it widens backwards until either is met; not during the install, not past 180 s, not when OSTLER_IMESSAGE_SINCE_DAYS is pinned.
+
+### What a future sync must preserve
+
+`_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change in the upstream source and re-pinning.
+
+---
+
+## ostler_fda: people writers and the CLI report failure (status-honesty sweep E2, V3)
+
+`vendor/ostler_fda/pwg_ingest.py`: new `_lookup_status(lookup_failed, landed)`;
+`ingest_imessage`, `ingest_whatsapp`, `ingest_calendar` and `ingest_mail_contacts`
+return `status` "error" (nothing landed, lookups failed) or "partial" instead of
+a hardcoded "ok", so the fda-rerun no longer stamps `last_success_at` when
+Oxigraph was down. `main()` exits 1 when any result is an error (it exited 0
+whatever the results said), so install.sh's WhatsApp graph write, which no longer
+ends in `|| true`, records the failure.
+
+### What a future sync must preserve
+
+`_lookup_status` at the four return sites and the non-zero exit in `main()`.
+Guarded by `tests/test_people_status_honesty.py` (workflow
+`status-honesty-people.yml`).
+
+## ostler_fda: WhatsApp's unknown-name token is not a name (#30 batch 3)
+
+Mini16 carried 13 people all named "WhatsApp contact": `_whatsapp_display_name`
+returns that literal for an all-digit non-phone JID (an LID), and it ranked as
+tier 2, a real name, so it was written as one.
+
+`vendor/ostler_fda/pwg_ingest.py`: new `_is_whatsapp_placeholder_name()` (shape
+match: empty, punctuation or emoji only, "~"-prefixed, unknown-name words and
+"WhatsApp contact"-shaped labels across locales). `_display_name_tier` ranks it
+tier 0; `_creation_name_triples` writes the provisional flag and NO name;
+`_upsert_display_name` writes nothing. The person and its identifier are still
+created.
+
+### What a future sync must preserve
+
+All three edits. Guarded by
+`vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py` (workflow
+`whatsapp-lid-not-phone.yml`). Locale strings are best-effort, not verified
+against WhatsApp's string tables.
+
+## doctor: quarantined assert-spool rows are shown, not hidden (walk #29 F1, #30 batch 3) -- `doctor`
+
+Tree `doctor`, two files. `vendor/doctor/agent/diagnostic_rules.py`, `check_parked_facts`: when `assert_spool_status.json` reports `quarantined` > 0, a warning card (`category` memory, `quarantined_facts` = the count). `vendor/doctor/agent/diagnostic_copy.py`: new `QUARANTINED_FACTS_TITLE_FMT`, `QUARANTINED_FACTS_DETAIL`, `QUARANTINED_FACTS_FIX`. Pairs with the `cm041/assistant_api` spool-sweep change (recorded in `cm041_assistant_api.UNRECORDED.md`), which writes the count. The HR015 doctor twin is OWED; `doctor.patch` is NOT regenerated.
+
+### What a future sync must preserve
+
+The quarantined branch in `check_parked_facts` and the three copy constants. Guarded by `tests/test_spool_sweep_quarantines_a_bad_row.py` (memory-assert-answers-under-load.yml).
+
+## doctor: the listener watchdog's state is a Doctor row (2026-10-17 incident, v1.0.108 / #31) -- `doctor`
+
+Tree `doctor`, two files. NEW CM051-side behaviour. `vendor/doctor/agent/diagnostic_rules.py`: new `check_listener_watchdog` (registered in `ALL_RULES` after `check_engine_supervisor_present`), with `_listener_state_path` and `_iso_age_s`. It reads `~/.ostler/state/listener_watchdog.json` (or `$OSTLER_STATE_DIR/listener_watchdog.json`), written by `ostler-listener-watchdog` (install.sh `LISTENERWDEOF` heredoc, LaunchAgent `com.ostler.listener-watchdog`). `degraded`, `restart_unverified` and `restart_failed` give a critical card; `ok`/`recovered` with a restart in the last 24 h an info card; a file that exists but does not parse a "couldn't check" warning; absent and transient states nothing. `vendor/doctor/agent/diagnostic_copy.py`: new `LISTENER_DEGRADED_*`, `LISTENER_UNVERIFIED_*`, `LISTENER_RECOVERED_*`, `LISTENER_STATE_UNREADABLE_*`. The HR015 doctor twin is OWED; `doctor.patch` is NOT regenerated (the tree is `regenerate_forbidden`).
+
+### What a future sync must preserve
+
+The rule, its `ALL_RULES` entry and the copy constants. Guarded by `tests/test_listener_watchdog_restarts_a_dead_listener.sh`, which feeds the state file the SHIPPED watchdog wrote to the SHIPPED `run_all_rules` and mutates the rule out of `ALL_RULES` (wired in `.github/workflows/vendor-integrity.yml`).
+
+## doctor: the wiki "Stop suggesting" button gets a native loopback route (CM041 #216, v1.0.108) -- `doctor`
+
+Tree `doctor`, one file. NEW CM051-side behaviour. `vendor/doctor/agent/web_ui.py`: new `@app.post("/api/v1/people/{slug}/suppress-suggestions")` handler `api_people_suppress_suggestions` plus the helper `_forward_suppress_suggestions` (and the module constants `_SUPPRESS_SUGGESTIONS_PATH`, `_SUPPRESS_SLUG_RE`, `_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS`), inserted directly after the `/api/v1/wiki/correct` handler and BEFORE `register_proxy_routes(app)` so the explicit route wins over the proxy catch-all. It is Doctor-NATIVE and unauthenticated, the SAME trust model as `/api/v1/wiki/correct`, because the wiki person-page "Stop suggesting" button is an unpaired browser (CM044 `correction_overlay.js` shape: POST, `Content-Type: application/json`, no `Authorization`, cross-origin to :8089) and cannot present a paired bearer for the `DOCTOR_PROXY_PATHS` proxy. The handler validates the slug and the `{suppressed, reason}` body, then forwards to the loopback ical-server (`proxy._gateway_base_url`, :8090) with the per-install service token attached (`proxy._resolve_service_token`), and returns the upstream result verbatim. Pairs with the `cm041/assistant_api` endpoint `api_people_suppress_suggestions` (the #216 graft; it owns the suppression logic). The HR015 doctor twin is OWED; `doctor.patch` is NOT regenerated (the tree is `regenerate_forbidden`).
+
+### What a future sync must preserve
+
+The handler, the forward helper, the three module constants, and the pre-`register_proxy_routes` registration order. Guarded by `tests/test_suppress_suggestions_loopback_reaches_the_store.py` (workflow `suppress-suggestions-loopback.yml`), which drives the real handler and helper: an unpaired/no-bearer request is accepted and forwarded with the service token, and a negative control proves a missing service token leaks no credential.
+
+## doctor: the Documents-folder access tile is wired into the dashboard (launch-blocker install UX fix) -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level
+`from documents_access_posture import render_documents_access_posture`, one
+`documents_access_section = render_documents_access_posture()` call in the
+dashboard renderer beside the other permission-posture tiles, and one
+`{documents_access_section}` placeholder in the dashboard HTML between the
+Reminders install-time tile and the Reminders runtime tile.
+
+The render function, the live write probe and the customer copy live in a NEW
+vendor-only module, `vendor/doctor/agent/documents_access_posture.py`, declared
+in `vendor/VENDOR_ONLY.tsv` (route d), not here. This record covers only the
+`web_ui.py` wiring edit, which is a shared file the `doctor.patch` would
+otherwise own.
+
+### Why there is no patch, re-measured rather than inherited
+
+`scripts/regenerate_divergence_patch.sh doctor` was run on 2026-10-17 and
+REFUSED, exit non-zero, before any source checkout: "doctor is marked
+regenerate_forbidden in VENDOR_MANIFEST.toml." The ban's reason is the
+source-status panel that exists only in CM051 (Board #2219); regenerating from
+the lossy tree would record a re-pin as local edits, or a sync would delete a
+shipped customer surface. So the `doctor` tree's `web_ui.py` divergence cannot
+be recorded in `doctor.patch`, and this file is the record instead. A grep of
+`doctor.patch` for `render_documents_access_posture` returns nothing, and that
+means NOT RECORDED there, not NOT DIVERGED.
+
+### What a future sync must preserve
+
+The import, the `documents_access_section` call, and the
+`{documents_access_section}` placeholder in `web_ui.py`, plus the vendor-only
+module they depend on. Guarded by
+`tests/test_documents_access_doctor_denied_row.py` (workflow
+`consent-data-handling.yml`).

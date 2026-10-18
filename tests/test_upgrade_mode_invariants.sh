@@ -178,6 +178,11 @@ echo "               .old kept, VERSION written, plist env preserved."
 echo "════════════════════════════════════════════════════════════════"
 HA="$(build_home)"; PA="$(build_payload)"
 write_installed_plist "$HA" 1
+# The shapes a customer upgrading today actually has (v1.0.103 security pass):
+# ~/.ostler left 0755 by an older installer, and the assistant plist rendered
+# 0644 while carrying the service token. Set explicitly, not left to umask.
+chmod 755 "${HA}/.ostler"
+chmod 644 "${HA}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
 BEFORE="$(_digest "$HA" "${PROTECTED[@]}")"
 RC="$(UPG_CODESIGN_FAIL=0 run_install "$HA" "$PA" OSTLER_UPGRADE_MODE)"
 AFTER="$(_digest "$HA" "${PROTECTED[@]}")"
@@ -209,6 +214,17 @@ SH_="$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:OSTLER_IMESSAGE_S
 [[ "$SH_" == "+15551230000,me@example.com" ]] \
     && ok "plist env preserved: OSTLER_IMESSAGE_SELF_HANDLES survived" \
     || bad "self-handles lost/changed (got '${SH_:-<unset>}')"
+AMODE="$(/usr/bin/stat -f '%Lp' "$APLIST" 2>&1)"
+[[ "$AMODE" == "600" ]] \
+    && ok "assistant plist is 0600 after upgrade (it carries the service token and the customer's own handles)" \
+    || bad "assistant plist mode is ${AMODE} after upgrade, not 600: any other account on the Mac can read the service token"
+HMODE="$(/usr/bin/stat -f '%Lp' "${HA}/.ostler" 2>&1)"
+[[ "$HMODE" == "700" ]] \
+    && ok "~/.ostler is 0700 after upgrade (was 0755 before it)" \
+    || bad "~/.ostler mode is ${HMODE} after upgrade, not 700: an upgrade never tightens an old install"
+grep -q "home dir mode 0700 verified" "${HA}/.ostler/logs/upgrade.log" 2>/dev/null \
+    && ok "upgrade log records the verified 0700" \
+    || bad "upgrade log does not record a verified 0700 on ~/.ostler"
 grep -q 'doctor code v2' "${HA}/.ostler/doctor/web_ui.py" 2>/dev/null \
     && [[ -f "${HA}/.ostler/doctor/new_module.py" ]] \
     && ok "doctor code refreshed from payload (wholesale replace)" \
@@ -228,6 +244,10 @@ BTOK="$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:PWG_SERVICE_TOKE
 [[ "$BTOK" == "CUSTOMER_TOKEN_abc123" ]] \
     && ok "token gap closed: PWG_SERVICE_TOKEN seeded from secrets/service_token" \
     || bad "token fallback did not seed the plist (got '${BTOK:-<unset>}')"
+BMODE="$(/usr/bin/stat -f '%Lp' "$BPLIST" 2>&1)"
+[[ "$BMODE" == "600" ]] \
+    && ok "seeded plist is still 0600 after the token is added" \
+    || bad "seeded plist mode is ${BMODE}, not 600, after the token was added"
 
 echo ""
 echo "════════════════════════════════════════════════════════════════"

@@ -12,8 +12,13 @@ Schema:
         "mail_has_fetched": bool,               # #259, load-bearing
         "install_completed_ts": int,            # epoch seconds at install
         "first_ingest_complete_ts": int,        # optional, set by tick (#260)
-        "imessage_chat_db_fda_needed": bool     # CX-60, load-bearing for the
+        "imessage_chat_db_fda_needed": bool,    # CX-60, load-bearing for the
                                                 # Doctor iMessage FDA card
+        "notes_has_fetched": bool,              # Apple Notes store has rows;
+                                                # also refreshed hourly by
+                                                # ostler-fda
+        "notes_checked_ts": int                 # when notes_has_fetched was
+                                                # last measured
     }
 
 Existing keys are preserved across re-writes (additive schema):
@@ -80,6 +85,7 @@ def build_payload(
     existing: dict[str, Any],
     imessage_fda_needed: bool | None = None,
     enrichment_decision: str | None = None,
+    notes_has_fetched: bool | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "install_completed_ts": install_ts,
@@ -128,6 +134,19 @@ def build_payload(
         prior_enrich = existing.get("enrichment_decision")
         if prior_enrich in VALID_ENRICHMENT_DECISIONS:
             payload["enrichment_decision"] = prior_enrich
+
+    # Apple Notes half: explicit arg wins; otherwise preserve, so an
+    # installer rewrite never drops what the hourly fda-rerun measured.
+    if notes_has_fetched is not None:
+        payload["notes_has_fetched"] = notes_has_fetched
+        payload["notes_checked_ts"] = install_ts
+    else:
+        prior_notes = existing.get("notes_has_fetched")
+        if isinstance(prior_notes, bool):
+            payload["notes_has_fetched"] = prior_notes
+        prior_notes_ts = existing.get("notes_checked_ts")
+        if isinstance(prior_notes_ts, int):
+            payload["notes_checked_ts"] = prior_notes_ts
 
     return payload
 
@@ -188,6 +207,14 @@ def main(argv: list[str]) -> int:
         ),
     )
     parser.add_argument(
+        "--notes-has-fetched",
+        default=None,
+        help=(
+            '"true" or "false" -- does the Apple Notes store hold any note '
+            "rows? Omit to preserve."
+        ),
+    )
+    parser.add_argument(
         "--install-ts",
         default="",
         help="Override install timestamp (epoch seconds). Defaults to now.",
@@ -230,6 +257,18 @@ def main(argv: list[str]) -> int:
             return 2
         imessage_fda_needed = raw == "true"
 
+    notes_has_fetched: bool | None = None
+    if args.notes_has_fetched is not None:
+        raw = args.notes_has_fetched.strip().lower()
+        if raw not in ("true", "false"):
+            print(
+                f"write_pipeline_signals: --notes-has-fetched must be "
+                f"'true' or 'false', got {args.notes_has_fetched!r}",
+                file=sys.stderr,
+            )
+            return 2
+        notes_has_fetched = raw == "true"
+
     if args.install_ts:
         try:
             install_ts = int(args.install_ts)
@@ -250,6 +289,7 @@ def main(argv: list[str]) -> int:
         existing,
         imessage_fda_needed=imessage_fda_needed,
         enrichment_decision=args.enrichment_decision,
+        notes_has_fetched=notes_has_fetched,
     )
 
     try:

@@ -110,13 +110,33 @@ cannot_run() { echo "CANNOT-RUN: $*" >&2; exit 2; }
 
 # The derivation. `10#` forces base 10 so a zero-padded component cannot be
 # read as octal and abort the arithmetic.
+#
+# THE PATCH COMPONENT TAKES THREE DIGITS, THE SUB-PATCH ONLY TWO, and the
+# asymmetry is load-bearing rather than an oversight.
+#
+# It used to take two, which was true for every version this product had ever
+# cut and became false at v1.0.100. Measured 2026-09-17 on the shipped
+# function: 1.0.98 -> 9800 and 1.0.99 -> 9900 both return 0, and 1.0.100
+# returns 2. Two is CANNOT-RUN, the caller turns it into `cannot_run` and
+# exits 2, and check-version is a prerequisite of `package` -- so the first
+# three-digit version would have died before the build, on paperwork, exactly
+# the way v1.0.96 did. Found by asking what was FIRST-OF-ITS-KIND about the
+# next version number before spending it, which is the same question that
+# found the space in "Recover Ostler.app" (#2091).
+#
+# The sub-patch stays at two digits BECAUSE WIDENING IT WOULD COLLIDE: the
+# rule is patch*100 + subpatch, so a three-digit sub-patch makes 1.0.99.100
+# derive 10000, which is also 1.0.100's number. Two different versions, one
+# build number, and Sparkle compares the build number. The cap is the thing
+# that keeps the encoding injective and it must not be "tidied" to match the
+# component above it.
 derive_build_number() {
     local short="$1"
-    if [[ "$short" =~ ^1\.0\.([0-9]{1,2})$ ]]; then
+    if [[ "$short" =~ ^1\.0\.([0-9]{1,3})$ ]]; then
         printf '%d\n' "$(( 10#${BASH_REMATCH[1]} * 100 ))"
         return 0
     fi
-    if [[ "$short" =~ ^1\.0\.([0-9]{1,2})\.([0-9]{1,2})$ ]]; then
+    if [[ "$short" =~ ^1\.0\.([0-9]{1,3})\.([0-9]{1,2})$ ]]; then
         printf '%d\n' "$(( 10#${BASH_REMATCH[1]} * 100 + 10#${BASH_REMATCH[2]} ))"
         return 0
     fi
@@ -253,6 +273,41 @@ PBX
     [[ "$d_ok" == "1" ]] && ok "(8) the rule reproduces every build number shipped since v1.0.13.1" \
                          || no "(8) the derivation contradicts a value that actually shipped"
 
+    # (9) THE THREE-DIGIT PATCH, which is where this gate refused v1.0.100.
+    #     Before the widening above, 1.0.100 returned 2 (CANNOT-RUN) and the
+    #     cut would have died at check-version before the build. The two-digit
+    #     neighbours are the POSITIVE CONTROL: they must still derive, or the
+    #     widening broke the rule rather than extending it.
+    t_ok=1
+    for pair in "1.0.99:9900" "1.0.100:10000" "1.0.101:10100" "1.0.100.5:10005" "1.0.999:99900"; do
+        v="${pair%%:*}"; want="${pair##*:}"
+        got="$(derive_build_number "$v")" || got="ERR"
+        [[ "$got" == "$want" ]] || { t_ok=0; echo "        $v derived $got, want $want"; }
+    done
+    [[ "$t_ok" == "1" ]] && ok "(9) a three-digit patch derives, and the two-digit neighbours still do" \
+                         || no "(9) the three-digit patch derivation is wrong"
+
+    # (10) THE CAP MOVED, IT DID NOT VANISH. A four-digit patch, and a
+    #      three-digit SUB-patch, must both still be CANNOT-RUN. The sub-patch
+    #      one is the load-bearing half: 1.0.99.100 would derive 10000, which
+    #      is already 1.0.100's build number, and Sparkle compares that field.
+    #      A control that cannot fail proves nothing, so this arm asserts the
+    #      REFUSALS, not the acceptances.
+    c_ok=1
+    for v in 1.0.1000 1.0.99.100 1.0.100.100; do
+        # `rc=0; ... || rc=$?` NOT `...; rc=$?`. This file runs under
+        # `set -euo pipefail` (:86), and a command-substitution ASSIGNMENT
+        # takes the status of the substitution -- so the unguarded form dies
+        # ON THE ASSIGNMENT the first time the function correctly refuses, and
+        # `rc=$?` is never reached. Measured while writing this arm: the script
+        # exited 2 having printed arms 1-9 and neither arm 10 nor the summary,
+        # which read as a pass through a `| tail` whose own status masked it.
+        rc=0; got="$(derive_build_number "$v")" || rc=$?
+        [[ "$rc" == "2" ]] || { c_ok=0; echo "        $v was adjudicated (rc=$rc, got $got) instead of refused"; }
+    done
+    [[ "$c_ok" == "1" ]] && ok "(10) CONTROL: 4-digit patch and 3-digit sub-patch are still refused, so the encoding stays injective" \
+                         || no "(10) the widening removed the cap instead of moving it -- two versions can now share a build number"
+
     echo
     echo "=== $st_pass passed / $st_fail failed ==="
     [[ "$st_fail" -eq 0 ]] || exit 1
@@ -277,25 +332,20 @@ print(str(d[key]).strip())
 PY
 }
 
-# --- project.yml (occurrences must AGREE; grep the quoted scalar) ------------
-# MARKETING_VERSION + CURRENT_PROJECT_VERSION live once under settings.base.
-# CFBundleShortVersionString + CFBundleVersion live under the OstlerInstaller
-# target's info.properties AND, since GAP3, under the Uninstaller target's --
-# the two apps ship in one artefact and share a version deliberately. So the
-# guard is no longer "exactly one occurrence"; it is "one DISTINCT VALUE",
-# exactly as pbx_uniq treats the pbxproj's per-config duplicates. Two DIFFERENT
-# values is still the half-bump this gate exists to catch, and still fails.
+# --- project.yml (single-occurrence keys; grep the quoted scalar) ------------
+# Keys are unique in project.yml: MARKETING_VERSION + CURRENT_PROJECT_VERSION
+# live once under settings.base; CFBundleShortVersionString + CFBundleVersion
+# live once under the target's info.properties. Guard against a future
+# duplicate by asserting exactly one match.
 yml_val() {
-    local key="$1" matches vals
+    local key="$1" matches
     matches="$(grep -E "^[[:space:]]*${key}:[[:space:]]" "$PROJECT_YML" || true)"
     [[ -n "$matches" ]] || fail "$key not found in project.yml"
-    vals="$(printf '%s\n' "$matches" \
-              | sed -E 's/.*:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/' | sort -u)"
-    if [[ "$(printf '%s\n' "$vals" | wc -l | tr -d ' ')" != "1" ]]; then
-        fail "$key has more than one distinct value in project.yml -- ambiguous:
-$vals"
+    if [[ "$(printf '%s\n' "$matches" | wc -l | tr -d ' ')" != "1" ]]; then
+        fail "$key appears more than once in project.yml -- ambiguous:
+$matches"
     fi
-    printf '%s\n' "$vals"
+    printf '%s\n' "$matches" | sed -E 's/.*:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/'
 }
 
 # --- pbxproj (multiple occurrences: Debug + Release must all agree) ----------

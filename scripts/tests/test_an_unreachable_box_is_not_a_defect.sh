@@ -73,11 +73,25 @@ cat > "${WORK}/stub.sh" <<'STUB'
 _fake_box() {
     local cmd="$1"
     local mode; mode="$(cat "${STUB_MODE}")"
+    # A4 reads the daemon's pairing signals and the device count, and an
+    # EMPTY read is could-not-run, never pass. This fixture used to answer
+    # both with nothing, which the old predicate scored as "agree". Every
+    # reachable box here is a healthy unpaired one; only "dead" says nothing.
+    if [ "${mode}" != dead ]; then
+        case "${cmd}" in
+            */health*)  echo '{"companion_paired":false,"paired":false,"token_paired":true}'; return 0 ;;
+            *sqlite3*)  echo 0; return 0 ;;
+            # A6's repair audit reads "FOUND DEGRADED FAILED"; a box with no
+            # logs refuses, every other mode here ran no repair pass.
+            *"Link audit"*) if [ "${mode}" = nologs ]; then echo NOLOGS; else echo "0 0 0 0"; fi; return 0 ;;
+        esac
+    fi
     case "${mode}" in
         dead)     return 0 ;;                        # ssh produces nothing at all
         nologs)   case "${cmd}" in
-                      *found=0*)     echo NOLOGS ;;  # the dirs are not there
+                      *found=0*|*wiki-*)     echo NOLOGS ;;  # the dirs are not there
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -85,8 +99,9 @@ _fake_box() {
                       *)             echo "" ;;
                   esac ;;
         clean)    case "${cmd}" in
-                      *found=0*)     echo 0 ;;
+                      *found=0*|*wiki-*)     echo 0 ;;
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -94,8 +109,9 @@ _fake_box() {
                       *)             echo "" ;;
                   esac ;;
         dirty)    case "${cmd}" in
-                      *found=0*)     echo 7 ;;       # real errors in the logs
+                      *found=0*|*wiki-*)     echo 7 ;;       # real errors in the logs
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -104,7 +120,8 @@ _fake_box() {
                   esac ;;
         a8trunc)  case "${cmd}" in
                       *"echo ok"*)   echo ok ;;
-                      *found=0*)     echo 0 ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
+                      *found=0*|*wiki-*)     echo 0 ;;
                       *launchctl*)   echo "" ;;      # reply lost, no terminator
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
@@ -194,6 +211,62 @@ if grep -q 'CANT  A8' "${WORK}/out.txt"; then
     ok "a reply with no terminator renders A8 as could-not-run (exit ${rc})"
 else
     bad "A8 reported '$(grep -E 'A8' "${WORK}/out.txt" | head -1 | tr -s ' ')' for a reply that never arrived"
+fi
+
+# ── 🔴 THE ABSENT-HOST BRANCH, WHICH THIS FILE NEVER EXERCISED ─────────────
+#
+# Board row 2221. Every arm above sets OSTLER_BOX_HOST to an unreachable value,
+# which tests the UNREACHABLE path. Measured on this file before these arms
+# existed: 219 lines, ONE assignment of that variable, and ZERO occurrences of
+# `unset OSTLER_BOX_HOST` or an empty assignment. So the branch that runs when
+# nobody names a box at all had no coverage, and that branch exited 0 --
+# announcing SHIPPABLE for a registered launch-critical gate that had measured nothing.
+#
+# A zero denominator reading as success is the failure this whole suite exists
+# to catch, and it was sitting in the suite's own subject.
+echo
+echo "-- the ABSENT-host branch: no box named at all --"
+
+_ag="${SCRIPTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/box_walk_probes/acceptance_gate_v1013.sh"
+if [ ! -f "${_ag}" ]; then
+    bad "CANNOT LOCATE acceptance_gate_v1013.sh at ${_ag}, so the absent-host branch was NOT tested. That is CANNOT-RUN for these arms, not a pass."
+else
+    _out="$(env -u OSTLER_BOX_HOST /bin/bash "${_ag}" 2>&1)"; _rc=$?
+
+    # (1) THE EXIT CODE. 78 is CANNOT-RUN; 0 would claim the gate passed.
+    if [ "${_rc}" -eq 78 ]; then
+        ok "an UNSET box host exits 78 (CANNOT-RUN), not 0 (SHIPPABLE)"
+    else
+        bad "an UNSET box host exited ${_rc}. 0 would announce SHIPPABLE for a registered launch-critical gate that contacted no box and evaluated no assertion."
+    fi
+
+    # (2) THE MARKER LINE, which is half the contract and is easy to forget.
+    # run_box_walk.sh records a bare 78 as "UNRECORDED ... bypassed
+    # probe_cannot_run and named no prerequisite" and calls that a contract
+    # breach, so the code alone is not enough.
+    if [ "$(printf '%s' "${_out}" | grep -c '^VERDICT: CANNOT-RUN -- ' || true)" -gt 0 ]; then
+        ok "it emits the VERDICT: CANNOT-RUN marker the walk runner parses"
+    else
+        bad "it exited 78 with no 'VERDICT: CANNOT-RUN --' line, which the runner records as UNRECORDED and names a contract breach. Output was: ${_out}"
+    fi
+
+    # (3) IT MUST NAME THE MISSING PREREQUISITE. probe_cannot_run's own comment
+    # says a reason that does not name it leaves the operator guessing.
+    if [ "$(printf '%s' "${_out}" | grep -c 'OSTLER_BOX_HOST' || true)" -gt 0 ]; then
+        ok "the reason names the missing prerequisite by name"
+    else
+        bad "the CANNOT-RUN reason does not name the missing prerequisite, so an operator cannot act on it"
+    fi
+
+    # (4) CONTROL, AND WITHOUT IT ARM (1) IS MEANINGLESS. If the gate returned
+    # 78 for every input, arm (1) would pass while the gate discriminated
+    # nothing. A host that IS set must NOT take the absent-host branch.
+    _out2="$(OSTLER_BOX_HOST="unreachable.invalid" /bin/bash "${_ag}" 2>&1)"; _rc2=$?
+    if [ "${_rc2}" -ne 78 ] || ! [ "$(printf '%s' "${_out2}" | grep -c 'is not set' || true)" -gt 0 ]; then
+        ok "CONTROL: a host that IS set does not take the absent-host branch (rc ${_rc2}), so arm (1) is about the branch and not a constant"
+    else
+        bad "CONTROL: a host that IS set produced the same absent-host refusal, so this gate returns CANNOT-RUN regardless of input and arm (1) proves nothing"
+    fi
 fi
 
 echo

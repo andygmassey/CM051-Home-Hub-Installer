@@ -10,11 +10,13 @@
 
 Instrument: `scripts/box_walk_probes/probes/no_unexpected_egress.sh`.
 Ledger: `scripts/box_walk_probes/egress_hosts.tsv`.
-Measured on a 16 GB M4 Mini running v1.0.33, 2026-08-17.
+Measured on a 16 GB M4 Mini running v1.0.33, 2026-08-17. The Tailscale
+control-plane row in Honest residue below was re-measured on a live install
+on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 46
-digest: 88c3528dfb4bad552e6c172629d567454648d6a923537e18cbec084a88d12de9
+hosts: 49
+digest: 721aa8a98ebfbf104f49202e610bb01475d1372250817be2d0a2bdb93fe9b85c
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -72,7 +74,10 @@ denominator is on the page.
 
 ## The destination families
 
-Boundary: loopback, RFC1918 LAN, link-local, Tailscale CGNAT. Full detail in
+Boundary: loopback, RFC1918 LAN, link-local, Tailscale CGNAT. Crossing it is
+not by itself a finding: the ledger says which crossings are declared, by
+hostname where a name can reach the address and by CIDR where it cannot, and a
+CIDR row attributes the owner of an address and never the service. Full detail in
 the ledger; this is the shape.
 
 | family | when | opt-in | carries something about the customer |
@@ -179,17 +184,50 @@ A reader running the obvious grep will hit these. They are strings, not fetches.
 
 ## Honest residue
 
-Still unattributed, and neither is noise:
+### One of the two is now explained, and the explanation is in the ledger
 
-1. `tailscale -> 199.165.136.100:443`, sustained, matching nothing Tailscale
-   publishes: not the 88-node DERP map, not `log.tailscale.io`, not
-   `login`/`controlplane`. A dependency's egress, still ours to explain because
-   we ship it.
-2. `limactl`'s install-phase destinations, which change between samples.
+`tailscale -> 199.165.136.100:443` was listed here as unattributed from
+2026-08-17 until 2026-09-18. It was sustained, and it matched nothing Tailscale
+publishes: not the 88-node DERP map, not `log.tailscale.io`, not
+`login`/`controlplane`.
+
+It is Ostler's own Tailscale client holding its connection to Tailscale's
+control plane on an address that Tailscale's control plane handed it, and that
+DNS deliberately does not publish. Tailscale calls this a dial plan: control
+gives a client alternative addresses to reach control on, so that a blocked or
+hijacked route does not take the tailnet down. Measured on a live install:
+
+* the connection is held by the `tailscaled` this product installs and runs,
+  so it is ours to explain and we are not disowning it as a dependency's
+* ARIN registers `199.165.136.0/24` to Tailscale Inc., and the org record lists
+  exactly four blocks for them, so this is a closed set and not a range that
+  grows quietly. Anyone can repeat that query
+* the address is in neither DERP map: not the public default one, and not the
+  map the client on the box itself holds
+* it refuses an ordinary TLS handshake under every name we tried, while the
+  identical request to a published control address completes and answers. The
+  control-plane transport is Noise, not TLS, which is why no certificate can
+  be read from it, by us or by anyone auditing us
+* the client's own log records receiving a new dial plan from control, and
+  forcing a port 443 dial, in the window the connection was held
+
+**What that lets us say, and what it does not.** The destination is Tailscale's
+own network, the purpose is the tailnet that lets your phone reach your Mac,
+and the payloads Tailscale relays are end-to-end encrypted and not readable by
+Tailscale. We cannot read the session either, so we cannot certify its contents
+any more than an auditor could. The ledger now declares these networks by CIDR,
+and the instrument reports such a connection in its own bucket, headed OWNER
+ATTRIBUTED, SERVICE NOT, so a reader can see how much of the attribution rests
+on who owns an address rather than on which service answered.
+
+### Still unattributed
+
+1. `limactl`'s install-phase destinations, which change between samples.
 
 Publishing an inventory with unexplained rows is better than publishing one
-that quietly drops them. But this is not finished, and the enrichment
-measurement above is the blocker, not these two.
+that quietly drops them, and better again is going back and explaining one.
+This is still not finished, and the enrichment measurement above is the
+blocker, not this.
 
 ## Verify it yourself
 

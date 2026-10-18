@@ -297,10 +297,20 @@ def _promote_pair(
     again on an already-promoted fact is a no-op.
     """
     graph_uri = f"urn:ostler:user/{settings.user_id}"
+    # v1018-D012b: `WITH`, not `using-graph-uri`. The protocol parameter
+    # scopes the WHERE clause ONLY, leaving the DELETE and INSERT
+    # templates pointed at the DEFAULT graph. Measured on a live store:
+    # seeding candidate=true in the named graph and running this update
+    # with using-graph-uri left `true` in the named graph (the DELETE
+    # matched nothing to remove there) and wrote `false` into the default
+    # graph, so the fact carried both values at once and the reader --
+    # which is pinned to the named graph -- still saw `true`. `WITH`
+    # scopes the templates AND the WHERE to the one graph.
     sparql = f"""
 PREFIX pwg: <urn:ostler:>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
+WITH <{graph_uri}>
 DELETE {{
   <urn:ostler:fact/{fact_id_a}> pwg:candidate ?old_a .
   <urn:ostler:fact/{fact_id_b}> pwg:candidate ?old_b .
@@ -320,7 +330,6 @@ WHERE {{
                 f"{settings.oxigraph_url}/update",
                 content=sparql,
                 headers={"Content-Type": "application/sparql-update"},
-                params={"using-graph-uri": graph_uri},
             )
             resp.raise_for_status()
     except Exception as exc:
@@ -403,10 +412,16 @@ def set_candidate(
     """
     graph_uri = f"urn:ostler:user/{settings.user_id}"
     literal = "true" if value else "false"
+    # v1018-D012b: `WITH`, not `using-graph-uri` -- see _promote_pair for
+    # the measurement. The parameter scopes only the WHERE clause, so the
+    # operator's promote/unpromote wrote into the default graph while the
+    # reader stayed pinned to the named one: the override silently did
+    # nothing and left two contradictory values behind.
     sparql = f"""
 PREFIX pwg: <urn:ostler:>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
+WITH <{graph_uri}>
 DELETE {{ <{fact_uri}> pwg:candidate ?old }}
 INSERT {{ <{fact_uri}> pwg:candidate "{literal}"^^xsd:boolean }}
 WHERE {{ OPTIONAL {{ <{fact_uri}> pwg:candidate ?old }} }}
@@ -417,7 +432,6 @@ WHERE {{ OPTIONAL {{ <{fact_uri}> pwg:candidate ?old }} }}
                 f"{settings.oxigraph_url}/update",
                 content=sparql,
                 headers={"Content-Type": "application/sparql-update"},
-                params={"using-graph-uri": graph_uri},
             )
             resp.raise_for_status()
     except Exception as exc:

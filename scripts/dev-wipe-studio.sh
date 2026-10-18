@@ -173,6 +173,8 @@ done
 # extension after a wipe is not the clean machine the walk believes it is on.
 rm -rf "$(_apps_dir)/Ostler.app" \
        "$(_apps_dir)/OstlerInstaller.app" \
+       "$(_apps_dir)/Ostler/Ostler RemoteCapture.app" \
+       "$(_apps_dir)/Ostler/Ostler Safari Extension.app" \
        "$(_apps_dir)/Ostler RemoteCapture.app" \
        "$(_apps_dir)/Ostler Safari Extension.app"
 if [ -e "$(_bin_dir)/ostler-knowledge" ]; then
@@ -283,6 +285,7 @@ for path in "$OD" \
             "${HOME}/Library/Application Support/Ostler RemoteCapture" \
             "${APPS}/Ostler.app" \
             "${APPS}/OstlerInstaller.app" \
+            "${APPS}/Ostler/Ostler RemoteCapture.app" \
             "${APPS}/Ostler RemoteCapture.app" \
             "${BIN}/ostler-knowledge"; do
   if [ -e "$path" ]; then

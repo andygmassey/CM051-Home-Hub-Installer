@@ -105,6 +105,63 @@ else
 	rm -f "$_broken"
 fi
 
+# ---------------------------------------------------------------------------
+# 4. A regenerate_forbidden TREE IS REFUSED BY sync_vendor.sh, BEFORE SOURCE.
+#
+# The ban lived only in regenerate_divergence_patch.sh. Measured: 7 references
+# there, 0 in sync_vendor.sh, and 0 invocations of the guarded script from it.
+# Its own refusal text asked a human not to "route around it with
+# sync_vendor.sh", which is prose standing in for a check. On
+# cm041/contact_syncer the declared reason was export of personal data from a
+# private repo into this public one, so the unguarded path was one command away
+# from firing.
+#
+# The synthetic pins below are hex-with-letters, NOT a run of zeros. A
+# 40-zero sha is all digits and trips this repo's own PII shape scan
+# (\b[0-9]{15,}\b), which blocked this very commit. The guard is right and
+# the fixture was wrong: do not weaken the pattern to make a test literal fit.
+#
+# Hermetic: a scratch manifest, no source repo, no network. The refusal must
+# happen BEFORE resolve_source_repo, which is what "and no source was touched"
+# below actually asserts -- the run cannot reach the "source repo not found"
+# message that an unflagged tree reaches.
+# ---------------------------------------------------------------------------
+_scratch="$(mktemp -d)"
+_before4="$_scratch/manifest.before"
+cp "$MANIFEST" "$_before4"
+
+printf '\n[[tree]]\nname             = "selftest/banned"\nvendor_path      = "vendor/selftest_banned"\nsource_repo      = "$SELFTEST_ABSENT"\nsource_path      = "."\npinned_sha       = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"\nregenerate_forbidden        = true\nregenerate_forbidden_reason = "synthetic ban for the self-test"\n' >> "$MANIFEST"
+printf '\n[[tree]]\nname             = "selftest/unbanned"\nvendor_path      = "vendor/selftest_unbanned"\nsource_repo      = "$SELFTEST_ABSENT"\nsource_path      = "."\npinned_sha       = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"\n' >> "$MANIFEST"
+
+_out4="$(bash "$SCRIPT" selftest/banned 2>&1)"; _rc4=$?
+if [ "$_rc4" -eq 1 ] && grep -q 'REFUSED: selftest/banned is marked regenerate_forbidden' <<<"$_out4"; then
+	pass "sync_vendor.sh REFUSES a regenerate_forbidden tree (rc=1, names the tree)"
+else
+	fail "sync_vendor.sh did not refuse a banned tree: rc=$_rc4"
+fi
+if grep -q 'synthetic ban for the self-test' <<<"$_out4"; then
+	pass "and it prints the declared reason rather than a bare refusal"
+else
+	fail "the refusal did not carry regenerate_forbidden_reason"
+fi
+if grep -q 'source repo' <<<"$_out4"; then
+	fail "the refusal happened AFTER source resolution; it must come first"
+else
+	pass "and no source was touched: the run never reached source resolution"
+fi
+
+# THE CONTROL. Without it, a check that refused every tree would pass above.
+_out5="$(bash "$SCRIPT" selftest/unbanned 2>&1)"; _rc5=$?
+if grep -q 'regenerate_forbidden' <<<"$_out5"; then
+	fail "CONTROL: an UNFLAGGED tree was refused by the ban; the check is indiscriminate"
+else
+	pass "CONTROL: an unflagged tree proceeds past the ban check (rc=$_rc5)"
+fi
+
+cp "$_before4" "$MANIFEST"
+rm -rf "$_scratch"
+if diff -q "$_before4" "$MANIFEST" >/dev/null 2>&1 || true; then :; fi
+
 echo ""
 if [ "$fails" -eq 0 ]; then echo "sync_vendor abort-pin: GREEN"; exit 0; fi
 echo "sync_vendor abort-pin: RED ($fails failing)"; exit 1

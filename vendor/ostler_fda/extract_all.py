@@ -103,6 +103,22 @@ def _env_days(name: str, default: int) -> int:
         return default
 
 
+def _failure_status(e: BaseException, error: Optional[str] = None) -> dict:
+    """The summary row for a source whose extract raised.
+
+    A refusal that a reader did not convert to PermissionError (a query-time
+    SQLITE_AUTH, an EPERM from a helper) is still a refusal: report it as
+    no_fda so the fda tick records cannot_run and the Doctor asks for the
+    grant, instead of a generic error (CM051 G1, sweep V26). Without a path
+    SQLITE_CANTOPEN is never read as a refusal here; the readers decide that,
+    because only they know whether the file exists.
+    """
+    from .tcc_refusal import is_fda_refusal
+    if is_fda_refusal(e):
+        return {"status": "no_fda", "error": error if error is not None else str(e)}
+    return {"status": "error", "error": error if error is not None else str(e)}
+
+
 def run_all(
     output_dir: Optional[Path] = None,
     enabled_sources: Optional[Iterable[str]] = None,
@@ -169,7 +185,7 @@ def run_all(
             summary["sources"]["safari_history"] = {"status": "not_found"}
             logger.info("[skip] Safari History: database not found")
         except Exception as e:
-            summary["sources"]["safari_history"] = {"status": "error", "error": str(e)}
+            summary["sources"]["safari_history"] = _failure_status(e)
             logger.warning("[warn] Safari History: %s", e)
     else:
         summary["sources"]["safari_history"] = {"status": "disabled_by_user"}
@@ -212,7 +228,7 @@ def run_all(
             summary["sources"]["chrome_history"] = {"status": "not_found"}
             logger.info("[skip] Chrome History: Chrome not installed")
         except Exception as e:
-            summary["sources"]["chrome_history"] = {"status": "error", "error": str(e)}
+            summary["sources"]["chrome_history"] = _failure_status(e)
             logger.warning("[warn] Chrome History: %s", e)
     else:
         summary["sources"]["chrome_history"] = {"status": "disabled_by_user"}
@@ -242,7 +258,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["safari_bookmarks"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["safari_bookmarks"] = {"status": "error", "error": str(e)}
+            summary["sources"]["safari_bookmarks"] = _failure_status(e)
             logger.warning("[warn] Safari Bookmarks: %s", e)
     else:
         summary["sources"]["safari_bookmarks"] = {"status": "disabled_by_user"}
@@ -263,11 +279,18 @@ def run_all(
             # still arrives, over the settle-in period rather than during
             # onboarding. An explicit env value pins the window and disables
             # the ladder. Andy's call.
-            from .backfill_ladder import resolve_backfill_days
+            from .backfill_ladder import resolve_backfill_days, widen_first_window
             imsg_backfill_days = resolve_backfill_days(
                 "imessage", "OSTLER_IMESSAGE_BACKFILL_DAYS"
             )
-            conversations = extract_conversations(since_days=imsg_backfill_days)
+            # #30: on the FIRST run, widen when the 45-day rung holds too
+            # little (a sparse recent history showed 0 conversations on day one).
+            conversations, imsg_backfill_days = widen_first_window(
+                "imessage", imsg_backfill_days,
+                lambda d: extract_conversations(since_days=d),
+                lambda cs: (sum(int(c.message_count or 0) for c in cs), len(cs)),
+                env_var="OSTLER_IMESSAGE_BACKFILL_DAYS", persist_ladder=True, run_source="imessage",
+            )
             stats = conversation_stats(conversations)
 
             (output_dir / "imessage_conversations.json").write_text(
@@ -291,7 +314,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["imessage"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["imessage"] = {"status": "error", "error": str(e)}
+            summary["sources"]["imessage"] = _failure_status(e)
             logger.warning("[warn] iMessage: %s", e)
     else:
         summary["sources"]["imessage"] = {"status": "disabled_by_user"}
@@ -316,7 +339,14 @@ def run_all(
             # even when the customer was a 5-year user. Operator
             # override via OSTLER_WHATSAPP_BACKFILL_DAYS.
             wa_backfill_days = int(os.environ.get("OSTLER_WHATSAPP_BACKFILL_DAYS", "365"))
-            chats = _wa_extract(since_days=wa_backfill_days)
+            # #30: widen on the first run when the window holds too little.
+            from .backfill_ladder import widen_first_window
+            chats, wa_backfill_days = widen_first_window(
+                "whatsapp", wa_backfill_days,
+                lambda d: _wa_extract(since_days=d),
+                lambda cs: (0, sum(1 for c in cs if c.tier != TIER_T3_SKIP)),
+                env_var="OSTLER_WHATSAPP_BACKFILL_DAYS", run_source="whatsapp_history",
+            )
             stats = _wa_stats(chats)
 
             # Drop T3 chats before writing the JSON -- they contain
@@ -348,7 +378,7 @@ def run_all(
             summary["sources"]["whatsapp_history"] = {"status": "not_found"}
             logger.info("[skip] WhatsApp: ChatStorage.sqlite not found (install WhatsApp Desktop)")
         except Exception as e:
-            summary["sources"]["whatsapp_history"] = {"status": "error", "error": str(e)}
+            summary["sources"]["whatsapp_history"] = _failure_status(e)
             logger.warning("[warn] WhatsApp: %s", e)
     else:
         summary["sources"]["whatsapp_history"] = {"status": "disabled_by_user"}
@@ -433,7 +463,7 @@ def run_all(
             summary["sources"]["facebook_messenger"] = {"status": "not_found"}
             logger.info("[skip] Facebook Messenger: %s", e)
         except Exception as e:
-            summary["sources"]["facebook_messenger"] = {"status": "error", "error": str(e)}
+            summary["sources"]["facebook_messenger"] = _failure_status(e)
             logger.warning("[warn] Facebook Messenger: %s", e)
     else:
         summary["sources"]["facebook_messenger"] = {"status": "disabled_by_user"}
@@ -462,7 +492,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["apple_notes"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["apple_notes"] = {"status": "error", "error": str(e)}
+            summary["sources"]["apple_notes"] = _failure_status(e)
             logger.warning("[warn] Apple Notes: %s", e)
     else:
         summary["sources"]["apple_notes"] = {"status": "disabled_by_user"}
@@ -492,6 +522,14 @@ def run_all(
                     since_days=365,
                     with_people_only=("photos_faces" in sources),
                 )
+                if "photos_faces" not in sources:
+                    # The query joins face labels onto every photo it
+                    # returns, whether or not the customer opted in to
+                    # faces. Measured on a box with faces off: 25 of 1298
+                    # events still carried names. Face data is opt-in, so
+                    # without the opt-in it never reaches the file.
+                    for e in events:
+                        e.people = []
                 (output_dir / "photos_events.json").write_text(
                     json.dumps([asdict(e) for e in events], indent=2, default=str)
                 )
@@ -514,7 +552,7 @@ def run_all(
         except FileNotFoundError:
             summary["sources"]["photos"] = {"status": "not_found"}
         except Exception as e:
-            summary["sources"]["photos"] = {"status": "error", "error": str(e)}
+            summary["sources"]["photos"] = _failure_status(e)
             logger.warning("[warn] Photos: %s", e)
     else:
         summary["sources"]["photos"] = {"status": "disabled_by_user"}
@@ -622,10 +660,8 @@ def run_all(
             # install.sh roll-up grep for ^\[ok\] / ^\[skip\] counts it.
             # Pre-fix, generic exceptions emitted [warn] which the grep
             # skipped over -- a third silent-fail axis on Calendar.
-            summary["sources"]["calendar"] = {
-                "status": "error",
-                "error": "%s: %s" % (type(e).__name__, str(e)[:120]),
-            }
+            summary["sources"]["calendar"] = _failure_status(
+                e, "%s: %s" % (type(e).__name__, str(e)[:120]))
             logger.info("[skip] Calendar: %s: %s", type(e).__name__, str(e)[:120])
     else:
         # CX-109 (DMG #48l): emit [skip] for the disabled-by-user branch
@@ -662,7 +698,7 @@ def run_all(
             summary["sources"]["reminders"] = {"status": "not_found"}
             logger.info("[skip] Reminders: database not found")
         except Exception as e:
-            summary["sources"]["reminders"] = {"status": "error", "error": str(e)}
+            summary["sources"]["reminders"] = _failure_status(e)
             logger.warning("[warn] Reminders: %s", e)
     else:
         summary["sources"]["reminders"] = {"status": "disabled_by_user"}
@@ -674,21 +710,51 @@ def run_all(
     # present, so "not_found" surfaces as ok-with-zero-tracks.
     if "apple_music" in sources:
         try:
-            from .apple_music import extract_library, library_stats, to_records
+            from .apple_music import (
+                extract_library, library_stats, to_records,
+                write_preference_export, previous_export_track_count,
+            )
+            # Native helper first (OSTLER_MUSIC_LIBRARY_HELPER, the
+            # "Media & Apple Music" permission), XML export as fallback.
+            # Never raises for a refused permission or an empty library.
             library = extract_library()
 
             (output_dir / "apple_music.json").write_text(
                 json.dumps(to_records(library), indent=2, default=str)
             )
+            # Per-track evidence for the CM019 preference importer. Written
+            # only when there are tracks; install.sh stages it into the
+            # preferences drop-zone.
+            write_preference_export(library, output_dir)
 
             stats = library_stats(library)
+            # A later run with no Media & Apple Music grant (the launchd
+            # re-run) keeps what the install read: write_preference_export
+            # only writes when there are tracks, and the summary says the
+            # tracks came from that earlier read, not from this one.
+            if not library.tracks:
+                prev = previous_export_track_count(output_dir)
+                if prev:
+                    stats["total_tracks"] = prev
+                    stats["reader"] = "previous_export"
+            # ok means tracks were read. Zero tracks is "could not look" when
+            # the Music framework refused (same word install.sh already maps
+            # to cannot_run) and "nothing there" otherwise (maps to no_data).
+            if stats["total_tracks"] > 0:
+                music_status = "ok"
+            elif stats["native_status"] == "unavailable":
+                music_status = "media_library_not_granted"
+            else:
+                music_status = "not_found"
             summary["sources"]["apple_music"] = {
-                "status": "ok",
+                "status": music_status,
                 **stats,
             }
             logger.info(
-                "[ok] Apple Music: %d tracks, %d artists, %d playlists",
+                "[ok] Apple Music: %d tracks, %d artists, %d playlists "
+                "(reader %s, native %s)",
                 stats["total_tracks"], stats["distinct_artists"], stats["total_playlists"],
+                stats["reader"], stats["native_status"],
             )
 
         except PermissionError:
@@ -698,7 +764,7 @@ def run_all(
             summary["sources"]["apple_music"] = {"status": "not_found"}
             logger.info("[skip] Apple Music: library XML not found")
         except Exception as e:
-            summary["sources"]["apple_music"] = {"status": "error", "error": str(e)}
+            summary["sources"]["apple_music"] = _failure_status(e)
             logger.warning("[warn] Apple Music: %s", e)
     else:
         summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
@@ -795,7 +861,7 @@ def run_all(
             summary["sources"]["google_takeout"] = {"status": "not_found", "error": str(e)}
             logger.info("[skip] Google Takeout: %s", e)
         except Exception as e:
-            summary["sources"]["google_takeout"] = {"status": "error", "error": str(e)}
+            summary["sources"]["google_takeout"] = _failure_status(e)
             logger.warning("[warn] Google Takeout: %s", e)
     else:
         summary["sources"]["google_takeout"] = {"status": "disabled_by_user"}
@@ -804,6 +870,7 @@ def run_all(
     if "apple_mail" in sources:
         try:
             from .apple_mail import extract_messages, email_stats, frequent_contacts
+            from .apple_mail import envelope_index_total
             # Mail history window is configurable, same shape as the
             # other sources (OSTLER_IMESSAGE_BACKFILL_DAYS etc). The
             # hardcoded since_days=365 silently dropped everything older
@@ -818,8 +885,30 @@ def run_all(
                 os.environ.get("OSTLER_MAIL_BACKFILL_DAYS", "1825")
             )
             mail_limit = int(os.environ.get("OSTLER_MAIL_BACKFILL_LIMIT", "100000"))
-            messages = extract_messages(since_days=mail_backfill_days, limit=mail_limit)
+            # #30: widen on the first run when the window holds too little.
+            # Threads are approximated by distinct subjects with any Re:/Fwd:
+            # prefix stripped: Mail's envelope row carries no thread id here.
+            from .backfill_ladder import widen_first_window
+            import re as _re
+
+            def _mail_threads(ms):
+                return len({_re.sub(r"^(?:(?:re|fwd?)\s*:\s*)+", "", (m.subject or "").strip().lower())
+                            for m in ms})
+
+            messages, mail_backfill_days = widen_first_window(
+                "mail", mail_backfill_days,
+                lambda d: extract_messages(since_days=d, limit=mail_limit),
+                lambda ms: (len(ms), _mail_threads(ms)),
+                env_var="OSTLER_MAIL_BACKFILL_DAYS", run_source="apple_mail",
+            )
             stats = email_stats(messages)
+            # How many messages the Mail store holds in all, read from the
+            # same Envelope Index (walk #28: the Doctor's Mail row shows
+            # "N of M emails read"). Recorded only when it could be counted;
+            # an absent field means unknown, never 0.
+            mailbox_total = envelope_index_total()
+            if mailbox_total is not None:
+                stats["mailbox_total"] = mailbox_total
             contacts = frequent_contacts(messages)
 
             (output_dir / "apple_mail.json").write_text(
@@ -828,6 +917,11 @@ def run_all(
             (output_dir / "apple_mail_contacts.json").write_text(
                 json.dumps(contacts, indent=2, default=str)
             )
+            # DMG #27: which senders are machines (no-reply, calendar system,
+            # notification domain, all-list mail) and which are people the
+            # owner corresponded with. Counts only in the summary.
+            from .machine_senders import collect as _collect_machine_senders
+            summary["machine_senders"] = _collect_machine_senders(output_dir)
 
             # #259: when Apple Mail is configured but the local store
             # holds no messages in the window, do not pretend success.
@@ -862,10 +956,23 @@ def run_all(
             summary["sources"]["apple_mail"] = {"status": "not_found"}
             logger.info("[skip] Apple Mail: not configured on this Mac")
         except Exception as e:
-            summary["sources"]["apple_mail"] = {"status": "error", "error": str(e)}
+            summary["sources"]["apple_mail"] = _failure_status(e)
             logger.warning("[warn] Apple Mail: %s", e)
     else:
         summary["sources"]["apple_mail"] = {"status": "disabled_by_user"}
+
+    # ── Owner's own addresses (DMG #27) ────────────────────────────
+    # Written on every run so ingest never mints the owner's own address
+    # (me card, Mail account, Sent From, sole-To of delivered non-list mail)
+    # as a Person. Counts only in the summary; never fatal.
+    try:
+        from .owner_addresses import collect as _collect_owner_addresses
+        summary["owner_addresses"] = _collect_owner_addresses(
+            output_dir, use_mail="apple_mail" in sources,
+        )
+    except Exception as e:  # noqa: BLE001
+        summary["owner_addresses"] = {"status": "error", "error": type(e).__name__}
+        logger.warning("[warn] Owner addresses: %s", type(e).__name__)
 
     # ── Save summary ────────────────────────────────────────────────
     (output_dir / "extraction_summary.json").write_text(

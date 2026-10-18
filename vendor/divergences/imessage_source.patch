@@ -1,6 +1,8 @@
+diff --git a/__init__.py b/__init__.py
+index c476f4f6..2ba15f0f 100644
 --- a/__init__.py
 +++ b/__init__.py
-@@ -10,7 +10,7 @@
+@@ -10,7 +10,7 @@ process``). CM048 then emits the four artefacts under
  ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
  
  This is the product path. It does NOT use the ZeroClaw JSONL tail
@@ -9,9 +11,11 @@
  setup; the product reads chat.db directly under FDA on the single
  Hub Mac.
  """
+diff --git a/bin/imessage-bundle-tick.sh b/bin/imessage-bundle-tick.sh
+index 89eedd07..2cb818bb 100755
 --- a/bin/imessage-bundle-tick.sh
 +++ b/bin/imessage-bundle-tick.sh
-@@ -21,12 +21,279 @@
+@@ -21,12 +21,371 @@ SOURCE_DIR="${OSTLER_SOURCE_DIR:-OSTLER_SOURCE_DIR_PLACEHOLDER}"
  SINCE_DAYS="${OSTLER_IMESSAGE_SINCE_DAYS:-30}"
  USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
  
@@ -136,11 +140,60 @@
 +#   OSTLER_INGEST_OFFPEAK_ONLY=0      -> disable the gate (full window
 +#                                       every tick).
 +#   OSTLER_INGEST_DAYTIME_SINCE_DAYS  -> daytime read window (default 2).
++# 🗿 ANDY 2026-08-23 (#789): the quiet window was 01:00-06:00 -- five
++# hours in twenty-four, and measurably the binding constraint on the
++# email backfill (~6 conversations/hour, ~30 days to clear). His call:
++# "during quiet overnight hours the throttle should open up as much as
++# possible until just before wake time." Default is now 23:00-07:00 and
++# BOTH bounds are configurable.
++#
++# ⚠️ THE DEFAULT NOW WRAPS MIDNIGHT AND THE OLD PREDICATE COULD NOT SAY
++# THAT. `hour -lt 1 || hour -ge 6` is a NON-wrapping test; reused with
++# start=23 end=7 it is true at EVERY hour, so the daytime clamp would
++# have applied around the clock and the window would have got SMALLER,
++# not larger -- silently, with no error and no failing test. Both arms
++# are asserted in tests/test_ingest_offpeak_throttle.sh.
++#
++# Widening is safe because the clock is not the only protection: the
++# single-flight lock still serialises the four feeds onto one model
++# slot, OLLAMA_NUM_PARALLEL still reserves a chat slot, and the loadavg
++# ceiling still defers a tick on a busy machine. All three are
++# independent of the hour, so a customer awake at 02:00 stays protected.
++#
++#   OSTLER_INGEST_QUIET_START  -> quiet window opens (default 23).
++#   OSTLER_INGEST_QUIET_END    -> closes, EXCLUSIVE (default 7). Set it
++#                                 a little BEFORE the wake hour so the
++#                                 machine is idle again by then.
 +if [ "${OSTLER_INGEST_OFFPEAK_ONLY:-1}" = "1" ]; then
 +    # 10# forces base-10 so a leading-zero hour ("08","09") is not read
 +    # as an invalid octal literal.
 +    _ostler_hour=$((10#$(date +%H)))
-+    if [ "$_ostler_hour" -lt 1 ] || [ "$_ostler_hour" -ge 6 ]; then
++    _ostler_q_start="${OSTLER_INGEST_QUIET_START:-23}"
++    _ostler_q_end="${OSTLER_INGEST_QUIET_END:-7}"
++    # A malformed bound falls back to the default rather than wedging the
++    # clamp ON (starves ingest forever) or OFF (runs hot all day).
++    case "$_ostler_q_start" in ''|*[!0-9]*) _ostler_q_start=23 ;; esac
++    case "$_ostler_q_end"   in ''|*[!0-9]*) _ostler_q_end=7    ;; esac
++    [ "$_ostler_q_start" -le 23 ] || _ostler_q_start=23
++    [ "$_ostler_q_end"   -le 23 ] || _ostler_q_end=7
++
++    _ostler_in_quiet=0
++    if [ "$_ostler_q_start" -lt "$_ostler_q_end" ]; then
++        # Same-day window, e.g. 01-06.
++        if [ "$_ostler_hour" -ge "$_ostler_q_start" ] && [ "$_ostler_hour" -lt "$_ostler_q_end" ]; then
++            _ostler_in_quiet=1
++        fi
++    elif [ "$_ostler_q_start" -gt "$_ostler_q_end" ]; then
++        # Wraps midnight, e.g. 23-07: late evening OR early morning.
++        if [ "$_ostler_hour" -ge "$_ostler_q_start" ] || [ "$_ostler_hour" -lt "$_ostler_q_end" ]; then
++            _ostler_in_quiet=1
++        fi
++    fi
++    # start == end is a ZERO-length window, not an always-open one: it
++    # leaves _ostler_in_quiet at 0 and the clamp applies. An operator who
++    # wants no clamp sets OSTLER_INGEST_OFFPEAK_ONLY=0, which says so.
++
++    if [ "$_ostler_in_quiet" -eq 0 ]; then
 +        _ostler_daytime_days="${OSTLER_INGEST_DAYTIME_SINCE_DAYS:-2}"
 +        if [ "$SINCE_DAYS" -gt "$_ostler_daytime_days" ]; then
 +            SINCE_DAYS="$_ostler_daytime_days"
@@ -270,6 +323,49 @@
 +fi
 +# --------------------------------------------------------------------
 +
++# --- Rule 0.8: the Ostler Pro subscription gate ----------------------
++# PRODUCTISATION_CHECKLIST.md Rule 0.8, locked 2026-05-09 and called
++# "non-negotiable for launch": every ingestion pipeline checks the
++# subscription gate before processing NEW data. Measured 2026-09-16,
++# exactly one of the eleven named surfaces did. This is iMessage capture.
++#
++# WHY THE PATH IS DERIVED AND NOT RE-VENDORED. The gate module ships
++# beside ical-server.py, and install.sh (`cp -R assistant_api/.`) puts
++# the whole of it in $OSTLER_DIR/services/ical-server/ -- a SIBLING of
++# this service's own staged directory. Deriving it from SOURCE_DIR keeps
++# ONE canonical gate. A fourth and fifth copy of a 300-line state
++# machine is how the daemon and the installer came to disagree about
++# has_ever_paid in the first place.
++#
++# FAIL OPEN on anything that is not an unambiguous "paused": module
++# missing, interpreter will not start, any exit code other than 3. A
++# customer who has paid must never be stopped because we could not ask,
++# and a packaging mistake must never wear the costume of a lapsed
++# subscription. Exit 3 is the ONLY code that pauses -- that is why the
++# gate does not use 1, which is indistinguishable from a crash.
++#
++# Paused exits 0, not non-zero: this is the expected steady state of an
++# unsubscribed Hub, not a fault. A non-zero exit would light up Doctor
++# and the .err log every 15 minutes for a customer who is simply not
++# paying.
++_ostler_gate="$(dirname "$SOURCE_DIR")/ical-server/subscription_gate.py"
++if [ -f "$_ostler_gate" ]; then
++    set +e
++    "$PYTHON_BIN" "$_ostler_gate" --check
++    _ostler_gate_rc=$?
++    set -e
++    if [ "$_ostler_gate_rc" -eq 3 ]; then
++        echo "imessage-bundle tick: Ostler Pro is not active, so new iMessage capture is paused. Everything already in your Hub stays available. Subscribe in the Ostler app and this resumes on the next tick."
++        exit 0
++    fi
++    if [ "$_ostler_gate_rc" -ne 0 ]; then
++        echo "imessage-bundle tick: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); continuing to ingest. A customer is never paused because we could not ask." >&2
++    fi
++else
++    echo "imessage-bundle tick: subscription gate not found at ${_ostler_gate}; continuing to ingest. Rule 0.8 is NOT being enforced on this surface -- this line is the only evidence of that, so do not remove it." >&2
++fi
++# --- end Rule 0.8 gate -----------------------------------------------
++
  cd "$SOURCE_DIR"
  # Run as a module so the package-relative imports resolve. SOURCE_DIR
  # is the parent of the `services/` tree on the Hub install layout.
@@ -292,6 +388,304 @@
 +    esac
 +fi
 +exit "$_pipeline_rc"
+diff --git b/catchup.py b/catchup.py
+new file mode 100644
+index 00000000..c6ae27fc
+--- /dev/null
++++ b/catchup.py
+@@ -0,0 +1,290 @@
++"""Full-history catch-up for iMessage bundles (v1.0.108, catch-up 2/6).
++
++The forward feed (``pipeline.process_imessage``) only looks at chats active
++in the last 30 days, and only at each chat's newest ``extract_messages``
++limit (2,000) rows. Everything older, and every chat that went quiet more
++than 30 days ago, was never bundled. This adapter walks every chat in
++chat.db BACKWARDS from that edge to its first message, in whole sessions,
++and hands each session to CM048 through the same dispatch the forward feed
++uses. Driven by ``lib/ostler_catchup.py`` (run from com.ostler.export-scan).
++
++WHERE EACH CHAT STARTS. A chat the forward feed has a watermark for has had
++its newest ``extract_messages`` limit rows bundled, so the walk starts just
++below the oldest of those. Any other chat starts at its newest message.
++
++ORDER, AND WHY "BACK TO" MEANS SOMETHING. Every chat keeps a frontier (the
++newest row not yet read). Each batch takes the chat whose frontier is
++NEWEST, so the largest frontier only ever falls, and everything newer than it
++has been read in every chat. That largest frontier is what Doctor shows.
++
++WHOLE SESSIONS. A batch reads at least ``limit`` rows and then keeps going
++until the next older row is more than the session gap away, so a session is
++never split across two batches. Sessions are cut by ``threader.thread_messages``
++with the forward feed's gap, so a session the forward feed already bundled
++gets the SAME conversation_id here, and CM048 (one state dir per id) does not
++write it twice.
++
++Key = conversation_id. Counts only in logs.
++"""
++from __future__ import annotations
++
++import inspect
++import logging
++import os
++from datetime import timedelta
++from pathlib import Path
++from typing import Optional
++
++import ostler_catchup as oc
++from ostler_fda.sink_health import sink_healthy
++
++from .pipeline import (
++    _dispatch_to_cm048,
++    _load_contacts_map,
++    _load_privacy_map,
++    _load_state,
++    _name_resolver,
++    _resolve_pwg_convo_cmd,
++    _state_path,
++)
++from .reader import (
++    DEFAULT_CHAT_DB,
++    Message,
++    _connect_ro,
++    _convert_timestamp,
++    _owner_sent,
++    extract_messages,
++    is_assistant_send,
++)
++from .threader import DEFAULT_SESSION_GAP, build_metadata, render_transcript, thread_messages
++
++logger = logging.getLogger(__name__)
++
++# The forward feed's per-chat window, read from the reader rather than copied.
++FORWARD_PER_CHAT_LIMIT = inspect.signature(extract_messages).parameters["limit"].default
++
++_PAGE = 500
++
++_ROWS_SQL = """
++    SELECT
++        m.ROWID                    AS rowid,
++        m.text                     AS text,
++        m.is_from_me               AS is_from_me,
++        m.date                     AS date,
++        m.cache_has_attachments    AS has_attachment,
++        m.service                  AS service,
++        COALESCE(h.id, 'me')       AS sender,
++        h.id                       AS handle_id,
++        c.account_login            AS account_login,
++        (SELECT COUNT(*) FROM chat_handle_join x
++          WHERE x.chat_id = c.ROWID) AS n_handles
++    FROM message m
++    JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
++    JOIN chat c                ON c.ROWID = cmj.chat_id
++    LEFT JOIN handle h         ON h.ROWID = m.handle_id
++    WHERE c.guid = ? AND m.date IS NOT NULL
++      AND (m.date < ? OR (m.date = ? AND m.ROWID < ?))
++    ORDER BY m.date DESC, m.ROWID DESC
++    LIMIT ?
++"""
++
++_HEAD_SQL = """
++    SELECT m.date, m.ROWID FROM message m
++    JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
++    JOIN chat c ON c.ROWID = cmj.chat_id
++    WHERE c.guid = ? AND m.date IS NOT NULL
++      AND (m.date < ? OR (m.date = ? AND m.ROWID < ?))
++    ORDER BY m.date DESC, m.ROWID DESC LIMIT 1
++"""
++
++# Larger than any real chat.db date (ns since 2001 for ~290 years).
++_NO_BOUND = 1 << 62
++
++
++def _row_to_message(row, chat_id: str) -> Optional[Message]:
++    """The reader's own row filter: assistant sends are dropped exactly as
++    ``reader.extract_messages`` drops them."""
++    if row["date"] is None:
++        return None
++    if is_assistant_send(row["text"], from_owner=_owner_sent(row)):
++        return None
++    return Message(
++        rowid=row["rowid"],
++        text=row["text"],
++        sender="me" if row["is_from_me"] else row["sender"],
++        timestamp=_convert_timestamp(row["date"]),
++        is_from_me=bool(row["is_from_me"]),
++        chat_id=chat_id,
++        has_attachment=bool(row["has_attachment"]),
++        service=(row["service"] or "iMessage"),
++    )
++
++
++def _raw_to_ns(raw: int) -> int:
++    """Seconds-era rows compare against nanosecond-era rows correctly only on
++    one scale; chat.db holds one era per database, so this is for gaps."""
++    return raw if raw > 1e15 else int(raw * 1e9)
++
++
++# EX_TEMPFAIL: `pwg-convo process` exits 75 when the model/gateway cannot be reached.
++SINK_UNAVAILABLE_RC = 75
++# The dispatch timeout (DISPATCH_TIMEOUT_RC in .pipeline): a hung document, or a
++# sink too dead to answer. A health probe tells which.
++DISPATCH_TIMEOUT_RC = 124
++
++
++class IMessageCatchup(oc.Adapter):
++    source = "imessage"
++    doctor_row = "imessage"
++    batch_size = 120  # rows per batch, extended to a whole session
++
++    def __init__(self, *, db_path: Optional[Path] = None, contacts_path: Optional[Path] = None,
++                 user_display_name: Optional[str] = None, state_path: Optional[Path] = None,
++                 pwg_convo_cmd: Optional[list] = None, session_gap: timedelta = DEFAULT_SESSION_GAP):
++        self.db_path = Path(db_path) if db_path else DEFAULT_CHAT_DB
++        self.state_path = state_path
++        self.contacts_path = contacts_path
++        self.user_display_name = user_display_name or os.getenv("OSTLER_USER_DISPLAY_NAME", "You")
++        self.pwg_convo_cmd = pwg_convo_cmd
++        self.gap_ns = int(session_gap.total_seconds() * 1e9)
++        self.session_gap = session_gap
++        contacts = _load_contacts_map(contacts_path)
++        self._privacy = _load_privacy_map(contacts_path)
++        self._name = _name_resolver(contacts)
++        self._chat_meta: dict = {}
++
++    # ── cursor ──────────────────────────────────────────────────────────
++    def _chats(self, conn):
++        return conn.execute(
++            "SELECT c.guid AS guid, c.display_name AS display_name, c.style AS style, "
++            "MAX(m.date) AS last FROM chat c "
++            "JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID "
++            "JOIN message m ON m.ROWID = cmj.message_id "
++            "WHERE m.date IS NOT NULL GROUP BY c.ROWID").fetchall()
++
++    def start_cursor(self):
++        # Built on the first batch, inside the loop's error handling, so a
++        # missing or unreadable chat.db is a recorded read failure, not a crash.
++        return None
++
++    def _initial_chats(self, conn):
++        """{guid: {"before": [date, rowid], "head": date}} for every chat
++        with something left to read below its starting edge."""
++        forward = (_load_state(self.state_path or _state_path()).get("watermarks") or {})
++        chats = {}
++        for row in self._chats(conn):
++            guid = row["guid"]
++            before = [_NO_BOUND, _NO_BOUND]
++            if guid in forward:
++                # The forward feed bundled this chat's newest
++                # FORWARD_PER_CHAT_LIMIT rows: start just below the oldest.
++                edge = conn.execute(
++                    "SELECT m.date, m.ROWID FROM message m "
++                    "JOIN chat_message_join cmj ON cmj.message_id = m.ROWID "
++                    "JOIN chat c ON c.ROWID = cmj.chat_id WHERE c.guid = ? "
++                    "ORDER BY m.date DESC LIMIT 1 OFFSET ?",
++                    (guid, FORWARD_PER_CHAT_LIMIT - 1)).fetchone()
++                if edge is None:
++                    continue  # the forward window already holds the whole chat
++                before = [edge[0], edge[1]]
++            head = conn.execute(_HEAD_SQL, (guid, before[0], before[0], before[1])).fetchone()
++            if head is not None:
++                chats[guid] = {"before": before, "head": head[0]}
++        return chats
++
++    # ── batches ─────────────────────────────────────────────────────────
++    def _meta(self, conn, guid):
++        if guid not in self._chat_meta:
++            row = conn.execute("SELECT display_name, style FROM chat WHERE guid = ?", (guid,)).fetchone()
++            self._chat_meta[guid] = (row["display_name"] if row else None,
++                                     bool(row and row["style"] == 43))
++        return self._chat_meta[guid]
++
++    def next_batch(self, cursor, limit):
++        conn = _connect_ro(self.db_path)
++        try:
++            if cursor is None:
++                chats = self._initial_chats(conn)
++            else:
++                chats = {g: dict(v) for g, v in cursor.get("chats", {}).items()}
++            if not chats:
++                return oc.Batch(items=[], next_cursor={"chats": {}}, oldest_at=None, exhausted=True)
++            guid = max(chats, key=lambda g: chats[g]["head"])
++            before = list(chats[guid]["before"])
++            rows = []
++            while True:
++                page = conn.execute(_ROWS_SQL, (guid, before[0], before[0], before[1], _PAGE)).fetchall()
++                start = len(rows)
++                rows.extend(page)
++                cut = None
++                # A session boundary at or beyond `limit` rows: the next older
++                # row is more than the session gap away.
++                for i in range(max(start, limit, 1), len(rows)):
++                    if _raw_to_ns(rows[i - 1]["date"]) - _raw_to_ns(rows[i]["date"]) > self.gap_ns:
++                        cut = i
++                        break
++                if cut is not None:
++                    rows = rows[:cut]
++                    break
++                if len(page) < _PAGE:
++                    break
++                before = [rows[-1]["date"], rows[-1]["rowid"]]
++            display_name, is_group = self._meta(conn, guid)
++            last = rows[-1] if rows else None
++            nxt = None
++            if last is not None:
++                nxt = conn.execute(_HEAD_SQL, (guid, last["date"], last["date"], last["rowid"])).fetchone()
++        finally:
++            conn.close()
++
++        msgs = [m for m in (_row_to_message(r, guid) for r in reversed(rows)) if m is not None]
++        sessions = thread_messages(guid, msgs, is_group=is_group, display_name=display_name,
++                                   gap=self.session_gap)
++        if nxt is None:
++            del chats[guid]
++        else:
++            chats[guid] = {"before": [last["date"], last["rowid"]], "head": nxt[0]}
++        # Everything newer than the largest remaining frontier has been read,
++        # in every chat, so that frontier is the honest "back to" date.
++        if chats:
++            oldest = _convert_timestamp(max(v["head"] for v in chats.values()))
++        else:
++            oldest = _convert_timestamp(last["date"]) if last is not None else None
++        return oc.Batch(items=sessions, next_cursor={"chats": chats},
++                        oldest_at=oc.to_iso(oldest), exhausted=not chats)
++
++    def key(self, session):
++        return session.conversation_id
++
++    def process(self, session):
++        level = None
++        for handle in session.participant_handles:
++            if self._privacy.get(handle) == "L3":
++                level = "L3"
++                break
++        transcript = render_transcript(session, name_for_handle=self._name)
++        metadata = build_metadata(session, user_display_name=self.user_display_name,
++                                  name_for_handle=self._name, privacy_level=level)
++        rc = _dispatch_to_cm048(transcript, metadata,
++                                pwg_convo_cmd=self.pwg_convo_cmd or _resolve_pwg_convo_cmd(),
++                                dry_run=False)
++        if rc == SINK_UNAVAILABLE_RC:
++            # pwg-convo could not reach its model or gateway: an outage, not a
++            # verdict on this conversation. Raising a ConnectionError keeps it
++            # out of the poison-attempt count (lib/ostler_catchup.py).
++            raise ConnectionError("pwg-convo: sink unavailable (exit 75)")
++        if rc == DISPATCH_TIMEOUT_RC:
++            if not sink_healthy():
++                raise ConnectionError("pwg-convo timed out and the sink is unhealthy")
++            # Sink answers: this document hung. Item-specific, counts as an
++            # attempt and is quarantined after N like any poisoned item.
++            return False
++        return rc == 0
++
++
++def adapters():
++    """Factory for ``ostler_catchup run --adapters <pkg>.catchup:adapters``."""
++    db = os.environ.get("OSTLER_IMESSAGE_CHAT_DB", "").strip()
++    contacts = os.environ.get("OSTLER_CONTACTS", "").strip()
++    return [IMessageCatchup(db_path=Path(db) if db else None,
++                            contacts_path=Path(contacts) if contacts else None)]
+diff --git a/launchd/com.creativemachines.ostler.imessage-bundle.plist b/launchd/com.creativemachines.ostler.imessage-bundle.plist
+index c17b6327..946b753c 100644
 --- a/launchd/com.creativemachines.ostler.imessage-bundle.plist
 +++ b/launchd/com.creativemachines.ostler.imessage-bundle.plist
 @@ -36,8 +36,9 @@
@@ -306,7 +700,52 @@
      </array>
  
      <!--
-@@ -81,6 +82,26 @@
+@@ -51,13 +52,30 @@
+     <integer>900</integer>
+ 
+     <!--
+-        RunAtLoad fires once at login / post-install. The wrapper
+-        clamps the read window via --since-days so a fresh install
+-        does not try to bundle the user's entire iMessage history in
+-        one tick.
++        RunAtLoad is DELIBERATELY false (v1.0.11 ships-dark B.2 /
++        ostler-assistant PR #232).
++
++        The tick chain is: launchd -> `ostler-assistant run-source imessage`
++        -> the sealed ingest tick -> the reader, which needs Full Disk
++        Access on chat.db. On a FRESH install the daemon's FDA grant lands
++        near the END of install, but RunAtLoad fired this tick at
++        login/post-install BEFORE that grant, so the reader hit
++        "authorization denied", exited non-zero, and launchd penalty-boxed
++        the job (`launchctl list` showed `last exit code 78`,
++        `properties = runatload | penalty box`, 0-byte logs).
++
++        StartInterval-only (no RunAtLoad, no KeepAlive) removes that
++        login-time race: the first tick fires one interval (~15 min) after
++        load, by which point the install-time FDA grant has landed, so the
++        first run is clean. Nothing is lost: the watermark means the
++        deferred first window is picked up on that tick, and the read is
++        still clamped by the since-days flag. The sibling feeds keep RunAtLoad
++        because their readers yield exit 0 (not a hard non-zero) when their
++        source is absent; iMessage is the one whose reader hard-fails on the
++        FDA race, so it is the one that drops the login-time start.
+     -->
+     <key>RunAtLoad</key>
+-    <true/>
++    <false/>
+ 
+     <key>WorkingDirectory</key>
+     <string>OSTLER_HOME</string>
+@@ -72,7 +90,7 @@
+         PWG_CONVO_CMD tells the dispatcher how to invoke CM048's CLI
+         (rendered to the CM048 venv at install time). Without these
+         the tick falls through to a stock system python with no
+-        site-packages -- the same launch-blocker shape the email
++        site-packages, the same launch-blocker shape the email
+         ingest agent guards against.
+     -->
+     <key>EnvironmentVariables</key>
+@@ -81,6 +99,26 @@
          <string>OSTLER_PYTHON_PATH</string>
          <key>PWG_CONVO_CMD</key>
          <string>PWG_CONVO_CMD_VALUE</string>
@@ -333,9 +772,11 @@
      </dict>
  
      <key>ProcessType</key>
+diff --git a/pipeline.py b/pipeline.py
+index 8efa7323..5c8ba376 100644
 --- a/pipeline.py
 +++ b/pipeline.py
-@@ -34,6 +34,7 @@
+@@ -34,6 +34,7 @@ import os
  import subprocess
  import sys
  import tempfile
@@ -343,7 +784,7 @@
  from datetime import timedelta
  from pathlib import Path
  from typing import Callable, Optional
-@@ -49,6 +50,87 @@
+@@ -49,6 +50,91 @@ from .threader import (
  logger = logging.getLogger(__name__)
  
  
@@ -365,10 +806,14 @@
 +# abandoned.
 +_DISPATCH_TIMEOUT_DEFAULT_SECS = 900
 +
-+# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
-+# returns, so "this document is slow" is never confused with "this
-+# document is broken" by whoever reads the log next.
-+DISPATCH_TIMEOUT_RC = 75
++# 124, the timeout(1) convention. Deliberately distinct from any code
++# pwg-convo itself returns, so "this document is slow" is never confused
++# with "this document is broken" by whoever reads the log next. NOT 75:
++# `pwg-convo process` exits 75 (EX_TEMPFAIL) when its model or gateway
++# cannot be REACHED, and a catch-up caller reads 75 as an outage (no poison
++# attempt) but 124 as a possibly item-specific hang (counted, unless a
++# health probe finds the sink down).
++DISPATCH_TIMEOUT_RC = 124
 +
 +
 +def _dispatch_timeout_secs():
@@ -431,14 +876,11 @@
  # Engine-zone state under ~/.ostler/ (two-zone architecture). The
  # watermark records the highest message ROWID processed per chat.
  def _default_state_dir() -> Path:
-@@ -159,14 +241,59 @@
+@@ -159,17 +245,276 @@ def _dispatch_to_cm048(
              metadata["conversation_id"],
              " ".join(pwg_convo_cmd),
          )
 -        proc = subprocess.run(cmd, capture_output=True, text=True)
--        if proc.returncode != 0:
--            logger.error(
--                "pwg-convo failed for %s (rc=%d): %s",
 +        started = time.monotonic()
 +        try:
 +            proc = subprocess.run(
@@ -459,7 +901,7 @@
 +                "document and continuing. Raise or disable the ceiling "
 +                "with OSTLER_DISPATCH_TIMEOUT_SECS. Last output before the "
 +                "kill: %s",
-                 metadata["conversation_id"],
++                metadata["conversation_id"],
 +                exc.timeout,
 +                # v1018-D032. TimeoutExpired carries what was captured
 +                # before the kill, and for a wedged document that tail is
@@ -470,15 +912,16 @@
 +            )
 +            return DISPATCH_TIMEOUT_RC
 +        elapsed = time.monotonic() - started
-+        if proc.returncode != 0:
-+            logger.error(
+         if proc.returncode != 0:
+             logger.error(
+-                "pwg-convo failed for %s (rc=%d): %s",
 +                "pwg-convo failed for %s after %.1fs (rc=%d): %s",
-+                metadata["conversation_id"],
+                 metadata["conversation_id"],
 +                elapsed,
                  proc.returncode,
 -                proc.stderr.strip()[:500],
 +                _stderr_excerpt(proc.stderr),
-             )
++            )
 +        else:
 +            # v1018-D021. The ONLY per-document timing that survives a
 +            # successful dispatch. capture_output=True discards pwg-convo's
@@ -492,11 +935,262 @@
 +                "pwg-convo completed %s in %.1fs",
 +                metadata["conversation_id"],
 +                elapsed,
-+            )
+             )
          return proc.returncode
  
  
-@@ -205,6 +332,10 @@
++# --- Reply-debt snapshot (CM051 #30 studio29 finding) --------------------
++#
++# The Hub's reply-debt endpoint (ical-server, /api/v1/reply-debt) used to
++# open chat.db ITSELF. ical-server is launched by launchd as a bare
++# python3.11, so macOS TCC treats that interpreter as the requester: the
++# customer got a Full Disk Access entry for an unsigned-looking "python3.11",
++# denied by default, and the endpoint then answered "you're all caught up"
++# because it read nothing. Reproduced on a walked box 2026-10-15
++# (AUTHREQ_RESULT authValue=0, accessing=.../python/bin/python3.11).
++#
++# The shipped design is that protected reads happen under the SIGNED
++# assistant. This tick already runs as `ostler-assistant run-source
++# imessage`, so it already reads chat.db under the assistant's grant. It now
++# also writes the one thing reply debt needs, the LAST message of each recent
++# thread with its direction, into the engine room, where ical-server can read
++# it without asking TCC for anything.
++#
++# One message per thread, not the thread: reply debt is decided by the last
++# message alone (reply_debt.detect_thread), so nothing more is copied out of
++# chat.db than the decision uses. The file is 0600 in a 0700 directory.
++REPLY_DEBT_SNAPSHOT_SCHEMA = 1
++REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS = 90
++_SNAPSHOT_TEXT_LIMIT = 500
++
++
++def reply_debt_snapshot_path() -> Path:
++    """Where the snapshot lives. Must agree with CM048's
++    ``reply_debt_adapters.imessage_snapshot_path``: ``$OSTLER_REPLY_DEBT_SNAPSHOT``,
++    else ``$OSTLER_DIR/state/reply_debt/imessage_threads.json``, else under
++    ``~/.ostler``."""
++    explicit = (os.environ.get("OSTLER_REPLY_DEBT_SNAPSHOT") or "").strip()
++    if explicit:
++        return Path(explicit).expanduser()
++    root = (os.environ.get("OSTLER_DIR") or "").strip()
++    base = Path(root).expanduser() if root else Path.home() / ".ostler"
++    return base / "state" / "reply_debt" / "imessage_threads.json"
++
++
++def _write_snapshot_atomic(path: Path, payload: dict) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    try:
++        os.chmod(path.parent, 0o700)
++    except OSError:
++        pass
++    fd, tmp = tempfile.mkstemp(prefix=".imessage_threads.", dir=str(path.parent))
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as fh:
++            json.dump(payload, fh, indent=1)
++        os.chmod(tmp, 0o600)
++        os.replace(tmp, path)
++    except BaseException:
++        try:
++            os.unlink(tmp)
++        except OSError:
++            pass
++        raise
++
++
++def build_reply_debt_snapshot(
++    *,
++    db_path: Optional[Path] = None,
++    lookback_days: int = REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS,
++    tail: int = 20,
++) -> dict:
++    """Read chat.db (in THIS process, which runs under the signed assistant)
++    and return the snapshot dict: per recent thread, its last text message
++    and whether the owner sent it.
++
++    Raises PermissionError / FileNotFoundError exactly as the reader does, so
++    the caller can record WHY there is no data rather than an empty list.
++    """
++    from datetime import datetime, timezone
++
++    threads = []
++    for convo in extract_conversations(
++        db_path=db_path, since_days=lookback_days, min_messages=1
++    ):
++        messages = extract_messages(convo.chat_id, db_path=db_path, limit=tail)
++        last = None
++        for m in reversed(messages):
++            if (m.text or "").strip():
++                last = m
++                break
++        if last is None:
++            continue
++        threads.append(
++            {
++                "chat_id": convo.chat_id,
++                "display_name": convo.display_name,
++                "participants": list(convo.participants),
++                "is_group": bool(convo.is_group),
++                "last": {
++                    "text": (last.text or "")[:_SNAPSHOT_TEXT_LIMIT],
++                    "is_from_me": bool(last.is_from_me),
++                    "sender": last.sender,
++                    "timestamp": last.timestamp.isoformat(),
++                },
++            }
++        )
++    return {
++        "schema": REPLY_DEBT_SNAPSHOT_SCHEMA,
++        "status": "ok",
++        "generated_at": datetime.now(timezone.utc).isoformat(),
++        "producer": "imessage_source (ostler-assistant run-source imessage)",
++        "lookback_days": lookback_days,
++        "threads": threads,
++    }
++
++
++def write_reply_debt_snapshot(
++    *,
++    db_path: Optional[Path] = None,
++    out_path: Optional[Path] = None,
++    lookback_days: int = REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS,
++) -> str:
++    """Write the reply-debt snapshot; return its status.
++
++    A chat.db this process cannot read is RECORDED as ``status:
++    "unreadable"`` (with no threads), never written as an empty-but-ok list,
++    so the endpoint can say "couldn't check" instead of "all caught up".
++    Never raises: the snapshot must not be the thing that stops ingest.
++    """
++    from datetime import datetime, timezone
++
++    out = out_path or reply_debt_snapshot_path()
++    try:
++        payload = build_reply_debt_snapshot(
++            db_path=db_path, lookback_days=lookback_days
++        )
++    except PermissionError as exc:
++        payload = {"status": "unreadable", "reason": str(exc)[:200]}
++    except FileNotFoundError:
++        # No chat.db at all: Messages never used on this Mac. That is a true
++        # zero, not a failure to look.
++        payload = {"status": "absent", "threads": []}
++    except Exception as exc:  # noqa: BLE001 -- recorded, never swallowed silently
++        payload = {"status": "error", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
++    if payload.get("status") != "ok":
++        payload.update(
++            schema=REPLY_DEBT_SNAPSHOT_SCHEMA,
++            generated_at=datetime.now(timezone.utc).isoformat(),
++            producer="imessage_source (ostler-assistant run-source imessage)",
++        )
++    try:
++        _write_snapshot_atomic(out, payload)
++    except OSError as exc:
++        logger.error("reply-debt snapshot could not be written to %s: %s", out, exc)
++        return "write_failed"
++    if payload["status"] == "ok":
++        logger.info("reply-debt snapshot: %d thread(s) -> %s",
++                    len(payload.get("threads") or []), out)
++    else:
++        logger.warning("reply-debt snapshot: status=%s -> %s", payload["status"], out)
++    return payload["status"]
++# ------------------------------------------------------------------------
++
++
++# ── #30: the FIRST bundle window widens when the default holds too little ───
++# The tick reads --since-days 30 (and only 2 in the daytime clamp), then a
++# forward watermark. An owner whose conversations are all older than that got
++# ZERO bundles on day one. On the first tick only, if the window holds fewer
++# than FIRST_WINDOW_MIN_MESSAGES messages and fewer than
++# FIRST_WINDOW_MIN_CONVERSATIONS threads (either minimum is enough), widen
++# backwards through FIRST_WINDOW_RUNGS until one is met or the history is
++# exhausted. Never during the install (the install marker counts as busy: the
++# first tick after it does the widening), never past FIRST_WINDOW_BUDGET_SECONDS,
++# never when the operator pinned OSTLER_IMESSAGE_SINCE_DAYS. Mirrors
++# ostler_fda.backfill_ladder.widen_first_window (separate venv, so no import).
++FIRST_WINDOW_MIN_MESSAGES = 2000
++FIRST_WINDOW_MIN_CONVERSATIONS = 50
++FIRST_WINDOW_RUNGS = [90, 180, 365, 730, 1095, 1825, 3650, 36500]
++FIRST_WINDOW_BUDGET_SECONDS = 180
++
++
++def _install_running() -> bool:
++    home = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
++    return (Path(home) / "state" / "install-in-progress").exists()
++
++
++def _widen_first_window(state: dict, conversations: list, db_path, since_days: int) -> list:
++    if "first_window" in state or os.environ.get("OSTLER_IMESSAGE_SINCE_DAYS", "").strip():
++        return conversations
++
++    def measure(cs):
++        return sum(int(c.message_count or 0) for c in cs), len(cs)
++
++    msgs, convs = measure(conversations)
++    if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
++        state["first_window"] = {"days": since_days, "result": "kept"}
++        logger.info("[first-window] imessage-bundle kept %dd: %d messages, %d conversations",
++                    since_days, msgs, convs)
++        return conversations
++    if _install_running():
++        logger.info("[first-window] imessage-bundle deferred: busy (installing); "
++                    "the first tick after the install widens it")
++        return conversations
++    widen_t0 = time.monotonic()
++    days, result = since_days, "exhausted"
++    for rung in (r for r in FIRST_WINDOW_RUNGS if r > since_days):
++        if time.monotonic() - widen_t0 >= FIRST_WINDOW_BUDGET_SECONDS:
++            result = "budget"
++            break
++        days = rung
++        conversations = extract_conversations(db_path=db_path, since_days=rung)
++        msgs, convs = measure(conversations)
++        if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
++            result = "widened"
++            break
++    state["first_window"] = {"days": days, "result": result}
++    logger.info("[first-window] imessage-bundle %s: default %dd -> %dd: %d messages, %d conversations",
++                result, since_days, days, msgs, convs)
++    return conversations
++
++
+ def process_imessage(
+     *,
+     db_path: Optional[Path] = None,
+@@ -180,9 +525,15 @@ def process_imessage(
+     pwg_convo_cmd: Optional[list[str]] = None,
+     state_path: Optional[Path] = None,
+     dry_run: bool = False,
++    snapshot_path: Optional[Path] = None,
+ ) -> dict:
+     """Read chat.db, thread, and dispatch new sessions to CM048.
+ 
++    ``snapshot_path`` is where the reply-debt snapshot goes. Unset, it sits
++    beside an explicitly passed ``state_path`` (so a caller that isolates its
++    state never writes into the real engine room), else at the canonical
++    ``reply_debt_snapshot_path()`` the Hub reads.
++
+     Returns a summary dict: threads scanned, sessions dispatched,
+     sessions skipped (already processed), failures.
+     """
+@@ -195,7 +546,17 @@ def process_imessage(
+     privacy_map = _load_privacy_map(contacts_path)
+     name_for_handle = _name_resolver(contacts)
+ 
++    # Reply-debt snapshot FIRST: it is one cheap read, and the dispatch loop
++    # below can run for hours on a backlog. Its own window, not since_days,
++    # which the daytime throttle clamps to two days.
++    if not dry_run:
++        if snapshot_path is None and state_path is not None:
++            snapshot_path = Path(state_path).parent / "reply_debt_imessage_threads.json"
++        write_reply_debt_snapshot(db_path=db_path, out_path=snapshot_path)
++
+     conversations = extract_conversations(db_path=db_path, since_days=since_days)
++    if not dry_run:
++        conversations = _widen_first_window(state, conversations, db_path, since_days)
+ 
+     scanned = dispatched = skipped = failed = 0
+     for convo in conversations:
+@@ -205,6 +566,10 @@ def process_imessage(
              continue
          prev_watermark = watermarks.get(convo.chat_id, -1)
          max_rowid = prev_watermark
@@ -507,7 +1201,7 @@
  
          sessions = thread_messages(
              convo.chat_id,
-@@ -251,10 +382,34 @@
+@@ -251,9 +616,33 @@ def process_imessage(
                  dispatched += 1
              else:
                  failed += 1
@@ -516,7 +1210,7 @@
 -                max_rowid = min(max_rowid, session_max - 1)
 +                if first_failed_rowid is None or session_max < first_failed_rowid:
 +                    first_failed_rowid = session_max
- 
++
 +        # Cap the watermark BELOW the earliest failure in this chat.
 +        #
 +        # 2026-08-08: this used to claw back inline --
@@ -541,11 +1235,10 @@
 +        # few already-successful sessions on the next tick is cheap and
 +        # idempotent; losing a conversation forever is neither.
 +        max_rowid = cap_watermark(max_rowid, first_failed_rowid)
-+
+ 
          if not dry_run and max_rowid > prev_watermark:
              watermarks[convo.chat_id] = max_rowid
- 
-@@ -267,7 +422,17 @@
+@@ -267,7 +656,17 @@ def process_imessage(
          "sessions_skipped": skipped,
          "sessions_failed": failed,
      }
@@ -564,7 +1257,7 @@
      return summary
  
  
-@@ -285,6 +450,20 @@
+@@ -285,6 +684,20 @@ def _resolve_pwg_convo_cmd() -> list[str]:
      return ["pwg-convo"]
  
  
@@ -585,9 +1278,83 @@
  def run(argv: Optional[list[str]] = None) -> int:
      parser = argparse.ArgumentParser(
          prog="cm040-imessage-source",
+diff --git a/reader.py b/reader.py
+index e3d6f7bd..5c9c6ff4 100644
 --- a/reader.py
 +++ b/reader.py
-@@ -85,7 +85,28 @@
+@@ -36,6 +36,71 @@ DEFAULT_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
+ _CHAT_STYLE_GROUP = 43
+ 
+ 
++# ---------------------------------------------------------------------------
++# The assistant's own sends are not the owner's words.
++#
++# The morning brief and the evening wrap go out by iMessage to the owner's
++# own number, FROM the owner's Apple ID. chat.db therefore records them with
++# is_from_me=1, and this reader used to bundle them as the owner speaking:
++# measured on the walk box 2026-10-14, 141 assistant sends with is_from_me=1
++# (plus 148 inbound copies), 9 bundles and 7 facts extracted from them.
++#
++# What the sender actually stamps, read from ostler-assistant
++# crates/zeroclaw-channels/src/imessage.rs (send -> apply_message_prefix):
++# every outbound iMessage starts with the identity prefix, default the robot
++# emoji, and that channel's own echo guard (is_bot_identity_prefixed) already
++# treats a leading robot emoji as "can only have come from this assistant".
++# There is no persisted delivery log to match against: the channel's
++# recent-send buffer is in memory and capped at 20, and cron_runs.output holds
++# the pre-send text (markdown not yet flattened, prefix not yet applied).
++#
++# ASSISTANT_SEND_MARKER is an invisible marker the sender appends to every
++# outbound message (ostler-assistant, same change set), so a customer who
++# empties the visible prefix is still covered. Both checks must stay in step
++# with the copies in whatsapp_source/reader.py, email_source/reader.py and
++# ostler_fda/imessage.py; tests/test_assistant_sends_are_not_owner_input.py
++# holds them to one table.
++#
++# The PREFIX rule applies only to rows the owner's account sent (is_from_me,
++# or the inbound copy in the owner's own self-chat: the self-chat shows one of
++# each). A contact's message that opens with the same emoji is kept. The
++# invisible marker applies in every direction.
++# ---------------------------------------------------------------------------
++ASSISTANT_SEND_PREFIX = "\U0001F916"  # robot face, the identity prefix
++ASSISTANT_SEND_MARKER = "\u2063\u2064\u2063"  # invisible sep, plus, sep
++
++
++def _owner_sent(row) -> bool:
++    """Was this row sent from the owner's own account?
++
++    is_from_me=1, or the inbound copy in the owner's Note-to-Self chat: a
++    one-handle chat whose handle IS the account it was received on (the
++    same test ostler-assistant's POLL_QUERY_SELF_CHAT uses). The brief lands
++    in that chat as both an outgoing and an inbound row.
++    """
++    if row["is_from_me"]:
++        return True
++    hid = row["handle_id"] or ""
++    login = row["account_login"] or ""
++    return bool(hid) and row["n_handles"] == 1 and login in ("E:" + hid, "P:" + hid)
++
++
++def is_assistant_send(text: Optional[str], from_owner: bool = False) -> bool:
++    """True when ``text`` was written by the Ostler assistant, not a person.
++
++    The invisible marker counts in any direction: only the assistant stamps
++    it. The robot-emoji PREFIX counts only on a row the owner's own account
++    sent (``from_owner``), because that is the only place the assistant's
++    sends appear with it. A contact whose message happens to open with the
++    same emoji is a person, and their words are kept.
++    """
++    if not text:
++        return False
++    if ASSISTANT_SEND_MARKER in text:
++        return True
++    return from_owner and text.lstrip().startswith(ASSISTANT_SEND_PREFIX)
++
++
+ @dataclass
+ class Conversation:
+     """A conversation thread (1:1 or group)."""
+@@ -85,7 +150,28 @@ def _connect_ro(db_path: Path) -> sqlite3.Connection:
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as exc:
@@ -617,3 +1384,106 @@
              raise PermissionError(
                  "Cannot read iMessage history. Grant Full Disk Access "
                  "to the Ostler Hub in System Settings > Privacy & "
+@@ -193,7 +279,11 @@ def extract_messages(
+                 m.date                     AS date,
+                 m.cache_has_attachments    AS has_attachment,
+                 m.service                  AS service,
+-                COALESCE(h.id, 'me')       AS sender
++                COALESCE(h.id, 'me')       AS sender,
++                h.id                       AS handle_id,
++                c.account_login            AS account_login,
++                (SELECT COUNT(*) FROM chat_handle_join x
++                  WHERE x.chat_id = c.ROWID) AS n_handles
+             FROM message m
+             JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+             JOIN chat c                ON c.ROWID = cmj.chat_id
+@@ -211,9 +301,13 @@ def extract_messages(
+         conn.close()
+ 
+     out: list[Message] = []
++    dropped_assistant = 0
+     for row in rows:
+         if row["date"] is None:
+             continue
++        if is_assistant_send(row["text"], from_owner=_owner_sent(row)):
++            dropped_assistant += 1
++            continue
+         out.append(
+             Message(
+                 rowid=row["rowid"],
+@@ -226,5 +320,9 @@ def extract_messages(
+                 service=(row["service"] or "iMessage"),
+             )
+         )
++    if dropped_assistant:
++        logger.info(
++            "Dropped %d assistant-sent message(s) from one thread", dropped_assistant
++        )
+     out.reverse()  # chronological
+     return out
+diff --git b/tests/test_watermark_cap.py b/tests/test_watermark_cap.py
+new file mode 100644
+index 00000000..5ef23dec
+--- /dev/null
++++ b/tests/test_watermark_cap.py
+@@ -0,0 +1,60 @@
++"""The watermark must never advance past a failed session.
++
++If it does, the next tick's `session_max <= prev_watermark` check treats the
++failed conversation as already processed and it is dropped for good -- the
++.208 box-walk symptom: `sessions_failed: 1`, tick reported complete,
++conversation never in the graph.
++"""
++import pathlib
++import sys
++
++# pipeline.py uses relative imports, so it must be imported as a package
++# member -- put the package's PARENT on the path, not the package itself.
++sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
++from imessage_source.pipeline import cap_watermark  # noqa: E402
++
++
++class TestNoFailures:
++    def test_a_clean_run_advances_normally(self):
++        assert cap_watermark(200, None) == 200
++
++    def test_it_does_not_invent_progress(self):
++        assert cap_watermark(-1, None) == -1
++
++
++class TestAFailureHoldsTheLine:
++    def test_the_watermark_stops_below_the_failure(self):
++        assert cap_watermark(200, 100) == 99
++
++    def test_the_bug_that_shipped(self):
++        """THE regression. A later SUCCESS used to erase the claw-back:
++
++            session A rowid 100 FAILS -> max_rowid = 99
++            session B rowid 200 OK    -> max_rowid = max(99, 200) = 200
++
++        and 100 was never retried. The cap is applied once, at the end, so a
++        failure anywhere holds the line for everything after it.
++        """
++        max_rowid_after_later_success = 200
++        assert cap_watermark(max_rowid_after_later_success, 100) == 99, (
++            "a later success re-advanced the watermark past a failed session"
++        )
++
++    def test_the_earliest_failure_wins(self):
++        """Two failures: the watermark must stop below the FIRST, or the
++        earlier one is skipped while the later one retries."""
++        assert cap_watermark(500, 100) == 99
++
++    def test_a_failure_on_the_first_session_blocks_all_progress(self):
++        assert cap_watermark(300, 1) == 0
++
++    def test_it_never_advances_a_fresh_chat_on_failure(self):
++        """prev_watermark -1 on a brand-new chat whose first session fails."""
++        assert cap_watermark(50, 10) == 9
++
++
++class TestPositiveControl:
++    def test_the_function_discriminates(self):
++        """Same max_rowid, different failure state, different answer -- proves
++        it is not simply returning its input."""
++        assert cap_watermark(200, None) != cap_watermark(200, 100)

@@ -1,0 +1,45 @@
+name: owner-node-is-minted
+
+# Walk #27, shape S1: pwg:isOwner had a writer (contact_syncer/owner_node.py)
+# and no install.sh call site, so 0 triples on the box and every reader ran
+# blind. This proves install.sh calls it, that confirm-identity reads the
+# owner once it exists (and not before), and that the batch identity resolver
+# never offers the anchor for an auto-merge (with a control that shows the
+# same node, unflagged, IS paired by exact name).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'contact_syncer/owner_node.py'
+      - 'lib/ostler-confirm-identity.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
+      - 'tests/test_owner_node_is_minted_and_read.py'
+      - '.github/workflows/owner-node-is-minted.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'contact_syncer/owner_node.py'
+      - 'lib/ostler-confirm-identity.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
+      - 'tests/test_owner_node_is_minted_and_read.py'
+      - '.github/workflows/owner-node-is-minted.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  owner-node-is-minted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --quiet pytest pyoxigraph httpx phonenumbers rapidfuzz pyyaml
+      - name: The owner anchor is minted at install, read by its readers, and never auto-merged
+        run: python -m pytest tests/test_owner_node_is_minted_and_read.py -v

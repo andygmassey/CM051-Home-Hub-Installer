@@ -120,6 +120,71 @@ struct StepStatusGlyph: Equatable {
                 severity: .informational,
                 accessibilityCopyKey: "sidebar.status_background"
             )
+        case .unmeasured:
+            // #2318: "we did not check", not "something is wrong".
+            // Informational for the same reason `timeout` is: a note,
+            // not an alarm. It must NOT be the green tick -- that is the
+            // whole point, a step that measured nothing may not look
+            // identical to one that measured a success -- and it must not
+            // be the warning triangle either, or a perfectly good install
+            // reads as 42 problems.
+            //
+            // 🔴 AND IT MUST NOT BE A BARE CIRCLE, WHICH IS WHAT IT WAS.
+            // MEASURED on a console walk of the v1.0.101 candidate,
+            // 2026-09-24, by Andy, in about thirty seconds of looking at
+            // the actual product: `circle.dashed` in muted ink and the
+            // PENDING glyph `circle` in hairline grey are the same thing
+            // to a human eye. Fourteen COMPLETED steps rendered as though
+            // they were still running, while the three measured ones
+            // below them carried green ticks. A working install read as
+            // hung, and the obvious customer response to that is Cancel.
+            //
+            // The test suite asserted `unmeasured` != `ok` and passed.
+            // It never asserted `unmeasured` != PENDING, because pending
+            // is not a StepStatus at all -- it is the ABSENCE of a
+            // STEP_END, drawn in SidebarView. So the control lived in the
+            // wrong compartment: it proved the glyph was not a success,
+            // and never asked whether it was distinguishable from
+            // not-started, which is the only confusion that reaches a
+            // customer. testNoStatusGlyphCollidesWithAnUnfinishedStep now
+            // holds that axis.
+            //
+            // 🔴 ANDY DECIDED 2026-09-24, WATCHING HIS OWN CONSOLE WALK:
+            // a step that FINISHED reads as finished, in the customer's
+            // sidebar, whether or not anything verified it.
+            //
+            // The hollow muted tick below was mine and it was half-right. It
+            // fixed the real defect -- fourteen COMPLETED steps drawn with
+            // the not-started circle, so a working install read as hung --
+            // and then leaked an ENGINEERING distinction into a CUSTOMER
+            // surface. Green here, grey there, for a difference the customer
+            // cannot act on: "we did not check this one" is a worry with no
+            // remedy attached, offered to somebody who just wants to know
+            // whether their Mac is working.
+            //
+            // WHAT IS NOT CHANGED, AND IT IS THE HALF THAT MATTERS. #2318's
+            // real fix was in the WIRE, not the pixels: `ok` stopped being
+            // the accumulator's default, STEP_END still carries
+            // status=unmeasured and measured=no, and the walk record still
+            // reports unmeasured_steps=36 on a clean install. Every engineer
+            // surface keeps the distinction in full. An operator reading the
+            // log, the marker stream or walks/*.tsv sees exactly what was and
+            // was not measured. Only the sidebar stops showing it.
+            //
+            // So this is NOT a return to "ok by default". Nothing has been
+            // told it succeeded. A finished step is drawn as finished, and
+            // whether it was VERIFIED is answered where somebody can act on
+            // the answer.
+            //
+            // The right end state is fewer unmeasured steps, not a prettier
+            // way to display them: 3 of 45 currently verify their own work.
+            // Wiring the rest is the standing job this decision does not
+            // remove.
+            return StepStatusGlyph(
+                symbolName: "checkmark.circle.fill",
+                severity: .done,
+                accessibilityCopyKey: "sidebar.status_unmeasured"
+            )
         case .warn, .error:
             return StepStatusGlyph(
                 symbolName: "exclamationmark.triangle.fill",

@@ -33,6 +33,7 @@ on:
       - 'tests/test_a_walk_can_ask_for_a_fresh_graph.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
       - 'tests/test_a_volume_count_is_not_a_wiped_box.sh'
+      - 'tests/test_the_wipe_preserves_the_licence.sh'
       - 'scripts/dev-wipe-studio.sh'
       - 'tests/test_a_dev_wipe_verdict_is_not_inverted.sh'
       - '.github/workflows/reset-uninstall-honesty.yml'
@@ -104,6 +105,19 @@ jobs:
       - name: A docker volume count is not a wiped box
         if: always()
         run: /bin/bash tests/test_a_volume_count_is_not_a_wiped_box.sh
+
+      # THE WIPE MUST NOT DESTROY THE LICENCE THE NEXT INSTALL REQUIRES. The
+      # shipped uninstaller removes everything under ~/.ostler but power.conf
+      # (install.sh:21732) and the licence lives under it (install.sh:1970). The
+      # licence preflight runs BEFORE the wipe, so it passes, and the install
+      # AFTER the wipe then dies at ERR-02-LICENCE-REQUIRED with the box already
+      # wiped and no uninstaller left to retry with. Measured on the v1.0.82 walk.
+      #
+      # `if: always()` for the same reason as the siblings: an earlier red must
+      # not delete this measurement.
+      - name: The wipe preserves the licence
+        if: always()
+        run: /bin/bash tests/test_the_wipe_preserves_the_licence.sh
 
       # Same subject from the other end: the DEV wipe. Its verdict was
       # inverted -- four bare `ls PATH 2>&1 | head -1` lines under

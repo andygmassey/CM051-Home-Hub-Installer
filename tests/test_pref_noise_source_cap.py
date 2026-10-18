@@ -78,17 +78,19 @@ def test_drop_reaction_owner_category() -> None:
 
 
 def test_per_source_priority_cap() -> None:
-    """A source over the cap keeps the high-signal head, trims the low tail, logs it."""
+    """CM051 #28: NO storage cap. A large source keeps EVERY row, ranked so the
+    high-signal head (pages) comes before the low-value tail (saved)."""
     f = PreferenceFilter(enable_dedup=True, aggregate_frequency=True)
 
-    cap = PreferenceFilter.MAX_PREFS_PER_SOURCE  # 5000
+    if PreferenceFilter.MAX_PREFS_PER_SOURCE is not None:
+        fail(f"MAX_PREFS_PER_SOURCE is {PreferenceFilter.MAX_PREFS_PER_SOURCE}; the owner's "
+             "data must not be capped at storage (CM051 #28)")
     n_pages = 4000           # high signal (rank 10)
     n_saved = 3000           # low-value tail (rank 80)
     prefs = (
         [_pref(f"Page {i}", "page", strength=0.25) for i in range(n_pages)]
         + [_pref(f"Saved {i}", "saved", strength=0.35) for i in range(n_saved)]
     )
-    # A second, small source must be untouched by the cap.
     prefs += [_pref(f"Song {i}", "music", source="spotify") for i in range(100)]
 
     kept, capped_log = f.cap_by_source(prefs)
@@ -98,30 +100,16 @@ def test_per_source_priority_cap() -> None:
         by_source.setdefault(p.source, []).append(p)
 
     fb = by_source.get("facebook", [])
-    if len(fb) != cap:
-        fail(f"facebook kept {len(fb)} rows; expected the cap {cap}")
-
-    fb_pages = [p for p in fb if p.category == "page"]
-    fb_saved = [p for p in fb if p.category == "saved"]
-    if len(fb_pages) != n_pages:
-        fail(f"all {n_pages} high-signal 'page' rows should survive; kept {len(fb_pages)}")
-    if len(fb_saved) != cap - n_pages:
-        fail(f"expected {cap - n_pages} 'saved' survivors; kept {len(fb_saved)}")
-
-    expected_trim = (n_pages + n_saved) - cap  # 2000
-    if len(capped_log) != expected_trim:
-        fail(f"capped_log has {len(capped_log)} rows; expected {expected_trim}")
-    if any(row["category"] != "saved" for row in capped_log):
-        fail("the trimmed tail must be entirely 'saved' rows (lowest priority)")
-    if f.stats["capped_by_source"] != expected_trim:
-        fail(f"capped_by_source stat {f.stats['capped_by_source']} != {expected_trim}")
-
-    # The under-cap source passes through whole.
+    if len(fb) != n_pages + n_saved:
+        fail(f"facebook kept {len(fb)} rows; expected all {n_pages + n_saved}")
+    if any(p.category != "page" for p in fb[:n_pages]):
+        fail("ranking lost: the high-signal 'page' rows must lead the source")
+    if capped_log or f.stats["capped_by_source"] != 0:
+        fail(f"nothing may be trimmed; capped_log={len(capped_log)}")
     if len(by_source.get("spotify", [])) != 100:
-        fail("under-cap source 'spotify' was wrongly trimmed")
+        fail("small source 'spotify' was altered")
 
-    print(f"PASS: per-source cap kept high-signal head, trimmed {expected_trim} 'saved' "
-          f"rows, logged every one")
+    print(f"PASS: no storage cap, all {n_pages + n_saved} rows kept, high-signal head first")
 
 
 def test_source_under_cap_untouched() -> None:

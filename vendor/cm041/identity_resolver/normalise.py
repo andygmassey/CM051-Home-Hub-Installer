@@ -1,10 +1,39 @@
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
+from typing import Optional
 
 import phonenumbers
 from rapidfuzz.distance import JaroWinkler
+
+
+def configured_default_country_code() -> Optional[int]:
+    """The customer's own region, from the installer's own config -- never a
+    hardcoded fallback.
+
+    CM051 #2545 review: a hardcoded numeric default here is an OPERATOR
+    value, not a customer one, and would mis-normalise every other
+    customer's national-format numbers into a bogus foreign E.164 string. install.sh collects the customer's own country code during setup
+    and writes it to the pipeline's environment as ``DEFAULT_COUNTRY_CODE``
+    (install.sh:14746); ``contact_syncer/config.py`` already reads it this
+    same way, with no numeric fallback. This mirrors that exact contract so
+    every caller in this package gets ONE definition of "unknown", not a
+    second hardcoded guess.
+
+    Returns ``None`` when the installer never set it (or set it to something
+    unparseable) -- callers must then skip NATIONAL-format parsing entirely
+    rather than guessing a region, and treat only an already-international
+    (``+``-prefixed) number as interpretable.
+    """
+    raw = os.environ.get("DEFAULT_COUNTRY_CODE")
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 # Unicode general categories that mark a leading/trailing "junk" run on a
@@ -123,8 +152,17 @@ def clean_display_name(raw: str) -> str:
     return s
 
 
-def normalise_phone(raw: str, default_country_code: int = 852) -> str:
-    """Return E.164 format or the original string if unparseable."""
+def normalise_phone(raw: str, default_country_code: Optional[int] = None) -> str:
+    """Return E.164 format or the original string if unparseable.
+
+    ``default_country_code=None`` (the default, and what every caller gets
+    when the installer never configured one -- see
+    ``configured_default_country_code``) means UNKNOWN: a NATIONAL-format
+    number (no leading ``+``) cannot be safely interpreted without a region,
+    so it is left exactly as given rather than guessed at. An
+    already-international number (``+<code>...``) parses with no region
+    needed either way, so this never regresses the common case.
+    """
     cleaned = raw.strip()
     if not cleaned:
         return cleaned
@@ -134,6 +172,8 @@ def normalise_phone(raw: str, default_country_code: int = 852) -> str:
         # Try parsing as-is first (handles numbers that already include '+').
         parsed = phonenumbers.parse(cleaned, None)
     except phonenumbers.NumberParseException:
+        if default_country_code is None:
+            return cleaned
         try:
             # Fall back: prepend '+' + country code if the number looks local.
             region = _country_code_to_region(default_country_code)
@@ -144,6 +184,99 @@ def normalise_phone(raw: str, default_country_code: int = 852) -> str:
     if phonenumbers.is_valid_number(parsed):
         return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
     return cleaned
+
+
+def is_valid_phone(raw: str, default_country_code: Optional[int] = None) -> bool:
+    """True when `raw` parses as a genuine, valid phone number.
+
+    Mirrors ``normalise_phone``'s parse strategy exactly, but reports
+    validity instead of silently falling back to the uncleaned input.
+    ``normalise_phone`` is for "give me the best E.164 rendering, or the raw
+    string if you can't" -- a caller cannot tell from its return value alone
+    whether the input was ever a real phone number (an unchanged string
+    could mean a genuine failure to format, OR mean "was never a phone
+    number to begin with"). This answers that question directly: callers
+    that must refuse a non-phone value outright (CM051 #2543 -- a WhatsApp
+    LID is 14-15 digits and must never be written out as a phone number)
+    need this, not an inference from whether the string changed.
+
+    ``default_country_code=None`` means UNKNOWN (see ``normalise_phone``):
+    a national-format number cannot be validated without a region, so it
+    reads as NOT a valid phone rather than being guessed into one.
+    """
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return False
+    try:
+        parsed = phonenumbers.parse(cleaned, None)
+    except phonenumbers.NumberParseException:
+        if default_country_code is None:
+            return False
+        try:
+            region = _country_code_to_region(default_country_code)
+            parsed = phonenumbers.parse(cleaned, region)
+        except phonenumbers.NumberParseException:
+            return False
+    return phonenumbers.is_valid_number(parsed)
+
+
+def is_possible_phone(raw: str, default_country_code: Optional[int] = None) -> bool:
+    """True when `raw` is SHAPED like a phone number for its country, even if
+    libphonenumber cannot confirm the specific range is currently assigned.
+
+    Deliberately WEAKER than ``is_valid_phone``. ``is_valid_number`` checks
+    against libphonenumber's table of currently-assigned ranges, which is
+    stricter than "could this be a real phone number" -- it rejects numbers
+    in ranges the library's metadata has not catalogued as issued, including
+    Ofcom's own drama/fiction-reserved UK mobile block (07700 900000-900999,
+    the exact fixture this repo's own test suite uses everywhere), measured
+    directly: ``is_valid_phone("+44 7700 900200")`` is False,
+    ``is_possible_phone`` of the same value is True. A general-purpose
+    "refuse this vCard/contacts field write" gate that used ``is_valid_phone``
+    would therefore drop real customer numbers in any range libphonenumber
+    has not (yet) catalogued as assigned -- a worse outcome than the defect
+    it was written to close.
+
+    THE 14/15-DIGIT DANGER ZONE IS THE ONE EXCEPTION, and it is not optional.
+    A WhatsApp LID or another app's internal id is not merely unassigned, it
+    is the WRONG LENGTH/SHAPE for a real phone number -- but ``is_possible_
+    number`` alone does not always catch that: a `+`-prefixed 14-digit value
+    can parse as "possible" under SOME country's numbering plan even though
+    it is not a phone number at all. Measured on a cold v1.0.107 install
+    (walk #2): 7 of 2,345 People rows still carried an exactly-14-digit
+    `+`-prefixed "phone" value that this function's first version waved
+    through -- ``is_possible_number`` True, ``is_valid_number`` False, on
+    every one of the 7. Below 14 raw digits ``is_possible_number`` alone is
+    trusted (that is what keeps the OFCOM fixture above passing: it is 12
+    digits). At 14 or more -- E.164's own ceiling is 15, so this is already
+    the outer edge of what a real number can be -- an unassigned range is no
+    longer good enough; ``is_valid_number`` must also agree, exactly as
+    ``is_valid_phone`` alone already requires CM051 #2543's ordinary
+    LID-shaped value (no leading '+') to.
+
+    ``default_country_code=None`` means UNKNOWN (see ``normalise_phone``):
+    a national-format number cannot be checked without a region, so it reads
+    as NOT a possible phone rather than being guessed into one.
+    """
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return False
+    try:
+        parsed = phonenumbers.parse(cleaned, None)
+    except phonenumbers.NumberParseException:
+        if default_country_code is None:
+            return False
+        try:
+            region = _country_code_to_region(default_country_code)
+            parsed = phonenumbers.parse(cleaned, region)
+        except phonenumbers.NumberParseException:
+            return False
+    if not phonenumbers.is_possible_number(parsed):
+        return False
+    digit_count = sum(1 for ch in cleaned if ch.isdigit())
+    if digit_count >= 14 and not phonenumbers.is_valid_number(parsed):
+        return False
+    return True
 
 
 def normalise_email(email: str) -> str:

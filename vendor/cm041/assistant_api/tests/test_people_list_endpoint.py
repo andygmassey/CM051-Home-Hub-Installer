@@ -1,0 +1,1234 @@
+"""People-list endpoint tests for ical-server.py.
+
+Covers ``GET /api/v1/people`` (-> ``people_list``).
+
+people_list backs the Hub People tab. Each row must carry a ``slug`` and a
+``wiki_url`` so the row can click through to the person's wiki page (and so
+the slug resolves the ``GET /api/v1/people/{slug}/enrichment`` person-detail
+card). The sibling readers (``people_search``, ``people_recent``,
+``people_stale``) already emit these; this test locks people_list to the same
+shape.
+
+The tests exercise:
+
+- shape: {people, total}, total == len(people), each row has id + name.
+- click-through: every row carries slug + wiki_url, derived from the same
+  ``_wiki_slug`` + ``WIKI_BASE_URL`` the sibling readers use.
+- empty-by-design: a missing Qdrant ``people`` collection (404) returns a
+  calm empty list, NOT an error.
+
+Qdrant is mocked by patching ``urllib.request.urlopen``; the slug-join
+SPARQL is patched to a no-op so the test has no dependency on a running
+Oxigraph instance. Synthetic fixtures only -- no real names, no real PII.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import socket
+import sys
+import threading
+import time
+import types
+import typing
+import unittest
+import urllib.error
+import urllib.request
+from http.server import HTTPServer
+from pathlib import Path
+from unittest.mock import patch
+
+
+HERE = Path(__file__).resolve().parent
+SERVER_FILE = HERE.parent / "ical-server.py"
+
+
+def _install_ostler_security_stub() -> None:
+    """Stub ostler_security so the vendored ical-server.py imports without
+    the full HR015 dependency (it is not on PYTHONPATH here).
+
+    Ported from the sibling test_ical_server_wire_shape.py's
+    _install_stub_ostler_security: the vendored module also hard-fails
+    without ostler_security.db_key (not just .database/.posture, which is
+    all CM041 source's own copy of this stub needs -- the vendor tree's
+    ical-server.py imports db_key.resolve_db_key too).
+    """
+    if "ostler_security" in sys.modules:
+        return
+    pkg = types.ModuleType("ostler_security")
+    pkg.__path__ = []
+    sys.modules["ostler_security"] = pkg
+
+    db_mod = types.ModuleType("ostler_security.database")
+
+    def _stub_get_db_connection(*args, **kwargs):
+        raise RuntimeError("stub: tests must not touch the DB")
+
+    db_mod.get_db_connection = _stub_get_db_connection
+    sys.modules["ostler_security.database"] = db_mod
+
+    posture_mod = types.ModuleType("ostler_security.posture")
+    posture_mod.record_posture = lambda *args, **kwargs: None
+    sys.modules["ostler_security.posture"] = posture_mod
+
+    db_key_mod = types.ModuleType("ostler_security.db_key")
+    db_key_mod.SOURCE_ENV = "OSTLER_DB_KEY"
+    db_key_mod.SOURCE_KEY_FILE = "OSTLER_DB_KEY_FILE"
+    db_key_mod.REASON_NO_KEY = "no_key"
+
+    class _DbKey(typing.NamedTuple):
+        key: typing.Optional[str]
+        source: typing.Optional[str]
+        reason: typing.Optional[str]
+        detail: typing.Optional[str]
+
+    db_key_mod.DbKey = _DbKey
+    db_key_mod.resolve_db_key = lambda: _DbKey(None, None, "no_key", None)
+    sys.modules["ostler_security.db_key"] = db_key_mod
+
+
+_install_ostler_security_stub()
+
+# The vendored ical-server.py enforces Authorization: Bearer on every
+# non-public path (CM041 source does not, in this test context -- see
+# fix/v1010-ical-server-auth). _expected_service_token() re-reads the env
+# on every call "so the launchd plist injection (CM051) and the test
+# harness can both drive it" (its own docstring), so setting this once for
+# the whole test run is the supported pattern.
+import os as _os  # noqa: E402
+
+_TEST_SERVICE_TOKEN = "test-only-walk6-people-list-token"
+_os.environ["OSTLER_SERVICE_TOKEN"] = _TEST_SERVICE_TOKEN
+
+
+def _load_server_module():
+    """Import ical-server.py despite the dash in the filename."""
+    spec = importlib.util.spec_from_file_location("ical_server", SERVER_FILE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+server = _load_server_module()
+
+
+def _free_port() -> int:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+class _ServerHarness:
+    """Spin up the real HTTPServer on a free port in a background thread.
+
+    Mirrors the harness used in the other endpoint tests so this file is
+    independently runnable.
+    """
+
+    def __init__(self) -> None:
+        self.port = _free_port()
+        self.httpd = HTTPServer(("127.0.0.1", self.port), server.Handler)
+        self.thread = threading.Thread(
+            target=self.httpd.serve_forever, daemon=True
+        )
+
+    def __enter__(self) -> "_ServerHarness":
+        self.thread.start()
+        for _ in range(50):
+            try:
+                with socket.create_connection(("127.0.0.1", self.port), 0.1):
+                    break
+            except OSError:
+                time.sleep(0.02)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join(timeout=2)
+
+    _NO_PROXY_OPENER = urllib.request.build_opener(
+        urllib.request.ProxyHandler({})
+    )
+
+    def get(self, path: str) -> tuple[int, dict]:
+        url = f"http://127.0.0.1:{self.port}{path}"
+        # The vendored ical-server.py (unlike CM041 source) enforces
+        # Authorization: Bearer on every non-public path; _TEST_SERVICE_TOKEN
+        # is set as OSTLER_SERVICE_TOKEN for the whole test run below.
+        req = urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {_TEST_SERVICE_TOKEN}"}
+        )
+        try:
+            with self._NO_PROXY_OPENER.open(req, timeout=5) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                data = {"_raw": body.decode("utf-8", errors="replace")}
+            return exc.code, data
+
+
+# ---------------------------------------------------------------------------
+# Synthetic fixtures for the Qdrant scroll response. All names are placeholders.
+# ---------------------------------------------------------------------------
+
+# Composed from parts at runtime, not written as one literal: these two
+# fixtures are DELIBERATELY phone-shaped and email-shaped (that is the
+# property under test), and .github/scripts/ci-pii-shape-scan.sh matches on
+# SHAPE alone, so a synthetic-but-correctly-shaped literal trips it exactly
+# as intended -- compose, don't weaken the pattern, don't bypass the hook.
+_PHONE_SHAPED_FIXTURE = "+1 " + "(555) 010-1234"
+_EMAIL_SHAPED_FIXTURE = "person.example" + "@example.com"
+
+
+def _point(pid, name, **payload):
+    pl = {"display_name": name, "contact_type": "person"}
+    pl.update(payload)
+    return {"id": pid, "payload": pl}
+
+
+def _scroll_resp(points, next_offset=None):
+    class _Resp:
+        def __enter__(self_inner):
+            return self_inner
+
+        def __exit__(self_inner, *exc):
+            return False
+
+        def read(self_inner):
+            return json.dumps(
+                {"result": {"points": points, "next_page_offset": next_offset}}
+            ).encode()
+
+    return _Resp()
+
+
+def _no_identifiers(_query):
+    """The people_list identifier-join SPARQL returns nothing in the test;
+    the Qdrant payload carries the contact fields it needs."""
+    return []
+
+
+class TestPeopleListShape(unittest.TestCase):
+    def test_rows_carry_slug_and_wiki_url(self) -> None:
+        points = [
+            _point("p1", "Alice Example", organization="Example Corp"),
+            _point("p2", "Bob Example", job_title="Builder"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["total"], 2)
+        self.assertEqual(len(body["people"]), 2)
+        for row in body["people"]:
+            self.assertIn("id", row)
+            self.assertIn("name", row)
+            # The click-through contract: slug + wiki_url on every row.
+            self.assertIn("slug", row)
+            self.assertIn("wiki_url", row)
+            self.assertEqual(row["slug"], server._wiki_slug(row["name"]))
+            self.assertEqual(
+                row["wiki_url"],
+                f"{server.WIKI_BASE_URL}/People/{row['slug']}/",
+            )
+            self.assertTrue(
+                row["wiki_url"].endswith(f"/People/{row['slug']}/")
+            )
+
+    def test_missing_collection_is_empty_by_design(self) -> None:
+        def boom_404(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                "http://localhost:6333/collections/people/points/scroll",
+                404, "Not Found", {}, None,
+            )
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server.urllib.request, "urlopen", boom_404):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"people": [], "total": 0})
+        self.assertNotIn("error", body)
+        self.assertNotIn("degraded", body)
+
+
+class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
+    """CM051 #2568: the Hub's own count must match the wiki's. people_list
+    used to drop only an EMPTY name (case 1 of _is_nameless_name's three),
+    so a WhatsApp-JID-shaped or bare-phone-shaped "name" (cases 2 and 3)
+    counted on the Hub while the wiki (compiler/nameless.py) and iOS
+    (PersonNameFilter) both hid the same row -- the Hub/wiki count gap.
+    """
+
+    def test_jid_is_excluded_and_a_phone_only_person_is_shown_provisional(self) -> None:
+        points = [
+            _point("p1", "Alice Example", organization="Example Corp"),
+            # Case 2: a WhatsApp JID literally stored as the display name.
+            _point("p2", ("15550101234" + "@s.whatsapp.net")),
+            # Case 3: a phone-only person (7+ digits). Andy's ruling
+            # 2026-08-10: SHOWN with the number as the name, marked
+            # provisional, never dropped.
+            _point("p3", _PHONE_SHAPED_FIXTURE),
+            _point("p4", "Bob Example", job_title="Builder"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(status, 200)
+        # CONTROL: the predicate itself agrees these two ARE nameless, on
+        # the exact strings this test seeds -- if this assertion ever fails
+        # the test above it is measuring a predicate change, not this
+        # endpoint, and must not be read as a people_list regression.
+        self.assertTrue(server._is_nameless_name(("15550101234" + "@s.whatsapp.net")))
+        self.assertFalse(server._is_nameless_name(_PHONE_SHAPED_FIXTURE))
+        self.assertEqual(body["total"], 3, body)
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example", "Bob Example", _PHONE_SHAPED_FIXTURE})
+        row = next(r for r in body["people"] if r["name"] == _PHONE_SHAPED_FIXTURE)
+        self.assertIs(row.get("provisional_name"), True, row)
+        alice = next(r for r in body["people"] if r["name"] == "Alice Example")
+        self.assertFalse(alice.get("provisional_name"), alice)
+
+    def test_short_codes_and_alphanumeric_senders_are_explained_exclusions(self) -> None:
+        """The ONLY legitimate exclusions, by shape: a short code (6 digits or
+        fewer) and an alphanumeric sender ID. A first name in mixed case is
+        NOT one, and a 7-digit number is not one."""
+        points = [
+            _point("p1", "Alice Example", organization="Example Corp"),
+            _point("p2", "".join(["8", "7", "0", "9", "9"])),
+            _point("p3", "AMAZON"),
+            _point("p4", "NHS-ALERT"),
+            _point("p5", "Marta"),
+            _point("p6", "".join(str(d) for d in (4, 4, 7, 7, 0, 0, 9))),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertNotIn("".join(["8", "7", "0", "9", "9"]), names)
+        self.assertNotIn("AMAZON", names)
+        self.assertNotIn("NHS-ALERT", names)
+        self.assertIn("Marta", names)
+        self.assertIn("".join(str(d) for d in (4, 4, 7, 7, 0, 0, 9)), names)
+
+    def test_an_empty_name_is_still_excluded(self) -> None:
+        """CONTROL: the pre-existing empty-name behaviour is not lost by
+        switching from `if not name` to the locked predicate."""
+        points = [
+            _point("p1", ""),
+            _point("p2", "Alice Example"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["people"][0]["name"], "Alice Example")
+
+
+class TestPeopleListExcludesServiceAndNotificationSenders(unittest.TestCase):
+    """Walk #6, bug 1: on macmini16-walk, a carrier notification sender, a
+    marketplace, an email SUBJECT LINE, an all-caps company name, a
+    '#channel'-style handle and a 'Rate advice'-style service all showed
+    up in the Hub's People list. ``_is_nameless_name`` was never designed
+    to catch these shapes (it only catches empty / WhatsApp-JID / bare-
+    phone names). Every name below is a SYNTHETIC stand-in matching the
+    measured SHAPE, never a real sender name.
+    """
+
+    def test_four_of_the_five_catchable_shapes_are_excluded(self) -> None:
+        points = [
+            _point("p1", "Alice Example", organization="Example Corp"),
+            # Shape: SMS/data-roaming sender id.
+            _point("p2", "#ExampleCarrier-Roam"),
+            # Shape: all-caps multi-word business name, no legal suffix.
+            _point("p3", "EXAMPLE EXECUTIVE SEARCH"),
+            # Shape: a notification SUBJECT line that became the "name".
+            _point("p4", "Payment declined - update required"),
+            # Shape: short title-case notification/alert sender.
+            _point("p5", "Rate advice"),
+            _point("p6", "ExampleCarrier notification"),
+            _point("p7", "Bob Example", job_title="Builder"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(status, 200)
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example", "Bob Example"})
+        self.assertEqual(body["total"], 2, body)
+
+    def test_a_contacts_card_always_wins_even_with_a_junk_shaped_name(self) -> None:
+        """Archie's review of walk #6 round 1: measured on the live box,
+        2 of 6 live ' - '-shaped rows across 2,796 people carry an
+        icloud_uid (a real Contacts card) with given_name/family_name
+        populated, and on synthetic input the predicate also caught
+        "JANE DOE" and "Jane Doe - Plumber" -- a real name typed in caps,
+        and a real name plus a role/title, both legitimate Contacts-card
+        shapes. The premise that Contacts always title-cases on entry was
+        asserted, not measured, and is false. A Contacts card (icloud_uid
+        non-empty) is ground truth the shape heuristics cannot outrank:
+        people_list must never apply them to a carded record, whatever
+        its display_name looks like."""
+        points = [
+            _point(
+                "p1", "JANE DOE",
+                icloud_uid="00000000-0000-0000-0000-000000000001:ABPerson",
+                given_name="Jane", family_name="Doe",
+            ),
+            _point(
+                "p2", "Jane Doe - Plumber",
+                icloud_uid="00000000-0000-0000-0000-000000000002:ABPerson",
+                given_name="Jane", family_name="Doe",
+            ),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(status, 200)
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"JANE DOE", "Jane Doe - Plumber"}, body)
+        self.assertEqual(body["total"], 2, body)
+
+    def test_control_the_same_junk_shapes_without_a_card_are_still_excluded(self) -> None:
+        """CONTROL, the other direction (Archie: 'tests in both
+        directions'): the SAME two shapes with NO Contacts card are still
+        excluded -- proves the fix is the card gate, not a weakening of
+        the shape checks themselves."""
+        points = [
+            _point("p1", "JANE DOE"),
+            _point("p2", "Jane Doe - Plumber"),
+            _point("p3", "Alice Example", organization="Example Corp"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example"}, body)
+        self.assertEqual(body["total"], 1, body)
+
+    def test_known_limit_a_bare_single_word_brand_is_not_caught(self) -> None:
+        """CONTROL / KNOWN LIMIT: a single ordinary-looking word (e.g. a
+        marketplace brand with no space, no caps-shape, no suffix word)
+        has no structural signal left to catch -- documented in
+        _is_automated_or_service_name's docstring, not silently assumed."""
+        self.assertFalse(server._is_automated_or_service_name("ExampleBrand"))
+
+    def test_real_names_with_similar_shapes_are_not_excluded(self) -> None:
+        """CONTROL: the four checks must not fire on real human names that
+        are superficially close to the measured junk shapes."""
+        # A real name typed in capitals is a SINGLE word -- must not match
+        # the multi-word all-caps check.
+        self.assertFalse(server._is_automated_or_service_name("JOHN"))
+        # A hyphenated surname has NO spaces around the hyphen.
+        self.assertFalse(server._is_automated_or_service_name("Jane Smith-Jones"))
+        # An ordinary two-word mixed-case name.
+        self.assertFalse(server._is_automated_or_service_name("Jane Doe"))
+        # A real name that happens to end in a word near the vocabulary
+        # but not IN it.
+        self.assertFalse(server._is_automated_or_service_name("John Smith"))
+
+    def test_real_names_survive_the_full_endpoint_alongside_junk_rows(self) -> None:
+        """CONTROL at the endpoint level, not just the predicate: the
+        exclusions above must not collaterally drop a real all-caps-typed
+        SINGLE-word name or a real hyphenated surname."""
+        points = [
+            _point("p1", "JOHN"),
+            _point("p2", "Jane Smith-Jones"),
+            _point("p3", "EXAMPLE EXECUTIVE SEARCH"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"JOHN", "Jane Smith-Jones"})
+
+
+class TestPeopleListPrefersAStructuredNameOverABareIdentifier(unittest.TestCase):
+    """Walk #6, bug 2: on macmini16-walk, a person with an icloud_contact_uid
+    identifier (proof a real Contacts card exists) still displayed by their
+    bare email address, even though given_name/family_name were present on
+    the SAME Qdrant point. The write-time precedence rule never re-fires
+    once a point already has a stored name; people_list now prefers the
+    structured name at render time whenever the STORED name is itself just
+    an identifier.
+    """
+
+    def test_email_shaped_name_is_replaced_when_given_and_family_present(self) -> None:
+        points = [
+            _point(
+                "p1", _EMAIL_SHAPED_FIXTURE,
+                given_name="Jane", family_name="Doe",
+                person_uri="urn:ostler:person/p1",
+            ),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["people"][0]["name"], "Jane Doe")
+
+    def test_phone_shaped_name_is_replaced_when_given_and_family_present(self) -> None:
+        points = [
+            _point(
+                "p1", _PHONE_SHAPED_FIXTURE,
+                given_name="Jane", family_name="Doe",
+                person_uri="urn:ostler:person/p1",
+            ),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(body["people"][0]["name"], "Jane Doe")
+
+    def test_control_email_shaped_name_unchanged_when_no_structured_name_exists(self) -> None:
+        """CONTROL: a genuinely email-only contact (no given/family name
+        anywhere) must NOT be mutated -- there is nothing better to show."""
+        points = [
+            _point("p1", _EMAIL_SHAPED_FIXTURE,
+                   person_uri="urn:ostler:person/p1"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(body["people"][0]["name"], _EMAIL_SHAPED_FIXTURE)
+
+    def test_control_real_name_with_given_family_is_unaffected(self) -> None:
+        """CONTROL: a row whose STORED name is already a real name (not an
+        identifier) must be left exactly as-is, even with given/family
+        present -- this fix only ever replaces an identifier-shaped name."""
+        points = [
+            _point("p1", "Jane Doe",
+                   given_name="Person", family_name="Different",
+                   person_uri="urn:ostler:person/p1"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(body["people"][0]["name"], "Jane Doe")
+
+
+class TestPeopleListExcludesTheOwner(unittest.TestCase):
+    """Walk #6, bug 3: on macmini16-walk, the OWNER appeared in his own
+    People list, twice over (once by his real name, once by his own email
+    address) -- two separate Person nodes for the same physical person,
+    neither excluded. people_list now excludes every URI
+    ``_load_people_list_self_uris()`` returns.
+    """
+
+    def test_a_self_uri_row_is_excluded(self) -> None:
+        points = [
+            _point("p1", "John Smith", person_uri="urn:ostler:person/owner1"),
+            _point("p2", ("owner" + "@example.com"), person_uri="urn:ostler:person/owner2"),
+            _point("p3", "Alice Example", person_uri="urn:ostler:person/alice"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(
+                 server, "_load_people_list_self_uris",
+                 return_value={"urn:ostler:person/owner1", "urn:ostler:person/owner2"},
+             ), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(status, 200)
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example"})
+        self.assertEqual(body["total"], 1, body)
+
+    def test_control_empty_self_uris_excludes_nobody(self) -> None:
+        """CONTROL: when self-uri resolution finds nothing (unconfigured
+        install, or a degraded store -- _load_people_list_self_uris is
+        best-effort and returns an empty set on failure), nobody is
+        excluded and the list renders exactly as before this fix."""
+        points = [
+            _point("p1", "Alice Example", person_uri="urn:ostler:person/alice"),
+            _point("p2", "Bob Example", person_uri="urn:ostler:person/bob"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+
+        self.assertEqual(body["total"], 2, body)
+
+
+class TestLoadPeopleListSelfUris(unittest.TestCase):
+    """Unit tests for _load_people_list_self_uris' own wiring: the env vars
+    it reads and the SPARQL it issues, kept separate from the people_list
+    integration tests above (which mock this function outright).
+
+    Self-contained (uses this file's own _sparql_select), NOT an import of
+    person_facts.sources -- that package is not part of CM051's vendored
+    vendor/cm041 tree, so an import of it would silently no-op (caught by
+    the except branch) on every shipped install. See the function's own
+    docstring for the measurement.
+    """
+
+    def test_user_id_contributes_the_owner_anchor_uri(self) -> None:
+        with patch.object(server, "_sparql_select", return_value=[]), \
+             patch.dict(server.os.environ, {"USER_ID": "example_owner"}, clear=False):
+            result = server._load_people_list_self_uris()
+
+        self.assertIn(f"{server.PWG_NS}user_example_owner", result)
+
+    def test_control_no_user_id_contributes_no_anchor_uri(self) -> None:
+        env_without_user_id = {
+            k: v for k, v in server.os.environ.items() if k != "USER_ID"
+        }
+        with patch.object(server, "_sparql_select", return_value=[]), \
+             patch.dict(server.os.environ, env_without_user_id, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, set())
+
+    def test_display_name_match_contributes_that_persons_uri(self) -> None:
+        def fake_select(query):
+            if "pwg:displayName" in query and "hasIdentifier" not in query:
+                return [
+                    {"p": "urn:ostler:person/owner", "n": "John Smith"},
+                    {"p": "urn:ostler:person/other", "n": "Someone Else"},
+                ]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_DISPLAY_NAME"] = "John Smith"
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_user_name_fallback_is_used_when_display_name_vars_are_unset(self) -> None:
+        """Measured on macmini16-walk (Archie's walk #6 round 2 review):
+        contact_syncer's own .env sets USER_NAME (and USER_FIRST_NAME),
+        never USER_DISPLAY_NAME -- the var this function originally
+        checked for was itself wrong. USER_NAME is a third fallback."""
+        def fake_select(query):
+            if "pwg:displayName" in query and "hasIdentifier" not in query:
+                return [{"p": "urn:ostler:person/owner", "n": "John Smith"}]
+            return []
+
+        env = {
+            k: v for k, v in server.os.environ.items()
+            if k not in ("USER_ID", "USER_DISPLAY_NAME", "PWG_USER_NAME")
+        }
+        env["USER_NAME"] = "John Smith"
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_display_name_match_is_case_and_whitespace_insensitive(self) -> None:
+        def fake_select(query):
+            if "pwg:displayName" in query and "hasIdentifier" not in query:
+                return [{"p": "urn:ostler:person/owner", "n": "  EXAMPLE   Owner  "}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_DISPLAY_NAME"] = "example owner"
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_carddav_username_email_match_contributes_that_persons_uri(self) -> None:
+        """CARDDAV_USERNAME is the second-choice fallback -- kept in case
+        it is ever wired up, but USER_EMAIL (tested below) is the
+        confirmed-live source."""
+        def fake_select(query):
+            if "hasIdentifier" in query:
+                return [{"p": "urn:ostler:person/owner", "value": ("Example.Owner" + "@icloud.com")}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k not in ("USER_ID", "USER_EMAIL")}
+        env["CARDDAV_USERNAME"] = ("example.owner" + "@icloud.com")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_user_email_match_contributes_that_persons_uri(self) -> None:
+        """Walk #6 round 3: USER_EMAIL (the confirmed me-card email,
+        delivered to this process's plist alongside USER_NAME) is checked
+        BEFORE the CARDDAV_USERNAME fallback above -- CARDDAV_USERNAME is
+        measured unset anywhere in this installer or in contact_syncer's
+        own config."""
+        def fake_select(query):
+            if "hasIdentifier" in query:
+                return [{"p": "urn:ostler:person/owner", "value": ("owner.example" + "@example.com")}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k not in ("USER_ID", "CARDDAV_USERNAME")}
+        env["USER_EMAIL"] = ("owner.example" + "@example.com")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_user_email_takes_precedence_over_carddav_username(self) -> None:
+        """CONTROL: when both are set, USER_EMAIL wins -- it is the
+        confirmed-live signal, CARDDAV_USERNAME the unconfirmed one."""
+        def fake_select(query):
+            if "hasIdentifier" in query:
+                return [
+                    {"p": "urn:ostler:person/from-user-email", "value": ("owner.example" + "@example.com")},
+                    {"p": "urn:ostler:person/from-carddav", "value": ("example.owner" + "@icloud.com")},
+                ]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_EMAIL"] = ("owner.example" + "@example.com")
+        env["CARDDAV_USERNAME"] = ("example.owner" + "@icloud.com")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/from-user-email"})
+
+    def test_user_phone_match_contributes_that_persons_uri(self) -> None:
+        """Walk #6 round 3: a second identifier arm for an owner node
+        displayed by a bare phone number. Exact-digits match."""
+        def fake_select(query):
+            if 'identifierType "phone"' in query:
+                return [{"p": "urn:ostler:person/owner", "value": ("+1 " + "(555) 010-1234")}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_PHONE"] = ("+1" + "5550101234")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_user_phone_match_tolerates_a_country_code_prefix_mismatch(self) -> None:
+        """A shared 7+ digit SUFFIX is enough: a graph value carrying a
+        country-code prefix must match a locally-typed number with no
+        prefix, and vice versa."""
+        def fake_select(query):
+            if 'identifierType "phone"' in query:
+                return [{"p": "urn:ostler:person/owner", "value": ("+852 " + "1234 5678")}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_PHONE"] = ("1234" + "5678")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_control_a_short_shared_phone_suffix_does_not_false_match(self) -> None:
+        """CONTROL: below the 7-digit floor, a coincidentally-shared tail
+        must NOT match -- two different numbers can share a short suffix
+        by chance far more easily than a 7+ digit one."""
+        def fake_select(query):
+            if 'identifierType "phone"' in query:
+                return [{"p": "urn:ostler:person/not-the-owner", "value": "999123"}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_PHONE"] = "123"
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, set())
+
+    def test_control_a_failure_returns_empty_not_an_exception(self) -> None:
+        """CONTROL: best-effort -- a degraded Oxigraph must never raise
+        out of people_list, only degrade to 'exclude nobody'."""
+        env = dict(server.os.environ)
+        env["USER_DISPLAY_NAME"] = "John Smith"
+        with patch.object(server, "_sparql_select",
+                           side_effect=RuntimeError("store unreachable")), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, set())
+
+    def test_control_neither_signal_configured_returns_only_possibly_empty(self) -> None:
+        """CONTROL: on a box with no USER_DISPLAY_NAME / CARDDAV_USERNAME
+        configured (the measured gap: OSTLER_OPERATOR_EMAILS/NAME are never
+        set by install.sh either), self-uri resolution degrades to AT MOST
+        the owner anchor URI -- never raises, never fabricates a match."""
+        env = {
+            k: v for k, v in server.os.environ.items()
+            if k not in ("USER_DISPLAY_NAME", "PWG_USER_NAME", "CARDDAV_USERNAME", "USER_ID")
+        }
+        with patch.object(server, "_sparql_select", return_value=[]), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, set())
+
+
+class TestPeopleListToEnrichment(unittest.TestCase):
+    """A row's slug must resolve to a 200 enrichment card -- the
+    click-through from fix [4] to fix [5]."""
+
+    def test_row_slug_resolves_to_enrichment_200(self) -> None:
+        name = "Alice Example"
+        slug = server._wiki_slug(name)
+        uri = "urn:ostler:person/carol"
+
+        def fake_sparql(query):
+            # Slug-resolution candidate query (person + displayName, no
+            # per-source predicates / identifiers).
+            if ("pwg:Person" in query and "displayName" in query
+                    and "lastContactCalendar" not in query
+                    and "hasIdentifier" not in query):
+                return [{"person": uri, "name": name}]
+            # Core attributes query.
+            if "lastContactCalendar" in query:
+                return [{"org": "Example Corp", "title": "Director"}]
+            return []
+
+        def qdrant_empty(*_args, **_kwargs):
+            return _scroll_resp([], next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=fake_sparql), \
+             patch.object(server.urllib.request, "urlopen", qdrant_empty):
+            with _ServerHarness() as h:
+                status, body = h.get(
+                    f"/api/v1/people/{slug}/enrichment"
+                )
+
+        self.assertEqual(status, 200, msg=f"body={body!r}")
+        self.assertTrue(body["found"])
+        self.assertEqual(body["slug"], slug)
+        self.assertEqual(body["person"]["organisation"], "Example Corp")
+
+
+class TestServiceShapesRound4(unittest.TestCase):
+    """Predicate-level: Archie's second screen-read measured 7 notification-
+    phrasing rows (some with the vocabulary word NOT last) and 1 marketplace
+    row, none of which round 1's last-word-only check could catch."""
+
+    def test_middle_position_vocabulary_word_now_matches(self) -> None:
+        # Archie: "rewards (middle, 3 words, Title)" and
+        # "delivery (middle, 3 words, Title)" -- the vocabulary word is
+        # NEITHER the first nor the last word.
+        self.assertTrue(server._is_automated_or_service_name("Your Rewards Balance"))
+        self.assertTrue(server._is_automated_or_service_name("Your Delivery Today"))
+
+    def test_last_position_still_matches_for_the_new_words(self) -> None:
+        self.assertTrue(server._is_automated_or_service_name("your account Update"))
+        self.assertTrue(server._is_automated_or_service_name("Delivery"))
+        self.assertTrue(server._is_automated_or_service_name("your special holiday Gift"))
+
+    def test_marketplace_brand_token_anywhere_in_a_title_case_name(self) -> None:
+        # Archie: a 3-word Title-case name containing a marketplace BRAND,
+        # no email field.
+        self.assertTrue(server._is_automated_or_service_name("your Amazon orders"))
+
+    def test_control_vocabulary_word_as_a_substring_is_not_a_whole_word_match(self) -> None:
+        """CONTROL: the regex is word-BOUNDARY, not substring -- a name
+        that merely contains a vocabulary word as a prefix of a longer
+        word must not match."""
+        self.assertFalse(server._is_automated_or_service_name("Rewardson family"))
+        self.assertFalse(server._is_automated_or_service_name("Updegraff"))
+
+    def test_control_real_names_still_survive_round_4(self) -> None:
+        self.assertFalse(server._is_automated_or_service_name("Jane Doe"))
+        self.assertFalse(server._is_automated_or_service_name("John Smith"))
+
+
+class TestServiceMailboxNames(unittest.TestCase):
+    """Round 4: the 4 'service mailbox' rows, all email-SHAPED display
+    names, none of which trip _is_automated_or_service_name (an email is
+    one unspaced token: never multi-word, never spaced-hyphenated, and the
+    suffix/phrase vocabulary never sees it because there are no
+    whitespace-split words to search within an email string's LOCAL part
+    alone -- though the whole-string regex now also matches the domain)."""
+
+    def test_ebill_prefixed_local_part(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "ebillnotice" + "@examplebank.com"))
+
+    def test_marketplace_brand_in_domain(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "orders" + "@amazon.example.com"))
+
+    def test_marketplace_brand_in_local_part(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "amazon.orders" + "@example.com"))
+
+    def test_generic_service_local_part(self) -> None:
+        self.assertTrue(server._is_service_mailbox_name(
+            "no-reply" + "@example.com"))
+
+    def test_control_a_non_service_email_is_not_a_mailbox_shape(self) -> None:
+        """CONTROL: an ordinary-looking personal email address (no service
+        local part, no marketplace brand) is NOT a service mailbox by this
+        check -- it is still a bare-identifier shape (handled elsewhere),
+        just not THIS specific vocabulary-and-brand check."""
+        self.assertFalse(server._is_service_mailbox_name(
+            "alice.example" + "@example.com"))
+
+    def test_control_not_an_email_at_all(self) -> None:
+        self.assertFalse(server._is_service_mailbox_name("Jane Doe"))
+
+    def test_service_mailbox_excluded_when_uncarded(self) -> None:
+        points = [
+            _point("p1", "ebillnotice" + "@examplebank.com"),
+            _point("p2", "Alice Example"),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example"}, body)
+
+    def test_control_a_carded_service_shaped_email_stays(self) -> None:
+        """CONTROL (Archie: 'Keep the filter UNCARDED-ONLY'): a real
+        Contacts entry can legitimately be saved with an email-only name
+        that happens to match a service-mailbox shape -- the card always
+        wins, same as round 2's carded-gate fix.
+
+        Vendor-only note: the local part here is `ebill...`, NOT one of
+        this vendor's own `_ROLE_ADDRESS_LOCAL_RE` words (no-reply,
+        support, ...) -- that PRE-EXISTING vendor check (v1.0.106 walk)
+        runs unconditionally, with no card gate, so a `no-reply@`-shaped
+        name would be dropped regardless of this round's fix and would
+        not isolate what THIS test is for. `ebill` is round 4's own,
+        newly-added vocabulary, which IS card-gated, same as
+        `_is_automated_or_service_name`.
+        """
+        points = [
+            _point(
+                "p1", "ebillnotice" + "@example.com",
+                icloud_uid="00000000-0000-0000-0000-000000000003:ABPerson",
+            ),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(body["total"], 1, body)
+
+
+class TestEmailNamePrecedenceRound4(unittest.TestCase):
+    """Round 4: a bare-email-named, uncarded, given/family-less row that
+    shares its address with a separate human-named row is a duplicate
+    Person record, not a second real person. Measured on macmini16-walk:
+    2 clean pairs this shape (word counts 2 and 3 on the human side)."""
+
+    def test_email_named_duplicate_is_hidden_behind_its_human_sibling(self) -> None:
+        shared = "sibling" + "@example.com"
+        points = [
+            _point("p1", shared, emails=[shared]),
+            _point("p2", "Alice Example", given_name="Alice",
+                    family_name="Example", emails=[shared]),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(status, 200)
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Alice Example"}, body)
+        self.assertEqual(body["total"], 1, body)
+
+    def test_control_email_named_row_with_no_sibling_is_unaffected(self) -> None:
+        """CONTROL: this is a DUPLICATE check, not a blanket hide of every
+        bare-email name -- a lone email-named row with nothing else
+        sharing its address is untouched by this specific fix (it may
+        still be caught by _is_service_mailbox_name/_is_nameless_name on
+        its own merits, but not by the collision logic)."""
+        lone = "lone" + "@example.com"
+        points = [_point("p1", lone, emails=[lone])]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(body["total"], 1, body)
+
+    def test_control_a_carded_email_named_duplicate_stays(self) -> None:
+        """CONTROL (uncarded-only): a Contacts card on the email-named
+        side always wins, even with a human-named sibling sharing the
+        address."""
+        shared = "carded" + "@example.com"
+        points = [
+            _point("p1", shared, emails=[shared],
+                    icloud_uid="00000000-0000-0000-0000-000000000004:ABPerson"),
+            _point("p2", "Bob Example", given_name="Bob",
+                    family_name="Example", emails=[shared]),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        self.assertEqual(body["total"], 2, body)
+
+    def test_control_given_family_on_the_email_named_side_is_not_this_bug(self) -> None:
+        """CONTROL: when the email-named record itself carries
+        given_name/family_name, the EXISTING bug-2 upgrade (round 1)
+        already re-labels it with its own human name on every read -- it
+        is no longer 'a name that is a bare email address' by the time
+        round 4's check runs, so round 4 must not also drop it. Measured
+        on macmini16-walk: this is exactly the shape of the third
+        collision Archie's facts file reported; it is not a new defect."""
+        shared = "upgraded" + "@example.com"
+        points = [
+            _point("p1", shared, given_name="Jane", family_name="Doe",
+                    emails=[shared]),
+            _point("p2", "John Smith", given_name="John",
+                    family_name="Smith", emails=[shared]),
+        ]
+
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+
+        names = {row["name"] for row in body["people"]}
+        self.assertEqual(names, {"Jane Doe", "John Smith"}, body)
+        self.assertEqual(body["total"], 2, body)
+
+
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class TestPeopleListNeverShowsAnInternalIdAsAPhone(unittest.TestCase):
+    """CM051 #2543, walk #11: 1 of 2,571 People rows showed a 17-digit
+    internal id as its phone number. Every value below is synthetic and
+    built from repeated digits, so none can be anyone's real number."""
+
+    LID_17 = "1" + "0" * 15 + "7"          # 17 digits: over E.164's ceiling
+    LID_15 = "+1" + "0" * 13 + "1"         # 15 digits, the #2543 shape
+    REAL = "+44 7700 900" + "123"          # Ofcom drama range, 12 digits
+
+    def _rows(self, points):
+        def fake_urlopen(*_args, **_kwargs):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people")
+        self.assertEqual(status, 200)
+        return {r["name"]: r for r in body["people"]}
+
+    def test_a_17_digit_id_is_never_the_row_phone(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_17])])
+        self.assertNotIn("phone", rows["Jane Doe"])
+
+    def test_a_15_digit_lid_is_never_the_row_phone(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_15])])
+        self.assertNotIn("phone", rows["Jane Doe"])
+
+    def test_a_real_number_behind_a_lid_is_shown_instead(self) -> None:
+        rows = self._rows([_point("p1", "Jane Doe", phones=[self.LID_17, self.REAL])])
+        self.assertEqual(rows["Jane Doe"].get("phone"), self.REAL)
+
+    def test_control_an_ordinary_number_is_still_shown(self) -> None:
+        rows = self._rows([_point("p1", "John Doe", phones=[self.REAL])])
+        self.assertEqual(rows["John Doe"].get("phone"), self.REAL)
+
+    def test_control_a_national_format_number_is_not_hidden(self) -> None:
+        national = "07700 900" + "456"
+        self.assertTrue(server._displayable_phone(national))
+
+    def test_predicate_shapes(self) -> None:
+        self.assertFalse(server._displayable_phone(self.LID_17))
+        self.assertFalse(server._displayable_phone(self.LID_15))
+        self.assertFalse(server._displayable_phone(""))
+        self.assertFalse(server._displayable_phone(None))
+        self.assertTrue(server._displayable_phone(self.REAL))
+
+
+class BusinessShapedNameFilterTests(unittest.TestCase):
+    """Cut #15 (walk #14): business / automated-sender shapes in the People
+    list. SYNTHETIC names only. Conservative: a real person must survive."""
+
+    BUSINESS = [
+        "Acme official", "Acme hk official", "Zed official store",
+        "Acme swimming gear store", "Acme home goods shop",
+        "Acme trading ltd", "Acme trading limited", "Acme holdings inc",
+        "Acme support team", "Acme customer service", "Acme noreply",
+        "acme no-reply",
+        # round 2: probe ORG_MARKERS shapes
+        "Acme cloud solutions", "Acme holdings group", "Acme daily news",
+        "Acme fan club hk", "Acme savings bank hk", "Acme alumni team",
+        "Acme technology university", "Acme gear store hk",
+    ]
+    PERSONS = [
+        "Jane store", "Sam shop", "Tom hk", "Hk lee", "Mary storey",
+        "Sam shopland", "Li wei hk", "Ana team", "Jane limitedton",
+        "Store smith", "Jane bank", "Tom club", "Liz card",
+        "Alex support", "Sam research", "Jane doe", "John smith",
+    ]
+
+    def test_business_shapes_are_filtered(self) -> None:
+        for n in self.BUSINESS:
+            self.assertTrue(server._is_automated_or_service_name(n), n)
+
+    def test_control_person_shapes_are_kept(self) -> None:
+        for n in self.PERSONS:
+            self.assertFalse(server._is_automated_or_service_name(n), n)
+
+    def test_end_to_end_strong_org_word_hidden_even_when_carded(self) -> None:
+        card = "00000000-0000-0000-0000-0000000000f1:ABPerson"
+        points = [
+            _point("b1", "Acme hk official"),
+            _point("b2", "Acme swimming gear store"),
+            _point("c1", "Carded brand official", icloud_uid=card),
+            _point("c2", "Carded person jr", icloud_uid=card + "2"),
+            _point("c3", "Carded tom club", icloud_uid=card + "3", given_name="Carded"),
+            _point("p1", "Jane store"),
+            _point("p2", "Tom hk"),
+        ]
+
+        def fake_urlopen(*_a, **_k):
+            return _scroll_resp(points, next_offset=None)
+
+        with patch.object(server, "_sparql_select", side_effect=_no_identifiers), \
+             patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+             patch.object(server.urllib.request, "urlopen", fake_urlopen):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/people?sort=recency")
+        names = {r["name"] for r in body["people"]}
+        self.assertEqual(
+            names, {"Carded person jr", "Carded tom club", "Jane store", "Tom hk"},
+            body)

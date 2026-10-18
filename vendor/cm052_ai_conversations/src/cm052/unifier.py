@@ -34,8 +34,23 @@ AdapterCallable = Callable[[Path], Iterable[Conversation]]
 
 
 def _hub_dir() -> Path:
-    raw = os.environ.get("CM052_USER_HUB_DIR") or "~/.zeroclaw/workspace/sessions/"
-    return Path(raw).expanduser()
+    """Where the Hub's own chat sessions (sessions.db) live.
+
+    The Hub keeps them under ``~/.ostler/assistant-config/workspace/sessions``
+    (the assistant runs with ZEROCLAW_WORKSPACE=~/.ostler/assistant-config).
+    This used to default to ``~/.zeroclaw/workspace/sessions``, which does not
+    exist on a customer Mac, so the gateway source read nothing: measured
+    2026-09-24, 0 discovered against 4 conversations in the Hub's store.
+    The legacy path is kept only as a fallback for a pre-Ostler layout.
+    """
+    raw = os.environ.get("CM052_USER_HUB_DIR")
+    if raw:
+        return Path(raw).expanduser()
+    hub = Path.home() / ".ostler" / "assistant-config" / "workspace" / "sessions"
+    legacy = Path.home() / ".zeroclaw" / "workspace" / "sessions"
+    if not hub.is_dir() and legacy.is_dir():
+        return legacy
+    return hub
 
 
 def _claude_code_projects_dir() -> Path:

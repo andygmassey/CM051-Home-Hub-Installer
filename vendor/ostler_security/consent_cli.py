@@ -40,6 +40,7 @@ try:
     from legal import (  # noqa: E402
         ARTICLE_9_EU_CONSENT,
         EU_VOICE_SPEAKER_ID_CONSENT,
+        PERSONAL_USE_ONLY,
         SPOKEN_CAPTURE_RECORDING_CONSENT,
         THIRD_PARTY_DATA_NOTICE,
         WHATSAPP_UNOFFICIAL_RISK_CONSENT,
@@ -70,6 +71,15 @@ TICKBOX_REGISTRY = {
     # (does not abort the install), so an unregistered id here would drop
     # the record silently — same failure mode as #659's third-party gate.
     SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
+    # Personal-use-only licence term (every region), tickbox id
+    # "personal_use_only". Registered here at the same time as the call site,
+    # because THIS IS THE FOURTH TIME this exact gap has been created and the
+    # #659 comment above narrates the third: defined in consent_strings.py,
+    # called by install.sh, never registered here, so argparse `choices`
+    # rejected it with exit 2 and the consent was SILENTLY DROPPED while the
+    # customer saw an accept. test_consent_tickbox_registry.sh caught it again
+    # within minutes of the call site landing, which is the gate working.
+    PERSONAL_USE_ONLY.tickbox_id: PERSONAL_USE_ONLY,
 }
 
 

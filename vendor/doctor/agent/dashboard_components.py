@@ -53,11 +53,20 @@ except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
 from imessage_tcc_posture import read_imessage_tcc_posture
 from reminders_posture import read_reminders_posture
 from reminders_runtime import (
+    STATE_CANNOT_READ,
+    STATE_PUSH_FAILING,
     STATE_NO_DATA,
     STATE_OK,
+    STATE_LIST_REMOVED,
     STATE_PERMISSION_DENIED,
     read_reminders_runtime,
 )
+# The WhatsApp keepalive verdict. Same in-package, always-importable shape as
+# the readers above, so no soft fall-through is needed. It lives in
+# whatsapp_pair rather than a module of its own because a brand-new vendored
+# file with no upstream counterpart would need a VENDOR_ONLY.tsv row, and that
+# file's header calls a new row a last resort.
+from whatsapp_pair import read_whatsapp_keepalive
 
 # A7+A8: consent registry. Same soft-fall-through rule as posture –
 # Doctor must keep rendering even when ostler_security is missing.
@@ -133,47 +142,71 @@ def _resolve_consent_registry():
     _CONSENT_IMPORT_ERROR = ""
     return True, "", resolved
 
-try:
-    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-        ARTICLE_9_EU_CONSENT,
-        EU_VOICE_SPEAKER_ID_CONSENT,
-        SPOKEN_CAPTURE_RECORDING_CONSENT,
-        THIRD_PARTY_DATA_NOTICE,
-        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-    )
-    # tickbox_id -> ConsentString. Drives the bundled-hash check.
-    _BUNDLED_CONSENTS = {
-        ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
-        WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-        EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
-        THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
-        SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
-    }
-except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-    _BUNDLED_CONSENTS = {}
-
-
 def _import_bundled_consents() -> dict:
     """Build the tickbox_id -> ConsentString map. Isolated for the same
     reason _import_consent_registry is: a test needs to force the failure.
+
+    DERIVED FROM THE `legal` PACKAGE, NOT LISTED BY HAND, and the reason is
+    measured rather than tidiness. This used to name five constants
+    explicitly. install.sh records SIX tickbox ids and
+    ostler_security.consent_cli.TICKBOX_REGISTRY knows all six, so the
+    sixth - personal_use_only, the licence term a customer acknowledges on
+    every install including the "use previous answers" re-install - landed
+    in ~/.ostler/posture/consent.json and reached this tile as grey
+    "unknown wording" with a "?". Measured 2026-09-16 by recording the real
+    decision through the real CLI and rendering this real tile: 6 in the
+    CLI registry, 6 ConsentStrings exported by `legal`, 5 here.
+
+    That grey state is the one _resolve_bundled_consents' docstring calls
+    "an honest-looking state that happens to be exactly what a genuinely
+    unrecognised tickbox_id renders". So the customer's licence
+    acknowledgement was indistinguishable from a bogus record, and the
+    drift check that install.sh's own screen comment says the record exists
+    to enable ("so the Doctor can flag drift between what the customer
+    agreed to and what the Hub currently bundles") could never run on it.
+
+    A hand-kept list cannot be right for longer than the next consent
+    string. The `legal` package is the single source of truth the installer,
+    the CLI and this tile already share, so enumerate it: a new
+    ConsentString exported there is checkable here the day it is added,
+    with nobody having to remember this file.
     """
-    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-        ARTICLE_9_EU_CONSENT,
-        EU_VOICE_SPEAKER_ID_CONSENT,
-        SPOKEN_CAPTURE_RECORDING_CONSENT,
-        THIRD_PARTY_DATA_NOTICE,
-        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-    )
-    return {
-        c.tickbox_id: c
-        for c in (
-            ARTICLE_9_EU_CONSENT,
-            WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-            EU_VOICE_SPEAKER_ID_CONSENT,
-            THIRD_PARTY_DATA_NOTICE,
-            SPOKEN_CAPTURE_RECORDING_CONSENT,
+    import legal  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+    from legal import ConsentString  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+
+    bundled = {}
+    for name in getattr(legal, "__all__", ()):
+        candidate = getattr(legal, name, None)
+        if isinstance(candidate, ConsentString):
+            bundled[candidate.tickbox_id] = candidate
+
+    if not bundled:
+        # FAIL THE WAY A MISSING PACKAGE FAILS, rather than returning an
+        # empty map. _resolve_bundled_consents caches whatever it gets, and
+        # an empty dict renders every record "unknown wording" for the life
+        # of the process while looking like a successful import. The two
+        # facts must not share one output - the same rule the consent tile
+        # itself was fixed under in task #429.
+        raise ImportError(
+            "legal package exported no ConsentString constants; "
+            "the consent tile cannot check wording drift",
         )
-    }
+    return bundled
+
+
+# ONE PRODUCER, AND IT USED TO BE TWO. This module-level block held its own
+# hand-written copy of the same five-constant map, and _resolve_bundled_consents
+# returns that cache whenever it is truthy - so on every install where `legal`
+# imports (that is, every working install) _import_bundled_consents below was
+# never called. The function was reachable only on the degraded path, which
+# means a test asserting on the function could go green while the tile the
+# customer looks at still read the stale copy: the instrument and the defect on
+# different surfaces. Calling the function here leaves one definition to keep
+# right.
+try:
+    _BUNDLED_CONSENTS = _import_bundled_consents()
+except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+    _BUNDLED_CONSENTS = {}
 
 
 def _resolve_bundled_consents() -> dict:
@@ -225,15 +258,15 @@ def render_system_overview(snapshot: SystemSnapshot) -> str:
     if healthy == total_services and total_services > 0:
         overall = "healthy"
         overall_text = "All systems operational"
-        overall_color = "#5cb579"
+        overall_color = "#2C4A2C"
     elif healthy > 0:
         overall = "degraded"
         overall_text = f"{healthy}/{total_services} services healthy"
-        overall_color = "#d4a052"
+        overall_color = "#5C4611"
     else:
         overall = "down"
         overall_text = "Services not responding"
-        overall_color = "#d96666"
+        overall_color = "#7A1F1F"
 
     # Disk summary
     disk_text = ""
@@ -293,7 +326,7 @@ def render_quick_actions(snapshot: SystemSnapshot) -> str:
     buttons = ""
     for a in actions:
         buttons += f"""
-        <button onclick="navigator.clipboard.writeText('{a['command']}').then(()=>this.style.borderColor='#5cb579')"
+        <button onclick="navigator.clipboard.writeText('{a['command']}').then(()=>this.style.borderColor='#2C4A2C')"
                 style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-secondary);font-size:0.82rem;cursor:pointer;font-family:inherit;transition:border-color 0.2s;"
                 title="Click to copy: {a['command']}">
             <span>{a['icon']}</span> {a['label']}
@@ -327,11 +360,11 @@ def render_security_posture() -> str:
         p = postures[service]
         encryption = p.get("encryption", "unknown")
         if encryption == "enabled":
-            colour = "#5cb579"
+            colour = "#2C4A2C"
             icon = "&#10003;"
             detail = f"{p.get('backend', 'sqlcipher')} via {p.get('key_source', 'OSTLER_DB_KEY')}"
         elif encryption == "disabled":
-            colour = "#d96666"
+            colour = "#7A1F1F"
             icon = "&#9888;"
             reason = p.get("reason") or "unknown"
             detail = f"plaintext &ndash; reason: {reason}"
@@ -437,11 +470,11 @@ def _is_stale(marker: dict, now_dt=None) -> bool:
 # grey rather than green; a silent death is more dangerous than a
 # loud failure.
 _STATUS_COLOURS = {
-    "success": "#5cb579",
-    "fda_denied": "#d96666",
-    "extract_failed": "#d96666",
-    "mailbox_unreadable": "#d96666",
-    "other": "#d4a052",
+    "success": "#2C4A2C",
+    "fda_denied": "#7A1F1F",
+    "extract_failed": "#7A1F1F",
+    "mailbox_unreadable": "#7A1F1F",
+    "other": "#5C4611",
     "stale": "rgba(236,232,221,0.40)",
     "unknown": "rgba(236,232,221,0.40)",
 }
@@ -564,7 +597,7 @@ def render_observability_posture(now_dt=None) -> str:
                     <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         Full marker JSON
                     </summary>
-                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
                 </details>
             </div>
         </div>"""
@@ -637,7 +670,7 @@ def render_consent_status() -> str:
         <div class="section-title">Consent (A7+A8 records)</div>
         <div class="status-grid">
         <div class="status-card">
-            <div class="status-indicator" style="background:#d96666">&#9888;</div>
+            <div class="status-indicator" style="background:#7A1F1F">&#9888;</div>
             <div class="status-info">
                 <div class="status-name">{_html_escape(CONSENT_UNREADABLE_TITLE)}</div>
                 <div class="status-detail">{_html_escape(detail)}</div>
@@ -663,7 +696,7 @@ def render_consent_status() -> str:
 
         bundled = bundled_consents.get(tickbox_id)
         if decision == "declined":
-            colour = "#d96666"
+            colour = "#7A1F1F"
             icon = "&#9888;"
             state = "declined"
         elif bundled is None:
@@ -674,11 +707,11 @@ def render_consent_status() -> str:
             icon = "?"
             state = "unknown wording"
         elif rec.get("wording_hash") != bundled.sha256():
-            colour = "#d4a052"
+            colour = "#5C4611"
             icon = "&#9888;"
             state = f"renewal needed ({wording_version} -> {bundled.version})"
         else:
-            colour = "#5cb579"
+            colour = "#2C4A2C"
             icon = "&#10003;"
             state = f"current ({wording_version})"
 
@@ -717,9 +750,9 @@ def render_consent_status() -> str:
 # ``unknown`` matches the other tiles' grey fallback for an
 # unrecognised status field.
 _IMESSAGE_TCC_COLOURS = {
-    "granted-and-working": "#5cb579",
-    "tcc-denied": "#d4a052",
-    "check-failed": "#d96666",
+    "granted-and-working": "#2C4A2C",
+    "tcc-denied": "#5C4611",
+    "check-failed": "#7A1F1F",
     "unknown": "rgba(236,232,221,0.40)",
 }
 _IMESSAGE_TCC_ICONS = {
@@ -842,7 +875,7 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
             )
         if in_marker_remediation:
             fix_bits.append(
-                '<pre style="font-size:12px;background:#07060a;'
+                '<pre style="font-size:12px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -853,7 +886,7 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
             fix_bits.append(
                 f'<div class="status-detail" style="margin-top:8px">'
                 f'<strong>{_html_escape(IMESSAGE_TCC_STDERR_LABEL)}:</strong></div>'
-                '<pre style="font-size:11px;background:#07060a;'
+                '<pre style="font-size:11px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -879,7 +912,7 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
                     <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(IMESSAGE_TCC_FULL_MARKER_LABEL)}
                     </summary>
-                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
                 </details>"""
 
     tile = f"""
@@ -909,11 +942,11 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
 # the customer cannot straightforwardly remedy). ``unknown`` matches the
 # other tiles' grey fallback.
 _REMINDERS_COLOURS = {
-    "granted": "#5cb579",
-    "denied": "#d4a052",
-    "not-determined": "#d4a052",
-    "restricted": "#d96666",
-    "check-failed": "#d96666",
+    "granted": "#2C4A2C",
+    "denied": "#5C4611",
+    "not-determined": "#5C4611",
+    "restricted": "#7A1F1F",
+    "check-failed": "#7A1F1F",
     "unknown": "rgba(236,232,221,0.40)",
 }
 _REMINDERS_ICONS = {
@@ -1041,7 +1074,7 @@ def render_reminders_posture(now_dt=None) -> str:
             )
         if in_marker_remediation:
             fix_bits.append(
-                '<pre style="font-size:12px;background:#07060a;'
+                '<pre style="font-size:12px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -1052,7 +1085,7 @@ def render_reminders_posture(now_dt=None) -> str:
             fix_bits.append(
                 f'<div class="status-detail" style="margin-top:8px">'
                 f'<strong>{_html_escape(REMINDERS_STDERR_LABEL)}:</strong></div>'
-                '<pre style="font-size:11px;background:#07060a;'
+                '<pre style="font-size:11px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -1076,7 +1109,7 @@ def render_reminders_posture(now_dt=None) -> str:
                     <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(REMINDERS_FULL_MARKER_LABEL)}
                     </summary>
-                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
                 </details>"""
 
     tile = f"""
@@ -1103,13 +1136,19 @@ def render_reminders_posture(now_dt=None) -> str:
 # (operator-fixable, same colour as the install-time denied tile),
 # no-data=grey neutral.
 _REMINDERS_RUNTIME_COLOURS = {
-    STATE_OK: "#5cb579",
-    STATE_PERMISSION_DENIED: "#d4a052",
+    STATE_OK: "#2C4A2C",
+    STATE_PERMISSION_DENIED: "#5C4611",
+    STATE_LIST_REMOVED: "#5C4611",
+    STATE_PUSH_FAILING: "#5C4611",
+    STATE_CANNOT_READ: "rgba(236,232,221,0.40)",
     STATE_NO_DATA: "rgba(236,232,221,0.40)",
 }
 _REMINDERS_RUNTIME_ICONS = {
     STATE_OK: "&#10003;",
     STATE_PERMISSION_DENIED: "&#9888;",
+    STATE_LIST_REMOVED: "&#9888;",
+    STATE_PUSH_FAILING: "&#9888;",
+    STATE_CANNOT_READ: "&#8211;",
     STATE_NO_DATA: "&#8211;",
 }
 
@@ -1142,15 +1181,23 @@ def render_reminders_runtime(now_dt=None) -> str:
     """
     from web_ui_copy import (
         REMINDERS_RUNTIME_DENIED_COUNT_FMT,
+        REMINDERS_RUNTIME_DETAIL_CANNOT_READ,
+        REMINDERS_RUNTIME_DETAIL_PUSH_FAILING,
+        REMINDERS_RUNTIME_FAILED_COUNT_FMT,
+        REMINDERS_RUNTIME_STATUS_CANNOT_READ,
+        REMINDERS_RUNTIME_STATUS_PUSH_FAILING,
         REMINDERS_RUNTIME_DENIED_EXAMPLE_FMT,
         REMINDERS_RUNTIME_DENIED_SINCE_FMT,
+        REMINDERS_RUNTIME_BTN_TURN_ON,
         REMINDERS_RUNTIME_DETAIL_DENIED,
+        REMINDERS_RUNTIME_DETAIL_LIST_REMOVED,
         REMINDERS_RUNTIME_DETAIL_NO_DATA,
         REMINDERS_RUNTIME_DETAIL_OK,
         REMINDERS_RUNTIME_HOW_TO_FIX_LABEL,
         REMINDERS_RUNTIME_REMEDIATION_DENIED,
         REMINDERS_RUNTIME_SECTION_TITLE,
         REMINDERS_RUNTIME_STATUS_DENIED,
+        REMINDERS_RUNTIME_STATUS_LIST_REMOVED,
         REMINDERS_RUNTIME_STATUS_NO_DATA,
         REMINDERS_RUNTIME_STATUS_OK,
     )
@@ -1171,10 +1218,16 @@ def render_reminders_runtime(now_dt=None) -> str:
     status_label_map = {
         STATE_OK: REMINDERS_RUNTIME_STATUS_OK,
         STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_STATUS_DENIED,
+        STATE_LIST_REMOVED: REMINDERS_RUNTIME_STATUS_LIST_REMOVED,
+        STATE_PUSH_FAILING: REMINDERS_RUNTIME_STATUS_PUSH_FAILING,
+        STATE_CANNOT_READ: REMINDERS_RUNTIME_STATUS_CANNOT_READ,
     }
     detail_map = {
         STATE_OK: REMINDERS_RUNTIME_DETAIL_OK,
         STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_DETAIL_DENIED,
+        STATE_LIST_REMOVED: REMINDERS_RUNTIME_DETAIL_LIST_REMOVED,
+        STATE_PUSH_FAILING: REMINDERS_RUNTIME_DETAIL_PUSH_FAILING,
+        STATE_CANNOT_READ: REMINDERS_RUNTIME_DETAIL_CANNOT_READ,
     }
     status_label = status_label_map[state]
     detail = detail_map[state]
@@ -1215,6 +1268,24 @@ def render_reminders_runtime(now_dt=None) -> str:
                     <div class="status-detail">{_html_escape(REMINDERS_RUNTIME_REMEDIATION_DENIED)}</div>
                 </details>"""
 
+    if state == STATE_PUSH_FAILING:
+        extra_lines = (
+            '<div class="status-detail">'
+            + _html_escape(REMINDERS_RUNTIME_FAILED_COUNT_FMT.format(count=runtime.get("failed_count", 0)))
+            + '</div>'
+        )
+    if state == STATE_CANNOT_READ and runtime.get("reason"):
+        extra_lines = '<div class="status-detail">' + _html_escape(str(runtime["reason"])) + '</div>'
+
+    if state == STATE_LIST_REMOVED:
+        # A question needs its control: one button, same-origin POST to the
+        # authed Doctor route, then reload so the tile reads the new state.
+        how_to_fix = f"""
+                <button type="button" id="remindersTurnOnBtn" style="margin-top:8px"
+                    onclick="var b=this;b.disabled=true;fetch('/api/v1/reminders/turn-on',{{method:'POST'}}).then(function(r){{return r.json();}}).then(function(){{location.reload();}}).catch(function(){{b.disabled=false;}});">
+                    {_html_escape(REMINDERS_RUNTIME_BTN_TURN_ON)}
+                </button>"""
+
     tile = f"""
         <div class="status-card">
             <div class="status-indicator" style="background:{colour}">{icon}</div>
@@ -1229,5 +1300,188 @@ def render_reminders_runtime(now_dt=None) -> str:
     return f"""
     <div class="section" id="remindersRuntimeSection">
         <div class="section-title">{_html_escape(REMINDERS_RUNTIME_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
+    </div>"""
+
+
+# ── WhatsApp keepalive tile ──────────────────────────────────────────
+#
+# GRAFTED (CM051, board item 965). Colour by verdict, on the palette the
+# sibling tiles already use. healthy = green; recovered = green, because the
+# channel IS up and a customer should not be alarmed, with the repair count
+# carried as a detail line so a box repairing itself daily is still visible;
+# needs_customer = amber, the one verdict that asks something of them;
+# still_unhealthy = red, because messages are being missed right now;
+# cannot_run = grey, because "we could not tell" is not evidence of failure
+# and must not be painted as one.
+_WHATSAPP_KEEPALIVE_COLOURS = {
+    "healthy": "#2C4A2C",
+    "recovered": "#2C4A2C",
+    "needs_customer": "#5C4611",
+    "still_unhealthy": "#7A1F1F",
+    "cannot_run": "rgba(236,232,221,0.40)",
+}
+_WHATSAPP_KEEPALIVE_ICONS = {
+    "healthy": "&#10003;",
+    "recovered": "&#10003;",
+    "needs_customer": "&#9888;",
+    "still_unhealthy": "&#10007;",
+    "cannot_run": "&#8211;",
+}
+
+
+def render_whatsapp_keepalive(now_dt=None) -> str:
+    """Render the WhatsApp keepalive verdict tile.
+
+    Reads ``~/.ostler/state/whatsapp_keepalive.json``, written by the
+    com.creativemachines.ostler.whatsapp-keepalive LaunchAgent at 08:50 and
+    17:50. Returns:
+
+    - Empty string when there is no verdict. That covers an install where
+      WhatsApp was never enabled and one where the keepalive has not fired
+      yet, neither of which is a finding. A permanent empty header asking an
+      unanswered question is worse than no tile.
+    - A single status card otherwise.
+
+    WHY THIS TILE EXISTS. The keepalive used to write "WhatsApp unhealthy"
+    into a log file and exit 0. Three consecutive unhealthy runs read as
+    ``last exit code = 0`` in launchctl and nobody knew the channel was
+    degraded. The job can now repair the channel, which means it can also fail
+    to repair it -- and a remediation nobody can observe failing is the same
+    defect one layer along. So the verdict gets a surface on the page the
+    customer already opens.
+
+    THE TILE NEVER OFFERS TO RE-LINK ON THEIR BEHALF. Where the session is
+    gone it says, in as many words, that only they can do it and that Ostler
+    has stopped retrying. Quietly re-pairing a customer's WhatsApp account
+    would be a much worse defect than the one being reported.
+
+    Server-side static HTML; the expand-collapse is the native ``<details>``
+    element, so no JS. Mirrors ``render_reminders_runtime`` -- same shape,
+    same failure class: a daemon-side outcome the customer would otherwise
+    only discover by noticing messages had stopped.
+    """
+    from web_ui_copy import (
+        WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT,
+        WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
+        WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
+        WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
+        WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
+        WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
+        WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL,
+        WHATSAPP_KEEPALIVE_LINK_LABEL,
+        WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
+        WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
+        WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
+        WHATSAPP_KEEPALIVE_REPAIRS_FMT,
+        WHATSAPP_KEEPALIVE_SECTION_TITLE,
+        WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
+        WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
+        WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
+        WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
+        WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
+    )
+
+    status = read_whatsapp_keepalive()
+    if status is None:
+        return ""
+
+    verdict = status.verdict
+    if verdict not in _WHATSAPP_KEEPALIVE_COLOURS:
+        # The reader already rejects an unrecognised verdict, so this cannot
+        # normally fire. Kept because a KeyError here blanks the whole
+        # dashboard, and the reader and this map are two lists that a future
+        # edit can move apart.
+        return ""
+    colour = _WHATSAPP_KEEPALIVE_COLOURS[verdict]
+    icon = _WHATSAPP_KEEPALIVE_ICONS[verdict]
+
+    status_label = {
+        "healthy": WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
+        "recovered": WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
+        "needs_customer": WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
+        "still_unhealthy": WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
+        "cannot_run": WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
+    }[verdict]
+
+    detail = {
+        "healthy": WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
+        "recovered": WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
+        "needs_customer": WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
+        "still_unhealthy": WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
+        "cannot_run": WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
+    }[verdict]
+
+    remediation = {
+        "needs_customer": WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
+        "still_unhealthy": WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
+        "cannot_run": WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
+    }.get(verdict)
+
+    extra_lines = ""
+
+    # A box that repairs itself every day is a fault report, not a success
+    # story, so the count is shown on the two verdicts where a repair happened
+    # or was attempted. Silence on a healthy box keeps the tile quiet.
+    if status.repairs_last_24h > 0 and verdict in ("recovered", "still_unhealthy"):
+        extra_lines += (
+            f'<div class="status-detail">'
+            f'{_html_escape(WHATSAPP_KEEPALIVE_REPAIRS_FMT.format(count=status.repairs_last_24h))}'
+            f'</div>'
+        )
+
+    if status.checked_at:
+        # The writer records unix seconds; _format_relative_time speaks
+        # ISO-8601. Convert here rather than teaching the shared helper a
+        # second input format.
+        try:
+            from datetime import datetime, timezone
+            checked_iso = datetime.fromtimestamp(
+                status.checked_at, tz=timezone.utc,
+            ).isoformat()
+        except (OverflowError, OSError, ValueError):
+            checked_iso = None
+        if checked_iso:
+            relative = _format_relative_time(checked_iso, now_dt=now_dt)
+            extra_lines += (
+                f'<div class="status-detail">'
+                f'{_html_escape(WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT.format(relative=relative))}'
+                f'</div>'
+            )
+
+    how_to_fix = ""
+    if remediation:
+        link = ""
+        if verdict in ("needs_customer", "still_unhealthy"):
+            # The page that already exists for this, rather than a second
+            # pairing surface invented here.
+            link = (
+                f'<div class="status-detail">'
+                f'<a href="/whatsapp-pair">{_html_escape(WHATSAPP_KEEPALIVE_LINK_LABEL)}</a>'
+                f'</div>'
+            )
+        how_to_fix = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL)}
+                    </summary>
+                    <div class="status-detail">{_html_escape(remediation)}</div>
+                    {link}
+                </details>"""
+
+    tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:{colour}">{icon}</div>
+            <div class="status-info">
+                <div class="status-name">{_html_escape(status_label)}</div>
+                <div class="status-detail">{_html_escape(detail)}</div>
+                {extra_lines}
+                {how_to_fix}
+            </div>
+        </div>"""
+
+    return f"""
+    <div class="section" id="whatsappKeepaliveSection">
+        <div class="section-title">{_html_escape(WHATSAPP_KEEPALIVE_SECTION_TITLE)}</div>
         <div class="status-grid">{tile}</div>
     </div>"""

@@ -9,6 +9,46 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# WHICH SCALE THIS FILTER IS ON. Written down here because getting it wrong is
+# invisible: both directions look like a working filter and every test stays
+# green either way.
+#
+# `compartment_level` on THIS collection is CM019's own 0..6 map, defined in
+# parsers/base.py::_compartment_uri and emitted into the graph by to_turtle():
+#
+#     0 L0Personal  1 L1Family  2 L2Trusted  3 L3Community
+#     4 L4Public    5 L5Commercial          6 L6Broadcast
+#
+# so on this scale LOW IS PRIVATE. The 0..6 domain below is that map's domain,
+# not a magic number.
+#
+# IT IS NOT THE ONLY SCALE IN THE SHIPPED PRODUCT, AND THE OTHER ONE RUNS THE
+# OTHER WAY. vendor/cm024_knowledge calls its field `compartment_level` too,
+# caps it with `lte` (storage/qdrant_store.py:299, cli.py:518) and its own
+# comments say cap=2 exists to keep L3 notes OUT, i.e. on that scale HIGH IS
+# PRIVATE. Same field name, opposite direction, both in this DMG. So a reader
+# who arrives here from that code and "makes the two consistent" inverts a
+# privacy filter. Establish the scale first; this block is the answer for this
+# module and nothing else.
+#
+# THE DIRECTION IS NOT DECIDED HERE EITHER. See the note in search().
+# ---------------------------------------------------------------------------
+
+#: CM019's compartment map domain (parsers/base.py::_compartment_uri).
+COMPARTMENT_DOMAIN = tuple(range(0, 7))
+
+#: Select records AT OR ABOVE the given level. On the 0..6 map above that is
+#: the MORE PUBLIC half. This is what this module has always done.
+COMPARTMENT_AT_OR_ABOVE = "at_or_above"
+
+#: Select records AT OR BELOW the given level, the MORE PRIVATE half on the
+#: 0..6 map, and what the word "maximum" in the old docstring meant. Reachable
+#: from Python only; see search().
+COMPARTMENT_AT_OR_BELOW = "at_or_below"
+
+COMPARTMENT_DIRECTIONS = (COMPARTMENT_AT_OR_ABOVE, COMPARTMENT_AT_OR_BELOW)
+
 
 class QdrantLoader:
     """Handles loading vectors into Qdrant."""
@@ -155,7 +195,8 @@ class QdrantLoader:
         limit: int = 10,
         compartment_level: Optional[int] = None,
         user_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        compartment_direction: str = COMPARTMENT_AT_OR_ABOVE,
     ) -> List[Dict[str, Any]]:
         """
         Search for similar vectors.
@@ -163,9 +204,18 @@ class QdrantLoader:
         Args:
             vector: Query vector
             limit: Max results to return
-            compartment_level: Filter by max compartment level
+            compartment_level: The threshold the compartment arm is built
+                around. NOT a maximum: see ``compartment_direction``, and read
+                the module header for which scale this field is on.
             user_id: Filter by user ID
             filters: Additional Qdrant filters
+            compartment_direction: ``COMPARTMENT_AT_OR_ABOVE`` (default, and
+                what this method has always done) selects records at or ABOVE
+                ``compartment_level``, the more PUBLIC half of CM019's 0..6
+                map. ``COMPARTMENT_AT_OR_BELOW`` selects at or below it, the
+                more PRIVATE half. Any other value raises: an unrecognised
+                direction must never fall through to a default, because both
+                defaults are wrong half the time and neither looks wrong.
 
         Returns:
             List of search results with scores
@@ -174,23 +224,137 @@ class QdrantLoader:
         must_conditions = []
 
         if compartment_level is not None:
-            must_conditions.append({
-                "key": "compartment_level",
-                "range": {"gte": compartment_level}
-            })
+            # BOTH SHAPES, because the store holds both and a range alone
+            # matches NEITHER of the records actually on disk.
+            #
+            # Measured on a live box 2026-09-16, preferences collection:
+            #   compartment_level match "L2"      4804
+            #   compartment_level range {gte: 0}     0
+            #   CONTROL strength   range {gte: 0}  5733   <- the range
+            #                                              operator works
+            #
+            # The control is the point: `range` is not broken and the field
+            # is not missing. 4804 points carry compartment_level as the
+            # STRING "L2", and Qdrant's range operator simply does not match
+            # a string, so it returned zero for every query and the whole
+            # compartment-scoped search path was dead.
+            #
+            # THE READER MOVES, NOT THE WRITER. The type the reader wants is
+            # the documented one -- ParsedPreference.compartment_level is
+            # `int` (parsers/base.py), ensure_indexes declares this key as
+            # "integer", and all 23 parsers pass ints. But 4804 points on
+            # this customer's disk already say "L2", written by
+            # ostler_fda/pwg_ingest.py, and a writer-only fix leaves every
+            # one of them unsearchable until a full re-ingest. Accepting the
+            # stored vocabulary costs nothing and orphans nothing.
+            #
+            # THE COMPARISON DIRECTION IS STILL NOT DECIDED HERE, AND THE
+            # DEFAULT IS UNCHANGED. `gte` was kept by the vocabulary fix
+            # because that commit was about a type mismatch, and answering
+            # the direction question by accident while fixing the type would
+            # have been a silent privacy change. That was right, and it left
+            # the method unable to EXPRESS the other direction, so the
+            # docstring's word "max" was simply false and a caller who read
+            # it got the complement of what it promised.
+            #
+            # What changes here is expressiveness, not behaviour: the default
+            # is COMPARTMENT_AT_OR_ABOVE, which emits byte-identical filter
+            # bodies to the ones this method emitted before, for every value
+            # of compartment_level in the 0..6 domain. Choosing the other
+            # direction is the privacy decision, it is still not an agent's
+            # to make, and it is now one argument rather than a rewrite.
+            #
+            # THE STRING ARM IS DERIVED FROM THE NUMERIC PREDICATE rather
+            # than written out by hand, so the two arms cannot drift apart in
+            # either direction. The old hand-written range(level, 7) agreed
+            # with `gte` by construction and would NOT have agreed with
+            # `lte`; deriving it removes that trap before anyone falls in.
+            if compartment_direction == COMPARTMENT_AT_OR_ABOVE:
+                numeric_range = {"gte": compartment_level}
+
+                def _in_scope(n: int) -> bool:
+                    return n >= compartment_level
+            elif compartment_direction == COMPARTMENT_AT_OR_BELOW:
+                numeric_range = {"lte": compartment_level}
+
+                def _in_scope(n: int) -> bool:
+                    return n <= compartment_level
+            else:
+                # FAIL CLOSED ON THE UNKNOWN. No default branch: a typo in a
+                # caller must not silently pick a direction, because the
+                # wrong one exposes the most sensitive material on the box
+                # while every test stays green.
+                raise ValueError(
+                    "compartment_direction must be one of %r, got %r"
+                    % (list(COMPARTMENT_DIRECTIONS), compartment_direction)
+                )
+
+            level_tokens = [
+                f"L{n}" for n in COMPARTMENT_DOMAIN if _in_scope(n)
+            ]
+            # One nested one-of clause: numeric payload OR string payload.
+            compartment_arms = [
+                {"key": "compartment_level", "range": numeric_range},
+            ]
+            if level_tokens:
+                compartment_arms.append(
+                    {"key": "compartment_level",
+                     "match": {"any": level_tokens}}
+                )
+            # An EMPTY `match: {any: []}` is not sent. A threshold outside the
+            # 0..6 domain selects no string levels, and Qdrant rejects an
+            # empty `any` rather than matching nothing, which would turn a
+            # fail-closed filter into a failed request. Dropping the arm keeps
+            # the same result (the numeric arm alone, matching nothing)
+            # with a body the store will accept.
+            must_conditions.append({"should": compartment_arms})
 
         if user_id:
-            must_conditions.append({
-                "key": "user_id",
-                "match": {"value": user_id}
-            })
+            # `should`, NOT `must`. The field is never written.
+            #
+            # Measured on a live box 2026-09-16, preferences collection:
+            #   is_empty user_id   5733 of 5733
+            #   CONTROL is_empty category   0 of 5733
+            #
+            # so this is a real absence and not a broken probe. The producer
+            # for this collection is ostler_fda/pwg_ingest.py, whose payload
+            # carries no user_id at all; CM019's own
+            # ParsedPreference.to_payload does write one, but it is not what
+            # populated this store. A `must` on an absent key excludes
+            # everything, so every user-scoped read returned nothing.
+            #
+            # THE READER MOVES, NOT THE WRITER, and the reasoning is already
+            # written down in this codebase -- enrich/src/enricher.py makes
+            # exactly this call for exactly this reason: Ostler is
+            # single-machine by architectural directive, the Hub Mac is THE
+            # machine and there is exactly one person, so an untagged
+            # preference is THIS user's rather than somebody else's. A
+            # writer-side fix would mean back-filling 5733 points with an
+            # identity the single-machine product does not otherwise have.
+            #
+            # Deliberately NOT applied to delete_by_user() below: widening a
+            # DELETE to include untagged points would turn "erase this
+            # user's data" into "erase the entire collection". A read that
+            # is too narrow shows nothing; a delete that is too wide cannot
+            # be undone.
+            #
+            # NESTED under must for the same reason as the clause above: two
+            # independent one-of groups must BOTH hold. A flat top-level
+            # `should` would make them alternatives, so a point matching only
+            # the compartment arm would pass the user arm too.
+            must_conditions.append({"should": [
+                {"key": "user_id", "match": {"value": user_id}},
+                {"is_empty": {"key": "user_id"}},
+            ]})
 
         query_filter = None
         if must_conditions:
             query_filter = {"must": must_conditions}
         if filters:
             if query_filter:
-                query_filter["must"].extend(filters.get("must", []))
+                query_filter.setdefault("must", []).extend(
+                    filters.get("must", [])
+                )
             else:
                 query_filter = filters
 
@@ -221,7 +385,24 @@ class QdrantLoader:
             return []
 
     async def delete_by_user(self, user_id: str) -> bool:
-        """Delete all vectors for a user."""
+        """Delete all vectors for a user.
+
+        DELIBERATELY NOT WIDENED. The read paths in this class now also
+        accept points with no ``user_id`` (see ``search``), because the
+        field is absent on every point the live writer produces and a
+        strict match therefore returned nothing. That same widening applied
+        HERE would turn "delete this user's vectors" into "delete every
+        vector in the collection", including the 5733 untagged points a
+        live box was measured to hold on 2026-09-16.
+
+        A read that is too narrow shows the customer nothing and is fixed
+        by the next query. A delete that is too wide is not recoverable.
+        So this stays strict, and the consequence is stated rather than
+        hidden: on a store whose points carry no ``user_id``, this method
+        deletes nothing. Making erasure actually work needs the writer to
+        stamp an owner, which is tracked separately -- it must not be
+        smuggled in by loosening a delete filter.
+        """
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
@@ -251,10 +432,15 @@ class QdrantLoader:
                         f"{self.base_url}/collections/{self.collection}/points/count",
                         json={
                             "filter": {
-                                "must": [{
-                                    "key": "user_id",
-                                    "match": {"value": user_id}
-                                }]
+                                # Same one-of clause as search(): the owner
+                                # tag is absent on every point the live
+                                # writer produces, so a strict match counted
+                                # 0 and reported an empty store as fact.
+                                "must": [{"should": [
+                                    {"key": "user_id",
+                                     "match": {"value": user_id}},
+                                    {"is_empty": {"key": "user_id"}},
+                                ]}]
                             }
                         }
                     )
@@ -309,10 +495,15 @@ class QdrantLoader:
                 while True:
                     body = {
                         "filter": {
-                            "must": [{
-                                "key": "user_id",
-                                "match": {"value": user_id}
-                            }]
+                            # Same one-of clause as search(). This method
+                            # warms the cross-source reinforcement cache, so
+                            # a strict match here left the cache empty and
+                            # silently disabled reinforcement entirely.
+                            "must": [{"should": [
+                                {"key": "user_id",
+                                 "match": {"value": user_id}},
+                                {"is_empty": {"key": "user_id"}},
+                            ]}]
                         },
                         "limit": batch_size,
                         "with_payload": True,

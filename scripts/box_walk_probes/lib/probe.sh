@@ -59,6 +59,18 @@ PROBE_EX_PASS=0
 PROBE_EX_FAIL=1
 PROBE_EX_CANNOT_RUN=78
 
+# LOOPBACK NEVER GOES THROUGH A PROXY. The walk driver may carry HTTP_PROXY with
+# no NO_PROXY (measured 2026-10-03: a laptop running a local privacy proxy).
+# Then every driver-side call to a forwarded 127.0.0.1 port (curl, Python
+# urllib, the Playwright browser) is sent to the proxy and comes back
+# "503 Forwarding failure", which reads exactly like the product failing.
+# Loopback is appended to whatever NO_PROXY already says, never replacing it,
+# so a remote host still goes through the operator's proxy.
+_probe_loopback="127.0.0.1,localhost,::1"
+NO_PROXY="${_probe_loopback}${NO_PROXY:+,${NO_PROXY}}"
+no_proxy="${_probe_loopback}${no_proxy:+,${no_proxy}}"
+export NO_PROXY no_proxy
+
 # Set by probe_examined. Starts unset ON PURPOSE: a probe that reports a
 # verdict without ever declaring a denominator is refused below, because an
 # unstated denominator is how "0 of 0" reads as success.
@@ -93,6 +105,34 @@ probe_fail() {
     exit "$PROBE_EX_FAIL"
 }
 
+# ADVISORY IS NOT A FAIL. scripts/walk_promote_scope.tsv declares which probes can
+# refuse a promote. A probe whose row says `advisory` and whose result is a red
+# that row covers calls probe_fail_or_advisory: it prints
+# `VERDICT: ADVISORY -- <text>` and exits 0, and run_box_walk.sh tallies it on
+# its own ADVISORY line instead of counting a FAIL. Anything else is probe_fail.
+#
+# FAIL-CLOSED: a missing or unreadable scope file, a probe with no row, or any
+# value other than exactly `advisory` is blocking. OSTLER_PROMOTE_SCOPE_FILE
+# overrides the path (tests).
+probe_scope_of() {
+    local f="${OSTLER_PROMOTE_SCOPE_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/walk_promote_scope.tsv}"
+    [ -r "$f" ] || { echo blocking; return 0; }
+    awk -F'\t' -v want="${PROBE_NAME:-}" 'substr($0,1,1)=="#"{next} $1==want{print $2; found=1; exit} END{if(!found)print "blocking"}' "$f"
+}
+
+probe_advisory() {
+    _probe_require_denominator
+    printf 'VERDICT: ADVISORY -- %s\n' "$1"
+    exit "$PROBE_EX_PASS"
+}
+
+probe_fail_or_advisory() {
+    if [ "$(probe_scope_of)" = "advisory" ]; then
+        probe_advisory "$1"
+    fi
+    probe_fail "$1"
+}
+
 probe_cannot_run() {
     # Deliberately does NOT require a denominator: the whole point is that
     # there was nothing to count because a prerequisite was missing. But it
@@ -113,10 +153,17 @@ probe_note() {
 # probe runs on the box itself, and it must not be mistaken for a missing
 # prerequisite.
 # ---------------------------------------------------------------------------
+# A DEAD LINK MUST END THE CALL, NOT HANG IT. v1.0.102 candidate 4: the
+# driver's wifi dropped mid-probe and one ssh sat 42 minutes on a connection
+# the box had already closed, because ConnectTimeout bounds only the connect.
+# ServerAlive* makes ssh itself give up after ~60s of silence (15s x 4), so the
+# call returns 255 and the probe says CANNOT-RUN in a minute, not never. A
+# chat turn that is slow still streams frames, so this does not cut a turn
+# short; only a link that answers nothing does.
 box_run() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
         ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
-            -o BatchMode=yes \
+            -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
             "$OSTLER_BOX_HOST" "$1" 2>/dev/null
     else
         bash -lc "$1" 2>/dev/null
@@ -149,11 +196,182 @@ box_reachable() {
 box_run_v() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
         ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
-            -o BatchMode=yes \
+            -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
             "$OSTLER_BOX_HOST" "$1"
     else
         bash -lc "$1"
     fi
+}
+
+# ---------------------------------------------------------------------------
+# box_wait_ingest_quiet -- hold until the hourly FDA ingest tick is NOT running.
+#
+# THE STORES MOVE BY DESIGN WHILE THAT JOB RUNS, AND TWO PROBES GRADE THEM.
+# Measured on the v1.0.89 walk box, 16:00 to 16:02Z: com.ostler.fda-rerun
+# (StartInterval 3600) fired once, one interval after the install loaded it.
+# Its imessage leg minted 13 person nodes, its mail leg minted 31 more, and its
+# people_index leg vectored them about six minutes later. Read between those
+# legs, people_count_agreement saw graph 1883 against doctor 1839 and
+# people_stores_reconcile saw C=44, where 44 is 13 plus 31 exactly. Minutes
+# earlier both had read 1840 = 1840, and minutes later the graph and the vector
+# store agreed again at 1883. Nothing in the diff between v1.0.88 and v1.0.89
+# touches the ingest, the tick or the probes: the walk simply landed inside the
+# window.
+#
+# The probes' own budgets cannot cover it. people_count_agreement waits at most
+# 300 s for the counts to stop moving and people_stores_reconcile re-reads three
+# times at 60 s. The gap between minting and vectoring was about six minutes, so
+# a probe that starts mid-tick can spend its whole budget inside the window and
+# then grade the disagreement it was watching.
+#
+# So: ask the job, do not sample the numbers. `launchctl print` reports
+# `state = running` while a leg is executing.
+#
+# THREE OUTCOMES, and the third is why this is safe to put in front of a read.
+#   0  the tick is not running, or it stopped inside the budget
+#   1  the budget ran out with the tick still running   -> caller says CANNOT-RUN
+#   2  the job's state could not be read at all         -> caller says CANNOT-RUN
+# A box prepared by ttywalk --reset has the job loaded, so an unreadable state
+# is a missing prerequisite and not a quiet pass. Neither 1 nor 2 may ever be
+# treated as "the stores are quiet".
+#
+# A ZERO WAIT STILL PRINTS. "It read not running immediately" and "it never
+# looked" are different facts and must not share a silence.
+#
+# Pattern matching, never a pipe into grep -q: this file runs under pipefail,
+# where a producer that is still writing when grep exits on its first match
+# takes SIGPIPE and the condition reports failure BECAUSE the pattern matched.
+# ---------------------------------------------------------------------------
+PROBE_TICK_WAITED=0
+PROBE_TICK_STATE=""
+PROBE_TICK_DETAIL=""
+_PROBE_TICK_FAKE_CURSOR=0
+
+_probe_tick_state() {
+    local label="$1" out rc seq rest head_ pick i
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        if [ "${FAKE_TICK_UNREADABLE:-0}" -eq 1 ]; then
+            printf 'UNREADABLE self-test: launchctl print refused'
+            return 0
+        fi
+        # Pipe-separated states, one consumed per poll; the last one repeats, so
+        # a single "running" is a tick that never stops and drives the budget arm.
+        seq="${FAKE_TICK_SEQ:-quiet}"
+        rest="$seq"; i=0; pick=""
+        while [ -n "$rest" ]; do
+            case "$rest" in
+                *"|"*) head_="${rest%%|*}"; rest="${rest#*|}" ;;
+                *)     head_="$rest";      rest="" ;;
+            esac
+            pick="$head_"
+            [ "$i" -ge "$_PROBE_TICK_FAKE_CURSOR" ] && break
+            i=$((i + 1))
+        done
+        # NO CURSOR ADVANCE HERE. This function is called as "$(...)", which
+        # runs in a subshell, so an assignment made here dies with it and the
+        # sequence would replay its first element for ever. The caller advances
+        # the cursor in its own shell. Measured: the first draft of this helper
+        # read "running" for the whole budget on a "running|running|quiet" fake.
+        printf '%s' "$pick"
+        return 0
+    fi
+    # NO launchctl ON THIS HOST IS NOT A REFUSED READ. The keyless-store probe
+    # tests drive these probes on a Linux runner, where there is no launchctl at
+    # all and therefore no ingest tick to wait for. That is a different state
+    # from "launchctl is here and would not answer", which on a macOS box is a
+    # missing prerequisite and must refuse. Absolute path, so PATH cannot make a
+    # present launchctl look absent.
+    if ! box_run "[ -x /bin/launchctl ]"; then
+        printf 'noplatform'
+        return 0
+    fi
+    # box_run_v, not box_run: when the read fails the message IS the answer, and
+    # box_run sends it to /dev/null.
+    out="$(box_run_v "/bin/launchctl print gui/\$(id -u)/${label} 2>&1")"
+    rc=$?
+    # NOT LOADED IS AN ANSWER, NOT A REFUSED READ, and the two arrive as the same
+    # non-zero rc. Measured on macOS: an absent job exits 113 and prints
+    # `Could not find service "<label>" in domain for user gui: <uid>`. If the
+    # hourly ingest is not loaded on this host then it is definitively not
+    # moving the stores, which is the only question this hold asks. Every other
+    # failure leaves that question unanswered and must refuse.
+    #
+    # This DIVERGES from the brief, which asked for job-absent to be CANNOT-RUN.
+    # The reason is measured: keyless-store-probe-tests runs both people probes
+    # on macos-latest, where launchctl exists and no ostler job is loaded, so a
+    # refusal there makes the probes untestable off a box (run 34501676075, both
+    # steps FAIL, every arm reading CANNOT-RUN instead of its expected verdict).
+    # A walk box that has lost this LaunchAgent is a real defect and it is graded
+    # by the probes that watch the agents, not by a hold whose only job is to
+    # avoid reading the stores mid-tick.
+    # BOTH THE RC AND THE MESSAGE, never the message alone. A predicate built
+    # only from words a failure is known to print is a predicate that widens
+    # every time the words change: 113 with some other message is a different
+    # failure and must still refuse.
+    if [ "$rc" -eq 113 ]; then
+        case "$out" in
+            *"Could not find service"*)
+                printf 'notloaded'
+                return 0
+                ;;
+        esac
+    fi
+    if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
+        printf 'UNREADABLE rc=%s %s' "$rc" "$(printf '%s' "$out" | tr '\n\t' '  ' | cut -c1-140)"
+        return 0
+    fi
+    case "$out" in
+        *"state = running"*) printf 'running' ;;
+        *)                   printf 'quiet' ;;
+    esac
+    return 0
+}
+
+box_wait_ingest_quiet() {
+    local label budget step state
+    label="${OSTLER_INGEST_TICK_LABEL:-com.ostler.fda-rerun}"
+    budget="${OSTLER_PROBE_TICK_WAIT_S:-900}"
+    step="${OSTLER_PROBE_TICK_POLL_S:-15}"
+    PROBE_TICK_WAITED=0
+    while :; do
+        state="$(_probe_tick_state "$label")"
+        _PROBE_TICK_FAKE_CURSOR=$((_PROBE_TICK_FAKE_CURSOR + 1))
+        PROBE_TICK_STATE="$state"
+        case "$state" in
+            UNREADABLE*)
+                PROBE_TICK_DETAIL="could not read the state of the hourly ingest tick ${label} (${state#UNREADABLE }); a box prepared by ttywalk --reset has that job loaded, so this is a missing prerequisite and not a quiet box"
+                probe_note "ingest tick ${label}: state UNREADABLE after ${PROBE_TICK_WAITED}s"
+                return 2
+                ;;
+            running)
+                if [ "$PROBE_TICK_WAITED" -ge "$budget" ]; then
+                    PROBE_TICK_DETAIL="the hourly ingest tick ${label} was still running after ${PROBE_TICK_WAITED}s; the stores move by design while it runs, so nothing about their agreement was measured"
+                    probe_note "ingest tick ${label}: still running after ${PROBE_TICK_WAITED}s, budget ${budget}s exhausted"
+                    return 1
+                fi
+                [ "$PROBE_TICK_WAITED" -eq 0 ] && probe_note "ingest tick ${label}: read \"running\"; holding the store reads until it stops (budget ${budget}s)"
+                _probe_tick_sleep "$step"
+                PROBE_TICK_WAITED=$((PROBE_TICK_WAITED + step))
+                ;;
+            notloaded)
+                probe_note "ingest tick ${label}: not loaded on this host, so it is not moving the stores"
+                return 0
+                ;;
+            noplatform)
+                probe_note "ingest tick ${label}: /bin/launchctl is not present on this host, so there is no hourly ingest to wait for"
+                return 0
+                ;;
+            *)
+                probe_note "ingest tick ${label}: read \"not running\" after ${PROBE_TICK_WAITED}s"
+                return 0
+                ;;
+        esac
+    done
+}
+
+_probe_tick_sleep() {
+    [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] && return 0
+    sleep "$1"
 }
 
 # ---------------------------------------------------------------------------
@@ -193,4 +411,19 @@ probe_main() {
             exit "$PROBE_EX_FAIL"
             ;;
     esac
+}
+
+# walk_screens_dir -- where a probe's screenshots and facts go. NEVER inside the
+# repo checkout: they can carry real people's names and CM051 is PUBLIC.
+# Order: OSTLER_WALK_SCREENS_DIR, else <OSTLER_BOX_WALK_EVIDENCE_DIR>/screens,
+# else <walk store>/<stamp>.evidence/screens (store = OSTLER_WALK_STORE or
+# ~/.ostler/walks). Under a test (OSTLER_UNDER_TEST=1) with no store named, a
+# fresh temp dir, so a test can never write the operator's real store.
+walk_screens_dir() {
+    if [ -n "${OSTLER_WALK_SCREENS_DIR:-}" ]; then printf '%s' "${OSTLER_WALK_SCREENS_DIR}"; return; fi
+    if [ -n "${OSTLER_BOX_WALK_EVIDENCE_DIR:-}" ]; then printf '%s/screens' "${OSTLER_BOX_WALK_EVIDENCE_DIR}"; return; fi
+    if [ "${OSTLER_UNDER_TEST:-}" = "1" ] && [ -z "${OSTLER_WALK_STORE:-}" ]; then
+        printf '%s/screens' "$(mktemp -d)"; return
+    fi
+    printf '%s/%s.evidence/screens' "${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}" "$(date -u +%Y%m%dT%H%M%SZ)"
 }

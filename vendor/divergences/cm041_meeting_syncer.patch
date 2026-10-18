@@ -1,0 +1,170 @@
+diff --git a/brief.py b/brief.py
+index 3f1dcd8a..388abe4d 100644
+--- a/brief.py
++++ b/brief.py
+@@ -59,6 +59,22 @@ from meeting_syncer.calendar_client import fetch_events
+ # with it.
+ import pwg_privacy
+ 
++# Graph scope (v1018-D012b). The SAME shared helper the Hub server uses;
++# `identity_resolver` is a sibling package under _PARENT_DIR both in this
++# repo and in the installed layout (~/.ostler/import-pipeline/).
++# This module reads CM048's `OutstandingTodo` triples (see the docstring
++# above), and CM048 writes those into the NAMED graph
++# `urn:ostler:user/<id>`. With `--union-default-graph` off -- it is, and
++# compartment.py requires it stays off -- the unqualified query below
++# reached the default graph only, so every attendee's outstanding TODOs
++# and relationship signals were silently absent from the brief.
++# VENDORING: if this file is vendored downstream, identity_resolver must
++# go with it, as pwg_privacy.py already must.
++from identity_resolver.compartment import (
++    cm048_user_graph_uris as _cm048_user_graph_uris,
++    graph_scoped_select as _graph_scoped_select,
++)
++
+ logger = logging.getLogger(__name__)
+ logging.basicConfig(level=logging.INFO, format="%(message)s")
+ 
+@@ -173,6 +189,12 @@ def _days_overdue(deadline: str, *, today: Optional[Any] = None) -> Optional[int
+ 
+ 
+ def _sparql_query(oxigraph_url, sparql):
++    # Scoped to the default graph PLUS this user's CM048 named graph(s);
++    # see the import block above. An unset USER_ID yields no graphs and
++    # the query is returned unchanged, i.e. today's behaviour.
++    sparql = _graph_scoped_select(
++        sparql, _cm048_user_graph_uris(os.environ.get("USER_ID", "").strip())
++    )
+     resp = httpx.post(
+         oxigraph_url.rstrip("/") + "/query",
+         content=sparql,
+@@ -181,7 +203,7 @@ def _sparql_query(oxigraph_url, sparql):
+             "Accept": "application/sparql-results+json",
+         },
+         timeout=30.0,
+-    )
++     trust_env=False)
+     resp.raise_for_status()
+     return resp.json()
+ 
+diff --git a/calendar_client.py b/calendar_client.py
+index 7d312e50..aba4cff1 100644
+--- a/calendar_client.py
++++ b/calendar_client.py
+@@ -2,9 +2,24 @@ from __future__ import annotations
+ 
+ from typing import List, Optional
+ 
++import os
++
+ import httpx
+ 
+ 
++def _service_token():
++    """Loopback service token the ical-server requires on every non-public route."""
++    tok = (os.environ.get("PWG_SERVICE_TOKEN") or os.environ.get("OSTLER_SERVICE_TOKEN") or "").strip()
++    if tok:
++        return tok
++    path = os.path.join(os.path.expanduser("~"), ".ostler", "secrets", "service_token")
++    try:
++        with open(path, encoding="utf-8") as fh:
++            return fh.read().strip()
++    except OSError:
++        return ""
++
++
+ def fetch_events(api_url, days=30):
+     """Fetch calendar events from the unified calendar API.
+ 
+@@ -12,7 +27,18 @@ def fetch_events(api_url, days=30):
+     one attendee are included.
+     """
+     url = api_url.rstrip("/") + "/calendar"
+-    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0)
++    headers = {}
++    token = _service_token()
++    if token:
++        headers["Authorization"] = "Bearer " + token
++    resp = httpx.get(
++        url, params={"days": str(days)}, headers=headers, timeout=30.0, trust_env=False
++    )
++    if resp.status_code in (401, 403):
++        raise RuntimeError(
++            "CANNOT-RUN: the calendar API at %s refused the request (%d); "
++            "no service token was %s" % (url, resp.status_code, "accepted" if token else "found")
++        )
+     resp.raise_for_status()
+     data = resp.json()
+     events = data.get("events", [])
+diff --git a/config.py b/config.py
+index 85a25bd7..55fcaddd 100644
+--- a/config.py
++++ b/config.py
+@@ -26,7 +26,10 @@ _config_dir = os.path.dirname(os.path.abspath(__file__))
+ _load_dotenv(os.path.join(_config_dir, ".env"))
+ _load_dotenv(".env")
+ 
+-CALENDAR_API_URL = os.environ.get("CALENDAR_API_URL", "http://localhost:8089")
++# The calendar lives on the ical-server (127.0.0.1:8090, /api/v1/calendar) and
++# is token-gated. The Doctor on :8089 does not serve it. calendar_client sends
++# the loopback service token (PWG_SERVICE_TOKEN or ~/.ostler/secrets/service_token).
++CALENDAR_API_URL = os.environ.get("CALENDAR_API_URL", "http://127.0.0.1:8090/api/v1")
+ QDRANT_URL = os.environ.get("QDRANT_URL", "")
+ QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "people")
+ OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "")
+diff --git a/decision_extractor.py b/decision_extractor.py
+index bcdcecb2..b442591d 100644
+--- a/decision_extractor.py
++++ b/decision_extractor.py
+@@ -212,7 +212,7 @@ def _sparql_query(oxigraph_url: str, sparql: str) -> dict:
+             "Accept": "application/sparql-results+json",
+         },
+         timeout=30.0,
+-    )
++     trust_env=False)
+     resp.raise_for_status()
+     return resp.json()
+ 
+@@ -223,7 +223,7 @@ def _sparql_update(oxigraph_url: str, sparql: str) -> None:
+         content=sparql,
+         headers={"Content-Type": "application/sparql-update"},
+         timeout=30.0,
+-    )
++     trust_env=False)
+     resp.raise_for_status()
+ 
+ 
+diff --git a/syncer.py b/syncer.py
+index fb776946..17032830 100644
+--- a/syncer.py
++++ b/syncer.py
+@@ -104,7 +104,7 @@ class MeetingSyncer:
+                 "Accept": "application/sparql-results+json",
+             },
+             timeout=30.0,
+-        )
++         trust_env=False)
+         resp.raise_for_status()
+         return resp.json()
+ 
+@@ -114,7 +114,7 @@ class MeetingSyncer:
+             content=sparql,
+             headers={"Content-Type": "application/sparql-update"},
+             timeout=30.0,
+-        )
++         trust_env=False)
+         resp.raise_for_status()
+ 
+     def _create_meeting(self, event):
+@@ -390,6 +390,11 @@ class MeetingSyncer:
+         # fuzzy-merging into the wrong existing one.
+         match = self.resolver.resolve(identity, use_fuzzy=False)
+ 
++        # A forgotten (tombstoned) attendee is neither linked nor re-created;
++        # the caller skips a None. The meeting itself is shared, so it stays.
++        if match.match_type == "forgotten":
++            return None
++
+         if match.person_uri:
+             return match.person_uri
+ 

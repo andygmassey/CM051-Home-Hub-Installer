@@ -68,10 +68,14 @@ logger = logging.getLogger(__name__)
 # abandoned.
 _DISPATCH_TIMEOUT_DEFAULT_SECS = 900
 
-# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
-# returns, so "this document is slow" is never confused with "this
-# document is broken" by whoever reads the log next.
-DISPATCH_TIMEOUT_RC = 75
+# 124, the timeout(1) convention. Deliberately distinct from any code
+# pwg-convo itself returns, so "this document is slow" is never confused
+# with "this document is broken" by whoever reads the log next. NOT 75:
+# `pwg-convo process` exits 75 (EX_TEMPFAIL) when its model or gateway
+# cannot be REACHED, and a catch-up caller reads 75 as an outage (no poison
+# attempt) but 124 as a possibly item-specific hang (counted, unless a
+# health probe finds the sink down).
+DISPATCH_TIMEOUT_RC = 124
 
 
 def _dispatch_timeout_secs():
@@ -297,6 +301,220 @@ def _dispatch_to_cm048(
         return proc.returncode
 
 
+# --- Reply-debt snapshot (CM051 #30 studio29 finding) --------------------
+#
+# The Hub's reply-debt endpoint (ical-server, /api/v1/reply-debt) used to
+# open chat.db ITSELF. ical-server is launched by launchd as a bare
+# python3.11, so macOS TCC treats that interpreter as the requester: the
+# customer got a Full Disk Access entry for an unsigned-looking "python3.11",
+# denied by default, and the endpoint then answered "you're all caught up"
+# because it read nothing. Reproduced on a walked box 2026-10-15
+# (AUTHREQ_RESULT authValue=0, accessing=.../python/bin/python3.11).
+#
+# The shipped design is that protected reads happen under the SIGNED
+# assistant. This tick already runs as `ostler-assistant run-source
+# imessage`, so it already reads chat.db under the assistant's grant. It now
+# also writes the one thing reply debt needs, the LAST message of each recent
+# thread with its direction, into the engine room, where ical-server can read
+# it without asking TCC for anything.
+#
+# One message per thread, not the thread: reply debt is decided by the last
+# message alone (reply_debt.detect_thread), so nothing more is copied out of
+# chat.db than the decision uses. The file is 0600 in a 0700 directory.
+REPLY_DEBT_SNAPSHOT_SCHEMA = 1
+REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS = 90
+_SNAPSHOT_TEXT_LIMIT = 500
+
+
+def reply_debt_snapshot_path() -> Path:
+    """Where the snapshot lives. Must agree with CM048's
+    ``reply_debt_adapters.imessage_snapshot_path``: ``$OSTLER_REPLY_DEBT_SNAPSHOT``,
+    else ``$OSTLER_DIR/state/reply_debt/imessage_threads.json``, else under
+    ``~/.ostler``."""
+    explicit = (os.environ.get("OSTLER_REPLY_DEBT_SNAPSHOT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    root = (os.environ.get("OSTLER_DIR") or "").strip()
+    base = Path(root).expanduser() if root else Path.home() / ".ostler"
+    return base / "state" / "reply_debt" / "imessage_threads.json"
+
+
+def _write_snapshot_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    fd, tmp = tempfile.mkstemp(prefix=".imessage_threads.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=1)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def build_reply_debt_snapshot(
+    *,
+    db_path: Optional[Path] = None,
+    lookback_days: int = REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS,
+    tail: int = 20,
+) -> dict:
+    """Read chat.db (in THIS process, which runs under the signed assistant)
+    and return the snapshot dict: per recent thread, its last text message
+    and whether the owner sent it.
+
+    Raises PermissionError / FileNotFoundError exactly as the reader does, so
+    the caller can record WHY there is no data rather than an empty list.
+    """
+    from datetime import datetime, timezone
+
+    threads = []
+    for convo in extract_conversations(
+        db_path=db_path, since_days=lookback_days, min_messages=1
+    ):
+        messages = extract_messages(convo.chat_id, db_path=db_path, limit=tail)
+        last = None
+        for m in reversed(messages):
+            if (m.text or "").strip():
+                last = m
+                break
+        if last is None:
+            continue
+        threads.append(
+            {
+                "chat_id": convo.chat_id,
+                "display_name": convo.display_name,
+                "participants": list(convo.participants),
+                "is_group": bool(convo.is_group),
+                "last": {
+                    "text": (last.text or "")[:_SNAPSHOT_TEXT_LIMIT],
+                    "is_from_me": bool(last.is_from_me),
+                    "sender": last.sender,
+                    "timestamp": last.timestamp.isoformat(),
+                },
+            }
+        )
+    return {
+        "schema": REPLY_DEBT_SNAPSHOT_SCHEMA,
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "producer": "imessage_source (ostler-assistant run-source imessage)",
+        "lookback_days": lookback_days,
+        "threads": threads,
+    }
+
+
+def write_reply_debt_snapshot(
+    *,
+    db_path: Optional[Path] = None,
+    out_path: Optional[Path] = None,
+    lookback_days: int = REPLY_DEBT_SNAPSHOT_LOOKBACK_DAYS,
+) -> str:
+    """Write the reply-debt snapshot; return its status.
+
+    A chat.db this process cannot read is RECORDED as ``status:
+    "unreadable"`` (with no threads), never written as an empty-but-ok list,
+    so the endpoint can say "couldn't check" instead of "all caught up".
+    Never raises: the snapshot must not be the thing that stops ingest.
+    """
+    from datetime import datetime, timezone
+
+    out = out_path or reply_debt_snapshot_path()
+    try:
+        payload = build_reply_debt_snapshot(
+            db_path=db_path, lookback_days=lookback_days
+        )
+    except PermissionError as exc:
+        payload = {"status": "unreadable", "reason": str(exc)[:200]}
+    except FileNotFoundError:
+        # No chat.db at all: Messages never used on this Mac. That is a true
+        # zero, not a failure to look.
+        payload = {"status": "absent", "threads": []}
+    except Exception as exc:  # noqa: BLE001 -- recorded, never swallowed silently
+        payload = {"status": "error", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    if payload.get("status") != "ok":
+        payload.update(
+            schema=REPLY_DEBT_SNAPSHOT_SCHEMA,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            producer="imessage_source (ostler-assistant run-source imessage)",
+        )
+    try:
+        _write_snapshot_atomic(out, payload)
+    except OSError as exc:
+        logger.error("reply-debt snapshot could not be written to %s: %s", out, exc)
+        return "write_failed"
+    if payload["status"] == "ok":
+        logger.info("reply-debt snapshot: %d thread(s) -> %s",
+                    len(payload.get("threads") or []), out)
+    else:
+        logger.warning("reply-debt snapshot: status=%s -> %s", payload["status"], out)
+    return payload["status"]
+# ------------------------------------------------------------------------
+
+
+# ── #30: the FIRST bundle window widens when the default holds too little ───
+# The tick reads --since-days 30 (and only 2 in the daytime clamp), then a
+# forward watermark. An owner whose conversations are all older than that got
+# ZERO bundles on day one. On the first tick only, if the window holds fewer
+# than FIRST_WINDOW_MIN_MESSAGES messages and fewer than
+# FIRST_WINDOW_MIN_CONVERSATIONS threads (either minimum is enough), widen
+# backwards through FIRST_WINDOW_RUNGS until one is met or the history is
+# exhausted. Never during the install (the install marker counts as busy: the
+# first tick after it does the widening), never past FIRST_WINDOW_BUDGET_SECONDS,
+# never when the operator pinned OSTLER_IMESSAGE_SINCE_DAYS. Mirrors
+# ostler_fda.backfill_ladder.widen_first_window (separate venv, so no import).
+FIRST_WINDOW_MIN_MESSAGES = 2000
+FIRST_WINDOW_MIN_CONVERSATIONS = 50
+FIRST_WINDOW_RUNGS = [90, 180, 365, 730, 1095, 1825, 3650, 36500]
+FIRST_WINDOW_BUDGET_SECONDS = 180
+
+
+def _install_running() -> bool:
+    home = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
+    return (Path(home) / "state" / "install-in-progress").exists()
+
+
+def _widen_first_window(state: dict, conversations: list, db_path, since_days: int) -> list:
+    if "first_window" in state or os.environ.get("OSTLER_IMESSAGE_SINCE_DAYS", "").strip():
+        return conversations
+
+    def measure(cs):
+        return sum(int(c.message_count or 0) for c in cs), len(cs)
+
+    msgs, convs = measure(conversations)
+    if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
+        state["first_window"] = {"days": since_days, "result": "kept"}
+        logger.info("[first-window] imessage-bundle kept %dd: %d messages, %d conversations",
+                    since_days, msgs, convs)
+        return conversations
+    if _install_running():
+        logger.info("[first-window] imessage-bundle deferred: busy (installing); "
+                    "the first tick after the install widens it")
+        return conversations
+    widen_t0 = time.monotonic()
+    days, result = since_days, "exhausted"
+    for rung in (r for r in FIRST_WINDOW_RUNGS if r > since_days):
+        if time.monotonic() - widen_t0 >= FIRST_WINDOW_BUDGET_SECONDS:
+            result = "budget"
+            break
+        days = rung
+        conversations = extract_conversations(db_path=db_path, since_days=rung)
+        msgs, convs = measure(conversations)
+        if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
+            result = "widened"
+            break
+    state["first_window"] = {"days": days, "result": result}
+    logger.info("[first-window] imessage-bundle %s: default %dd -> %dd: %d messages, %d conversations",
+                result, since_days, days, msgs, convs)
+    return conversations
+
+
 def process_imessage(
     *,
     db_path: Optional[Path] = None,
@@ -307,8 +525,14 @@ def process_imessage(
     pwg_convo_cmd: Optional[list[str]] = None,
     state_path: Optional[Path] = None,
     dry_run: bool = False,
+    snapshot_path: Optional[Path] = None,
 ) -> dict:
     """Read chat.db, thread, and dispatch new sessions to CM048.
+
+    ``snapshot_path`` is where the reply-debt snapshot goes. Unset, it sits
+    beside an explicitly passed ``state_path`` (so a caller that isolates its
+    state never writes into the real engine room), else at the canonical
+    ``reply_debt_snapshot_path()`` the Hub reads.
 
     Returns a summary dict: threads scanned, sessions dispatched,
     sessions skipped (already processed), failures.
@@ -322,7 +546,17 @@ def process_imessage(
     privacy_map = _load_privacy_map(contacts_path)
     name_for_handle = _name_resolver(contacts)
 
+    # Reply-debt snapshot FIRST: it is one cheap read, and the dispatch loop
+    # below can run for hours on a backlog. Its own window, not since_days,
+    # which the daytime throttle clamps to two days.
+    if not dry_run:
+        if snapshot_path is None and state_path is not None:
+            snapshot_path = Path(state_path).parent / "reply_debt_imessage_threads.json"
+        write_reply_debt_snapshot(db_path=db_path, out_path=snapshot_path)
+
     conversations = extract_conversations(db_path=db_path, since_days=since_days)
+    if not dry_run:
+        conversations = _widen_first_window(state, conversations, db_path, since_days)
 
     scanned = dispatched = skipped = failed = 0
     for convo in conversations:

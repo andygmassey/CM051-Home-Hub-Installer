@@ -1,0 +1,38 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.95.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.95/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# v1.0.94 was TAGGED ONCE AT 62db9cc8583c7e47e7f0ea1254ea6cb502288a45 AND
+# NEVER BUILT. check-manifest and check-pr-age were both fully clean this
+# time (20 PASS 0 FAIL 0 CANNOT-RUN; PR-age PARTIAL (DECLARED) naming six
+# repos). The new blocker was check-freshness: wiki:wiki-compiler and
+# wiki:wiki-site both STALE:+12 against CM044 main, because the pinned
+# images predated twelve merged commits including CM044 #275 (kill decimal-
+# hour ages, add per-source status icons, remove a duplicate mkdocs nav
+# entry, finish the People/timeline + People/index dated-list treatment) --
+# the fix Andy asked for repeatedly. Rebuilt and re-pinned rather than
+# acknowledged: a hold_ack would have asserted shipping_bugfixes_grafted =
+# true while shipping none of the twelve.
+#
+# v1.0.95 carries v1.0.91/v1.0.92/v1.0.93/v1.0.94's daemon payload UNCHANGED
+# (hub-v0.4.80) PLUS the wiki image re-pin: CM051 PR #1948, both images
+# rebuilt by CM044 CI (release-images.yml, tag v0.1.32 = 67fe4054) and
+# re-pinned by digest in install.sh, verified BY CONTENT (docker create +
+# docker cp, sha256 against git blobs) rather than taken from either job's
+# claim.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+OFF-STATE TOGGLE/SLIDER TRACK WAS INVISIBLE AGAINST ITS CARD (low contrast, --pc-bg-track-off / --pc-border-track-off tokens added). Verified present in the hub-v0.4.80 daemon's bundled web/dist CSS and absent from hub-v0.4.79's.	ostler-assistant	b5a3a24f	no	none	TBD	CM051 #1940
+THE DAEMON'S HOP TO THE WIKI WAS UNAUTHENTICATED, USING THE BROWSER'S CREDENTIAL INSTEAD OF ITS OWN, CAUSING A BARE NGINX 401 ON THE PERSONAL WIKI TAB ON EVERY INSTALL. wiki_proxy.rs authenticates the daemon's own hop. Verified present via the new module's distinctive strings ("Ostler/0.1 (wiki_proxy)", "wiki is still starting up") in the hub-v0.4.80 Mach-O, absent (0 occurrences) from hub-v0.4.79's.	ostler-assistant	6dbff407	no	none	TBD	CM051 #1940
+WIKI_PROXY DOC-COMMENT QUOTES BROKE THE DOCTEST CI LANE, fenced as text rather than Rust (tip of ostler-assistant main at cut-pin time, b014faf5). CI-only; no runtime behaviour change.	ostler-assistant	b014faf5	no	none	TBD	CM051 #1940
+THE DAEMON PIN, MOVED AT ALL FIVE install.sh/gui/Makefile SITES. install.sh OSTLER_ASSISTANT_VERSION to 0.4.80 and DEFAULT_ASSISTANT_TARBALL_SHA256 to the published digest; gui/Makefile DAEMON_VERSION and DAEMON_SHA256 to the same. Both digests read from the published .sha256 sidecar and re-hashed independently, never typed. Split from CM051 #1939 into #1940 so the pin gate (cut-pin-is-actually-current) classifies this PR report rather than block: it touches no cuts/**/cut.env.	CM051	c938fab9da90661b6b22582a2940f875ddf48623	no	none	TBD	CM051 #1940
+THE HUB APP PIN, SAME COMMIT, SEPARATE CAPABILITY BECAUSE IT IS A SEPARATE REPO AND A SEPARATE FAILURE. gui/Makefile HUB_APP_SHA256 names the Ostler.app bundle published for hub-v0.4.80; HUB_APP_TARBALL_NAME interpolates DAEMON_VERSION, so the hub app digest must move whenever the daemon one does or download-hub-app fails closed, exactly as it did for v1.0.81.	CM051	c938fab9da90661b6b22582a2940f875ddf48623	no	none	TBD	CM051 #1940
+THE WIKI IMAGES, RE-PINNED. install.sh's wiki-compiler and wiki-site digests moved to the CM044 67fe4054 build (12 commits past the previously-pinned 3bc0f3bb), fixing the decimal-hour ages Andy asked for repeatedly, per-source status icons, a duplicate mkdocs nav entry, and the People/timeline + People/index dated-list treatment. Both digests read from CM044 CI's own resolver step (release-images.yml run 34713998954) and verified BY CONTENT: docker create + docker cp on both images, sha256 of the extracted compiler/locale.py and mkdocs/overrides/stylesheets/extra.css matched git show 67fe4054:<path> exactly, and the superseded image's files matched git show 3bc0f3bb:<path> exactly as a cross-check of the method.	CM051	b5b8e20faace1a466430ec33b3d33812cbd43343	no	none	TBD	CM051 #1948
+THE SOURCE FIX, CM044 SIDE. fix(wiki): kill decimal-hour ages, add per-source status icons, and finish the dated-list treatment. compiler/locale.py gains humanize_source_age() rendering whole units (never a raw float); compiler/hydration.py computes whole minutes once; mkdocs/overrides/stylesheets/extra.css gains 7 status glyphs (pwg-settling-source-icon family); mkdocs.yml drops the duplicate nav target; People/timeline.md and People/index.md get the .pw-doc island + human dates. 40 tests moved FAIL to PASS.	CM044	fd39cb242bbe864dcf5ab0afe578b5f6bad72a67	no	none	TBD	CM044 #275

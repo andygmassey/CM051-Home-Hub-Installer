@@ -92,7 +92,7 @@ fi
 echo "PASS: find picks up exactly 2 fixtures (Basic_LinkedInDataExport + linkedin_export)"
 
 # Match the canonical Basic_LinkedInDataExport folder.
-if ! echo "$HITS" | grep -q 'Basic_LinkedInDataExport_2026-01-15/Connections\.csv$'; then
+if ! grep -q 'Basic_LinkedInDataExport_2026-01-15/Connections\.csv$' <<<"$HITS"; then
     echo "FAIL [canonical-export]: did not pick up Basic_LinkedInDataExport_*/Connections.csv" >&2
     echo "$HITS" >&2
     exit 1
@@ -100,7 +100,7 @@ fi
 echo "PASS: find picks up Basic_LinkedInDataExport_*/Connections.csv (the audit's test case)"
 
 # Match the lowercase variant too.
-if ! echo "$HITS" | grep -q 'linkedin_export_2025/Connections\.csv$'; then
+if ! grep -q 'linkedin_export_2025/Connections\.csv$' <<<"$HITS"; then
     echo "FAIL [lowercase-variant]: did not pick up lowercase linkedin_*/Connections.csv" >&2
     echo "$HITS" >&2
     exit 1

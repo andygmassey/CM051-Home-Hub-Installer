@@ -59,8 +59,21 @@ if missing:
 import ast
 tree = ast.parse(src)
 wanted = {"_source_activity_dir", "_read_source_activity",
-          "_source_hydrate_dir", "_parse_source_sentinel", "read_source_status"}
-ns = {"Path": pathlib.Path, "os": __import__("os")}
+          "_source_hydrate_dir", "_parse_source_sentinel", "read_source_status",
+          # #2526: a second evidence producer (the dedicated bundle routines),
+          # consulted only when fda-rerun's own activity record is silent.
+          # Absent on an older tree -- read_source_status there never calls
+          # them, so the missing names cost nothing when not needed.
+          "_routine_evidence", "_routine_run_count",
+          # #2562-C round 2: a routine's count is no longer taken only from
+          # the freshest mapped routine, and a store-ledger fallback exists
+          # for sources no routine ever logs a count for.
+          "_best_routine_count", "_settling_progress_total",
+          # walk #28: one honest total per row, in a declared unit.
+          "_ostler_state_root", "_positive_int", "_settling_done",
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label"}
+ns = {"Path": pathlib.Path, "os": __import__("os"), "json": __import__("json")}
 # Module-level constants the reader depends on (_SOURCE_KINDS and the field
 # coercion tables). Taken verbatim, best-effort: any assignment that needs an
 # unavailable import is skipped rather than aborting, and the explicit

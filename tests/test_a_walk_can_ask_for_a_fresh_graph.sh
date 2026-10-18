@@ -82,6 +82,73 @@ case "$BLOCK" in
     *) bad "a failed dump does not abort. Best-effort evidence preservation is not preservation." ;;
 esac
 
+# ── THE DUMP MUST COVER THE WHOLE STORE ──────────────────────────────
+#
+# Measured 2026-09-16 on the founder box at v1.0.98: the dump asked for
+# /store?default, which is the default graph ONLY, and Oxigraph here runs
+# without --union-default-graph (compartment.py REQUIRES it stay off). So it
+# captured 155,048 of 231,105 quads and silently dropped 76,057 -- the two
+# named graphs whole, including EVERY CM048 triple. The dump still exited 0,
+# printed no error, and wrote 22.7 MB, so nothing downstream could tell.
+#
+# 🔴 THIS READS CODE LINES ONLY, NEVER PROSE, and that is not fastidiousness.
+# The block DESCRIBES the old default-graph URL in its own comments, on
+# purpose, so the next reader learns what went wrong. A grep over the whole
+# block therefore matches the explanation and reports the defect as live
+# forever -- the same trap this file records at its #1560 note, where a
+# comment reproducing the wrong form satisfied the very grep meant to find
+# remaining uses of it. The instrument and the defect must share a surface,
+# and the surface here is the argument curl actually receives.
+DUMP_CODE="$(printf '%s\n' "$BLOCK" | grep -v '^[[:space:]]*#' | grep '7878/store' || true)"
+if [ -z "$DUMP_CODE" ]; then
+    bad "no Oxigraph store URL on any CODE line in the wipe block"
+else
+    case "$DUMP_CODE" in
+        *"/store?"*)
+            bad "the dump still passes a query string to /store. Bare /store is the whole store; /store?default is the DEFAULT GRAPH ONLY, and without --union-default-graph that silently omits every named graph (76,057 of 231,105 quads on the founder box) while exiting 0." ;;
+        *)
+            ok "the dump asks for the WHOLE store, not just the default graph" ;;
+    esac
+    # POSITIVE CONTROL for the predicate above. If the extraction came back
+    # with some other line, the clean verdict means nothing. The dump URL is
+    # the one whose output is redirected into the dump file -- asserted on the
+    # SAME line, because curl is split across several and a whole-block match
+    # is what got us here. (The guard's own count query hits /query, not
+    # /store, so it cannot be what was extracted.)
+    case "$DUMP_CODE" in
+        *'> "$_dump"'*) ok "CONTROL: the extracted line really is the one writing the dump file" ;;
+        *) bad "CONTROL FAILED: the line extracted as the dump does not redirect into \$_dump, so the verdict above was read off the wrong line" ;;
+    esac
+fi
+
+# The guard that would have caught the above. A backup trusted on its exit
+# code and its byte count cannot tell two thirds from the whole.
+case "$BLOCK" in
+    *"CANNOT-WIPE: the dump is materially short of the store"*)
+        ok "the dump REFUSES when its quad count is materially below the store total" ;;
+    *)
+        bad "nothing compares the dump against the store total. A backup that captures part of the store and says nothing is worse than none, because the wipe that follows trusts it." ;;
+esac
+
+# CANNOT-RUN IS NOT A PASS. If the store total cannot be read, the guard has
+# not cleared the dump, it has failed to look at it.
+case "$BLOCK" in
+    *"could not read the store quad total"*)
+        ok "an unreadable store total is CANNOT-WIPE, not a silent pass" ;;
+    *)
+        bad "a store total that does not come back as a number is waved through, so the guard passes precisely when it could not measure." ;;
+esac
+
+# The count query must span BOTH compartments. One bare pattern counts the
+# default graph only, which would make the guard agree with the very defect
+# it exists to catch.
+case "$BLOCK" in
+    *"UNION"*"GRAPH"*)
+        ok "the store total counts the default graph AND the named graphs" ;;
+    *)
+        bad "the store-total query does not UNION the named graphs, so it would report the same short number as a default-only dump and the guard would always agree with itself." ;;
+esac
+
 case "$BLOCK" in
     *"WIPE INCOMPLETE"*) ok "surviving ostler_ volumes are CANNOT-RUN, not a quiet partial reset" ;;
     *) bad "nothing checks that the volumes actually went. An uninstaller that exits 0 having removed nothing is the silent no-op this exists to refuse." ;;

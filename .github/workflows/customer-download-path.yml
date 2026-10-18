@@ -32,6 +32,16 @@ on:
       - 'tests/fixtures/verify_customer_download_path.prefix'
       - 'scripts/lib/strip_comments.sh'
       - '.github/workflows/customer-download-path.yml'
+      # CM051 #2107. The expectation this workflow compares against is DERIVED
+      # from the walk records, so a landing walk record changes the answer and
+      # must re-run it. This is the trigger the frozen-download defect needed
+      # and did not have: the only event that ever made the expected version
+      # move was a human typing a tag into workflow_dispatch.
+      - 'walks/**'
+      - 'scripts/verify_customer_download_is_current.sh'
+      - 'scripts/verify_walk_record.sh'
+      - 'scripts/post_walk_qa.sh'
+      - 'tests/test_download_currency_gate_is_wired.sh'
   # THE EVENT THIS GATE HAS ALWAYS BELONGED TO AND NEVER HAD.
   #
   # Measured 2026-09-03, the day v1.0.62 was cut: https://ostler.ai/install.dmg
@@ -102,6 +112,16 @@ on:
       - 'tests/fixtures/verify_customer_download_path.prefix'
       - 'scripts/lib/strip_comments.sh'
       - '.github/workflows/customer-download-path.yml'
+      # CM051 #2107. The expectation this workflow compares against is DERIVED
+      # from the walk records, so a landing walk record changes the answer and
+      # must re-run it. This is the trigger the frozen-download defect needed
+      # and did not have: the only event that ever made the expected version
+      # move was a human typing a tag into workflow_dispatch.
+      - 'walks/**'
+      - 'scripts/verify_customer_download_is_current.sh'
+      - 'scripts/verify_walk_record.sh'
+      - 'scripts/post_walk_qa.sh'
+      - 'tests/test_download_currency_gate_is_wired.sh'
 
 concurrency:
   # Supersede in-flight runs for the same workflow on the same branch/PR.
@@ -308,3 +328,79 @@ jobs:
               exit 0
           fi
           exit "$rc"
+
+  # ── CM051 #2107: IS THE CUSTOMER DOWNLOAD THE NEWEST BUILD THAT EARNED IT? ──
+  #
+  # The job above asks "does the customer url resolve, and does it serve the tag
+  # I was TOLD to expect". Nobody told it anything, so for 59 versions it ran in
+  # prelaunch posture and answered a question with no stake in it while
+  # ostler.ai/install.dmg served v1.0.41.
+  #
+  # This job supplies the expectation by deriving it from the walk records, so
+  # there is nothing for a human to remember to type.
+  #
+  # ubuntu, not macOS: this reads TSV files and one public API. macOS bills 10x.
+  download-currency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: the gate can go red -- proven on this runner, before the real run
+        # A gate whose red has never been seen ON THE HOST THAT RUNS IT is a
+        # gate that has been run, not tested. Both red arms are exercised here
+        # against synthetic records in a temp dir, and the real records are not
+        # touched. If this step stops failing on the mutants, the green below
+        # means nothing.
+        run: |
+          set -u
+          fake() {  # $1 = dir, $2 = version
+            mkdir -p "$1"
+            {
+              printf 'version\t%s\n' "$2"
+              printf 'version_source\tmeasured(synthetic control record)\n'
+              printf 'artefact_sha256\t%s\n' "$(printf '%064d' 0)"
+              printf 'artefact_sha256_source\tmeasured(synthetic control record)\n'
+              printf 'walked_at\t2026-01-01T00:00:00Z\n'
+              printf 'box_fp\t0000000000000000\n'
+              printf 'walk_kind\tconsole\n'
+              printf 'walk_kind_source\tsynthetic control record, not a real walk\n'
+              printf 'pass\t26\n'
+              printf 'fail\t0\n'
+              printf 'cannot_run\t0\n'
+              printf 'broken\t0\n'
+              printf 'failed_probe_names_recorded\t0\n'
+              printf 'verdict\tCLEAN\n'
+              printf 'qa_exit\t0\n'
+            } > "$1/$2.tsv"
+          }
+          A="$(mktemp -d)"; fake "$A" v9.9.99    # newer than anything promoted
+          B="$(mktemp -d)"; fake "$B" v0.0.1     # older than anything promoted
+          rc=0; OSTLER_WALK_RECORD_DIR="$A" bash scripts/verify_customer_download_is_current.sh >/dev/null 2>&1 || rc=$?
+          echo "mutant A (a promotable build NEWER than the served one): rc=${rc}"
+          [ "$rc" = "1" ] || { echo "::error::mutant A did not go red (rc=${rc}). The currency check cannot detect a stale customer download."; exit 1; }
+          rc=0; OSTLER_WALK_RECORD_DIR="$B" bash scripts/verify_customer_download_is_current.sh >/dev/null 2>&1 || rc=$?
+          echo "mutant B (served build NEWER than every promotable one): rc=${rc}"
+          [ "$rc" = "1" ] || { echo "::error::mutant B did not go red (rc=${rc}). An unbacked promotion would not be detected."; exit 1; }
+          echo "both red arms fire on this runner"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: is the customer download current?
+        run: |
+          set -u
+          rc=0
+          bash scripts/verify_customer_download_is_current.sh || rc=$?
+          # CANNOT-RUN is neither a pass nor a failure, and is NOT flattened.
+          # rc=2 means this runner could not read the release API; that is a
+          # statement about the runner, not about the download.
+          if [ "$rc" -eq 2 ]; then
+              echo "::warning::CANNOT-RUN (rc=2): the release API was unreadable from this runner, so the served version is unknown. Not green."
+              exit 0
+          fi
+          exit "$rc"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: the gate is invoked by this workflow
+        run: /bin/bash tests/test_download_currency_gate_is_wired.sh

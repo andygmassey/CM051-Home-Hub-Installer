@@ -1,0 +1,108 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.101.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.101/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# (v1.0.100's copy of this line still said v1.0.99, carried forward unedited.
+# Corrected here rather than carried a third time.)
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# v1.0.100 WAS built and WAS walked, and the walk failed six probes, every one
+# of which can only run against an installed Ostler. Four of the six were
+# introduced between v1.0.95 and v1.0.100. This cut carries the remediations
+# for those, plus the consumer-side sweep that ran off the back of them.
+#
+# ===========================================================================
+# HOW THE ROWS BELOW WERE CHOSEN, AND WHAT THE METHOD CANNOT SEE
+# ===========================================================================
+# NOT carried forward from v1.0.100. That carry-forward was correct exactly
+# once, for v1.0.100, because v1.0.99 shipped NOTHING: it was tagged, both apps
+# were signed, Apple accepted the notarisation, and it died at staple-apps, so
+# no artefact ever existed and its BOM was still owed. v1.0.100 did ship and
+# was walked, so its rows are already in an artefact and repeating them here
+# would assert this cut must contain work it does not introduce.
+#
+# The rows are every pull request merged to CM051 main after the v1.0.100 BOM
+# was written (2026-09-17T14:56:45+08:00) that changed AT LEAST ONE FILE THAT
+# SHIPS. "Ships" is measured, not judged: the change touches a path outside
+# tests/, scripts/, .github/, cut-manifests/, cuts/, docs/, walks/, launch/ and
+# gui/OstlerInstallerTests/. 81 pull requests merged in that window and 34
+# touched a shipping file. CONTROL on the predicate, because a filter that
+# answered the same for everything would be useless: #2143 fix(install) scores
+# 1 shipping file and #2146 board: scores 0, so it separates the two kinds.
+#
+# WHAT THE METHOD CANNOT SEE, stated rather than left for someone to discover:
+# a pull request that changes no shipping file can still change what a customer
+# gets, by re-pinning something fetched at build time. The 47 excluded are
+# board, gate, docs and test work, and none of them was read individually.
+#
+# ===========================================================================
+# EVERY capability_id IS `none`, ON PURPOSE, AND THAT IS NOT AN OVERSIGHT
+# ===========================================================================
+# `none` means UNGUARDED: gates/capability_matrix.sh proves nothing about these
+# rows, and any of them can silently regress. That is a real and recorded gap,
+# and it is the outstanding half of this BOM.
+#
+# It is still the correct value today, because the alternative is worse. A
+# capability_id names a PATTERN that proves the change is present in a signed
+# artefact. An id that does not correspond to the change reads as GUARDED to
+# everything downstream while checking something unrelated, which is the exact
+# failure this repo keeps paying for: a gate whose denominator excludes its own
+# subject.
+#
+# MEASURED, NOT ASSUMED. A keyword matcher was run over all 177 manifest ids to
+# see whether the mapping could be derived rather than authored. It claimed 27
+# of 34 and it was wrong: it mapped "a dropped Notion or Obsidian export is
+# findable" to doctor_status_poll_has_a_fork_budget, "a forget that found
+# nobody told the customer it had erased them" to
+# hub_wiki_iframe_does_not_crop_nav, and "nine customer strings called it the
+# iOS Companion" to declined_recording_consent_removes_the_capture_agent. One
+# of the 27 was right. Those ids were discarded rather than written down.
+#
+# So: 34 rows recording WHAT WAS BUILT, so that nothing ships by being
+# remembered, and 34 capability rows still owed in
+# manifest/capability_manifest.tsv. Count the rows; no number is written in
+# prose here, for the reason v1.0.100's header already gives.
+#
+# The refs are the SHA of the squash commit on CM051 main, not any branch tip,
+# because a branch tip is not what ships.
+what	repo	ref	landed	capability_id	verify	ticket
+vendor: classify the remaining ten deltas on contact_syncer and doctor	CM051	a7d677c6e0bb	no	none	capability_matrix.sh gate	CM051 #2234
+fix(977): a dropped Notion or Obsidian export is findable, and the tree stops redding the cut	CM051	eec085a90e8a	no	knowledge_import_dispatch_has_a_collection	capability_matrix.sh gate	CM051 #2233
+vendor: classify the two single-commit deltas on cm041 assistant_api and identity_resolver	CM051	1edf9b759039	no	none	capability_matrix.sh gate	CM051 #2231
+fix(hydrate): an unmeasurable count froze the "when" column forever	CM051	e1c6cb7db4cd	no	hydrate_unmeasurable_count_blanks_the_when	capability_matrix.sh gate	CM051 #2230
+fix(calendar): the forward window is no longer clawed back within the hour	CM051	37fa39d9f7b1	no	fda_rerun_exports_the_forward_calendar_window	capability_matrix.sh gate	CM051 #2229
+fix(brief): the degraded guard can now tell its own failure from a clean result	CM051	833a277e6776	no	daily_brief_degraded_read_has_its_own_rc	capability_matrix.sh gate	CM051 #2228
+fix(record): the refusal was not a leak, it was an uncertifiable placeholder	CM051	30d4769b9269	no	none	capability_matrix.sh gate	CM051 #2227
+fix(1589): the panel claimed it told the customer it was reading the transcript, and it did not	CM051	7abade6c3a14	no	install_complete_says_the_ticks_are_recorded_not_live	capability_matrix.sh gate	CM051 #2226
+fix(install): the store proxy enforces the credential it started with, not the one just written	CM051	c3a19893203b	no	store_proxy_rereads_the_credential_it_enforces	capability_matrix.sh gate	CM051 #2225
+fix(install): the recovery-key marker was bound to the dead staging tree and never written	CM051	d7db68a33f7e	no	recovery_marker_path_rebinds_with_the_tree	capability_matrix.sh gate	CM051 #2223
+fix(install): two interval agents tick against programs being rewritten under them	CM051	6e44aff2b3f6	no	interval_agents_quiesced_before_their_programs_move	capability_matrix.sh gate	CM051 #2221
+fix(privacy): the erasure erases the fact, not only its link to a person	CM051	2554797db326	no	forget_erases_the_fact_node_not_only_the_link	capability_matrix.sh gate	CM051 #2220
+board: gate 775 and 2203, both fixed and both counting against the cut anyway	CM051	3f5b3f1b9865	no	source_recorder_failure_is_not_silent	capability_matrix.sh gate	CM051 #2216
+vendor: regenerate the five patches that applied cleanly and did not reconstruct	CM051	2e86982c8035	no	none	capability_matrix.sh gate	CM051 #2190
+fix(971): the shipped compose delivered an entitlement file nothing has ever written	CM051	45dcb0571059	no	wiki_compiler_reads_the_apple_receipt_state	capability_matrix.sh gate	CM051 #2175
+board: the five vendored trees still divergent, each with the exact blocker measured (row 2207)	CM051	cd06da7ca1a1	no	none	capability_matrix.sh gate	CM051 #2166
+vendor: three load-bearing vendor-only files were protected by nothing	CM051	fd2f666b1211	no	none	capability_matrix.sh gate	CM051 #2165
+vendor: record six divergences the register had fallen behind or denied, no shipped bytes changed	CM051	014a429231f6	no	none	capability_matrix.sh gate	CM051 #2163
+vendor(cm041): re-pin identity_resolver to 9e260949, content and pin together (row 2202 gate 2)	CM051	163cde407ebd	no	cm041_person_retirement_vendored	capability_matrix.sh gate	CM051 #2161
+fix(ingest): a store that REFUSED a write is not a batch with nothing to write (#953)	CM051	8647aaeefc57	no	ingest_completion_line_reports_store_counts	capability_matrix.sh gate	CM051 #2160
+fix(compose): mount the AI Conversations tree, third instance of one shape (#979)	CM051	06a643e9ec84	no	shipped_compose_mounts_ai_conversations	capability_matrix.sh gate	CM051 #2152
+fix(store-auth): the guard silenced its own failure, so the whole shim was inert and quiet (#950)	CM051	27a35ba89ab7	no	store_auth_guard_says_when_it_skips	capability_matrix.sh gate	CM051 #2151
+fix(wiki): the summary backfill was invisible to the lock it was waiting for (#2112)	CM051	ab48d585f8a6	no	wiki_backfill_enrols_for_the_ingest_slot	capability_matrix.sh gate	CM051 #2145
+fix(install): every detected export reaches the importer, and a decline still means no (#957)	CM051	9808d88a3459	no	every_detected_export_reaches_the_importer	capability_matrix.sh gate	CM051 #2143
+fix(copy): nine customer strings called it the iOS Companion, and nothing was checking	CM051	ae0a06656eeb	no	customer_strings_say_ios_app_not_companion	capability_matrix.sh gate	CM051 #2140
+fix(doctor): the customer's own status page was showing them the year 2318	CM051	bba6d8ae97c6	no	keep_alive_sentinel_is_not_put_on_the_wire	capability_matrix.sh gate	CM051 #2133
+fix(privacy): a forget that found nobody told the customer it had erased them	CM051	4b3a60887c60	no	forget_does_not_claim_an_erasure_it_did_not_do	capability_matrix.sh gate	CM051 #2131
+fix(people): the two stores disagreed about how many people you know, and nothing repaired it	CM051	3ecba4150470	no	people_stores_are_repaired_not_just_counted	capability_matrix.sh gate	CM051 #2129
+fix(applications): one Ostler folder, and the consent text stops naming an app that does not exist	CM051	075511abfc35	no	one_applications_ostler_folder	capability_matrix.sh gate	CM051 #2128
+fix(egress): the address carried unexplained for three weeks, explained and declared	CM051	84a50c174cfb	no	none	capability_matrix.sh gate	CM051 #2127
+repin(wiki): the images carrying the lint fix, verified by label not by report	CM051	7e9cd89c44ae	no	none	capability_matrix.sh gate	CM051 #2125
+fix(signals): the payloads never said what they were, so the whole band was dropped	CM051	f50c5c186462	no	reply_debt_detector_is_pointed_at_its_own_tree	capability_matrix.sh gate	CM051 #2124
+fix(preferences): the projector shipped and nothing called it	CM051	b694b1b79901	no	editor_preference_projection_is_called	capability_matrix.sh gate	CM051 #2122
+fix(recovery): ostler-unlock pointed into /tmp, so the recovery key could not be redeemed	CM051	29113ac4bc27	no	ostler_unlock_link_survives_the_promote	capability_matrix.sh gate	CM051 #2116

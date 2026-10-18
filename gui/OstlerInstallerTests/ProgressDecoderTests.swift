@@ -212,6 +212,56 @@ final class ProgressDecoderTests: XCTestCase {
         XCTAssertFalse(status.isProblem)
     }
 
+    // #2318 ------------------------------------------------------------
+
+    func testUnmeasuredStepDecodesAsUnmeasuredNotOK() {
+        // The line a step that recorded no outcome now writes. The whole
+        // point is that it is NOT ok, so a green tick can never again be
+        // drawn over a step nothing looked at.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=doctor_setup\tstatus=unmeasured\telapsed_s=0\tmeasured=no"
+        )
+        guard case .stepEnd(let id, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(id, "doctor_setup")
+        XCTAssertEqual(status, .unmeasured)
+        XCTAssertNotEqual(status, .ok, "an unmeasured step decoded as success")
+        XCTAssertFalse(status.isMeasured)
+    }
+
+    func testUnmeasuredIsNotCountedAsAProblem() {
+        // It is an absence of instrumentation, not a fault on the box.
+        // If this flips, every clean install renders 42 warnings and the
+        // customer is told their Mac is broken.
+        XCTAssertFalse(StepStatus.unmeasured.isProblem)
+        // ... while the fail-safe for everything else is intact.
+        XCTAssertTrue(StepStatus.warn.isProblem)
+        XCTAssertTrue(StepStatus.error.isProblem)
+        XCTAssertTrue(StepStatus.timeout.isProblem)
+        XCTAssertTrue(StepStatus.fail.isProblem)
+        XCTAssertFalse(StepStatus.ok.isProblem)
+    }
+
+    func testAMeasuredOKIsStillDistinguishableFromAnUnmeasuredOne() {
+        // The two lines differ ONLY in the fields this change added, so
+        // this is the assertion that the wire really did gain a way to
+        // tell "measured and fine" from "nobody looked".
+        let measured = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=s\tstatus=ok\telapsed_s=1\tmeasured=rc"
+        )
+        let unmeasured = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=s\tstatus=unmeasured\telapsed_s=1\tmeasured=no"
+        )
+        guard case .stepEnd(_, let ms, _) = measured,
+              case .stepEnd(_, let us, _) = unmeasured else {
+            return XCTFail("expected two .stepEnd events")
+        }
+        XCTAssertNotEqual(ms, us)
+        XCTAssertEqual(ms, .ok)
+        XCTAssertEqual(us, .unmeasured)
+    }
+
     func testUnrecognisedStatusDoesNotDecodeAsOK() {
         // An older GUI reading a newer install.sh. "Unknown" must never
         // round to "fine": that rounding is what the `?? .ok` did.

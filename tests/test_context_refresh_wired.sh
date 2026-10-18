@@ -18,7 +18,18 @@
 #      one level too high -- missing the /workspace segment the identity
 #      belt writes IDENTITY.md/SOUL.md into -- now corrected).
 #   3. install.sh enables the http_request tool to reach loopback
-#      (allow_private_hosts), so the assistant can do live lookups.
+#      (allow_private_hosts). The stated reason USED to be "so the assistant
+#      can do live lookups", because the digest ended by telling the model to
+#      fetch people over http_request. It no longer does (divergence 6 in
+#      context-refresh/VENDOR.md): that route is invisible to every grader
+#      that asks which tool answered a turn, so a correct answer through it
+#      scored memory_only. The setting is still asserted here and still
+#      enabled, unchanged, because http_request has uses beyond the graph and
+#      turning it off is a product decision nobody has taken. But the reason
+#      recorded in this file was about to become false, and a rationale
+#      nobody rereads is how a setting outlives its purpose. OPEN QUESTION,
+#      not answered here: with no instruction routing graph lookups through
+#      it, does the shipped assistant still need loopback http_request at all?
 #   4. install.sh actually sources the context-refresh snippet
 #      (no ship-dark), after the assistant binary is staged.
 #   5. The plist and snippet agree on label + wrapper.
@@ -68,7 +79,7 @@ echo "contract check: tick pins ZEROCLAW_WORKSPACE_DIR to the assistant-config/w
 grep -q '\[http_request\]' "$INSTALL" \
     || fail "$INSTALL config generation missing [http_request] section"
 grep -q 'allow_private_hosts = true' "$INSTALL" \
-    || fail "$INSTALL must set allow_private_hosts = true so http_request can reach 127.0.0.1:8090"
+    || fail "$INSTALL must set allow_private_hosts = true so http_request can reach 127.0.0.1:8090 (see the note at the top: this is no longer the digest's route to the graph, and the setting is kept deliberately rather than by inertia)"
 echo "wiring check: install.sh writes [http_request] allow_private_hosts = true"
 
 # ---------------------------------------------------------------------------
@@ -132,12 +143,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 EXPECTED_TOKEN = sys.argv[2]
 
-SUGGESTIONS = {
-    "recent_meetings": [
-        {"name": "Jordan Blake", "role": "VP Engineering",
-         "organisation": "Northwind Labs", "last_contact": "2026-05-30"},
-    ]
-}
+# The owner's employer, as the ical-server's /api/v1/employer resolver
+# serves it. (Until #10 this fixture served /api/v1/suggestions, whose
+# organiser rows the People section no longer reads.)
+EMPLOYER = {"found": True, "employer": "Northwind Labs",
+            "job_title": "VP Engineering", "start_date": "2024-01-01",
+            "former_employers": []}
 EMPTY_SPARQL = {"head": {"vars": []}, "results": {"bindings": []}}
 
 class H(BaseHTTPRequestHandler):
@@ -162,7 +173,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(
                 401, {"error": "Unauthorized: missing or invalid service token"})
         return self._send(
-            200, SUGGESTIONS if path == "/api/v1/suggestions" else {})
+            200, EMPLOYER if path == "/api/v1/employer" else {})
 
     def do_POST(self):
         # Oxigraph stand-in: unauthenticated, deliberately empty.
@@ -225,8 +236,8 @@ OSTLER_SERVICE_TOKEN="$FAKE_TOKEN" \
 WS="$WORKDIR/assistant-config/workspace"
 [ -f "$WS/CONTEXT.md" ] \
     || fail "tick did not write CONTEXT.md into \$OSTLER_DIR/assistant-config/workspace ($WS)"
-grep -q "Jordan Blake" "$WS/CONTEXT.md" \
-    || fail "CONTEXT.md did not include the synthetic person from the ical-server"
+grep -q "^- Work: Northwind Labs" "$WS/CONTEXT.md" \
+    || fail "CONTEXT.md did not include the synthetic employer from the ical-server"
 [ "$rc" -eq 0 ] \
     || fail "a fully-served run exited $rc, expected 0 (every source answered)"
 echo "functional check: tick wrote CONTEXT.md into the assistant-config/workspace dir (proxy bypassed)"

@@ -1,0 +1,85 @@
+# CM051 #1619. Person pages on the walk box carried display names derived from
+# kinship terms. The cause was not a bad derivation and not orphaned nodes:
+# macOS `AddressBookSourceSync` pulls ANOTHER DEVICE's local address book up
+# into the owning iCloud account, the Hub ingested that book too, and a
+# household member's contact naming became the customer's data. The customer
+# appeared in their own People list under a relationship word.
+#
+# The fix is `_source_is_the_users_own` in the shipped syncer. Until this
+# workflow, THE ONLY GUARD ON IT WAS THAT ITS FUNCTION NAME APPEARS IN THE DMG.
+# Measured on origin/main with positive controls of the same shape:
+#
+#   test files naming _source_is_the_users_own    1, the DMG delivery fixture
+#   test files naming _read_abcddb_as_vcards      0
+#   CONTROL, test files naming contact_syncer    26
+#   workflows naming either                       0
+#   CONTROL, workflows naming contact_syncer      6
+#
+# A refactor that keeps the name and drops the bundle test passes all of that.
+# So does one that "tightens" the deliberate fail-open arm into a fail-closed
+# one -- and that second one is worse, because failing closed on an unreadable
+# oracle silently empties a customer's entire address book.
+#
+# THIS DOES NOT CLOSE #1619. That row is graded on a BOX, against rendered wiki
+# pages and the Oxigraph store. This asserts the classifier is correct and
+# called. The walk is still owed.
+name: address-book-source-guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'contact_syncer/syncer.py'
+      - 'tests/helpers/check_address_book_source_guard.py'
+      - 'tests/test_only_the_users_own_address_book_is_read.sh'
+      - '.github/workflows/address-book-source-guard.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'contact_syncer/syncer.py'
+      - 'tests/helpers/check_address_book_source_guard.py'
+      - 'tests/test_only_the_users_own_address_book_is_read.sh'
+      - '.github/workflows/address-book-source-guard.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  address-book-source-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # NO pip install. The behaviour half LIFTS the classifier out of the
+      # shipped source rather than importing contact_syncer.syncer, which would
+      # drag in httpx, qdrant_client and phonenumbers. A guard that only runs
+      # where a dependency tree is installed is a guard that stops running the
+      # first time that tree changes. sqlite3 is in the stdlib.
+      - name: Only the customer's own address book is read
+        run: bash tests/test_only_the_users_own_address_book_is_read.sh
+
+      # `if: always()` because a syntax error in either file makes the step
+      # above fail for a reason that has nothing to do with the address book,
+      # and that is exactly the run where the distinction is wanted (#683).
+      - name: SELF-CHECK -- the test and its helper still parse
+        if: always()
+        run: |
+          bash -n tests/test_only_the_users_own_address_book_is_read.sh
+          python -m py_compile tests/helpers/check_address_book_source_guard.py
+          echo "both parse"

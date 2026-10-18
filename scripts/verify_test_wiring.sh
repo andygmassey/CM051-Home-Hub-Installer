@@ -105,7 +105,16 @@ SWIFT_TEST_DIRS = ("gui/OstlerInstallerTests",)
 # Keyed by REPO-RELATIVE PATH, not basename, for the same reason as Swift: a
 # bare basename could collide with a tests/ file of the same name and silently
 # merge two rows into one.
-SCRIPT_TEST_DIRS = ("scripts/tests",)
+# context-refresh/tests joined on 2026-09-09, and it is the same shape as
+# scripts/tests was: two python test files, BOTH run by
+# .github/workflows/context-digest-auth.yml and both invisible to this
+# manifest, so the header count silently excluded them. Found the way the last
+# one was found, by trying to record a row for a test and watching
+# --regenerate delete it: a manifest that cannot enumerate a file cannot be
+# hand-corrected either, and the hand correction is what surfaced the gap.
+# Neither file grows the unwired set; both resolve WIRED on the workflow that
+# already names them.
+SCRIPT_TEST_DIRS = ("scripts/tests", "context-refresh/tests")
 
 # What it takes to START a Swift test. Xcode runs a TARGET, never a file, so
 # searching starters for an individual .swift filename would be the wrong
@@ -296,7 +305,43 @@ def strip_comment_lines(text):
         l for l in text.splitlines() if not l.lstrip().startswith("#")
     )
 
-starters = {k: strip_comment_lines(v) for k, v in starters.items()}
+def strip_trigger_block(rel, text):
+    """For a workflow, drop the `on:` trigger block before matching.
+
+    A WORKFLOW THAT WATCHES A FILE IS NOT A WORKFLOW THAT RUNS IT, and until
+    2026-09-16 this file could not tell the difference: `starters` held the
+    WHOLE workflow, so a filename appearing in `on.pull_request.paths` scored
+    as "started by" that workflow. Caught when a test named in one workflow's
+    paths, and RUN by a different workflow, was attributed to the watcher --
+    the runner lost on nothing more than dict order.
+
+    That matters because this register's one job is to answer "what runs this
+    test". A wrong answer here is worse than no answer: delete the named
+    workflow and the test still reads WIRED while running nowhere. It is the
+    same failure the note above describes, arriving through the trigger block
+    rather than through prose.
+
+    Conservative on purpose: only the `on:` block is removed, from the `on:`
+    key to the next top-level key, so a reference anywhere in env, jobs or
+    steps still counts.
+    """
+    if not rel.startswith(".github/workflows/"):
+        return text
+    out, dropping = [], False
+    for line in text.splitlines():
+        if not dropping and (line.startswith("on:") or line.rstrip() == "on:"):
+            dropping = True
+            continue
+        if dropping:
+            # a new top-level key ends the trigger block
+            if line and not line[0].isspace() and not line.startswith("#"):
+                dropping = False
+            else:
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+starters = {k: strip_trigger_block(k, strip_comment_lines(v)) for k, v in starters.items()}
 bodies = {k: strip_comment_lines(v) for k, v in bodies.items()}
 
 runner = {}

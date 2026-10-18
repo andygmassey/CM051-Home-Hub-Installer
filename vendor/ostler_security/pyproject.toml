@@ -65,7 +65,16 @@ markers = [
 # Console scripts installed into the venv's bin/ when the package is
 # pip-installed. Andy's installer pip-installs into the Hub venv, so
 # these end up callable as `ostler-recovery` / `ostler-migrate-dbs`.
+# ostler-recovery is the PASSKEY subsystem's recovery path: BIP39 phrase,
+# Keychain-wrapped DEK. install.sh disables that subsystem for v1.0, so on
+# a v1.0 install it exits 2 (no wrapped recovery DEK in the Keychain) and
+# always will. It is left registered because the subsystem returns in
+# v1.0.1, NOT because it can recover a v1.0 install.
 ostler-recovery = "ostler_security.recovery_cli:main"
+# ostler-unlock is the v1.0 passphrase-primary redeemer, and the only
+# shipped consumer of passphrase.unlock_with_recovery_key(). It is what a
+# customer who was shown an XXXX-XXXX-... key at install actually runs.
+ostler-unlock = "ostler_security.passphrase_recovery_cli:main"
 ostler-migrate-dbs = "ostler_security.migrate_dbs_cli:main"
 ostler-migrate-keychain = "ostler_security.migrate_keychain_service:main"
 ostler-migrate-aad = "ostler_security.migrate_recovery_key_aad:main"

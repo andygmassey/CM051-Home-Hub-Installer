@@ -16,11 +16,16 @@ Usage:
         --json /path/to/your_friends.json \
         [--dry-run] [--limit N] [--verbose]
 
-Idempotent: re-running upserts by deterministic ID (from name hash).
+Idempotent (CM051 F6): every facebook_friend signal records a stable
+per-friend ``pwg:sourceKey`` (name + friendship timestamp). A re-import of the
+same friend attaches to the node that already carries that key, BEFORE any
+fuzzy resolution, so a same-named node that appeared since the last import
+cannot steal the friendship onto a second node.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -38,7 +43,9 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer.relationship_labels import is_relationship_label
 from contact_syncer import privacy_model as _pm
+from identity_resolver import forget_tombstone
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -125,6 +132,7 @@ def friend_to_identity(entry: Dict[str, Any]) -> Tuple[PersonIdentity, Dict[str,
     extra = {
         "friended_on": friended_on,
         "timestamp": timestamp,
+        "source_key": friend_source_key(display_name, timestamp),
     }
 
     return identity, extra
@@ -150,6 +158,63 @@ def _escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
+# ── Stable per-friend key (CM051 F6) ─────────────────────────────────
+#
+# Facebook friends carry only a name and a friendship timestamp, so the
+# resolver can place them by FUZZY NAME alone, and a fuzzy match is not
+# stable across runs: a same-named node that arrives between two imports
+# (a Messenger correspondent, a contact card) wins the tie on the next run.
+# Measured on Ostler DMG #16: the same export imported twice left 1152
+# facebook_friend signals on 1152 nodes for 897 friends. The key below is the
+# friend's identity AS THE EXPORT STATES IT, recorded on the signal, and it is
+# consulted before the resolver is.
+
+
+def friend_source_key(display_name: str, timestamp: Any) -> str:
+    try:
+        ts = int(timestamp or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    raw = f"{(display_name or '').strip().casefold()}|{ts}"
+    return "facebook_friend:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def load_friend_index(resolver: Any) -> Tuple[Dict[str, str], Dict[Tuple[str, str], str]]:
+    """Every node already carrying a facebook_friend signal, indexed two ways.
+
+    ``by_key``: sourceKey -> node (signals written by this importer since F6).
+    ``legacy``: (casefolded displayName, signalDate) -> node, for signals
+    written before the key existed, so the first re-import after upgrade also
+    lands on the existing node instead of re-running the fuzzy match.
+    Ties resolve to the lexically first node URI, so the choice is stable.
+    """
+    sparql = (
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+        "SELECT ?p ?k ?n ?d WHERE {\n"
+        "  ?p pwg:hasSignal ?s .\n"
+        '  ?s pwg:signalType "facebook_friend" .\n'
+        "  OPTIONAL { ?s pwg:sourceKey ?k }\n"
+        "  OPTIONAL { ?p pwg:displayName ?n }\n"
+        "  OPTIONAL { ?s pwg:signalDate ?d }\n"
+        "}"
+    )
+    rows = resolver._sparql_query(sparql).get("results", {}).get("bindings", [])
+    by_key: Dict[str, str] = {}
+    legacy: Dict[Tuple[str, str], str] = {}
+    for row in sorted(rows, key=lambda r: r.get("p", {}).get("value", "")):
+        p = row.get("p", {}).get("value")
+        if not p:
+            continue
+        k = row.get("k", {}).get("value")
+        if k:
+            by_key.setdefault(k, p)
+        n = (row.get("n", {}).get("value") or "").strip().casefold()
+        d = row.get("d", {}).get("value") or ""
+        if n and d:
+            legacy.setdefault((n, d), p)
+    return by_key, legacy
+
+
 def create_person_oxigraph(
     oxigraph_url: str,
     person_uri: str,
@@ -160,6 +225,9 @@ def create_person_oxigraph(
     privacy_level: str,
 ) -> None:
     """Create a new Person node in Oxigraph from a Facebook friend."""
+    forget_tombstone.guard(
+        forget_tombstone.identity_values(identity), name=identity.display_name
+    )
     now = datetime.now(timezone.utc).isoformat()
     # Use Facebook friend date as createdAt, not import time.
     # This gives accurate "First recorded" dates in the wiki.
@@ -169,7 +237,12 @@ def create_person_oxigraph(
     else:
         created_at = now
 
-    fn = _escape(identity.display_name)
+    # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become a
+    # person's permanent displayName -- it says how SOMEBODY refers to this
+    # person, not who they are. Matches the WHOLE label only, so a real name
+    # that merely contains the word ("Mum Zhang") is untouched.
+    _raw_name = identity.display_name
+    fn = "" if is_relationship_label(_raw_name) else _escape(_raw_name)
     given = _escape(identity.given_name or "")
     family = _escape(identity.family_name or "")
 
@@ -194,6 +267,8 @@ def create_person_oxigraph(
     triples.append(f"<{person_uri}> pwg:hasSignal <{signal_uri}>")
     triples.append(f"<{signal_uri}> a pwg:RelationshipSignal")
     triples.append(f'<{signal_uri}> pwg:signalType "facebook_friend"')
+    if extra.get("source_key"):
+        triples.append(f'<{signal_uri}> pwg:sourceKey "{_escape(extra["source_key"])}"')
     triples.append(
         f'<{signal_uri}> pwg:privacyLevel '
         f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"'
@@ -230,6 +305,8 @@ def enrich_person_oxigraph(
         f'<{signal_uri}> pwg:privacyLevel '
         f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"',
     ]
+    if extra.get("source_key"):
+        triples.append(f'<{signal_uri}> pwg:sourceKey "{_escape(extra["source_key"])}"')
     if extra.get("friended_on"):
         triples.append(
             f'<{signal_uri}> pwg:signalDate "{_escape(extra["friended_on"])}"'
@@ -271,6 +348,8 @@ def embed_text(ollama_url: str, text: str, model: str = "nomic-embed-text") -> L
         )
         resp.raise_for_status()
         data = resp.json()
+        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        record_embed_usage(data, model)
     embs = data.get("embeddings") or [data.get("embedding")]
     return embs[0]
 
@@ -383,6 +462,14 @@ def import_friends(
 
     counts = {"total": len(friends), "matched": 0, "created": 0, "skipped": 0,
               "errors": 0}
+    # F6: nodes that already carry a friendship from an earlier import.
+    try:
+        by_key, legacy = load_friend_index(resolver)
+    except Exception as e:  # an unreadable index must not mint duplicates silently
+        print(f"Could not read existing Facebook friendships ({e}); refusing to "
+              f"re-resolve them by name.", file=sys.stderr)
+        counts["errors"] = len(friends)
+        return counts
     print(f"Importing {len(friends)} Facebook friends...")
 
     for i, entry in enumerate(friends, 1):
@@ -399,6 +486,24 @@ def import_friends(
             # Resolve — use fuzzy matching since Facebook friends
             # only have names (no email, phone, or URL to match on).
             match = resolver.resolve(identity, use_fuzzy=True)
+
+            # F6: a friend this importer has already placed goes back to the
+            # SAME node, whatever the fuzzy match now prefers. Tombstones
+            # still win (checked on the resolver's answer just below).
+            known = by_key.get(extra["source_key"]) or legacy.get(
+                (identity.display_name.strip().casefold(), extra.get("friended_on") or "")
+            )
+            if known and not (match and match.match_type == "forgotten"):
+                from identity_resolver.models import MatchResult as _MR
+                match = _MR(person_uri=known, match_type="facebook_source_key",
+                            confidence=1.0, details="already imported (sourceKey)")
+
+            # Forgotten (tombstoned) people are never created or enriched.
+            if match and match.match_type == "forgotten":
+                counts["skipped"] += 1
+                if verbose:
+                    print(" -> FORGOTTEN (skipped)")
+                continue
 
             if match and match.person_uri and match.match_type != "new":
                 # Existing person — enrich with Facebook friend signal

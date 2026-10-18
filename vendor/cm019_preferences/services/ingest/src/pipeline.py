@@ -10,6 +10,9 @@ import uuid
 from .config import settings
 from .vectorizer import vectorizer
 from .loaders import OxigraphLoader, QdrantLoader
+from .loaders.qdrant_loader import (
+    COMPARTMENT_AT_OR_ABOVE as QdrantLoader_COMPARTMENT_AT_OR_ABOVE,
+)
 from .filters import PreferenceFilter
 from .parsers import (
     BaseParser,
@@ -22,6 +25,7 @@ from .parsers import (
     LinkedInParser,
     RedditParser,
     AppleParser,
+    AppleMusicLibraryParser,
     TwitterParser,
     YouTubeParser,
     eBayParser,
@@ -63,6 +67,7 @@ class IngestPipeline:
 
         # Available parsers (ordered from most specific to least specific)
         self.parsers: List[BaseParser] = [
+            AppleMusicLibraryParser(),  # Hub's own Music library export - exact filename
             EmailParser(),  # Email preferences from CM021 - specific .jsonl format
             GoogleTakeoutParser(),
             SpotifyParser(),
@@ -251,9 +256,16 @@ class IngestPipeline:
         self.stats["vectors_inserted"] += result["vectors_inserted"]
         self.stats["errors"] += len(result["errors"])
 
+        # THE LINE A PERSON READS MUST BE ABLE TO SHOW THE DEFECT (#953). This
+        # said "N preferences (M filtered, K date-excluded), T seconds" and
+        # named the stores not at all, so a total graph-write failure produced a
+        # completion line that looked entirely normal. The instrument could not
+        # show it even in principle.
         logger.info(
             f"Completed {file_path}: {result['preferences_created']} preferences "
             f"({result['preferences_filtered']} filtered, {result['preferences_date_excluded']} date-excluded), "
+            f"{result['triples_inserted']} triples, {result['vectors_inserted']} vectors, "
+            f"{len(result['errors'])} store error(s), "
             f"{result['duration_seconds']:.2f}s"
         )
 
@@ -372,6 +384,7 @@ class IngestPipeline:
         # logged (no silent truncation) -- see PreferenceFilter.cap_by_source.
         aggregated_prefs, capped_log = self.filter.cap_by_source(aggregated_prefs)
         result["preferences_capped"] = len(capped_log)
+        aggregated_prefs, result["preferences_queued"] = self._queue_tail(aggregated_prefs, user_id)
 
         batch_size = 32
         for i in range(0, len(aggregated_prefs), batch_size):
@@ -384,10 +397,14 @@ class IngestPipeline:
 
         result["duration_seconds"] = (datetime.utcnow() - start_time).total_seconds()
 
+        # Same reason as the line in ingest_file (#953): this path sums the same
+        # batch results and reported no store counts at all.
         logger.info(
             f"Aggregated ingestion complete: {result['preferences_created']} preferences, "
             f"{result['preferences_filtered']} filtered, {result['preferences_capped']} source-capped, "
             f"{result['preferences_date_excluded']} date-excluded, "
+            f"{result['triples_inserted']} triples, {result['vectors_inserted']} vectors, "
+            f"{len(result['errors'])} store error(s), "
             f"{result['duration_seconds']:.1f}s"
         )
         logger.info(f"Frequency distribution: {result['frequency_stats']}")
@@ -570,6 +587,7 @@ class IngestPipeline:
         # protects a real day-one import where one export dwarfs the rest.
         aggregated_prefs, capped_log = self.filter.cap_by_source(aggregated_prefs)
         result["total_capped"] = len(capped_log)
+        aggregated_prefs, result["total_queued"] = self._queue_tail(aggregated_prefs, user_id)
 
         batch_size = 32
 
@@ -590,6 +608,26 @@ class IngestPipeline:
         logger.info(f"Frequency distribution: {result['frequency_stats']}")
 
         return result
+
+    def _queue_tail(self, ranked, user_id):
+        """CM051 #28: in the FOREGROUND (install), store the first N per source
+        now and queue the rest for the background drain (tail_queue.py). Off
+        unless the caller sets both env vars; a queue that cannot be written
+        falls back to storing everything now, never to dropping."""
+        from . import tail_queue
+        limit, qdir = tail_queue.foreground_settings()
+        if limit is None:
+            return ranked, 0
+        now, later = tail_queue.split_foreground(ranked, limit)
+        if not later:
+            return ranked, 0
+        try:
+            tail_queue.write_queue(qdir, later, user_id)
+        except OSError as exc:
+            logger.warning("Could not queue %d preference(s) for later (%s); storing them now.",
+                           len(later), type(exc).__name__)
+            return ranked, 0
+        return now, len(later)
 
     async def _process_batch(
         self,
@@ -631,10 +669,33 @@ class IngestPipeline:
         turtle_content = "\n".join(turtle_lines)
 
         # Insert into Oxigraph
+        #
+        # 🔴 A REFUSAL IS NOT AN ABSENCE (#953). insert_triples returns False on
+        # any non-2xx and logs the status itself; it does NOT raise. Recording
+        # only on the exception left a refusal reporting triples 0 with errors
+        # EMPTY, which is byte-identical to "this batch had nothing to write".
+        #
+        # MEASURED, two arms, one variable, nothing touching a real store:
+        #   endpoint 500 -> {"preferences": 3, "triples": 0, "vectors": 3, "errors": []}
+        #   endpoint 204 -> {"preferences": 3, "triples": 3, "vectors": 3, "errors": []}
+        # The control writes 3, so the 0 means REFUSED rather than "the harness
+        # never works". And vectors is 3 in BOTH arms, so a total graph-write
+        # failure was reported as a healthy batch with a split brain underneath
+        # it: Qdrant holds the preferences, Oxigraph does not, nothing says so.
         try:
             success = await self.oxigraph.insert_triples(turtle_content)
             if success:
                 result["triples"] = len(preferences)
+            else:
+                # The loader already logged the status code. What was missing is
+                # the entry in the structure the CALLER aggregates, because
+                # ingest_file sums these into result["errors"] and the global
+                # stats count that list.
+                result["errors"].append(
+                    f"Oxigraph refused {len(preferences)} preference(s): insert_triples "
+                    f"returned False, so NO triples were written for this batch. The status "
+                    f"code is on the loader's own error line."
+                )
         except Exception as e:
             logger.error(f"Oxigraph insert failed: {e}")
             result["errors"].append(f"Oxigraph error: {e}")
@@ -651,6 +712,17 @@ class IngestPipeline:
             )
             if success:
                 result["vectors"] = len(preferences)
+            else:
+                # The SAME shape, in the function immediately below the one that
+                # carried it. upsert_vectors is also -> bool and also returns
+                # False rather than raising, so a failed vector write reported
+                # vectors 0 with no error either. Two adjacent store writes with
+                # one defect between them is why this is a caller problem and
+                # not a loader problem: both loaders behave as documented.
+                result["errors"].append(
+                    f"Qdrant refused {len(preferences)} preference(s): upsert_vectors "
+                    f"returned False, so NO vectors were written for this batch."
+                )
         except Exception as e:
             logger.error(f"Qdrant insert failed: {e}")
             result["errors"].append(f"Qdrant error: {e}")
@@ -677,7 +749,8 @@ class IngestPipeline:
         query: str,
         user_id: str,
         compartment_level: int = 4,
-        limit: int = 10
+        limit: int = 10,
+        compartment_direction: str = QdrantLoader_COMPARTMENT_AT_OR_ABOVE,
     ) -> List[Dict[str, Any]]:
         """
         Search for similar preferences.
@@ -685,8 +758,19 @@ class IngestPipeline:
         Args:
             query: Search query text
             user_id: User to search for
-            compartment_level: Maximum compartment level to include
+            compartment_level: The compartment threshold. THIS IS NOT A
+                MAXIMUM and this docstring used to say it was. With the
+                default direction the search returns records AT OR ABOVE the
+                level. On CM019's 0..6 map (L0Personal to L6Broadcast, low
+                is private) that is the more PUBLIC half. So the default of 4
+                selects levels 4, 5 and 6, which is where
+                parsers/apple.py puts Apple Notes and Apple Health.
             limit: Max results
+            compartment_direction: passed straight through to
+                QdrantLoader.search(); see that method and the loader's module
+                header for the scale and the two directions. Deliberately NOT
+                exposed on the HTTP surface: flipping it is the privacy
+                decision itself, not a per-request option.
 
         Returns:
             List of matching preferences with scores
@@ -699,7 +783,8 @@ class IngestPipeline:
             vector=query_vector,
             limit=limit,
             compartment_level=compartment_level,
-            user_id=user_id
+            user_id=user_id,
+            compartment_direction=compartment_direction,
         )
 
         return results

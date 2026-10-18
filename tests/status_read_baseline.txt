@@ -20,6 +20,8 @@
 1	_DOCTOR_PROBE_RC=$?
 1	_HYDRATE_APPLENOTES_CONVERT_RC=$?
 1	_HYDRATE_APPLENOTES_EMBED_RC=$?
+1	_HYDRATE_REMINDERS_CONVERT_RC=$?
+1	_HYDRATE_REMINDERS_EMBED_RC=$?
 1	_ollama_agent_is_running; [[ $? -eq 2 ]] && _ollama_domain_absent=1
 1	_pipeline_req_exit=$?
 1	_rc=$?

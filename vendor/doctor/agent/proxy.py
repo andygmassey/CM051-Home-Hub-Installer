@@ -227,6 +227,11 @@ def _extension_token() -> str:
 # The ONLY path the extension credential may open. Not a list, not an env var,
 # not configurable. See _is_extension_credential for why.
 _EXTENSION_ONLY_PATH = "/api/safari/ingest"
+# Lane 6: the extension's "Save to Knowledge" button is a second WRITE of the
+# customer's own browsing, from the same extension, so it rides the same
+# credential. EXACTLY these two concrete paths, both POST, both loopback. Not
+# a prefix, not a pattern, not configurable: the READ surfaces stay closed to it.
+_EXTENSION_WRITE_PATHS = (_EXTENSION_ONLY_PATH, "/api/safari/save")
 
 
 def _is_extension_credential(request, client_bearer: str, upstream_path: str) -> bool:
@@ -246,7 +251,8 @@ def _is_extension_credential(request, client_bearer: str, upstream_path: str) ->
 
     FOUR CONDITIONS, ALL REQUIRED, AND THE NARROWNESS IS THE WHOLE DESIGN:
 
-      1. ONE PATH.  ``/api/safari/ingest`` and nothing else, compared against
+      1. TWO PATHS (Lane 6: ``/api/safari/ingest`` and ``/api/safari/save``,
+         the extension's two writes) and nothing else, compared against
          the CONCRETE upstream path rather than the route template. The other
          proxied paths are READS of the customer's entire life -- timeline,
          people, email, memory. This is a WRITE of their own browsing.
@@ -280,7 +286,7 @@ def _is_extension_credential(request, client_bearer: str, upstream_path: str) ->
 
     # Concrete path, not the route template: a template could in principle be
     # registered for more than one concrete route.
-    if str(upstream_path or "") != _EXTENSION_ONLY_PATH:
+    if str(upstream_path or "") not in _EXTENSION_WRITE_PATHS:
         return False
 
     if str(getattr(request, "method", "") or "").upper() != "POST":
@@ -528,7 +534,7 @@ async def proxy_request(
             # why it could never have fixed the Hub-only customer.
             logger.info(
                 "Doctor proxy: admitting %s %s on the browser-extension "
-                "credential (loopback, ingest-only)",
+                "credential (loopback, extension writes only)",
                 request.method,
                 path,
             )

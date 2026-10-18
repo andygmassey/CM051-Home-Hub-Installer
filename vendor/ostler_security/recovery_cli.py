@@ -30,6 +30,32 @@ Exit codes
         install on this machine, or Time Machine restore didn't
         carry it across)
     3   Unexpected internal failure
+    4   Wrong subsystem: this Mac is a passphrase-primary install, so
+        this command cannot open it and says which one can. Refused
+        before any prompt, so nothing was typed and nothing was read.
+
+WHY EXIT 4 EXISTS
+-----------------
+
+install.sh disables the passkey subsystem for v1.0, so every v1.0
+install is passphrase-primary and this command can never succeed on
+one. It stays registered because the subsystem returns in v1.0.1.
+
+Left alone, though, it did not merely fail: it asked for a 12-word
+phrase (the wrong credential entirely, since a v1.0 customer holds a
+short dashed recovery key), then reported that no recovery item was
+found and advised restoring from Time Machine first. A customer whose
+install is perfectly healthy was told Ostler had never been set up on
+that machine, and sent off to a backup they do not need, at the one
+moment they are least able to argue with it.
+
+So the refusal below happens BEFORE the banner and BEFORE the first
+prompt, and it names `ostler-unlock`, which is the command that can
+actually spend their recovery key. A passkey-primary install is not
+affected: the check requires a passphrase config to be present AND a
+passkey handle to be absent, which is the same discriminator
+`scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh`
+uses to tell the two subsystems apart.
 
 The CLI writes the unwrapped DEK (64-char hex) to stdout on success
 so a calling shell script can pipe it into whatever needs it
@@ -41,9 +67,11 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 from typing import Callable, Optional, TextIO
 
 from ostler_security import passkey as _passkey
+from ostler_security import passphrase as _passphrase
 from ostler_security import webauthn_client as _wac
 from ostler_security.recovery_cli_copy import (
     ATTEMPT_PROMPT_FMT,
@@ -69,6 +97,12 @@ from ostler_security.recovery_cli_copy import (
     PHRASE_ACCEPTED_LINE,
     RECOVERY_COMPLETE_LINE,
     TRY_AGAIN_LINE,
+    WRONG_SUBSYSTEM_COMMAND,
+    WRONG_SUBSYSTEM_HEADER,
+    WRONG_SUBSYSTEM_LINE_1,
+    WRONG_SUBSYSTEM_LINE_2,
+    WRONG_SUBSYSTEM_LINE_3,
+    WRONG_SUBSYSTEM_LINE_4,
 )
 
 
@@ -77,6 +111,7 @@ EXIT_OK = 0
 EXIT_AUTH_FAILED = 1
 EXIT_NO_RECOVERY_ITEM = 2
 EXIT_INTERNAL = 3
+EXIT_WRONG_SUBSYSTEM = 4
 
 
 # Type alias for the phrase-reader. Injected for test.
@@ -95,6 +130,38 @@ def default_phrase_reader(prompt: str) -> str:
     return input(prompt)
 
 
+def is_passphrase_primary(config_dir: Optional[Path] = None) -> bool:
+    """Is this Mac protected by a passphrase rather than by Touch ID?
+
+    THE DISCRIMINATOR IS NOT NEW AND MUST NOT BE. It is the one
+    `scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh`
+    already uses to keep the two subsystems apart, stated in code:
+    a passphrase config is present (`keychain.json`, which
+    `setup_passphrase()` writes and which `passphrase_recovery_cli`
+    reads) and a passkey handle is absent (`passkey.json`, resolved
+    through `passkey.handle_file()` so its test override is honoured
+    here too). Two ways of deciding the same thing would be a second
+    defect, not a second opinion.
+
+    FAILS TOWARDS THE OLD BEHAVIOUR ON PURPOSE. Anything other than
+    "config present AND handle absent" returns False and the command
+    runs exactly as it did before. A guard that cannot read the disk
+    must not lock a passkey customer out of the only tool that helps
+    them.
+
+    `config_dir` is read at call time rather than bound at import, so
+    a test can point it at a fixture without the caller's real home
+    directory deciding the answer.
+    """
+    directory = Path(config_dir) if config_dir else _passphrase.DEFAULT_CONFIG_DIR
+    try:
+        if not (directory / "keychain.json").exists():
+            return False
+        return not _passkey.handle_file().exists()
+    except OSError:
+        return False
+
+
 def _err(writer: TextIO, msg: str) -> None:
     writer.write(msg + "\n")
     writer.flush()
@@ -108,12 +175,38 @@ def run(
     user_name: Optional[str] = None,
     max_attempts: int = 3,
     thread_id: str = "default",
+    config_dir: Optional[Path] = None,
 ) -> int:
     """Run the recovery flow. Returns an exit code.
 
     Dependency-injected phrase reader and output streams so unit
     tests can drive the flow without touching stdin / stdout.
     """
+    # BEFORE THE BANNER AND BEFORE THE FIRST PROMPT, which is the whole
+    # point. The old code asked for a 12-word phrase first and only then
+    # discovered it could not help, so a customer holding a valid recovery
+    # key had already been told their credential was the wrong shape before
+    # being told, wrongly, that Ostler had never been set up here.
+    #
+    # This sits at the top of run() rather than inside main() so that
+    # `python -m ostler_security.recovery_cli` and every direct caller are
+    # covered by the same guard. run() is the first thing main() does, so
+    # "before any prompt" holds either way, and putting it here keeps the
+    # refusal drivable by a test with injected streams.
+    if is_passphrase_primary(config_dir):
+        _err(stderr, WRONG_SUBSYSTEM_HEADER)
+        _err(stderr, "")
+        _err(stderr, WRONG_SUBSYSTEM_LINE_1)
+        _err(stderr, "")
+        _err(stderr, WRONG_SUBSYSTEM_LINE_2)
+        _err(stderr, "")
+        _err(stderr, WRONG_SUBSYSTEM_COMMAND)
+        _err(stderr, "")
+        _err(stderr, WRONG_SUBSYSTEM_LINE_3)
+        _err(stderr, "")
+        _err(stderr, WRONG_SUBSYSTEM_LINE_4)
+        return EXIT_WRONG_SUBSYSTEM
+
     user_name = user_name or os.environ.get("USER") or "ostler-user"
 
     _err(stderr, HEADER_LINE)

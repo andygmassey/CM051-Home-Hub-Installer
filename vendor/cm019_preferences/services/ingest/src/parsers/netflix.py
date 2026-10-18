@@ -501,11 +501,27 @@ class NetflixParser(BaseParser):
         - Profile Name, Device Model, Star Value, Rating Type, Title Name,
           Thumbs Value, Event Utc Ts, Region View Date
 
-        Thumbs Value meanings:
-        - 0 = thumbs down
-        - 1 = thumbs up
-        - 2 = two thumbs down (strong dislike)
+        Thumbs Value meanings (Netflix's REAL encoding, not a guess -- this
+        docstring previously asserted 0=down/1=up/2=strong-down/3=strong-up,
+        which is WRONG in three of its four entries and was never caught
+        because no test exercised this numeric column; see HISTORY below):
+        - 0 = not rated (Netflix emits a row with no opinion recorded; this
+          is NOT a rating and must not become a Like or a Dislike)
+        - 1 = thumbs down
+        - 2 = thumbs up
         - 3 = two thumbs up (strong like)
+        There is no "two thumbs down" value in this export -- Netflix's
+        thumbs scale is not symmetric (no strong-dislike tier).
+
+        HISTORY: measured on a customer console walk (the operator's own
+        install, macmini16-walk) -- shows rated positively (a real
+        thumbs-up, Thumbs Value=2) were appearing under "Dislikes" on the
+        wiki. The previous mapping read
+        value 2 as "two thumbs down" (strong dislike) and value 1 as
+        "thumbs up" (like) -- backwards on both, plus value 0 ("not rated")
+        was wrongly stored as an explicit Dislike. Only value 3 (two thumbs
+        up) was already correct, which is why some positive signals DID
+        show through and this was not caught as "nothing works at all".
         """
         logger.info("Parsing Netflix ratings")
 
@@ -532,7 +548,10 @@ class NetflixParser(BaseParser):
                 if not title:
                     continue
 
-                # Get Thumbs Value (GDPR format: 0=down, 1=up, 2=strong down, 3=strong up)
+                # Get Thumbs Value (GDPR format: 0=not rated, 1=down, 2=up, 3=strong up).
+                # FIXED (polarity bug, measured on macmini16-walk): see this
+                # function's docstring HISTORY for the three entries that
+                # were backwards before this fix.
                 thumbs_value = row.get('Thumbs Value', '').strip()
 
                 # Also check legacy format columns
@@ -544,27 +563,32 @@ class NetflixParser(BaseParser):
                     ''
                 ).strip().lower()
 
+                # 0 = NOT RATED. Netflix emits this row for a title that was
+                # watched/listed but never thumbs-rated; it carries no
+                # opinion and must not become a Like or a Dislike. Skip it
+                # outright -- do NOT fall through to the legacy `rating`
+                # text check or the "default to weak like" branch below,
+                # both of which would manufacture a preference out of an
+                # explicit absence of one.
+                if thumbs_value == '0':
+                    continue
+
                 # Determine preference type and strength (V2: bipolar scale)
                 if thumbs_value == '3':
                     # Two thumbs up - strong like
                     preference_type = "Like"
                     strength = 0.50  # V2: Strong positive
                     rating_label = "two_thumbs_up"
-                elif thumbs_value == '1':
+                elif thumbs_value == '2':
                     # Thumbs up
                     preference_type = "Like"
                     strength = 0.35  # V2: Explicit positive
                     rating_label = "thumbs_up"
-                elif thumbs_value == '0':
+                elif thumbs_value == '1':
                     # Thumbs down
                     preference_type = "Dislike"
                     strength = -0.35  # V2: Explicit negative
                     rating_label = "thumbs_down"
-                elif thumbs_value == '2':
-                    # Two thumbs down - strong dislike
-                    preference_type = "Dislike"
-                    strength = -0.50  # V2: Strong negative
-                    rating_label = "two_thumbs_down"
                 elif rating in ('thumbs up', 'thumb up', 'up', 'liked', 'like', '1', 'positive'):
                     preference_type = "Like"
                     strength = 0.35  # V2: Explicit positive

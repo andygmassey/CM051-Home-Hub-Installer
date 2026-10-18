@@ -29,6 +29,7 @@ import os
 import re
 import sys
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -389,19 +390,148 @@ _YEAR_TAIL_RE = re.compile(r"\b(19|20)\d{2}\b")
 # Sources where free-text subjects are most likely to be email/import noise.
 _NOISY_SOURCES = {"csv", "email", "imap"}
 
+# CM051 #2536: these four shapes are a single data point, not a theme, so they
+# should not surface as "one of the things Ostler reckons you're into". Each
+# is a SHAPE check on the subject text, same style as the recruiter/dated
+# checks above -- flagged and sunk, never hard-deleted (a correction can still
+# promote one if it genuinely is the person's interest).
+_EPISODE_RE = re.compile(
+    r"(?i)\bepisode\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b"
+    r"|\bs\d{1,2}e\d{1,2}\b"
+)
+_COURSE_PREFIX_RE = re.compile(
+    r"(?i)^(intro(?:duction)?\s+to|fundamentals?\s+of|foundations?\s+of|"
+    r"certificate\s+(?:in|of)|specialization\s+in|getting\s+started\s+with)\b"
+)
+# A bare "@handle" is unambiguous; a single word is not (lots of real
+# interests are one word, e.g. "Basketball"), so this stays narrow on purpose.
+_HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
+# A one-off signal this old is not a current interest, regardless of shape.
+_ANCIENT_YEARS = 15
+
+
+# 🔴 AN IDENTIFIER IS NOT A TASTE, AND NOTHING WAS SAYING SO.
+#
+# Found by looking at the page a person sees rather than at the counts. With
+# the unreachable 0.28 floor lowered, the v1.0.100 box's front page rendered
+# four interest cards and every one was a contact identifier:
+#
+#     [interest] c…@icloud.com   "One of the things Ostler reckons you're into."
+#     [interest] +85 … 77        "One of the things Ostler reckons you're into."
+#     [interest] +85 … 67
+#     [interest] +44 … 07
+#
+# That is worse than the empty page it replaced: it is nonsense, and it is
+# nonsense built out of the customer's contacts. The floor had been masking it.
+#
+# The existing screens could not catch this. subject_privacy() CAPS THE PRIVACY
+# LEVEL of a personal-looking subject; it never rejects the row, so the
+# interest still reaches the page wearing an L2 badge. The noise table applies
+# score PENALTIES for shapes like email_thread and dated_subject, and a penalty
+# only reorders. Neither is a refusal, and a refusal is what an identifier
+# needs.
+#
+# Deliberately narrow: an email address or a telephone number, anchored whole.
+# A subject that merely CONTAINS an address (the words "thoughts on" followed
+# by one) is left
+# to the existing person-or-org screen, because that one is arguably about
+# something. This rejects only subjects that ARE an identifier and nothing else.
+_IDENTIFIER_SUBJECT_RE = re.compile(
+    r"""^\s*(?:
+        [^\s@]+@[^\s@]+\.[^\s@]+          # an email address, whole
+      | \+?[\d][\d\s().\-]{6,}[\d]          # a phone number, 8+ digits with separators
+    )\s*$""",
+    re.VERBOSE,
+)
+
+
+def subject_is_identifier(subject: str) -> bool:
+    """True when the subject IS an email address or telephone number.
+
+    Such a row can never be an interest: it names a way to reach a person, not
+    something the person likes. Returns False for empty input so an absent
+    subject is handled by the existing emptiness checks rather than here.
+    """
+    s = (subject or "").strip()
+    if not s:
+        return False
+    if _IDENTIFIER_SUBJECT_RE.match(s):
+        return True
+    # 🔴 AND THE MASKED FORM, which is what actually reaches here. The subject
+    # is stored ALREADY REDACTED by the writer upstream: measured on the box,
+    # the top interests were literally '+85 … 77' and '+44 … 07' -- a country
+    # code, a U+2026 ellipsis and two digits. The full-identifier regex above
+    # needs 8+ digits and matched none of them, so the first version of this
+    # screen removed the one email address and left every phone number on the
+    # page. I only caught that by reading the rendered cards again instead of
+    # trusting the count going 4671 -> 4656.
+    #
+    # A TASTE HAS LETTERS IN IT. "jazz", "K-pop", "Formula 1", "Tokyo 2020" all
+    # do. A subject with no alphabetic character at all is a number, a
+    # redaction, or punctuation, and none of those is something a person is
+    # into. This is deliberately a property of the SUBJECT rather than a
+    # pattern list, so it survives the redaction format changing.
+    if not any(ch.isalpha() for ch in s):
+        return True
+    return False
+
 
 # ---------------------------------------------------------------------------
 # Scoring layer (pure)
 # ---------------------------------------------------------------------------
 
+# A bookmark title is a HEADLINE PLUS A PUBLISHER, and the publisher is not
+# part of what anyone is interested in. Measured on the rendered cards from a
+# real box:
+#
+#     "Creating an innovation culture | McKinsey & Company"
+#     "Spending patterns shift in China| warc.com"
+#     "Demystifying the hackathon | McKinsey & Company"
+#
+# The trailing site name is noise on every one, and it also splits what should
+# be one interest: the same topic saved from two outlets aggregates as two
+# separate interests because the subjects differ only in their suffix.
+#
+# Conservative by construction. It peels ONE trailing segment, only after a
+# recognised separator, only when what remains is still substantial (>= 12
+# chars, so "AI | MIT" keeps its whole title rather than becoming "AI"), and
+# only when the peeled part is short enough to be a masthead rather than half
+# the sentence. Everything else is returned untouched.
+_PUBLISHER_TAIL_RE = re.compile(
+    r"^(?P<head>.+?)\s*[|\u2013\u2014]\s*(?P<tail>[^|\u2013\u2014]{1,40})$"
+)
+
+
+def strip_publisher_tail(subject: str) -> str:
+    """Remove a trailing ' | Publisher' from a saved-article title.
+
+    Returns the input unchanged when the shape does not clearly match, because
+    a wrong peel silently changes what an interest IS, which is worse than a
+    slightly noisy card.
+    """
+    s = (subject or "").strip()
+    m = _PUBLISHER_TAIL_RE.match(s)
+    if not m:
+        return s
+    head = m.group("head").strip()
+    tail = m.group("tail").strip()
+    # The head must survive as something readable, and the tail must look like
+    # a masthead rather than the second half of a thought.
+    if len(head) < 12 or not tail or len(tail) > len(head):
+        return s
+    return head
+
+
 def clean_subject(subject: str) -> str:
-    """Strip email reply/forward prefixes and collapse whitespace."""
+    """Strip email reply/forward prefixes, peel a publisher tail, collapse
+    whitespace."""
     s = (subject or "").strip()
     # peel repeated RE:/FW: prefixes
     prev = None
     while prev != s:
         prev = s
         s = _EMAIL_PREFIX_RE.sub("", s).strip()
+    s = strip_publisher_tail(s)
     s = re.sub(r"\s+", " ", s)
     return s
 
@@ -431,6 +561,12 @@ def noise_flags(subject: str, category: str, source: str) -> list[str]:
         flags.append("low_trust_category")
     if "CONTENT METADATA NO LONGER EXISTS" in raw or "urn:li" in raw.lower():
         flags.append("dead_reference")
+    if _EPISODE_RE.search(cleaned):
+        flags.append("single_episode")
+    if (category or "").lower() == "education" and _COURSE_PREFIX_RE.match(cleaned):
+        flags.append("course_title")
+    if _HANDLE_RE.match(cleaned):
+        flags.append("account_handle")
     return flags
 
 
@@ -445,6 +581,12 @@ _FLAG_PENALTY = {
     "dated_subject": 0.3,
     "low_trust_category": 0.3,
     "dead_reference": 0.7,
+    # CM051 #2536: a single episode/course/handle is real but not a theme.
+    # Sunk hard rather than dropped: a correction can still promote one.
+    "single_episode": 0.85,
+    "course_title": 0.75,
+    "account_handle": 0.85,
+    "ancient": 0.95,
 }
 
 
@@ -467,6 +609,17 @@ def _parse_dt(value: str | None):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _is_ancient(observed_at, now, years: int = _ANCIENT_YEARS) -> bool:
+    """CM051 #2536: a one-off signal this old ('ExampleMart 1 GB USB pen
+    drive', bought once a decade and a half ago) is not a current interest,
+    whatever its shape. No date on file is NOT flagged -- an unknown age is
+    not evidence of age."""
+    dt = _parse_dt(observed_at) if isinstance(observed_at, str) else observed_at
+    if dt is None:
+        return False
+    return (now - dt).days > years * 365
 
 
 def recency_decay(observed_at, now, half_life_days: float = 540.0) -> float:
@@ -545,11 +698,22 @@ def recency_confidence(last_seen, now, half_life_days: float = 720.0) -> float:
 def finalise_confidence(it: dict, now: datetime) -> dict:
     """Compute the displayed, continuous confidence from the stored reliability
     base plus evidence + recency. Called AFTER aggregation, when observation
-    count and distinct-source count are known."""
+    count, distinct-source count AND the merged last_seen (most-recent-wins,
+    see aggregate()) are known.
+
+    CM051 #2536 review: "ancient" (observed 15+ years ago) is judged HERE,
+    against the merged last_seen -- not per raw row before aggregation. One
+    old sighting of a subject also seen last week must not sink it; a
+    subject whose MOST RECENT sighting is itself ancient should be sunk,
+    which is exactly what checking the merged last_seen gives."""
     reliability = it.get("reliability", it.get("confidence", 0.0))
     ev = evidence_factor(it.get("observations", 1), len(it.get("sources", [])))
     rec = recency_confidence(it.get("last_seen"), now)
-    it["confidence"] = round(max(0.0, min(1.0, reliability * ev * rec)), 4)
+    ancient = _is_ancient(it.get("last_seen"), now)
+    if ancient and "ancient" not in it.get("flags", []):
+        it["flags"] = it.get("flags", []) + ["ancient"]
+    penalty = (1.0 - _FLAG_PENALTY["ancient"]) if ancient else 1.0
+    it["confidence"] = round(max(0.0, min(1.0, reliability * ev * rec * penalty)), 4)
     it["evidence_factor"] = ev
     return it
 
@@ -569,6 +733,14 @@ def build_interest(raw: dict, now: datetime,
     strength_raw = float(raw.get("strength") or 0.0)
     observed = raw.get("observed_at") or raw.get("created_at")
 
+    # CM051 #2536 review: "ancient" is NOT flagged here, per raw row. Two raw
+    # rows for the same subject aggregate into one interest (`aggregate()`
+    # below unions flags and keeps the MOST RECENT last_seen); flagging a
+    # 16-year-old row "ancient" and then unioning that flag onto a merged
+    # interest that ALSO has a sighting from last week would sink an
+    # interest that is, by its own most-recent evidence, current. "ancient"
+    # is judged once, after aggregation, against the merged last_seen --
+    # see finalise_confidence().
     flags = noise_flags(raw.get("subject", ""), category, source)
     decay = recency_decay(observed, now)
     conf = confidence(flags, category, source)
@@ -579,7 +751,7 @@ def build_interest(raw: dict, now: datetime,
     # polarity does not change magnitude; dislikes rank within their own bucket.
     score = round(eff_strength * conf * decay, 5)
 
-    evidence = _evidence_phrase(source, strength_raw, observed)
+    evidence = _evidence_phrase(source, observed, now)
     return {
         "id": interest_id(subject, domain),
         "subject": subject,
@@ -606,15 +778,48 @@ def _iso(value) -> str | None:
     return dt.date().isoformat() if dt else None
 
 
-def _evidence_phrase(source: str, strength: float, observed) -> str:
-    bits = []
-    if source:
-        bits.append(f"from {source}")
-    bits.append(f"strength {strength:.2f}")
-    seen = _iso(observed)
+# CM051 #2534: a lowercase source key, the raw strength score and an ISO
+# date are internal values, not customer copy -- a card's evidence line read
+# "from linkedin · strength 0.50 · last seen 2026-01-15". Human words only.
+_SOURCE_DISPLAY = {
+    "linkedin": "LinkedIn", "facebook": "Facebook", "meta": "Facebook",
+    "csv": "your imported data", "email": "your email", "imap": "your email",
+    "you": "you",
+}
+
+
+def _human_source(source: str) -> str:
+    s = (source or "").strip().lower()
+    if not s:
+        return ""
+    return _SOURCE_DISPLAY.get(s, s[:1].upper() + s[1:])
+
+
+def _human_seen(observed_at, now: datetime) -> str:
+    """'today', 'yesterday', or '9 Nov 2021' -- never an ISO date."""
+    dt = _parse_dt(observed_at) if isinstance(observed_at, str) else observed_at
+    if dt is None:
+        return ""
+    days = (now.date() - dt.date()).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return dt.strftime("%-d %b %Y")
+
+
+def _evidence_phrase(source: str, observed, now: datetime) -> str:
+    """One evidence line, in words: 'From LinkedIn, seen today'. No raw
+    strength score (#2534) -- the strength bar + word already show that."""
+    src = _human_source(source)
+    seen = _human_seen(observed, now)
+    if src and seen:
+        return f"From {src}, seen {seen}"
+    if src:
+        return f"From {src}"
     if seen:
-        bits.append(f"last seen {seen}")
-    return " · ".join(bits)
+        return f"Seen {seen}"
+    return ""
 
 
 def aggregate(interests: list[dict]) -> list[dict]:
@@ -720,7 +925,46 @@ def apply_corrections(interests: list[dict], corrections: dict | None,
 
 def compile_profile(raws: list[dict], now: datetime | None = None,
                     corrections: dict | None = None,
-                    min_confidence: float = 0.28,
+                    # 🔴 0.28 WAS UNREACHABLE BY EVERY SOURCE THAT SHIPS, so
+                    # this filter could only ever return nothing. Measured on a
+                    # real v1.0.100 box with 4792 projected rows:
+                    #
+                    #   safari_bookmarks / bookmark  4716 rows  reliability 0.0334
+                    #   imessage         / social      76 rows  reliability 0.0775
+                    #
+                    # confidence = reliability x evidence_factor x recency, and
+                    # both factors are capped at 1.0, so confidence can never
+                    # EXCEED reliability. The best real interest on that box
+                    # scored 0.1601 -- with five corroborating observations.
+                    # 0.28 is 1.75x the best value the corpus can produce, so
+                    # every row was suppressed and the customer's front page
+                    # read "Ostler has spotted 0 interests from what it has read
+                    # so far". Measured at several floors on the same rows:
+                    #
+                    #   0.28 -> 0 interests,    4701 suppressed
+                    #   0.10 -> 4671 interests,   30 suppressed
+                    #   0.00 -> 4701 interests,    0 suppressed
+                    #
+                    # 0.10 is chosen because it is REACHABLE by a shipped source
+                    # and still DISCRIMINATES: it rejects 30 rows rather than
+                    # waving everything through, which a floor of 0 would.
+                    #
+                    # ⚠️ THIS IS NOT THE FRONT PAGE'S NOISE CONTROL AND MUST NOT
+                    # BE TUNED AS IF IT WERE. frontpage.py caps the page at
+                    # MAX_INTEREST_CARDS = 12 and MAX_PER_DOMAIN = 4, ranked by
+                    # score. 4671 interests in the artefact therefore produce at
+                    # most 12 cards. This floor exists to keep genuine garbage
+                    # out of the artefact and out of /api/v1/preferences, not to
+                    # decide what a person sees.
+                    #
+                    # THE DEEPER SHAPE, recorded because it will come back: no
+                    # amount of corroboration can lift a weak source, since
+                    # evidence_factor saturates at 1.0. A topic bookmarked once
+                    # and one bookmarked fifty times across three sources both
+                    # ceiling at the source's own reliability. If richer sources
+                    # (email, conversation mining) land and the table is not
+                    # revisited, this floor will need revisiting with it.
+                    min_confidence: float = 0.10,
                     contact_lexicon: frozenset = frozenset()) -> dict:
     """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
     ``contact_lexicon`` (see build_contact_lexicon) screens every subject
@@ -740,8 +984,16 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
     domains: dict[str, list[dict]] = {}
     dislikes: list[dict] = []
     suppressed = 0
+    suppressed_identifier = 0
     for it in interests:
         corrected = bool(it.get("corrected"))
+        # An identifier is refused BEFORE the confidence floor and REGARDLESS
+        # of `corrected`. A phone number does not become a taste because
+        # someone confirmed it, and letting a correction override this is how
+        # the nonsense would come back one feedback click later.
+        if subject_is_identifier(it.get("subject", "")):
+            suppressed_identifier += 1
+            continue
         if not corrected and it["confidence"] < min_confidence:
             suppressed += 1
             continue
@@ -767,6 +1019,9 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
             "interests": sum(len(b["interests"]) for b in domain_blocks),
             "dislikes": len(dislikes),
             "suppressed_low_confidence": suppressed,
+            # Counted separately: "below the bar" and "not a taste at all" are
+            # different findings and a single number would hide the second.
+            "suppressed_identifier": suppressed_identifier,
             "domains": len(domain_blocks),
         },
         "domains": domain_blocks,
@@ -778,15 +1033,76 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
 # I/O layer (read-only Oxigraph)
 # ---------------------------------------------------------------------------
 
+def _oxigraph_credential() -> tuple[str, str] | None:
+    """The Oxigraph loopback credential, or None when none is configured.
+
+    NOT A SECOND MECHANISM. lib/ostler_store_auth.py is the estate's single
+    decider for which credential belongs to which store port, and this reads
+    the SAME env var and the SAME 0600 file it does:
+
+        7878 -> ("Authorization", "Bearer ", "OXIGRAPH_TOKEN", "oxigraph_token")
+
+    WHY THIS FUNCTION EXISTS AT ALL, rather than importing that shim. The shim
+    is delivered as a .pth inside each SERVICE'S VENV, so it patches urllib
+    automatically for anything running in one. THE EDITOR HAS NO VENV: its
+    LaunchAgent runs `PYTHONPATH=<src> python3 -m compiler.emit_frontpage`
+    against the system interpreter. So the blanket fix cannot reach this call
+    site, and this is the one consumer it was never able to cover.
+    """
+    val = (os.environ.get("OXIGRAPH_TOKEN") or "").strip()
+    if not val:
+        secrets_dir = os.environ.get(
+            "OSTLER_SECRETS_DIR", os.path.expanduser("~/.ostler/secrets"))
+        try:
+            with open(os.path.join(secrets_dir, "oxigraph_token"),
+                      encoding="utf-8") as fh:
+                val = fh.read().strip()
+        except OSError:
+            val = ""
+    return ("Authorization", "Bearer " + val) if val else None
+
+
 def _sparql_select(oxigraph_url: str, query: str, timeout: float = 30.0) -> list[dict]:
+    """Read-only SPARQL SELECT against Oxigraph.
+
+    THE DEFECT THIS FIXES, measured on a v1.0.98 box 2026-09-16:
+        curl 127.0.0.1:7878/query with no credential  -> HTTP 401
+        curl 127.0.0.1:7878/query with the credential -> 111,289 triples
+    This function sent Accept and Content-Type and nothing else, so every
+    query 401ed, every read returned zero rows, and the compiler wrote
+    {"stats": {"raw_rows": 0, "interests": 0}} AND EXITED 0. The customer's
+    front page read "0 interests inferred so far" for at least three builds
+    and no gate went red, because an empty graph and a refused query are the
+    same branch in every caller above this one.
+
+    A 401 is now RAISED rather than swallowed. An unreadable store must be a
+    loud failure, not a quiet zero: a zero that could not be measured is the
+    exact shape that hid this for three builds.
+    """
     url = oxigraph_url.rstrip("/") + "/query"
     data = urllib.parse.urlencode({"query": query}).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST", headers={
+    headers = {
         "Accept": "text/csv",
         "Content-Type": "application/x-www-form-urlencoded",
-    })
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8")
+    }
+    cred = _oxigraph_credential()
+    if cred is not None:
+        headers[cred[0]] = cred[1]
+    req = urllib.request.Request(url, data=data, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise RuntimeError(
+                f"Oxigraph refused the query with HTTP {exc.code}. The store "
+                "requires a credential and none was presented or it was "
+                "rejected. Expected OXIGRAPH_TOKEN in the environment or a "
+                "readable ~/.ostler/secrets/oxigraph_token. Refusing to report "
+                "an empty profile, which is indistinguishable from an empty "
+                "graph."
+            ) from exc
+        raise
     rows = list(csv.DictReader(io.StringIO(body)))
     return rows
 
@@ -811,7 +1127,8 @@ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
     oxigraph_url = oxigraph_url or os.environ.get(
         "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
     out: list[dict] = []
-    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike")):
+    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike"),
+                                ("NeutralPreference", "neutral")):
         for row in _sparql_select(oxigraph_url, _pref_query(node_type)):
             out.append({
                 "subject": row.get("subject", ""),

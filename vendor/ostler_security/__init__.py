@@ -27,6 +27,7 @@ from .passphrase import (
     validate_passphrase_strength,
     verify_passphrase,
 )
+from .db_key import resolve_db_key
 from .database import get_db_connection, migrate_to_encrypted
 from .filevault import check_filevault_status
 from .audit_log import AuditLog, log_event
@@ -41,6 +42,15 @@ from . import keychain
 from . import passkey
 from . import recovery_cli
 from . import webauthn_client
+
+# The key every headless service needs. `recovery_cli` above is the
+# PASSKEY subsystem's recovery path (BIP39 phrase, Keychain-wrapped DEK)
+# and it cannot open a passphrase-primary install; the v1.0 redeemer is
+# `passphrase_recovery_cli` (console script `ostler-unlock`), left OUT of
+# this eager import on purpose. A `python -m` run of a module the package
+# __init__ already imported warns about double import, and no library
+# consumer needs argparse and getpass loaded to open a database.
+from . import db_key
 
 # A7+A8 (region-aware consent for Article 9, WhatsApp tickbox, EU
 # voice gate). Pure stdlib – no extra deps – so always safe to import.

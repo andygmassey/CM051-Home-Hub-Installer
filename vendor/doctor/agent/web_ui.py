@@ -22,7 +22,9 @@ fix issues).
 
 from __future__ import annotations
 
+import asyncio
 import getpass
+import html
 import json
 import os
 import re
@@ -60,7 +62,15 @@ from dashboard_components import (
     render_reminders_posture,
     render_reminders_runtime,
     render_security_posture,
+    render_whatsapp_keepalive,
 )
+# Documents-folder access posture (launch-blocker install UX fix). A
+# live write probe against ~/Documents/Ostler surfaced as a Doctor tile
+# so a macOS Files-and-Folders denial -- which otherwise fails the wiki
+# and conversation-record writes silently -- is never invisible. Lives
+# in its own vendor-only module (CM051 probes a layout HR015 Doctor has
+# no equivalent of); see vendor/VENDOR_ONLY.tsv.
+from documents_access_posture import render_documents_access_posture
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -304,7 +314,203 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
+SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@ostler.ai")
+
+
+# ── Cross-site refusal on the credential routes ──────────────────────
+#
+# WHAT THIS CLOSES, AND, JUST AS IMPORTANTLY, WHAT IT DOES NOT.
+#
+# MEASURED on origin/main 2026-09-13, in this file: 34 ``@app.<verb>`` route
+# decorators, ``Depends(`` appears ZERO times in all 5235 lines (positive
+# control, same search shape: ``CORSMiddleware`` appears twice, so the zero is
+# a real absence and not a broken predicate), and the only ``add_middleware``
+# in the whole ``vendor/doctor`` tree is CORS with ``allow_origins=["*"]``.
+# Every Doctor-native route therefore answers with no credential at all.
+#
+# Four of those routes hand out or rotate a CREDENTIAL:
+#
+#   POST /api/v1/auth/chat-token   mints a ZeroClaw device bearer
+#   GET  /api/v1/extension/token   returns the browser-extension ingest key
+#   GET  /api/v1/pair/status       returns the section 3.3 pairing envelope
+#                                  (the QR encodes the pairing token itself)
+#   POST /api/v1/pair/regenerate   rotates that pairing credential
+#
+# With ``allow_origins=["*"]`` and ``allow_credentials=False`` a POST with no
+# body and no custom header is a CORS "simple request", so ANY page the
+# customer happens to open can issue these calls AND READ THE ANSWER BACK. A
+# drive-by site was one fetch away from a device bearer and from the pairing
+# envelope. That is the hole this closes.
+#
+# 🔴 THIS IS NOT AUTHENTICATION AND MUST NEVER BE DESCRIBED AS ANY. It refuses
+# a request that a BROWSER is making on behalf of a page the Hub did not
+# serve, which is the only attacker this predicate can see. It does NOTHING
+# against:
+#
+#   * a local process running as the customer, which sets whatever Origin and
+#     Sec-Fetch-Site it likes. That attacker is also not meaningfully held
+#     back by gating this route: the ZeroClaw admin token sits in
+#     ~/.ostler/secrets at mode 0600 under that same uid, so it can mint
+#     directly from the gateway without asking the Doctor at all.
+#   * a non-browser peer on the tailnet. install.sh raw-TCP serves :8089 to
+#     the tailnet (see the "v1.0.10 security lockdown" block), and its comment
+#     there claims 8089 "has its own device-pairing bearer auth" -- which is
+#     true of the PROXIED paths only, never of these Doctor-native ones.
+#
+# Both of those remain open on purpose and are recorded as such. The shipped
+# CM031 Companion presents NO credential on the chat-token mint (verified on
+# CM031 origin/main, ``ChatTokenService.mint`` sets only ``Accept``), so any
+# credential requirement here breaks pairing-to-chat for every customer. A
+# broken pairing flow at launch is worse than a documented hole.
+#
+# THE PREDICATE, and why both halves are needed:
+#
+#   * ``Sec-Fetch-Site`` is stamped by the browser and cannot be set by page
+#     script. ``same-origin`` is the Doctor's own pages; ``none`` is a typed
+#     URL or a bookmark. Anything else is another site driving the call.
+#     Browsers before the header existed simply do not send it.
+#   * ``Origin`` catches those older browsers on the requests that carry it.
+#     A GET normally carries no Origin at all, which is why the header alone
+#     is not enough and why absence must stay permitted.
+#
+# Absence of BOTH is the non-browser caller: curl, the installer's own probes,
+# and the iOS Companion. Those are allowed through, unchanged.
+
+_SAME_SITE_FETCH_VALUES = ("same-origin", "none")
+
+CROSS_SITE_REFUSAL_DETAIL = (
+    "refused: this Hub credential route is not available to another site"
+)
+
+
+# ── Hub-screen-only routes ───────────────────────────────────────────
+#
+# GET /api/v1/pair/status RETURNS THE PAIRING CREDENTIAL. pair_status
+# re-serialises the gateway's section 3.3 envelope, pairing_token and all, and
+# the QR is just that string drawn as pixels. A caller who fetches it can pair
+# ITSELF with the Hub, which makes every other gate on this port beside the
+# point.
+#
+# It exists to draw the QR on the Hub's OWN screen. MEASURED on CM031
+# origin/main: the Companion NEVER fetches it, nor /api/v1/pair/regenerate --
+# zero hits across CM031/ for api/v1/pair, against api/v1/auth/chat-token as
+# the positive control, which does hit. The phone gets the envelope by
+# SCANNING the QR, not by asking for it. So closing this to the Hub itself
+# costs iOS nothing.
+#
+# THE HOST HEADER IS THE DISCRIMINATOR, and this reuses the one the estate
+# already has rather than inventing a second: ical-server.py:220
+# _ALLOWED_HOST_NAMES is the same allowlist for the same reason (it calls out
+# DNS-rebind explicitly).
+#
+# 🔴 WHY NOT THE PEER IP, WHICH WOULD BE STRONGER. It cannot work here.
+# install.sh runs tailscaled in USERSPACE mode and bridges the port with
+# `tailscale serve --bg --tcp=8089 tcp://localhost:8089` (install.sh:26200).
+# A userspace forwarder terminates the tailnet connection and opens a FRESH
+# one to localhost, so request.client.host is 127.0.0.1 for a tailnet peer
+# exactly as it is for the Hub's own browser. A loopback peer check would
+# admit every tailnet caller while looking like it excluded them, which is
+# worse than no check.
+#
+# WHAT THIS DOES AND DOES NOT COVER, stated so it is not overclaimed later.
+# A tailnet peer dials http://100.x.y.z:8089 and its Host header says so, so
+# the real-world shape is refused, and a browser cannot override Host at all.
+# A deliberate non-browser attacker can still send `Host: 127.0.0.1` by hand.
+# Closing THAT means not raw-TCP serving this port wholesale: serve only the
+# paths the Companion needs, or move the pairing panel off the served port.
+# Filed, not done here.
+_HUB_LOCAL_HOST_NAMES = (
+    "127.0.0.1", "localhost", "[::1]", "::1",
+    "[::ffff:127.0.0.1]", "::ffff:127.0.0.1",
+)
+
+HUB_SCREEN_ONLY_DETAIL = (
+    "refused: the pairing panel is served to the Hub's own screen only"
+)
+
+
+def _not_hub_local(request: Request) -> "JSONResponse | None":
+    """Refuse a request that did not dial the Hub as loopback.
+
+    Fails CLOSED: a missing or unparseable Host is refused, because a request
+    that cannot say which address it dialled has not proved it dialled this
+    one.
+    """
+    host = (request.headers.get("host") or "").strip().lower()
+    if not host:
+        return JSONResponse(
+            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host-absent"},
+            status_code=403,
+        )
+    # Strip the port. Bracketed IPv6 keeps its brackets, matching the
+    # allowlist above and ical-server's.
+    if host.startswith("["):
+        name = host.split("]")[0] + "]" if "]" in host else host
+    else:
+        name = host.rsplit(":", 1)[0] if ":" in host else host
+    if name not in _HUB_LOCAL_HOST_NAMES:
+        return JSONResponse(
+            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host"},
+            status_code=403,
+        )
+    return None
+
+
+def _cross_site_refusal(request: Request) -> "JSONResponse | None":
+    """Return the 403 to send, or ``None`` when the caller may proceed.
+
+    Fails CLOSED: if the shared origin predicate cannot be imported at all the
+    request is refused rather than waved through, because a guard that cannot
+    run has not passed.
+    """
+    site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if site and site not in _SAME_SITE_FETCH_VALUES:
+        return JSONResponse(
+            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "sec-fetch-site"},
+            status_code=403,
+        )
+    try:
+        from editor_feedback import origin_is_local as _origin_is_local
+    except Exception:  # noqa: BLE001 - a guard that cannot run has not passed
+        return JSONResponse(
+            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "guard-unavailable"},
+            status_code=403,
+        )
+    if not _origin_is_local(request.headers.get("origin")):
+        return JSONResponse(
+            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "origin"},
+            status_code=403,
+        )
+    return None
+
+
+def _hub_read_refusal(request: Request) -> "JSONResponse | None":
+    """The cross-site guard for a READ the Hub app itself makes (CM051 #2552).
+
+    _cross_site_refusal accepts Sec-Fetch-Site only same-origin or none. The
+    Hub's own webview is served from tauri://localhost, so WebKit stamps its
+    fetch to this loopback port "cross-site"; a browser-served Hub on :8000
+    stamps it "same-site". Both were refused 403, so Settings and the
+    Governor could never read back what the customer had saved. The Origin
+    header is the stronger signal and cannot be forged by a page: when it is
+    the Hub's webview or a loopback page (editor_feedback.origin_is_local, the
+    same predicate the editor feedback route already trusts), the read is
+    admitted. Anything else falls through to the unchanged guard. Writes keep
+    _cross_site_refusal and go through the doctor_post native bridge.
+    """
+    origin = request.headers.get("origin")
+    if origin:
+        try:
+            from editor_feedback import origin_is_local as _origin_is_local
+        except Exception:  # noqa: BLE001 - a guard that cannot run has not passed
+            return JSONResponse(
+                {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "guard-unavailable"},
+                status_code=403,
+            )
+        if _origin_is_local(origin):
+            return None
+    return _cross_site_refusal(request)
+
 
 # ── Snapshot history (in-memory, last 10) ─────────────────────────
 
@@ -619,6 +825,34 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
     return findings
 
 
+def _bundle_routine_findings() -> list[dict]:
+    """Findings for recurring ingest routines that are failing or stale, or
+    that could not be read. Empty only when every installed routine is ok or
+    has simply not run yet."""
+    try:
+        from routine_status import read_routine_status
+        rows = read_routine_status()
+    except Exception as exc:
+        return [{
+            "severity": "warning",
+            "title": "Could not check the background routines",
+            "detail": f"The status of Ostler's recurring import routines could not be read ({type(exc).__name__}).",
+            "fix": None, "fix_command": None, "risk": "low",
+        }]
+    bad = [r for r in rows if r.get("health") in ("failing", "stale")]
+    if not bad:
+        return []
+    names = ", ".join(
+        f"{str(r.get('keeps_up_to_date') or r.get('routine'))} ({r.get('reason')})" for r in bad
+    )
+    return [{
+        "severity": "warning",
+        "title": "A background import routine is not running",
+        "detail": f"These recurring imports are failing or have stopped: {names}.",
+        "fix": None, "fix_command": None, "risk": "low",
+    }]
+
+
 def _append_all_clear(
     findings: list[dict],
     errors: dict[str, str] | None = None,
@@ -634,6 +868,13 @@ def _append_all_clear(
     is not clean and must not say it is.
     """
     if findings or errors:
+        return findings
+    # The recurring ingest routines (email-ingest and the bundles) are part of
+    # the report too. A routine that is failing or has stopped, or one we could
+    # not read, is not a healthy box.
+    routine_findings = _bundle_routine_findings()
+    if routine_findings:
+        findings.extend(routine_findings)
         return findings
     findings.append({
         "severity": "info",
@@ -1118,6 +1359,116 @@ def _degraded_snapshot() -> SystemSnapshot:
 # ── HTML template ────────────────────────────────────────────────────
 
 
+def render_source_status() -> str:
+    """The per-source ingest table: did each source read in, and when.
+
+    WHY THIS EXISTS. /api/v1/sources has served one honest row per canonical
+    source for a long time, and a box-walk probe asserts it does. Nothing ever
+    RENDERED it. Andy, 2026-09-13: "the data sources are supposed to have a
+    Doctor table showing that they were successfully ingested ... but I have
+    never seen this." He had not, because only the supply side was ever built.
+
+    🔴 THE PROBE THAT COVERS THIS PASSES EITHER WAY. "The Doctor must serve
+    /api/v1/sources with one honest per-source row" is true whether or not a
+    human can ever see a single one. A gate on the producer cannot tell you
+    the feature exists.
+
+    Reads the same read_source_status the endpoint does, so the page and the
+    API can never disagree. A source that never ran shows as "not run", never
+    omitted: an absent row would read as "fine".
+    """
+    try:
+        rows = read_source_status()
+    except Exception as exc:  # noqa: BLE001
+        return (
+            '<div class="section"><h2>Where your data came from</h2>'
+            f'<p class="muted">Could not read the ingest record: {exc}. '
+            "That is not the same as nothing having been ingested.</p></div>"
+        )
+    if not rows:
+        return (
+            '<div class="section"><h2>Where your data came from</h2>'
+            "<p class=\"muted\">No ingest record yet. On a fresh install this "
+            "fills in as each source reads in.</p></div>"
+        )
+    # ── EVERY STATUS THE WRITER CAN EMIT HAS A WORD HERE (CM051 #1587) ──
+    #
+    # install.sh declares its vocabulary in OSTLER_SENTINEL_STATUSES:
+    # ok / error / timeout / no_data / cannot_run. Two of those five had no
+    # entry in this table, so the cell fell through to the raw identifier and
+    # a customer with Full Disk Access ungranted read the word "cannot_run"
+    # in their own panel, in amber, with no explanation. It is not a rare
+    # branch: the contacts arm records cannot_run on exactly that box, and
+    # the Photos and Reminders arms added by #1587 record it too.
+    #
+    # "could not look" rather than "failed" is the substantive half. A
+    # CANNOT-RUN is not a failure and it is not a zero -- nothing looked, so
+    # nothing was found OR not found, and the Items cell beside it stays
+    # blank rather than saying 0.
+    _LABEL = {"ok": "read in", "no_data": "nothing to read",
+              "not_run": "not run yet", "unreadable": "record unreadable",
+              "error": "failed", "cannot_run": "could not look",
+              "timeout": "ran out of time",
+              # #30, the Downloads watcher row
+              "not_imported": "found, not imported",
+              "waiting": "waiting for a download"}
+    _COLOUR = {"ok": "#2C4A2C", "no_data": "rgba(236,232,225,0.55)",
+               "not_run": "#5C4611", "unreadable": "#7A1F1F",
+               "error": "#7A1F1F", "cannot_run": "#5C4611",
+               "timeout": "#5C4611", "not_imported": "#5C4611",
+               "waiting": "#5C4611"}
+    body = []
+    for r in rows:
+        st = (r.get("status") or "not_run")
+        when = r.get("last_update_at") or r.get("recorded_at")
+        n = r.get("item_count")
+
+        # ONE HONEST TOTAL (walk #28). read_source_status builds the cell's
+        # words once, as count_label, with count_kind saying what KIND of
+        # number it is: "total" (what Ostler holds, in the row's unit) or
+        # "last_check" (a per-run figure, the only evidence there is, and
+        # labelled as one). The table prints that label and nothing else, so
+        # the Doctor table and /api/v1/sources can never disagree. This cell
+        # used to take max(item_count, last_run_count), and on Andy's walk
+        # the Mail row printed the last tick's delta as if it were the
+        # mailbox.
+        #
+        # None and 0 are different answers and must not print the same, and
+        # a state that took no measurement must not print one (#1587):
+        # _source_count_label returns no label for cannot_run / not_run /
+        # unreadable, whose item_count=0 is bookkeeping, not a count.
+        label = r.get("count_label")
+        count = html.escape(label) if label else "&mdash;"
+        body.append(
+            '<tr>'
+            f'<td>{html.escape({"downloads_exports": "Downloads folder"}.get(r.get("source"), str(r.get("source", "?")).replace("_", " ")))}</td>'
+            f'<td><span style="color:{_COLOUR.get(st, "#5C4611")}">'
+            f'{html.escape(_LABEL.get(st, st))}</span>'
+            # #30: a row that found something and did not import it says WHY,
+            # in the customer's words, right under its status.
+            + (f'<div class="muted" style="font-size:0.85em">'
+               f'{html.escape(str(r["reason"]))}</div>' if r.get("reason") else "")
+            + '</td>'
+            f'<td style="text-align:right">{count}</td>'
+            f'<td>{html.escape(str(when)) if when else "never"}</td>'
+            f'<td>{html.escape(_catchup_phrase(r.get("catchup")))}</td>'
+            f'<td class="muted">{html.escape(str(r.get("kind", "")))}</td>'
+            '</tr>'
+        )
+    return (
+        '<div class="section"><h2>Where your data came from</h2>'
+        '<p class="muted">Every source Ostler reads, whether it has run, how '
+        "much it found and when it last looked. A source that has never run "
+        'says so rather than being left out.</p>'
+        '<table class="src-table" style="width:100%;border-collapse:collapse">'
+        '<thead><tr><th align="left">Source</th><th align="left">Status</th>'
+        '<th align="right">Items</th><th align="left">Last read</th>'
+        '<th align="left">History</th>'
+        '<th align="left">Kind</th></tr></thead><tbody>'
+        + "".join(body) + "</tbody></table></div>"
+    )
+
+
 def render_dashboard(
     snapshot: SystemSnapshot,
     findings: list[dict],
@@ -1141,7 +1492,7 @@ def render_dashboard(
     # Build service status cards
     service_cards = ""
     for svc in snapshot.services:
-        color = {"healthy": "#5cb579", "unhealthy": "#d4a052", "unreachable": "#d96666"}.get(svc.status, "rgba(236,232,221,0.40)")
+        color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(svc.status, "rgba(236,232,221,0.40)")
         icon = {"healthy": "&#10003;", "unhealthy": "&#9888;", "unreachable": "&#10007;"}.get(svc.status, "?")
         service_cards += f"""
         <div class="status-card">
@@ -1166,7 +1517,7 @@ def render_dashboard(
     )
     container_cards = ""
     for c in snapshot.docker_containers:
-        color = {"running": "#5cb579", "exited": "#d96666", "paused": "#d4a052"}.get(c.state, "rgba(236,232,221,0.40)")
+        color = {"running": "#2C4A2C", "exited": "#7A1F1F", "paused": "#5C4611"}.get(c.state, "rgba(236,232,221,0.40)")
         container_cards += f"""
         <div class="status-card">
             <div class="status-indicator" style="background:{color}">&#9632;</div>
@@ -1187,7 +1538,7 @@ def render_dashboard(
     # Build disk usage
     disk_items = ""
     for d in snapshot.disk_usage:
-        bar_color = "#5cb579" if d.percent_used < 80 else "#d4a052" if d.percent_used < 95 else "#d96666"
+        bar_color = "#2C4A2C" if d.percent_used < 80 else "#5C4611" if d.percent_used < 95 else "#7A1F1F"
         disk_items += f"""
         <div class="disk-item">
             <div class="disk-label">{d.mount_point}</div>
@@ -1231,6 +1582,18 @@ def render_dashboard(
     # the same productisation-posture story as the iMessage tile.
     reminders_section = render_reminders_posture()
 
+    # Documents-folder access posture (launch-blocker install UX fix):
+    # a live write probe against ~/Documents/Ostler. Ostler's bundled
+    # interpreter writes the customer's wiki and conversation records
+    # there, behind the macOS Files-and-Folders consent prompt (which
+    # reads as coming from "python3.11"). A customer who declines it
+    # leaves those writes failing silently. Amber when the probe write
+    # is refused; empty string on a fresh box where install.sh has not
+    # reached its first Documents write (not-yet-asked), so Doctor does
+    # not cry wolf. Catches a revoke-after-install the same way the
+    # Reminders runtime tile does, because the probe is live.
+    documents_access_section = render_documents_access_posture()
+
     # Reminders runtime push outcome (task #279, runtime half): reads
     # CM048's reminders_map SQLite table for what actually happened when
     # the assistant pushed extracted commitments to the Reminders app.
@@ -1240,10 +1603,24 @@ def render_dashboard(
     # install-time tile cannot: access granted at install, later revoked.
     reminders_runtime_section = render_reminders_runtime()
 
+    # WhatsApp keepalive verdict (CM051 board item 965). The twice-daily
+    # keepalive LaunchAgent used to run `channel doctor`, which builds its own
+    # never-connected WhatsApp channel object: it reported unhealthy on every
+    # run on every box and exited 0 anyway, so three consecutive unhealthy
+    # runs read as `last exit code = 0` and nobody knew. The job now asks the
+    # running daemon, repairs what it can, and writes its verdict where a
+    # person will see it. Empty string when WhatsApp was never enabled or the
+    # keepalive has not fired yet. A remediation nobody can observe failing is
+    # the same defect one layer along, which is why this tile is part of the
+    # fix and not a decoration on it.
+    whatsapp_keepalive_section = render_whatsapp_keepalive()
+
+    source_status_section = render_source_status()
+
     # Build findings
     findings_html = ""
     for f in findings:
-        sev_color = {"critical": "#d96666", "warning": "#d4a052", "info": "#5cb579"}.get(f["severity"], "rgba(236,232,221,0.40)")
+        sev_color = {"critical": "#7A1F1F", "warning": "#5C4611", "info": "#2C4A2C"}.get(f["severity"], "rgba(236,232,221,0.40)")
         sev_icon = {"critical": "&#9888;", "warning": "&#9888;", "info": "&#10003;"}.get(f["severity"], "?")
         fix_html = ""
         if f.get("fix_command"):
@@ -1292,24 +1669,24 @@ def render_dashboard(
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --red: #d96666;
-            --yellow: #d4a052;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --red: #7A1F1F;
+            --yellow: #5C4611;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -1798,7 +2175,12 @@ def render_dashboard(
 
         {reminders_section}
 
+        {documents_access_section}
+
         {reminders_runtime_section}
+
+        {whatsapp_keepalive_section}
+        {source_status_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
@@ -1812,7 +2194,7 @@ def render_dashboard(
 
         <div class="section" id="supportSection">
             <div class="section-title">{SUPPORT_SECTION_TITLE}</div>
-            <p style="color:#94a3b8; line-height:1.6; margin-bottom:1rem;">
+            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
                 {SUPPORT_SECTION_INTRO}
             </p>
             <div class="header-controls" style="flex-wrap:wrap; gap:0.5rem;">
@@ -1824,10 +2206,10 @@ def render_dashboard(
 
         <div class="chat-section">
             <div class="section-title">{DASHBOARD_SECTION_HELP}</div>
-            <p style="color:#94a3b8; line-height:1.6; margin-bottom:1rem;">
+            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
                 {DASHBOARD_HELP_PARAGRAPH_1}
             </p>
-            <p style="color:#94a3b8; line-height:1.6; font-size:0.85rem;">
+            <p style="color:#4A463F; line-height:1.6; font-size:0.85rem;">
                 {DASHBOARD_HELP_PARAGRAPH_2}
             </p>
         </div>
@@ -1879,7 +2261,7 @@ def render_dashboard(
             // Update findings
             let fhtml = '';
             findings.forEach(f => {{
-                const sevColors = {{critical:'#d96666',warning:'#d4a052',info:'#5cb579'}};
+                const sevColors = {{critical:'#7A1F1F',warning:'#5C4611',info:'#2C4A2C'}};
                 const sevIcons = {{critical:'&#9888;',warning:'&#9888;',info:'&#10003;'}};
                 const sc = sevColors[f.severity]||'rgba(236,232,221,0.40)';
                 const si = sevIcons[f.severity]||'?';
@@ -1912,7 +2294,7 @@ def render_dashboard(
             // Update services
             let shtml = '';
             snap.services.forEach(s => {{
-                const colors = {{healthy:'#5cb579',unhealthy:'#d4a052',unreachable:'#d96666'}};
+                const colors = {{healthy:'#2C4A2C',unhealthy:'#5C4611',unreachable:'#7A1F1F'}};
                 const icons = {{healthy:'&#10003;',unhealthy:'&#9888;',unreachable:'&#10007;'}};
                 shtml += '<div class="status-card">'
                     + '<div class="status-indicator" style="background:' + (colors[s.status]||'rgba(236,232,221,0.40)') + '">' + (icons[s.status]||'?') + '</div>'
@@ -1924,7 +2306,7 @@ def render_dashboard(
             // Update containers
             let chtml = '';
             snap.containers.forEach(c => {{
-                const colors = {{running:'#5cb579',exited:'#d96666',paused:'#d4a052'}};
+                const colors = {{running:'#2C4A2C',exited:'#7A1F1F',paused:'#5C4611'}};
                 chtml += '<div class="status-card">'
                     + '<div class="status-indicator" style="background:' + (colors[c.state]||'rgba(236,232,221,0.40)') + '">&#9632;</div>'
                     + '<div class="status-info"><div class="status-name">' + c.name + '</div>'
@@ -1945,7 +2327,7 @@ def render_dashboard(
             // Update disk
             let dhtml = '';
             snap.disk.forEach(d => {{
-                const bc = d.percent_used < 80 ? '#5cb579' : d.percent_used < 95 ? '#d4a052' : '#d96666';
+                const bc = d.percent_used < 80 ? '#2C4A2C' : d.percent_used < 95 ? '#5C4611' : '#7A1F1F';
                 dhtml += '<div class="disk-item"><div class="disk-label">' + d.mount + '</div>'
                     + '<div class="disk-bar-bg"><div class="disk-bar" style="width:' + d.percent_used + '%;background:' + bc + '"></div></div>'
                     + '<div class="disk-detail">' + Math.round(d.free_gb) + ' GB free of ' + Math.round(d.total_gb) + ' GB (' + d.percent_used + '%)</div></div>';
@@ -2088,10 +2470,10 @@ def render_history(history_entries: list[dict]) -> str:
                 name = s["name"]
                 status = s["status"]
                 prev = prev_services.get(name)
-                color = {"healthy": "#5cb579", "unhealthy": "#d4a052", "unreachable": "#d96666"}.get(status, "rgba(236,232,221,0.50)")
+                color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(status, "rgba(236,232,221,0.50)")
                 changed = ""
                 if prev and prev != status:
-                    changed = f' <span style="color:#d4a052;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
+                    changed = f' <span style="color:#5C4611;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
                 svc_parts.append(f'<span style="color:{color}">{name}: {status}</span>{changed}')
                 prev_services[name] = status
 
@@ -2106,16 +2488,16 @@ def render_history(history_entries: list[dict]) -> str:
             warn = sum(1 for f in findings if f.get("severity") == "warning")
             finding_parts = []
             if crit:
-                finding_parts.append(f'<span style="color:#d96666">{HISTORY_CRITICAL_FMT.format(count=crit)}</span>')
+                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
             if warn:
-                finding_parts.append(f'<span style="color:#d4a052">{HISTORY_WARNING_FMT.format(count=warn)}</span>')
+                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
             if not finding_parts:
-                finding_parts.append(f'<span style="color:#5cb579">{HISTORY_ALL_CLEAR}</span>')
+                finding_parts.append(f'<span style="color:#2C4A2C">{HISTORY_ALL_CLEAR}</span>')
 
             rows += f"""<tr>
                 <td>{ts}</td>
                 <td>{", ".join(svc_parts)}</td>
-                <td>{HISTORY_RUNNING_FMT.format(running=running, total=total)}</td>
+                <td>{HISTORY_RUNNING_FMT.format(running=f"{running:,}", total=f"{total:,}")}</td>
                 <td>{", ".join(finding_parts)}</td>
             </tr>"""
 
@@ -2129,15 +2511,15 @@ def render_history(history_entries: list[dict]) -> str:
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
             --ostler-ink: #0d0b08;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-muted: rgba(20, 18, 14, 0.50);
             --font-display: 'Outfit', system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -2206,7 +2588,7 @@ def render_history(history_entries: list[dict]) -> str:
 <body>
     <div class="container">
         <h1>{HISTORY_HEADING}</h1>
-        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=len(history_entries))}</div>
+        <div class="subtitle">{HISTORY_SUBTITLE_FMT.format(count=f"{len(history_entries):,}")}</div>
         <table>
             <thead>
                 <tr>
@@ -2397,6 +2779,42 @@ _SOURCE_KINDS = {
     "dedupe": "operation",
     "privacy_backfill": "operation",
 }
+
+# ── THE FDA EXTRACT FAMILY (CM051 #1587) ────────────────────────────────
+#
+# Every name in _SOURCE_KINDS above is a source the installer ALWAYS attempts,
+# so a missing sentinel there genuinely means "not run yet" and the row is
+# printed whether or not the file exists. These are different: the customer
+# chooses them in the picker, and Photos defaults to OFF. Printing an
+# unconditional "not run yet" row in amber for a source somebody declined
+# would invent a failure, which is the mirror of the defect this closes.
+#
+# So the row appears exactly when install.sh has written a record for it.
+# _hydrate_record_fda_extract writes one for every state the extractor can
+# report EXCEPT disabled_by_user -- ok, no_data, cannot_run and error all land
+# on disk -- so the only way to have no sentinel is to have declined the
+# source or to be on a build older than that writer.
+#
+# A DECLARED SET, NOT A DIRECTORY GLOB. The row register stays a fixed list;
+# this widens it by two known names when their file is present. An arbitrary
+# file dropped into the hydrate directory still cannot invent a row.
+_FDA_EXTRACT_KINDS = {
+    "photos": "source",
+    "reminders": "source",
+    # The EMBEDDING half of reminders, not a second source (CM051 #2298).
+    # It is conditional for the same reason its source is -- the leg only
+    # runs when the customer picked Reminders and an export exists -- so it
+    # belongs here rather than in _SOURCE_KINDS, where a declined Reminders
+    # would print an amber "not run yet" row for ever.
+    #
+    # It is SERVED because it is WRITTEN: on the v1.0.101 walk the embedding
+    # leg skipped on the FDA reader's sentinel and reminders_knowledge was
+    # never created, while the panel had no row that could have shown it.
+    "reminders_knowledge": "operation",
+    # Apple Music library (CM051 walk #27): chosen in the picker like the
+    # two above, so its row appears only once install.sh records it.
+    "apple_music": "source",
+}
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
 
@@ -2475,6 +2893,416 @@ _SOURCE_ACTIVITY_ALIASES = {
 }
 
 
+# ── DEDICATED BUNDLE ROUTINES ARE A SECOND, INDEPENDENT PRODUCER (#2526) ──
+#
+# MEASURED on a walk box: source_activity/ did not exist at all --
+# com.ostler.fda-rerun (the ONLY writer of it) had never fired (health=waiting,
+# last_run_at=null). So /api/v1/sources reported ongoing=never for EVERY
+# source, including some that were plainly alive -- e.g. a shape like:
+#
+#     email     status=no_data item_count=0  detail=no_correspondents_in_window
+#     imessage  status=no_data item_count=0  detail=ran_ok_no_new_or_enriched_people
+#     whatsapp  status=ok      item_count=<N>
+#
+# while /api/v1/routines, in the SAME window, showed email-ingest had just
+# emitted a real count of messages on schedule. Two different sub-systems
+# answer "email": the FDA extractor's own correspondents-in-window check
+# (narrow, and genuinely found nothing new) and the dedicated full-history
+# bundle routine (ran independently, found plenty). The Doctor row is
+# customer-facing and labelled "Email" -- a customer whose mailbox the
+# dedicated routine has actually read must not be told no_data because the
+# OTHER sub-system's window was empty.
+#
+# fda-rerun's tick is not the only route to ongoing evidence. email, imessage
+# and whatsapp each run on their OWN LaunchAgent, independent of fda-rerun and
+# on a much shorter interval (900s vs 3600s), so most of the time their own
+# routine is the FRESHER evidence anyway. This table says which routine(s)
+# speak for which source; routine_status.py already reads each one's real
+# LaunchAgent, launchd state and log, so this reuses that reader rather than
+# re-implementing it.
+_SOURCE_ROUTINE_LABELS = {
+    "email": ("com.creativemachines.ostler.email-ingest",
+              "com.creativemachines.ostler.email-bundle"),
+    "imessage": ("com.creativemachines.ostler.imessage-bundle",),
+    "whatsapp": ("com.creativemachines.ostler.whatsapp-bundle",),
+}
+
+# ── WHICH `latest` KEY IS A TRUSTWORTHY COUNT, PER ROUTINE (Archie review,
+# #2529) ─────────────────────────────────────────────────────────────────
+#
+# `_positive_count` (the first draft of this fix) took the FIRST positive
+# integer anywhere in a routine's `latest` dict. That is wrong the moment a
+# routine ever logs a secondary counter alongside its real one: a payload of
+# `{"errors": 5}` would read as "5 items processed", a count that is actually
+# a failure tally. `routine_status.py`'s own JSON-log parser
+# (`_latest_counts`, routine_status.py:59-88) flattens WHATEVER keys a
+# routine's log happens to print, with no notion of which one is the count
+# worth surfacing -- that judgment has to live here, explicitly, per routine.
+#
+# `"emitted"` is the one key whose meaning is pinned by CODE, not by
+# convention: it is written ONLY by the regex fallback at
+# routine_status.py:85-87 (`re.findall(r"Emitted (\d+) message", tail)`),
+# which by construction counts messages this run actually emitted. No other
+# key is trusted here, because no other key's meaning is verified anywhere in
+# this codebase -- guessing one would repeat exactly the mistake being fixed.
+# A routine whose log has no "Emitted N message" line yields no count, not a
+# wrong one.
+_ROUTINE_COUNT_KEYS = {
+    "com.creativemachines.ostler.email-ingest": "emitted",
+    "com.creativemachines.ostler.email-bundle": "emitted",
+    "com.creativemachines.ostler.imessage-bundle": "emitted",
+    "com.creativemachines.ostler.whatsapp-bundle": "emitted",
+}
+
+
+def _routine_evidence(labels: tuple, routine_rows: list) -> dict | None:
+    """The freshest routine row (by last_run_at) among `labels` that has
+    actually run. None when none of them have fired yet -- a routine that
+    has never run is not evidence of anything.
+
+    FRESHEST IS RIGHT FOR "IS THIS SOURCE ONGOING", WRONG FOR "WHAT IS ITS
+    COUNT" (board #2562-C, round 2, MEASURED on a walk box). "email" maps to
+    two routines on two different intervals: email-bundle (900s, threading)
+    and email-ingest (3600s, the full-history routine that actually logs a
+    count). email-bundle is fresher almost every time it is checked, purely
+    because it runs four times as often, and its own log never has a count
+    at all -- so picking "freshest" as the SOLE tiebreak for ongoing status
+    is fine, but using that SAME pick as the source of the count starves
+    email of a real, already-measured figure (email-ingest emitted real mail
+    that cycle) in favour of a routine that was never going to have one. See
+    `_best_routine_count` below, which asks a different question.
+    """
+    candidates = [r for r in routine_rows
+                  if r.get("routine") in labels and r.get("last_run_at")]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: r["last_run_at"])
+
+
+def _routine_run_count(routine_label: str, latest: dict) -> int | None:
+    """The ONE explicitly-trusted count for this routine's last run, or None.
+
+    Looks up `routine_label` in `_ROUTINE_COUNT_KEYS` -- a routine with no
+    entry there, or whose log did not populate that key this run, yields
+    None. Never guesses at an unrecognised key, so a payload shaped like
+    `{"errors": 5}` with no recognised key present can never be read as a
+    count of successes.
+    """
+    key = _ROUTINE_COUNT_KEYS.get(routine_label)
+    if key is None or not isinstance(latest, dict):
+        return None
+    v = latest.get(key)
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def _best_routine_count(labels: tuple, routine_rows: list) -> int | None:
+    """A trustworthy count from ANY healthy routine mapped to this source,
+    not only the freshest one (board #2562-C round 2). A source can map to
+    several routines that run at different intervals; only one of them may
+    ever log a real count, and it is not always the one that last ran.
+    Checked in the order `labels` declares them, so a tie goes to the more
+    authoritative routine (e.g. email-ingest before email-bundle) rather
+    than to whichever happened to run last.
+    """
+    by_label = {r.get("routine"): r for r in routine_rows}
+    for label in labels:
+        r = by_label.get(label)
+        if r is None or r.get("health") != "ok":
+            continue
+        count = _routine_run_count(label, r.get("latest") or {})
+        if count is not None:
+            return count
+    return None
+
+
+# ── A SOURCE WITH NO ROUTINE THAT EVER LOGS A COUNT (board #2562-C round 2)
+# ────────────────────────────────────────────────────────────────────────
+#
+# iMessage has exactly one mapped routine (imessage-bundle, a threading job)
+# and its log never carries an "Emitted N message" line at all -- there is no
+# sibling full-history routine the way email has email-ingest. So
+# `_best_routine_count` can never find anything for it, and the source would
+# stay uncounted even though the STORE plainly has content: MEASURED on a
+# walk box, `state/settling_progress.d/messages.imessage.json` read
+# `{"done": 20850, "total": 29021}` while /api/v1/sources still said
+# item_count 0. That file is written by the people/settling tracker, not by
+# any routine here, and it is the real STORE total for the handful of
+# sources it covers. `emails.json` is the same shape but is NOT trustworthy
+# for email: MEASURED the same day, it read `{"done": 0, "total": 0}` while
+# email-ingest's own log had just emitted thousands of real messages, so it
+# is answering some other question for that source. Only sources with a
+# DEMONSTRATED-reliable file are read here; email is deliberately absent.
+_SETTLING_PROGRESS_FILES = {
+    "imessage": "messages.imessage.json",
+    "whatsapp": "messages.whatsapp.json",
+}
+
+
+def _settling_progress_total(source: str, progress_dir: Path | None = None) -> int | None:
+    """The STORE total from this source's settling-progress ledger, or None
+    when there is no file for it, it cannot be read, or its total is not a
+    positive int. Never invents a count from a file that does not exist."""
+    name = _SETTLING_PROGRESS_FILES.get(source)
+    if name is None:
+        return None
+    base = progress_dir if progress_dir is not None else (
+        Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+        / "state" / "settling_progress.d"
+    )
+    try:
+        data = json.loads((base / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    total = data.get("total")
+    return total if isinstance(total, int) and not isinstance(total, bool) and total > 0 else None
+
+
+# ── ONE HONEST TOTAL PER ROW, IN A NAMED UNIT (v1.0.107 walk #28) ────────
+#
+# Andy's console walk of candidate #28 read the Data sources rows and found
+# five of them saying something other than what their label claims:
+#
+#     Mail       the last tick's delta (email-ingest's per-run "emitted"),
+#                not the mail Ostler has read
+#     WhatsApp   the install-time people_added figure, roughly one per DM
+#                chat, under a label that says "messages"
+#     Safari     visits (one per history_visits row), labelled "web pages"
+#     Photos     "events" in the Doctor's own table, with no unit at all
+#     Notes      four different numbers across the surfaces that show it
+#
+# The cause is one shape: `item_count` was whatever number the install-time
+# recorder happened to put LAST in its payload, and every surface supplied
+# its own noun. The noun and the number were chosen in different repos by
+# different people and nothing held them together.
+#
+# THE FIX IS A DECLARED UNIT PER ROW AND ONE PRODUCER PER UNIT. Each row now
+# carries `item_unit` (the noun the number counts) and `item_count_from`
+# (where the number was read), and `item_count` is the total IN THAT UNIT or
+# None. A producer whose number is in a different unit is never used as a
+# stand-in: WhatsApp's people_added is a count of people, so with no message
+# ledger the row has no total, and says so, rather than printing people as
+# messages. The raw sentinel figure stays on the row as `install_item_count`
+# for anyone debugging the writer.
+#
+# The units are the SAME NOUNS the Hub's Data sources tab prints beside
+# item_count (ostler-assistant web/src/lib/dataSources.ts), so the Hub row
+# and this row now say the same thing about the same number.
+_SOURCE_TOTAL_UNITS = {
+    "email": "emails",
+    "imessage": "messages",
+    "whatsapp": "messages",
+    "calendar": "events",
+    "contacts": "contacts",
+    "apple_notes": "notes",
+    "photos": "photos",
+    "browsing": "web pages",
+    "reminders": "reminders",
+    "apple_music": "tracks",
+    "ai_conversations": "chats",
+}
+
+# Rows whose install-time sentinel count IS in the declared unit, so it is a
+# truthful fallback when no live total exists. Absent on purpose:
+#   imessage  payload people=N        people, not messages
+#   whatsapp  payload people_added=N  people (one per DM chat), not messages
+#   browsing  payload sent=N          visits sent to the store, not pages
+_SENTINEL_COUNT_IN_UNIT = {
+    "email",             # people=N,messages=M -> messages (last key)
+    "calendar",          # events=N
+    "contacts",          # imported=N
+    "apple_notes",       # notes=N (CM024 "Files written", one per note)
+    "photos",            # photo_events=N, one per photo asset
+    "reminders",         # total_reminders=N
+    "apple_music",       # total_tracks=N
+    "ai_conversations",  # written=N conversations
+}
+
+# Settling-progress ledgers whose `done` is the running count of items READ,
+# in the row's unit. `done`, not `total`: `total` is the size of the source
+# (what there is to read), `done` is what Ostler has actually read. For email
+# the tick writes done = previous done + this tick's read (email-ingest-tick.sh,
+# _report_email_settling), so it is cumulative, which is exactly the property
+# the per-run "emitted" figure lacks.
+_SETTLING_DONE_FILES = {
+    "email": "emails.json",
+    "imessage": "messages.imessage.json",
+    "whatsapp": "messages.whatsapp.json",
+}
+
+# The FDA extractor's own per-source record, rewritten by every fda-rerun
+# tick. The ONE canonical Notes count is the number of notes the extractor
+# read out of Apple Notes (vendor/ostler_fda/apple_notes.py notes_stats,
+# "notes": len(notes)). The other Notes figures a person can meet are each a
+# different population: CM024's "Files written" (the install-time sentinel,
+# frozen at install), the apple_notes_knowledge collection (CHUNKS, several
+# per note) and the settling "notes" channel (Evernote imports, not Apple
+# Notes). Photos is the same file: photo_events is one row per photo asset
+# (photos_metadata.extract_photo_events GROUP BY a.Z_PK), so it is photos.
+_EXTRACT_SUMMARY_KEYS = {
+    "apple_notes": ("apple_notes", "notes"),
+    "photos": ("photos", "photo_events"),
+}
+
+# Browsing history extracts: one JSON entry per VISIT, each carrying its url.
+# Pages are the distinct urls across them.
+_BROWSING_EXTRACTS = ("safari_history.json", "chrome_history.json")
+_PAGES_CACHE: dict = {}
+
+
+def _ostler_state_root() -> Path:
+    return Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+
+
+def _positive_int(v) -> int | None:
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def _settling_done(source: str, progress_dir: Path | None = None) -> int | None:
+    name = _SETTLING_DONE_FILES.get(source)
+    if name is None:
+        return None
+    base = progress_dir if progress_dir is not None else (
+        _ostler_state_root() / "state" / "settling_progress.d")
+    try:
+        data = json.loads((base / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return _positive_int(data.get("done")) if isinstance(data, dict) else None
+
+
+def _extract_summary_count(source: str, fda_dir: Path | None = None) -> int | None:
+    spec = _EXTRACT_SUMMARY_KEYS.get(source)
+    if spec is None:
+        return None
+    key, field = spec
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    try:
+        doc = json.loads((base / "extraction_summary.json").read_text(
+            encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    rec = (doc.get("sources") or {}).get(key) if isinstance(doc, dict) else None
+    if not isinstance(rec, dict) or rec.get("status") != "ok":
+        return None
+    return _positive_int(rec.get(field))
+
+
+def _distinct_pages(fda_dir: Path | None = None) -> int | None:
+    """Distinct urls across the browsing extracts, or None when none exist.
+    Cached on (path, mtime, size) so a polled panel does not re-read the
+    extract every few seconds."""
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    urls: set = set()
+    seen_any = False
+    for name in _BROWSING_EXTRACTS:
+        p = base / name
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        key = (str(p), st.st_mtime_ns, st.st_size)
+        cached = _PAGES_CACHE.get(str(p))
+        if cached and cached[0] == key:
+            part = cached[1]
+        else:
+            try:
+                entries = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+            except (OSError, ValueError):
+                continue
+            part = frozenset(
+                e["url"] for e in entries
+                if isinstance(e, dict) and isinstance(e.get("url"), str) and e["url"]
+            ) if isinstance(entries, list) else frozenset()
+            _PAGES_CACHE[str(p)] = (key, part)
+        seen_any = True
+        urls |= part
+    if not seen_any:
+        return None
+    return len(urls) or None
+
+
+def _canonical_total(source: str, sentinel_count, status: str | None = None) -> tuple:
+    """(total, where_it_came_from) for one row, in the row's declared unit.
+
+    Live producers first, because they move after install; then the
+    install-time sentinel, ONLY where its number is in the same unit. Never
+    a per-run figure, never a figure in a different unit.
+    """
+    n = _settling_done(source)
+    if n is not None:
+        return n, "settling_progress"
+    n = _extract_summary_count(source)
+    if n is not None:
+        return n, "extraction_summary"
+    if source == "browsing":
+        n = _distinct_pages()
+        if n is not None:
+            return n, "browsing_extract_distinct_urls"
+    if not isinstance(sentinel_count, int) or isinstance(sentinel_count, bool):
+        return None, None
+    if source not in _SOURCE_TOTAL_UNITS or source in _SENTINEL_COUNT_IN_UNIT:
+        return sentinel_count, "install_sentinel"
+    # A sentinel that looked and found NOTHING is zero in every unit: no
+    # people added from no chats is also no messages. Only a POSITIVE count
+    # in the wrong unit is withheld.
+    if sentinel_count == 0 and status == "no_data":
+        return 0, "install_sentinel"
+    return None, None
+
+
+def _mail_available_total(fda_dir: Path | None = None) -> int | None:
+    """How many messages the Mac's Mail store holds, or None when unknown.
+
+    Recorded at EXTRACT time by vendor/ostler_fda (apple_mail.
+    envelope_index_total, written by extract_all as apple_mail.mailbox_total),
+    which already opens the Envelope Index read-only. The Doctor never opens
+    Mail's database itself: it has no Full Disk Access of its own and must not
+    need it. None (no summary, no field, or a non-positive value) means the
+    row shows only what Ostler holds, with no "of", never "of 0".
+    """
+    base = fda_dir if fda_dir is not None else _ostler_state_root() / "imports" / "fda"
+    try:
+        doc = json.loads((base / "extraction_summary.json").read_text(
+            encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    rec = (doc.get("sources") or {}).get("apple_mail") if isinstance(doc, dict) else None
+    if not isinstance(rec, dict):
+        return None
+    return _positive_int(rec.get("mailbox_total"))
+
+
+def _source_count_label(row: dict) -> tuple:
+    """(count_label, count_kind) for one row, or (None, None).
+
+    count_kind is "total" when the number is what Ostler holds in the row's
+    unit, and "last_check" when the only figure is a per-run one: that is
+    labelled "in the last check", never passed off as a total (walk #28, and
+    the count_kind flag from the closed duplicate #2922).
+    """
+    if (row.get("status") or "not_run") in ("cannot_run", "not_run", "unreadable"):
+        return None, None
+    unit = row.get("item_unit")
+    n = row.get("item_count")
+    if isinstance(n, int) and not isinstance(n, bool):
+        if row.get("source") == "email":
+            of = _positive_int(row.get("item_of"))
+            # "of" only when the denominator was read AND is not smaller than
+            # what Ostler holds; a held count above the mailbox would mean the
+            # two were measured on different stores, and "500 of 300" is
+            # worse than no denominator.
+            if of is not None and of >= n:
+                return "{:,} of {:,} emails read".format(n, of), "total"
+            return "{:,} emails read".format(n), "total"
+        return ("{:,} {}".format(n, unit) if unit else "{:,}".format(n)), "total"
+    per_run = row.get("last_run_count")
+    if (row.get("last_run_count_from") == "routine"
+            and _positive_int(per_run) is not None):
+        return (("{:,} {} in the last check".format(per_run, unit) if unit
+                 else "{:,} in the last check".format(per_run)), "last_check")
+    return None, None
+
+
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     """The ongoing-activity record for one source, or {} when absent.
 
@@ -2516,13 +3344,21 @@ def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     merged = max(recs, key=lambda r: r.get("last_run_at", ""))
     if any(r.get("last_status") != "ok" for r in recs):
         merged = dict(merged)
-        merged["last_status"] = "error"
+        # A refusal in any half keeps its own word (G1): folding it into
+        # "error" would send the customer to a restart instead of a grant.
+        refused = any(r.get("last_status") == "cannot_run" for r in recs)
+        merged["last_status"] = "cannot_run" if refused else "error"
         merged["last_detail"] = "one or more contributing extracts did not succeed"
+        # last_success_at is the OLDEST of the halves: a source is only as
+        # fresh as its stalest part.
+        succ = [r.get("last_success_at", "") for r in recs]
+        merged["last_success_at"] = min(succ) if all(succ) else ""
     return merged
 
 
 def read_source_status(hydrate_dir: Path | None = None,
-                       activity_dir: Path | None = None) -> list:
+                       activity_dir: Path | None = None,
+                       catchup_dir: Path | None = None) -> list:
     """One typed row per canonical source, read from the .done sentinels.
 
     EVERY canonical source appears: one that never ran is reported as
@@ -2532,9 +3368,24 @@ def read_source_status(hydrate_dir: Path | None = None,
     to ``"unreadable"``; it is never silently treated as absent.
     """
     base = hydrate_dir if hydrate_dir is not None else _source_hydrate_dir()
+
+    # The FDA extract family joins the register only when its record exists.
+    # See _FDA_EXTRACT_KINDS for why these two are conditional and the rest
+    # are not.
+    kinds = dict(_SOURCE_KINDS)
+    for _fda_name, _fda_kind in _FDA_EXTRACT_KINDS.items():
+        if _fda_name in kinds:
+            continue
+        try:
+            present = (base / (_fda_name + ".done")).is_file()
+        except OSError:
+            present = False
+        if present:
+            kinds[_fda_name] = _fda_kind
+
     rows = []
-    for name in sorted(_SOURCE_KINDS):
-        kind = _SOURCE_KINDS[name]
+    for name in sorted(kinds):
+        kind = kinds[name]
         sentinel = base / (name + ".done")
         if not sentinel.is_file():
             rows.append({"source": name, "kind": kind, "status": "not_run",
@@ -2587,19 +3438,319 @@ def read_source_status(hydrate_dir: Path | None = None,
     #                      NOT reported as a failure: inventing one is as bad
     #                      as hiding one.
     #   ongoing="failing"  the last tick ran and did not succeed
+    #
+    # DEDICATED ROUTINES ARE A SECOND PRODUCER, consulted when fda-rerun's own
+    # activity record has nothing to say (#2526). Fetched once, best-effort:
+    # a missing or broken routine reader must degrade this row to "never",
+    # never to a FAIL on the whole panel.
+    try:
+        from routine_status import read_routine_status
+        routine_rows = read_routine_status()
+    except Exception:
+        routine_rows = []
+
     for row in rows:
+        # `last_run_count` is a DIFFERENT field from `item_count` on purpose
+        # (Archie review, #2529): `item_count` is the install-time sentinel's
+        # TOTAL, and is never touched by anything below. A routine's log only
+        # ever reports what it did on ONE run, which is not a total and must
+        # never overwrite one -- a later run with fewer new messages than an
+        # earlier one would otherwise read as the mailbox having SHRUNK.
+        row["last_run_count"] = None
+
         act = _read_source_activity(row["source"], activity_dir)
-        if not act:
+        direct_activity = bool(act)
+        if act:
+            last_status = act.get("last_status", "unknown")
+            # Only a tick that errored or could not run is failing. skipped
+            # and no_data are a tick that ran and found nothing to do, which
+            # is what a healthy Mac reports hourly (Mail read "Not working"
+            # on exactly that).
+            # An unrecognised word stays failing: fail safe, never fail open.
+            row["ongoing"] = ("active" if last_status in ("ok", "skipped", "no_data")
+                              else "failing")
+            row["last_run_at"] = act.get("last_run_at") or None
+            row["last_success_at"] = act.get("last_success_at") or None
+            row["ongoing_detail"] = act.get("last_detail") or None
+            # G1 (TCC sweep 2026-10-15): macOS refused the last read. The
+            # install-time verdict is no longer the truth about this source,
+            # and leaving it "ok" made the panel say "Up to date". The row
+            # takes the refusal; the install verdict is kept beside it.
+            if last_status == "cannot_run":
+                row["install_status"] = row["status"]
+                row["status"] = "cannot_run"
+                row["detail"] = ("macOS stopped the Ostler assistant reading "
+                                 "this, so it has not been updated. Turn on "
+                                 "Full Disk Access for the Ostler assistant in "
+                                 "System Settings, Privacy & Security.")
+        else:
             row["ongoing"] = "never"
             row["last_run_at"] = None
             row["last_success_at"] = None
-            continue
-        last_status = act.get("last_status", "unknown")
-        row["ongoing"] = "active" if last_status == "ok" else "failing"
-        row["last_run_at"] = act.get("last_run_at") or None
-        row["last_success_at"] = act.get("last_success_at") or None
-        row["ongoing_detail"] = act.get("last_detail") or None
+
+        # Board #2562-C, MEASURED on a walk box: email and imessage both read
+        # ongoing=active from THIS record while /api/v1/sources still called
+        # them no_data, and the Doctor tab believed the ongoing flag and
+        # showed "Up to date" -- with no count, because the line below never
+        # ran. The STORE said otherwise: the dedicated email-ingest routine's
+        # OWN log had just emitted real messages, and iMessage's settling
+        # ledger showed tens of thousands done. The direct activity record
+        # above answers "did fda-rerun's correspondent tick succeed", which is
+        # the SAME narrow question the install-time sentinel already answers
+        # (new correspondents in a window) -- it is not evidence the SOURCE
+        # itself is empty or populated. So `continue`-ing here used to skip
+        # the one producer that actually measures that: the dedicated
+        # routine's own count. It must run regardless of which path proved
+        # "ongoing", and only the ongoing/timestamp fields stay reserved for
+        # a direct activity record when one exists.
+        labels = _SOURCE_ROUTINE_LABELS.get(row["source"])
+        evidence = _routine_evidence(labels, routine_rows) if labels else None
+
+        if evidence is not None and evidence.get("health") == "ok" and not direct_activity:
+            row["ongoing"] = "active"
+            row["last_run_at"] = evidence["last_run_at"]
+            row["last_success_at"] = evidence["last_run_at"]
+            row["ongoing_detail"] = "routine " + evidence["routine"]
+
+        # The install-time verdict can be stale, not just quiet. Two
+        # independent count producers, checked in order, because neither
+        # covers every source (board #2562-C, round 2, MEASURED on a walk
+        # box):
+        #
+        #   1. `_best_routine_count` -- ANY healthy routine mapped to this
+        #      source that logs a count, not only the freshest one. "email"
+        #      maps to email-bundle (900s, no count ever) and email-ingest
+        #      (3600s, the one that actually logs "Emitted N message");
+        #      picking the freshest for the count, as the first draft of
+        #      this fix did, starves email of a real figure almost every
+        #      time, because the threading routine is fresher far more often
+        #      than it has anything to report.
+        #   2. `_settling_progress_total` -- a STORE total from the
+        #      settling-progress ledger, for the sources where no mapped
+        #      routine ever logs a count at all (imessage has no sibling
+        #      "ingest" routine the way email does). Declared per source
+        #      (`_SETTLING_PROGRESS_FILES`) because the SAME file shape is
+        #      NOT reliable for every source: `emails.json` read 0/0 the same
+        #      day email-ingest had just emitted thousands of real messages,
+        #      so it is answering a different question there and must not be
+        #      read for email.
+        #
+        # Both run even when a direct activity record already set
+        # ongoing=active above -- that record is not evidence about a count.
+        count = None
+        count_from = None
+        if labels:
+            count = _best_routine_count(labels, routine_rows)
+            count_from = "routine" if count is not None else None
+        if count is None:
+            count = _settling_progress_total(row["source"])
+            count_from = "settling_progress" if count is not None else None
+        row["last_run_count_from"] = count_from
+        if count is not None:
+            row["last_run_count"] = count
+            if row["status"] in ("no_data", "not_run", "unreadable"):
+                row["status"] = "ok"
+                row["detail"] = "the store holds %d" % count
+
+        # ONE honest total, in a declared unit (walk #28). See
+        # _SOURCE_TOTAL_UNITS. item_count becomes that total or None; the
+        # sentinel's own figure is kept beside it, renamed, never lost.
+        row["install_item_count"] = row["item_count"]
+        total, origin = _canonical_total(row["source"], row["item_count"], row["status"])
+        # A stale install-time ZERO is not a total once a live producer has
+        # counted something: "0 emails" beside a tick that just read 4,200
+        # is the walk #9 shape again. Unknown, and the per-run figure is
+        # shown with its own wording instead.
+        if (total == 0 and origin == "install_sentinel"
+                and _positive_int(row.get("last_run_count")) is not None):
+            total, origin = None, None
+        row["item_count"] = total
+        row["item_unit"] = _SOURCE_TOTAL_UNITS.get(row["source"])
+        row["item_count_from"] = origin
+        if (total and origin != "install_sentinel"
+                and row["status"] in ("no_data", "not_run", "unreadable")):
+            row["status"] = "ok"
+            row["detail"] = "the store holds %d" % total
+        # Mail also says how much there is to read (Andy, walk #28): the
+        # Mac's Mail store size, recorded at extract time.
+        if row["source"] == "email":
+            row["item_of"] = _mail_available_total()
+        row["count_label"], row["count_kind"] = _source_count_label(row)
+
+    # ── #30: THE DOWNLOADS WATCHER, AND WHY IT FOUND SOMETHING AND IMPORTED NOTHING ──
+    #
+    # MEASURED on a synthetic walk box (studio29, v1.0.107 candidate): a loose
+    # calendar.ics, emails.mbox and contacts.vcf in ~/Downloads. The watcher
+    # (com.ostler.export-scan -> ostler-scan-exports) matched none of them and
+    # exited 0 having written nothing, and this panel had no row for it at all,
+    # so "found nothing", "could not look" and "found three files and imported
+    # none" were all the same silence.
+    #
+    # The watcher now writes state/source_activity/downloads_exports.tsv on EVERY
+    # run (install.sh, the ostler-scan-exports heredoc): last_status is one of
+    # ok / no_data / not_imported / error / cannot_run / waiting, the run's
+    # counts (found, imported, already_imported, skipped, failed), and `reason`,
+    # the plain-words why when what it found did not import. This row prints that
+    # record and nothing else. No record at all means the watcher has not run on
+    # this Mac yet, and says so rather than being left out.
+    #
+    # NESTED, NOT MODULE-LEVEL, ON PURPOSE: the source-table tests rebuild this function from
+    # the AST with a hand-written list of the helpers it calls, so a new
+    # module-level helper turns every one of them into a NameError. Kept inside
+    # read_source_status, it travels with the function those tests already take.
+    def _downloads_exports_row(activity_dir: Path | None = None) -> dict:
+        """The Doctor row for the Downloads export watcher (#30)."""
+        _DOWNLOADS_STATUS = {
+            "ok": "ok", "no_data": "no_data", "not_imported": "not_imported",
+            "error": "error", "cannot_run": "cannot_run", "waiting": "waiting",
+        }
+        base = activity_dir if activity_dir is not None else _source_activity_dir()
+        row = {"source": "downloads_exports", "kind": "watcher",
+               "status": "not_run", "item_count": None, "recorded_at": None,
+               "last_update_at": None, "detail": None, "reason": None,
+               "count_label": None, "count_kind": None, "catchup": None}
+        f = base / "downloads_exports.tsv"
+        try:
+            if not f.is_file():
+                row["reason"] = "the Downloads watcher has not run on this Mac yet"
+                return row
+            rec = {}
+            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    rec[k.strip()] = v.strip()
+        except OSError as exc:
+            row["status"] = "unreadable"
+            row["reason"] = "the watcher's record could not be read (%s)" % exc.__class__.__name__
+            return row
+
+        def _n(key: str):
+            v = rec.get(key, "")
+            return int(v) if v.isdigit() else None
+
+        st = rec.get("last_status", "")
+        # A status this row has never seen is not absorbed into a healthy word.
+        row["status"] = _DOWNLOADS_STATUS.get(st, "error" if st else "unreadable")
+        row["last_update_at"] = rec.get("last_run_at") or None
+        row["last_success_at"] = rec.get("last_success_at") or None
+        found, imported = _n("found"), _n("imported")
+        already = _n("already_imported")
+        row["item_count"] = imported
+        row["found"], row["imported"] = found, imported
+        row["already_imported"] = already
+        row["skipped"], row["failed"] = _n("skipped"), _n("failed")
+        if found is not None and imported is not None:
+            label = "%d found, %d imported" % (found, imported)
+            if already:
+                label += ", %d already in" % already
+            row["count_label"], row["count_kind"] = label, "last_check"
+        reason = rec.get("reason") or ""
+        if not reason and row["status"] not in ("ok", "no_data"):
+            reason = rec.get("last_detail") or ""
+        row["reason"] = reason or None
+        row["detail"] = rec.get("last_detail") or None
+        return row
+
+    # ── #30: the Downloads watcher has a row of its own ──────────────────
+    # See _downloads_exports_row. Appended here, after the per-source loop,
+    # because it is not a hydrate source and none of the sentinel, routine or
+    # settling-progress producers above speak for it.
+    rows.append(_downloads_exports_row(activity_dir))
+
+    # ── v1.0.108: how far back each source has been read ─────────────────
+    # The background catch-up (lib/ostler_catchup.py) walks every source
+    # backwards past the install window and writes one watermark per source
+    # under state/catchup/. None when it has never run for this row: an
+    # absent record is not invented into a state.
+    try:
+        catchup = _read_catchup_by_row(catchup_dir)
+    except Exception:  # noqa: BLE001 - a broken record never fails the panel
+        catchup = {}
+    for row in rows:
+        row["catchup"] = catchup.get(row["source"])
     return rows
+
+
+def _catchup_state_dir() -> Path:
+    """``${OSTLER_DIR}/state/catchup``, where lib/ostler_catchup.py writes."""
+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+    root = Path(base) if base else Path.home() / ".ostler"
+    return root / "state" / "catchup"
+
+
+def _read_catchup_by_row(directory: Path | None = None) -> dict:
+    """Catch-up progress per Doctor row, aggregated over its sources.
+
+    Several catch-up sources can report under one row (Safari and Chrome are
+    both "browsing"). A row is complete only when every one of them is; while
+    any is still walking, the row shows the LEAST advanced one, because "back
+    to 2019" must not be claimed while another source is still in 2024.
+
+    Each value: {"state": "complete" | "catching_up" | "waiting",
+                 "back_to": ISO date or None, "sources": n}.
+    """
+    d = directory if directory is not None else _catchup_state_dir()
+    by_row: dict = {}
+    try:
+        files = sorted(d.glob("*.json"))
+    except OSError:
+        return {}
+    for f in files:
+        try:
+            w = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(w, dict) or w.get("schema") != 1 or not w.get("source"):
+            continue
+        by_row.setdefault(w.get("doctor_row") or w["source"], []).append(w)
+    out = {}
+    for row, ws in by_row.items():
+        open_ = [w for w in ws if not w.get("complete")]
+        skipped = sum(int(w.get("items_quarantined") or 0) for w in ws
+                      if isinstance(w.get("items_quarantined"), int))
+        if not open_:
+            out[row] = {"state": "complete", "back_to": None, "sources": len(ws),
+                        "skipped": skipped}
+            continue
+        dated = [w.get("oldest_at") for w in open_ if w.get("oldest_at")]
+        # The least advanced is the LATEST "back to" date; one that has not
+        # read anything yet has no date at all, which outranks every date.
+        back_to = None if len(dated) < len(open_) else max(dated)
+        waiting = all(str((w.get("last_tick") or {}).get("reason", "")).startswith("busy")
+                      for w in open_)
+        # A source that could not READ at all (permission refused, store
+        # unreadable) outranks every other state: it is neither done nor
+        # catching up, and saying either would be false.
+        blocked = any(isinstance(w.get("cannot_run"), str) and w.get("cannot_run") for w in open_)
+        state = "cannot_run" if blocked else ("waiting" if waiting else "catching_up")
+        out[row] = {"state": state, "back_to": back_to, "sources": len(ws),
+                    "skipped": skipped}
+    return out
+
+
+_CATCHUP_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+                   "August", "September", "October", "November", "December")
+
+
+def _catchup_phrase(c: dict | None) -> str:
+    """The History cell. Plain words, no em dashes, British spelling."""
+    if not c:
+        return ""
+    n = c.get("skipped")
+    tail = ""
+    if isinstance(n, int) and n > 0:
+        tail = "; %d could not be read and %s skipped" % (n, "was" if n == 1 else "were")
+    if c.get("state") == "complete":
+        return ("All of your history is read" if not tail
+                else "History read" + tail)
+    if c.get("state") == "cannot_run":
+        return "Could not read this yet, will keep trying" + tail
+    if c.get("state") == "waiting":
+        return "Catching up, waiting for a quiet moment" + tail
+    back = str(c.get("back_to") or "")
+    if len(back) >= 7 and back[:4].isdigit() and back[5:7].isdigit() and 1 <= int(back[5:7]) <= 12:
+        return "Catching up, back to %s %s%s" % (_CATCHUP_MONTHS[int(back[5:7]) - 1], back[:4], tail)
+    return "Catching up, starting" + tail
 
 
 @app.get("/api/v1/sources", response_class=JSONResponse)
@@ -2616,6 +3767,46 @@ async def api_sources():
     except Exception:  # pragma: no cover - defensive; never 500 the panel poll
         rows = []
     return {"sources": rows, "count": len(rows)}
+
+
+
+@app.get("/api/v1/routines", response_class=JSONResponse)
+async def api_routines():
+    """Every recurring ingest routine: installed, interval, last run, last
+    exit, latest counts and health with its reason. Fail-soft."""
+    try:
+        from routine_status import read_routine_status
+        rows = read_routine_status()
+    except Exception:  # pragma: no cover - never 500 the panel poll
+        rows = []
+    return {"routines": rows, "count": len(rows)}
+
+
+
+@app.get("/api/v1/remote-access", response_class=JSONResponse)
+async def api_remote_access_get():
+    """The installer's Tailscale connection, read through its own socket."""
+    from remote_access import status
+    try:
+        return status()
+    except Exception:  # pragma: no cover - never 500 the settings page
+        return {"installed": False, "connected": False, "state": "unreadable"}
+
+
+@app.post("/api/v1/remote-access", response_class=JSONResponse)
+async def api_remote_access_post(request: Request):
+    """Body ``{"enabled": true|false}``. Same cross-site guard as /api/v1/pause."""
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse({"error": "Cross-site request refused"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+        return JSONResponse({"error": "enabled must be true or false"}, status_code=400)
+    from remote_access import set_enabled
+    return JSONResponse(set_enabled(body["enabled"]), status_code=200)
 
 
 @app.get("/api/v1/box-status", response_class=JSONResponse)
@@ -2643,11 +3834,28 @@ async def api_box_status():
     default). The whole call is still wrapped so an unexpected import or
     environment failure returns a well-formed unknown payload instead of
     a 500.
+
+    v1.0.107 walk defect: the Hub header pill read "Status unavailable" on
+    every route except Home. box_status.py's own "FORK BUDGET" comment
+    already documents that `top -l 2` "BLOCKS FOR ABOUT A SECOND" on a cache
+    miss, and its other probes carry their own subprocess timeouts (3s/3s/
+    4s/6s/5s). This coroutine used to call that synchronous, subprocess-
+    shelling aggregator DIRECTLY (`return _box_status()`), which blocks
+    uvicorn's single event loop for the Doctor (:8089) -- not just this
+    request, every concurrent /api/v1/* request the Doctor is holding,
+    including a DIFFERENT tab's own box-status poll. Measured on
+    macmini16-walk: a cache-miss call took 1.43s against a ~0.03s cache hit;
+    chained probe timeouts reach past the Hub's 15s client fetch timeout in
+    the worst case. People/Wiki/Bursar each add their own concurrent Doctor
+    requests on top of the chip's poll, which is what made the stall land on
+    those routes and not the lighter Home route. `asyncio.to_thread` moves
+    the blocking call off the event loop so a slow aggregator run no longer
+    starves every other concurrent request.
     """
     try:
         from box_status import box_status as _box_status
 
-        return _box_status()
+        return await asyncio.to_thread(_box_status)
     except Exception:
         # Last-resort degrade: a well-formed, honest "unknown" payload the
         # chip can render as "Status unavailable" -- never a 500 that would
@@ -2713,6 +3921,139 @@ async def api_wiki_correct(request: Request):
     return result
 
 
+# -- People: owner-settable do-not-suggest (CM041 #216 loopback half) ----
+#
+# The ical-server (:8090) carries api_people_suppress_suggestions:
+# POST /api/v1/people/{slug}/suppress-suggestions, body
+# {"suppressed": bool, "reason": str}. It is the owner-settable do-not-suggest
+# control ("stop suggesting" / "mark as deceased") that keeps a deceased or
+# unwanted contact out of every proactive surface without deleting them.
+#
+# It is reached from the WIKI person page's "Stop suggesting" button -- an
+# UNPAIRED browser on localhost:8044, exactly like the correction pencil that
+# POSTs /api/v1/wiki/correct (CM044 correction_overlay.js: method POST,
+# Content-Type application/json, NO Authorization, cross-origin to :8089). That
+# surface holds no paired-iOS bearer, so it CANNOT use the DOCTOR_PROXY_PATHS
+# reverse proxy: proxy_request validates a paired bearer and 401s an unpaired
+# caller (OSTLER_DOCTOR_ORACLE_FALLBACK=0 on every install). So this is a
+# Doctor-NATIVE route with the SAME trust model as /api/v1/wiki/correct:
+# unauthenticated, browser-reachable, the loopback bind is its boundary.
+#
+# The one difference from wiki/correct is the write target. wiki/correct writes
+# Oxigraph directly; the suppression record lives in the ical-server's store,
+# and THAT endpoint requires the per-install service token. So we forward
+# server-side and attach PWG_SERVICE_TOKEN here -- the token the browser
+# neither has nor needs -- exactly the substitution the DOCTOR_PROXY_PATHS proxy
+# would do, minus its paired-bearer gate that the wiki surface cannot satisfy.
+#
+# Registered BEFORE register_proxy_routes(app) so this explicit handler wins
+# over the proxy catch-all (Starlette matches in registration order), the same
+# posture as the hydration-status passthrough below. Thin plumbing only: the
+# ical handler owns the suppression logic and re-validates; nothing here is a
+# reimplementation of it.
+
+_SUPPRESS_SUGGESTIONS_PATH = "/api/v1/people/{slug}/suppress-suggestions"
+_SUPPRESS_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS = 10.0
+
+
+async def _forward_suppress_suggestions(
+    slug: str,
+    body: bytes,
+    gateway_url: "str | None" = None,
+    client: "httpx.AsyncClient | None" = None,
+) -> httpx.Response:
+    """POST a suppress-suggestions request to the upstream ical-server,
+    attaching the per-install service token.
+
+    The browser never holds the service token (it is an unpaired wiki page);
+    the Doctor is the one place the token lives, so it is added here on the
+    server-side forward. Reuses ``proxy._gateway_base_url`` (the customer
+    install points ``DOCTOR_GATEWAY_URL`` at the loopback ical-server on :8090)
+    and ``proxy._resolve_service_token`` so the base and the token are read from
+    one place. With no service token configured the forward is a transparent
+    pass-through, matching ``proxy_request``'s documented posture.
+
+    ``gateway_url`` / ``client`` exist for tests that inject a destination or a
+    mocked transport; production callers pass neither.
+    """
+    from proxy import _gateway_base_url, _resolve_service_token
+
+    base = (gateway_url or _gateway_base_url()).rstrip("/")
+    url = base + "/api/v1/people/" + slug + "/suppress-suggestions"
+    headers = {"content-type": "application/json"}
+    service_token = _resolve_service_token()
+    if service_token:
+        headers["authorization"] = "Bearer " + service_token
+    if client is not None:
+        return await client.post(
+            url, content=body, headers=headers,
+            timeout=_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS,
+        )
+    async with httpx.AsyncClient(
+        timeout=_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS
+    ) as new_client:
+        return await new_client.post(url, content=body, headers=headers)
+
+
+@app.post(_SUPPRESS_SUGGESTIONS_PATH, response_class=JSONResponse)
+async def api_people_suppress_suggestions(slug: str, request: Request) -> Response:
+    """Owner's "stop suggesting" / "mark as deceased" control (CM041 #216).
+
+    Doctor-native, unauthenticated, browser-reachable -- the same trust model
+    as ``/api/v1/wiki/correct``, because the wiki "Stop suggesting" button is an
+    unpaired browser and cannot present a paired bearer. We forward to the
+    ical-server with the service token (see ``_forward_suppress_suggestions``)
+    and return its result verbatim, so the owner's choice persists. The ical
+    handler owns the suppression logic and re-validates; the checks here are a
+    thin, fast local guard, never a reimplementation.
+    """
+    if not _SUPPRESS_SLUG_RE.match(slug or ""):
+        return JSONResponse(
+            {"error": "Invalid slug. Expected lowercase ASCII letters, digits "
+                      "and hyphens (max 80 chars)."},
+            status_code=400,
+        )
+
+    raw = await request.body()
+    try:
+        parsed = json.loads(raw) if raw else {}
+    except Exception as exc:
+        return JSONResponse({"error": "invalid JSON: %s" % exc}, status_code=400)
+    if not isinstance(parsed, dict):
+        return JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400,
+        )
+    if "suppressed" in parsed and not isinstance(parsed["suppressed"], bool):
+        return JSONResponse(
+            {"error": "`suppressed` must be a boolean"}, status_code=400,
+        )
+    reason = parsed.get("reason")
+    if reason is not None and (not isinstance(reason, str) or len(reason) > 200):
+        return JSONResponse(
+            {"error": "`reason` must be a string (max 200 chars)"},
+            status_code=400,
+        )
+
+    # Forward exactly what we validated.
+    forward_body = json.dumps(parsed).encode("utf-8")
+    try:
+        upstream = await _forward_suppress_suggestions(slug, forward_body)
+    except (httpx.HTTPError, OSError) as exc:
+        # Upstream ical-server unreachable / timed out. Honest 502 so the
+        # button surfaces a retry rather than a fabricated success.
+        return JSONResponse(
+            {"error": "upstream suppress-suggestions unreachable",
+             "detail": exc.__class__.__name__},
+            status_code=502,
+        )
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
+
+
 @app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
 async def api_wiki_duplicates_decision(request: Request):
     """Record a duplicate-contact decision (#3 duplicates UX).
@@ -2752,6 +4093,59 @@ async def api_wiki_duplicates_decision(request: Request):
     return result
 
 
+@app.post("/api/v1/editor/feedback", response_class=JSONResponse)
+async def api_editor_feedback(request: Request):
+    """Record one Front Page card tap ("Spot on" / "Not me" / "Don't show").
+
+    The Front Page renders these controls on every card and, until this route
+    existed, tapping them did nothing at all: the page's only handlers added a
+    CSS class, so the button LIT UP as though the tap had registered while
+    nothing was written anywhere. Measured 2026-09-13 on a walked box, with
+    interest_corrections.json never once created.
+
+    The store, the verbs and the recompile fold were all already built and
+    tested in cm059-editor's compiler/feedback.py, whose docstring names the
+    missing piece as "the Hub API POST route". This is that route. Thin HTTP
+    plumbing only -- validation and the write live in editor_feedback.py, the
+    same split duplicate_decision.py uses for the wiki's Combine buttons.
+    """
+    from editor_feedback import (
+        ValidationError as _FbError,
+        origin_is_local as _origin_ok,
+        record as _record,
+        validate_payload as _validate,
+    )
+
+    # This route WRITES to the customer's store and the app's only middleware
+    # is CORS with allow_origins=["*"], so without this any page the customer
+    # opens could issue the write. An Authorization header would be decoration
+    # here: measured on a box, the Doctor's own routes answer 200 with no
+    # credential at all.
+    if not _origin_ok(request.headers.get("origin")):
+        return JSONResponse(
+            {"error": "this write is only accepted from the Hub itself"},
+            status_code=403,
+        )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+
+    try:
+        normalised = _validate(body)
+    except _FbError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    try:
+        return _record(normalised)
+    except _FbError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"error": f"could not record the tap: {exc}"}, status_code=500)
+
+
 @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
 async def api_chat_token(request: Request):
     """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
@@ -2765,7 +4159,18 @@ async def api_chat_token(request: Request):
     See ``chat_token.py`` for the end-to-end logic, the admin-token
     seed convention, and the public-URL resolution rules. This
     handler only owns the HTTP plumbing.
+
+    This route VENDS A CREDENTIAL and until 2026-09-13 any page the
+    customer opened could fetch it and read the bearer straight out of
+    the response (wildcard CORS, no preflight needed for a bodyless
+    POST). ``_cross_site_refusal`` closes that. It closes NOTHING ELSE:
+    read its block above for what stays open and why the shipped
+    Companion forbids requiring a credential here.
     """
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from chat_token import (
         TokenIssueError as _ChatTokenError,
         issue_chat_token as _issue,
@@ -3012,6 +4417,23 @@ async def api_resume_post(request: Request):
     return JSONResponse(state, status_code=200)
 
 
+@app.post("/api/v1/reminders/turn-on", response_class=JSONResponse)
+async def api_reminders_turn_on(request: Request):
+    """"Turn reminders back on" after the customer deleted Ostler's Reminders
+    list. Same guard as the credential routes: Hub-local Host AND no
+    cross-site origin. Forgets the stored list id and re-arms the parked
+    rows; the assistant's next push creates a fresh "Ostler" list.
+    """
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
+    from reminders_runtime import turn_reminders_back_on
+
+    result = turn_reminders_back_on()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 500)
+
+
 # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
 #
 # Forwards iOS-initiated CM019 paths to the local gateway over
@@ -3078,24 +4500,24 @@ def _render_import_evernote_page(active_job_id=None) -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --yellow: #d4a052;
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --yellow: #5C4611;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -3268,7 +4690,7 @@ def _render_import_evernote_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
-        .status-pill.partial {{ background: #d4a052; }}
+        .status-pill.partial {{ background: #5C4611; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -3561,6 +4983,1032 @@ def _render_import_evernote_page(active_job_id=None) -> str:
 </html>"""
 
 
+def _render_import_notion_page(active_job_id=None) -> str:
+    """Render the Notion import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
+
+    ``active_job_id`` is the output of
+    ``import_notion.current_running_job_id()``. When non-None the
+    page boots straight into the polling-status panel so the operator
+    who closed and reopened the tab mid-import reattaches without
+    having to re-enter the path.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` rather than feeling bolted on.
+
+    Polling cadence per the launch-scope brief:
+        - ``GET /status`` every 5 seconds
+        - ``GET /tail``  every 10 seconds
+    On a terminal status (succeeded / failed) both timers stop.
+    """
+    initial_job_id_js = json.dumps(active_job_id)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{NOTION_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --yellow: #5C4611;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 760px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .help code {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 4px;
+            padding: 0.1rem 0.35rem;
+            color: var(--ostler-accent-warm);
+        }}
+        label {{
+            display: block;
+            font-family: var(--font-display);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--text-muted);
+            margin-bottom: 0.45rem;
+            font-weight: 500;
+        }}
+        input[type="text"] {{
+            display: block;
+            width: 100%;
+            background: var(--ostler-ink-deep);
+            color: var(--text);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.75rem 0.95rem;
+            font-family: var(--font-mono);
+            font-size: 0.86rem;
+            letter-spacing: 0.01em;
+            outline: none;
+            transition: border-color 0.18s, box-shadow 0.18s;
+        }}
+        input[type="text"]:focus {{
+            border-color: var(--ostler-accent);
+            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
+        }}
+        input[type="text"]::placeholder {{ color: var(--text-faint); }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }}
+        button.primary, button.secondary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.4rem;
+            border-radius: 999px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
+        }}
+        button.primary {{
+            background: var(--ostler-accent);
+            color: white;
+        }}
+        button.primary:hover {{
+            background: var(--ostler-accent-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-soft);
+        }}
+        button.primary:disabled {{
+            background: var(--ostler-panel-elev);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }}
+        button.secondary {{
+            background: var(--ostler-panel);
+            color: var(--text-secondary);
+            border-color: var(--ostler-hairline-soft);
+        }}
+        button.secondary:hover {{
+            border-color: var(--ostler-accent);
+            color: var(--text);
+            background: var(--ostler-panel-elev);
+            transform: translateY(-1px);
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .status-row {{
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }}
+        .status-pill {{
+            font-family: var(--font-display);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            padding: 0.3rem 0.85rem;
+            border-radius: 999px;
+            font-weight: 600;
+            color: white;
+            background: var(--text-faint);
+        }}
+        .status-pill.running {{ background: var(--yellow); }}
+        .status-pill.succeeded {{ background: var(--green); }}
+        .status-pill.partial {{ background: #5C4611; }}
+        .status-pill.failed {{ background: var(--red); }}
+        .status-meta {{
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            color: var(--text-muted);
+        }}
+        .log-pane {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.85rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            max-height: 360px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }}
+        .log-pane.empty {{
+            color: var(--text-faint);
+            font-style: italic;
+        }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{NOTION_HEADING}</h1>
+        <div class="subtitle">
+            {NOTION_SUBTITLE}
+        </div>
+
+        <div id="errorBanner" class="banner"></div>
+
+        <div id="formPanel" class="panel" style="display:none">
+            <div class="section-title">{NOTION_SECTION_SOURCE}</div>
+            <p>
+                {NOTION_INTRO_HTML}
+            </p>
+            <form id="importForm" autocomplete="off">
+                <label for="sourcePath">{NOTION_LABEL_PATH}</label>
+                <input type="text" id="sourcePath" name="path"
+                    placeholder="{NOTION_PLACEHOLDER_PATH}"
+                    spellcheck="false" autocapitalize="off">
+                <div class="help">
+                    {NOTION_HELP_TIP_HTML}
+                </div>
+                <div class="button-row">
+                    <button type="submit" class="primary" id="submitBtn">{NOTION_BTN_START}</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="jobPanel" class="panel" style="display:none">
+            <div class="section-title">{NOTION_SECTION_STATUS}</div>
+            <div class="status-row">
+                <span class="status-pill" id="statusPill">{NOTION_PILL_STARTING}</span>
+                <span class="status-meta" id="statusMeta"></span>
+            </div>
+            <div class="section-title" style="margin-top:1.2rem">{NOTION_SECTION_LOG_TAIL}</div>
+            <div class="log-pane empty" id="logPane">{NOTION_WAITING_FIRST_LOG}</div>
+            <div class="button-row" id="resetRow" style="display:none">
+                <button type="button" class="secondary" id="resetBtn">{NOTION_BTN_IMPORT_ANOTHER}</button>
+            </div>
+        </div>
+
+        <div class="meta-bottom">
+            {NOTION_META_FOOTER_HTML}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const STATUS_POLL_MS = 5000;
+        const TAIL_POLL_MS = 10000;
+        const INITIAL_JOB_ID = {initial_job_id_js};
+
+        const formPanel = document.getElementById('formPanel');
+        const jobPanel = document.getElementById('jobPanel');
+        const importForm = document.getElementById('importForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const sourceInput = document.getElementById('sourcePath');
+        const statusPill = document.getElementById('statusPill');
+        const statusMeta = document.getElementById('statusMeta');
+        const logPane = document.getElementById('logPane');
+        const resetRow = document.getElementById('resetRow');
+        const resetBtn = document.getElementById('resetBtn');
+        const errorBanner = document.getElementById('errorBanner');
+
+        let currentJobId = null;
+        let statusTimer = null;
+        let tailTimer = null;
+
+        function showError(msg) {{
+            errorBanner.textContent = msg;
+            errorBanner.classList.add('visible');
+        }}
+
+        function clearError() {{
+            errorBanner.classList.remove('visible');
+            errorBanner.textContent = '';
+        }}
+
+        function showForm() {{
+            formPanel.style.display = '';
+            jobPanel.style.display = 'none';
+            sourceInput.value = '';
+            sourceInput.focus();
+        }}
+
+        function showJobPanel() {{
+            formPanel.style.display = 'none';
+            jobPanel.style.display = '';
+        }}
+
+        function renderStatus(state) {{
+            const status = state.status || 'unknown';
+            statusPill.textContent = status;
+            statusPill.className = 'status-pill ' + status;
+
+            const bits = [];
+            if (state.job_id) bits.push('job ' + state.job_id);
+            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
+            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
+            if (state.exit_code !== null && state.exit_code !== undefined) {{
+                bits.push('exit ' + state.exit_code);
+            }}
+            // A degraded ('partial') import carries a human-facing note
+            // explaining what landed and what is pending; surface it.
+            if (state.note) bits.push(state.note);
+            statusMeta.textContent = bits.join(' \\u00b7 ');
+
+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
+                resetRow.style.display = '';
+                stopPolling();
+                // One last tail fetch to make sure the final output is shown.
+                fetchTail();
+            }} else {{
+                resetRow.style.display = 'none';
+            }}
+        }}
+
+        function fetchStatus() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/notion/' + encodeURIComponent(currentJobId) + '/status')
+                .then(function(r) {{
+                    if (r.status === 404) {{
+                        // Either feature flipped off mid-session, or the
+                        // job_id has been reaped. Either way the page is
+                        // out of sync; force a reload.
+                        stopPolling();
+                        showError('{NOTION_ERROR_JOB_NOT_FOUND}');
+                        return null;
+                    }}
+                    return r.json();
+                }})
+                .then(function(state) {{
+                    if (state) renderStatus(state);
+                }})
+                .catch(function(err) {{
+                    showError('{NOTION_ERROR_STATUS_FAIL_PREFIX}' + err);
+                }});
+        }}
+
+        function fetchTail() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/notion/' + encodeURIComponent(currentJobId) + '/tail')
+                .then(function(r) {{
+                    if (!r.ok) return null;
+                    return r.text();
+                }})
+                .then(function(text) {{
+                    if (text === null) return;
+                    if (!text || text.trim() === '') {{
+                        logPane.classList.add('empty');
+                        logPane.textContent = 'Waiting for first log output\\u2026';
+                    }} else {{
+                        logPane.classList.remove('empty');
+                        logPane.textContent = text;
+                        // Auto-scroll to the bottom so the latest line is
+                        // always visible without manual scrolling.
+                        logPane.scrollTop = logPane.scrollHeight;
+                    }}
+                }})
+                .catch(function(err) {{
+                    // Don't surface tail failures as errors - the status
+                    // pane is the source of truth.
+                }});
+        }}
+
+        function startPolling() {{
+            stopPolling();
+            fetchStatus();
+            fetchTail();
+            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
+            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
+        }}
+
+        function stopPolling() {{
+            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
+            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
+        }}
+
+        function handleSubmit(event) {{
+            event.preventDefault();
+            clearError();
+            const path = sourceInput.value.trim();
+            if (!path) {{
+                showError('{NOTION_ERROR_NO_PATH}');
+                return;
+            }}
+            submitBtn.disabled = true;
+            submitBtn.textContent = '{NOTION_BTN_STARTING}';
+            fetch('/api/v1/import/notion', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{path: path}}),
+            }})
+                .then(function(r) {{
+                    return r.json().then(function(body) {{ return [r.status, body]; }});
+                }})
+                .then(function(pair) {{
+                    const status = pair[0], body = pair[1];
+                    if (status === 200 && body.job_id) {{
+                        currentJobId = body.job_id;
+                        showJobPanel();
+                        startPolling();
+                    }} else {{
+                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
+                    }}
+                }})
+                .catch(function(err) {{
+                    showError('{NOTION_ERROR_NETWORK_PREFIX}' + err);
+                }})
+                .finally(function() {{
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '{NOTION_BTN_START}';
+                }});
+        }}
+
+        function handleReset() {{
+            stopPolling();
+            currentJobId = null;
+            clearError();
+            resetRow.style.display = 'none';
+            logPane.classList.add('empty');
+            logPane.textContent = 'Waiting for first log output\\u2026';
+            statusPill.textContent = '{NOTION_PILL_STARTING}';
+            statusPill.className = 'status-pill';
+            statusMeta.textContent = '';
+            showForm();
+        }}
+
+        importForm.addEventListener('submit', handleSubmit);
+        resetBtn.addEventListener('click', handleReset);
+
+        if (INITIAL_JOB_ID) {{
+            // Reattach to an in-flight job whose POST was issued from
+            // an earlier tab. The server discovered the live lockfile
+            // and rendered the job_id into the page; we go straight to
+            // the polling state without showing the form.
+            currentJobId = INITIAL_JOB_ID;
+            showJobPanel();
+            startPolling();
+        }} else {{
+            showForm();
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+
+def _render_import_obsidian_page(active_job_id=None) -> str:
+    """Render the Obsidian import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
+
+    ``active_job_id`` is the output of
+    ``import_obsidian.current_running_job_id()``. When non-None the
+    page boots straight into the polling-status panel so the operator
+    who closed and reopened the tab mid-import reattaches without
+    having to re-enter the path.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` rather than feeling bolted on.
+
+    Polling cadence per the launch-scope brief:
+        - ``GET /status`` every 5 seconds
+        - ``GET /tail``  every 10 seconds
+    On a terminal status (succeeded / failed) both timers stop.
+    """
+    initial_job_id_js = json.dumps(active_job_id)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{OBSIDIAN_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --yellow: #5C4611;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 760px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .help code {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 4px;
+            padding: 0.1rem 0.35rem;
+            color: var(--ostler-accent-warm);
+        }}
+        label {{
+            display: block;
+            font-family: var(--font-display);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--text-muted);
+            margin-bottom: 0.45rem;
+            font-weight: 500;
+        }}
+        input[type="text"] {{
+            display: block;
+            width: 100%;
+            background: var(--ostler-ink-deep);
+            color: var(--text);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.75rem 0.95rem;
+            font-family: var(--font-mono);
+            font-size: 0.86rem;
+            letter-spacing: 0.01em;
+            outline: none;
+            transition: border-color 0.18s, box-shadow 0.18s;
+        }}
+        input[type="text"]:focus {{
+            border-color: var(--ostler-accent);
+            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
+        }}
+        input[type="text"]::placeholder {{ color: var(--text-faint); }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }}
+        button.primary, button.secondary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.4rem;
+            border-radius: 999px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
+        }}
+        button.primary {{
+            background: var(--ostler-accent);
+            color: white;
+        }}
+        button.primary:hover {{
+            background: var(--ostler-accent-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-soft);
+        }}
+        button.primary:disabled {{
+            background: var(--ostler-panel-elev);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }}
+        button.secondary {{
+            background: var(--ostler-panel);
+            color: var(--text-secondary);
+            border-color: var(--ostler-hairline-soft);
+        }}
+        button.secondary:hover {{
+            border-color: var(--ostler-accent);
+            color: var(--text);
+            background: var(--ostler-panel-elev);
+            transform: translateY(-1px);
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .status-row {{
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }}
+        .status-pill {{
+            font-family: var(--font-display);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            padding: 0.3rem 0.85rem;
+            border-radius: 999px;
+            font-weight: 600;
+            color: white;
+            background: var(--text-faint);
+        }}
+        .status-pill.running {{ background: var(--yellow); }}
+        .status-pill.succeeded {{ background: var(--green); }}
+        .status-pill.partial {{ background: #5C4611; }}
+        .status-pill.failed {{ background: var(--red); }}
+        .status-meta {{
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            color: var(--text-muted);
+        }}
+        .log-pane {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.85rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            max-height: 360px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }}
+        .log-pane.empty {{
+            color: var(--text-faint);
+            font-style: italic;
+        }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{OBSIDIAN_HEADING}</h1>
+        <div class="subtitle">
+            {OBSIDIAN_SUBTITLE}
+        </div>
+
+        <div id="errorBanner" class="banner"></div>
+
+        <div id="formPanel" class="panel" style="display:none">
+            <div class="section-title">{OBSIDIAN_SECTION_SOURCE}</div>
+            <p>
+                {OBSIDIAN_INTRO_HTML}
+            </p>
+            <form id="importForm" autocomplete="off">
+                <label for="sourcePath">{OBSIDIAN_LABEL_PATH}</label>
+                <input type="text" id="sourcePath" name="path"
+                    placeholder="{OBSIDIAN_PLACEHOLDER_PATH}"
+                    spellcheck="false" autocapitalize="off">
+                <div class="help">
+                    {OBSIDIAN_HELP_TIP_HTML}
+                </div>
+                <div class="button-row">
+                    <button type="submit" class="primary" id="submitBtn">{OBSIDIAN_BTN_START}</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="jobPanel" class="panel" style="display:none">
+            <div class="section-title">{OBSIDIAN_SECTION_STATUS}</div>
+            <div class="status-row">
+                <span class="status-pill" id="statusPill">{OBSIDIAN_PILL_STARTING}</span>
+                <span class="status-meta" id="statusMeta"></span>
+            </div>
+            <div class="section-title" style="margin-top:1.2rem">{OBSIDIAN_SECTION_LOG_TAIL}</div>
+            <div class="log-pane empty" id="logPane">{OBSIDIAN_WAITING_FIRST_LOG}</div>
+            <div class="button-row" id="resetRow" style="display:none">
+                <button type="button" class="secondary" id="resetBtn">{OBSIDIAN_BTN_IMPORT_ANOTHER}</button>
+            </div>
+        </div>
+
+        <div class="meta-bottom">
+            {OBSIDIAN_META_FOOTER_HTML}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const STATUS_POLL_MS = 5000;
+        const TAIL_POLL_MS = 10000;
+        const INITIAL_JOB_ID = {initial_job_id_js};
+
+        const formPanel = document.getElementById('formPanel');
+        const jobPanel = document.getElementById('jobPanel');
+        const importForm = document.getElementById('importForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const sourceInput = document.getElementById('sourcePath');
+        const statusPill = document.getElementById('statusPill');
+        const statusMeta = document.getElementById('statusMeta');
+        const logPane = document.getElementById('logPane');
+        const resetRow = document.getElementById('resetRow');
+        const resetBtn = document.getElementById('resetBtn');
+        const errorBanner = document.getElementById('errorBanner');
+
+        let currentJobId = null;
+        let statusTimer = null;
+        let tailTimer = null;
+
+        function showError(msg) {{
+            errorBanner.textContent = msg;
+            errorBanner.classList.add('visible');
+        }}
+
+        function clearError() {{
+            errorBanner.classList.remove('visible');
+            errorBanner.textContent = '';
+        }}
+
+        function showForm() {{
+            formPanel.style.display = '';
+            jobPanel.style.display = 'none';
+            sourceInput.value = '';
+            sourceInput.focus();
+        }}
+
+        function showJobPanel() {{
+            formPanel.style.display = 'none';
+            jobPanel.style.display = '';
+        }}
+
+        function renderStatus(state) {{
+            const status = state.status || 'unknown';
+            statusPill.textContent = status;
+            statusPill.className = 'status-pill ' + status;
+
+            const bits = [];
+            if (state.job_id) bits.push('job ' + state.job_id);
+            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
+            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
+            if (state.exit_code !== null && state.exit_code !== undefined) {{
+                bits.push('exit ' + state.exit_code);
+            }}
+            // A degraded ('partial') import carries a human-facing note
+            // explaining what landed and what is pending; surface it.
+            if (state.note) bits.push(state.note);
+            statusMeta.textContent = bits.join(' \\u00b7 ');
+
+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
+                resetRow.style.display = '';
+                stopPolling();
+                // One last tail fetch to make sure the final output is shown.
+                fetchTail();
+            }} else {{
+                resetRow.style.display = 'none';
+            }}
+        }}
+
+        function fetchStatus() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/status')
+                .then(function(r) {{
+                    if (r.status === 404) {{
+                        // Either feature flipped off mid-session, or the
+                        // job_id has been reaped. Either way the page is
+                        // out of sync; force a reload.
+                        stopPolling();
+                        showError('{OBSIDIAN_ERROR_JOB_NOT_FOUND}');
+                        return null;
+                    }}
+                    return r.json();
+                }})
+                .then(function(state) {{
+                    if (state) renderStatus(state);
+                }})
+                .catch(function(err) {{
+                    showError('{OBSIDIAN_ERROR_STATUS_FAIL_PREFIX}' + err);
+                }});
+        }}
+
+        function fetchTail() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/tail')
+                .then(function(r) {{
+                    if (!r.ok) return null;
+                    return r.text();
+                }})
+                .then(function(text) {{
+                    if (text === null) return;
+                    if (!text || text.trim() === '') {{
+                        logPane.classList.add('empty');
+                        logPane.textContent = 'Waiting for first log output\\u2026';
+                    }} else {{
+                        logPane.classList.remove('empty');
+                        logPane.textContent = text;
+                        // Auto-scroll to the bottom so the latest line is
+                        // always visible without manual scrolling.
+                        logPane.scrollTop = logPane.scrollHeight;
+                    }}
+                }})
+                .catch(function(err) {{
+                    // Don't surface tail failures as errors - the status
+                    // pane is the source of truth.
+                }});
+        }}
+
+        function startPolling() {{
+            stopPolling();
+            fetchStatus();
+            fetchTail();
+            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
+            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
+        }}
+
+        function stopPolling() {{
+            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
+            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
+        }}
+
+        function handleSubmit(event) {{
+            event.preventDefault();
+            clearError();
+            const path = sourceInput.value.trim();
+            if (!path) {{
+                showError('{OBSIDIAN_ERROR_NO_PATH}');
+                return;
+            }}
+            submitBtn.disabled = true;
+            submitBtn.textContent = '{OBSIDIAN_BTN_STARTING}';
+            fetch('/api/v1/import/obsidian', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{path: path}}),
+            }})
+                .then(function(r) {{
+                    return r.json().then(function(body) {{ return [r.status, body]; }});
+                }})
+                .then(function(pair) {{
+                    const status = pair[0], body = pair[1];
+                    if (status === 200 && body.job_id) {{
+                        currentJobId = body.job_id;
+                        showJobPanel();
+                        startPolling();
+                    }} else {{
+                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
+                    }}
+                }})
+                .catch(function(err) {{
+                    showError('{OBSIDIAN_ERROR_NETWORK_PREFIX}' + err);
+                }})
+                .finally(function() {{
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '{OBSIDIAN_BTN_START}';
+                }});
+        }}
+
+        function handleReset() {{
+            stopPolling();
+            currentJobId = null;
+            clearError();
+            resetRow.style.display = 'none';
+            logPane.classList.add('empty');
+            logPane.textContent = 'Waiting for first log output\\u2026';
+            statusPill.textContent = '{OBSIDIAN_PILL_STARTING}';
+            statusPill.className = 'status-pill';
+            statusMeta.textContent = '';
+            showForm();
+        }}
+
+        importForm.addEventListener('submit', handleSubmit);
+        resetBtn.addEventListener('click', handleReset);
+
+        if (INITIAL_JOB_ID) {{
+            // Reattach to an in-flight job whose POST was issued from
+            // an earlier tab. The server discovered the live lockfile
+            // and rendered the job_id into the page; we go straight to
+            // the polling state without showing the form.
+            currentJobId = INITIAL_JOB_ID;
+            showJobPanel();
+            startPolling();
+        }} else {{
+            showForm();
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+
 @app.get("/import-evernote", response_class=HTMLResponse)
 async def import_evernote_page():
     """Render the Evernote import page. 404 when the feature flag is off."""
@@ -3658,6 +6106,200 @@ async def api_import_evernote_tail(job_id: str):
         return JSONResponse({"error": exc.detail}, status_code=exc.status)
 
 
+@app.get("/import-notion", response_class=HTMLResponse)
+async def import_notion_page():
+    """Render the Notion import page. 404 when the feature flag is off."""
+    from import_notion import current_running_job_id, is_feature_enabled
+
+    if not is_feature_enabled():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+    return HTMLResponse(_render_import_notion_page(
+        active_job_id=current_running_job_id(),
+    ))
+
+
+@app.post("/api/v1/import/notion", response_class=JSONResponse)
+async def api_import_notion_start(request: Request):
+    """Start a new Notion import job.
+
+    Body: ``{"path": "/Users/you/Downloads/Notion-Export.zip"}``. On success returns
+    ``{"job_id": "...", "status": "started"}`` with 200. Validation
+    failures surface as 400 / 404 / 409 / 500 per
+    ``import_notion.NotionImportError``. Returns 404
+    ``{"error": "feature_disabled"}`` when the flag is off.
+    """
+    from import_notion import (
+        NotionImportError as _Err,
+        is_feature_enabled as _flag,
+        start_import as _start,
+        validate_notion_path as _validate,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"invalid JSON: {exc}"}, status_code=400,
+        )
+
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400,
+        )
+
+    try:
+        source_path = _validate(body.get("path"))
+        result = _start(source_path)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    return JSONResponse(result, status_code=200)
+
+
+@app.get("/api/v1/import/notion/{job_id}/status", response_class=JSONResponse)
+async def api_import_notion_status(job_id: str):
+    """Return the state of a Notion import job."""
+    from import_notion import (
+        NotionImportError as _Err,
+        is_feature_enabled as _flag,
+        read_status as _status,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return JSONResponse(_status(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/api/v1/import/notion/{job_id}/tail", response_class=PlainTextResponse)
+async def api_import_notion_tail(job_id: str):
+    """Return the last 100 lines of the job's import log as text/plain."""
+    from import_notion import (
+        NotionImportError as _Err,
+        is_feature_enabled as _flag,
+        read_tail as _tail,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return PlainTextResponse(_tail(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/import-obsidian", response_class=HTMLResponse)
+async def import_obsidian_page():
+    """Render the Obsidian import page. 404 when the feature flag is off."""
+    from import_obsidian import current_running_job_id, is_feature_enabled
+
+    if not is_feature_enabled():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+    return HTMLResponse(_render_import_obsidian_page(
+        active_job_id=current_running_job_id(),
+    ))
+
+
+@app.post("/api/v1/import/obsidian", response_class=JSONResponse)
+async def api_import_obsidian_start(request: Request):
+    """Start a new Obsidian import job.
+
+    Body: ``{"path": "/Users/you/Documents/MyVault"}``. On success returns
+    ``{"job_id": "...", "status": "started"}`` with 200. Validation
+    failures surface as 400 / 404 / 409 / 500 per
+    ``import_obsidian.ObsidianImportError``. Returns 404
+    ``{"error": "feature_disabled"}`` when the flag is off.
+    """
+    from import_obsidian import (
+        ObsidianImportError as _Err,
+        is_feature_enabled as _flag,
+        start_import as _start,
+        validate_obsidian_path as _validate,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"invalid JSON: {exc}"}, status_code=400,
+        )
+
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400,
+        )
+
+    try:
+        source_path = _validate(body.get("path"))
+        result = _start(source_path)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    return JSONResponse(result, status_code=200)
+
+
+@app.get("/api/v1/import/obsidian/{job_id}/status", response_class=JSONResponse)
+async def api_import_obsidian_status(job_id: str):
+    """Return the state of an Obsidian import job."""
+    from import_obsidian import (
+        ObsidianImportError as _Err,
+        is_feature_enabled as _flag,
+        read_status as _status,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return JSONResponse(_status(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/api/v1/import/obsidian/{job_id}/tail", response_class=PlainTextResponse)
+async def api_import_obsidian_tail(job_id: str):
+    """Return the last 100 lines of the job's import log as text/plain."""
+    from import_obsidian import (
+        ObsidianImportError as _Err,
+        is_feature_enabled as _flag,
+        read_tail as _tail,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return PlainTextResponse(_tail(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
 # ── Pair iOS device panel (DFA-002) ──────────────────────────────────
 
 
@@ -3683,21 +6325,21 @@ def _render_pair_ios_page() -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -4083,13 +6725,13 @@ def _render_whatsapp_pair_page() -> str:
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -4286,13 +6928,13 @@ def _render_extension_setup_page() -> str:
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -4507,13 +7149,22 @@ async def extension_setup_page():
 
 
 @app.get("/api/v1/extension/token", response_class=JSONResponse)
-async def api_extension_token():
+async def api_extension_token(request: Request):
     """Return the browser-extension key and the state it is in.
 
     Read fresh on every call rather than cached. Two of the five states are
     cleared by restarting Ostler, and a cached answer would keep telling the
     customer to do the thing they have already done.
+
+    Its only caller in this repo is the Doctor's own ``/extension-setup``
+    panel, a same-origin ``fetch("/api/v1/extension/token")`` (see
+    ``_render_extension_setup_page``), so the cross-site refusal costs the
+    real consumer nothing and stops a drive-by page reading the ingest key.
     """
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from extension_token import fetch_token_status
     return JSONResponse(fetch_token_status().to_dict(), status_code=200)
 
@@ -4525,8 +7176,20 @@ async def pair_ios_page():
 
 
 @app.get("/api/v1/pair/status", response_class=JSONResponse)
-async def api_pair_status():
-    """Return the current pair code, QR SVG, and any error state."""
+async def api_pair_status(request: Request):
+    """Return the current pair code, QR SVG, and any error state.
+
+    THE QR CARRIES THE PAIRING TOKEN. ``pair_status`` re-serialises the
+    gateway's section 3.3 envelope (``{v, hub_addr, rp_id, pairing_token,
+    expires_at}``) into the string the QR encodes, so this response IS the
+    pairing credential in visual form. Wildcard CORS made it readable by any
+    page the customer opened; the refusal below is what stops that. Its only
+    caller here is the Doctor's own ``/pair-ios`` panel, same-origin.
+    """
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from pair_status import fetch_pair_status
     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
 
@@ -4538,18 +7201,17 @@ async def api_pair_regenerate(request: Request):
     Cross-origin POSTs from a malicious local browser tab can DOS the
     pair code (rotate it under the customer's feet) even though the
     same-origin policy blocks the attacker from reading the new code.
-    Modern browsers set ``Sec-Fetch-Site`` automatically; reject
-    anything that is not ``same-origin`` or ``none`` (the latter
-    covers direct navigation and bookmarks). Older browsers do not
-    send the header; in that case the request is allowed through and
-    the same-origin policy remains the defence-in-depth.
+
+    This used to check ``Sec-Fetch-Site`` alone, inline. It now calls the
+    shared ``_cross_site_refusal``, which adds the ``Origin`` half: a browser
+    old enough not to stamp ``Sec-Fetch-Site`` still sends ``Origin`` on a
+    POST, and that case was the gap. One predicate, so the four credential
+    routes cannot drift apart the way this one and the chat-token mint had.
     """
-    sec_fetch_site = request.headers.get("sec-fetch-site")
-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
-        return JSONResponse(
-            {"error": "Cross-site request refused"},
-            status_code=403,
-        )
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from pair_status import fetch_pair_status
     return JSONResponse(
         fetch_pair_status(fresh=True).to_dict(), status_code=200,
@@ -4589,21 +7251,21 @@ def _render_config_page() -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -5052,12 +7714,24 @@ async def config_page():
 
 
 @app.get("/api/v1/config", response_class=JSONResponse)
-async def api_config_get():
+async def api_config_get(request: Request):
     """Return the current config view model.
 
     Secrets are never included as values: secret-looking keys are
     reported presence-only (set / not set). See ``config_panel.py``.
+
+    Not a credential route, so it is not in the list above -- but it is the
+    customer's settings (channels, schedule, model, privacy default) and
+    wildcard CORS made it readable by any page they opened. The POST beside it
+    already refused a cross-site write; the READ refused nothing. Callers: the
+    Doctor's own ``/config`` panel (same-origin) and the Hub app's Settings and
+    Governor pages (tauri://localhost or a loopback page), see
+    ``_hub_read_refusal`` (CM051 #2552).
     """
+    refusal = _hub_read_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from config_panel import ConfigError as _ConfigError, read_config_view
 
     try:
@@ -5070,18 +7744,16 @@ async def api_config_get():
 async def api_config_post(request: Request):
     """Validate + persist a whitelist of safe config edits.
 
-    Same cross-site guard as the pair-regenerate route: reject any POST
-    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
-    malicious local tab cannot mutate the customer's config under them.
+    Same cross-site guard as the pair-regenerate route, and now literally the
+    same function, so a malicious local tab cannot mutate the customer's
+    config under them. The inline copy this replaces checked
+    ``Sec-Fetch-Site`` only; ``_cross_site_refusal`` adds the ``Origin`` half.
     Only whitelisted, non-secret fields are writable; everything else is
     rejected by ``config_panel.write_config``.
     """
-    sec_fetch_site = request.headers.get("sec-fetch-site")
-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
-        return JSONResponse(
-            {"error": "Cross-site request refused"},
-            status_code=403,
-        )
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
 
     from config_panel import ConfigError as _ConfigError, write_config
 

@@ -64,6 +64,11 @@ MIN_STEADY_INTERESTS = 6
 # How many interest cards to surface, and the cap per domain so one rich domain
 # (music, say) cannot crowd everything else off the page.
 MAX_INTEREST_CARDS = 12
+# How many of those slots are held back from the ranked top, so the feed is not
+# purely "the same best twelve". One was not enough to make a visit feel
+# different (Andy, 2026-09-13). Three of twelve keeps the majority earned by
+# rank while guaranteeing the page moves between visits.
+ROTATION_SLOTS = 3
 MAX_PER_DOMAIN = 4
 
 # Feed hygiene caps (E2, spec section 1.3): a burst of live signals must not
@@ -103,7 +108,22 @@ DECAY_HALF_LIFE_DAYS = 7.0
 # regenerated and dies when hydration ends; key-date and commitment cards let
 # proximity + TTL carry their urgency rather than sinking with age.
 HALF_LIFE_BY_CLASS = {
-    "interest": 540.0,           # a favourite fades slowly, never vanishes
+    # 🔴 540 DAYS MEANT THE SAME TWELVE CARDS FOR EVER, and that is what a
+    # customer actually sees. Andy, 2026-09-13: "it used to be really rich with
+    # options like this, whereas lately it's been just the For You style
+    # things", and separately "the user won't want to see the same content
+    # every time they visit". At a 540-day half-life a shown card loses 0.1% of
+    # its priority per DAY, so with thousands of interests competing for twelve
+    # slots the same twelve won every day for months. Only the single
+    # exploration slot ever changed.
+    #
+    # 30 days halves a card's priority in a month, so a long-shown interest
+    # sinks and a fresh one overtakes it. The intent behind 540 was "a
+    # favourite fades slowly, NEVER VANISHES", and that intent is preserved by
+    # the recycle below rather than by refusing to decay: age comes from the
+    # ledger's first emission and NEVER resets, so faster decay without a
+    # recycle would retire a genuine favourite permanently.
+    "interest": 30.0,
     "onboarding": DECAY_HALF_LIFE_DAYS,  # a confirm card sinks if ignored (7d)
     "reply_debt": 2.0,           # a fresh reply-debt is urgent, then sinks fast
     "gone_quiet": 7.0,           # a reconnect nudge fades over a week
@@ -113,8 +133,35 @@ HALF_LIFE_BY_CLASS = {
 # Gone-quiet lifecycle (spec section 1.3): a reconnect card shows for up to
 # GONE_QUIET_TTL_DAYS, then goes quiet for GONE_QUIET_COOLDOWN_DAYS before it is
 # eligible to re-emit as a fresh cycle. Anchored to the ledger first-emission.
+# Interest recycle (2026-09-13). A card that has been on the feed for
+# INTEREST_TTL_DAYS has had its run; it stands down for
+# INTEREST_COOLDOWN_DAYS and is then eligible again with a FRESH cycle, so its
+# decay clock restarts and a real favourite returns rather than sinking for
+# ever. Exactly the lifecycle gone-quiet already uses, applied to the family
+# that needed it most.
+INTEREST_TTL_DAYS = 45
+INTEREST_COOLDOWN_DAYS = 20
+
 GONE_QUIET_TTL_DAYS = 14
 GONE_QUIET_COOLDOWN_DAYS = 30
+
+# 🔴 THE UPPER BOUND THAT WENT MISSING WHEN THE SOURCE BECAME A MAX-OF-FOUR.
+# Walk #5 hydrated screens (Home and the wiki front page, same feed since
+# #2537) showed "You and X have gone quiet: No contact for 59 months" and a
+# second card at 13 months. Five years of silence is history, not a
+# reconnect nudge -- CM044's own _gone_quiet() (compiler/pages/dashboard.py)
+# always had an ignore_after_days=540 (18 months) upper bound for exactly
+# this reason, applied to months_since BEFORE this card existed. That bound
+# lives on the SOURCE side (CM044 / CM041's people_stale), not here, so it
+# protected the old single-source (meeting-date-only) months_since but was
+# never re-applied to the NEW combined-MAX-of-sources value this card reads
+# over the loopback feed (reconnect[].months_since_contact) -- nothing
+# between the source and this card ever re-checked it. Enforced HERE,
+# independently of whatever the upstream source does or does not bound,
+# because this is the last place in the pipeline that can refuse to build
+# the card at all. 18 months, matching CM044's own figure exactly so the
+# two surfaces agree on what "too old to reconnect" means.
+GONE_QUIET_IGNORE_AFTER_MONTHS = 18.0
 
 # Privacy fail-closed (spec section 4): only L1 (about the operator) and L2
 # (names another person, counts-only) may reach the feed. Anything else - most
@@ -212,7 +259,7 @@ def _iso(dt: datetime | None):
 # Card constructors
 # ---------------------------------------------------------------------------
 
-def _make_card(kind: str, key: str, *, title: str, body: str, now: datetime,
+def _make_card(kind: str, key: str, *, title: str, body: str | None, now: datetime,
                domain: str | None = None, priority: float = 10.0,
                expires_utc: datetime | None = None, action: dict | None = None,
                evidence: str | None = None, source: str | None = None,
@@ -310,6 +357,134 @@ def pro_locked_card(now: datetime) -> dict:
     )
 
 
+# Interest categories whose subject is an account handle stored WITHOUT its "@"
+# (the Instagram parser keeps the bare username, often snake_case:
+# category "instagram_creator"). Shown raw it reads as an internal key
+# ("Private / some_account"); a customer reads "@some_account".
+_HANDLE_CATEGORIES = frozenset({"instagram_creator"})
+
+
+import re as _re_text
+
+_ROLE_TAG = _re_text.compile(
+    r"\s*\((?:user|owner|you|other_name|user_name|other(?::[\w-]+)?)\)", _re_text.I)
+_PLACEHOLDER = _re_text.compile(r"\{[a-z][a-z0-9_]*\}")
+_ISO_STAMP = _re_text.compile(
+    r"\b(20\d\d)-([01]\d)-([0-3]\d)(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?)?(?!\d)")
+_PHONE_SHAPE = _re_text.compile(r"^\+?[\d\s().\-\u00a0]{6,}$")
+_EMAIL_SHAPE = _re_text.compile(r"^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$")
+_SNAKE_KEY = _re_text.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+           "Oct", "Nov", "Dec")
+
+
+def _human_iso(m) -> str:
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if not 1 <= mo <= 12:
+        return m.group(0)
+    return "%d %s %d" % (d, _MONTHS[mo - 1], y)
+
+
+def clean_card_text(text) -> str:
+    """Customer-safe free text: role tags and template placeholders removed,
+    ISO dates/timestamps written as '30 Sep 2026'. Idempotent."""
+    out = _ROLE_TAG.sub("", str(text or ""))
+    out = _PLACEHOLDER.sub("", out)
+    out = _ISO_STAMP.sub(_human_iso, out)
+    return _re_text.sub(r"[ \t]{2,}", " ", out).strip()
+
+
+UNKNOWN_CONTACT = "an unknown contact"
+
+
+def person_label(name, fallback=None):
+    """The one display-name gate for card text. Returns a name a customer
+    would recognise, or None when there is none to show: a bare phone number,
+    an email address, an @handle, a snake_case key, or nothing but tags. An @handle is shown
+    only for creator/social interests (see display_subject), never for a
+    person. ``fallback`` is returned instead of None (UNKNOWN_CONTACT)."""
+    n = clean_card_text(name)
+    if not n or not any(ch.isalpha() for ch in n):
+        return fallback
+    if _PHONE_SHAPE.match(n) or _EMAIL_SHAPE.match(n) or "@" in n:
+        return fallback
+    if _SNAKE_KEY.match(n):
+        return fallback
+    return n
+
+
+def display_subject(it: dict) -> str:
+    """The label a customer sees for an interest: a handle-kind interest is
+    shown as ``@handle``; a snake_case key is spoken as words; free text is
+    cleaned of tags, placeholders and ISO dates."""
+    subject = it.get("subject") or ""
+    if ((it.get("category") or "").lower() in _HANDLE_CATEGORIES
+            and subject and not subject.startswith("@") and " " not in subject):
+        return "@" + subject
+    subject = clean_card_text(subject)
+    if _SNAKE_KEY.match(subject):
+        subject = subject.replace("_", " ")
+        subject = subject[:1].upper() + subject[1:]
+    return subject
+
+
+# The interest card's body says WHERE an interest came from, from the card's
+# own `sources` and `last_seen`, instead of one sentence on every card ("One of
+# the things Ostler reckons you're into."). Source keys measured on a walk box:
+# apple, twitter, linkedin, spotify, apple_tv, whatsapp, foursquare, uber, you.
+_SOURCE_NAMES = {
+    "apple": "Apple", "apple_music": "Apple Music", "apple_tv": "Apple TV",
+    "spotify": "Spotify", "twitter": "X", "x": "X", "instagram": "Instagram",
+    "facebook": "Facebook", "linkedin": "LinkedIn", "youtube": "YouTube",
+    "whatsapp": "WhatsApp", "foursquare": "Foursquare", "uber": "Uber",
+    "google": "Google", "netflix": "Netflix", "pinterest": "Pinterest",
+    "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon",
+}
+_SOCIAL_SOURCES = {"twitter", "x", "instagram", "facebook", "tiktok", "youtube", "reddit", "pinterest"}
+
+
+def _source_name(key: str, category: str) -> str:
+    k = (key or "").strip().lower()
+    if k == "apple" and category == "music":
+        return "Apple Music"
+    return _SOURCE_NAMES.get(k) or k.replace("_", " ").strip().title()
+
+
+def _join_names(names: list) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def interest_provenance(it: dict, now: datetime) -> str:
+    """One plain sentence: what kind of signal this is and where it came from."""
+    category = (it.get("category") or "").lower()
+    keys = [s for s in (it.get("sources") or []) if isinstance(s, str) and s.strip()]
+    if any(k.lower() == "you" for k in keys):
+        return "You told Ostler about this."
+    keys = keys[:3]
+    if not keys:
+        line = "Picked up from your own data"
+    else:
+        names = list(dict.fromkeys(_source_name(k, category) for k in keys))
+        where = _join_names(names)
+        low = {k.lower() for k in keys}
+        if low == {"linkedin"}:
+            line = "On your LinkedIn profile"
+        elif category == "music":
+            line = f"From your {where} listening"
+        elif low <= _SOCIAL_SOURCES and category in ("interest", "creator", "social", "account", ""):
+            line = f"Followed on {where}"
+        elif category in ("movie", "tv", "film"):
+            line = f"Watched on {where}"
+        elif category == "place":
+            line = f"From your {where} check-ins"
+        else:
+            line = f"From your {where} data"
+    year = str(it.get("last_seen") or "")[:4]
+    if year.isdigit() and int(year) < now.year:
+        line += f", last seen in {year}"
+    return line + "."
+
+
 def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     """Phase C card: one inferred interest, with its evidence and the rate/
     correct affordances. Priority is the interest's own score mapped into the
@@ -319,12 +494,14 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     span = max(1, n - 1)
     base = PRIORITY_INTEREST_FLOOR + (PRIORITY_INTEREST_TOP - PRIORITY_INTEREST_FLOOR) * (
         1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
-    evidence = " - ".join(it.get("evidence", [])[:2]) or None
-    return _make_card(
+    # CM051 #2534: one evidence line per card, not two joined with " - ".
+    ev_list = it.get("evidence") or []
+    evidence = clean_card_text(ev_list[0]) if ev_list else None
+    card = _make_card(
         "interest", it["id"],
-        title=it["subject"],
+        title=display_subject(it),
         body=("Something to avoid" if it.get("polarity") == "dislike"
-              else "One of the things Ostler reckons you're into."),
+              else interest_provenance(it, now)),
         now=now, domain=it.get("domain"),
         priority=base,
         action={"label": "Spot on", "kind": "strengthen"},
@@ -333,18 +510,100 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
         feedback=it.get("feedback"),
         privacy=_row_privacy(it),  # inherit the interest row's level, NOT L1
     )
+    # The renderer (render_frontpage._card_html) and every consumer's POST body
+    # both key a correction off this field; feedback.record_feedback refuses a
+    # strengthen/weaken/drop with neither this nor a `sources` list. Without it
+    # every ordinary interest card's tap 400s (measured 2026-10-01, v1.0.106
+    # console walk: 12 of 12 interest cards carried no interest_id). Only the
+    # exploration pick carried its id forward (as `sources`, see
+    # exploration_card below) -- this is the same wire for the common case.
+    card["interest_id"] = it["id"]
+    return card
 
 
-def exploration_pick(profile: dict, picked: list[dict]) -> dict | None:
+def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
+                    *, keeping: list | None = None,
+                    exclude_ids: set | None = None) -> list:
+    """`n` INTERESTS from below the ranked top, chosen stably per ISO week.
+
+    Deterministic on (iso week, subject) rather than random: a customer who
+    reloads twice in a day must see the same page, and a customer who comes
+    back next week must not. Falls back to keeping the ranked cards when there
+    is nothing below the cut, so a thin profile never loses real interests to
+    an empty bench.
+
+    ``keeping`` is the ranked remainder the swaps will JOIN, and it is what
+    makes MAX_PER_DOMAIN hold. Measured 2026-09-13 before this argument
+    existed: a profile with thirty music interests returned 7 Music cards
+    against a cap of 4 and pushed the Reading domain off the page entirely --
+    the exact harm the cap exists to prevent, reintroduced by the one selector
+    that did not consult it. ``_top_interests`` caps as it picks; a second
+    selector feeding the same page has to cap against the same budget or the
+    cap is advisory.
+
+    ``exclude_ids`` carries the interests already spoken for elsewhere on the
+    page -- the exploration hunch above all, which is chosen from this very
+    bench BEFORE rotation runs. Without it the same subject could be drawn
+    twice and render as two cards (measured: 2 of 40 ISO weeks).
+    """
+    chosen_ids = {it.get("id") for it in picked} | (exclude_ids or set())
+    bench = [it for block in (profile.get("domains") or [])
+             for it in (block.get("interests") or [])
+             if it.get("polarity") != "dislike"
+             and _fit_for_a_card(it)
+             and it.get("id") not in chosen_ids]
+    if not bench:
+        return picked[-n:] if n else []
+    iso = now.isocalendar()
+    seed = f"{iso[0]}-W{iso[1]:02d}"
+    bench.sort(key=lambda it: hashlib.sha256(
+        (seed + str(it.get("subject") or it.get("id") or "")).encode()).hexdigest())
+
+    # Spend the rotation slots against the SAME per-domain budget the ranked
+    # pick used, counting the cards we are keeping so the finished page obeys
+    # the cap rather than each half obeying it alone.
+    per_domain: dict = {}
+    for it in (keeping or []):
+        dom = it.get("domain", "Other")
+        per_domain[dom] = per_domain.get(dom, 0) + 1
+    out = []
+    for it in bench:
+        if len(out) >= n:
+            break
+        dom = it.get("domain", "Other")
+        if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
+            continue
+        out.append(it)
+        per_domain[dom] = per_domain.get(dom, 0) + 1
+    return out or (picked[-n:] if n else [])
+
+
+# Flags that mean "this is not a clean statement of an interest": prose, a
+# bare link, nothing, or a mail/calendar subject line. The profile already
+# sinks their confidence; the hunch and rotation selectors must not surface
+# them at all (Ostler #30: a LinkedIn recommendation paragraph became "A hunch").
+_UNFIT_FOR_A_CARD_FLAGS = frozenset({
+    "too_long", "too_short", "empty", "url_only",
+    "email_reply_prefix", "email_thread", "dated_subject",
+})
+
+
+def _fit_for_a_card(it: dict) -> bool:
+    return not (_UNFIT_FOR_A_CARD_FLAGS & set(it.get("flags") or ()))
+
+
+def exploration_pick(profile: dict, picked: list[dict],
+                     exclude_ids: set | None = None) -> dict | None:
     """The E4 anti-filter-bubble pick: the strongest liked interest that did
     NOT make the top set, preferring one from a domain the page is not already
     showing (adjacent beats merely-next). ``None`` when nothing is left - a
     thin profile has no sub-threshold pool to explore."""
-    picked_ids = {it.get("id") for it in picked}
+    picked_ids = {it.get("id") for it in picked} | (exclude_ids or set())
     picked_domains = {it.get("domain") for it in picked}
     pool = [it for block in profile.get("domains", [])
             for it in block.get("interests", [])
             if it.get("polarity") != "dislike"
+            and _fit_for_a_card(it)
             and it.get("id") not in picked_ids]
     if not pool:
         return None
@@ -369,7 +628,7 @@ def exploration_card(it: dict, now: datetime, ledger=None) -> dict:
     created = fe or now
     card = _make_card(
         "interest", key,
-        title=it["subject"],
+        title=display_subject(it),
         body=("A hunch, based on what Ostler already knows you're into - "
               "say if it lands."),
         now=now, domain=it.get("domain"),
@@ -384,6 +643,12 @@ def exploration_card(it: dict, now: datetime, ledger=None) -> dict:
     card["exploration"] = True
     if it.get("id"):
         card["sources"] = [it["id"]]
+        # ``sources`` alone covers the server-side fallback
+        # (feedback._artefact_sources) but neither browser client reads it --
+        # the renderer's data-interest-id attribute and the Tauri card schema
+        # both key off ``interest_id``. Carry both so a hunch card's tap works
+        # the same way an ordinary interest card's does.
+        card["interest_id"] = it["id"]
     return card
 
 
@@ -424,11 +689,45 @@ def apply_card_states(cards: list[dict], states: dict | None,
 # The feed builder (pure)
 # ---------------------------------------------------------------------------
 
-def _top_interests(profile: dict) -> list[dict]:
+def resting_interest_ids(profile: dict, ledger: dict | None,
+                         now: datetime) -> set:
+    """Interest ids standing down in their cooldown window RIGHT NOW.
+
+    Computed before anything is selected, and that ordering is the whole
+    point. The recycle originally marked a card as resting only after the
+    twelve had been chosen and then deleted it, with nothing pulled up to fill
+    the hole -- so a mature install shipped a SHORT page. Measured
+    2026-09-13 over 200 installs with ages spread across the cycle: a mean of
+    7.6 interest cards out of 12, as low as 4, and not one full page. The feed
+    got emptier, which is the opposite of what the recycle was for.
+
+    Deciding first means a resting interest is never a candidate, so the next
+    one down takes the slot and the page stays full.
+    """
+    if not ledger:
+        return set()
+    cycle = INTEREST_TTL_DAYS + INTEREST_COOLDOWN_DAYS
+    out = set()
+    for block in (profile.get("domains") or []):
+        for it in (block.get("interests") or []):
+            iid = it.get("id")
+            if not iid:
+                continue
+            age = _age_days(card_ledger.first_emitted(
+                ledger, card_id("interest", iid)), now)
+            if age is not None and age % cycle >= INTEREST_TTL_DAYS:
+                out.add(iid)
+    return out
+
+
+def _top_interests(profile: dict, exclude_ids: set | None = None) -> list[dict]:
     """Flatten the profile's domain blocks into a single ranked list, capped per
-    domain so no one domain dominates the feed."""
+    domain so no one domain dominates the feed. ``exclude_ids`` drops interests
+    resting in their recycle cooldown, so their slots go to the next candidates
+    down instead of being deleted from the finished page."""
     per_domain: dict[str, int] = {}
     picked: list[dict] = []
+    exclude_ids = exclude_ids or set()
     blocks = sorted(profile.get("domains", []),
                     key=lambda b: -sum(i.get("score", 0) for i in b.get("interests", [])))
     # interleave round-robin-ish by taking the domains' tops in score order
@@ -438,6 +737,8 @@ def _top_interests(profile: dict) -> list[dict]:
             pool.append(it)
     pool.sort(key=lambda it: it.get("score", 0.0), reverse=True)
     for it in pool:
+        if it.get("id") in exclude_ids or not _fit_for_a_card(it):
+            continue
         dom = it.get("domain", "Other")
         if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
             continue
@@ -464,7 +765,7 @@ def card_class(card: dict) -> str:
     class is the signal type (reply_debt / gone_quiet / key-date via birthday /
     commitment); a scout-produced card (source ``ostler:scout_*``) is class
     ``scout`` whatever its kind (a digest is ``kind: interest`` but its novelty
-    is perishable - half-life 3 days, not 540); every other kind is its own
+    is perishable - half-life 3 days, not 30); every other kind is its own
     class. Drives both the age half-life (``HALF_LIFE_BY_CLASS``) and, for
     signals, which band the builder used."""
     if card.get("kind") == "signal":
@@ -475,6 +776,17 @@ def card_class(card: dict) -> str:
     if str(card.get("source") or "").startswith("ostler:scout_"):
         return "scout"
     return card.get("kind", "")
+
+
+def _age_days(created, now):
+    """Whole-and-fractional days since `created`, or None when unreadable."""
+    dt = _parse_dt(created) if not isinstance(created, datetime) else created
+    if dt is None:
+        return None
+    try:
+        return max(0.0, (now - dt).total_seconds() / 86400.0)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _apply_ledger_age(cards: list[dict], ledger: dict | None,
@@ -494,11 +806,39 @@ def _apply_ledger_age(cards: list[dict], ledger: dict | None,
             fe = card_ledger.first_emitted(ledger, c["id"])
             if fe:
                 c["created_utc"] = fe
+        # INTEREST RECYCLE. Age from first emission never resets, so without
+        # this a decaying interest sinks for ever and a real favourite is
+        # retired by the passage of time alone. An interest runs for
+        # INTEREST_TTL_DAYS, stands down for INTEREST_COOLDOWN_DAYS, then
+        # returns on a FRESH cycle with its decay clock restarted. The
+        # effective age is its position within the current cycle, not its
+        # absolute age, which is what makes "fades slowly, never vanishes"
+        # true by construction rather than by refusing to decay.
+        if card_class(c) == "interest":
+            age = _age_days(c.get("created_utc"), now)
+            if age is not None:
+                cycle = INTEREST_TTL_DAYS + INTEREST_COOLDOWN_DAYS
+                pos = age % cycle
+                if pos >= INTEREST_TTL_DAYS:
+                    c["_resting"] = True      # in cooldown: stand it down
+                else:
+                    c["created_utc"] = (
+                        now - timedelta(days=pos)).isoformat()
         half_life = HALF_LIFE_BY_CLASS.get(card_class(c))
         if half_life:
             c["priority"] = round(
                 decay_priority(c["priority"], c.get("created_utc"), now,
                                half_life_days=half_life), 4)
+
+
+def drop_resting(cards: list[dict]) -> list[dict]:
+    """Remove interests standing down in their cooldown window.
+
+    _apply_ledger_age marks them; without this they were marked and kept, so
+    the recycle changed nothing at all. Flagging a card and then shipping it is
+    the same shape as a check that records a failure and returns success.
+    """
+    return [c for c in cards if not c.get("_resting")]
 
 
 def privacy_gate(cards: list[dict]) -> list[dict]:
@@ -566,6 +906,83 @@ def _apply_feed_caps(cards: list[dict]) -> list[dict]:
     return kept[:MAX_FEED_CARDS]
 
 
+# ---------------------------------------------------------------------------
+# What may become an interest CARD (#106c, items h and i; Andy's walk
+# 2026-09-28). The Front Page showed a raw social hashtag, including a
+# political memorial one, as "one of the things Ostler reckons you're into",
+# and a hunch titled with a page's SEO suffix. Two rules:
+#   * a hashtag is not an interest; and a political, religious, health or
+#     sexuality topic is special-category data that must not be surfaced as a
+#     "thing you're into" by inference (it is not deleted, only not carded);
+#   * a subject that is a page title loses its site suffix.
+# ---------------------------------------------------------------------------
+import re as _re
+
+_SENSITIVE_STEMS = (
+    "politic", "election", "memorial", "campaign", "protest", "maga",
+    "democrat", "republican", "conservative party", "labour party", "tory",
+    "religio", "church", "mosque", "synagogue", "temple", "islam", "muslim",
+    "christian", "catholic", "jewish", "judaism", "hindu", "sikh", "atheis",
+    "diabet", "cancer", "hiv", "aids", "depress", "anxiety", "mental health",
+    "therapy", "rehab", "addiction", "ozempic", "wegovy", "pregnan", "ivf",
+    "fertility", "abortion", "lgbt", "gay", "lesbian", "transgender",
+    "sexual", "trade union",
+)
+
+_SITE_SUFFIX = _re.compile(
+    r"\s+[-|\u2013\u2014:]\s+(?:the\s+)?(?:best|official|home|homepage|"
+    r"welcome|site|website|web site|online|[\w.-]+\.(?:com|org|net|co\.uk|io|hk))"
+    r"(?:\s+(?:site|website|page|home))?\s*$",
+    _re.IGNORECASE,
+)
+
+
+def card_subject(subject: str) -> str:
+    """A card-ready subject: trimmed of a trailing site/SEO suffix."""
+    out = (subject or "").strip()
+    for _ in range(2):
+        cleaned = _SITE_SUFFIX.sub("", out).strip()
+        if cleaned == out or not cleaned:
+            break
+        out = cleaned
+    return out
+
+
+def is_cardable_interest(it: dict) -> bool:
+    """False for a hashtag or a special-category topic (see above)."""
+    subject = (it.get("subject") or "").strip()
+    if not subject or subject.startswith("#"):
+        return False
+    if not any(ch.isalpha() for ch in subject) or _EMAIL_SHAPE.match(subject):
+        return False  # a bare number or address is not a thing to be into
+    low = subject.lower()
+    if any(stem in low for stem in _SENSITIVE_STEMS):
+        return False
+    if (it.get("privacy") or "").upper() == "L3":
+        return False
+    return True
+
+
+def _cardable_profile(profile: dict) -> dict:
+    """A copy of the profile holding only card-worthy interests, subjects
+    cleaned. The profile itself is untouched (the assistant still reads it)."""
+    out = dict(profile)
+    domains = []
+    for block in profile.get("domains", []) or []:
+        b = dict(block)
+        kept = []
+        for it in block.get("interests", []) or []:
+            if not is_cardable_interest(it):
+                continue
+            it2 = dict(it)
+            it2["subject"] = card_subject(it.get("subject") or "")
+            kept.append(it2)
+        b["interests"] = kept
+        domains.append(b)
+    out["domains"] = domains
+    return out
+
+
 def build_frontpage(profile: dict, *, now: datetime | None = None,
                     settling: dict | None = None,
                     card_states: dict | None = None,
@@ -590,6 +1007,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
     anything else = fail-closed deny -> proactive families suppressed and one
     honest pro-locked card shown."""
+    profile = _cardable_profile(profile or {})
     now = now or datetime.now(timezone.utc)
     phase = decide_phase(profile, settling)
     cards: list[dict] = []
@@ -605,18 +1023,48 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     # Interest cards: always carry whatever real signal we have so the page is
     # never empty - they just rank below the settling/onboarding cards until the
     # profile is rich enough to lead (steady).
-    tops = _top_interests(profile)
+    # Decide the recycle BEFORE selecting, never after. See
+    # resting_interest_ids: marking a chosen card and then deleting it shipped
+    # a short page, because nothing filled the hole it left.
+    resting = resting_interest_ids(profile, ledger, now)
+    tops = _top_interests(profile, exclude_ids=resting)
 
     # E4 exploration slot: only when the profile actually saturates the cap
     # does one slot go to an honest hunch (an adjacent, sub-threshold pick).
     # Suppressed in demo mode like every other proactive family; ``exploration
     # = False`` is the emitter's kill switch.
     hunch = None
+    pick = None   # bound here: rotation below reads it even when no hunch ran
     if exploration and not demo and len(tops) >= MAX_INTEREST_CARDS:
-        pick = exploration_pick(profile, tops)
+        pick = exploration_pick(profile, tops, exclude_ids=resting)
         if pick is not None:
             tops = tops[:MAX_INTEREST_CARDS - 1]
             hunch = exploration_card(pick, now, ledger=ledger)
+
+    # ROTATION. One hunch was not enough to make a visit feel different, so
+    # ROTATION_SLOTS of the twelve are held back from the ranked top and given
+    # to the next candidates down, cycling on the ISO week so the choice is
+    # stable within a week and moves between weeks. The majority of the feed is
+    # still earned by rank; this stops the tail being unreachable for ever.
+    # NOTE the threshold is MAX_INTEREST_CARDS - 1: the exploration block above
+    # has already trimmed tops by one, so testing >= MAX_INTEREST_CARDS here
+    # was false whenever a hunch was picked, and rotation silently never ran.
+    # Rotation rides the SAME kill switch as the hunch: both exist to stop the
+    # feed being only "the best twelve", and `exploration=False` is the
+    # emitter's one way to turn that family off. It must also preserve the card
+    # COUNT exactly -- swapping which interests appear, never how many -- or it
+    # silently shrinks a full page.
+    if (exploration and not demo and ROTATION_SLOTS > 0
+            and len(tops) >= MAX_INTEREST_CARDS - 1):
+        want = len(tops)
+        keep = max(0, want - ROTATION_SLOTS)
+        spoken_for = set(resting)
+        if pick is not None:
+            spoken_for.add(pick.get("id"))   # the hunch is already on the page
+        swapped = _rotation_picks(profile, tops, now, want - keep,
+                                  keeping=tops[:keep], exclude_ids=spoken_for)
+        if len(swapped) == want - keep:
+            tops = tops[:keep] + swapped
 
     n = len(tops)
     for rank, it in enumerate(tops):
@@ -645,6 +1093,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     _apply_ledger_age(cards, ledger, now)
     cards = [c for c in cards if not is_expired(c, now)]
     cards = apply_card_states(cards, card_states, now)
+    cards = drop_resting(cards)
     cards = privacy_gate(cards)
     cards = entitlement_gate(cards, entitled, now)
     cards.sort(key=lambda c: c.get("priority", 0.0), reverse=True)

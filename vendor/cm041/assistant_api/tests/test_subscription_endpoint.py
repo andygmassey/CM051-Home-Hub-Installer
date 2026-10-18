@@ -30,6 +30,7 @@ import os
 import sys
 import tempfile
 import types
+import typing
 import unittest
 from pathlib import Path
 
@@ -62,6 +63,28 @@ def _install_stub_ostler_security():
     posture_mod = types.ModuleType("ostler_security.posture")
     posture_mod.record_posture = lambda *args, **kwargs: None
     sys.modules["ostler_security.posture"] = posture_mod
+
+    # ical-server also imports ostler_security.db_key inside the same
+    # hard-fail bracket as the two above, so the stub has to carry it or
+    # the module refuses to load. resolve_db_key returns the "no key
+    # configured" shape, which is what this harness wants: these tests
+    # are about the wire shape, not about encryption, and a stub that
+    # handed back a key would have the service try to open SQLCipher
+    # databases that do not exist here.
+    db_key_mod = types.ModuleType("ostler_security.db_key")
+    db_key_mod.SOURCE_ENV = "OSTLER_DB_KEY"
+    db_key_mod.SOURCE_KEY_FILE = "OSTLER_DB_KEY_FILE"
+    db_key_mod.REASON_NO_KEY = "no_key"
+
+    class _DbKey(typing.NamedTuple):
+        key: typing.Optional[str]
+        source: typing.Optional[str]
+        reason: typing.Optional[str]
+        detail: typing.Optional[str]
+
+    db_key_mod.DbKey = _DbKey
+    db_key_mod.resolve_db_key = lambda: _DbKey(None, None, "no_key", None)
+    sys.modules["ostler_security.db_key"] = db_key_mod
 
 
 def _load_ical_server():

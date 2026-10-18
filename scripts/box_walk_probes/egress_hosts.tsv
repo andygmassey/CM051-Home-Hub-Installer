@@ -50,6 +50,64 @@ formulae.brew.sh	installer: Homebrew formula index (29 `brew install` call sites
 pypi.org	installer: Python dependency resolution (57 pip call sites)	package names and versions.
 files.pythonhosted.org	pypi.org wheel CDN	HTTPS GET of public wheels. No request body.
 #
+#
+# ── DECLARED NETWORKS, NOT NAMES. ADDED 2026-09-18. READ THIS BEFORE THE ROWS. ─
+#
+#    Every row above is a HOSTNAME and the probe resolves it on the box, in the
+#    same call as the socket read. The four rows below are CIDRs, and they are a
+#    DELIBERATELY WEAKER CLAIM: they attribute the OWNER of an address and say
+#    nothing about which of that owner's services answered. The probe keeps them
+#    in their own bucket and its own printed block for exactly that reason. A
+#    name match always wins; a CIDR only ever holds what no name could reach.
+#
+#    WHY THEY EXIST. On 2026-08-27 the walk found tailscaled holding
+#    199.165.136.100:443 and could not explain it. It was carried as an
+#    unexplained finding for three weeks. Explained 2026-09-18, on the box:
+#
+#      the holder is /opt/homebrew/bin/tailscaled under the Ostler LaunchAgent
+#        com.creativemachines.ostler.tailscaled, state in ~/.ostler/tailscale,
+#        so it IS ours and the attribution exclusion list is right to keep it
+#      ARIN registers 199.165.136.0/24 to Tailscale Inc. (NetName TAILS)
+#      it is in NEITHER derp map: not the anonymous default (88 nodes) and not
+#        the map this client itself holds (88 nodes across 47 distinct /24s,
+#        none of them 199.165.136)
+#      it shares no /24 with anything controlplane, login or log resolved to
+#      it refuses an ordinary TLS handshake under every SNI tried, alert 80,
+#        while the SAME request to a DNS-published control address verifies and
+#        answers HTTP -- a positive control proving the method could speak
+#      tailscaled's own stderr logs "control: netmap: got new dial plan from
+#        control" and "controlhttp: forcing port 443 dial due to recent noise
+#        dial"
+#
+#    A dial plan is control handing the client addresses to reach CONTROL on
+#    that are deliberately absent from DNS, and the Noise transport is not TLS,
+#    which is why no certificate can ever be read from it. The destination is
+#    already declared by name two sections up. It is simply unreachable by the
+#    only instrument this probe has for names.
+#
+#    WHAT KEEPS THIS NARROW, and each of the three is checkable rather than
+#    asserted:
+#      1. The blocks come from a registry query anyone can repeat:
+#         curl -H 'Accept: application/json' https://whois.arin.net/rest/org/TAILS/nets
+#      2. They are a CLOSED set. That query returns four blocks for Tailscale
+#         Inc. and no more, so this is not a range that grows quietly.
+#      3. The LOCAL-NETWORK boundary regex is untouched. Every destination
+#         outside these blocks is exactly as loud as it was yesterday.
+#
+#    THE IPv6 BLOCK IS NOT A ROW. ARIN also registers 2606:B740::/32 to
+#    Tailscale. It is recorded here and NOT as a row because the probe does no
+#    IPv6 containment -- there is no equivalent minimum announced prefix to
+#    reason from, the same refusal the pool arm makes. A row the probe cannot
+#    act on would look like coverage and provide none.
+#
+#    WHAT THIS STILL DOES NOT SAY: not which service, not what crossed, not
+#    that the session was what the daemon says it was. The Noise session is not
+#    readable and this probe never reads content. It narrows an unexplained
+#    address to a named owner whose relationship with the product is declared
+#    in four rows above. It does not certify the traffic.
+192.200.0.0/24	tailnet: Tailscale Inc. network (ARIN NetName TAILS). Where controlplane.tailscale.com and login.tailscale.com resolve, and where control's dial plan hands out alternates that DNS does not publish.	the Noise-encrypted control session: node keys and endpoints. OWNER ATTRIBUTED, SERVICE NOT -- the session is not readable and this row does not claim to know which endpoint answered.
+199.165.136.0/24	tailnet: Tailscale Inc. network (ARIN NetName TAILS). Observed holding a persistent control connection from Ostler's own tailscaled, 2026-08-27 and 2026-09-18, explained above.	as above. OWNER ATTRIBUTED, SERVICE NOT.
+23.132.248.0/24	tailnet: Tailscale Inc. network (ARIN NetName TAILSCALE). Declared for completeness of the registry set, not because a connection to it has been observed.	as above. OWNER ATTRIBUTED, SERVICE NOT. NOT YET OBSERVED on any box: this row is a claim about ownership, and if it ever attributes a connection that fact is worth reading twice.
 # ── tailnet, the rest of it ──────────────────────────────────────────────────
 login.tailscale.com	tailnet: device authentication	Tailscale account auth. Ours only in that we ship the client.
 derp*.tailscale.com	tailnet: encrypted relay when a direct path is unavailable	end-to-end encrypted packets Tailscale cannot read. The relay set is fetched live from the DERP map, so the address list is not fixed and must be resolved contemporaneously.

@@ -271,14 +271,41 @@ echo the real installer}"
                  PAYLOAD_TEXT="${PAYLOAD_TEXT-$repo_text}" ATTACH_RC="${ATTACH_RC:-0}" \
                  bash "$SCRIPT_PATH" --job-status "$js" 2>&1)" || rc=$?
 
-        local ok=1
-        [ "$rc" -eq "$want_rc" ] || ok=0
-        if [ -n "$needle" ] && ! printf '%s' "$out" | grep -qF "$needle"; then ok=0; fi
+        local ok=1 why=""
+        [ "$rc" -eq "$want_rc" ] || { ok=0; why="rc"; }
+        # CASE ON THE CAPTURED STRING, not `printf | grep -qF`. This file
+        # already made that decision once, at the spctl check above: "grep
+        # exits 0 on the first match and closes the pipe, and printf can take
+        # SIGPIPE. Test the captured string." The same reasoning applies here
+        # and this site was missed.
+        #
+        # WHY IT MATTERS HERE RATHER THAN BEING TIDINESS: this script runs
+        # `set -uo pipefail` (line 56). If grep exits before printf has
+        # finished writing, printf takes SIGPIPE, pipefail makes the whole
+        # pipeline non-zero, and the leading `!` turns that into "needle NOT
+        # found" for a needle that IS present. It fails INTERMITTENTLY, on
+        # scheduling, which is the worst shape a gate can have.
+        #
+        # MEASURED 2026-09-16: control 10, the discriminating control, reported
+        # NOT OK on a hosted macOS runner with "want rc=0 got 0" -- rc matched
+        # and its own dumped output contained the needle verbatim. The same
+        # self-test passes 11/11 locally. A case statement has no pipe, no
+        # second process and no timing, so the question cannot arise.
+        if [ -n "$needle" ]; then
+            case "$out" in
+                *"$needle"*) : ;;
+                *) ok=0; why="${why:+$why+}needle" ;;
+            esac
+        fi
 
         if [ "$ok" -eq 1 ]; then
             printf '  ok    %-62s (rc=%s)\n' "$desc" "$rc"; pass=$((pass + 1))
         else
-            printf '  NOT OK %-61s want rc=%s got %s\n' "$desc" "$want_rc" "$rc"
+            # NAME WHICH CONDITION FAILED. This used to print only rc, so a
+            # needle miss rendered as "want rc=0 got 0" -- the two numbers
+            # equal, and nothing saying the needle was the problem. That cost
+            # real time to diagnose on 2026-09-16.
+            printf '  NOT OK %-61s [%s] want rc=%s got %s\n' "$desc" "${why:-?}" "$want_rc" "$rc"
             [ -n "$needle" ] && printf '        expected to find: %s\n' "$needle"
             printf '%s\n' "$out" | sed 's/^/        | /'
             fail=$((fail + 1))

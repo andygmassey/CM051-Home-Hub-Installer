@@ -151,6 +151,17 @@ self_test() {
     probe_examined 4 "synthetic installs missing/adding one declared subject (negative control)"
 
     command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH for the negative control"
+    # THE SAME INTERPRETER CHOICE AS THE MEASUREMENT, for the same reason: the
+    # cron arm parses TOML, and tomllib arrived in 3.11. A driver whose python3
+    # is the macOS system 3.9 (measured on the walk Studio 2026-09-26) made the
+    # cron case silently name nothing, so the self-test read BROKEN for a
+    # reason that had nothing to do with the probe.
+    _stpy=""
+    for _c in "$HOME/.ostler/python/bin/python3" "$HOME/.ostler/.venv/bin/python3" python3 python3.13 python3.12 python3.11; do
+        command -v "$_c" >/dev/null 2>&1 || [ -x "$_c" ] || continue
+        if "$_c" -c 'import tomllib' >/dev/null 2>&1; then _stpy="$_c"; break; fi
+    done
+    [ -n "$_stpy" ] || probe_cannot_run "no python with tomllib (3.11+) on this driver, so the cron negative control cannot be taken. Tried ~/.ostler/python, ~/.ostler/.venv, python3, python3.11-3.13."
     [ -r "$VERIFIER" ] || probe_cannot_run "verifier not readable for the negative control"
 
     local work
@@ -163,7 +174,7 @@ self_test() {
     # A COMPLETE synthetic install: every REQUIRED (unconditional) launch_agent
     # present, so the only failure in each case below is the one it injects.
     local L
-    for L in com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.enrich com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage; do
+    for L in com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.ollama-watchdog com.ostler.listener-watchdog com.ostler.enrich com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage; do
         printf '<plist><dict><key>Label</key><string>%s</string></dict></plist>\n' "$L" > "$la/$L.plist"
     done
     printf '[[cron.jobs]]\nid = "morning-brief"\n[[cron.jobs]]\nid = "evening-wrap"\n' > "$work/.ostler/assistant-config/config.toml"
@@ -173,7 +184,7 @@ self_test() {
     # CASE 1: remove a REQUIRED launch agent (doctor; colima is only conditional)
     # -> must FAIL and NAME it.
     rm -f "$la/com.ostler.doctor.plist"
-    out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type launch_agent 2>&1)"; rc=$?
+    out="$("$_stpy" "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type launch_agent 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ] || ! grep -q 'com.ostler.doctor' <<< "$out"; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a missing required LaunchAgent (com.ostler.doctor) was not named as a failure. The gate is blind to absence."
     fi
@@ -181,7 +192,7 @@ self_test() {
 
     # CASE 2: add an undeclared launch agent -> must FAIL and NAME it.
     printf '<plist><dict><key>Label</key><string>com.ostler.mystery</string></dict></plist>\n' > "$la/com.ostler.mystery.plist"
-    out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type launch_agent 2>&1)"; rc=$?
+    out="$("$_stpy" "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type launch_agent 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ] || ! grep -q 'com.ostler.mystery' <<< "$out"; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: an undeclared LaunchAgent (com.ostler.mystery) was not named. The produced-but-not-declared direction is dead."
     fi
@@ -189,14 +200,14 @@ self_test() {
 
     # CASE 3: drop a required cron job -> must FAIL and NAME it.
     printf '[[cron.jobs]]\nid = "morning-brief"\n' > "$cfg"
-    out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type cron_job 2>&1)"; rc=$?
+    out="$("$_stpy" "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type cron_job 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ] || ! grep -q 'evening-wrap' <<< "$out"; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a missing required cron job (evening-wrap) was not named. #619 would pass this gate."
     fi
 
     # CASE 4: a required qdrant collection missing -> must FAIL and NAME it. The
     # store is injected via the test seam so the control needs no live Qdrant.
-    out="$(OSTLER_MANIFEST_QDRANT_OVERRIDE="people,preferences" python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type qdrant_collection 2>&1)"; rc=$?
+    out="$(OSTLER_MANIFEST_QDRANT_OVERRIDE="people,preferences" "$_stpy" "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type qdrant_collection 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ] || ! grep -q 'conversations' <<< "$out"; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a missing required qdrant collection (conversations) was not named. #615 absence would ship silently."
     fi

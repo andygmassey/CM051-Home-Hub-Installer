@@ -7,7 +7,7 @@ from typing import AsyncIterator, Optional
 from datetime import datetime
 import aiofiles
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, describe_json_parse_failure
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ class TikTokParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         browsing_list = data.get('BrowsingHistory', {}).get('BrowsingHistoryList', [])
@@ -121,7 +121,7 @@ class TikTokParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         favorites_list = data.get('FavoriteVideos', {}).get('FavoriteVideosList', [])
@@ -149,7 +149,7 @@ class TikTokParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         # Navigate defensively: a malformed export may hand us a bare list,
@@ -196,7 +196,7 @@ class TikTokParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         like_list = data.get('Activity', {}).get('LikeList', {}).get('ItemFavoriteList', [])

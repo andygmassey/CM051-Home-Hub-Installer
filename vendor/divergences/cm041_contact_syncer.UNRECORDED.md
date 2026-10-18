@@ -100,3 +100,175 @@ row protects any file under this tree. The true count is zero.
   method above is written down so that is cheap.
 - `verify = "full"` on this row is therefore a claim the tree does not meet.
   Retiring that properly needs the CM041 owner, not a cut-time edit.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM): one phone number, one person (CM041 #182, CM051 #2545)
+
+`vendor/cm041/contact_syncer/syncer.py`, two hand-grafted edits from CM041
+86499ed6. This tree is `regenerate_forbidden`, so the patch cannot record them.
+
+1. The Qdrant payload `"phones"` list is normalised to E.164 with
+   `normalise_phone(..., self.resolver.default_country_code)`, and empty values
+   are dropped, so the payload agrees with the Oxigraph identifier it mirrors.
+2. The Oxigraph create path keeps a `seen_phones` set and writes a number
+   once, even when one vCard carries it in two formats.
+
+The normalisation on the create and update paths (the BW-1 graft) was already
+here and is unchanged.
+
+### What a future sync must preserve
+
+Both edits. Retire this entry when the pin moves past 86499ed6.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM): a kinship word never becomes a permanent displayName (CM041 #185, CM051 #2556)
+
+`vendor/cm041/contact_syncer/relationship_labels.py` -- NEW FILE, reproduced
+verbatim from CM041 main (the predicate, `_load()`'s default kinship set and
+`_load()`/`explain()` plumbing; no logic change needed, so no divergence of
+its own). `name_election.py` already used this predicate in this vendored
+tree before this change; it did not exist at this tree's pin, so this entry
+also newly vendors the file itself, not only the six call sites below.
+
+Six write sites, each one hand-grafted (this tree is `regenerate_forbidden`,
+so the patch cannot record them), all routing through the SAME
+`is_relationship_label` rather than a new predicate:
+
+- `instagram_social.py`, `facebook_friends.py`, `linkedin_connections.py`:
+  `create_person_oxigraph` -- `fn = "" if is_relationship_label(...) else
+  _escape(...)`.
+- `linkedin_career.py`: `_create_person_from_endorser`, same shape.
+- `owner_node.py`: `build_owner_sparql` -- special-cased. This function's own
+  contract is "decline, never overwrite" (`INSERT..WHERE FILTER NOT
+  EXISTS`), so a refused name skips the name clause ENTIRELY rather than
+  inserting an empty string, which would satisfy the filter forever and
+  permanently lock the owner out of a later, corrected name.
+- `syncer.py`: `_create_person_oxigraph` (new node, `""` is safe) AND
+  `_update_person_oxigraph` -- the sharper bug: the update path deletes
+  `pwg:displayName` unconditionally then only re-inserts `if fn:`, so an
+  incoming "Mum" used to DELETE an existing GOOD name and replace it with
+  nothing. Fixed by dropping `pwg:displayName` from that run's delete set
+  entirely when the incoming value is a relationship label, leaving
+  whatever is already on the node untouched.
+
+WHY: "Mum", "Wife", "Dad" and similar bare kinship/household terms say how
+SOMEBODY refers to this person, not who they are -- and on a shared
+household device that somebody is usually not the account owner. Matches
+the WHOLE label only: "Mum Zhang" is a plausible real name and is never
+touched.
+
+A SEVENTH site, `identity_resolver/resolver.py`'s `create_person`, is
+recorded separately in `WRITER_READER_MISMATCHES.UNRECORDED.md` (that
+tree's own `unrecorded_divergence` pointer), not here.
+
+### What a future sync must preserve
+
+`relationship_labels.py` in full, the import in each of the six files
+above, and every write-site guard described. Guarded by
+`tests/test_kinship_label_write_guard_vendored.py` (CM051 repo root,
+mirroring CM041 PR #185's own test suite). Retire by landing CM041 #185
+and re-pinning.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `cm041/contact_syncer`, a non-phone value never reaches identifierType "phone" (CM051 walk-defect D)
+
+`vendor/cm041/contact_syncer/syncer.py`. A cold v1.0.107 install walk found 8 of 3,307 phone identifiers on the box
+were exactly 14 digits -- a WhatsApp-LID/internal-id shape, never a phone
+number -- all on this file's own `id_<person_id>_phoneN` identifier naming.
+`normalise_phone()` is a pass-through formatter: when `phonenumbers` cannot
+parse/validate a value it returns the ORIGINAL STRING UNCHANGED rather than
+refusing it, so a vCard "phone" field holding a LID or another app's
+internal id sailed straight through into `identifierType "phone"` at all
+three of this file's phone-writing sites.
+
+Fix: gate all three on the new `is_possible_phone` (see
+`WRITER_READER_MISMATCHES.UNRECORDED.md`'s `cm041/identity_resolver` entry
+for why `is_possible_phone`, not the stricter `is_valid_phone`), added
+immediately before each existing `normalise_phone(...)` call:
+
+- the Qdrant payload's `"phones"` list comprehension (filter clause)
+- `_create_person_oxigraph`'s phone-identifier loop (`continue` on refusal)
+- `_update_person_oxigraph`'s phone-merge loop (`v = None` on refusal)
+
+Matches CM041 PR #186 (upstream, not yet merged at time of writing).
+
+NOT GRAFTED into the repo-root (dev-tree) `./contact_syncer/syncer.py`
+twin: that tree's three phone-writing sites do not call `normalise_phone`
+at all (writes the raw vCard value directly), which is a separate,
+pre-existing, larger gap -- the dev-tree twin never received the #2545
+normalisation graft either. Flagged, not fixed here: the dev-tree twin is
+not what `gui/project.yml` bundles into the shipped app (see this file's
+and `tests/test_a_second_contact_card_cannot_be_written_onto_one_person.py`'s
+own history), so it is not the surface the walk measured.
+
+### What a future sync must preserve
+
+The `is_possible_phone` import and the three gate checks listed above.
+Guarded by `tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py`
+(CM051 repo root, mirroring CM041 PR #186's own test suite). Retire by
+landing CM041 #186 and re-pinning.
+
+## Lane 18 forget tombstone
+
+See the Nineteenth graft in cm041_assistant_api.UNRECORDED.md: the tombstone check in this tree (forget_tombstone.py, and the "forgotten" skip at each create path) is grafted from CM041 PR #200 with the rest of that graft.
+
+Tree `cm041/contact_syncer`: `syncer.py`, `facebook_friends.py`, `instagram_social.py`, `linkedin_career.py`, `linkedin_connections.py` and `linkedin_messages.py` each skip a `forgotten` match (CM041 #200 `cb98e00`).
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector)
+## Person-removal audit (CM051 cut #15 follow-up, walk #15 orphan vector; CM041 #210, squash e1107d6c)
+
+Tree `cm041/contact_syncer`. NEW CM041/HR015-side behaviour, not a graft of merged upstream: one call in `syncer.py` `_update_person_oxigraph` when an incoming blank name will delete displayName with nothing replacing it (reason `blank_incoming_name_deleted_displayName`).
+Added `person_audit.py` (byte-identical copy in every tree that carries one;
+`tests/test_person_removal_audit.py::test_the_four_copies_are_byte_identical`
+pins that) and ONE `record_person_removal(uri, component, reason)` call placed
+immediately BEFORE the removal. It appends a digest-and-shape-only JSON line to
+`~/.ostler/logs/person-deletions.jsonl`; never a name, never the URI; never
+raises. No SPARQL, no store write and no control flow of the writer changed.
+
+### What a future sync must preserve
+
+The `record_person_removal` call at each site above, and `person_audit.py`.
+Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
+the log: red against origin/main, green here), which also covers the
+`people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
+
+
+## places-ingest reports an error when its writes fail (CM051 F5, walk #16)
+
+Tree `cm041/contact_syncer`. NEW CM041/HR015-side behaviour, not a graft of merged upstream. `vendor/cm041/contact_syncer/places_ingest.py::ingest_places` printed `Done: 979 places (0 written, 979 errors) ... status=ok`: the status was set before the upsert and never revisited. One block was added after the "second loud guard" and before the final `return`: when `upsert_counts["errors"] > 0` and the status is still `ok`, the status becomes `error_write_failed` (nothing written) or `error_partial_write`, with a WARNING line. An earlier guard's status is kept. No SPARQL, no store write and no signature changed; `main()` already exited 1 for `errors > 0`.
+
+The same hunk is in `contact_syncer/places_ingest.py` (the copy `install.sh` cp -R's into the pipeline directory). This tree is `regenerate_forbidden`, so the patch cannot record it.
+
+### What a future sync must preserve
+
+The third guard in `ingest_places` (the `error_write_failed` / `error_partial_write` statuses). Guarded by `tests/test_places_ingest_total_write_failure_is_not_ok.py` (6 tests over both copies: 4 red on origin/main, 6 green here), run by `.github/workflows/places-ingest-write-failure.yml`. Retire by landing the same change in CM041 `contact_syncer/places_ingest.py` and re-pinning.
+## Added 2026-10-10, CM051 cut #17 (F6): one Facebook export imported once, a re-import keeps its node
+
+Hand-recorded, location and shape only (the tree is `regenerate_forbidden`;
+`scripts/regenerate_divergence_patch.sh cm041/contact_syncer --write` refuses).
+Not yet upstream in CM041.
+
+| file | what diverges |
+|---|---|
+| `import_all.py` | `claim_source()` + `_RUN_CLAIMS`: each source file's sha256 is claimed once per run via the file named by `OSTLER_IMPORT_RUN_LEDGER` (created per invocation by the `ostler-import` heredoc in install.sh); the Facebook Friends and Facebook Events legs skip identical bytes already imported from another root and say so |
+| `facebook_friends.py` | `friend_source_key()` (sha256 of casefolded name + friendship timestamp) written as `pwg:sourceKey` on the facebook_friend signal in both the create and enrich paths; `load_friend_index()` reads existing facebook_friend nodes once per run (by key, legacy fallback by displayName + signalDate) and a known friend is attached to that node BEFORE the fuzzy match can choose another; an unreadable index refuses the import rather than re-resolving by name |
+
+### What a future sync must preserve
+
+Proven by `tests/test_facebook_export_imports_once.py` (wired in
+`.github/workflows/forget-tombstone.yml`). RED on origin/main 23555fa7: two roots
+holding one export imported twice (`runs=[30, 30]`); a re-import with same-named
+competitor nodes put 30 of 30 friends on a second node (`fb_nodes=60 friends=30`).
+GREEN with these changes: `runs=[30]`, `fb_nodes=30 friends=30`. A sync that drops
+either change turns that test red.
+
+## 2026-10-15: `google_calendar.py` set-aside drop and `other` mapping (cm041/contact_syncer)
+
+Not yet upstream in CM041. Port patch (for the later upstream port, not pushed):
+`~/walkdriver/upstream_ports/cm041_calendar_other.patch`.
+
+| file | what diverges |
+|---|---|
+| `google_calendar.py` | `_entry_is_set_aside()` and `event_is_set_aside()`: an event from a calendar whose `calendars.json` entry has `include` false is dropped in `write_calendar_event()` and in the `import_calendar()` loop (before any store write or attendee resolution); `resolve_calendar_provenance()` returns fail-closed L3 for such an entry if asked. Then `_TYPE_DEFAULT_PRIVACY["other"] = "L1"` (an included `other` calendar was falling to L3) |
+
+Order matters: mapping `other` to L1 without the drop would surface every
+set-aside calendar (written as `type: other, include: false`) as ordinary diary.
+Proven by `tests/test_calendar_set_aside_classification.py` (RED with the `other`
+mapping alone: `test_consumer_withholds_a_set_aside_calendar` returns L1). A sync
+that drops either change turns that test red.

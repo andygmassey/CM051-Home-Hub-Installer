@@ -1,0 +1,45 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.93.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.93/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# v1.0.92 was TAGGED ONCE AT b6b667437bdae66937efd91cc5ddb78890252e2f AND
+# NEVER BUILT. check-manifest's operator-PII rows (no-operator-email,
+# no-operator-wiki-name) returned CANNOT-RUN: 660 files in the built
+# OstlerInstaller.app carried a suffix on neither _TEXT_EXTS nor
+# _COMPILED_EXTS (.icns, .car, .svg, .example, a nested .zip among them), so
+# the scan had never opened them and correctly refused to call hits=0 a
+# finding about the artefact -- the summary read 16 PASS 0 FAIL, but nothing
+# had actually been verified for those 660 files. CM051 #1944 scans an
+# unknown suffix with strings(1) and expands archives (strings cannot see
+# through deflate), mutation-proven with a matched negative control.
+#
+# v1.0.93 carries v1.0.92's (== v1.0.91's) payload UNCHANGED: hub-v0.4.80
+# (ostler-assistant commit b014faf593123676e00fa1197360f5142081705e), three
+# merged fixes (off-state toggle/slider track contrast, daemon-authenticated
+# wiki proxy hop, doctest-CI-only wiki_proxy fence). #1942 and #1944 together
+# touch only .github/workflows/cut.yml, scripts/verify_cut_manifest.py, its
+# tests, tests/TEST_WIRING.tsv and .github/workflows/vendor-integrity.yml --
+# install.sh is untouched, verified byte-identical to what v1.0.91 and
+# v1.0.92 would have shipped.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT A ROW
+# ===========================================================================
+# The check-pr-age declaration (#1942) and the operator-PII scan fix (#1944)
+# are cut MACHINERY, not shipped product behaviour, so neither gets a BOM
+# row of its own -- same precedent as v1.0.78 carrying v1.0.77's row forward
+# unchanged past the gate that could not measure it.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+OFF-STATE TOGGLE/SLIDER TRACK WAS INVISIBLE AGAINST ITS CARD (low contrast, --pc-bg-track-off / --pc-border-track-off tokens added). Verified present in the hub-v0.4.80 daemon's bundled web/dist CSS and absent from hub-v0.4.79's.	ostler-assistant	b5a3a24f	no	none	TBD	CM051 #1940
+THE DAEMON'S HOP TO THE WIKI WAS UNAUTHENTICATED, USING THE BROWSER'S CREDENTIAL INSTEAD OF ITS OWN, CAUSING A BARE NGINX 401 ON THE PERSONAL WIKI TAB ON EVERY INSTALL. wiki_proxy.rs authenticates the daemon's own hop. Verified present via the new module's distinctive strings ("Ostler/0.1 (wiki_proxy)", "wiki is still starting up") in the hub-v0.4.80 Mach-O, absent (0 occurrences) from hub-v0.4.79's.	ostler-assistant	6dbff407	no	none	TBD	CM051 #1940
+WIKI_PROXY DOC-COMMENT QUOTES BROKE THE DOCTEST CI LANE, fenced as text rather than Rust (tip of ostler-assistant main at cut-pin time, b014faf5). CI-only; no runtime behaviour change.	ostler-assistant	b014faf5	no	none	TBD	CM051 #1940
+THE DAEMON PIN, MOVED AT ALL FIVE install.sh/gui/Makefile SITES. install.sh OSTLER_ASSISTANT_VERSION to 0.4.80 and DEFAULT_ASSISTANT_TARBALL_SHA256 to the published digest; gui/Makefile DAEMON_VERSION and DAEMON_SHA256 to the same. Both digests read from the published .sha256 sidecar and re-hashed independently, never typed. Split from CM051 #1939 into #1940 so the pin gate (cut-pin-is-actually-current) classifies this PR report rather than block: it touches no cuts/**/cut.env.	CM051	c938fab9da90661b6b22582a2940f875ddf48623	no	none	TBD	CM051 #1940
+THE HUB APP PIN, SAME COMMIT, SEPARATE CAPABILITY BECAUSE IT IS A SEPARATE REPO AND A SEPARATE FAILURE. gui/Makefile HUB_APP_SHA256 names the Ostler.app bundle published for hub-v0.4.80; HUB_APP_TARBALL_NAME interpolates DAEMON_VERSION, so the hub app digest must move whenever the daemon one does or download-hub-app fails closed, exactly as it did for v1.0.81.	CM051	c938fab9da90661b6b22582a2940f875ddf48623	no	none	TBD	CM051 #1940

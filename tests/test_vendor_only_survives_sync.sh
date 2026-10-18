@@ -127,7 +127,7 @@ tree_of() {
 # check 5 does too -- otherwise a tree could be registered and never exercised.
 vo_trees="$(
 	while IFS=$'\t' read -r _vp _ _; do
-		case "${_vp:-}" in ''|'#'*) continue ;; esac
+		case "${_vp:-}" in (''|'#'*) continue ;; esac
 		tree_of "$_vp"
 	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv" | sort -u | sed '/^$/d'
 )"

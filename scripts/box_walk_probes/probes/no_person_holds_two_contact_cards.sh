@@ -124,6 +124,34 @@ SELECT (COUNT(DISTINCT ?a) AS ?n) WHERE {
   FILTER(?t IN (\"phone\", \"email\"))
 }"
 
+# NAME TIERS (DMG #27): a merge must not lose the human name. Count live Persons
+# whose displayName is a PHONE or an EMAIL and that are the target of a mergedInto
+# from a node carrying a HUMAN name. Baseline on a candidate box: ~150 of 787
+# merges. Must be 0 after hydration. The denominator is every live merge survivor.
+# Shapes mirror identity_resolver/canonical_name.py (phone: 5+ phone characters;
+# email: x@y.z); a human name is anything else non-empty.
+_NAME_PHONE='^[+()\\-.\\s0-9]{5,}$'
+_NAME_EMAIL='^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$'
+_Q_NAME_TIER_BAD="PREFIX p: <${ONTO}>
+SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE {
+  ?s a p:Person ; p:displayName ?sn .
+  ?src p:mergedInto ?s ; p:displayName ?m .
+  FILTER(REGEX(STR(?sn), \"${_NAME_PHONE}\") || REGEX(STR(?sn), \"${_NAME_EMAIL}\"))
+  FILTER(STRLEN(STR(?m)) > 0 && !REGEX(STR(?m), \"${_NAME_PHONE}\") && !REGEX(STR(?m), \"${_NAME_EMAIL}\"))
+}"
+_Q_NAME_TIER_DENOM="PREFIX p: <${ONTO}>
+SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s a p:Person . ?src p:mergedInto ?s }"
+
+# CLEAN when 0 bad; FAIL when >0; UNMEASURED when either number is not a number
+# or the denominator is 0 (nothing was merged, so a zero would be vacuous).
+adjudicate_names() {
+    case "${1}${2}" in *[!0-9]*|'') echo "UNMEASURED"; return ;; esac
+    case "${1}" in ''|*[!0-9]*) echo "UNMEASURED"; return ;; esac
+    case "${2}" in ''|*[!0-9]*) echo "UNMEASURED"; return ;; esac
+    if [ "$2" -eq 0 ]; then echo "UNMEASURED"; return; fi
+    if [ "$1" -gt 0 ]; then echo "FAIL"; else echo "CLEAN"; fi
+}
+
 # Resolve the store curl config path ON THE BOX ($HOME expands there) and decide
 # whether a usable credential exists. Called once at the top of run_probe.
 _store_resolve() {
@@ -305,6 +333,18 @@ run_probe() {
         probe_fail "${nodes} Person node(s) each carry 2+ distinct icloud_contact_uid, collapsing ${cards} Contacts cards. That is RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge -- violated in the live graph (#659)."
     fi
 
+    # NAME TIERS: a merge must not lose the human name (DMG #27).
+    local nbad nden nverdict
+    nbad="$(_sparql_scalar "$_Q_NAME_TIER_BAD")"
+    nden="$(_sparql_scalar "$_Q_NAME_TIER_DENOM")"
+    nverdict="$(adjudicate_names "$nbad" "$nden")"
+    case "$nverdict" in
+        FAIL)  probe_note "merge survivors with a phone/email displayName beside a human-named merged-in node: ${nbad} of ${nden} merge survivors"
+               probe_fail "${nbad} of ${nden} merge survivors are named by a phone number or email while a merged-in node carries a human name: the merge lost the name (name-tier rule, phone < email < human). Must be 0 after hydration." ;;
+        CLEAN) probe_note "merge survivors with a phone/email displayName beside a human-named merged-in node: 0 of ${nden}" ;;
+        *)     probe_note "name-tier check NOT MEASURED (bad='${nbad}', merge survivors='${nden}'); a zero over no merges proves nothing" ;;
+    esac
+
     # THE ZERO IS REAL. IS IT LOAD-BEARING? Ask whether anything could have
     # merged. A failure here is a NOTE, never a verdict: this query is newer
     # than the probe and must not be able to redden a healthy box.
@@ -386,6 +426,26 @@ self_test() {
     s="$(adjudicate_clean "no")"
     if [ "$s" != "UNMEASURED" ]; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: junk adjudicated '$s', expected UNMEASURED."
+    fi
+
+    # 5. The name-tier assertion must be able to FAIL (a phone-named survivor),
+    #    pass on a clean count over a real denominator, and refuse to call a zero
+    #    over no merges a pass.
+    s="$(adjudicate_names 3 150)"
+    if [ "$s" != "FAIL" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 3 of 150 phone-named survivors adjudicated '$s', expected FAIL."
+    fi
+    s="$(adjudicate_names 0 150)"
+    if [ "$s" != "CLEAN" ]; then
+        probe_pass "NEGATIVE CONTROL OVER-FIRED: 0 of 150 adjudicated '$s', expected CLEAN."
+    fi
+    s="$(adjudicate_names 0 0)"
+    if [ "$s" != "UNMEASURED" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 0 of 0 adjudicated '$s', expected UNMEASURED (a zero over no merges is vacuous)."
+    fi
+    s="$(adjudicate_names UNAVAILABLE 150)"
+    if [ "$s" != "UNMEASURED" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable count adjudicated '$s', expected UNMEASURED."
     fi
 
     probe_fail "negative control behaved correctly (counted planted over-merges, passed a clean set, survived malformed rows, and told an earned zero from an unexercised one)"

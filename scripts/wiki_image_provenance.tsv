@@ -144,3 +144,120 @@ wiki-compiler	sha256:eef628599ccca1087e785a47b0b428005f8cd6c71b525f08b7c668fc41a
 wiki-site	sha256:fb5536bded57dae3466cb5ea7a3f4c36b2330892731afe60add521d78c0e8720	fbd51c8a0fdaf73a7e768403421cc809b50483f1
 wiki-compiler	sha256:64debb2e220994e1ca07d2aaab5fdc68968db70411f33d8d203e17a511c413b8	8a7c1c3d9bd4f3f63178cdf5514fc07fe2cf7938
 wiki-site	sha256:77eee04f13b1e08e34be222847b363a2b2f09299e5a6afb1989351be29adcfab	8a7c1c3d9bd4f3f63178cdf5514fc07fe2cf7938
+wiki-compiler	sha256:a613f429fec8455f4244b18d5f9407dc8abb4bd019b3ea3b12a706233755b585	3bc0f3bbb0a58ca869bef2591ae215128e704997
+wiki-site	sha256:2287c37e9e74651576fd1e505cc7e2a5aef5352bbd66139fe323ae10a1049619	3bc0f3bbb0a58ca869bef2591ae215128e704997
+# v1.0.95 (2026-09-12/13 ORM): both images rebuilt arm64 by CM044 CI
+# (release-images.yml) from tag v0.1.32 = main HEAD 67fe4054, twelve commits
+# past the previously-pinned 3bc0f3bb (v0.1.31). Andy had asked repeatedly for
+# the decimal-hour ages fix; the twelve include it plus per-source status
+# icons, a duplicate nav entry removal, and the People/timeline + People/index
+# dated-list treatment (CM044 #275), the operator privacy/hide control (#124),
+# the "reply debt" wing (#120), and the Decisions+Commitments nav entry (#118).
+# v1.0.94 was tagged and never built on the stale 3bc0f3bb pin; rebuilt and
+# re-pinned rather than held, because a hold_ack here would have asserted
+# shipping_bugfixes_grafted = true while shipping none of them -- the pin gap
+# contained exactly the work Andy asked for.
+#
+# BOTH DIGESTS READ FROM CM044 CI's OWN "Print the digest to pin in CM051
+# install.sh" step (run 34713998954), which resolves via the full multi-type
+# Accept-header probe (#220) rather than the first digest a push prints, and
+# independently re-verified by a second instrument
+# (docker buildx imagetools inspect), both reading
+# application/vnd.oci.image.manifest.v1+json (a plain manifest, not an
+# index -- single-arch arm64 as required).
+#
+# The digest -> 67fe4054 binding was verified BY CONTENT before being
+# recorded, not taken from the CI job's claim: docker create + docker cp on
+# both new images, sha256 of the extracted file compared against
+# `git show 67fe4054:<path>` -- IDENTICAL for compiler/locale.py (carries the
+# new humanize_source_age() function, absent from the superseded image) and
+# mkdocs/overrides/stylesheets/extra.css (carries 12 pwg-settling-source-icon
+# rules, 0 in the superseded image). The superseded image's own extracted
+# files were cross-checked the same way against `git show 3bc0f3bb:<path>`
+# and also matched exactly, confirming the extraction method itself.
+wiki-compiler	sha256:d9b005cd5046dc194d088a2a90ead3586773aeee48a3328feacb66b8cfeead43	67fe40540cea040d41fa750455fafcba35cfdc55
+wiki-site	sha256:81a4bde3bacf33c2f7a92174b8e2051ca73ea62d1d23300766f6e8b96e0e6c1c	67fe40540cea040d41fa750455fafcba35cfdc55
+
+# ----------------------------------------------------------------------------
+# ADDED 2026-09-19, CM051 #2230. RESOLVED FROM THE ARTEFACT, NOT TYPED.
+#
+# The two digests below were pinned into install.sh by PR #2125, which changed
+# install.sh by two lines and nothing else, so they were HAND EDITED rather than
+# written by scripts/repin_wiki_images.sh, which writes install.sh and this file
+# together. No row was appended, and scripts/verify_cut_freshness.sh:957 treats a
+# pinned digest with no recorded binding as RED unrecorded-provenance and
+# fail-closed. That is on the CUT PATH -- cut.yml runs `make -C gui ship`, ship
+# includes package, package depends on check-freshness -- so a tag push produced
+# no DMG at all. Board row 2230.
+#
+# THE BINDING WAS NOT GUESSED. Both published images carry it, and it was read
+# back off them with an anonymous GHCR pull token:
+#
+#     ai.ostler.wiki.source_revision     7f3893fa...
+#     org.opencontainers.image.revision  7f3893fa...
+#     org.opencontainers.image.version   0.1.33
+#
+# FOUR CORROBORATIONS, because a label is metadata and can be wrong:
+#   1. CM044 tag v0.1.33 resolves to exactly 7f3893fa.
+#   2. The commit is dated 2026-09-17T15:25:22Z; the image was created
+#      2026-09-17T15:26:49Z, 87 seconds later.
+#   3. CM044's release-images.yml stamps these labels from workflow ARGs and
+#      then VERIFIES them on the pushed artefact, added by CM044 #760 after the
+#      images were found carrying the BASE image's revision -- a real 40-char
+#      SHA that resolves in somebody else's repo, so a provenance check appeared
+#      to succeed. That is the precise failure this resolution had to rule out.
+#   4. CONTROL for exactly that: the base image's own commit
+#      51b87149d227... does NOT resolve in CM044 (HTTP 422), while 7f3893fa
+#      does; and ai.ostler.wiki.source_revision is a label of ours that a base
+#      image cannot carry, and it is present.
+#
+# WHAT THIS DOES NOT CLAIM. It does not deliver CM044 #280, the Pro vault reader
+# fix, which merged AFTER v0.1.33. The artefact still ships v0.1.33 wiki images,
+# so row 971's delivery half stays open. Recording a true binding is not the
+# same as shipping a current image, and publishing a newer one is a separate,
+# deliberate decision rather than a side effect of unblocking the cut.
+# ----------------------------------------------------------------------------
+wiki-site	sha256:0af536c4cd1285fd82217bec8f19357101c9fdebb4fb94a1b8e55f8ee0f65eba	7f3893fa6f83af5f0874a073dbec56143714046e
+wiki-compiler	sha256:92da7310513c2be372ee72ca1e0a8035ba41857cdc0a171bba75e4312a05b929	7f3893fa6f83af5f0874a073dbec56143714046e
+wiki-compiler	sha256:7cd2dd8b73f2ab6a18ef569c2a510547eb7512879842c9ca5f3dffedbf99fe09	84fbb2bf84a2a92e337434cd74f1a6ff3cc572c1
+wiki-site	sha256:52bd37a1bbfc11e49007eeb0a553636d2881dd043bf744ede4a0e77516711671	84fbb2bf84a2a92e337434cd74f1a6ff3cc572c1
+wiki-compiler	sha256:1200a197d0b8fb5264f02c6db77adb68ed95fca0f37cd20759f7d4525e415107	0098aa31d3f9b81e23894f454cdf307bd98a1b0a
+wiki-site	sha256:d0664be43044247fe10b615c8208f612118eaf8e44eb1f8390bf58a6db92c320	0098aa31d3f9b81e23894f454cdf307bd98a1b0a
+wiki-compiler	sha256:629bab59d8e174f09c2915729d1f3738684ba26c000a8222f78d628e27d6e073	a2677196d352d8d201ff908fa2db0cac3d2e3496
+wiki-site	sha256:ae3df9a1013d4bd0d4bd85bc5aeee6f278c233eb23f6fc0ce9c7991c47678877	a2677196d352d8d201ff908fa2db0cac3d2e3496
+wiki-compiler	sha256:bcc505857eda31355383c309491d5e12162c74a655f0d5652683dccd8a5d11c3	c6e83c14e3ff91f489fe64fd84da43c5e9117c8a
+wiki-site	sha256:737bac06ed22c7ff51d150c046847ac4dd269736e13c54395c26225cbfb8b1d6	c6e83c14e3ff91f489fe64fd84da43c5e9117c8a
+wiki-compiler	sha256:85f4f08d4bc2e99dc31fcfc79d8c47ef6783bb05fb5139949e374a46581c1aa4	81205f5364371f3379a4c092f147e5272296f5f7
+wiki-site	sha256:d3bb77396bdf6b2bfc4bc456995d72615d381a9b5f125ce1a620c91548239cbf	81205f5364371f3379a4c092f147e5272296f5f7
+wiki-compiler	sha256:3a35b63c922bd7949041fcb9af305df608bab524dd894b904868f6f4d7ab832e	7e643a57f82339882c457337208b6cab92e3440a
+wiki-site	sha256:a63516c4858cad9d204e06c0a4d7d0bdf8cde2f0ad5bb8b0334b38b611279814	7e643a57f82339882c457337208b6cab92e3440a
+wiki-compiler	sha256:6aa459d7b148ae0e9570706a4c797b340f81a70ac79112213942ec37adc9a96e	ae83efa8fb27917572a44bdbfc43212975365500
+wiki-site	sha256:0067a2da2d805087fd66d40b9d3e7ac7b98df408cb5a459ec670d481f4ea237f	ae83efa8fb27917572a44bdbfc43212975365500
+wiki-compiler	sha256:710c4c143db536f5fda63ebaa174827d649fcfa445f4de925bb6f095587ad979	ba0ce754af3b581e8d219fc05f5f3174c7cdafa2
+wiki-site	sha256:6975a56e0f7e10f0ab8f96c951b068738621909615e83ca15cda8733f8479c47	ba0ce754af3b581e8d219fc05f5f3174c7cdafa2
+wiki-compiler	sha256:cba38d1ab95b03d2c240b9549634e2a68769dd9b9c97cd5b5d1506684f8d8691	08a49db4942ba9ec2cfac3aa81cd193c11cdac3e
+wiki-site	sha256:8cbd852fcc9537d7b87775c46ed13780788a951840ae75f4309c5cdb48b2e6d0	08a49db4942ba9ec2cfac3aa81cd193c11cdac3e
+wiki-compiler	sha256:0f5ca25c8f792840b75080a5d8956e140263d95c3b0c7c0928fe1ea816f5fc64	cc59f35fcba58e332bf44cb79cd5a8aa2c1346a5
+wiki-site	sha256:7866a3f6610141fb19bf7e5fedcdb6eba6e701024493105beea3d5502445dd4a	cc59f35fcba58e332bf44cb79cd5a8aa2c1346a5
+wiki-compiler	sha256:f2db6f8c2eec24e1979203a453c01d9efefcd1051046e49e3dc015f1c97caa2a	08f359377c957e1997f26650d6428f4d3d0748eb
+wiki-site	sha256:4ef1672ffca3b9d50c73047fd2bb71070d0b363ff7e817b981bf6a7e19d1010a	08f359377c957e1997f26650d6428f4d3d0748eb
+wiki-compiler	sha256:73f2b2e93806756581d70a1c33b5b3e6f19639063f321783248ff8f6c047607d	e3d5abe96ce1bfe27c4d6ea3b7b0d031dc6dd514
+wiki-site	sha256:14accb14ed55de56b9cc4debac1a50c91bbbaf75b1b76d3dd1d0b3ea439ea735	e3d5abe96ce1bfe27c4d6ea3b7b0d031dc6dd514
+wiki-compiler	sha256:52c7bc0f7b0548a43e9bf81aa3cc6340ee690065c12e6fa9d247ad1e9e75adf9	88b8425b2965cad0657c71825ec8fbc56802dd5a
+wiki-site	sha256:c9c51914b4b66319d56cb27110bedd3ab31661f8d050f1a7904729ed29b35b8d	88b8425b2965cad0657c71825ec8fbc56802dd5a
+wiki-compiler	sha256:0942d7a7347d78506af11654e99d4db6962195c5b3d1a13ef1d4b9dbb58d1d05	74c993f4775ccdd42df3e5139b7ad110c26a8f54
+wiki-site	sha256:a68356cadecddf153c56df8f75de5b2791f820e0c47341b3034c31ec95ae6e8e	74c993f4775ccdd42df3e5139b7ad110c26a8f54
+wiki-compiler	sha256:a76e02e09220faf776051db670390eb039cefe286c7afbd8860d102e668119b9	5175a10711d0040ad8322ed2a76dd456fa09babc
+wiki-site	sha256:b797ed7519be44b58962ecdb60e54f2daada55cc974adeb625da635fd594f07a	5175a10711d0040ad8322ed2a76dd456fa09babc
+wiki-compiler	sha256:e57dff40dbe7ff9eb04b09020f40fc9e9a01c388335c0f421303a00e6fd2a4f6	37f33694549f610c98d67440194bea38e3813e76
+wiki-site	sha256:a8472fe5e341a4d606281198bf625745d9ef4a013fd6336cb8b1f0e0ed34a56e	37f33694549f610c98d67440194bea38e3813e76
+wiki-compiler	sha256:e6bc14607fa02c9c89ea759d3105d10b71dd2948e142934706387dc4361b29f5	d6ba3a0178889ac65931b8323bb20cf5a418e0e3
+wiki-site	sha256:bfeec0e3e673dc107548ddd26f7432b57b9e741a9b7ebb00fe3b994fdc14c9f7	d6ba3a0178889ac65931b8323bb20cf5a418e0e3
+wiki-compiler	sha256:e17730bf95cdba0e195240b95074c34c48e8507e6ff1ac66e666e23d18645817	a6a7107cdbc37be6e72d1c17e04628dbf7a52362
+wiki-site	sha256:d87ca8231dfa82acc8c775d858f4efd5f0029c19df5029c1845b958d654b7da0	a6a7107cdbc37be6e72d1c17e04628dbf7a52362
+wiki-compiler	sha256:2265d9e1b731f661d9dc4fe11622db3a0d38da961768a0fb66c9fed481acd380	443d8f51985b823d19d9af5c61f11b103413c670
+wiki-site	sha256:5dcbcb8fffe3c4b7064fb38034e1540aed8c6f39da889ac943babdf3ba62fe25	443d8f51985b823d19d9af5c61f11b103413c670
+wiki-compiler	sha256:094e2e46e9497fc53d70619c0cda83606da715ca21f3e7d7479dfb9cbe03f5f0	c20db124075788ae3875a2c9e7be4c8dc7c99ae1
+wiki-site	sha256:3ff1b32fd04f34f95c3987592fea1c723661a961c61422134b2511ba60ae16bc	c20db124075788ae3875a2c9e7be4c8dc7c99ae1
+wiki-compiler	sha256:87689b8179c1fb06363fa2fb3b8b356ae46a15e584beefb1b9b9f6e9ed1d085a	5ae073b30885ccc52cb7f6e5c56ee542637cefc3
+wiki-site	sha256:4f11ef5051828290eed9b1b620951ee28d04f1fe10102e73cd58b15234105635	5ae073b30885ccc52cb7f6e5c56ee542637cefc3

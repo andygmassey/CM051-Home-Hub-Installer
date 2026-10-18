@@ -43,5 +43,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      # pwg_ingest imports phonenumbers at module scope (CM051 #2543: a
+      # WhatsApp LID must be told apart from a genuine phone number), so
+      # without it the import fails and every assertion errors rather than
+      # running -- not a failing assertion, an unimportable module.
+      - name: Install the module's runtime dependencies
+        run: python -m pip install --quiet phonenumbers
       - name: A creation write cannot outrank the name rule
         run: bash tests/test_creation_name_writes.sh

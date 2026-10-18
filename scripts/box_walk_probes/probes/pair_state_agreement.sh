@@ -249,6 +249,36 @@ signal_pair_marker() {
     # cannot contradict itself -- so the probe could only ever say INSUFFICIENT
     # while sitting on top of a real split-brain.
     #
+    # ── AND IT IS WORSE THAN EMPTY: NOTHING ANYWHERE WRITES IT ─────────────
+    #
+    # The fix below stopped this signal LYING. It did not answer the question
+    # the row asked, which is whether the path is alive at all. Measured
+    # 2026-09-16 across all three places a writer could live, each with a
+    # positive control of the same shape on the same corpus:
+    #
+    #   CM051 itself      0 writers   control: wiki_password, 7 hits in install.sh
+    #   vendor/ trees     0 mentions  control: qdrant, hits in vendor/
+    #   ostler-assistant  0 mentions  control: devices.db, 3 hits in api_pairing.rs
+    #
+    # So this is not a signal that happens to be quiet on one box. It is a
+    # DEAD PATH: no shipped component has ever created it, and none can. It
+    # will return ABSENT on every box for ever.
+    #
+    # THE OTHER SIGNAL IS NOT DEAD, and the contrast is the point.
+    # ~/.ostler/<workspace>/devices.db IS written by the shipped daemon:
+    # ostler-assistant f641c0dc, "§3.3 pair-register now writes devices.db
+    # row", 2026-08-01, and that commit IS an ancestor of hub-v0.4.80, the
+    # version install.sh pins. Verified with both controls: the tag is its own
+    # ancestor, so the test can answer YES, and HEAD is not, so it can answer
+    # NO.
+    #
+    # WHY THIS STILL REPORTS UNAVAILABLE RATHER THAN BEING DELETED. Deleting
+    # the signal would silently shrink the denominator, and a probe that
+    # quietly measures two things where it says three is the shape this file
+    # already exists to correct. It stays counted and stays visible, and the
+    # note below tells a reader WHICH KIND of nothing this is, so nobody spends
+    # another walk wondering whether the directory was merely empty.
+    #
     # Ask whether the directory exists BEFORE counting inside it.
     out="$(box_run "if [ -d \"\$HOME/.ostler/paired_devices\" ]; then ls \$HOME/.ostler/paired_devices/*.json 2>/dev/null | wc -l | tr -d ' '; else printf ABSENT; fi")"
     case "$out" in
@@ -393,6 +423,15 @@ run_probe() {
     probe_note "daemon health paired flag    : $h"
     probe_note "devices.db row count         : $d  (raw rows: ${DEVICES_DB_ROWS:-n/a})"
     probe_note "paired_devices/*.json        : $m"
+    # Say which kind of nothing. "Could not look" and "there is nothing to
+    # look at" print identically otherwise, and only one of them is ever
+    # worth investigating again.
+    if [ "$m" = "UNAVAILABLE" ]; then
+        probe_note "  ^ DEAD PATH, not a quiet box: no shipped component writes"
+        probe_note "    ~/.ostler/paired_devices. Measured across CM051, vendor/"
+        probe_note "    and ostler-assistant, each with a positive control."
+        probe_note "    devices.db IS live by contrast (assistant f641c0dc, in hub-v0.4.80)."
+    fi
     probe_note "config.toml require_pairing  : $c"
     probe_note "gateway pairing_required     : $g"
 

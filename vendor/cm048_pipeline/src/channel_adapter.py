@@ -132,7 +132,12 @@ def _spoken_adapter(
     return ConversationBundle(
         conversation_id=conversation_id,
         source_kind="spoken",
-        source_subtype=str(metadata.get("source") or "meeting"),
+        # A single-speaker capture (shape "memo", set by the pipeline from
+        # the speaker count) is not a meeting; do not default it to one.
+        source_subtype=str(
+            metadata.get("source")
+            or ("voice_memo" if getattr(classification, "shape", "") == "memo" else "meeting")
+        ),
         source_session_id=str(
             metadata.get("source_session_id") or conversation_id
         ),
@@ -259,7 +264,24 @@ def _imessage_adapter(
         transcript=transcript or "",
         todos=_build_todos(conversation_id, extraction),
         extra_metadata=extra,
+        participant_handles=_counterpart_handles(metadata),
     )
+
+
+def _counterpart_handles(metadata: dict) -> tuple[str, ...]:
+    """The non-owner participants' raw handles, from the threader's
+    participant dicts (``handle`` / ``jid``; role ``user`` is the owner and
+    is skipped). Empty when the source supplied none."""
+    out: list[str] = []
+    for entry in metadata.get("participants") or []:
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("role") or "").strip().lower() == "user":
+            continue
+        handle = (entry.get("handle") or entry.get("jid") or "").strip()
+        if handle:
+            out.append(handle)
+    return tuple(out)
 
 
 # ---------------------------------------------------------------------------
@@ -664,8 +686,11 @@ def _resolve_timestamps(metadata: dict) -> tuple[str, str]:
     a midnight time and ``date`` + 1h end (so the bundle has a
     valid range without lying about precision).
     """
-    started = (metadata.get("started_at") or "").strip()
-    ended = (metadata.get("ended_at") or "").strip()
+    # CM031's iPhone / Watch envelope names them start_time / end_time
+    # (APIClient.ConversationMetadata). Read before the date fallback, which
+    # otherwise stamped a real 14:23 memo as 00:00-01:00 (Mini16 2026-10-15).
+    started = str(metadata.get("started_at") or metadata.get("start_time") or "").strip()
+    ended = str(metadata.get("ended_at") or metadata.get("end_time") or "").strip()
     if started and ended:
         return started, ended
     date_part = (metadata.get("date") or "1970-01-01")[:10]

@@ -31,7 +31,97 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL="$REPO_ROOT/install.sh"
+# 🔴 OVERRIDABLE SO THIS GATE CAN BE SHOWN TO FAIL. It was not, and row 775
+# recorded the consequence: "NO MUTATION, NO CONTROL -- the mutation/self-test
+# grep returns 0 lines over this test". A gate that guards every hydrate source
+# a customer has, and has never once been demonstrated to go red, is a gate
+# nobody can trust. The override is READ-ONLY and used only by --self-test
+# below, which points it at mutated COPIES in a temp dir and never writes here.
+INSTALL="${OSTLER_TEST_INSTALL:-$REPO_ROOT/install.sh}"
+
+# ── --self-test: DRIVE THIS GATE AGAINST MUTATED COPIES ─────────────────────
+# Each arm mutates a COPY of install.sh in a temp dir, runs THIS SCRIPT against
+# it, and demands an exit code. Nothing under the repo is written. A mutant is
+# refused unless its literal occurs the expected number of times, because a
+# mutation that did not apply looks exactly like one that was not caught.
+if [[ "${1:-}" == "--self-test" ]]; then
+    _st_work="$(mktemp -d)"
+    trap 'rm -rf "$_st_work"' EXIT
+    _st_fail=0
+    _st_arms=0
+
+    _st_arm() {   # _st_arm <name> <mutated install path> <wanted rc> <wanted substring>
+        local name="$1" inst="$2" want_rc="$3" want_txt="$4" out rc
+        _st_arms=$((_st_arms + 1))
+        out="$(OSTLER_TEST_INSTALL="$inst" bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+        if [[ "$rc" != "$want_rc" ]]; then
+            echo "  [FAIL] ${name}: exit ${rc}, wanted ${want_rc}"
+            _st_fail=$((_st_fail + 1)); return
+        fi
+        # COUNTING CONSUMER, never a short-circuiting one, on a pipe. A
+        # consumer that exits at the first match SIGPIPEs its producer, and
+        # under `set -o pipefail` that can invert the verdict. A counting one
+        # must read to EOF. The repo's ratchet caught this line the moment I
+        # wrote it, and then caught this COMMENT for spelling the construct it
+        # warns about, which is why the construct is described here and not
+        # quoted.
+        if [[ -n "$want_txt" ]] && [ "$(printf '%s' "$out" | grep -cF -- "$want_txt")" -eq 0 ]; then
+            echo "  [FAIL] ${name}: exit ${rc} as wanted, but the output does not name [${want_txt}]"
+            _st_fail=$((_st_fail + 1)); return
+        fi
+        echo "  [PASS] ${name}: exit ${rc}${want_txt:+, naming [${want_txt}]}"
+    }
+
+    # ARM 1. The real install.sh must PASS. Without this the other arms could
+    # all pass on a gate that returns non-zero unconditionally.
+    _st_arm "an unmutated install.sh passes" "$REPO_ROOT/install.sh" 0 "every hydrate source is guarded"
+
+    # ARM 2. A guarded source loses its error-variant recorder and writes the
+    # SUCCESS sentinel on the error path instead: the original #711 defect.
+    _st_mut2="$_st_work/mutant2.sh"
+    _st_lit='_hydrate_sentinel_record_error "whatsapp"'
+    _st_n="$(grep -cF -- "$_st_lit" "$REPO_ROOT/install.sh")"
+    if [[ "$_st_n" != "1" ]]; then
+        echo "  [CANNOT-RUN] arm 2: its literal occurs ${_st_n} time(s) in install.sh, expected 1."
+        echo "               Re-anchor the mutant rather than deleting it: a mutation that"
+        echo "               cannot be applied proves nothing about this gate."
+        _st_fail=$((_st_fail + 1))
+    else
+        sed 's/_hydrate_sentinel_record_error "whatsapp"/_hydrate_sentinel_record "whatsapp"/' \
+            "$REPO_ROOT/install.sh" > "$_st_mut2"
+        # prove the edit landed, and that it landed ONCE
+        if [[ "$(grep -cF -- '_hydrate_sentinel_record "whatsapp"' "$_st_mut2")" -lt 1 ]]; then
+            echo "  [CANNOT-RUN] arm 2: the mutation did not land in the copy"
+            _st_fail=$((_st_fail + 1))
+        else
+            _st_arm "a source writing the SUCCESS sentinel on its error path is caught" \
+                    "$_st_mut2" 1 "UNGUARDED  whatsapp"
+        fi
+    fi
+
+    # ARM 3. The DERIVATION breaks: the call sites stop matching the pattern the
+    # population is derived from. The gate must refuse rather than report a
+    # population it did not establish.
+    _st_mut3="$_st_work/mutant3.sh"
+    sed 's/_hydrate_sentinel_record_error "/_hydrate_sentinel_recordERR "/g; s/_hydrate_sentinel_record "/_hydrate_sentinel_recordOK "/g' \
+        "$REPO_ROOT/install.sh" > "$_st_mut3"
+    _st_left="$(grep -oE '_hydrate_sentinel_[a-z_]+ "[a-z_]+"' "$_st_mut3" | grep -oE '"[a-z_]+"' | sort -u | wc -l | tr -d ' ')"
+    if [[ "$_st_left" -ge 13 ]]; then
+        echo "  [CANNOT-RUN] arm 3: the mutation left ${_st_left} derivable source(s), so it does not break the derivation"
+        _st_fail=$((_st_fail + 1))
+    else
+        _st_arm "a broken population derivation refuses instead of reporting a typed number" \
+                "$_st_mut3" 1 "the derivation is broken"
+    fi
+
+    echo
+    if [[ "$_st_fail" -gt 0 ]]; then
+        echo "SELF-TEST FAIL: ${_st_fail} of ${_st_arms} arm(s) did not behave"
+        exit 1
+    fi
+    echo "SELF-TEST PASS: ${_st_arms} of ${_st_arms} arms behaved -- this gate passes a clean tree and goes RED on both defect shapes."
+    exit 0
+fi
 
 FAILURES=0
 CHECKS=0
@@ -163,7 +253,32 @@ GUARDED=0
 # dedupe are hydrate steps that ran with NO sentinel at all, so they could not
 # break this rule -- there was no record to be wrong. They are inside the
 # machinery now, which means they are inside this ratchet too.
-ALL_SOURCES="imessage places whatsapp browsing email_preferences apple_notes people privacy_backfill ai_conversations contacts calendar email dedupe"
+# THE POPULATION IS DERIVED FROM install.sh, NOT TYPED HERE (#775).
+#
+# This used to be a hand-written list of 13 names, checked against a
+# hand-written floor of 13. Both halves were typed by the same person at the
+# same time, so the gate was comparing a number against itself: a FOURTEENTH
+# hydrate source with an unguarded error arm would not appear in the list, and
+# the control would report a confident "13 of 13 guarded" about a population it
+# had never established. Sound for the artefact as written, unsound for the
+# artefact as it might be written.
+#
+# A source with no sentinel call at all is outside the sentinel system by
+# definition, so deriving from the sentinel calls has no blind spot for what
+# this control is about.
+#
+# THE HAND LIST IS KEPT AND UNIONED IN, never replaced: if the derivation ever
+# returns less than it should, the union means a source cannot silently LEAVE
+# the population. The arms below then require the derived set to be at least
+# the floor, so the derivation going quiet is itself a red.
+SENTINEL_SOURCES_KNOWN="imessage places whatsapp browsing email_preferences apple_notes people privacy_backfill ai_conversations contacts calendar email dedupe"
+SENTINEL_SOURCES_DERIVED="$(grep -oE '_hydrate_sentinel_[a-z_]+ "[a-z_]+"' "$INSTALL" \
+    | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u | tr '\n' ' ')"
+ALL_SOURCES="$(printf '%s %s\n' "$SENTINEL_SOURCES_KNOWN" "$SENTINEL_SOURCES_DERIVED" \
+    | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
+SENTINEL_DERIVED_COUNT="$(printf '%s' "$SENTINEL_SOURCES_DERIVED" | wc -w | tr -d ' ')"
+SENTINEL_POPULATION="$(printf '%s' "$ALL_SOURCES" | wc -w | tr -d ' ')"
+echo "     population: ${SENTINEL_POPULATION} source(s) (${SENTINEL_DERIVED_COUNT} derived from install.sh)"
 for src in $ALL_SOURCES; do
     if grep -q "_hydrate_sentinel_record_error \"$src\"" "$INSTALL"; then
         echo "     guarded    $src   (records the error variant)"
@@ -171,10 +286,33 @@ for src in $ALL_SOURCES; do
         continue
     fi
     # Shape (b): the rc arm must exist AND must not write a success sentinel.
+    # THE TERMINATOR TRACKS NESTING DEPTH. It used to be
+    #
+    #     grab && /^ *(elif|else|fi)/ && ++seen > 1   { exit }
+    #
+    # which counts terminator-shaped lines and stops at the second one. That
+    # cannot tell a NESTED block's `fi` from the end of the arm, so a success
+    # record placed after any `if ... fi` inside the error arm was never
+    # scanned and the control reported "guarded" on an arm that writes .done.
+    # Measured (#775): the same record without a nested block is caught
+    # (8 passed / 1 failed); behind a nested if/fi it was a FALSE PASS
+    # (9 passed / 0 failed) -- the control could not fail on the one shape it
+    # most needed to catch.
+    #
+    # Now: the arm ends at the first elif/else/fi at DEPTH 0. A nested `if`
+    # opens a level and its `fi` closes it, so neither can end the arm early.
+    # An inline `if ...; then ...; fi` opens and closes on one line and must
+    # not increment, hence the trailing-fi exclusion.
     ARM="$(awk -v s="$src" '
-        /elif \[\[ "\$_aiconv_rc" -ne 0 \]\]; then/ { if (s == "ai_conversations") grab = 1 }
-        grab && /^ *(elif|else|fi)/ && ++seen > 1                             { exit }
-        grab                                                                  { print }
+        /elif \[\[ "\$_aiconv_rc" -ne 0 \]\]; then/ {
+            if (s == "ai_conversations") { grab = 1; depth = 0; next }
+        }
+        grab {
+            if (depth == 0 && $0 ~ /^[[:space:]]*(elif|else|fi)([[:space:]]|$)/) exit
+            print
+            if ($0 ~ /^[[:space:]]*if[[:space:]]/ && $0 !~ /[[:space:];][[:space:]]*fi[[:space:]]*$/) depth++
+            else if ($0 ~ /^[[:space:]]*fi([[:space:]]|$)/) depth--
+        }
     ' "$INSTALL")"
     if [[ -n "$ARM" ]] && ! printf '%s\n' "$ARM" | grep -q '_hydrate_sentinel_record '; then
         echo "     guarded    $src   (error arm records NO sentinel, so the retry stands)"
@@ -195,10 +333,21 @@ echo
 # go up.
 SENTINEL_GUARD_FLOOR=13
 CHECKS=$((CHECKS + 1))
-if [[ "$GUARDED" -ge "$SENTINEL_GUARD_FLOOR" ]]; then
-    pass "(7) every hydrate source is guarded (guarded=$GUARDED, floor=$SENTINEL_GUARD_FLOOR of 13)"
+# THE DERIVATION MUST HAVE WORKED. A grep that silently returns nothing would
+# give a population of 13 from the known list alone and this control would go
+# on reporting a typed number. A derived set smaller than the floor means the
+# derivation broke, NOT that the artefact shrank.
+if [[ "$SENTINEL_DERIVED_COUNT" -lt "$SENTINEL_GUARD_FLOOR" ]]; then
+    fail "(7) the population derivation returned ${SENTINEL_DERIVED_COUNT} source(s) from install.sh, fewer than the floor ${SENTINEL_GUARD_FLOOR}: the derivation is broken, so any verdict here would be about a population this control did not establish"
+# EVERY source in the DERIVED population must be guarded, not merely as many
+# as the floor. This is what makes a fourteenth unguarded source red without
+# anyone editing this file.
+elif [[ "$GUARDED" -lt "$SENTINEL_POPULATION" ]]; then
+    fail "(7) $((SENTINEL_POPULATION - GUARDED)) of ${SENTINEL_POPULATION} hydrate source(s) are UNGUARDED (guarded=$GUARDED). The population was derived from install.sh, so this includes any source added since this test was last edited."
+elif [[ "$SENTINEL_POPULATION" -lt "$SENTINEL_GUARD_FLOOR" ]]; then
+    fail "(7) coverage went BACKWARDS: population=$SENTINEL_POPULATION, floor is $SENTINEL_GUARD_FLOOR"
 else
-    fail "(7) coverage went BACKWARDS: guarded=$GUARDED, floor is $SENTINEL_GUARD_FLOOR"
+    pass "(7) every hydrate source is guarded (guarded=$GUARDED of $SENTINEL_POPULATION derived, floor=$SENTINEL_GUARD_FLOOR)"
 fi
 
 echo

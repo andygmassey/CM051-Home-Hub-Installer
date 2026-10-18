@@ -83,6 +83,19 @@ jobs:
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
 
+      # BOARD ROW 1589. Every service row on the success screen is grepped out
+      # of the installer's own transcript, so the customer is shown what the
+      # installer BELIEVES it did. The panel must SAY so on screen.
+      #
+      # The defect this guards is not the grep, it is that the file CLAIMED the
+      # mitigation and had not made it: the phrase "as reported during install"
+      # existed only in a comment above serviceChecks, with zero rendered
+      # strings saying anything of the kind. So the test's discriminator is
+      # RENDERED versus MENTIONED, controlled in both directions.
+      - name: the end-of-install panel says its rows are the transcript
+        if: always()
+        run: python3 tests/test_the_install_panel_says_it_is_reading_the_transcript.py
+
       - name: FDA assist fires before the extractor, on an honest probe
         if: always()
         run: bash tests/test_fda_assist_ordering.sh
@@ -130,6 +143,13 @@ jobs:
         if: always()
         run: bash tests/test_imessage_fda_probe.sh
 
+      # TCC sweep 2026-10-15: the assistant's Full Disk Access is asked for on
+      # every install, not only where Messages history exists, and the copy
+      # says what the grant covers.
+      - name: The assistant's Full Disk Access is asked for on every Mac
+        if: always()
+        run: bash tests/test_assistant_fda_is_asked_on_every_mac.sh
+
       # ADDED 2026-08-26, and it is the same defect as the original nine.
       # This test was REPAIRED in #1072 (its shim never sourced the locale
       # catalogue, so four call sites asserted against strings that were not
@@ -140,6 +160,14 @@ jobs:
       - name: the install-time iMessage TCC posture probe stays read-only and honest
         if: always()
         run: bash tests/test_imessage_tcc_posture.sh
+
+      - name: the installer pre-explains the Documents prompt before the first write
+        if: always()
+        run: bash tests/test_documents_tcc_pre_explain_before_first_write.sh
+
+      - name: Doctor surfaces a denied Documents-folder permission, not a silent gap
+        if: always()
+        run: python3 tests/test_documents_access_doctor_denied_row.py
 
       - name: the vendored defect register carries no personal data
         if: always()
@@ -232,3 +260,19 @@ jobs:
       - name: a killed contacts hydrate is an error, not an empty address book
         if: always()
         run: bash scripts/tests/test_hydrate_contacts_timeout_arm.sh
+
+      # A credential the install keeps in plain text has to say so on the
+      # screen where it is typed. The honest sentence already existed, in the
+      # preamble written INSIDE config.toml, which is a file the customer has
+      # no reason to open. At the prompt they read "Stored locally ... never
+      # sent to Creative Machines" and nothing else: true, and reassuring in
+      # exactly the direction the omission runs. Consent to hand over a
+      # password is given at the prompt, so the material fact belongs there.
+      # The guard reads the RENDERED string, not the literal, because a
+      # variable can be present and still expand to nothing, and it carries a
+      # same-shape control: the Disney export password is collected by the
+      # same secret prompt, is never persisted, and must NOT be made to claim
+      # storage.
+      - name: a stored secret says so where it is typed
+        if: always()
+        run: bash tests/test_a_stored_secret_says_so_where_it_is_typed.sh

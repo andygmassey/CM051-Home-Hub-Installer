@@ -57,16 +57,39 @@ on:
       # matching path entry means editing one of these does not trigger the
       # workflow that checks it.
       - 'tests/test_every_launchagent_is_torn_down.sh'
+      - 'tests/test_ollama_watchdog_heals_only_a_wedge.sh'
+      - 'tests/test_promote_keeps_open_logs_linked.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_uninstall_writes_deliberate_stop_marker.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_doctor_proxy_paths_predicate.sh'
+      - 'tests/test_doctor_oracle_fallback_is_off.sh'
+      - 'tests/test_every_installer_plist_parses.sh'
+      - 'vendor/doctor/agent/proxy.py'
       - 'tests/test_v1010_ical_doctor_service_auth.sh'
       - 'tests/test_upgrade_reloads_the_launchagent_it_rewrote.sh'
       # An upgrade must not carry a customer's OLD PATH over the template's.
       # Watched because the step below runs it, and it reads install.sh's
       # real _upg_preserve_plist_env, which is already watched above.
       - 'tests/test_upgrade_does_not_revert_the_launchagent_path.sh'
+      # The whatsapp-keepalive, which is the same class one layer along: a
+      # LaunchAgent whose success line was `last exit code = 0` while the thing
+      # it was named for was not true. Watched AND run below -- a path entry
+      # alone only makes the workflow trigger, and a run with no path entry is
+      # a gate that never fires on a change to itself. Its subjects are the
+      # runner, the plist, the installer snippet, the payload staging that
+      # carries the runner into the DMG, and the Doctor files that surface the
+      # verdict, so all of them are watched.
+      - 'tests/test_whatsapp_keepalive_repairs_and_reports.sh'
+      - 'assistant-agent/ostler-whatsapp-keepalive.sh'
+      - 'assistant-agent/launchd/com.creativemachines.ostler.whatsapp-keepalive.plist'
+      - 'assistant-agent/INSTALL_SNIPPET.sh'
+      - 'gui/Makefile'
+      - 'vendor/doctor/agent/whatsapp_pair.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
   push:
     branches: [main]
 
@@ -96,6 +119,13 @@ jobs:
           sw_vers | head -2
       - name: The gate
         run: /bin/bash tests/test_launchagent_success_requires_verification.sh
+
+      # Moved here from launchd-plist-paths (ubuntu), where its axis C (a real
+      # launchd job must stay down while the deliberate-stop marker is present)
+      # could only report CANNOT-RUN: no launchctl. This job is macOS.
+      - name: Assert the uninstaller writes the deliberate-stop marker first and removes it last
+        if: always()
+        run: /bin/bash tests/test_uninstall_writes_deliberate_stop_marker.sh
 
       # THE OTHER HALF OF #876. The helper above stops the installer CLAIMING a
       # LaunchAgent loaded when it did not. It could not say WHY, because both
@@ -204,12 +234,44 @@ jobs:
       # by the merge having stopped working altogether.
       - name: An upgrade must not revert the LaunchAgent PATH fix
         if: always()
-        run: /bin/bash tests/test_upgrade_does_not_revert_the_launchagent_path.sh
+        run: |
+          # `|| rc=$?`, NOT a bare call, for the reason recorded on the refusal
+          # step above: the step shell is `/bin/bash -e {0}`, so a test exiting
+          # 2 kills the step at that line and the branch below never runs.
+          #
+          # rc=2 here is CANNOT-RUN, and it means one of this file's MUTATIONS
+          # removed the wrong number of lines -- the exclusion it was about to
+          # test has moved or gone. That is a different finding from a failed
+          # assertion and must not read as one: a mutation that cannot be
+          # applied looks exactly like one that was not caught.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_upgrade_does_not_revert_the_launchagent_path.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::A mutation in the upgrade env-merge test could not be applied, so the exclusion it guards was NOT measured. This is not a pass and not an assertion failure."
+          fi
+          exit "$rc"
 
       # `if: always()` because the step ABOVE this one is new (#1466) and a
       # failure there would otherwise skip this, which is exactly what
       # scripts/verify_ci_steps_are_maskless.py exists to stop. Adding a step
       # can mask the one after it; the gate caught mine.
+      - name: The Ollama wedge watchdog heals only a wedge, and writes its evidence first
+        if: always()
+        run: bash tests/test_ollama_watchdog_heals_only_a_wedge.sh
+
+      - name: The promote merges logs/ so a running service's log keeps its path (#2434)
+        if: always()
+        run: bash tests/test_promote_keeps_open_logs_linked.sh
+
+      - name: Every plist install.sh renders parses with plistlib
+        if: always()
+        run: /bin/bash tests/test_every_installer_plist_parses.sh
+
+      - name: The Doctor's tokenless loopback fallback is off on every install
+        if: always()
+        run: /bin/bash tests/test_doctor_oracle_fallback_is_off.sh
+
       - name: The existing LaunchAgent guards must still hold
         if: always()
         run: |
@@ -217,6 +279,7 @@ jobs:
           set -uo pipefail
           rc_total=0
           for t in tests/test_every_launchagent_is_torn_down.sh \
+                   tests/test_ollama_watchdog_heals_only_a_wedge.sh \
                    tests/test_uninstall_removes_every_launchagent_plist.sh \
                    tests/test_export_scan_plist_bootstrap_race_217.sh \
                    tests/test_stay_awake_agent_survives_installer_exit.sh \
@@ -237,3 +300,30 @@ jobs:
               fi
           done
           exit "$rc_total"
+
+      # ── THE KEEPALIVE THAT DID NOT KEEP ANYTHING ALIVE ──────────────────
+      #
+      # Same class as the defect this whole workflow exists for, one layer
+      # along: a job that reports success while the thing it was named to
+      # guarantee is untrue. com.creativemachines.ostler.whatsapp-keepalive
+      # ran `ostler-assistant channel doctor`, which builds its OWN
+      # never-connected WhatsApp channel object -- so it reported unhealthy on
+      # every run on every box -- and doctor_channels() returned Ok(())
+      # regardless, so launchctl showed `last exit code = 0`. Three
+      # consecutive unhealthy runs were invisible.
+      #
+      # This runs the SHIPPED runner against a stub daemon over real loopback
+      # HTTP, with a launchctl PATH shim that counts restarts. It proves the
+      # three claims that matter to a customer: an unhealthy channel is
+      # actually repaired; a lost WhatsApp session is NEVER silently re-paired
+      # or retried; and no outcome except a working channel exits 0.
+      #
+      # macOS, deliberately, because that is where the product runs. The test
+      # shims launchctl, so it would pass on Linux too -- and a gate that only
+      # runs on Linux cannot notice a BSD/GNU split in its own tooling.
+      #
+      # `if: always()` for the reason recorded above: a red in an earlier step
+      # would otherwise SKIP this one, and a skipped test reports nothing.
+      - name: The WhatsApp keepalive must repair, refuse, and never exit 0 on a failure
+        if: always()
+        run: /bin/bash tests/test_whatsapp_keepalive_repairs_and_reports.sh

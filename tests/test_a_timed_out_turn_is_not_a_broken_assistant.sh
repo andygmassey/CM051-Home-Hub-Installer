@@ -41,9 +41,23 @@ trap 'rm -rf "$WORK"' EXIT
 
 # Frame streams, one per turn shape. These are the same shapes the probe's own
 # fixtures use, so the two cannot drift apart silently.
+#
+# ⚠️ `grounded` READS THREE STORES, and that is required rather than generous.
+# Since #1125 each battery question declares the stores whose data could hold
+# its answer, so ONE canned stream is fed to a question about the customer's
+# tastes AND to a question about the people they contacted. A single-tool
+# stream grounds at one position and scores wrong_store at another, which
+# would make this file's healthy-battery control CANNOT-RUN and take every arm
+# below with it. Reading overview, preferences and people covers the clauses
+# the battery declares, without this file having to know the mapping -- which
+# it must not, or it would stop being a control and start being a copy.
+#
+# THIS FILE IS NOT THE MAPPING'S GUARD. That is
+# scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh.
+# Here the mapping is background: the subject is timeout precedence.
 frames() {
     case "$1" in
-        grounded)   printf 'FRAME session_start\nFRAME tool_call pwg_preferences\nFRAME tool_result pwg_preferences OK\nFRAME done\n' ;;
+        grounded)   printf 'FRAME session_start\nFRAME tool_call pwg_overview\nFRAME tool_result pwg_overview OK\nFRAME tool_call pwg_preferences\nFRAME tool_result pwg_preferences OK\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME done\n' ;;
         incomplete) printf 'FRAME session_start\nFRAME tool_call pwg_topics\nFRAME timeout\n' ;;
         fatal)      printf 'PROBE_FATAL connection refused\n' ;;
         notool)     printf 'FRAME session_start\nFRAME chunk_reset\nFRAME done\n' ;;
@@ -196,13 +210,34 @@ _R="${WORK}/recoverharness"
     grep -v -e '^\. "' -e '^source ' -e '^probe_main ' "$SUBJECT"
     cat <<'TAIL'
 _d="$(mktemp -d)"
+# THE PERSON CLAUSE, the store set question 3 and the seeded turn declare
+# (#1125). adjudicate_turn takes it as a second argument and REFUSES with
+# no_expected_tools when it is absent, which is deliberate: a turn graded
+# against no store set has not been graded.
+_PERSON='pwg_people pwg_person_timeline'
+# ⚠️ THE FULL RECOVERY, extended in the #1125 lift. person_query's error text
+# asks for two things -- call pwg_overview, THEN call the person tool again --
+# and this fixture used to stop after the first. That made its only successful
+# read an INVENTORY COUNT, on a question about who the customer has been in
+# contact with, and it scored grounded because some pwg tool returned OK. It
+# was the #1125 blindness sitting inside the control meant to prove the probe
+# could see. The half recovery is now asserted separately, below.
+printf 'FRAME session_start
+FRAME tool_call pwg_person_timeline
+FRAME tool_result pwg_person_timeline ERR
+FRAME tool_call pwg_overview
+FRAME tool_result pwg_overview OK
+FRAME tool_call pwg_person_timeline
+FRAME tool_result pwg_person_timeline OK
+FRAME done
+' > "$_d/recovered"
 printf 'FRAME session_start
 FRAME tool_call pwg_person_timeline
 FRAME tool_result pwg_person_timeline ERR
 FRAME tool_call pwg_overview
 FRAME tool_result pwg_overview OK
 FRAME done
-' > "$_d/recovered"
+' > "$_d/recovered_half"
 printf 'FRAME session_start
 FRAME tool_call pwg_person_timeline
 FRAME tool_result pwg_person_timeline ERR
@@ -221,13 +256,17 @@ FRAME tool_result pwg_person_timeline EMPTY
 FRAME done
 '                                                                > "$_d/onlyempty"
 printf 'RECOVERED=%s
-' "$(adjudicate_turn "$_d/recovered")"
+' "$(adjudicate_turn "$_d/recovered" "$_PERSON")"
+printf 'HALFRECOVERED=%s
+' "$(adjudicate_turn "$_d/recovered_half" "$_PERSON")"
 printf 'TWOERRS=%s
-'   "$(adjudicate_turn "$_d/twoerrs")"
+'   "$(adjudicate_turn "$_d/twoerrs" "$_PERSON")"
 printf 'ONLYERR=%s
-'   "$(adjudicate_turn "$_d/onlyerr")"
+'   "$(adjudicate_turn "$_d/onlyerr" 'pwg_preferences')"
 printf 'ONLYEMPTY=%s
-' "$(adjudicate_turn "$_d/onlyempty")"
+' "$(adjudicate_turn "$_d/onlyempty" "$_PERSON")"
+printf 'NOSET=%s
+'     "$(adjudicate_turn "$_d/recovered")"
 rm -rf "$_d"
 TAIL
 } > "$_R"
@@ -238,8 +277,17 @@ if ! grep -q '^RECOVERED=' <<< "$_ROUT"; then
     exit 2
 fi
 case "$_ROUT" in
-    *"RECOVERED=grounded"*) ok "a turn that errored and then READ THE GRAPH scores grounded, not a product failure" ;;
+    *"RECOVERED=grounded"*) ok "a turn that errored and then READ THE STORE THAT HOLDS THE ANSWER scores grounded, not a product failure" ;;
     *)                      bad "a recovered turn still scores $(printf '%s' "$_ROUT" | grep '^RECOVERED=' | cut -d= -f2); the #854 retry fix and this blocking gate fight each other" ;;
+esac
+# THE HALF RECOVERY (#1125). person_query's error text asks the model to call
+# pwg_overview and then call the person tool AGAIN. A turn that does the first
+# and not the second hands the customer a COUNT when they asked who they have
+# been in contact with. It is not recovered, and the old adjudicator called it
+# grounded because some pwg tool returned OK.
+case "$_ROUT" in
+    *"HALFRECOVERED=tool_error"*) ok "MUST-MISS: a turn that errored and then read only the INVENTORY is tool_error, not grounded" ;;
+    *)                            bad "a half recovery scored $(printf '%s' "$_ROUT" | grep '^HALFRECOVERED=' | cut -d= -f2); an inventory count is being accepted as the customer's contacts" ;;
 esac
 # MUST-MISS. Recovery is decided by a SUCCESSFUL read, not by a second attempt.
 case "$_ROUT" in
@@ -255,6 +303,15 @@ esac
 case "$_ROUT" in
     *"ONLYEMPTY=tool_found_nothing"*) ok "CONTROL: a graph tool that found nothing is still not retrieval" ;;
     *)                                bad "an EMPTY-only turn scored $(printf '%s' "$_ROUT" | grep '^ONLYEMPTY=' | cut -d= -f2); the #810 shape has been promoted to a pass" ;;
+esac
+# THE INSTRUMENT REFUSES. Called with NO store set -- the shape every caller in
+# this file had before #1125 -- adjudicate_turn must decline to grade rather
+# than fall back to grading loosely. classify_verdict routes no_expected_tools
+# to unmeasured, so a probe whose battery lost its map reports CANNOT-RUN and
+# never a pass.
+case "$_ROUT" in
+    *"NOSET=no_expected_tools"*) ok "CONTROL: with no store set the adjudicator REFUSES rather than grading on a prefix" ;;
+    *)                           bad "a turn graded with no store set returned $(printf '%s' "$_ROUT" | grep '^NOSET=' | cut -d= -f2); an unmapped question is being given a verdict" ;;
 esac
 
 printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS+FAIL))"

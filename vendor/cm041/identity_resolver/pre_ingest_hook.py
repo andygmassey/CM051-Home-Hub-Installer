@@ -95,7 +95,7 @@ def pre_ingest_check(
     # two different people have.
     for kind, raw_value, norm in (
         ("email", email, lambda v: normalise_email(v)),
-        ("phone", phone, lambda v: normalise_phone(v, cfg.get("default_country_code", 852))),
+        ("phone", phone, lambda v: normalise_phone(v, cfg.get("default_country_code"))),
     ):
         if not raw_value:
             continue

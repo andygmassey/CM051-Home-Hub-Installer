@@ -29,8 +29,15 @@ on:
       - 'install.sh'
       - 'tests/test_licence_gate.sh'
       - 'tests/test_shipped_compose_licence_mount.sh'
+      - 'tests/test_licence_tier_reaches_the_hub.sh'
       - 'gui/OstlerInstaller/Auth/LicenseVerifier.swift'
       - 'gui/OstlerInstaller/Auth/LicensePersistence.swift'
+      # The tier leaves the licence gate and lands in the Hub's own
+      # subscription state. The third step below runs both ends, so a
+      # change to either must trigger this workflow -- a gate that
+      # cannot see half its own subject is not watching it.
+      - 'vendor/cm041/assistant_api/subscription_gate.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/subscription_gate.py'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in a PR that never runs it.
       - '.github/workflows/licence-gate.yml'
@@ -78,3 +85,23 @@ jobs:
       - name: the shipped compose can READ the licence it just verified
         if: always()
         run: bash tests/test_shipped_compose_licence_mount.sh
+
+      # HR015 #928. The third face of the same surface. The two steps above
+      # prove the installer refuses a bad licence and that the shipped stack
+      # can read a good one. Neither says anything about what the licence
+      # SAYS. Measured on origin/main before this landed: a synthetic licence
+      # carrying tier=beta verified (rc 0) and printed nothing, identical to
+      # one carrying no tier at all -- the field was signature-covered,
+      # accepted by both verifiers, and read by nobody.
+      #
+      # This step walks the tier from a signed licence, through the real
+      # install.sh gate, into the Hub's subscription state, and out to the
+      # message a paused customer actually sees.
+      #
+      # `if: always()` for the same reason the step above has it: the three
+      # are INDEPENDENT, and without it a red on the refusal half would
+      # report NOTHING about this one, which is how a second defect hides
+      # behind a first. Caught by scripts/verify_ci_steps_are_maskless.py.
+      - name: every licence carries a tier, and the Hub reads it
+        if: always()
+        run: bash tests/test_licence_tier_reaches_the_hub.sh

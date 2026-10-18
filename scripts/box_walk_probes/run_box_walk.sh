@@ -30,8 +30,8 @@
 # box. So CANNOT-RUN is printed in its own block with the missing prerequisite
 # named, every time.
 #
-# EXIT: 0 only when FAIL=0 and BROKEN=0. CANNOT-RUN does not fail the run --
-# it is a coverage statement, not a defect -- but it is always shown.
+# EXIT: 0 clean; 1 any FAIL or BROKEN; 3 nothing failed but a probe that is NOT
+# declared console-only could not run. The third one is explained at the bottom.
 #
 # BASH 3.2 (macOS system bash). No associative arrays, no mapfile.
 # ============================================================================
@@ -46,6 +46,9 @@ EX_CANNOT_RUN=78
 ONLY=""
 LIST_ONLY=0
 SKIP_SELFTEST=0
+READ_ONLY=0
+READ_ONLY_EXPLICIT=0
+ALLOW_WRITES=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -57,10 +60,24 @@ while [ $# -gt 0 ]; do
             # negative controls is exactly the kind of green this suite
             # exists to distrust.
             SKIP_SELFTEST=1; shift ;;
+        --read-only)
+            # CM051 #2564. Skip every seed, every write and every kickstart
+            # below, regardless of --only. Explicit, so it is also the thing
+            # `--allow-writes` refuses to be combined with.
+            READ_ONLY=1; READ_ONLY_EXPLICIT=1; shift ;;
+        --allow-writes)
+            # The only way to get writes AND --only in the same run, and the
+            # only way past the walk_in_use refusal below.
+            ALLOW_WRITES=1; shift ;;
         -h|--help) sed -n '3,40p' "$0"; exit 0 ;;
         *) printf 'unknown argument: %s\n' "$1"; exit 2 ;;
     esac
 done
+
+if [ "$READ_ONLY_EXPLICIT" -eq 1 ] && [ "$ALLOW_WRITES" -eq 1 ]; then
+    printf 'FATAL: --read-only and --allow-writes contradict each other.\n'
+    exit 2
+fi
 
 if [ ! -d "$PROBE_DIR" ]; then
     printf 'FATAL: no probe directory at %s\n' "$PROBE_DIR"
@@ -83,11 +100,44 @@ PROBES=""
 for f in "$PROBE_DIR"/*.sh; do
     b="$(basename "$f" .sh)"
     if [ -n "$ONLY" ]; then
-        case "$b" in *"$ONLY"*) ;; *) continue ;; esac
+        # --only takes ONE substring or a COMMA-SEPARATED LIST of them; a probe
+        # is selected when ANY item is a substring of its name. One item (no
+        # comma) takes exactly the old path.
+        _only_hit=0
+        _only_rest="$ONLY,"
+        while [ -n "$_only_rest" ]; do
+            _only_item="${_only_rest%%,*}"
+            _only_rest="${_only_rest#*,}"
+            [ -n "$_only_item" ] || continue
+            case "$b" in *"$_only_item"*) _only_hit=1; break ;; esac
+        done
+        [ "$_only_hit" -eq 1 ] || continue
     fi
     PROBES="$PROBES $f"
 done
 shopt -u nullglob
+
+# A LIST IS AN EXPLICIT CLAIM THAT EACH ITEM EXISTS. An item that matches no
+# probe is refused by name, never dropped: a dropped item reads as "that probe
+# passed" to anyone who asked for it. (Single-item behaviour is unchanged: it
+# already ends in the 0-probes FATAL below.)
+if [ -n "$ONLY" ] && [ -n "${PROBES// /}" ]; then
+    _only_rest="$ONLY,"
+    while [ -n "$_only_rest" ]; do
+        _only_item="${_only_rest%%,*}"
+        _only_rest="${_only_rest#*,}"
+        [ -n "$_only_item" ] || continue
+        _only_found=0
+        for f in $PROBES; do
+            case "$(basename "$f" .sh)" in *"$_only_item"*) _only_found=1; break ;; esac
+        done
+        if [ "$_only_found" -eq 0 ]; then
+            printf 'FATAL: --only item "%s" matches no probe.\n' "$_only_item"
+            printf 'Refusing to run the rest and report a list that quietly lost an entry.\n'
+            exit 2
+        fi
+    done
+fi
 
 # DETERMINISTIC ORDER, PINNED TO C. A glob sorts by LC_COLLATE, so the order this
 # suite executes in has been whatever locale the operator happens to have.
@@ -134,8 +184,125 @@ fi
 printf '============================================================\n\n'
 
 # -------------------------------------------------------------------------
+# CM051 #2564 -- READ-ONLY MODE.
+#
+# Between phase 1 and phase 2 this runner used to run four seeds, a
+# LaunchAgent kickstart and a convergence wait UNCONDITIONALLY -- they are
+# plain top-to-bottom statements with no relation to which probes `--only`
+# selected. `--only grounding_seed_apply` and `--only pair_state` ran every
+# one of them identically. On a live walk this wrote a synthetic person
+# into Andy's own box while he was using it for something else entirely:
+# `--only` read as "just check this one thing", and it seeded the graph
+# anyway.
+#
+# DEFAULT FOR --only IS NOW READ-ONLY. A single named probe is almost always
+# someone debugging or re-checking one answer against a box that already has
+# state on it, not a fresh install earning its one-time seed. A full run
+# (no --only) keeps seeding by default, because that is the shape a real
+# box walk has always had and the seeds exist for IT.
+if [ -n "$ONLY" ] && [ "$ALLOW_WRITES" -ne 1 ]; then
+    READ_ONLY=1
+fi
+
+# THE SECOND, INDEPENDENT GUARD: a box can be marked in-use regardless of
+# `--only`. A full, unfiltered walk pointed by mistake at Andy's daily-driver
+# Hub must refuse exactly the same as a filtered one -- the marker names the
+# BOX, not the invocation. Checked on the box under test (OSTLER_BOX_HOST,
+# same as every probe), never on the operator's own machine.
+OSTLER_WALK_IN_USE_MARKER="${OSTLER_WALK_IN_USE_MARKER:-\$HOME/.ostler/state/walk_in_use}"
+
+_walk_box_exec() {
+    if [ -n "${OSTLER_BOX_HOST:-}" ]; then
+        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o BatchMode=yes \
+            -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
+            -o StrictHostKeyChecking=accept-new \
+            "$OSTLER_BOX_HOST" "$1" 2>/dev/null
+    else
+        bash -lc "$1" 2>/dev/null
+    fi
+}
+
+#   Set by _walk_box_marked_in_use: MARKED | ABSENT | UNKNOWN. The caller
+#   reads this to print an honest reason, never "the marker exists" for a
+#   box it could not actually reach.
+_WALK_BOX_MARK_STATE=""
+
+_walk_box_marked_in_use() {
+    # NOT `producer | grep -q` as a condition's last statement: moved into a
+    # function it still inherits the pipefail/SIGPIPE inversion risk the
+    # `if|while` form is banned for (CM051 #1471,
+    # tests/test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh).
+    # Capture first, branch on the captured TEXT.
+    #
+    # 🔴 FAILED OPEN. The previous form asked the remote to print MARKED
+    # when the marker exists and print NOTHING when it does not, then
+    # returned "not marked" on anything but an exact MARKED match -- so an
+    # ssh transport failure (exit 255, empty stdout) and a genuinely absent
+    # marker produced the IDENTICAL empty $_out, and a box this runner could
+    # not even reach read as safe to write to. CHECK THE SHAPE OF A ZERO:
+    # "found nothing" and "could not look" must never print the same thing.
+    #
+    # The remote now prints MARKED or ABSENT explicitly, in BOTH branches of
+    # its own `if`, so silence can only mean the remote command never ran at
+    # all. Anything other than an exact MARKED or ABSENT -- empty output,
+    # a transport failure, a truncated or garbled response -- is UNKNOWN,
+    # and UNKNOWN is treated exactly like MARKED: refuse. "No credential /
+    # no connection to measure this" is not evidence the box is free to
+    # write to; it is evidence nobody looked.
+    local _out
+    _out="$(_walk_box_exec "if test -e \"${OSTLER_WALK_IN_USE_MARKER}\"; then printf MARKED; else printf ABSENT; fi")"
+    case "$_out" in
+        MARKED) _WALK_BOX_MARK_STATE="MARKED"; return 0 ;;
+        ABSENT) _WALK_BOX_MARK_STATE="ABSENT"; return 1 ;;
+        *)      _WALK_BOX_MARK_STATE="UNKNOWN"; return 0 ;;
+    esac
+}
+
+if [ "$READ_ONLY" -eq 0 ] && [ "$ALLOW_WRITES" -ne 1 ]; then
+    if _walk_box_marked_in_use; then
+        if [ "$_WALK_BOX_MARK_STATE" = "UNKNOWN" ]; then
+            printf 'FATAL: could not determine whether %s exists on the target box\n' "$OSTLER_WALK_IN_USE_MARKER"
+            printf '(the check over ssh/bash did not come back with a clear answer --\n'
+            printf 'transport failure, timeout, or a garbled response). Refusing to run\n'
+            printf 'seeds/writes without proof the box is not in use.\n'
+        else
+            printf 'FATAL: %s exists on the target box.\n' "$OSTLER_WALK_IN_USE_MARKER"
+            printf 'That marker means a person is using this box right now. Refusing to\n'
+            printf 'run seeds/writes against it.\n'
+        fi
+        printf 'Pass --allow-writes to proceed anyway, or --read-only to skip writes.\n'
+        exit 2
+    fi
+fi
+
+# WRITE MODE FOR hub_screens_render_for_a_customer IS THE RUNNER'S DECISION.
+# Nothing exported OSTLER_SCREENS_ALLOW_WRITE, so the probe's chat person-link
+# check (which needs write mode to seed its own person) was NOT MEASURED unless
+# the operator happened to export it. A run that may write hands it 1; a
+# read-only run hands 0 and never trusts an inherited 1.
+if [ "$READ_ONLY" -eq 0 ]; then
+    OSTLER_SCREENS_ALLOW_WRITE=1
+else
+    OSTLER_SCREENS_ALLOW_WRITE=0
+fi
+export OSTLER_SCREENS_ALLOW_WRITE
+
+# -------------------------------------------------------------------------
 # PHASE 1 -- negative controls. Try to make every probe fail.
 # -------------------------------------------------------------------------
+# A SELF-TEST IS FIXTURES ONLY, SO IT RUNS WITH THE BOX VARIABLES CLEARED (#2362).
+# With OSTLER_BOX_HOST exported, lib/probe.sh box_run() sends any call a
+# self-test makes to the live box. Five self-tests do make one, and on the
+# v1.0.102 walk four of them came back BROKEN while the box was busy settling
+# its install: the same self-tests pass on any quiet host. A negative control
+# whose verdict depends on the state of the thing under test is not a control.
+# Measured: freshness_panel_has_dates, ingest_coverage, no_unexpected_egress,
+# people_stores_reconcile and usage_journal_producers each return a different
+# code with OSTLER_BOX_HOST pointed at an unreachable host than without it.
+run_probe_self_test() {
+    env -u OSTLER_BOX_HOST -u OSTLER_BOX_WALK_EVIDENCE_DIR bash "$1" --self-test 2>&1
+}
+
 BROKEN_LIST=""
 BROKEN=0
 
@@ -147,7 +314,7 @@ else
     printf -- '--- PHASE 1: negative controls (each probe must be able to FAIL) ---\n'
     for p in $PROBES; do
         b="$(basename "$p" .sh)"
-        out="$(bash "$p" --self-test 2>&1)"
+        out="$(run_probe_self_test "$p")"
         rc=$?
         # THE EXIT CODE IS NOT THE ONLY SIGNAL, and reading it alone is how a
         # broken probe passes phase 1.
@@ -185,6 +352,316 @@ else
 fi
 
 # -------------------------------------------------------------------------
+# THE GROUNDING SEED, between the controls and the measurements.
+#
+# assistant_answers_grounded is BLOCKING and its content assertion exists only
+# when OSTLER_GATE_KNOWN_PERSON and OSTLER_GATE_EXPECT_FACT are set. Nothing
+# set them, so a bare walk ran that probe against an empty graph with no
+# fixture and no content assertion. That is the configuration recorded FAILED
+# in walks/v1.0.74.tsv; the probe has passed once, on v1.0.75, and only
+# because the seed was run by hand first.
+#
+# HERE, not in ttywalk.sh, because ttywalk does not invoke this runner at all
+# (measured: zero references), so a seed wired there would not reach these
+# probes. And AFTER phase 1, because the self-tests never touch the box: this
+# is the last moment before anything is measured.
+#
+# SOURCED AT THE POINT OF USE rather than beside PROBE_DIR at the top. Sibling
+# tests and workflows cite this file by line number (:42 PROBE_DIR, :44
+# EX_CANNOT_RUN, :100 the probe glob) and those three stay true only while
+# nothing is inserted above them. A fourth citation, ":201-204 the BROKEN skip"
+# in test_walk_record_states_measured_count.sh and cut-manifest.yml, was ALREADY
+# WRONG on origin/main before this branch existed: the skip is at :249 there. It
+# is prose in both places, nothing executes a line lookup into this file, so it
+# is left for its owners rather than fixed under a freeze.
+# ── EVERY FORGET RUNS FROM A TRAP (walk #27 shape sweep S7c) ──
+# The forgets used to run only at the end of a walk that reached the end, so an
+# aborted walk (Ctrl-C, a dropped ssh, a crash) kept everything it had seeded.
+# walk_cleanup runs once, from the normal path below or from this trap on EXIT,
+# INT or TERM; each forget is gated on its own seed state, and nothing writes in
+# a read-only run.
+WALK_CLEANUP_DONE=0
+WALK_TEMP_FILES=""
+walk_cleanup() {
+    [ "$WALK_CLEANUP_DONE" -eq 0 ] || return 0
+    WALK_CLEANUP_DONE=1
+    if [ "$READ_ONLY" -eq 0 ]; then
+        declare -F grounding_seed_forget >/dev/null && { grounding_seed_forget || true; }
+        declare -F preference_seed_forget >/dev/null && { preference_seed_forget || true; }
+        declare -F conversation_seed_forget >/dev/null && { conversation_seed_forget || true; }
+        declare -F usage_seed_forget >/dev/null && { usage_seed_forget || true; }
+        declare -F owner_employer_seed_forget >/dev/null && { owner_employer_seed_forget || true; }
+        declare -F conversation_capture_seed_forget >/dev/null && { conversation_capture_seed_forget || true; }
+        declare -F scale_fixture_forget >/dev/null && { scale_fixture_forget || true; }
+        declare -F companion_walk_unpair >/dev/null && { companion_walk_unpair || true; }
+    fi
+}
+_walk_exit_trap() {
+    local rc=$?
+    walk_cleanup
+    # shellcheck disable=SC2086
+    [ -z "$WALK_TEMP_FILES" ] || rm -f $WALK_TEMP_FILES
+    return $rc
+}
+trap _walk_exit_trap EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+. "$HERE/lib/grounding_seed.sh"
+
+# 🔴 THE SEED STATE REACHED NOTHING, AND THAT IS WHY 17 OF 21 COMMITTED WALKS
+# CANNOT BE READ. grounding_seed.sh has always set GROUNDING_SEED_STATE to one
+# of five values -- unrun, seeded, skipped, absent, failed -- and NOTHING
+# anywhere consumed it. The `|| true` below then discarded the exit code too,
+# so a walk whose seed never applied looked identical to one whose seed worked.
+#
+# assistant_answers_grounded is red on 17 of the 21 committed walk records. An
+# unseeded box and a broken product produce THE SAME RED, and the record could
+# not tell them apart, so every one of those reds has been ambiguous.
+#
+# The `|| true` behaviour is KEPT deliberately: a missing seed oracle is not a
+# product defect and must not abort the walk. What changes is that the outcome
+# is now WRITTEN DOWN instead of thrown away. Same shape as the
+# stores-provenance marker, which post_walk_qa.sh reads back over ssh.
+#
+# CM051 #2564: gated on READ_ONLY. This is the exact seed that wrote a
+# synthetic person into a box mid-use -- see the READ-ONLY MODE block above.
+if [ "$READ_ONLY" -eq 0 ]; then
+    _gs_rc=0
+    # FLUSH LEFT, NOT A TYPO. tests/test_the_walk_seeds_the_grounded_probe.sh
+    # (and its preference/conversation/usage/wiki_summaries siblings) grep
+    # this file for '^grounding_seed_apply' as proof the runner actually
+    # calls it -- anchored at column 0 because that is what tells a real
+    # invocation apart from a mention in a comment. Re-indenting this line
+    # under the `if` hides it from that grep exactly the way an unwired
+    # seed would, which is the literal defect CM051 #2569's review caught.
+grounding_seed_apply || _gs_rc=$?
+    _gs_state="${GROUNDING_SEED_STATE:-unrun}"
+else
+    printf '  SKIPPED (read-only): grounding seed not applied.\n\n'
+    _gs_rc=0
+    _gs_state="skipped-read-only"
+fi
+if printf '%s rc=%s\n' "${_gs_state}" "${_gs_rc}" > "${HOME}/.walk-grounding-seed-run"; then
+    printf '  seed state recorded for the walk record: %s (rc=%s)\n\n' \
+        "${_gs_state}" "${_gs_rc}"
+else
+    # NOT silent, and NOT a clean value. A marker that could not be written
+    # must reach the record as an absence, which post_walk_qa.sh reports as
+    # NOT RECORDED rather than inventing a state.
+    printf '  WARNING: could not write the grounding-seed marker to %s\n' \
+        "${HOME}/.walk-grounding-seed-run"
+    printf '  The walk record will say NOT RECORDED rather than guess.\n\n'
+fi
+
+# ── AND THE PREFERENCE SEED, the same discipline on the other write route ──
+#
+# The seed above puts a PERSON in the graph. Nothing put a PREFERENCE there,
+# so an empty preference wiki, an ingest that never ran and a broken write
+# route were three faults wearing one face. On v1.0.81 the root cause turned
+# out to be the first of those: cm019_setup logged "already set up" with
+# elapsed_s=0 and install.log holds no ingest-dir and no "Files processed".
+#
+# BELOW the grounding seed, not above it, so the line citations at the top of
+# this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :100 the probe glob) keep their
+# line numbers. Nothing executes a line lookup into this file, but three
+# places quote those three, and an insertion above them would rot all three
+# for no gain.
+#
+# `|| true` for the same reason the seed above carries it: this step reports
+# its own outcome in words, and every path it can fail on is either a named
+# CANNOT-RUN or a named FINDING. Neither should abort a walk that has not
+# measured anything yet.
+. "$HERE/lib/preference_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+    # Flush left: see the grounding seed's comment above this same shape.
+preference_seed_apply || true
+else
+    printf '  SKIPPED (read-only): preference seed not applied.\n\n'
+fi
+
+# ── AND THE OWNER'S EMPLOYER, through the customer's own import path ──
+# owner_digest_knows_the_owner (v1.0.107 #10) asks the chat "Where have I
+# worked?" and needs a known answer. Gated on READ_ONLY like every writer.
+. "$HERE/lib/owner_employer_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+    # Flush left: see the grounding seed's comment above this same shape.
+owner_employer_seed_apply || true
+else
+    OSTLER_OWNER_SEED_STATE="skipped-read-only"; export OSTLER_OWNER_SEED_STATE
+    printf '  SKIPPED (read-only): owner employer seed not applied.\n\n'
+fi
+
+# ── AND TWO CONVERSATIONS THROUGH THE PAIRED GATEWAY, the device-facing path ──
+# conversation_capture_end_to_end (v1.0.107 #10, CORE to the product) asks
+# whether a paired iPhone or Watch, calling the network API it actually
+# calls, gets a working conversation out the other end. lib/conversation_seed.sh
+# above already exercises the pipeline through a direct CLI call for
+# reasons that file documents; it never touches :8443, so nothing before
+# this seed had put a conversation through the device-facing door. Gated on
+# READ_ONLY like every writer: it mints a device bearer and POSTs two
+# synthetic transcripts.
+# Walk #27 item 5a: record the walk start and whether a passkey existed
+# BEFORE anything pairs, so the cleanup after the probes revokes only the
+# walk's own synthetic companion (lib/companion_unpair.sh).
+. "$HERE/lib/companion_unpair.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+companion_walk_baseline || true
+fi
+. "$HERE/lib/conversation_capture_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+    # Flush left: see the grounding seed's comment above this same shape.
+conversation_capture_seed_apply || true
+else
+    OSTLER_CONVCAP_SEED_STATE="skipped-read-only"; export OSTLER_CONVCAP_SEED_STATE
+    printf '  SKIPPED (read-only): conversation capture seed not applied.\n\n'
+fi
+
+# ── AND THE CONVERSATION SEED, the third write route, and the only one that
+#    needs a model call ──
+#
+# The two seeds above write a PERSON and a PREFERENCE. Nothing had ever put a
+# CONVERSATION through the conversation pipeline, and the pipeline is the only
+# writer of two things three probes read: the conversations Qdrant collection,
+# which the installer pre-creates EMPTY (install.sh:18448) and which
+# ingest_coverage scores EMPTY at 0, and the pwg:ConversationTopic nodes that
+# /api/v1/topics serves to pwg_topics. Nothing is processed at install time
+# (install.sh:19178-19180 checks --help and an import, and that is all), so on
+# a cold box those probes measure an empty store and cannot tell that from a
+# broken one.
+#
+# BELOW the two seeds above, so the line citations at the top of this file
+# (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :100 the probe glob) keep their line
+# numbers, for the reason the block above gives.
+#
+# IT IS THE SLOWEST STEP IN THE WALK, ON PURPOSE. It makes six sequential model
+# calls, measured around 100 s each on a shipped box, and it is bounded at
+# OSTLER_CONVO_SEED_BUDGET_S (default 900). That cost buys the only assertion
+# in this suite that the conversation pipeline runs at all.
+#
+# `|| true` for the same reason the two above carry it: it reports its own
+# outcome in words, and every path it can fail on is either a named CANNOT-RUN
+# or a named FINDING.
+. "$HERE/lib/conversation_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+conversation_seed_apply || true
+else
+    printf '  SKIPPED (read-only): conversation seed not applied (no model calls made).\n\n'
+fi
+
+# ── AND THE USAGE SEED, on the producer that had nothing to write ──
+#
+# The two seeds above put CONTENT in front of a probe. This one puts WORK in
+# front of one: usage_journal_producers asks whether every declared producer
+# has written a record, and on v1.0.81 cm051_ostler_fda_ingest had not, into a
+# journal holding 557 parsed rows. Not because the writer is missing -- it is
+# vendored and proven by execution -- but because a row is written only on a
+# MEASURED embedding call (pwg_ingest.py:65-66), and the one ingest leg with
+# guaranteed input on a wiped box was SKIPPED by a surviving hydrate sentinel
+# (install.sh:26392-26413 gating :29374).
+#
+# So the step below runs install.sh:29420-29424 verbatim and counts the
+# producer's rows either side of it. It states in its own output, every time,
+# that the sweep was run BY HAND, because that converts the probe from "the
+# install exercises the ingest" to "the ingest can write when run by hand" and
+# the record has to be readable by someone who was not here.
+#
+# LAST OF THE FOUR, and below the conversation seed in particular: that seed
+# makes six sequential model calls under its own budget, and this step reads a
+# journal those calls also write into. Counting the before edge after it has
+# finished keeps this delta attributable to THIS sweep. The line citations at
+# the top of this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :100 the probe glob)
+# also keep their line numbers only while nothing is inserted above them.
+#
+# `|| true` for the reason both seeds above carry it: every path this step can
+# return 1 on is a named CANNOT-RUN or a named FINDING, and neither should
+# abort a walk that has not measured anything yet.
+. "$HERE/lib/usage_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+usage_seed_apply || true
+else
+    printf '  SKIPPED (read-only): usage seed not applied (install.sh ingest sweep not run by hand).\n\n'
+fi
+
+# ── AND THE SCALE FIXTURE, the volume that exhausted Qdrant on the #16 walk ──
+# lib/scale_fixture_seed.sh: thousands of synthetic reminders and notes through
+# the INSTALLED hydrate path, so qdrant_has_fd_headroom_and_writes_land reads a
+# box that has carried real volume. Long by design; OSTLER_WALK_SCALE=0 skips it
+# and the skip is recorded. Gated on READ_ONLY like every writer.
+. "$HERE/lib/scale_fixture_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+scale_fixture_apply || true
+else
+    printf '  SKIPPED (read-only): scale fixture not replayed.\n\n'
+fi
+
+# ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
+#
+# The four seeds above give the box a person, a preference, a conversation and
+# one measured embedding call. usage_journal_producers also needs
+# cm044_wiki_compiler to have written, and on the wiped v1.0.82 box it had not:
+# the compiler writes a cm044-compile- row only from its summary pass, which
+# wiki-recompile-tick.sh:410-531 runs as a DETACHED background backfill. Measured
+# at 18:53:06Z on that walk: the install-time tick had launched the backfill at
+# 18:48:11Z, wiki-recompile-summaries.log was still 0 bytes, and the probe had
+# read the journal at about 18:51Z. Asked too early, the same shape as the two
+# count-reading probes below.
+#
+# And at 19:08Z on the same box, twenty minutes after that launch, the log was
+# STILL 0 bytes, no process of ours was alive, both LaunchAgents read "not
+# running, runs 1, last exit code 0", and the journal held 290 rows with
+# cm044-compile- 0: the backfill was gone and had written nothing while every
+# liveness signal read green, because the tick exits 0 for having LAUNCHED it.
+#
+# So this kickstarts the recompile LaunchAgent (after the seeds, so the compile
+# sees what they wrote) and waits, bounded by OSTLER_WIKI_WAIT_BUDGET_S, for
+# every sign of life to end: the wrapper pid in
+# ~/.ostler/.wiki-recompile-summaries.pid, the summaries log GROWING, the slot
+# lock's holder, the processes of this account naming the compiler, and the
+# compile container once the wrapper is gone. Never the pid alone, and an empty
+# log is never "complete": 0 bytes for the whole wait is the FINDING "the
+# backfill wrote nothing", a growing log at the budget is CANNOT-RUN "not
+# converged in time", and a finished compile with no row names the producer.
+# Then it counts the cm044-compile- rows either side. BELOW the usage seed, so
+# the line citations at the top of this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN,
+# :100 the probe glob) keep their line numbers, and so the usage seed's own delta
+# stays attributable to its sweep.
+#
+# `|| true` for the reason the seeds carry it: every path this step can return 1
+# on is a named CANNOT-RUN or a named FINDING. No forget: the compile is the
+# product's own.
+. "$HERE/lib/wiki_summaries_wait.sh"
+# The real person for hub_screens_render_for_a_customer is the runner's choice
+# (DMG #23); sourced here, called late, right before that probe.
+. "$HERE/lib/real_person_choose.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+wiki_summaries_wait || true
+else
+    printf '  SKIPPED (read-only): wiki recompile LaunchAgent not kickstarted.\n\n'
+fi
+
+# ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
+#
+# The install-time converge is SIGKILLed at a flat budget and the catch-up agent
+# does not tick for ten minutes, then runs for twenty to forty more. The v1.0.78
+# walk measured inside that window: contacts read 1629 during the walk and 1920
+# an hour later, on the same box, untouched. people_count_agreement and
+# people_stores_reconcile were not wrong about what they saw; they were asked
+# too early, and a disagreement measured mid-convergence is not a store defect.
+#
+# Sourced at the point of use for the same reason as the seed above: sibling
+# tests and workflows cite this file by line number.
+#
+# SOURCED HERE, CALLED LATE. The wait itself is deferred to the moment the first
+# gated probe is about to run (see the loop below). It used to be called right
+# here, which put a wait of up to 2700 s in front of EVERY probe in phase 2,
+# including the twenty-odd that never read a count and cannot be affected by a
+# moving graph. On a walk where the graph never settles that is 45 minutes
+# charged to probes that did not need it. Deferring also means a filtered run
+# that collects neither gated probe waits for nothing at all.
+. "$HERE/lib/converge_wait.sh"
+_CONVERGE_WAIT_DONE=0
+
+# -------------------------------------------------------------------------
 # PHASE 2 -- the real measurements.
 # -------------------------------------------------------------------------
 printf -- '--- PHASE 2: measurements ---\n'
@@ -193,6 +670,30 @@ FAIL=0
 CANNOT=0
 FAIL_LIST=""
 CANNOT_LIST=""
+# ADVISORY: a probe whose scope row is `advisory` reported a red it is allowed to
+# report without making the walk unclean. Counted and named, never as a FAIL.
+ADVISORY=0
+ADVISORY_LIST=""
+# The scope of a probe from scripts/walk_promote_scope.tsv. FAIL-CLOSED: a missing
+# file, a missing row, or anything but exactly `advisory` is blocking.
+# WHICH PROBES MAY CANNOT-RUN WITHOUT LOSING COVERAGE. An explicit, named list
+# (Archie's policy call): `advisory` in the scope row says a RED does not refuse a
+# promote; it does NOT say an unmeasured probe is fine. converge_kill_is_recorded
+# and assistant_sends_over_whatsapp_and_email are advisory and their CANNOT-RUN
+# stays CANNOT-RUN (rc 3, not clean). owner_knowledge_score is exempt because it
+# refuses, by design, to swap CONTEXT.md on a box carrying real-person data. An
+# exempt probe is honoured only while its row is still `advisory`: flip it to
+# blocking and its CANNOT-RUN is coverage lost again.
+ADVISORY_CANNOT_RUN_EXEMPT="owner_knowledge_score"
+_advisory_cannot_run_exempt() {
+    case " $ADVISORY_CANNOT_RUN_EXEMPT " in *" $1 "*) ;; *) return 1 ;; esac
+    [ "$(_probe_scope "$1")" = "advisory" ]
+}
+_probe_scope() {
+    local f="${OSTLER_PROMOTE_SCOPE_FILE:-$HERE/../walk_promote_scope.tsv}"
+    [ -r "$f" ] || { echo blocking; return 0; }
+    awk -F'\t' -v want="$1" 'substr($0,1,1)=="#"{next} $1==want{print $2; found=1; exit} END{if(!found)print "blocking"}' "$f"
+}
 
 # WHY A PROBE DID NOT RUN, NOT ONLY WHICH ONE DID NOT.
 #
@@ -219,7 +720,84 @@ CANNOT_REASONS="$(mktemp)"
 # grounded cost across walks 9 and 10, red both times and undiagnosed both
 # times.
 FAIL_REASONS="$(mktemp)"
-trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
+# Removed by _walk_exit_trap (one EXIT trap: a second `trap ... EXIT` here
+# would replace the cleanup trap above).
+WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
+
+# OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
+# appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>,
+# so the cut-manifest replay (verify_cut_manifest.py, box_walk_probe rows) can
+# take the verdict measured HERE, against the seed fixture and after each
+# probe's negative control, instead of running the script again after the
+# forgets at the end of this file. v1.0.89: the replay re-ran
+# assistant_answers_grounded after SEED-FORGET OK and read tool_found_nothing
+# on stores it had emptied.
+#
+# The fifth column says whether the probe's verdict DEPENDS on that fixture, and
+# the replay takes only rows that read seed-fixture. The grounding seed
+# (OSTLER_GATE_*) and the preference seed feed assistant_answers_grounded; the
+# conversation seed feeds ingest_coverage's conversations count and the
+# grounded probe's pwg_topics; the usage seed feeds usage_journal_producers
+# (each lib's header names its consumer). Every other probe reads live state,
+# and its phase 2 re-run stays an independent second measurement: on v1.0.89
+# that second reading is what caught the stores diverging by 44 mid-tick.
+# conversation_capture_end_to_end reads OSTLER_CONVCAP_SEED_STATE and the two
+# conversations lib/conversation_capture_seed.sh posts; owner_digest_knows_the_owner
+# reads OSTLER_OWNER_SEED_STATE (lib/owner_employer_seed.sh). Both seeds are
+# forgotten before the replay, so a phase 2 re-run reads "unrun" and reports
+# CANNOT-RUN over a measured phase 1 verdict (walk #10, v1.0.107).
+SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner"
+_record_verdict() {
+    [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
+    local fixture=live
+    case " $SEED_DEPENDENT_PROBES " in *" $1 "*) fixture=seed-fixture ;; esac
+    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(printf '%s' "${3:-}" | tr '\n\t' '  ')" "$fixture" >> "$OSTLER_PHASE1_VERDICTS"
+}
+
+# ── PREVIOUS FAILS FIRST, in a full walk, after the seeds ──────────────────
+# So a repeat failure shows early in the probe run. ORDER ONLY: no probe is
+# added, dropped or re-run, and the verdicts are unchanged. Names come from the
+# same source as the early pass (the operator walk store, via
+# scripts/early_repeat_fail_pass.sh --names-only). If they cannot be read this
+# says CANNOT-RUN and leaves the C-sorted order alone. A writer is
+# never promoted: a probe that declares "# WALK_WRITES:" keeps its place, because
+# moving a writer changes what later probes read. OSTLER_PROMOTE_PREV_FAILS=0
+# turns this off.
+. "$HERE/lib/promote_order.sh"
+if [ -z "$ONLY" ] && [ "${OSTLER_PROMOTE_PREV_FAILS:-1}" = "1" ]; then
+    _pf_rc=0
+    _pf_names="$(bash "$HERE/../early_repeat_fail_pass.sh" --names-only --host "${OSTLER_BOX_HOST:-local}" \
+        ${OSTLER_CURRENT_WALK_LOG:+--exclude-log "$OSTLER_CURRENT_WALK_LOG"})" || _pf_rc=$?
+    if [ "$_pf_rc" -ne 0 ]; then
+        printf '  PROMOTION: CANNOT-RUN (rc=%s), probe order left as C-sorted.\n\n' "$_pf_rc"
+    elif [ -z "$_pf_names" ]; then
+        printf '  PROMOTION: the previous walk named no failed probe; probe order left as C-sorted.\n\n'
+    else
+        _pf_new="$(promote_order "$_pf_names")"
+        for _pf_w in $(promote_writers_named "$_pf_names"); do
+            printf '  PROMOTION: %s not moved (writes)\n' "$_pf_w"
+        done
+        printf '  PROMOTION: previous FAILs moved to the front (order only): %s\n' \
+            "$(printf '%s' "$_pf_names" | tr '\n' ' ')"
+        PROBES="$_pf_new"
+        printf '  probe order now:'
+        for _pf_p in $PROBES; do printf ' %s' "$(basename "$_pf_p" .sh)"; done
+        printf '\n\n'
+    fi
+fi
+
+# THE OWNER-KNOWLEDGE SCORE RUNS LAST. It seeds a synthetic persona into the
+# graph and the conversation store (and purges it before it returns), so any
+# probe that counts or reads people after it would be measuring the seed.
+# Applied after promotion on purpose: the probe declares WALK_WRITES, so
+# promotion never moves it, and this puts it behind the p..z probes that the C
+# sort would otherwise run after it. tests/test_owner_score_instrument_is_valid.sh
+# asserts the order.
+PROBES="$(pin_last owner_knowledge_score)"
+# The probe seeds only on a walk that may write: --only implies --read-only, and
+# the probe reads this to leave the graph alone.
+export OSTLER_WALK_READ_ONLY="$READ_ONLY"
 
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
@@ -227,17 +805,108 @@ for p in $PROBES; do
     case " $BROKEN_LIST " in
         *" $b "*)
             printf '\n[%s]\n  SKIPPED -- probe failed its own negative control in phase 1.\n' "$b"
+            _record_verdict "$b" BROKEN "failed its own negative control in phase 1"
             continue
             ;;
     esac
+
+    # A COUNT READ MID-CONVERGENCE IS NOT A STORE DEFECT. If the graph never
+    # settled, the two probes that read counts cannot measure the thing they
+    # exist to measure, so they are CANNOT-RUN with the cause named: never
+    # FAIL, never PASS. This is a coverage statement, and it is counted in the
+    # same four numbers as every other CANNOT-RUN rather than hidden.
+    # THE STATE THIS COMPARES AGAINST MUST BE ONE THE LIB CAN ACTUALLY SET.
+    # This read `!= "done"` until Aesop's review of #1849 caught it. converge_
+    # wait sets exactly five values -- unrun, skipped, stable, unreadable,
+    # unstable (lib/converge_wait.sh:59, 125, 170, 183-184) -- and "done" is
+    # not among them: it is the last remnant of the marker-file design that
+    # this lib deliberately abandoned. So the comparison was true for every
+    # value the lib can produce, and BOTH gated probes were CANNOT-RUN
+    # unconditionally, including after a wait that succeeded. The gate did not
+    # delay the two probes, it deleted them. The lib's own 21-arm suite could
+    # not see it because that suite tests the lib and this line is the wiring,
+    # which is why the arms added in test_the_walk_waits_for_converge.sh drive
+    # THIS block rather than converge_wait().
+    #
+    # The screens probe's "a real person's compiled page renders" assertion needs a
+    # real person WITH a compiled page, and pages exist only once the wiki has
+    # compiled, so the choice is made here, late, with a wait. Env only; the name
+    # is never printed (real_person_choose.sh logs sha256(name)[:8] and depth).
+    case "$b" in hub_screens_render_for_a_customer*) real_person_choose ;; esac
+
+    # ── THE WIKI PRODUCER GETS A SECOND WAIT, RIGHT BEFORE THE PROBE THAT NEEDS IT ──
+    #
+    # usage_journal_producers requires cm044_wiki_compiler to have written, and
+    # the only writer is the summary backfill, which queues for the shared
+    # Ollama slot behind whatever job won it at install. v1.0.89 run 3
+    # (2026-09-10, a cold install): the email conversation feed took the slot at
+    # 18:10Z and held it past 19:00Z; the wait at the top of this file watched
+    # "slot held; matching processes: 1" and expired at 900 s; the probe then
+    # read 0 rows and called it FAIL. A precondition the walk SAW unmet is not a
+    # measurement of the producer. So, when the first wait ended cannot-run (it
+    # did not converge in time), wait once more here, after the other probes
+    # have spent their time, with a budget sized to outlast a feed batch (run 1
+    # measured about 47 min from install). The wait's final state is handed to
+    # the probe, which refuses rather than fails if the producer still has not
+    # run. "finding" (the backfill ran and wrote nothing) is NOT retried: that
+    # is the defect the probe exists to catch.
+    if [ "$b" = "usage_journal_producers" ]; then
+        # CM051 #2564: this is a second kickstart of the same LaunchAgent the
+        # top-of-file wait gates on READ_ONLY -- it must obey the same gate,
+        # or `--only usage_journal_producers` alone would still kickstart a
+        # write the top-level skip just refused.
+        if [ "$READ_ONLY" -eq 0 ] && [ "${WIKI_WAIT_STATE:-unrun}" = "cannot-run" ]; then
+            printf '\n  wiki summaries: the first wait ended cannot-run (%s); waiting once more here, before the only probe that needs it, budget %ss\n' \
+                "${WIKI_WAIT_DETAIL:-no detail}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
+            OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
+        fi
+        export OSTLER_WIKI_WAIT_STATE="${WIKI_WAIT_STATE:-unrun}"
+        export OSTLER_WIKI_WAIT_DETAIL="${WIKI_WAIT_DETAIL:-}"
+    fi
+
+    # PASS ONLY ON "stable". Every other value, including unrun, means the
+    # graph was not measured to have stopped moving.
+    if converge_gates_probe "$b"; then
+        # The wait happens once, here, immediately before the first probe that
+        # needs it, rather than in front of all of phase 2.
+        if [ "$_CONVERGE_WAIT_DONE" -eq 0 ]; then
+            printf '\n'
+            converge_wait || true
+            _CONVERGE_WAIT_DONE=1
+        fi
+        if [ "$CONVERGE_STATE" != "stable" ]; then
+            printf '\n[%s]\n' "$b"
+            printf '  VERDICT: CANNOT-RUN -- %s\n' "$CONVERGE_DETAIL" | sed 's/^/  /'
+            CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
+            printf '%s\t%s\n' "$b" "$CONVERGE_DETAIL" >> "$CANNOT_REASONS"
+            _record_verdict "$b" CANNOT-RUN "$CONVERGE_DETAIL"
+            continue
+        fi
+    fi
 
     printf '\n[%s]\n' "$b"
     out="$(bash "$p" 2>&1)"
     rc=$?
     printf '%s\n' "$out" | sed 's/^/  /'
 
-    if [ "$rc" -eq 0 ]; then
+    if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^VERDICT: ADVISORY -- ')" -gt 0 ]; then
+        ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
+        _why="$(printf '%s\n' "$out" | awk '/^VERDICT: ADVISORY -- /{sub(/^VERDICT: ADVISORY -- /, ""); print; exit}')"
+        _record_verdict "$b" ADVISORY "$_why"
+    elif [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))
+        _record_verdict "$b" PASS ""
+    elif [ "$rc" -eq "$EX_CANNOT_RUN" ] && _advisory_cannot_run_exempt "$b"; then
+        # A NAMED exemption (see ADVISORY_CANNOT_RUN_EXEMPT), not a consequence of
+        # the scope row: this probe could not run, and the walk must not be
+        # unclean for it. Still announced, with the reason, and still in the record.
+        _why="$(printf '%s\n' "$out" \
+                | awk '/^VERDICT: CANNOT-RUN -- /{sub(/^VERDICT: CANNOT-RUN -- /, ""); f=1} f' \
+                | tr '\n' ' ' | sed 's/  */ /g; s/ *$//')"
+        [ -n "$_why" ] || _why="UNRECORDED -- exited ${EX_CANNOT_RUN} with no 'VERDICT: CANNOT-RUN --' line"
+        printf '  VERDICT: ADVISORY (cannot-run: %s)\n' "$_why"
+        ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
+        _record_verdict "$b" ADVISORY "cannot-run: $_why"
     elif [ "$rc" -eq "$EX_CANNOT_RUN" ]; then
         CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
         # Everything from the marker to the END of the probe's output is the
@@ -253,6 +922,7 @@ for p in $PROBES; do
         # contract breach and a different problem entirely.
         [ -n "$_why" ] || _why="UNRECORDED -- exited ${EX_CANNOT_RUN} with no 'VERDICT: CANNOT-RUN --' line, so it bypassed probe_cannot_run and named no prerequisite"
         printf '%s\t%s\n' "$b" "$_why" >> "$CANNOT_REASONS"
+        _record_verdict "$b" CANNOT-RUN "$_why"
     else
         FAIL=$((FAIL + 1)); FAIL_LIST="$FAIL_LIST $b"
         # Same extraction as CANNOT-RUN above: probe_fail() prints its detail
@@ -266,8 +936,39 @@ for p in $PROBES; do
         # nothing, which is a contract breach, not a finding without a reason.
         [ -n "$_why" ] || _why="UNRECORDED -- exited ${rc} with no 'VERDICT: FAIL --' line, so it bypassed probe_fail and named no finding"
         printf '%s\t%s\n' "$b" "$_why" >> "$FAIL_REASONS"
+        _record_verdict "$b" FAIL "$_why"
     fi
 done
+
+printf '\n'
+# Every measurement is taken by here, so removing the synthetic person cannot
+# change a verdict in THIS run. It never fails the walk.
+grounding_seed_forget || true
+preference_seed_forget || true
+conversation_seed_forget || true
+usage_seed_forget || true
+owner_employer_seed_forget || true
+conversation_capture_seed_forget || true
+if [ "$READ_ONLY" -eq 0 ]; then
+scale_fixture_forget || true
+companion_walk_unpair || true
+fi
+# Done on the normal path: the EXIT trap (walk_cleanup, above) only acts on an
+# abort. tests/test_walk_cleanup_runs_on_abort.sh pins that the two lists match.
+WALK_CLEANUP_DONE=1
+
+# But post_walk_qa.sh replays probes against this box AFTER this script exits
+# (the cut manifest's runtime proofs), and the compiled wiki still counts the
+# rows just removed. v1.0.87: graph 1838, vectors 1838, tile 1839, two FAIL
+# rows on a box with no defect. Recompile so the replay reads the box the
+# probes read. Never fails the walk; see lib/wiki_summaries_wait.sh.
+if [ "$READ_ONLY" -eq 0 ]; then
+wiki_baseline_resync || true
+else
+    # It kickstarts the recompile LaunchAgent and waits up to 900 s, which is a
+    # write the forgets above (all state-gated) never made in a read-only run.
+    printf -- '--- WIKI BASELINE ---\n  SKIPPED (read-only): recompile LaunchAgent not kickstarted.\n\n'
+fi
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.
@@ -278,9 +979,15 @@ printf '  PASS        %s\n' "$PASS"
 printf '  FAIL        %s\n' "$FAIL"
 printf '  CANNOT-RUN  %s\n' "$CANNOT"
 printf '  BROKEN      %s\n' "$BROKEN"
+printf '  ADVISORY    %s\n' "$ADVISORY"
 printf '  ----------------\n'
 printf '  of          %s probes\n' "$PROBE_COUNT"
 printf '============================================================\n'
+
+if [ -n "$ADVISORY_LIST" ]; then
+    printf '\nADVISORY (reported, NOT counted as FAIL; the scope row says advisory):\n'
+    for b in $ADVISORY_LIST; do printf '  ADVISORY  %s\n' "$b"; done
+fi
 
 if [ -n "$FAIL_LIST" ]; then
     printf '\nFAILED:\n'
@@ -348,7 +1055,99 @@ if [ "$FAIL" -eq 0 ] && [ "$BROKEN" -eq 0 ] && [ "$CANNOT" -gt 0 ]; then
     printf 'This is NOT a clean box walk. It is a partial one. Fix the prerequisites and re-run.\n'
 fi
 
+# -------------------------------------------------------------------------
+# WAS EVERY CANNOT-RUN ONE WE ACCEPT FROM AN SSH WALK?
+#
+# ⚠️ THE EXIT 3 BELOW IS NEW AND IT USED TO BE A 0. This file ended
+#
+#     if [ "$FAIL" -gt 0 ] || [ "$BROKEN" -gt 0 ]; then exit 1; fi
+#     exit 0
+#
+# so the run exited 0 whatever CANNOT was, and the header above said that was
+# deliberate: "CANNOT-RUN does not fail the run -- it is a coverage statement,
+# not a defect". The four-number headline printed the truth and the one number
+# a caller can act on threw it away. A walk where half the instruments shrugged
+# reported the same success as a walk where all of them measured, so a probe
+# that refuses instead of failing cost nothing, and refusing became the cheap
+# path.
+#
+# THE RULE WAS ALREADY DECIDED, IN WRITING, AND ONLY THE CODE DISAGREED.
+# LAUNCH DIRECTIVE item 3 (CLAUDE.md, Andy, 2026-09-07), verbatim: "Andy is
+# asked to walk ONLY when the thin walk reports 0 FAIL and the only CANNOT-RUNs
+# are TCC/GUI items. Never before." Nothing is invented here. The exit code is
+# made to say what the directive says.
+#
+# WHICH PROBES ARE TCC/GUI IS DECLARED, NEVER INFERRED. It is read from
+# console_only_probes.tsv beside this file. It is NOT inferred from a probe's
+# name and NOT from the words in its refusal message, because the message is
+# written by the same hand that chose to refuse, and a classifier keyed on it
+# would be asking the accused. An unlisted probe is not exempt; nor is one
+# whose surface column says anything but tcc or gui; nor is any probe at all
+# when the register cannot be read. Every failure direction lands on "this walk
+# is not clean", which is the only safe one.
+#
+# ⚠️ THIS BLOCK MUST STAY BELOW EVERY SECTION post_walk_qa.sh PARSES, AND ITS
+# HEADERS MUST NOT START WITH THE STRINGS THAT FUNCTION KEYS ON.
+# section_names() there matches with index($0, hdr) == 1 on "FAILED:",
+# "NOT MEASURED" and "BROKEN (", grabs the bare probe names beneath, and EXITS
+# at the first line that is not one. Every header printed below begins with
+# "COVERAGE", so none can be mistaken for a section start, and each of those
+# sections has already been terminated by a blank line by the time this runs.
+# count_of() there anchors on NF == 2 with a numeric second field, which no
+# line below satisfies either. tests/test_a_cannot_run_is_not_a_clean_walk.sh
+# runs the REAL parser over this output and requires every name to survive.
+# -------------------------------------------------------------------------
+
+# Distinct from 1 (a real defect was measured) and from 2 (this script could
+# not start: bad argument, empty suite), so a caller can tell the three apart.
+EX_COVERAGE_LOST=3
+CONSOLE_ONLY_REGISTER="$HERE/console_only_probes.tsv"
+
+CONSOLE_ONLY_NOT_EXEMPT=""
+NOT_EXEMPT=0
+
+# Prints tcc or gui for a DECLARED console-only probe and nothing for any
+# other. An unreadable register prints nothing for every probe, which is the
+# safe direction: nothing is exempt and the walk says so out loud.
+_console_only_surface() {
+    [ -r "$CONSOLE_ONLY_REGISTER" ] || return 0
+    awk -F'\t' -v want="$1" '
+        substr($0, 1, 1) == "#" { next }
+        $1 == want && ($2 == "tcc" || $2 == "gui") { print $2; exit }
+    ' "$CONSOLE_ONLY_REGISTER"
+}
+
+if [ "$CANNOT" -gt 0 ]; then
+    printf '\nCOVERAGE CLASSIFICATION, from %s\n' "$CONSOLE_ONLY_REGISTER"
+    if [ ! -r "$CONSOLE_ONLY_REGISTER" ]; then
+        printf '  THE REGISTER IS NOT READABLE, so no probe can be declared console-only\n'
+        printf '  and every CANNOT-RUN below counts as coverage lost. An absent list is\n'
+        printf '  not an empty one and must never read as a blanket exemption.\n'
+    fi
+    for b in $CANNOT_LIST; do
+        _surface="$(_console_only_surface "$b")"
+        if [ -n "$_surface" ]; then
+            printf '  CONSOLE-ONLY (%s)  %s\n' "$_surface" "$b"
+        else
+            NOT_EXEMPT=$((NOT_EXEMPT + 1))
+            CONSOLE_ONLY_NOT_EXEMPT="$CONSOLE_ONLY_NOT_EXEMPT $b"
+            printf '  COVERAGE LOST      %s\n' "$b"
+        fi
+    done
+fi
+
 if [ "$FAIL" -gt 0 ] || [ "$BROKEN" -gt 0 ]; then
     exit 1
+fi
+
+if [ "$NOT_EXEMPT" -gt 0 ]; then
+    printf '\nCOVERAGE LOST -- %s of %s probes could not be measured, and not one of\n' "$NOT_EXEMPT" "$PROBE_COUNT"
+    printf 'them is declared console-only. NOTHING FAILED IS NOT EVERYTHING PASSED:\n'
+    for b in $CONSOLE_ONLY_NOT_EXEMPT; do printf '  %s\n' "$b"; done
+    printf 'Each named its missing prerequisite above. Being at the console fixes none\n'
+    printf 'of them, which is why none is exempt. Fix the prerequisite and re-run, or\n'
+    printf 'declare the probe in the register with a reason someone can argue with.\n'
+    printf 'This walk is NOT clean and must not be reported as one.\n'
+    exit "$EX_COVERAGE_LOST"
 fi
 exit 0

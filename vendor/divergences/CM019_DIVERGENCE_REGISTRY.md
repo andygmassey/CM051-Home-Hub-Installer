@@ -79,6 +79,136 @@ live in CM019 today.
 **Note:** `youtube.py` measures 156 delta lines, of which roughly 90 are
 #808. The remainder predates it and is UNATTRIBUTED.
 
+### CM051 #1974 -- the search filter asked for a type and an owner the store does not hold
+
+`services/ingest/src/loaders/qdrant_loader.py`. Two independent read-side
+mismatches, both in `QdrantLoader.search()`, both measured on a live customer
+box on 2026-09-16 against the `preferences` collection (5733 points):
+
+| probe | count | what it says |
+|---|---:|---|
+| `compartment_level` match `"L2"` | 4804 | the stored value is a STRING |
+| `compartment_level` range `{gte: 0}` | 0 | the shipped reader's query |
+| CONTROL `strength` range `{gte: 0}` | 5733 | the range operator works |
+| `is_empty user_id` | 5733 | the owner tag is never written |
+| CONTROL `is_empty category` | 0 | the probe discriminates |
+
+So compartment-scoped search matched nothing at all, and every user-scoped
+read returned an empty list. Both were silent: the query is valid, Qdrant
+answers 200, and the caller sees a legitimate-looking empty result.
+
+**The reader was changed, not the writer, on both counts.** The 4804 string
+levels are on customers' disks already and a writer-only fix leaves them
+unsearchable until a full re-ingest; and `user_id` cannot be back-filled with
+an identity that the single-machine product does not have. `search()` now
+accepts the numeric type AND the stored string vocabulary, and treats an
+absent owner as this user's -- which is the call `services/enrich/src/enricher.py`
+already makes, in this same tree, for this same reason, citing the
+single-machine architectural directive. The same one-of clause is applied to
+`count()` and `get_all_for_user()`.
+
+**`delete_by_user()` was deliberately NOT changed**, and there is a test that
+fails if a later tidy-up makes it "consistent" with the others. Widening a
+delete to include untagged points would turn an owner-scoped erase into a
+full-collection wipe -- all 5733 on the measured box.
+
+Also recorded here because it is a real defect this change did NOT fix: the
+`gte` in the compartment filter is preserved exactly as it was. Levels run L0
+Personal to L6 Broadcast, so whether a "max compartment level" cap should be
+`gte` or `lte` is a genuine open question, and answering it by accident while
+fixing a type mismatch would have been a silent privacy change.
+
+**Upstream status:** not ported. The user-id half is Ostler-specific (it
+follows from the single-machine directive and from `ostler_fda/pwg_ingest.py`
+being the real producer for this collection, which upstream does not have).
+The compartment-type half is owed upstream, and upstream would more likely fix
+its writer than its reader.
+
+### CM051 #1583: the compartment filter could not express its own docstring
+
+`services/ingest/src/loaders/qdrant_loader.py`,
+`services/ingest/src/pipeline.py`, `services/ingest/src/api.py`.
+
+The row above records, correctly, that `gte` was preserved on purpose and that
+the direction question was left open. What it did not record is that the
+method had no way to say the other thing. `QdrantLoader.search()` documented
+`compartment_level` as a "max compartment level", `IngestPipeline.search_similar()`
+documented it as "Maximum compartment level to include", and both sent a
+`gte`, which selects the complement of a maximum. A caller who believed either
+docstring got the opposite half of the store and nothing anywhere said so.
+
+WHAT CHANGED. `search()` takes `compartment_direction`, defaulting to
+`COMPARTMENT_AT_OR_ABOVE`, which emits byte-identical filter bodies to the
+ones this file emitted before for every threshold in the 0..6 domain. The
+docstrings now say what the code does. `COMPARTMENT_AT_OR_BELOW` is the other
+direction. An unrecognised value raises rather than defaulting.
+
+WHAT DID NOT CHANGE. The direction. No customer's privacy-scoped read returns
+anything different because of this change, and the `at_or_below` arm is
+reachable from Python only, never from `POST /search`, because choosing it is
+the privacy decision this registry says is still open.
+
+TWO SMALLER THINGS FIXED IN PASSING. The string arm is now DERIVED from the
+numeric predicate instead of hand-written as `range(level, 7)`, which agreed
+with `gte` by construction and would silently have disagreed with `lte`. And a
+threshold outside the 0..6 domain no longer sends `match: {any: []}`, which
+Qdrant rejects: a rejected request is logged and returns `[]`, which reads to
+the customer exactly like owning nothing.
+
+RECORDED, NOT FIXED. `parsers/base.py::_compartment_uri` maps an unrecognised
+level to `L2Trusted`, so a level nobody can place is labelled in the middle of
+the scale rather than at either end. Which end is fail-closed depends on the
+direction question, so it is left alone here.
+
+**Upstream status:** not ported. Owed upstream, and upstream has the same
+ambiguity.
+
+### Walk #16 -- an enrichment miss is not a failure (enricher.py, cli.py)
+
+Walk #16: import_data went red over a fully successful import. Three Wikidata
+look-ups found nothing ("No Wikidata entity for: ...", "Wikidata has no film or
+programme named: ..."), `enrich_batch` counted each as `failed`, cli.py's
+`failed > successful` exited 1, and ostler-import's `|| rc=$?` carried that into
+install.sh's warn branch.
+
+`is_enrichment_miss()` (enricher.py) classifies a result as a MISS only when it
+carries `MatchType.NONE` AND an error text on a fixed list of "answered, no
+confident match" phrasings. Fail-closed: `MatchType.NONE` is also the dataclass
+default, so a caught exception (`result.error = str(e)`) would carry it too; an
+unrecognised message stays a failure, and `MatchType.UNAVAILABLE` is never a
+miss. Misses go to `EnrichmentStats.no_match` / `misses`, count toward
+`attempted()` (they were dispatched), are merged across categories, are logged
+at INFO, and print under "--- No enrichment match (N, not errors) ---". They
+never set the exit code. Test: tests/test_an_enrichment_miss_is_not_an_import_error.py.
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph
+services/enrich), same shape.
+
+### Walk #28 -- public look-ups only on a recorded yes (cli.py)
+
+Setup asks consent_enrichment (default no) and writes the answer to
+`~/.ostler/config/.env` as `OSTLER_CONSENT_ENRICHMENT_DECISION`. The enrich CLI
+had no consent reference at all, so any caller that forgot to check sent
+preference subjects to Wikidata, MusicBrainz and Open Library regardless.
+`require_public_lookup_consent()` (cli.py) now runs before `enrich` (not
+`--dry-run`, which calls no external API) and before `parallel`. It reads the
+FILE, never the inherited environment; "accepted" proceeds, "declined" exits 0
+with a plain sentence, and a missing file, missing key or any other value exits
+3 having sent nothing. `stats`, `normalize` and `test-connections` touch only
+the local stores and are not gated. This is the backstop: install.sh's
+ostler-import and enrich tick check the same value first. Test:
+tests/test_enrichment_honours_a_decline.sh (arm C, socket-guarded).
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph
+services/enrich), same shape: upstream has no consent gate either.
+
+### v1.0.108 -- local-store clients ignore HTTP(S)_PROXY (enricher.py, hierarchy.py, cli.py)
+
+`trust_env=False` on the 13 httpx clients that talk to the local Qdrant and
+Oxigraph. UPSTREAM since 4e023299 (personal-world-graph #409); this tree is
+pinned there, so this is no longer a divergence. Detail and proof:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-17 v1.0.108".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

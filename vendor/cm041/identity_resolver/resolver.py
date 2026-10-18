@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import httpx
 
-from .canonical_name import choose_canonical_display_name, prefer_real_given_name
+from contact_syncer.relationship_labels import is_relationship_label
+
+from .canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
 from .compartment import (
     UserCompartment,
     assert_default_graph_isolated,
+    assert_named_graphs_are_off_a_pinned_dataset,
     normalise_user_id,
     resolve_compartment,
 )
@@ -19,6 +23,9 @@ from .models import MatchResult, PersonIdentity
 from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
+
+from . import forget_tombstone, retirement
+from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
 
@@ -35,7 +42,7 @@ class IdentityResolver:
     def __init__(
         self,
         oxigraph_url: str,
-        default_country_code: int = 852,
+        default_country_code: Optional[int] = None,
         timeout: float = 30.0,
         compartment: Optional[UserCompartment] = None,
     ):
@@ -176,6 +183,23 @@ class IdentityResolver:
         the public resolve() wraps this and degrades to "new" so a failure
         never drops a contact. TNM's in-memory candidate index lands inside the
         Tier-3 path here; this error boundary sits outside it by design."""
+        # A person erased by POST /api/v1/people/<slug>/forget must not be
+        # matched, merged into, or re-minted by any syncer. Checked FIRST:
+        # forget removed their identifiers, so every tier below would read
+        # "nobody holds this" and the caller would create them again. Callers
+        # treat match_type "forgotten" as "skip this record" (see
+        # forget_tombstone.py for what it matches and what it stores).
+        if forget_tombstone.is_forgotten(
+            values=[v for _, v in self._iter_identifiers(identity)],
+            name=identity.display_name,
+        ):
+            return MatchResult(
+                person_uri=None,
+                match_type=forget_tombstone.MATCH_TYPE,
+                confidence=1.0,
+                details="forgotten (tombstoned); skip, do not create",
+            )
+
         # Tier 1: Exact match on any single identifier.
         #
         # Collect EVERY node any incoming exact identifier points at, not just
@@ -198,12 +222,37 @@ class IdentityResolver:
         if len(found_uris) == 1:
             uri = next(iter(found_uris))
             id_type, id_value = found_uris[uri]
-            return MatchResult(
-                person_uri=uri,
-                match_type="exact_identifier",
-                confidence=1.0,
-                details=f"Matched on {id_type}={id_value}",
+            # RULE 2 belongs here too, not only in the multi-URI collapse
+            # below. A SINGLE shared identifier is enough to reach this
+            # branch on its own -- a household landline, an office
+            # switchboard -- and until now nothing checked whether the
+            # INCOMING identity's own canonical key (icloud_contact_uid /
+            # linkedin_url / whatsapp_lid) actually agrees with the matched
+            # node's. Two different real people sharing one phone number
+            # matched here with confidence 1.0 and no conflict check, and the
+            # caller then overwrote the matched node's name with the second
+            # person's and folded their other identifiers on top of it --
+            # CM051 #2545 (one phone number ends up on two Person nodes: the
+            # untouched original plus whatever this corrupted write left
+            # behind). Absence of the canonical key on either side is still
+            # not a conflict, exactly as in the collapse branch below.
+            conflict = self._identity_conflicts_with_node(identity, uri)
+            if conflict is None:
+                return MatchResult(
+                    person_uri=uri,
+                    match_type="exact_identifier",
+                    confidence=1.0,
+                    details=f"Matched on {id_type}={id_value}",
+                )
+            logger.info(
+                "RULE 2: refusing exact match on %s=%s -> %s -- incoming "
+                "identity's %s differs from the node's (shared identifier, "
+                "different people)",
+                id_type, id_value, uri, conflict,
             )
+            # Fall through: not a trustworthy match. Tier 3 (fuzzy, if
+            # enabled) or Tier 4 ("new") decide from here, exactly as if no
+            # identifier had matched at all.
 
         if len(found_uris) > 1:
             uris = list(found_uris.keys())
@@ -345,6 +394,15 @@ class IdentityResolver:
         AND never raises. The string escaper is still the wrong tool for an
         IRI context; normalisation forbids every IRI metacharacter instead.
         """
+        # Hard backstop behind resolve()'s "forgotten" answer: a caller that
+        # forgot to branch on it still cannot mint the person.
+        if forget_tombstone.is_forgotten(
+            values=[v for _, v in self._iter_identifiers(identity)],
+            name=identity.display_name,
+        ):
+            raise forget_tombstone.ForgottenPersonError(
+                "refusing to create a person who was forgotten"
+            )
         user_id = normalise_user_id(user_id)
         short_id = uuid.uuid4().hex[:12]
         person_uri = f"{PWG}person_{short_id}"
@@ -362,6 +420,16 @@ class IdentityResolver:
             )
             or identity.display_name
         )
+        # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become
+        # a person's permanent displayName -- it says how SOMEBODY refers to
+        # this person, not who they are. choose_canonical_display_name has no
+        # opinion on this (a single-candidate list of exactly "Mum" is not
+        # junk, not a unix login, not an email -- it passes straight
+        # through), so the fallback `or identity.display_name` was the one
+        # unguarded path. Matches the WHOLE label only, so a real name that
+        # merely contains the word ("Mum Zhang") is untouched.
+        if is_relationship_label(display_name):
+            display_name = ""
 
         triples = [
             f"<{person_uri}> a <{PWG}Person>",
@@ -517,6 +585,12 @@ class IdentityResolver:
                 f"}}"
             )
 
+        # 4b. NAME TIERS (DMG #27): the survivor's displayName takes the highest
+        #     tier among the merged nodes (human > email > phone). Step 4 only
+        #     copies where keep has none, so a placeholder survivor kept its
+        #     placeholder. Equal tiers change nothing.
+        self.rename_survivor_upward(keep_uri, discard_uri)
+
         # 5. Mark discard as merged
         self._sparql_update(
             f"INSERT DATA {{ "
@@ -545,6 +619,32 @@ class IdentityResolver:
             f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
         )
 
+        # 5c. RETIRE THE DISCARD. It is no longer a live Person.
+        #
+        # batch_resolver.py's merge does this at its step 7:
+        #     DELETE DATA { <discard_uri> a pwg:Person }
+        # This path never did. So the same logical operation left the graph in
+        # two different states depending on which merge path ran, and a person
+        # merged HERE went on being counted as a separate live Person forever.
+        #
+        # MEASURED on the live 16GB box 2026-09-18: 56 subjects carry
+        # pwg:mergedInto. 24 are correctly untyped (the batch path). THE OTHER
+        # 32 ARE STILL TYPED pwg:Person, carrying ~10 triples each, and every
+        # one of them inflates `SELECT (COUNT(DISTINCT ?p)) WHERE { ?p a
+        # pwg:Person }` -- the number the product reports as "people you know".
+        #
+        # Zero merge chains, so this is not an artefact of merging a merged
+        # node: it is one code path doing half of what the other one does.
+        # REPLACE the type, never merely remove it. Removal left the node with
+        # no rdf:type at all, and every ingest writer's existence check asks
+        # `SELECT ?t WHERE { <uri> a ?t }` -- ANY type -- so an untyped node
+        # reads as NEVER CREATED and the next ingest re-created the person we
+        # had just merged away. See identity_resolver/retirement.py for the
+        # measurement: this exact removal set the phantom count to 0 and one
+        # ingest put it back to 32.
+        record_person_removal(discard_uri, "identity_resolver.merge_persons", "merge_retire_type")
+        self._sparql_update(retirement.retire_update(discard_uri))
+
         # 6. Collapse any accumulated displayName values on the kept node to a
         #    single canonical value. Step 4 copies every displayName from the
         #    discard when keep has none, so a merge can leave the node with
@@ -552,6 +652,91 @@ class IdentityResolver:
         self.canonicalise_display_name(keep_uri)
 
         logger.info("Merged %s into %s", discard_uri, keep_uri)
+
+    def _display_names(self, person_uri: str) -> list:
+        res = self._sparql_query(
+            f"SELECT ?n WHERE {{ <{person_uri}> <{PWG}displayName> ?n }}")
+        return [b["n"]["value"] for b in res.get("results", {}).get("bindings", []) if b.get("n")]
+
+    def rename_survivor_upward(self, keep_uri: str, discard_uri: str) -> Optional[str]:
+        """Give the survivor the discard's name when that name is a higher tier
+        (human > email > phone). Returns the new name, or None when unchanged."""
+        new = upward_name(self._display_names(keep_uri), self._display_names(discard_uri))
+        if not new:
+            return None
+        self._sparql_update(
+            f"DELETE {{ <{keep_uri}> <{PWG}displayName> ?old }} "
+            f"WHERE {{ <{keep_uri}> <{PWG}displayName> ?old }} ; "
+            f'INSERT DATA {{ <{keep_uri}> <{PWG}displayName> "{_escape(new)}" }}'
+        )
+        self._sync_qdrant_display_name(keep_uri, new)
+        logger.info("Survivor %s renamed upward to %r", keep_uri, new)
+        return new
+
+    def _sync_qdrant_display_name(self, person_uri: str, display_name: str) -> None:
+        """Push a just-canonicalised name into the Qdrant `people` point for
+        this person, if one exists (walk #6, bug 2).
+
+        This class is Oxigraph-only by construction (see __init__): it has
+        no Qdrant URL/collection and nothing else in this module ever
+        touches Qdrant. ``batch_resolver.py`` has its OWN, separate merge
+        path with its OWN Qdrant sync (``_merge_qdrant``) -- but THIS path
+        (``merge_persons`` / ``canonicalise_display_name``) had none. The
+        two merge paths are both live (see the ``merge_persons`` comments
+        on the pwg:Person-typing divergence measured between them), so a
+        canonicalise that only writes Oxigraph leaves the Hub's People list
+        -- which reads ONLY Qdrant, never Oxigraph, see
+        assistant_api/ical-server.py's people_list -- showing the OLD name
+        forever. Measured on macmini16-walk: a Contacts-linked person (an
+        icloud_contact_uid identifier proves a real address-book card
+        exists) still displayed by their bare email in the Hub.
+
+        Deliberately narrow: only the ONE field this method just changed.
+        Merging phones/emails/other scalars across two Qdrant points on a
+        full person-merge is `batch_resolver._merge_qdrant`'s job, not
+        this one's -- duplicating that here would be a second place for
+        those two to drift apart.
+
+        Best-effort and silent on failure, matching `_merge_qdrant`'s own
+        stance: the graph-side canonicalisation has already succeeded and
+        must not be undone by a Qdrant hiccup. Logs loudly so the gap is
+        at least visible, per the SAME reasoning `_merge_qdrant`'s own
+        docstring gives for why "skipping" must never be silent.
+        """
+        try:
+            from qdrant_client import QdrantClient
+        except ImportError:
+            logger.warning(
+                "qdrant-client not installed: canonical display name for %s "
+                "was NOT propagated to Qdrant. The Hub's People list reads "
+                "Qdrant, so it will keep showing the old name.",
+                person_uri,
+            )
+            return
+        qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333")
+        collection = os.environ.get("QDRANT_COLLECTION", "people")
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+        try:
+            client = QdrantClient(url=qdrant_url, timeout=10)
+            points = client.retrieve(
+                collection_name=collection, ids=[point_id], with_payload=False,
+            )
+            if not points:
+                # No Qdrant point for this person (e.g. never contact-synced
+                # into Qdrant) -- legitimately nothing to sync.
+                return
+            client.set_payload(
+                collection_name=collection,
+                payload={"display_name": display_name, "name": display_name},
+                points=[point_id],
+            )
+        except Exception as exc:
+            logger.warning(
+                "Qdrant display-name sync failed for %s: %s. The graph is "
+                "correct; the Hub will keep showing the old name until a "
+                "reconcile runs.",
+                person_uri, exc,
+            )
 
     def canonicalise_display_name(self, person_uri: str) -> Optional[str]:
         """Collapse a person's possibly-multiple displayName values to ONE.
@@ -596,6 +781,11 @@ class IdentityResolver:
             f"WHERE {{ <{person_uri}> <{PWG}displayName> ?old }} ; "
             f'INSERT DATA {{ <{person_uri}> <{PWG}displayName> "{_escape(canonical)}" }}'
         )
+        # Walk #6, bug 2: the graph is now correct; the Hub's People list
+        # reads Qdrant, not the graph, so without this the Hub keeps
+        # showing whichever of the collapsed values it last saw. See
+        # _sync_qdrant_display_name's docstring.
+        self._sync_qdrant_display_name(person_uri, canonical)
         logger.info(
             "Canonicalised displayName for %s -> %r (was %d values)",
             person_uri, canonical, len(candidates),
@@ -603,6 +793,47 @@ class IdentityResolver:
         return canonical
 
     def find_by_identifier(self, id_type: str, id_value: str) -> Optional[str]:
+        """Resolve an identifier to a LIVE person, following merge tombstones.
+
+        MEASURED on the live 16GB box 2026-09-18, and this is why the FOLLOW
+        matters rather than a filter. 32 subjects carried pwg:mergedInto AND
+        pwg:Person AND pwg:hasIdentifier AND pwg:contactType. They had been
+        merged away, and a later contact sync typed them again:
+
+            contact_syncer._resolve_and_write_person
+              -> resolver.resolve(use_fuzzy=False)
+                -> find_by_identifier            <- this, with no guard at all
+                  -> returns the DISCARD
+                    -> INSERT DATA { <discard> a pwg:Person ; ... }
+
+        So a repair pass that retires them is undone by the next sync, on every
+        customer, for ever. That was watched happen live rather than inferred:
+        0 still-typed after a repair, 32 again after one walk.
+
+        THE FIX IS TO FOLLOW THE TOMBSTONE, NOT TO RETURN None. Returning None
+        would send the caller off to create_person(), which mints a fresh uuid
+        and writes a SECOND node for a person the graph had just finished
+        merging into one. That trades a resurrected duplicate for a brand new
+        one, which is worse: the tombstone at least records the relationship.
+
+        The chain is walked to its terminus, so a merge of a merge resolves to
+        the surviving node, and a cycle cannot spin because each hop must not
+        already have been seen.
+
+        TWO THINGS THIS ALSO FIXES, found by Archie reviewing it rather than by
+        me writing it, and worth stating because neither is obvious:
+
+          * IT KILLS A SPURIOUS RE-MERGE. resolve() builds found_uris keyed by
+            URI. An identity carrying two identifiers, one landing on discard D
+            and one on survivor S, previously gave len(found_uris) == 2 and
+            fell into the RULE 1 collapse branch, re-merging an already-merged
+            pair on EVERY sync. Both now resolve to S, len == 1, clean return.
+
+          * IT MAKES THE OUTCOME DETERMINISTIC WHERE THE QUERY IS NOT. The
+            SELECT has no ORDER BY, so when both the discard and the survivor
+            carry the identifier, bindings[0] is arbitrary. Following the chain
+            makes the RESULT the same either way.
+        """
         sparql = (
             f"SELECT ?person WHERE {{ "
             f"  ?person <{PWG}hasIdentifier> ?id . "
@@ -612,9 +843,31 @@ class IdentityResolver:
         )
         results = self._sparql_query(sparql)
         bindings = results.get("results", {}).get("bindings", [])
-        if bindings:
-            return bindings[0]["person"]["value"]
-        return None
+        if not bindings:
+            return None
+        return self.follow_merge_chain(bindings[0]["person"]["value"])
+
+    def follow_merge_chain(self, person_uri: str, max_hops: int = 16) -> str:
+        """Follow pwg:mergedInto to the surviving node. Returns the terminus.
+
+        Returns the input unchanged when it carries no tombstone, which is the
+        overwhelmingly common case and costs one query.
+        """
+        def _next_hop(uri: str):
+            rows = self._sparql_query(
+                f"SELECT ?t WHERE {{ <{uri}> <{PWG}mergedInto> ?t }} LIMIT 1"
+            )
+            found = rows.get("results", {}).get("bindings", [])
+            return found[0]["t"]["value"] if found else None
+
+        # THE LOOP IS SHARED, THE QUERY IS NOT. whatsapp_bridge has its own
+        # identifier lookup with its own SPARQL helper and was missing this
+        # entirely, so it minted a second node for a person already merged
+        # away. Keeping the loop in retirement.py means the cycle guard and
+        # the hop cap cannot be present in one copy and absent in the other.
+        return retirement.resolve_to_live_person(
+            person_uri, _next_hop, max_hops=max_hops, log=logger
+        )
 
     # Identifier types that a different person can legitimately also carry:
     # a reused family email address, a shared office switchboard number. A
@@ -1004,6 +1257,31 @@ class IdentityResolver:
             }
         )
 
+    def _identity_conflicts_with_node(
+        self, identity: PersonIdentity, person_uri: str
+    ) -> Optional[str]:
+        """Like ``_canonical_keys_conflict``, but for an INCOMING identity
+        against one already-persisted node -- the comparison Tier 1's
+        single-URI branch needs and never had. Returns the conflicting
+        canonical id_type, or None.
+
+        Same rule: absence on either side is not a conflict, only two
+        PRESENT and DISJOINT value sets are.
+        """
+        incoming: dict[str, set[str]] = {t: set() for t in self._CANONICAL_ID_TYPES}
+        for id_type, id_value in self._iter_identifiers(identity):
+            if id_type in self._CANONICAL_ID_TYPES:
+                incoming[id_type].add(id_value)
+
+        for id_type in sorted(self._CANONICAL_ID_TYPES):
+            values_in = incoming.get(id_type) or set()
+            if not values_in:
+                continue
+            values_existing = self._person_identifier_values(person_uri, id_type)
+            if values_existing and not (values_in & values_existing):
+                return id_type
+        return None
+
     def _iter_identifiers(
         self, identity: PersonIdentity
     ) -> list[tuple[str, str]]:
@@ -1055,6 +1333,19 @@ class IdentityResolver:
         assert_default_graph_isolated(
             self._probe_update, self._probe_default_graph_query
         )
+        # SECOND PROBE, SAME CALL, so it cannot be wired separately and then
+        # not wired at all. The first establishes that the store does not
+        # union named graphs into the default graph; this one establishes
+        # that the default-graph-uri pin actually empties the NAMED-graph
+        # set, which is what stops a GRAPH ?g in an ordinary reader query
+        # (see compartment.read_across_graphs) reaching another compartment.
+        # Both are store behaviours, and reasoning about one while probing
+        # the other was the inconsistency this closes.
+        assert_named_graphs_are_off_a_pinned_dataset(
+            self._probe_update,
+            self._probe_pinned_query,
+            self._probe_default_graph_query,
+        )
         _NON_UNION_VERIFIED_STORES.add(self.oxigraph_url)
 
     def _probe_update(self, sparql: str) -> None:
@@ -1074,6 +1365,22 @@ class IdentityResolver:
         unqualified primary/operator read would see."""
         resp = self._client.post(
             f"{self.oxigraph_url}/query",
+            content=sparql,
+            headers={
+                "Content-Type": "application/sparql-query",
+                "Accept": "application/sparql-results+json",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _probe_pinned_query(self, sparql: str) -> dict:
+        """Raw query for the probe ONLY, through this compartment's PINNED
+        endpoint -- the same endpoint every real read uses, so the probe
+        measures the pin that is actually in force rather than one built for
+        the occasion."""
+        resp = self._client.post(
+            self.compartment.query_endpoint(self.oxigraph_url),
             content=sparql,
             headers={
                 "Content-Type": "application/sparql-query",

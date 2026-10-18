@@ -64,7 +64,42 @@ pii_builtin_patterns() {
 # Email address. Reserved-for-documentation domains (RFC 2606/6761) are
 # excused by pii_reserved_placeholder_re, NOT by narrowing this pattern --
 # see the polarity note on that function.
-[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}
+#
+# THE LOCAL PART MUST START WITH AN ALPHANUMERIC, added 2026-09-19, and this is
+# a FALSE-POSITIVE FIX rather than a narrowing of what counts as PII. The old
+# form allowed a local part of PUNCTUATION ALONE, because + and . and - are in
+# the class with no anchor. So a bare `+` satisfied it, and every FastAPI
+# decorator inside a staged diff read as an email: `++@app.get("/x")` matched,
+# with `+` as the local part and `app.get` as the domain, `.get` satisfying the
+# {2,} TLD. Measured on vendor/divergences/doctor.patch: 41 matches, 40 of them
+# `@app.get` / `@app.post` decorators and one real address.
+#
+# WHY IT SURFACED THERE AND WILL AGAIN: a divergence patch MIRRORS Python
+# source, and the hook scans the added lines of a modified file. A regenerated
+# patch makes pre-existing content newly "added", so this fires on every regen
+# of any patch over a FastAPI tree. Structural, not specific to one change.
+#
+# NO TRUE POSITIVE IS LOST, and that is measured rather than argued. The fix
+# works whether or not the diff marker has been stripped, because a real local
+# part contains an alphanumeric somewhere and the match can start there:
+# Described by SHAPE, never spelled, because this file is scanned by the guard it
+# documents and a literal example would trip it. THE HOOK CAUGHT ME DOING EXACTLY
+# THAT on the first attempt at this commit, which is the guard working.
+#   a bare decorator, AT sign then app then dot then get       old 0  new 0
+#   the same prefixed with one diff plus                       old 1  new 0  <- the bug
+#   the same prefixed with two, the patch-of-a-patch form      old 1  new 0
+#   word, AT, word, dot, two-letter TLD                        old 1  new 1
+#   the same prefixed with one diff plus                       old 1  new 1
+#   dotted-word local part, AT, word, dot, three-letter TLD    old 1  new 1
+#   single letter, AT, single letter, dot, two-letter TLD      old 1  new 1  <- shortest real
+#
+# THE REJECTED ALTERNATIVES, recorded so nobody re-proposes them. Excluding
+# vendor/divergences/*.patch from this pattern would be a path exemption, which
+# is a weakening: the next real address to land in a patch would be invisible.
+# Requiring a "plausible TLD" would need a TLD list this hook must not carry and
+# would fail open on every new TLD. And stripping the diff marker harder does
+# not work: `++@app.get` with ONE + removed is `+@app.get`, which still matched.
+[a-z0-9][a-z0-9._%+-]*@[a-z0-9.-]+\.[a-z]{2,}
 # macOS home directory carrying a username: /Users/<name>
 # The trailing slash is OPTIONAL, and that is not cosmetic. This pattern
 # required it until 2026-08-16, so `/Users/<name>` at the end of a line or

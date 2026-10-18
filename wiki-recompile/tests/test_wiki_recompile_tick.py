@@ -30,7 +30,10 @@ without a live Docker daemon. Asserts:
 """
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import signal
 import stat
 import subprocess
 import time
@@ -40,7 +43,16 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WRAPPER = REPO_ROOT / "wiki-recompile" / "bin" / "wiki-recompile-tick.sh"
+# Overridable so CI can point a single, targeted run at a MUTANT copy of the
+# script (e.g. the stall-watchdog disarm stripped back out) without touching
+# every other test in this file, which all want the real, shipped script.
+# See test_full_compile_survives_past_the_stall_window and the dedicated
+# "mutant" CI step in .github/workflows/ingest-slot.yml that proves this
+# regression test can actually fail.
+WRAPPER = Path(os.environ.get(
+    "WIKI_RECOMPILE_TICK_SH",
+    str(REPO_ROOT / "wiki-recompile" / "bin" / "wiki-recompile-tick.sh"),
+))
 
 
 def _real_docker_shadows_stub() -> bool:
@@ -55,6 +67,33 @@ def _real_docker_shadows_stub() -> bool:
         if (Path(d) / "docker").exists():
             return True
     return False
+
+
+def _minimal_path_without_docker(target_dir: Path) -> str:
+    """Build ``target_dir`` with symlinks to exactly the binaries the script
+    needs before it reaches its own ``command -v docker`` check (bash itself,
+    so subprocess can even find the interpreter, plus ``date`` for the
+    ``log()`` helper) -- and nothing else -- then return it as a PATH.
+
+    A hardcoded directory list ("/usr/bin:/bin") used to stand in for "no
+    docker reachable": true on a Mac, where Docker Desktop's CLI lives at
+    /usr/local/bin/docker, but false on ubuntu-latest, which ships Docker
+    Engine at /usr/bin/docker. FILTERING directories by "does this one carry
+    docker" does not fix that either: Ubuntu's usr-merge makes /bin a symlink
+    to /usr/bin, so bash and docker live in the literal same directory --
+    excluding the one that carries docker excludes bash with it
+    (measured: ``FileNotFoundError: ... 'bash'`` the first time this was
+    tried). Cherry-picking exactly the named binaries into a fresh directory
+    sidesteps the question of how the host's real directories happen to be
+    laid out, on any platform.
+    """
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("bash", "date"):
+        real = shutil.which(name)
+        assert real, f"'{name}' not found on the real PATH -- cannot build a sterile one without it"
+        (target_dir / name).symlink_to(real)
+    assert not (target_dir / "docker").exists()
+    return str(target_dir)
 
 
 # Applied to the three stub-driven behaviour tests below. The
@@ -394,13 +433,17 @@ def test_missing_compose_file_fails_loudly(stub_env):
 def test_missing_docker_fails_loudly(stub_env):
     """If `docker` is not on PATH, exit 127 with a clear message
     rather than running compose blind."""
-    # Sterile PATH that contains /usr/bin + /bin (so `bash`, `date`,
-    # and so on are findable) but NOT a docker binary. We also
-    # don't install a docker stub in stub_dir, so docker is truly
-    # unreachable. NB: the wrapper hard-prepends /usr/local/bin +
-    # /opt/homebrew/bin, so on a dev box with Docker Desktop this
-    # "no docker" premise is unsatisfiable -- hence the skip guard.
-    sterile_path = "/usr/bin:/bin"
+    # Sterile PATH: a fresh directory holding ONLY symlinks to bash + date
+    # (see _minimal_path_without_docker) -- so the script's own interpreter
+    # and its log() helper stay findable but docker is genuinely unreachable,
+    # on any platform's real directory layout. We also don't install a
+    # docker stub in stub_dir. NB: the wrapper ADDITIONALLY hard-prepends
+    # /usr/local/bin + /opt/homebrew/bin regardless of our PATH, so on a dev
+    # box with Docker Desktop installed at one of those two this "no docker"
+    # premise is unsatisfiable no matter how the sterile PATH is built --
+    # hence the skip guard, which is a separate concern from (and is not
+    # fixed by) the PATH construction here.
+    sterile_path = _minimal_path_without_docker(stub_env["tmp_path"] / "sterile-no-docker")
     full_env = {
         "HOME": os.environ.get("HOME", str(stub_env["tmp_path"])),
         "OSTLER_DIR": str(stub_env["ostler_dir"]),
@@ -604,4 +647,428 @@ def test_phase2_backfill_does_not_stack(stub_env):
     # and we are asserting purely on the guard's existence in the script.
     assert "wiki summary backfill already running" in WRAPPER.read_text(), (
         "tick script must carry the no-stack backfill guard"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CM051 walk #5 follow-up (Archie review round 1 on #2633): editor-
+# frontpage-tick.sh now kickstarts this whole tick on every front_page.json
+# change. Phase 1 is cheap, but the anti-STACKING guard above only stops two
+# backfills overlapping -- it does nothing to stop a new one starting the
+# moment the previous one finishes. On a thin graph (Phase 2 finishes in
+# minutes) an hourly trigger would restart the LLM backfill on every tick,
+# turning the deliberate daily cost (#20's "daily vs hourly" decision) into
+# a near-continuous one. This floor is independent of the no-stack guard and
+# of who triggered the tick.
+#
+# ROUND 2 (Archie): keying the floor on the last START meant a Phase 2
+# killed mid-way through FIRST-RUN hydration (the v1.0.107 stall-watchdog
+# defect just above says this happens routinely) blocked every retry for a
+# full day on nothing but a timer, with the wiki left hidden the whole time.
+# Fixed by keying the floor on the last SUCCESSFUL completion, written
+# inside the detached subshell only on success, PLUS (at the time) gating
+# the floor on CM044's wiki_hydration.json reporting complete=true.
+#
+# ROUND 3 (Archie, walk #6): that hydration gate was itself a REGRESSION,
+# caught live. Every compile (CM044 compiler/compile.py) rewrites
+# wiki_hydration.json with complete=false partway through its own run --
+# including an ordinary STEADY-STATE recompile on a box that finished
+# hydrating long ago, not just a first-run one. The gate therefore read
+# "not complete" on literally every tick, the floor never applied AT ALL,
+# and the full summary backfill relaunched 5 minutes after the previous one
+# finished. Archie's fix: drop the hydration condition entirely. The
+# completion-file check alone is already sufficient -- no file means Phase
+# 2 has never actually finished (first run, or every attempt so far was
+# interrupted), so there is nothing to floor against, which is exactly the
+# "never block an interrupted first run" property the hydration gate was
+# trying (and failing) to provide.
+# ---------------------------------------------------------------------------
+
+
+def _write_hydration_status(ostler_dir: Path, *, complete: bool) -> Path:
+    """CM044's wiki_hydration.json. No longer read by the script's floor
+    logic (round 3) -- kept only for
+    test_hydration_rewritten_to_incomplete_after_a_recorded_success_is_
+    STILL_floored, which proves the file's content is now irrelevant to the
+    floor decision, the exact regression this round fixes."""
+    state_dir = ostler_dir / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    p = state_dir / "wiki_hydration.json"
+    p.write_text(json.dumps({"complete": complete}))
+    return p
+
+
+def _full_compile_lines(log: Path, timeout: float) -> list[str]:
+    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=timeout)
+    return [
+        line for line in lines
+        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
+    ]
+
+
+@_skip_if_real_docker
+def test_phase2_backfill_debounced_when_completed_recently(stub_env):
+    """The floor's actual job: a Phase-2 backfill that COMPLETED inside the
+    cost floor must not be relaunched."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time())))
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    assert "not launching another yet" in result.stdout, result.stdout
+
+    # Give a would-be detached launch a moment to appear, then confirm it
+    # never does -- same poll primitive as the happy-path test, inverted.
+    full_lines = _full_compile_lines(log, timeout=2.0)
+    assert not full_lines, f"Phase 2 launched despite the cost floor: {full_lines}"
+
+
+@_skip_if_real_docker
+def test_phase2_backfill_runs_once_the_floor_has_elapsed(stub_env):
+    """The same box, once WIKI_PHASE2_MIN_INTERVAL_SECONDS has actually
+    elapsed since the last SUCCESSFUL Phase-2 completion, must launch again
+    -- the floor delays, it does not permanently disable, the backfill."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 100))
+
+    result = _run_wrapper(
+        {"OSTLER_DIR": str(ostler_dir), "WIKI_PHASE2_MIN_INTERVAL_SECONDS": "10"},
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, result.stderr
+    full_lines = _full_compile_lines(log, timeout=10.0)
+    assert full_lines, f"Phase 2 did not launch once the floor elapsed: {full_lines}"
+
+
+@_skip_if_real_docker
+def test_phase2_debounce_state_file_written_on_successful_completion(stub_env):
+    """A SUCCESSFUL Phase 2 run must record its completion time, or the
+    floor above never has anything to measure against on the NEXT tick.
+    Written inside the detached subshell, after the compile exits 0 --
+    polled for, since this is no longer a synchronous pre-launch write."""
+    _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
+    ostler_dir = stub_env["ostler_dir"]
+    state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-complete-epoch"
+    assert not state_file.exists()
+
+    before = int(time.time())
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline and not state_file.exists():
+        time.sleep(0.05)
+    after = int(time.time())
+    assert state_file.exists(), "a successful Phase 2 run must record its completion epoch"
+    recorded = int(state_file.read_text().strip())
+    assert before <= recorded <= after + 2, f"recorded epoch {recorded} not in [{before}, {after}]"
+
+
+@_skip_if_real_docker
+def test_phase2_debounce_state_file_NOT_written_on_failure(stub_env):
+    """The mirror case: a FAILED Phase 2 run must NOT record a completion
+    epoch -- an interrupted compile is not a completion, and recording one
+    anyway would floor out the very retry this fix exists to allow."""
+    _make_fake_docker(stub_env["stub_dir"], run_exit=0, up_exit=0,
+                       log_path=stub_env["tmp_path"] / "docker.log")
+    # Override just the full-compile arm to fail; baseline (SKIP_LLM) and
+    # `up` still succeed so the tick reaches Phase 2 at all.
+    stub = stub_env["stub_dir"] / "docker"
+    stub.write_text("""#!/usr/bin/env bash
+echo "$@" >> "%s"
+if [ "$1" = "info" ]; then exit 0; fi
+if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
+    for a in "$@"; do case "$a" in *OSTLER_WIKI_SKIP_LLM*) exit 0 ;; esac; done
+    exit 1
+fi
+if [ "$1" = "compose" ] && [ "$2" = "up" ]; then exit 0; fi
+exit 0
+""" % (stub_env["tmp_path"] / "docker.log"))
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    ostler_dir = stub_env["ostler_dir"]
+    state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-complete-epoch"
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr  # the TICK succeeds; Phase 2 failing is non-fatal
+    _wait_for_line(stub_env["tmp_path"] / "docker.log", "run --rm -T wiki-compiler", timeout=10.0)
+    assert not state_file.exists(), (
+        "a FAILED Phase 2 run recorded a completion epoch -- this would floor "
+        "out the retry an interrupted compile needs"
+    )
+
+
+@_skip_if_real_docker
+def test_a_completed_backfill_IS_floored_for_24_hours_by_default(stub_env):
+    """The DEFAULT floor (no override) is a full day, matching CM051 #20's
+    deliberate daily cadence."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 3600))  # 1h ago
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    full_lines = _full_compile_lines(log, timeout=2.0)
+    assert not full_lines, (
+        f"1 hour after completion, with no override, the default 24h floor "
+        f"must still apply: {full_lines}"
+    )
+
+
+@_skip_if_real_docker
+def test_hydration_rewritten_to_incomplete_after_a_recorded_success_is_STILL_floored(stub_env):
+    """THE round-3 regression, named explicitly (walk #6, Archie). Phase 2
+    completed successfully and recorded its epoch; CM044's wiki_hydration.json
+    is THEN rewritten to complete=false, exactly as every ordinary compile
+    (including a steady-state one) does partway through its own run. The
+    floor must still apply -- hydration.json's content must not be consulted
+    at all. Under the round-2 design this failed: the hydration gate read
+    "not complete" and the floor never applied, so the backfill relaunched
+    five minutes after the previous one finished."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-complete-epoch").write_text(str(int(time.time()) - 300))  # 5m ago
+    # The regression: hydration.json says NOT complete, despite the recorded
+    # success above. Must not matter to the floor decision at all.
+    _write_hydration_status(ostler_dir, complete=False)
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    assert "not launching another yet" in result.stdout, result.stdout
+    full_lines = _full_compile_lines(log, timeout=2.0)
+    assert not full_lines, (
+        f"wiki_hydration.json reporting complete=false relaunched the "
+        f"backfill 5 minutes after a recorded success: {full_lines}"
+    )
+
+
+@_skip_if_real_docker
+def test_phase2_debounce_control_the_floor_actually_fires(stub_env):
+    """Negative control: WITHOUT any state file and without a
+    wiki_hydration.json at all (the common case -- first tick ever, or an
+    upgrade from a build that predates both guards), Phase 2 must still
+    launch. Otherwise the floor's absence-handling, not the floor itself,
+    would be what the other tests measure."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    # Deliberately no wiki_hydration.json and no
+    # state/wiki-recompile/last-phase2-complete-epoch file.
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    full_lines = _full_compile_lines(log, timeout=10.0)
+    assert full_lines, f"absent state must not itself block Phase 2: {full_lines}"
+
+
+# ---------------------------------------------------------------------------
+# v1.0.107: the stall watchdog cannot see a containerised payload, so the
+# full (summaries) compile was being killed before it could ever flip
+# hydration to complete.
+# ---------------------------------------------------------------------------
+#
+# The shared ingest-slot library's stall check (_ostler_slot_tree_cpu, in
+# lib/ostler-ingest-slot.sh) measures cumulative HOST cpu of the process
+# tree under the watched pid via `ps`/`pgrep`. That is the right read for
+# the conversation feeds, whose watched pid IS the real work (a host Python
+# process). For `docker compose run wiki-compiler` the watched pid is the
+# docker CLIENT: the actual compile runs inside the container runtime's own
+# VM, a tree this Mac's `ps` cannot see. The client reads back as burning
+# ZERO cpu for its whole life, which is exactly the shape the watchdog is
+# built to call HUNG -- so every full compile was being TERM'd then KILL'd
+# mid-run, every time, and hydration.complete() (only reached by a full
+# compile that finishes) was never written.
+#
+# This test drives the REAL wiki-recompile-tick.sh against the REAL shared
+# slot library (not a mock of either), with a stub `docker` whose "full
+# compile" arm sleeps -- burning no host cpu of its own, exactly like the
+# real client -- then touches a marker file. The stall window is forced low
+# so the test does not need to wait out the production default (2100s). On
+# the pre-fix script this reliably fails: reverting the
+# `OSTLER_SLOT_STALL_SECS=0` line in the tick script (restoring the bare
+# `. "$_lib"`) makes the watchdog apply the test's low stall window to the
+# sleeping stub exactly as it would the production default to a real
+# multi-hour compile, and the marker is never written.
+_SLOT_LIB = REPO_ROOT / "lib" / "ostler-ingest-slot.sh"
+
+
+def _make_slow_container_docker(stub_dir: Path, *, log_path: Path,
+                                 done_marker: Path,
+                                 full_compile_seconds: int) -> Path:
+    """A docker stub whose FULL (non-SKIP_LLM) compile arm models a real
+    `docker compose run` client: it does nothing but sleep (no host cpu),
+    while the container "does its work" invisibly, then touches
+    ``done_marker`` to prove it ran to completion rather than being killed
+    partway through."""
+    stub = stub_dir / "docker"
+    stub.write_text(f"""#!/usr/bin/env bash
+echo "$@" >> "{log_path}"
+if [ "$1" = "info" ]; then
+    exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
+    for a in "$@"; do
+        case "$a" in
+            *OSTLER_WIKI_SKIP_LLM*) exit 0 ;;   # baseline: instant
+        esac
+    done
+    # Full compile: the client burns no cpu of its own while the
+    # (unmodelled) container does its work.
+    sleep {full_compile_seconds}
+    : > "{done_marker}"
+    exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "up" ]; then
+    exit 0
+fi
+exit 0
+""")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return stub
+
+
+@_skip_if_real_docker
+def test_full_compile_survives_past_the_stall_window(stub_env, tmp_path):
+    """The detached full compile must not be killed by the cpu-stall
+    watchdog just because the docker client (correctly) shows no host cpu
+    activity of its own. Regression for v1.0.107 (hydration never
+    reaching complete: true)."""
+    assert _SLOT_LIB.exists(), f"shared slot lib missing at {_SLOT_LIB}"
+
+    log = stub_env["tmp_path"] / "docker.log"
+    done_marker = tmp_path / "full-compile-done"
+    # The stub's full-compile arm sleeps longer than the forced-low stall
+    # window below, so an armed watchdog would kill it before the marker
+    # is written.
+    _make_slow_container_docker(
+        stub_env["stub_dir"], log_path=log, done_marker=done_marker,
+        full_compile_seconds=6,
+    )
+    slot_state = tmp_path / "slot-state"
+
+    result = _run_wrapper(
+        {
+            "OSTLER_DIR": str(stub_env["ostler_dir"]),
+            "OSTLER_INGEST_SLOT_LIB": str(_SLOT_LIB),
+            "OSTLER_STATE_DIR": str(slot_state),
+            # Forced low so a RE-ARMED watchdog (i.e. this fix reverted)
+            # would fire well within this test's patience.
+            "OSTLER_SLOT_STALL_SECS": "2",
+            "OSTLER_SLOT_POLL_SECS": "1",
+        },
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, (
+        f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline and not done_marker.exists():
+        time.sleep(0.1)
+
+    assert done_marker.exists(), (
+        "the full compile never ran to completion -- the stall watchdog "
+        "killed it mid-run even though it was not hung (v1.0.107)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# v1.0.107 walk #4: the stall-watchdog fix above was not enough. launchd
+# tracks a LaunchAgent job by PROCESS GROUP and, by default, SIGKILLs every
+# process still in that group the instant the job's main process exits.
+# `nohup ... & disown` does not move the detached compile out of that group --
+# disown only stops THIS shell sending it SIGHUP on exit -- so the detached
+# Phase-2 compile was being killed by launchd itself, often before it could
+# write a single byte, independently of (and before) the stall watchdog ever
+# got a chance to matter. Measured on a walk: wiki-recompile-tick.sh on disk
+# already carried the stall-watchdog fix (OSTLER_SLOT_STALL_SECS=0 present),
+# and hydration STILL never completed -- phase 4, 0/0, a 0-byte summaries
+# log, no compile process or container anywhere.
+# ---------------------------------------------------------------------------
+
+
+@_skip_if_real_docker
+def test_detached_compile_survives_a_launchd_process_group_kill(stub_env, tmp_path):
+    """Starts the real wiki-recompile-tick.sh as the leader of a FRESH
+    process group -- exactly how launchd starts each job it runs -- waits for
+    it to exit (it does, once the baseline publishes and Phase 2 is
+    launched), then sends SIGKILL to that WHOLE process group, mirroring
+    launchd's default behaviour for a job with no AbandonProcessGroup. The
+    detached compile must not be a member of that group by then (see the
+    `set -m` comment at the Phase-2 launch site) and so must survive and run
+    to completion untouched.
+
+    RED without that `set -m`: the detached compile shares the wrapper's
+    process group (the default), the simulated kill reaches it exactly as a
+    real launchd kill would, and it dies before writing its done marker.
+    """
+    log = stub_env["tmp_path"] / "docker.log"
+    done_marker = tmp_path / "full-compile-done"
+    # Long enough that the simulated kill (sent moments after the wrapper
+    # exits) lands well before a correctly-escaped compile would finish on
+    # its own -- so survival here is evidence of process-group escape, not
+    # of the kill simply arriving too late to matter.
+    _make_slow_container_docker(
+        stub_env["stub_dir"], log_path=log, done_marker=done_marker,
+        full_compile_seconds=4,
+    )
+
+    env = os.environ.copy()
+    env["OSTLER_DIR"] = str(stub_env["ostler_dir"])
+    env["PATH"] = f"{stub_env['stub_dir']}:{env.get('PATH', '')}"
+
+    proc = subprocess.Popen(
+        ["bash", str(WRAPPER)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        # The leader of a brand-new process group (pgid == its own pid),
+        # which is exactly how launchd starts every job it runs.
+        preexec_fn=os.setpgrp,
+    )
+    wrapper_pgid = proc.pid
+    try:
+        out, _ = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise AssertionError("the wrapper (simulated launchd job) never returned")
+    assert proc.returncode == 0, (
+        f"wrapper (the simulated launchd job) failed: {out!r}"
+    )
+
+    # THE SIMULATED LAUNCHD KILL. A real launchd, with AbandonProcessGroup
+    # unset, sends SIGKILL to every process still in the job's process group
+    # the instant the job's main process exits -- which just happened above.
+    # A ProcessLookupError here means the group was ALREADY empty (every
+    # member had already escaped it), which is itself a PASS signal, not an
+    # error: it is what a correctly-escaped detached compile looks like by
+    # the time Popen.communicate() has reaped the parent.
+    try:
+        os.killpg(wrapper_pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline and not done_marker.exists():
+        time.sleep(0.1)
+
+    assert done_marker.exists(), (
+        "the detached compile did not survive a simulated launchd "
+        "process-group kill sent the instant the wrapper exited -- it is "
+        "still a member of the wrapper's process group (v1.0.107 walk #4)"
     )

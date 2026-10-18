@@ -39,12 +39,17 @@ on:
     paths:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
+      - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_background_qos_yields_to_chat.sh'
+      - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
+      - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
       - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
       - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
   push:
@@ -52,12 +57,17 @@ on:
     paths:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
+      - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_background_qos_yields_to_chat.sh'
+      - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
+      - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
       - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
       - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
 
@@ -80,6 +90,161 @@ jobs:
 
       - name: Ingest slot fairness suite
         run: bash tests/test_ingest_slot_fairness.sh
+
+      # The fairness suite above cannot see this case. The max-hold watchdog
+      # arms only when a feed is ENROLLED AND WAITING, and a hung holder's
+      # victims die before they can stay enrolled, so nothing ever bounds it.
+      # Measured on a real box: 8h49m of hold with a zero-byte log, and no line
+      # anywhere saying so. Cumulative cpu is the discriminator; the negative
+      # control proves a genuinely busy payload is left alone.
+      - name: A hung slot holder is stopped, a busy one is not
+        if: success() || failure()
+        run: bash tests/test_a_hung_slot_holder_is_stopped.sh
+
+      # v1.0.108: ostler_slot_run launches every feed + wiki-backfill payload
+      # at macOS background QoS (taskpolicy -b, nice fallback) so interactive
+      # chat outranks first-run settling on CPU. Positive + negative controls;
+      # the behavioural case runs the payload THROUGH a fake taskpolicy, so a
+      # green proves the launch path, not just a string in a file. Uses the
+      # nice fallback on ubuntu, which exercises the same code path.
+      - name: Background QoS yields to interactive chat (first-run settling)
+        if: success() || failure()
+        run: bash tests/test_background_qos_yields_to_chat.sh
+
+      # v1.0.108: no heavy job may bypass the chat yield. Class A (the 4 feeds
+      # + wiki) must funnel through ostler_slot_run; class B (fda-rerun, enrich)
+      # must carry ProcessType=Background. Enumerated, with a negative control.
+      - name: No heavy job bypasses the chat yield (coverage)
+        if: success() || failure()
+        run: bash tests/test_no_heavy_job_bypasses_the_chat_yield.sh
+
+      # Sections 1 to 6 above prove the lib arbitrates fairly; Section 7
+      # proves install.sh CARRIES it. Neither can see whether it arrives.
+      # install.sh writes into a /tmp staging tree and promotes that tree
+      # to ~/.ostler by deleting each final-tree entry and moving the
+      # staged one over it, so a lib written straight to ${HOME}/.ostler/lib
+      # is removed by the install that wrote it. Measured on the walk box
+      # on 2026-09-23: the suite above was green and
+      # ~/.ostler/lib/ostler-ingest-slot.sh did not exist, so the wiki
+      # summary backfill ran on the unbounded fallback mutex.
+      #
+      # This runs the real write statements and the real promote function,
+      # both extracted from install.sh, and then asks whether the file is
+      # there. It exits 2 for CANNOT-RUN, which is neither a pass nor a
+      # fail, so a harness that stops measuring says so instead of going
+      # green.
+      - name: Every embedded lib survives the staging-tree promote
+        if: success() || failure()
+        run: bash tests/test_prelaunch_libs_survive_promote.sh
+
+      # v1.0.107 / PR #2611 review (Archie): this behaviour suite was
+      # previously UNWIRED -- no workflow ran it, so a "pass" on the PR
+      # proved nothing (launch directive item 9). It also could not have
+      # proven anything on a developer Mac: real Docker Desktop installs at
+      # /usr/local/bin/docker, which the wrapper hard-prepends ahead of the
+      # test's own stub, so every stub-docker case (including the new
+      # stall-watchdog one) silently SKIPPED there. ubuntu-latest has no
+      # docker at /usr/local/bin or /opt/homebrew/bin, so the stub wins here
+      # and every case actually runs rather than skipping.
+      - name: Every wiki compile hands the compiler the recorded public look-up answer (Ostler #30)
+        if: success() || failure()
+        run: bash tests/test_wiki_compile_honours_public_lookup_consent.sh
+
+      - name: Install pytest for the wiki-recompile-tick behaviour suite
+        if: success() || failure()
+        run: python -m pip install --quiet pytest
+
+      - name: wiki-recompile-tick.sh behaviour (stub docker, now actually runs)
+        if: success() || failure()
+        run: python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py -v
+
+      # THE MUTATION PROOF Archie asked for: a wired test that only ever
+      # passes has been run, not tested (see "Before you say it works" in
+      # CLAUDE.md). Strip the stall-watchdog disarm back out of a COPY of
+      # the script, confirm the copy actually differs (a mutant that did not
+      # apply would pass this trivially and prove nothing), then assert the
+      # new regression case REDS against it and GREENS against the real,
+      # shipped script. Both appear in this job's log on every run, so a
+      # future edit that quietly drops the disarm is caught here.
+      - name: Build the stall-watchdog mutant (disarm line removed)
+        if: success() || failure()
+        run: |
+          set -e
+          sed '/^            OSTLER_SLOT_STALL_SECS=0$/,+1d' \
+            wiki-recompile/bin/wiki-recompile-tick.sh > /tmp/mutant-wiki-recompile-tick.sh
+          if diff -q wiki-recompile/bin/wiki-recompile-tick.sh /tmp/mutant-wiki-recompile-tick.sh >/dev/null; then
+            echo "REFUSING: the mutant is byte-identical to the real script -- the sed pattern did not match, so running a test against it would prove nothing." >&2
+            exit 1
+          fi
+          if grep -q 'OSTLER_SLOT_STALL_SECS' /tmp/mutant-wiki-recompile-tick.sh; then
+            echo "REFUSING: the mutant still disarms the stall watchdog -- the removal did not take." >&2
+            exit 1
+          fi
+          bash -n /tmp/mutant-wiki-recompile-tick.sh
+          echo "OK: mutant built, confirmed to differ from the shipped script, and confirmed to still parse."
+
+      - name: RED -- the new case fails against the mutant (watchdog re-armed)
+        if: success() || failure()
+        env:
+          WIKI_RECOMPILE_TICK_SH: /tmp/mutant-wiki-recompile-tick.sh
+        run: |
+          set +e
+          python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_full_compile_survives_past_the_stall_window -v
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: the regression test PASSED against the mutant (stall watchdog re-armed). It does not discriminate a real fix from a reverted one -- see PR #2611 review." >&2
+            exit 1
+          fi
+          echo "OK: the regression test correctly FAILED against the mutant (pytest exit ${rc}). It can discriminate."
+
+      - name: GREEN -- the new case passes against the real, shipped script
+        if: success() || failure()
+        run: python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_full_compile_survives_past_the_stall_window -v
+
+      # v1.0.107 walk #4: the stall-watchdog fix above was NOT enough. launchd
+      # kills a job's whole PROCESS GROUP when its main process exits unless
+      # AbandonProcessGroup is set, and `nohup ... & disown` never moves the
+      # detached compile out of that group. The fix is `set -m` at the launch
+      # site, which makes bash give the backgrounded job its OWN process
+      # group -- a second, independent mutation proof, same shape as the one
+      # above: strip `set -m` from a copy, assert the new case REDS against
+      # it, then assert it GREENS against the real script.
+      - name: Build the process-group mutant (set -m removed)
+        if: success() || failure()
+        run: |
+          set -e
+          sed '/^    set -m$/d' \
+            wiki-recompile/bin/wiki-recompile-tick.sh > /tmp/mutant-no-setm-wiki-recompile-tick.sh
+          if diff -q wiki-recompile/bin/wiki-recompile-tick.sh /tmp/mutant-no-setm-wiki-recompile-tick.sh >/dev/null; then
+            echo "REFUSING: the mutant is byte-identical to the real script -- the sed pattern did not match, so running a test against it would prove nothing." >&2
+            exit 1
+          fi
+          if grep -q '^    set -m$' /tmp/mutant-no-setm-wiki-recompile-tick.sh; then
+            echo "REFUSING: the mutant still enables job control -- the removal did not take." >&2
+            exit 1
+          fi
+          bash -n /tmp/mutant-no-setm-wiki-recompile-tick.sh
+          echo "OK: process-group mutant built, confirmed to differ from the shipped script, and confirmed to still parse."
+
+      - name: RED -- the detached compile does not survive a group kill against the mutant
+        if: success() || failure()
+        env:
+          WIKI_RECOMPILE_TICK_SH: /tmp/mutant-no-setm-wiki-recompile-tick.sh
+        run: |
+          set +e
+          python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_detached_compile_survives_a_launchd_process_group_kill -v
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: the regression test PASSED against the mutant (set -m removed). It does not discriminate a real fix from a reverted one -- see the v1.0.107 walk #4 review." >&2
+            exit 1
+          fi
+          echo "OK: the regression test correctly FAILED against the mutant (pytest exit ${rc}). It can discriminate."
+
+      - name: GREEN -- the detached compile survives a group kill against the real, shipped script
+        if: success() || failure()
+        run: python -m pytest wiki-recompile/tests/test_wiki_recompile_tick.py::test_detached_compile_survives_a_launchd_process_group_kill -v
 
   shell-3-2:
     name: The shipped ticks parse under bash 3.2, the customer's shell
@@ -118,7 +283,10 @@ jobs:
             vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh \
             vendor/spoken_source/bin/spoken-bundle-tick.sh \
             wiki-recompile/bin/wiki-recompile-tick.sh \
-            tests/test_ingest_slot_fairness.sh
+            tests/test_ingest_slot_fairness.sh \
+            tests/test_background_qos_yields_to_chat.sh \
+            tests/test_no_heavy_job_bypasses_the_chat_yield.sh \
+            tests/test_prelaunch_libs_survive_promote.sh
           do
             if [ ! -f "$f" ]; then
               echo "REFUSING: $f is missing; the list is stale and a clean result here would be manufactured" >&2
@@ -132,5 +300,5 @@ jobs:
               rc=1
             fi
           done
-          echo "examined 7 files"
+          echo "examined 10 files"
           exit "$rc"

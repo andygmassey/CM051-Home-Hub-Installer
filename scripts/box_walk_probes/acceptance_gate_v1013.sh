@@ -40,7 +40,8 @@
 #   OSTLER_BOX_OLLAMA_URL    ollama base (default http://localhost:11434)
 #   OSTLER_BOX_EXPECT_PAIRED 1 -> A4 requires pairing COMPLETE (default: unpaired-consistency)
 #
-# Exit: 0 = SHIPPABLE / SKIP.  1 = BLOCKED (a launch-critical assertion failed).
+# Exit: 0 = SHIPPABLE (measured, and every assertion held).  1 = BLOCKED (a
+#       launch-critical assertion failed).
 #       78 = CANNOT-RUN (box unreachable, or its logs could not be read).
 #
 # 🔴 THIS SAID 2, AND 2 IS NOT THE PROTOCOL. run_box_walk.sh:44 declares
@@ -58,10 +59,47 @@
 # ============================================================================
 set -uo pipefail
 
-# --- skip convention: match check_box_walk_probe (unset host -> never fail) --
+# 🔴 AN UNSET HOST IS CANNOT-RUN, NOT A PASS, AND THIS EXITED 0 FOR BOTH.
+#
+# The header above declares "Exit: 0 = SHIPPABLE / SKIP", and that slash is the
+# defect written down. This gate is registered as launch-critical in
+# cut-manifests/permanent.yaml, so on any runner without a box it announced
+# SHIPPABLE for a launch-critical gate that had measured NOTHING. A zero
+# denominator read as success.
+#
+# The block twenty lines up already diagnosed the mirror of this and fixed only
+# half: it corrected the UNREACHABLE case from 2 to 78, and left the UNSET case
+# at 0. Same file, same shape, one branch repaired and its neighbour not.
+#
+# THE CONTRACT IS NOT JUST THE EXIT CODE. run_box_walk.sh:537-539 records a
+# probe that exits 78 WITHOUT a "VERDICT: CANNOT-RUN --" line as "UNRECORDED
+# ... bypassed probe_cannot_run and named no prerequisite", and calls that a
+# contract breach in those words. So the marker line is emitted here in the
+# exact form lib/probe.sh's probe_cannot_run() prints it. This gate sits one
+# directory up and deliberately sources nothing, which is precisely why it
+# never inherited the convention, so the line is written out rather than
+# borrowed.
+#
+# CANNOT-RUN DOES NOT FAIL THE WALK -- run_box_walk.sh:33 says so explicitly --
+# so this makes the gate honest without making a boxless runner red.
+#
+# THE MEASUREMENT THAT JUSTIFIES THIS, recorded here because the fix landed
+# without it and a correction whose evidence is lost is one nobody can re-check.
+# Run 2026-09-18 with OSTLER_BOX_HOST unset, this gate against its siblings:
+#
+#     acceptance_gate_v1013             exit 0    <- recorded as a PASS
+#     probes/people_count_agreement     exit 78   CANNOT-RUN
+#     probes/ostler_unlock_reachable    exit 78   CANNOT-RUN
+#
+# So a walk run with no box at all collected one green from here while every
+# probe around it correctly refused. And this same gate with the host SET but
+# UNREACHABLE already exited 78, which is the part that makes it a defect
+# rather than a preference: it was stricter about a box it could not reach than
+# about no box at all.
 if [ -z "${OSTLER_BOX_HOST:-}" ]; then
-    echo "acceptance_gate_v1013: SKIP -- OSTLER_BOX_HOST not set (runtime probe requires a reachable box)"
-    exit 0
+    printf 'VERDICT: CANNOT-RUN -- %s\n' \
+        "OSTLER_BOX_HOST is not set, so no box was contacted and none of this gate's assertions were evaluated. Set OSTLER_BOX_HOST to a reachable Hub and run again."
+    exit 78
 fi
 
 HOST="${OSTLER_BOX_HOST}"
@@ -74,7 +112,7 @@ if [ -t 1 ]; then RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[
 else RED=""; GRN=""; YEL=""; DIM=""; RST=""; fi
 
 # read-only command on the target box
-box(){ ssh -o ConnectTimeout=8 -o BatchMode=yes "$HOST" "$1" 2>/dev/null; }
+box(){ ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$HOST" "$1" 2>/dev/null; }
 # robust log-line count on the box. Patterns MUST NOT contain single-quotes.
 # Greps log DIRECTORIES (not *.log globs) so zsh nomatch cannot abort the pipe.
 # shellcheck disable=SC2088  # tilde is DELIBERATELY unquoted-for-remote: it must
@@ -94,6 +132,52 @@ boxcount(){
   n=$(box "found=0; for d in $LOGDIRS; do [ -d \"\$d\" ] && found=1; done; \
            if [ \"\$found\" -eq 0 ]; then echo NOLOGS; \
            else grep -rhoE '$1' $LOGDIRS 2>/dev/null | wc -l | tr -d ' '; fi")
+  if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
+}
+
+# A6 grades the WIKI COMPILER, so it must read the wiki compiler's logs and
+# nothing else. Measured 2026-09-10 on the v1.0.87 walk: boxcount over all of
+# LOGDIRS found ONE "400 Bad Request", and it was in imessage-bundle.err (the
+# conversation-ingest pipeline talking to the store), not in any wiki-*.log.
+# A6 then reported the wiki image stale. Same shape as the A7 footer: text
+# that reads like a diagnosis and measured a different component.
+# shellcheck disable=SC2088  # tilde expands on the box, see LOGDIRS.
+WIKILOGDIRS='~/.ostler/logs ~/Library/Logs/Ostler'   # the wiki jobs write wiki-*.log and wiki-*.err here (install.sh: LOGS_DIR)
+# Enumerates the files with find, never a shell glob, and passes them to grep
+# through an unquoted command substitution, never a variable: the box's login
+# shell is zsh, which ABORTS the command on an unmatched glob and does NOT
+# word-split an unquoted variable (both read as a refusal when this was first
+# run against the walk box), but does split an unquoted $(...). Then reads
+# grep's own status: 0 and 1 are counts, anything else (an unreadable file, a
+# permission error) is a refusal, never a 0. stderr is not merged into the
+# counted file: a diagnostic that leaves the status alone must not count as a match.
+wikicount(){
+  local n
+  n=$(box "cnt=\$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null | wc -l | tr -d ' '); \
+           if [ \"\$cnt\" -eq 0 ]; then echo NOLOGS; \
+           else t=\$(mktemp); grep -hoE '$1' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>/dev/null; rc=\$?; \
+             case \"\$rc\" in 0|1) wc -l < \"\$t\" | tr -d ' ';; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
+  if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
+}
+
+# The compiler pinned from CM044 v0.1.31 (#268) logs "BROKEN LINK: ..." for
+# every internal link it cannot resolve and THEN degrades it to plain text in
+# the written page, summarising per compile as "Link audit: N broken links
+# found out of M checked; R degraded to plain text" (compile.py:1604 and
+# :1632 at 3bc0f3bb). A failed rewrite logs "Link repair failed for ...".
+# So on that image a BROKEN LINK line is a source defect made visible, not a
+# dead link a customer can click. "No dead links" is found minus degraded,
+# summed over every compile in the logs (the catchup log is append-only, so
+# the two sums pair per compile), plus zero failed repairs. Prints
+# "FOUND DEGRADED FAILED_FILES SUMMARIES" or a refusal token. FOUND is
+# events summed over SUMMARIES compiles, not distinct links; FAILED_FILES
+# counts files whose rewrite failed (one line per file), not links.
+wikiaudit(){
+  local n
+  n=$(box "cnt=\$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null | wc -l | tr -d ' '); \
+           if [ \"\$cnt\" -eq 0 ]; then echo NOLOGS; \
+           else t=\$(mktemp); grep -hoE 'Link audit: [0-9]+ broken links found out of [0-9]+ checked(; [0-9]+ degraded)?|Link repair failed' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>/dev/null; rc=\$?; \
+             case \"\$rc\" in 0|1) awk '/^Link audit/{n++; f+=\$3; if (\$12==\"degraded\") d+=\$11} /^Link repair failed/{x++} END{printf \"%d %d %d %d\\n\", f, d, x, n}' \"\$t\";; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
   if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
 }
 
@@ -123,8 +207,27 @@ if [ "$(box 'echo ok')" != "ok" ]; then
 fi
 
 # -- A1 -- hub binary name is brand-neutral (no codename leak) [MAPS: #1] --
-bin_name=$(box "ls /Applications/Ostler.app/Contents/MacOS/ 2>/dev/null | head -1")
-if [ "$(echo "$bin_name" | grep -ciE 'zeroclaw|gamingrig|andypedia' || true)" -gt 0 ]; then
+# 🔴 THIS USED TO DISCARD `ls`'s OWN STDERR (the `2>/dev/null` inside the
+# remote command), so an app that is not where this probe expects -- wrong
+# path, not yet installed, an `ls` that errored -- produced the SAME empty
+# string as a directory that genuinely listed nothing. `grep -c` on empty
+# input is 0, `-gt 0` is false, and the gate printed PASS with an empty binary
+# name: "the subject was never reached" and "the subject is clean" read
+# identically. This is the check built after a real codename leak; a probe
+# that cannot tell "did not look" from "looked and found nothing" must not
+# report PASS on either. The remote side now reports its own exit status and
+# ls's stderr on a marker line, so an unreachable path or an ls error is
+# CANNOT-RUN, and only a listing that actually enumerated files is graded.
+bin_probe=$(box "if bin_out=\$(ls /Applications/Ostler.app/Contents/MacOS/ 2>&1); then printf 'BINLS_OK\n%s\n' \"\$bin_out\"; else printf 'BINLS_ERR\n%s\n' \"\$bin_out\"; fi")
+bin_status=$(printf '%s\n' "$bin_probe" | sed -n '1p')
+bin_name=$(printf '%s\n' "$bin_probe" | sed -n '2,$p' | head -1)
+if [ "$bin_status" != "BINLS_OK" ]; then
+  result CANNOT A1 "Hub binary name is brand-neutral" \
+    "could not list /Applications/Ostler.app/Contents/MacOS/ on the box (status='${bin_status:-<no answer>}', ls said: '${bin_name}'): the app is not where this probe expects, so no codename check was made"
+elif [ -z "$bin_name" ]; then
+  result CANNOT A1 "Hub binary name is brand-neutral" \
+    "listed /Applications/Ostler.app/Contents/MacOS/ but it is EMPTY: there is no binary there to check, which is not the same as a binary that checked clean"
+elif [ "$(echo "$bin_name" | grep -ciE 'zeroclaw|gamingrig|andypedia' || true)" -gt 0 ]; then
   result FAIL A1 "Hub binary name is brand-neutral" "found codename in Contents/MacOS: '$bin_name'"
 else
   result PASS A1 "Hub binary name is brand-neutral" "binary: '$bin_name'"
@@ -140,16 +243,37 @@ else
 fi
 
 # -- A3 -- missing /api routes 404, don't masquerade as 200-SPA-HTML [MAPS: #2] --
+# 🔴 curl prints a ZERO status code and an EMPTY content type on a connection
+# FAILURE, the same as it would for a route that legitimately answers neither
+# "200 text/html" nor anything this check flags. So a wholly unreachable
+# daemon left $code/$ct at "000"/"" for every probed path, `a3_bad` stayed
+# empty, and this printed "all probed /api routes return valid responses" on
+# a box where NOTHING was reached. The adjacent A2 check would separately
+# fail if the daemon were entirely down -- but that is luck, not this check's
+# own design, and it does not cover a daemon that answers OTHER paths but not
+# these three. Each path is now graded into exactly one of three buckets:
+# masked-by-SPA (the defect), unreachable (measured nothing), or answered.
 a3_bad=""
+a3_unreachable=""
 for p in /api/v1/pause /api/v1/resume /api/v1/governor-status; do
   ct=$(box "curl -s -o /dev/null -w '%{content_type}' --max-time 4 $DAEMON$p")
   code=$(box "curl -s -o /dev/null -w '%{http_code}' --max-time 4 $DAEMON$p")
-  if [ "$code" = "200" ] && [ "$(echo "$ct" | grep -ci 'text/html' || true)" -gt 0 ]; then
-    a3_bad="$a3_bad $p(200-html)"
-  fi
+  case "${code:-000}" in
+    000|"")
+      a3_unreachable="$a3_unreachable $p(no-response)"
+      ;;
+    200)
+      if [ "$(echo "$ct" | grep -ci 'text/html' || true)" -gt 0 ]; then
+        a3_bad="$a3_bad $p(200-html)"
+      fi
+      ;;
+  esac
 done
 if [ -n "$a3_bad" ]; then
   result FAIL A3 "SPA fallback doesn't mask missing /api routes" "these return SPA-HTML instead of JSON/404:$a3_bad"
+elif [ -n "$a3_unreachable" ]; then
+  result CANNOT A3 "SPA fallback doesn't mask missing /api routes" \
+    "no response at all (http_code=000) for:$a3_unreachable -- these routes were NEVER REACHED, so 'does not mask a 404' is not available. This is not a pass and it is not the SPA-fallback defect."
 else
   result PASS A3 "SPA fallback doesn't mask missing /api routes" "all probed /api routes return JSON or 404"
 fi
@@ -159,20 +283,51 @@ health=$(box "curl -s --max-time 5 $DAEMON/health")
 cp=$(echo "$health" | grep -oE '"companion_paired"[: ]*(true|false)' | grep -oE 'true|false')
 pd=$(echo "$health" | grep -oE '"paired"[: ]*(true|false)' | grep -oE 'true|false')
 tp=$(echo "$health" | grep -oE '"token_paired"[: ]*(true|false)' | grep -oE 'true|false')
+rp=$(echo "$health" | grep -oE '"require_pairing"[: ]*(true|false)' | grep -oE 'true|false')
 dev_ct=$(box "sqlite3 \$(find ~/.ostler -name devices.db 2>/dev/null | head -1) 'select count(*) from devices' 2>/dev/null")
 [ -z "$dev_ct" ] && dev_ct="err"
-if [ "$EXPECT_PAIRED" = "1" ]; then
-  if [ "$cp" = "true" ] && [ "$pd" = "true" ] && [ "${dev_ct:-0}" -ge 1 ] 2>/dev/null; then
-    result PASS A4 "Pairing complete + consistent" "companion=$cp paired=$pd token=$tp devices=$dev_ct"
-  else
-    result FAIL A4 "Pairing complete + consistent" "companion=$cp paired=$pd token=$tp devices=$dev_ct (want all-true + >=1 device)"
-  fi
+a4_readable=0
+[ -n "$cp" ] && a4_readable=$((a4_readable+1))
+[ -n "$pd" ] && a4_readable=$((a4_readable+1))
+is_count "$dev_ct" && a4_readable=$((a4_readable+1))
+if [ "$a4_readable" -eq 0 ]; then
+  # 0 of 3 signals readable (e.g. no phone paired, no registry): nothing was
+  # measured. Same verdict and cause as pair_state_agreement: CANNOT-RUN, never
+  # FAIL (this used to fall through to FAIL when OSTLER_BOX_EXPECT_PAIRED=1).
+  result CANNOT A4 "Pairing signals consistent" \
+    "companion='$cp' paired='$pd' token='$tp' devices='$dev_ct': only 0 of 3 pairing signals were readable, so NOTHING about pairing was measured"
 else
-  # unpaired box: the 3 flags must AGREE (shipped bug = token_paired:true while others false)
-  if [ "$cp" = "$pd" ] && [ "$pd" = "$tp" ]; then
-    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd token=$tp (agree)"
+  # CONSISTENCY FIRST. What the daemon guarantees (ostler-assistant #208, read
+  # from crates/zeroclaw-gateway/src/lib.rs:1946-1972 on 2026-09-10): paired and
+  # companion_paired come from the device registry and the passkey file;
+  # token_paired is the bearer-token set being non-empty, which the installer
+  # makes TRUE on every install (admin token), so it is reported, not judged.
+  # The device-state assertion is the two device flags plus the device count:
+  #   true/true and devices>=1   -> PASS "paired, consistent"
+  #   false/false and devices=0  -> PASS "unpaired, consistent"
+  #   any mix                    -> FAIL (lying-UI)
+  # Walk #18 read companion=true paired=true devices=1 and called it a lie
+  # because the walk pairs its own companion and EXPECT_PAIRED was unset.
+  # OSTLER_BOX_EXPECT_PAIRED=1 adds exactly one thing: consistent-unpaired FAILs.
+  if [ "$rp" = "false" ]; then
+    # The device registry (and devices.db) exists only when require_pairing is
+    # true (ostler-assistant lib.rs:1581-1587); the default is true and the
+    # installer never sets it. A false here is a different box, not a broken probe.
+    result CANNOT A4 "Pairing signals consistent" \
+      "require_pairing=false: this box has pairing disabled, so there is no device registry to grade; companion='$cp' paired='$pd' token='$tp'"
+  elif [ -z "$cp" ] || [ -z "$pd" ] || ! is_count "$dev_ct"; then
+    result CANNOT A4 "Pairing signals consistent" \
+      "companion='$cp' paired='$pd' token='$tp' devices='$dev_ct': a signal could not be read, so NOTHING about pairing was measured"
+  elif [ "$cp" = "true" ] && [ "$pd" = "true" ] && [ "$dev_ct" -ge 1 ]; then
+    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct (paired, consistent); token=$tp"
+  elif [ "$cp" = "false" ] && [ "$pd" = "false" ] && [ "$dev_ct" -eq 0 ]; then
+    if [ "$EXPECT_PAIRED" = "1" ]; then
+      result FAIL A4 "Pairing complete + consistent" "companion=$cp paired=$pd devices=$dev_ct (unpaired, consistent, but a paired box was expected); token=$tp"
+    else
+      result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct (unpaired, consistent); token=$tp is the installer's admin token, expected"
+    fi
   else
-    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd token=$tp -- signals DISAGREE (lying-UI)"
+    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct -- the signals disagree, a device flag or the device count claims a pairing that does not exist (lying-UI); token=$tp"
   fi
 fi
 
@@ -189,16 +344,40 @@ else
 fi
 
 # -- A6 -- wiki-compiler image is fresh: no SPARQL-400, no parser crash, no dead links [MAPS: #5/#260/#252] --
-ox400=$(boxcount '400 Bad Request')
-crash=$(boxcount 'unhashable type|object has no attribute')
-brk=$(boxcount 'BROKEN LINK')
-if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk"; then
+ox400=$(wikicount '400 Bad Request')
+crash=$(wikicount 'unhashable type|object has no attribute')
+brk=$(wikicount 'BROKEN LINK')
+aud=$(wikiaudit)
+found=""; degraded=""; rfail=""; nsum=""
+case "$aud" in
+  *[!0-9\ ]*|"") : ;;
+  *) set -- $aud; if [ $# -eq 4 ]; then found="$1"; degraded="$2"; rfail="$3"; nsum="$4"; fi ;;
+esac
+if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk" || [ -z "$rfail" ]; then
   result CANNOT A6 "Wiki compiler clean (fresh image)" \
-    "log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk': NOTHING was read, so 'clean' is not available"
-elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$brk" -eq 0 ]; then
-  result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-links=$brk"
+    "wiki log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk' audit='$aud': NOTHING was read from the wiki compiler logs, so 'clean' is not available"
 else
-  result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 (stale image, pre-#219) parser-crashes=$crash broken-links=$brk"
+  # Dead links come from the per-compile summaries, where found and degraded
+  # are paired. The per-link BROKEN LINK lines are NOT retained the same way
+  # (measured 2026-09-10: the catchup log held 7 summaries and 1 such line),
+  # so they are reported, never subtracted from. A log with BROKEN LINK lines
+  # and no summary at all is an older compiler: every one of them counts.
+  if [ "$found" -gt 0 ]; then dead=$((found - degraded)); else dead="$brk"; fi
+  if [ "$dead" -lt 0 ]; then
+    # This compiler bounds degraded by found per compile, and the sums keep
+    # that, so a negative residual is not a state of the wiki: it is the one
+    # arithmetic signal that the summary format moved under the reader.
+    result CANNOT A6 "Wiki compiler clean (fresh image)" \
+      "the summaries do not parse as this reader expects: found=$found degraded=$degraded over $nsum summaries (degraded exceeds found); nothing about dead links can be read from that"
+  elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$dead" -eq 0 ] && [ "$rfail" -eq 0 ]; then
+    result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-link-lines=$brk found=$found(summed over $nsum compiles) repaired=$degraded dead=0 repair-failed-files=$rfail"
+  else
+  # The evidence is the three counts. This line used to append a fixed
+  # "stale image" diagnosis naming a CM044 PR number, unconditionally: a guess
+  # from when that PR was the suspect, printed on every FAIL since, and read
+  # as a finding on three records.
+    result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 parser-crashes=$crash broken-link-lines=$brk found=$found(summed over $nsum compiles) repaired=$degraded dead=$dead repair-failed-files=$rfail (read from the wiki compiler logs only)"
+  fi
 fi
 
 # -- A7 -- Home/Wiki phase coherence -- needs a rendered SPA, can't assert headlessly --
@@ -210,19 +389,46 @@ result MANUAL A7 "Home & Wiki agree on phase" "open the app: Home + Wiki must bo
 # and the clean case is the one that PASSED. The remote side now emits a
 # terminating OK marker, so an empty or truncated reply is distinguishable from
 # a genuinely clean list.
-bad_agents=$(box "launchctl list | grep -iE 'ostler|creativemachines' | awk '\$2!=0 && \$2!=\"-\" && \$2!=78 {print \$3\"(exit=\"\$2\")\"}'; echo __A8_OK__")
+# ── A PLANNED RESTART IS NOT A CRASH (CM051 row 2220) ─────────────────────
+# A restart with kickstart and the -k flag stops the running process with SIGTERM, so launchd
+# records the OLD process's last exit as -15 even though the restart was the
+# installer's own, deliberate, end-of-install step. On the v1.0.102 walk the
+# assistant showed exactly that: running, healthy, last_exit=-15, and A8
+# FAILED the install. So a -15 is excused ONLY when all three hold:
+#   1. the installer wrote a planned-restart marker for THAT label
+#      (~/.ostler/state/planned_restarts.tsv, written by install.sh when it
+#      restarts the assistant at the end of the install),
+#   2. the job is running NOW (a PID, not "-"),
+#   3. the exit is exactly -15. Any other code, or -15 with no marker, or a
+#      -15 job that is not running, still FAILS.
+# The marker file's absence excuses nothing, so a missing file can only make
+# this stricter.
+a8_raw=$(box "launchctl list | grep -iE 'ostler|creativemachines' | awk '\$2!=0 && \$2!=\"-\" && \$2!=78 {print \$1\" \"\$2\" \"\$3}'; echo __A8_MARKS__; cat ~/.ostler/state/planned_restarts.tsv 2>/dev/null; echo __A8_OK__")
 # 🔴 grep -c, NEVER `| grep -q`. This file runs under `set -uo pipefail`, and
 # grep -q exits on the FIRST match, SIGPIPEs the producer, and inverts the
 # verdict. tests/test_pipefail_shortcircuit_inversion.sh ratchets against
 # exactly this, and it caught the line in my own fix for the defect above:
 # I introduced the trap I was writing a refusal for. grep -c reads to EOF.
-if [ "$(printf '%s' "$bad_agents" | grep -c '__A8_OK__')" -eq 0 ]; then
+if [ "$(printf '%s' "$a8_raw" | grep -c '__A8_OK__')" -eq 0 ]; then
   result CANNOT A8 "LaunchAgents exit clean" \
     "the launchctl query returned no terminator, so the agent list was never read: 'all clean' is not available"
 else
-  bad_agents=$(printf '%s' "$bad_agents" | sed 's/__A8_OK__//' | tr -d '\n' )
+  a8_agents=$(printf '%s\n' "$a8_raw" | sed -n '1,/^__A8_MARKS__$/p' | grep -v '^__A8_MARKS__$')
+  a8_marks=$(printf '%s\n' "$a8_raw" | sed -n '/^__A8_MARKS__$/,/^__A8_OK__$/p' | grep -v -E '^__A8_(MARKS|OK)__$' | cut -f1)
+  bad_agents=""; planned_agents=""
+  while read -r a8_pid a8_exit a8_label; do
+    [ -n "${a8_label:-}" ] || continue
+    if [ "$a8_exit" = "-15" ] && [ "$a8_pid" != "-" ] \
+       && [ "$(printf '%s\n' "$a8_marks" | grep -c -x -F -- "$a8_label")" -gt 0 ]; then
+      planned_agents="${planned_agents}${a8_label}(planned restart) "
+    else
+      bad_agents="${bad_agents}${a8_label}(exit=${a8_exit}) "
+    fi
+  done <<A8EOF
+$a8_agents
+A8EOF
   if [ -z "$bad_agents" ]; then
-    result PASS A8 "LaunchAgents exit clean" "all ostler agents exit 0 / benign"
+    result PASS A8 "LaunchAgents exit clean" "all ostler agents exit 0 / benign${planned_agents:+; excused: ${planned_agents}}"
   else
     result FAIL A8 "LaunchAgents exit clean" "nonzero exits: $bad_agents"
   fi

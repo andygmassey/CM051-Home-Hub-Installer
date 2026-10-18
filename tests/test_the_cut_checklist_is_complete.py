@@ -64,6 +64,287 @@ def cannot_run(m: str) -> int:
     return 2
 
 
+class _ScopeRefused(Exception):
+    """The title scope found nothing, which is a refusal and not an answer."""
+
+
+#: Phrases a row uses to say, in its own words, that the work is not done.
+#: Matched against the NORMALISED gate text. Deliberately short and literal:
+#: every one of these was written by whoever measured the defect, so they are
+#: the author's own verdict rather than an inference drawn from prose.
+_UNFINISHED_MARKERS = (
+    "NOT STARTED",
+    "DECISION REQUIRED",
+    "CANNOT FIX",
+    "NO PR OPENED",
+    "NOTHING WRITES",
+)
+
+#: A row struck for this reason has had its GitHub issue closed. That is a
+#: statement about a ticket, never about a customer.
+_STRUCK_ON_CLOSURE = "IS CLOSED ON GITHUB"
+
+
+#: A row citation immediately before a marker means the marker belongs to the
+#: row being CITED, not to the row doing the citing.
+_CITES_ANOTHER_ROW = re.compile(r"\bROWS? #?\d+[^.]{0,40}$")
+
+
+def _mention_spans(g: str):
+    """Character ranges in which a marker is being QUOTED rather than declared.
+
+    Two shapes, both mechanical, both measured on cut-manifests/v1.0.100.yaml
+    before being written down:
+
+      * a balanced parenthesised span. A verdict is not delivered in brackets.
+      * a double-quoted span. Same reason.
+
+    Nested parentheses are tracked by depth so the OUTERMOST pair wins; a
+    naive non-greedy regex closes at the first `)` and leaves the tail of a
+    nested quotation exposed, which is how this was wrong the first time.
+    """
+    spans = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(g):
+        if ch == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ")" and depth:
+            depth -= 1
+            if depth == 0:
+                spans.append((start, i + 1))
+    for mo in re.finditer(r'"[^"]{0,400}"', g):
+        spans.append(mo.span())
+    return spans
+
+
+def _verdict_markers(g: str):
+    """The unfinished markers this row DECLARES, never the ones it quotes.
+
+    🔴 WRITING ABOUT A PREDICATE TRIPPED IT, FOR THE FOURTH TIME IN ONE NIGHT.
+    Row 2114 is THE ROW ABOUT THE STRIKE. To describe the defect it has to
+    quote the strike sentence and list the markers, so a plain substring test
+    read it as a struck, unfinished row. It had been miscounted since PR #2115
+    landed, and the discrepancy that exposed it was two careful agents counting
+    the same field and disagreeing by exactly one.
+
+    MEASURED, whole board, before and after, row by row rather than by an
+    aggregate going down:
+
+        ungated before  31
+        ungated after   30
+        moved           [2114], and nothing else in either direction
+
+        verdict markers still found on the five rows that must keep them:
+          947  CANNOT FIX, NO PR OPENED     948  NOT STARTED
+          942  NOT STARTED, NOTHING WRITES  928  NOT STARTED
+          929  NOT STARTED
+          2114 none, and all four of its markers sit inside a parenthetical
+               list or immediately after "ROW 953,"
+
+    Row 2114's own work is done: the strike it reported was reversed, all 41
+    rows are back on this board, and the ten open `[LAUNCH]` issues among them
+    are counted today. Nothing about it is unfinished. That is the
+    justification, and it is about the rows a person has to fix, not about the
+    count.
+
+    🔴 THE BYPASS, STATED SO IT CANNOT BE DISCOVERED LATER AS A SURPRISE:
+    putting a real verdict in brackets hides it from this count. That is
+    deliberate evasion rather than an accident of prose, it is visible in a
+    diff, and the alternative -- counting quotations -- has already produced a
+    wrong number on this board. A row that declares a verdict in running prose
+    is still caught even when the SAME row also quotes one in brackets, which
+    is the shape that actually occurs; `tests/test_a_verdict_is_not_a_mention.py`
+    pins it.
+    """
+    spans = _mention_spans(g)
+    found = []
+    for mk in _UNFINISHED_MARKERS:
+        for mo in re.finditer(re.escape(mk), g):
+            i = mo.start()
+            if any(a <= i < b for a, b in spans):
+                continue
+            if _CITES_ANOTHER_ROW.search(g[max(0, i - 60):i]):
+                continue
+            found.append(mk)
+    return found
+
+
+def _names_proof(g: str) -> bool:
+    """True when a gate points at something a reader can go and check.
+
+    A merged PR number or a named capability entry is checkable. A paragraph
+    saying somebody judged it done is not.
+    """
+    return bool(re.search(r"\bPR #\d+", g)) or "GATED BY ENTRY" in g
+
+
+# ── AN UNFINISHED VERDICT COUNTS WHEREVER IT APPEARS, NOT ONLY ON A STRUCK ROW
+#
+# 🔴 BOARD ROW 2203. _is_ungated applied the unfinished markers ONLY inside the
+# struck-on-closure branch, so a row that says NOT STARTED in its own words and
+# was never struck was counted as GATED. The marker was checked in one branch
+# and ignored everywhere else, and the number it feeds is the one that decides
+# whether a cut may proceed.
+#
+# That is worse than the 2026-09-16 strike rather than better. The strike
+# removed 41 rows loudly, in a commit with a message, and was found. This
+# removed rows silently, with no event to notice, for as long as the branch
+# structure has existed.
+#
+# 🗿 AND THE OBVIOUS FIX IS THE DEFECT #2149 FILED. Applying the markers to
+# every row would also count row 2149 itself, which is the row ABOUT the
+# markers and quotes four of them, and row 2203, which quotes five while
+# describing this. The rule has to be VERDICT versus MENTION.
+#
+# The discriminator is the one already measured for BLOCKING: a row states its
+# verdict first, so the marker must sit in the disposition and inside the same
+# window. MEASURED on v1.0.100: three rows move (775, 1162, 1589), each leading
+# with "NOT STARTED", and rows 2149 and 2203 carry five markers apiece with
+# ZERO in their verdict, so the trap is avoided by the same rule that does the
+# counting rather than by a special case.
+#
+# A ROW WHOSE UNFINISHED HALF IS NOT ITS LEADING VERDICT IS REPORTED, NEVER
+# DROPPED. Row 1774 reads "STAGING HALF FIXED AT THE CAUSE; ... THE HELD-
+# PRODUCER HALF IS ..." and leads with the fixed half. A positional rule cannot
+# see that without reopening the mention problem, so it is printed by number
+# for a person to judge, exactly as a BLOCKING mention is.
+def _declares_unfinished(g: str) -> bool:
+    """True when the row's own VERDICT says the work is not done."""
+    head = _disposition(g)
+    return any(0 <= head.find(mk) <= _BLOCKING_VERDICT_WINDOW
+               for mk in _UNFINISHED_MARKERS)
+
+
+def _mentions_unfinished_outside_the_verdict(g: str) -> bool:
+    """A marker is in the row and is not its verdict. Reported, not counted."""
+    if _declares_unfinished(g):
+        return False
+    up = " ".join(str(g).upper().split())
+    return any(mk in up for mk in _UNFINISHED_MARKERS)
+
+
+def _is_ungated(r) -> bool:
+    """True when a row carries no proof.
+
+    Module level ON PURPOSE, so the control suite in
+    tests/test_a_ci_alarm_is_not_a_register_gap.py can import and test it.
+    While it was nested inside main() nothing could reach it, which is part of
+    why it went eight months without anyone noticing it matched nothing.
+
+    🔴 CLOSING A TICKET IS NOT FIXING A DEFECT, AND FOR TWO CUTS IT COUNTED AS
+    ONE. Measured on cut-manifests/v1.0.100.yaml, parsed rather than grepped:
+    174 rows, of which 41 were struck with "the issue this row names is CLOSED
+    on GitHub", and SEVEN of those 41 still described unfinished work in their
+    own text -- NOT STARTED, CANNOT FIX, DECISION REQUIRED.
+
+    One of the seven was row 953, "NOTHING WRITES PREFERENCE NODES INTO THE
+    GRAPH, so the interest profile can never be non-empty". It was struck on
+    2026-09-16. v1.0.100 was cut and walked on 2026-09-17, and the front page
+    rendered a single card reading "Ostler has spotted 0 interests". The row
+    had predicted that exact sentence, and the walk consequence too:
+    assistant_answers_grounded is the single failed probe on walks/v1.0.95.tsv.
+
+    Every one of the 41 carries this sentence, which is correct and which the
+    arithmetic ignored:
+
+        closure is the register's own signal that someone judged the work
+        done... It is NOT proof that a customer can do the thing; only the
+        walk proves that.
+
+    A caveat that does not change the count is decoration. So the count now
+    reads it:
+
+      * a struck-on-closure row whose own text says NOT STARTED, CANNOT FIX or
+        DECISION REQUIRED is ungated, whatever else the gate says
+      * a struck-on-closure row that names no checkable proof (no merged PR, no
+        capability entry) is ungated
+
+    A struck row that DOES name a merged PR stays counted as gated. Closure
+    plus a PR someone can open is a different claim from closure alone, and
+    making all 41 red would bury the seven that matter in 34 that do not.
+    """
+    g = " ".join(str(r.get("gate", "")).upper().split())
+    if "NONE YET" in g:
+        return True
+    # Row 2203: a row whose own VERDICT says the work is not done is ungated,
+    # struck or not. The positional rule is what keeps rows that merely
+    # DESCRIBE the markers out of the count.
+    if _declares_unfinished(g):
+        return True
+    if _STRUCK_ON_CLOSURE in g:
+        if _verdict_markers(g):
+            return True
+        if not _names_proof(g):
+            return True
+    return False
+
+
+# ── "BLOCKING" IS A VERDICT, NOT A WORD THAT APPEARS ────────────────────
+#
+# Andy's call 2026-09-06 made the word load-bearing: NINE rows carried BLOCKING
+# in their gate and nothing in this repo read it, so a tag would have shipped
+# straight past nine self-declared blockers.
+#
+# 🔴 AND THE FIRST READER WAS TOO LOOSE, TWICE OVER. It scanned the whole gate,
+# and a row explaining a DEFER with "NOT gated BLOCKING on purpose" was read as
+# a self-declared blocker: a register CITES its own findings, so the words a
+# gate hunts for arrive inside the rows it reads. The repair took the text
+# before the first colon. That is still too loose, and it was measured on the
+# live board 2026-09-18: seven rows matched and only FOUR declare themselves
+# blockers. The other three are prose whose head happens to contain the word.
+#
+#     1969  "GATED by entry probe-..., WHICH MUST BE MADE BLOCKING. Merged"
+#     1922  "FIXED AND GUARDED, MERGED as #2005, and it was BLOCKING A REAL PR"
+#     1012  "FIXED HERE. I reported doctor_page_renders_for_a_customer ..."
+#
+# All three describe work that is DONE. Over-reporting was harmless while these
+# rows were only noted; it stops being harmless the moment they block a cut,
+# which is what the change below does.
+#
+# THE DISCRIMINATOR IS POSITION, AND THE THRESHOLD IS MEASURED RATHER THAN
+# CHOSEN. A row states its verdict first. On the live board the word sits at
+# index 2 in every true blocker ("🔴 BLOCKING") and at 5 in the documented
+# "FIX (BLOCKING):" form, while the three false ones carry it at 47 and 66. A
+# window of 24 sits in a gap of 42 characters, so it is not a knife edge.
+#
+# THE HEAD ENDS AT THE FIRST COLON **OR THE FIRST FULL STOP**, whichever comes
+# first. Without the full stop, "🔴 BLOCKING. MEASURED BY TNM ..." has no colon
+# for a hundred characters and the whole paragraph becomes the disposition.
+#
+# AND A ROW THAT NAMES THE WORD OUTSIDE THE WINDOW IS REPORTED, NEVER DROPPED.
+# A narrower predicate that says nothing about what it declined to read is how
+# a gate quietly stops covering things.
+_BLOCKING_VERDICT_WINDOW = 24
+
+
+def _disposition(g: str) -> str:
+    """A row's verdict: the head of its gate, upper-cased."""
+    head = str(g).split(":", 1)[0]
+    stop = head.find(".")
+    if stop != -1:
+        head = head[:stop]
+    return head.upper().strip()
+
+
+def _says_blocking(g: str) -> bool:
+    """True only when the row DECLARES itself a blocker, as its verdict."""
+    head = _disposition(g)
+    if "NOT BLOCKING" in head:
+        return False
+    i = head.find("BLOCKING")
+    return 0 <= i <= _BLOCKING_VERDICT_WINDOW
+
+
+def _mentions_blocking_outside_the_verdict(g: str) -> bool:
+    """The word is in the row and is not its verdict. Reported, not counted."""
+    if _says_blocking(g):
+        return False
+    return "BLOCKING" in str(g).upper() and "NOT BLOCKING" not in _disposition(g)
+
+
 def newest_manifest() -> pathlib.Path | None:
     """The highest-versioned per-cut manifest. `permanent.yaml` is excluded:
     it is the never-regress backstop, not the working checklist."""
@@ -108,102 +389,363 @@ def main() -> int:
         )
 
     registered = {int(r["issue"]) for r in rows if "issue" in r}
-    ungated = [r for r in rows if str(r.get("gate", "")).startswith("NONE")]
+
+    # ── EVERY ROW MUST NAME THE REPO ITS NUMBER BELONGS TO ─────────────────
+    #
+    # This gate used to resolve a bare number against ONE hardcoded repo. It
+    # could not do otherwise: the rows carried `issue`, `title` and `gate` and
+    # nothing that said where the number came from. GitHub numbers issues and
+    # pull requests from ONE counter per repo, and CM051 and HR015 both have
+    # four-digit numbers, so a bare integer is genuinely ambiguous and a lookup
+    # against the wrong repo answers confidently and wrongly.
+    #
+    # MEASURED 2026-09-16: 41 rows of the v1.0.99 checklist had been struck on
+    # the reason "the issue this row names is CLOSED on GitHub". TEN named
+    # HR015 issues that were OPEN and tagged [LAUNCH]; the other 31 named CM051
+    # PULL REQUESTS. Not one named a closed issue. The three-bucket
+    # classification below was added then, and it stops the gate ADVISING a
+    # wrong strike -- but it still could not see the ten HR015 rows at all,
+    # because the lookup never asked HR015.
+    #
+    # So the row now carries the answer and the gate stops inferring it:
+    #
+    #     repo: CM051    the number is an issue in CM051
+    #     repo: HR015    the number is an issue in HR015
+    #     repo: none     no issue of this number exists in either repo; the row
+    #                    is a measured finding, not a pointer to a tracker item
+    #
+    # A MISSING FIELD IS CANNOT-RUN, NOT A DEFAULT. Defaulting to CM051 would
+    # reproduce the original defect for every row added after this change, and
+    # it would do it silently, which is how the first 41 happened.
+    no_repo = sorted(int(r["issue"]) for r in rows
+                     if "issue" in r and not str(r.get("repo", "")).strip())
+    if no_repo:
+        return cannot_run(
+            f"{len(no_repo)} row(s) carry no `repo:` field: "
+            f"{no_repo[:12]}{' ...' if len(no_repo) > 12 else ''}. A bare issue "
+            "number is ambiguous because GitHub numbers issues and PRs from one "
+            "counter per repo and both repos reach four digits. Resolving it "
+            "against a guessed repo is what struck 41 rows wrongly. Add "
+            "`repo: CM051`, `repo: HR015` or `repo: none` to each."
+        )
+
+    # ── THE TWO REPOS ARE NOT SCOPED THE SAME WAY, AND THAT IS DELIBERATE ──
+    #
+    # CM051 is the product repo: every open issue in it is cut-relevant, so the
+    # register must cover all of them.
+    #
+    # HR015 is the source repo AND Andy's personal-infrastructure backlog. Its
+    # open issues are a mixture of launch work and items explicitly marked
+    # [BACKLOG], [INVESTOR] or [HARDWARE]. Measured 2026-09-16: 21 open HR015
+    # issues were unregistered, and reading all 21 showed the launch-relevant
+    # ones are exactly those whose TITLE begins `[LAUNCH]`. Demanding the whole
+    # backlog be registered would hold a cut hostage to a wearable-ecosystem
+    # ticket, and a gate that is red for reasons nobody can act on is a gate
+    # that gets bypassed.
+    #
+    # SCOPING BY TITLE IS FRAGILE AND THIS FILE SAYS SO ELSEWHERE: a title
+    # regex breaks the moment the wording changes, and it FAILS OPEN, which is
+    # the wrong direction for the register that gates a cut. HR015 carries no
+    # labels at all (measured: 0 labels on all 10 registered rows and on a
+    # sample of 6 unregistered ones), so there is no label to key on instead.
+    #
+    # So the fragility is answered by making it FAIL CLOSED: if the title scan
+    # finds ZERO [LAUNCH] issues, that is treated as the scan being broken, not
+    # as a clean sheet, and the gate REFUSES. A prefix that stopped matching
+    # cannot therefore read as "nothing to do".
+    KNOWN_REPOS = {
+        "CM051": "andygmassey/CM051-Home-Hub-Installer",
+        "HR015": "andygmassey/HR015-Gaming-PC",
+    }
+    LAUNCH_PREFIX = "[LAUNCH]"
+    SCOPED_BY_TITLE = {"HR015"}
+    by_repo: dict[str, set[int]] = {k: set() for k in KNOWN_REPOS}
+    no_issue_rows: set[int] = set()
+    unknown_repo: list[tuple[int, str]] = []
+    for r in rows:
+        if "issue" not in r:
+            continue
+        n, key = int(r["issue"]), str(r.get("repo", "")).strip()
+        if key in KNOWN_REPOS:
+            by_repo[key].add(n)
+        elif key == "none":
+            no_issue_rows.add(n)
+        else:
+            unknown_repo.append((n, key))
+    if unknown_repo:
+        return cannot_run(
+            f"{len(unknown_repo)} row(s) name a repo this gate does not know: "
+            f"{unknown_repo[:8]}. Known: {sorted(KNOWN_REPOS)} plus `none`. "
+            "Refusing rather than checking them against the wrong register."
+        )
+
+    # ── WHY THIS IS A SUBSTRING TEST AND NOT startswith ────────────────────
+    # It was `startswith("NONE")` until 2026-09-16. Every row in every manifest
+    # writes its status as `gate: 'GATE: NONE YET. ...'`, which does not start
+    # with NONE, so this check matched NOTHING. Measured on v1.0.99 the day it
+    # was found: 112 rows said NONE YET and this list held 0 of them. PROPERTY 2
+    # is the one that BLOCKS A CUT, so for as long as that was true the cut
+    # could be tagged with every row unproven and this gate would print a PASS
+    # saying every registered issue was gated. It is the exact shape it exists
+    # to catch: a gate that cannot fail reads identically to a clean sheet.
+    ungated = [r for r in rows if _is_ungated(r)]
+    unfinished_mentions = [r for r in rows
+                           if _mentions_unfinished_outside_the_verdict(
+                               str(r.get("gate", "")))]
     print(f"== checklist: {manifest.name} ==")
     print(f"  registered issues : {len(registered)}")
+    for k in sorted(KNOWN_REPOS):
+        print(f"    repo {k:5}      : {len(by_repo[k])}")
+    print(f"    repo none       : {len(no_issue_rows)}  (measured findings, not tracker items)")
     print(f"  rows with a gate  : {len(rows) - len(ungated)}")
     print(f"  NONE YET          : {len(ungated)}")
+    # NEVER SILENTLY NARROWER. A row whose unfinished half is not its leading
+    # verdict is not counted, and is named here so a person can judge it.
+    if unfinished_mentions:
+        print(f"  unfinished, not as a verdict : {len(unfinished_mentions)}  "
+              f"{[int(r['issue']) for r in unfinished_mentions][:14]}")
+        print("      (a marker appears in these rows outside their verdict: prose, "
+              "history, or one half of a two-half row. NOT counted.)")
     print()
 
-    # ── PROPERTY 1: the register must cover every OPEN issue ────────────────
-    # Needs the live list. Absence of `gh`, or an unauthenticated runner, is a
-    # CANNOT-RUN and not a pass -- a register checked against nothing is not a
-    # checked register.
-    live = None
-    try:
-        out = subprocess.run(
-            ["gh", "issue", "list", "--repo", SLUG, "--state", "open",
-             "--limit", "500", "--json", "number,labels"],
-            capture_output=True, text=True, timeout=90,
-        )
-        if out.returncode == 0 and out.stdout.strip():
-            raw = json.loads(out.stdout)
-            # ── THE ALARM IS NOT A WORK ITEM, AND INCLUDING IT LIVELOCKED THIS ──
-            # `red-main-opens-an-issue.yml` files an issue labelled `main-red`
-            # whenever a gate fails on main, and that issue closes itself when
-            # the gate next SUCCEEDS on main. This gate is one of the gates it
-            # watches. So on 2026-09-06 the estate reached a closed loop:
-            #
-            #   this gate goes red  ->  watchdog opens #1713 (label main-red)
-            #   #1713 open + unregistered  ->  this gate goes red
-            #   this gate never succeeds  ->  #1713 never self-closes
-            #
-            # Main could not return to green by any amount of correct work. The
-            # only exits were registering a transient CI alarm in the SHIPPING
-            # checklist, or closing it by hand against its own instructions.
-            #
-            # The exclusion is deliberately narrow: the LABEL the watchdog
-            # applies, not its author and not a title regex. An author filter
-            # would also swallow every other bot-filed issue, and a title regex
-            # breaks the moment the wording changes -- and both fail OPEN, which
-            # is the wrong direction for the register that gates a cut.
-            #
-            # It is never silent. The excluded numbers are PRINTED below, so an
-            # issue that is quietly wearing this label cannot hide behind it.
-            alarms = {int(o["number"]) for o in raw
-                      if any(l.get("name") == ALARM_LABEL for l in o.get("labels", []))}
-            live = {int(o["number"]) for o in raw} - alarms
-            if alarms:
-                print(f"  [note] {len(alarms)} open issue(s) excluded as CI alarms "
-                      f"(label `{ALARM_LABEL}`): {sorted(alarms)}")
-                print(f"         These are raised BY a red gate and close themselves "
-                      f"when it goes green. Registering them would livelock the cut.")
-            if raw and not live:
-                # Every open issue wearing the alarm label is not a clean sheet,
-                # it is a label being used for something else. Refuse.
-                CANNOT_RUN_ALL_ALARMS[0] = len(alarms)
-    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
-        live = None
+    # ── PROPERTY 1: the register must cover every OPEN issue, IN EVERY REPO ─
+    # Absence of `gh`, or an unauthenticated runner, is a CANNOT-RUN and not a
+    # pass: a register checked against nothing is not a checked register. Each
+    # repo is measured separately and a failure in one does not stand in for
+    # the other, because "we could not read HR015" must never read as "HR015
+    # has nothing open".
+    # Each repo's live open set, kept SEPARATELY. An earlier version of this
+    # loop left a single `live` variable holding whatever the LAST iteration
+    # produced, and PROPERTY 3 below then looked CM051 issue numbers up in
+    # HR015's open list. Every one would be absent, so every BLOCKING row would
+    # have read as closed and the property would have printed a confident PASS
+    # while measuring the wrong repo entirely. Found by noticing a CANNOT-RUN
+    # line printed above a "0 cannot-run" summary.
+    LIVE_BY_REPO: dict[str, set[int]] = {}
 
-    if live is None:
-        # RECORDED, not merely printed. TNM drove this and found both `gh`
-        # branches PRINTED the refusal and then fell through to a summary that
-        # exits 0 -- with the manifest branches exiting 2 as the control, so the
-        # script plainly can. `gh` auth expiring in CI would have left the daily
-        # cron GREEN while measuring nothing, which is the exact failure the
-        # third state exists to prevent, in the gate that argues for it. And it
-        # was a SILENT green: the words CANNOT-RUN appear in the log, so a reader
-        # skimming for red sees nothing.
-        global CANNOT_RUN
-        CANNOT_RUN += 1
-        print("  [CANNOT-RUN] the open-issue list could not be read (no gh, no auth,")
-        print("               or the call failed). Registration completeness is")
-        print("               UNMEASURED on this run. This is not a pass.")
-        print("               Command that settles it:")
-        print(f"                 gh issue list --repo {SLUG} --state open --json number")
-    elif not live:
-        # An empty list is indistinguishable from a broken query, so refuse it.
-        CANNOT_RUN += 1
-        if CANNOT_RUN_ALL_ALARMS[0]:
-            print(f"  [CANNOT-RUN] all {CANNOT_RUN_ALL_ALARMS[0]} open issue(s) carry the")
-            print(f"               `{ALARM_LABEL}` label. That is the label being used for")
-            print("               something it does not mean, not an empty backlog.")
-        else:
-            print("  [CANNOT-RUN] the open-issue list came back EMPTY. A repository with")
-            print("               genuinely zero open issues and a broken query print")
-            print("               identically, so this refuses rather than passing.")
-    else:
-        missing = sorted(live - registered)
+    global CANNOT_RUN
+    for key, slug in sorted(KNOWN_REPOS.items()):
+        # ── A REPO NO ROW CLAIMS IS NOT A REPO TO CROSS-CHECK ───────────────
+        # The completeness question is "does the register cover this repo's
+        # open work". A repo that no row in this manifest names has nothing to
+        # compare against, and querying it would turn every one of its open
+        # issues into a missing registration. Say so out loud and move on,
+        # rather than either failing or silently skipping.
+        if not by_repo[key]:
+            print(f"  [note] {key}: no row in {manifest.name} declares this repo, so there is "
+                  f"nothing here to cross-check against it. Not measured, and not claimed as "
+                  f"clean.")
+            continue
+        live = None
+        alarms: set[int] = set()
+        try:
+            out = subprocess.run(
+                ["gh", "issue", "list", "--repo", slug, "--state", "open",
+                 "--limit", "500", "--json", "number,labels,title"],
+                capture_output=True, text=True, timeout=90,
+            )
+            if out.returncode == 0 and out.stdout.strip():
+                raw = json.loads(out.stdout)
+                # ── THE ALARM IS NOT A WORK ITEM, AND INCLUDING IT LIVELOCKED THIS ──
+                # `red-main-opens-an-issue.yml` files an issue labelled
+                # `main-red` whenever a gate fails on main, and it closes itself
+                # when that gate next SUCCEEDS on main. This gate is one of the
+                # gates it watches, so on 2026-09-06 the estate reached a closed
+                # loop: gate red -> watchdog opens #1713 -> #1713 open and
+                # unregistered -> gate red. Main could not return to green by
+                # any amount of correct work.
+                #
+                # The exclusion is deliberately narrow: the LABEL the watchdog
+                # applies, not its author and not a title regex. Both of those
+                # fail OPEN, which is the wrong direction for a cut register.
+                # It is never silent: the excluded numbers are printed.
+                alarms = {int(o["number"]) for o in raw
+                          if any(l.get("name") == ALARM_LABEL for l in o.get("labels", []))}
+                live = {int(o["number"]) for o in raw} - alarms
+                if key in SCOPED_BY_TITLE:
+                    # ── A MISSING FIELD IS NOT A MISSING MATCH ─────────────
+                    # Scoping by title needs titles. If NOT ONE returned issue
+                    # carries a `title` at all, the scope has no data to work
+                    # on, and reporting that as "the prefix stopped matching"
+                    # would blame the wording for what is actually an absent
+                    # field. Two different causes, two different sentences,
+                    # and only one of them means someone renamed an issue.
+                    titled = [o for o in raw if str(o.get("title", "")).strip()]
+                    if not titled:
+                        CANNOT_RUN += 1
+                        print(f"  [CANNOT-RUN] {key}: {len(raw)} open issue(s) came back and NOT "
+                              f"ONE carries a title,")
+                        print(f"               so this repo cannot be scoped by "
+                              f"`{LAUNCH_PREFIX}` at all. That is an")
+                        print("               absent FIELD, not an absent match. Registration "
+                              "completeness here")
+                        print("               is UNMEASURED, which is not a pass.")
+                        raise _ScopeRefused()
+                    launch = {int(o["number"]) for o in raw
+                              if str(o.get("title", "")).lstrip().upper()
+                                 .startswith(LAUNCH_PREFIX)} - alarms
+                    if not launch:
+                        # ── WHEN ZERO IS A REFUSAL AND WHEN IT IS AN ANSWER ──
+                        # My first version refused on any zero here. That is
+                        # wrong in one direction that matters: once the launch
+                        # work is genuinely finished, zero [LAUNCH] issues is
+                        # the CORRECT answer, and a gate that refuses forever
+                        # at the finish line is a gate someone switches off.
+                        #
+                        # The refusal exists to catch a prefix that STOPPED
+                        # MATCHING. The evidence for that is not "zero found",
+                        # it is "zero found WHILE rows of this manifest still
+                        # claim issues in this repo". That combination cannot
+                        # both be true: the rows name issues the scope says do
+                        # not exist.
+                        #
+                        # So refuse only on the contradiction, and let a clean
+                        # zero through when no row contradicts it. We only
+                        # reach here when by_repo[key] is non-empty, which is
+                        # exactly the contradiction.
+                        CANNOT_RUN += 1
+                        print(f"  [CANNOT-RUN] {key}: {len(live)} open issue(s) and NOT ONE "
+                              f"title begins `{LAUNCH_PREFIX}`,")
+                        print(f"               yet {len(by_repo[key])} row(s) of {manifest.name} "
+                              f"declare `repo: {key}`.")
+                        print("               Those cannot both be true, so the prefix has "
+                              "stopped matching rather")
+                        print("               than the launch list being empty. Refusing to pass.")
+                        live = None
+                        raise _ScopeRefused()
+                    deferred = len(live) - len(launch)
+                    live = launch
+                    print(f"  [note] {key}: scoped to the {len(live)} open issue(s) whose title "
+                          f"begins `{LAUNCH_PREFIX}`.")
+                    print(f"         {deferred} other open issue(s) are NOT checked for "
+                          f"registration here. They are not launch work by their own title, "
+                          f"and this line exists so that exemption cannot be silent.")
+                if alarms:
+                    print(f"  [note] {key}: {len(alarms)} open issue(s) excluded as CI "
+                          f"alarms (label `{ALARM_LABEL}`): {sorted(alarms)}")
+                if raw and not live:
+                    CANNOT_RUN_ALL_ALARMS[0] = len(alarms)
+        except _ScopeRefused:
+            # Already counted and explained above. Do not double-count it as an
+            # unreadable list, which would report the same refusal twice under
+            # two different reasons.
+            continue
+        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
+            live = None
+
+        if live is None:
+            # ── NO ACCESS IS NOT THE SAME AS BROKEN AUTH ───────────────────
+            # CM051 is PUBLIC and HR015 is PRIVATE, and this gate runs in
+            # CM051's CI. Its token cannot see HR015 at all, and never will:
+            # measured on this very gate, the HR015 branch printed
+            # "the open-issue list could not be read" on every run, so the
+            # gate was permanently red for a reason no amount of correct work
+            # could clear. A gate red for something nobody can act on is a
+            # gate that gets bypassed, and that is worse than the gap.
+            #
+            # But "I cannot see that repo" and "my auth just broke" must not
+            # print the same, because the second one is a real emergency and
+            # the first is a known boundary. Ask the repo endpoint to tell
+            # them apart: a token that can reach the repo at all, and then
+            # fails on the issue list, has a transient problem and MUST
+            # refuse. A token that cannot reach the repo is outside its own
+            # permissions, which is structural.
+            reachable = None
+            try:
+                probe = subprocess.run(["gh", "api", f"repos/{slug}", "-q", ".full_name"],
+                                       capture_output=True, text=True, timeout=45)
+                reachable = (probe.returncode == 0 and bool(probe.stdout.strip()))
+            except Exception:
+                reachable = None
+
+            if reachable is False:
+                # Structural. Report it loudly, name where it IS measurable,
+                # and do NOT count it as a refusal, because this runner can
+                # never satisfy it.
+                print(f"  [NOT MEASURABLE HERE] {key}: this runner's token cannot reach {slug}")
+                print(f"               at all, so its {len(by_repo[key])} registered row(s) "
+                      f"cannot be")
+                print("               cross-checked from CM051 CI. That is a permissions "
+                      "boundary, not a")
+                print("               failure, and not a pass either: NOTHING here measured it.")
+                print(f"               It IS measurable from a runner that can read {slug}:")
+                print(f"                 gh issue list --repo {slug} --state open --json number,title")
+                continue
+
+            CANNOT_RUN += 1
+            if reachable is None:
+                print(f"  [CANNOT-RUN] {key}: could not even establish whether this runner can")
+                print(f"               reach {slug}, so the absence above is unexplained.")
+            else:
+                print(f"  [CANNOT-RUN] {key}: the repo IS reachable and the open-issue list still")
+                print("               could not be read. That is a transient failure or expired")
+                print("               auth, NOT a permissions boundary, and it is not a pass.")
+            print(f"                 gh issue list --repo {slug} --state open --json number")
+            continue
+        if not live:
+            CANNOT_RUN += 1
+            if CANNOT_RUN_ALL_ALARMS[0]:
+                print(f"  [CANNOT-RUN] {key}: all {CANNOT_RUN_ALL_ALARMS[0]} open issue(s)")
+                print(f"               carry the `{ALARM_LABEL}` label. That is the label")
+                print("               being used for something it does not mean.")
+            else:
+                print(f"  [CANNOT-RUN] {key}: the open-issue list came back EMPTY. A repo")
+                print("               with genuinely zero open issues and a broken query")
+                print("               print identically, so this refuses rather than passing.")
+            continue
+
+        LIVE_BY_REPO[key] = live
+        mine = by_repo[key]
+        missing = sorted(live - mine)
         if missing:
-            bad(f"{len(missing)} OPEN issue(s) are not in the checklist: {missing}. "
-                "The register has stopped being the register.")
+            bad(f"{key}: {len(missing)} OPEN issue(s) are not in the checklist: "
+                f"{missing}. The register has stopped being the register.")
         else:
-            ok(f"every one of the {len(live)} open issues is registered in {manifest.name}")
-        # Registered-but-closed is drift, not a defect: report it, do not fail.
-        stale = sorted(registered - live)
-        if stale:
-            print(f"  [note] {len(stale)} registered issue(s) are now closed and can be "
-                  f"struck: {stale[:12]}{' ...' if len(stale) > 12 else ''}")
+            ok(f"{key}: every one of the {len(live)} open issues is registered in "
+               f"{manifest.name}")
+
+        # ── "NOT OPEN HERE" IS STILL NOT "CLOSED" ──────────────────────────
+        # Even scoped to the right repo, a row that is not in the open list may
+        # be closed, may be a PULL REQUEST (`gh issue list` never returns PRs),
+        # or may be a number that no longer exists. Only the first is a strike
+        # candidate, and the difference is one extra call, not one per row.
+        stale = sorted(mine - live)
+        if not stale:
+            continue
+        closed_here = None
+        try:
+            cout = subprocess.run(
+                ["gh", "issue", "list", "--repo", slug, "--state", "closed",
+                 "--limit", "1000", "--json", "number"],
+                capture_output=True, text=True, timeout=90,
+            )
+            if cout.returncode == 0 and cout.stdout.strip():
+                closed_here = {int(o["number"]) for o in json.loads(cout.stdout)}
+        except Exception:
+            closed_here = None
+
+        if closed_here is None:
+            print(f"  [note] {key}: {len(stale)} row(s) are not OPEN issues here, and the "
+                  f"CLOSED list could not be read, so NONE is confirmed closed and none "
+                  f"should be struck on this signal: "
+                  f"{stale[:12]}{' ...' if len(stale) > 12 else ''}")
+            continue
+        really_closed = [n for n in stale if n in closed_here]
+        not_an_issue = [n for n in stale if n not in closed_here]
+        if really_closed:
+            print(f"  [note] {key}: {len(really_closed)} registered issue(s) are CLOSED "
+                  f"and can be struck: "
+                  f"{really_closed[:12]}{' ...' if len(really_closed) > 12 else ''}")
+        if not_an_issue:
+            print(f"  [note] {key}: {len(not_an_issue)} row(s) declare `repo: {key}` but are "
+                  f"NOT AN ISSUE THERE AT ALL, neither open nor closed. The declaration is "
+                  f"wrong, or the number is a PULL REQUEST. DO NOT STRIKE: fix the `repo:` "
+                  f"field: {not_an_issue[:12]}{' ...' if len(not_an_issue) > 12 else ''}")
+
+    if no_issue_rows:
+        print(f"  [note] {len(no_issue_rows)} row(s) declare `repo: none` and are exempt from "
+              f"the registration check by declaration. They are measured findings, not "
+              f"tracker items. They are NOT exempt from PROPERTY 2 below.")
 
     # ── PROPERTY 2: no ungated rows may survive to a cut ────────────────────
     # This is the one that blocks. It is deliberately advisory OUTSIDE a cut
@@ -246,37 +788,72 @@ def main() -> int:
     #
     # A row whose issue has CLOSED does not block. That is drift in the
     # register, reported separately above, not an outstanding blocker.
-    def _says_blocking(g: str) -> bool:
-        # THE DISPOSITION IS THE TEXT BEFORE THE FIRST COLON, AND ONLY THAT.
-        #
-        # This first scanned the WHOLE gate string for "BLOCKING", excluding the
-        # literal "NOT BLOCKING". It caught its own tail within the hour: I
-        # registered #1685 with a DEFER whose REASONING said "NOT gated BLOCKING
-        # on purpose, and #1680 makes that word cost something". That is prose
-        # explaining a deferral, and the gate read it as a self-declared
-        # blocker. A register CITES its own findings, so the words a gate hunts
-        # for arrive inside the rows it reads -- the control ends up in its own
-        # subject.
-        #
-        # Rows are written as "<DISPOSITION>: <reasoning>", e.g.
-        #   "FIX (BLOCKING): ..."   "FIX (apparatus, counted per Andy): ..."
-        #   "DEFER: ..."            "NOT BLOCKING (reporting accuracy): ..."
-        # so the disposition is the head, and the reasoning cannot reach it.
-        # A row with no colon at all is treated as all-disposition, which is
-        # the conservative direction: it can only ever over-report.
-        head = g.split(":", 1)[0].upper()
-        return "BLOCKING" in head and "NOT BLOCKING" not in head
-
     blocking_rows = [r for r in rows if _says_blocking(str(r.get("gate", "")))]
-    if live is None or not live:
-        # Already counted as CANNOT-RUN above. Say explicitly that THIS property
-        # was not evaluated, rather than letting silence read as a pass.
-        print(f"  [CANNOT-RUN] {len(blocking_rows)} row(s) say BLOCKING, but the open-issue")
-        print("               list could not be read, so whether they are still open is")
-        print("               UNMEASURED. Not a pass.")
+    # A row is checked against ITS OWN repo's open list, and a row whose repo
+    # was not measured is not silently treated as closed.
+    unmeasured = [r for r in blocking_rows
+                  if str(r.get("repo", "")).strip() in KNOWN_REPOS
+                  and str(r.get("repo", "")).strip() not in LIVE_BY_REPO]
+    checkable = [r for r in blocking_rows
+                 if str(r.get("repo", "")).strip() in LIVE_BY_REPO]
+    none_repo = [r for r in blocking_rows if str(r.get("repo", "")).strip() == "none"]
+    if unmeasured:
+        CANNOT_RUN += 1
+        print(f"  [CANNOT-RUN] {len(unmeasured)} BLOCKING row(s) name a repo whose open-issue")
+        print("               list was not read, so whether they are still open is")
+        print("               UNMEASURED. Not a pass, and NOT treated as closed.")
+    # 🔴 A `repo: none` BLOCKING ROW USED TO BLOCK NOTHING, AND THE PASS LINE
+    # SAID IT HAD BEEN CHECKED. These rows were printed as a note and then
+    # dropped: they were counted in "N BLOCKING row(s) examined, all closed or
+    # none present", which reads as a verdict and was not one. Measured on
+    # v1.0.100, 2026-09-18: 7 rows matched the old predicate, 4 declare
+    # themselves blockers, and every one of the 4 carries `repo: none`. So the
+    # word was load-bearing for exactly the rows that name a tracker issue, and
+    # inert for the ones that carry a measured finding, which is most of them.
+    #
+    # A MEASURED FINDING HAS NO ISSUE TO CLOSE, so its gate text IS the
+    # evidence, and its text says BLOCKING. It clears the same way an ungated
+    # row clears: somebody changes the verdict when the work is done.
+    if none_repo:
+        listing = "; ".join(
+            f'#{r["issue"]} {str(r.get("title", ""))[:60]}' for r in none_repo)
+        msg = (f"{len(none_repo)} row(s) declare themselves BLOCKING and name no "
+               f"tracker issue, so their gate text is the only evidence and it "
+               f"says they block: {listing}")
+        if cutting:
+            bad("CUT IS BLOCKED. " + msg +
+                ". Re-gate each to what it truly is, or finish it. A row that "
+                "calls itself a blocker and blocks nothing is the defect this "
+                "property was created for.")
+        else:
+            print(f"  [note] {msg}")
+            print("         Not a failure outside a cut. With OSTLER_CUT_IN_PROGRESS=1 "
+                  "this is a FAIL and the cut stops.")
+    mentions = [r for r in rows
+                if _mentions_blocking_outside_the_verdict(str(r.get("gate", "")))]
+    if mentions:
+        # NEVER SILENTLY NARROWER. The predicate reads a verdict, not a word,
+        # and a gate that says nothing about what it declined to read is how
+        # coverage quietly shrinks. These are reported and NOT counted.
+        print(f"  [note] {len(mentions)} further row(s) contain the word BLOCKING "
+              "somewhere other than their verdict")
+        print("         (prose, history, or a citation). NOT counted as blockers: "
+              f"{[r['issue'] for r in mentions][:14]}")
+    if blocking_rows and not checkable and not unmeasured and not none_repo:
+        # Only a refusal when there IS something to check and no way to check
+        # it. ZERO blocking rows is not an unmeasured state, it is the answer:
+        # nothing claims to block. Refusing there would have turned every
+        # manifest with no blockers into a CANNOT-RUN, which is the opposite of
+        # what this property is for.
+        print(f"  [CANNOT-RUN] {len(blocking_rows)} row(s) say BLOCKING and none could be")
+        print("               checked against any open-issue list. UNMEASURED. Not a pass.")
+        CANNOT_RUN += 1
+    elif not blocking_rows:
+        ok("no row is gated BLOCKING, so no blocker can be sitting on an open issue")
     else:
-        live_blocking = [r for r in blocking_rows if int(r["issue"]) in live]
-        stale_blocking = len(blocking_rows) - len(live_blocking)
+        live_blocking = [r for r in checkable
+                         if int(r["issue"]) in LIVE_BY_REPO[str(r.get("repo", "")).strip()]]
+        stale_blocking = len(checkable) - len(live_blocking)
         if live_blocking:
             listing = "; ".join(
                 f'#{r["issue"]} {str(r.get("title", ""))[:60]}' for r in live_blocking)
@@ -295,8 +872,12 @@ def main() -> int:
                 print(f"         ({stale_blocking} further BLOCKING row(s) name a CLOSED "
                       "issue and are drift, not blockers.)")
         else:
-            ok(f"no row gated BLOCKING names a still-open issue "
-               f"({len(blocking_rows)} BLOCKING row(s) examined, all closed or none present)")
+            # The count is the CHECKABLE rows, not every blocking row. Saying
+            # "8 examined, all closed" while 4 of the 8 were never looked up is
+            # the shape of claim this whole file exists to refuse.
+            ok(f"no row gated BLOCKING against a tracker issue names a still-open "
+               f"one ({len(checkable)} of {len(blocking_rows)} BLOCKING row(s) were "
+               f"checkable against an open-issue list; the rest are reported above)")
 
     print()
     print(f"== {PASS} pass / {FAIL} fail / {CANNOT_RUN} cannot-run / "

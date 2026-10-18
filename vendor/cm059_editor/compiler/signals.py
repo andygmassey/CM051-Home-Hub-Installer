@@ -41,7 +41,9 @@ builder invoked directly with an L3 item yields a card the central
 from __future__ import annotations
 
 import json
+import os
 import socket
+import sys
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -60,14 +62,26 @@ _STRINGS = {
     "reply_debt_title_many": "{count} people are waiting on you",
     "reply_debt_body": "{names} {have} messages awaiting your reply.",
     "reply_debt_action": "See who",
+    # A reply-debt source that could not be read is said out loud. Without
+    # this card the band simply had no reply-debt card, which reads exactly
+    # like nobody waiting (CM051 #30, studio29).
+    "reply_debt_unchecked_title": "Couldn't check who is waiting on you",
+    "reply_debt_unchecked_body": ("Ostler could not read your messages just "
+                                  "now, so this is not an all-clear. It will "
+                                  "check again shortly."),
+    # Messages was never set up as a source on this Mac (no consent, or no
+    # Messages history at install). Plain, and no promise to retry.
+    "reply_debt_not_connected_title": "Messages isn't connected",
+    "reply_debt_not_connected_body": ("Ostler isn't reading Messages on this "
+                                      "Mac, so it can't tell who is waiting "
+                                      "on a reply there."),
     "gone_quiet_title": "You and {name} have gone quiet",
-    "gone_quiet_body": ("No contact for {months} months. A short message keeps "
+    "gone_quiet_body": ("No contact for {span}. A short message keeps "
                         "the thread alive."),
     "gone_quiet_body_one": ("No contact for a month. A short message keeps the "
                             "thread alive."),
     "gone_quiet_action": "Draft a hello",
     "birthday_title": "{name}'s birthday is {when}",
-    "birthday_body": "{when_cap}.",
     "commitment_title": "Something you committed to is due",
     "commitment_title_with": "Something you owe {who} is due",
     # No free-text commitment body template: commitment text is arbitrary
@@ -83,6 +97,49 @@ _NUM_WORDS = {0: "no", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
 
 def _num_word(n: int) -> str:
     return _NUM_WORDS.get(int(n), str(int(n)))
+
+
+def _humanize_months_since(months: float) -> str:
+    """Human phrasing for a reconnect gap, never a raw '{n} months' dump.
+
+    Walk #5 (CM051, 2026-10-01/04): hydrated Home and wiki front-page cards
+    read "No contact for 59 months" and "No contact for 13 months" --
+    database output, not a sentence a person would say, because
+    ``gone_quiet_body`` fed ``_num_word(m)`` straight through for any m and
+    ``_num_word`` only has words for 0-9 (``_num_word(59) == "59"``).
+
+    Buckets:
+      < 1 month    -> "less than a month" (defensive: gone_quiet_card never
+                      builds a card this fresh, but the formatter must still
+                      answer something sane for any input, not just the ones
+                      the caller currently produces)
+      1 month      -> "a month" (the caller special-cases this itself via
+                      gone_quiet_body_one; kept here too for callers that
+                      format a span directly)
+      2-11 months  -> "{n} months"
+      12-23 months -> "over a year" (CM051 walk #5's 13-month case)
+      24+ months   -> "about / almost / just over {N} years", N = the
+                      nearest whole year (CM051 walk #5's 59-month case:
+                      "almost five years")
+    """
+    m = max(0.0, float(months))
+    whole = int(round(m))
+    if whole < 1:
+        return "less than a month"
+    if whole == 1:
+        return "a month"
+    if whole < 12:
+        return f"{_num_word(whole)} months"
+    if whole < 24:
+        return "over a year"
+    nearest_years = max(1, round(whole / 12.0))
+    nearest_months = nearest_years * 12
+    word = _num_word(nearest_years)
+    if whole == nearest_months:
+        return f"about {word} years"
+    if whole < nearest_months:
+        return f"almost {word} years"
+    return f"just over {word} years"
 
 
 def _cap(text: str) -> str:
@@ -335,7 +392,7 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
         return None
     cid = fp.card_id("signal", "reply_debt")
     created = _ledger_created(ledger, cid, now)
-    shown = [n for n in (names or []) if n][:2]
+    shown = [fp.person_label(x, fp.UNKNOWN_CONTACT) for x in (names or []) if x][:2]
     if count == 1:
         title = _STRINGS["reply_debt_title_one"]
     else:
@@ -360,9 +417,54 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
     return card
 
 
+def reply_debt_degraded(raw) -> bool:
+    """True when the reply-debt endpoint answered but said it could not look
+    (``degraded: true``). A degraded payload carries count 0, and count 0 must
+    not be read as "nobody is waiting"."""
+    return isinstance(raw, dict) and bool(raw.get("degraded"))
+
+
+# Reasons that mean "the install never set Messages up", as opposed to a
+# connected source that could not be read this time.
+_REPLY_DEBT_NOT_CONNECTED_REASONS = {"imessage_not_connected"}
+
+
+def reply_debt_not_connected(raw) -> bool:
+    return (reply_debt_degraded(raw)
+            and str(raw.get("reason") or "") in _REPLY_DEBT_NOT_CONNECTED_REASONS)
+
+
+def reply_debt_unchecked_card(now: datetime, ledger=None, not_connected=False):
+    """The "couldn't check" card, or, when Messages was never connected, the
+    plain "Messages isn't connected" card (no "will check again" promise).
+    Names nobody and quotes nothing, so it is safe at L2. No action."""
+    key = "reply_debt_not_connected" if not_connected else "reply_debt_unchecked"
+    cid = fp.card_id("signal", key)
+    created = _ledger_created(ledger, cid, now)
+    card = fp._make_card(
+        "signal", key,
+        title=_STRINGS[key + "_title"],
+        body=_STRINGS[key + "_body"], now=now,
+        domain="people",
+        priority=fp.BAND_REPLY_DEBT * (0.1 if not_connected else 0.25),
+        action=None, source="ostler:conversations", privacy="L2",
+        signal={"type": "reply_debt", "unchecked": True,
+                "not_connected": bool(not_connected)})
+    card["created_utc"] = fp._iso(created)
+    return card
+
+
 def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
                     privacy: str = "L2"):
+    name = fp.person_label(name)
     if not name:
+        return None
+    # Upper bound (CM051 walk #5; fp.GONE_QUIET_IGNORE_AFTER_MONTHS's own
+    # comment has the full history). Five years of silence is history, not a
+    # reconnect nudge. This is the last point in the pipeline that can refuse
+    # to build the card, so it checks regardless of what the upstream source
+    # does or does not bound.
+    if months_since is None or months_since > fp.GONE_QUIET_IGNORE_AFTER_MONTHS:
         return None
     cid = fp.card_id("signal", f"gone_quiet::{name}")
     fe = _parse_dt(card_ledger.first_emitted(ledger, cid))
@@ -381,7 +483,8 @@ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
     expires = cycle_start + timedelta(days=fp.GONE_QUIET_TTL_DAYS)
     m = int(round(months_since))
     body = (_STRINGS["gone_quiet_body_one"] if m == 1
-            else _STRINGS["gone_quiet_body"].format(months=_num_word(m)))
+            else _STRINGS["gone_quiet_body"].format(
+                span=_humanize_months_since(months_since)))
     card = fp._make_card(
         "signal", f"gone_quiet::{name}",
         title=_STRINGS["gone_quiet_title"].format(name=name), body=body, now=now,
@@ -398,6 +501,7 @@ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
 
 def birthday_card(name: str, days_until: int, now: datetime, ledger=None,
                   privacy: str = "L2"):
+    name = fp.person_label(name)
     if not name or days_until is None:
         return None
     du = int(days_until)
@@ -408,9 +512,13 @@ def birthday_card(name: str, days_until: int, now: datetime, ledger=None,
     when = _when_phrase(du)
     card = fp._make_card(
         "signal", f"birthday::{name}",
+        # CM051 #2535: no body subtitle. The title already carries the full
+        # timing ("...birthday is in five days" / "...is today"), so a
+        # second line read "In five days away." or, for today, "Today."
+        # under a title that already said "is today" -- redundant, and the
+        # "away" suffix duplicated the "in N days" prefix ungrammatically.
         title=_STRINGS["birthday_title"].format(name=name, when=when),
-        body=_STRINGS["birthday_body"].format(when_cap=_cap(f"{when} away") if du > 1
-                                               else _cap(when)),
+        body=None,
         now=now, domain="dates",
         priority=fp.BAND_KEY_DATE * date_proximity(du),
         expires_utc=expires, source="ostler:people",
@@ -429,6 +537,7 @@ def commitment_card(what: str, days_until: int, who, now: datetime, ledger=None,
     if days_until is None:
         return None
     du = int(days_until)
+    who = fp.person_label(who, fp.UNKNOWN_CONTACT) if who else None
     key = f"commitment::{who or ''}::{what}"
     cid = fp.card_id("signal", key)
     created = _ledger_created(ledger, cid, now)
@@ -460,10 +569,15 @@ def build_signal_cards(raw: dict | None, now: datetime, ledger=None) -> list:
         return []
     cards: list = []
 
-    rd = _normalise_reply_debt(raw.get("reply_debt"))
-    card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
-    if card:
-        cards.append(card)
+    if reply_debt_degraded(raw.get("reply_debt")):
+        cards.append(reply_debt_unchecked_card(
+            now, ledger=ledger,
+            not_connected=reply_debt_not_connected(raw.get("reply_debt"))))
+    else:
+        rd = _normalise_reply_debt(raw.get("reply_debt"))
+        card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
+        if card:
+            cards.append(card)
 
     reconnect, birthdays = _normalise_suggestions(raw.get("suggestions"), now)
     for it in reconnect:
@@ -508,15 +622,72 @@ def _is_loopback(base_url: str) -> bool:
     return host in _LOOPBACK_HOSTS
 
 
+def _service_token() -> str:
+    """The loopback service token, or "" when none is configured.
+
+    THE SERVER FAILS CLOSED BY DESIGN. ical-server.py:191-204 states it: a
+    request without a valid token is 401, and when no token is configured it
+    denies unconditionally rather than opening up. So an unauthenticated client
+    is not "degraded", it is locked out of every non-public route.
+
+    Env-var names are the server's own contract (its _SERVICE_TOKEN_ENV_VARS),
+    primary first. The file fallback exists because this compiler runs from a
+    LaunchAgent, and an agent only sees the environment its plist gives it.
+    """
+    for name in ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN"):
+        v = (os.environ.get(name) or "").strip()
+        if v:
+            return v
+    try:
+        p = os.path.expanduser("~/.ostler/secrets/service_token")
+        with open(p, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
 def _get_json(url: str, timeout: float):
     """GET one loopback URL. Returns parsed JSON, or None on any failure
-    (connection refused, timeout, non-200, malformed body)."""
+    (connection refused, timeout, non-200, malformed body).
+
+    🔴 A 401 IS NOT AN ABSENT SERVICE, AND CONFLATING THEM HID THIS FOR MONTHS.
+    Measured 2026-09-13 on a walked box: all three signal endpoints returned
+    401 "missing or invalid service token", this function returned None for
+    each, read_signals() turned that into "no live signals", and the front page
+    rendered 12 interest cards with signal_cards=0. The "Needs you now" section
+    -- people waiting on you, commitments, drafts, prep -- simply was not there,
+    and the tick logged "front-page: 12 cards (phase=steady)" as though healthy.
+    The data was present the whole time: the same endpoints with the token
+    return 200, and /api/v1/suggestions alone returned 3944 bytes.
+
+    So an auth failure is reported to stderr rather than swallowed. It stays
+    non-fatal -- the feed must not die because one endpoint is unhappy -- but
+    "I was refused" and "nothing was there" must never print identically again.
+    """
     try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        headers = {"Accept": "application/json"}
+        _tok = _service_token()
+        if _tok:
+            headers["Authorization"] = "Bearer " + _tok
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
             if getattr(resp, "status", 200) not in (200, None):
                 return None
             return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # Named loudly, never silently. 401/403 means the token is missing or
+        # wrong, which is a CONFIGURATION defect an operator can fix; a silent
+        # None makes it indistinguishable from a service that is simply idle.
+        if e.code in (401, 403):
+            print(
+                "front-page signals: REFUSED %s by %s -- the live signal cards "
+                "(people waiting, commitments, drafts, prep) will be ABSENT "
+                "from this feed. The service token is missing or wrong; the "
+                "compiler reads OSTLER_SERVICE_TOKEN, PWG_SERVICE_TOKEN, then "
+                "~/.ostler/secrets/service_token." % (e.code, url),
+                file=sys.stderr,
+            )
+        return None
     except (urllib.error.URLError, socket.timeout, ValueError, OSError):
         return None
     except Exception:  # noqa: BLE001 - a signal fetch never breaks the feed

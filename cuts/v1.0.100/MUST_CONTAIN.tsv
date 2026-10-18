@@ -1,0 +1,167 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.100.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.99/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# v1.0.98 was built and delivered and NEVER PROVEN: no clean walk record
+# exists for it. Andy then walked it himself and reported five defects, and
+# the sweeps he ordered off the back of that found substantially more. This
+# cut carries the fixes.
+#
+# THE ROWS BELOW ARE THE ONES THAT HAVE ACTUALLY MERGED TO CM051 main.
+# NO COUNT IS WRITTEN HERE ON PURPOSE. This line used to say FOUR while
+# the file held five, because a number in prose goes stale the next time
+# a row is added and nothing checks it. Count the rows.
+# They are listed with the SHA of the squash commit on main, not the SHA of
+# any branch, because a branch tip is not what ships.
+#
+# MORE IS IN FLIGHT AND IS DELIBERATELY NOT LISTED YET. At the time of
+# writing, ten further CM051 PRs are open with zero failures between them,
+# covering the recovery key on a failed install, the subscription spine, the
+# wiki password prompt, the licence file mode, the Doctor fork storm, the
+# personal-use terms, the privacy spine and the four-artefact rule. A row
+# here for work that has not merged would assert a pin that does not exist,
+# which is precisely what gates/bom_shas_resolve.sh refuses. Each is added by
+# bin/bom_add.sh AS IT LANDS, which is the rule: nothing ships by being
+# remembered.
+#
+# THIS FILE EXISTING IS ITSELF A PREREQUISITE. bin/bom_add.sh exits 2 with
+# "no BOM for cut" when cuts/<version>/MUST_CONTAIN.tsv is absent, so until
+# this file existed nobody could record anything against v1.0.99 at all.
+#
+# landed=no on every row is correct and is not an oversight: it means "not
+# yet confirmed present in an artefact". No artefact for v1.0.99 exists. The
+# cut blocks until each row is landed=in-artefact and its capability is
+# proven present.
+#
+# ===========================================================================
+# 2026-09-17 SWEEP: EVERY ROW IS NOW GUARDED, AND THE BOM WAS ALSO INCOMPLETE
+# ===========================================================================
+# Two separate defects, found in one pass.
+#
+# THE FIRST. Every row in this file carried capability_id=none, and
+# gates/verify_must_contain.sh reports `none` without treating it as fatal --
+# its own self-test asserts that non-fatality, and the control is named rather
+# than numbered because a line number in prose goes stale: grep that file for
+# "capability=none is reported, not fatal". In that file's own words `none` means
+# "nothing proves the change is present in the artefact". So this cut would
+# have gone ahead with every customer-visible fix in it unguarded, which is
+# the v1.0.14.1 shape exactly: four "separate" customer bugs, one dropped
+# lineage, and every gate green because nothing asked whether each capability
+# was still IN the artefact. Each row now names a real capability backed by a
+# row in manifest/capability_manifest.tsv.
+#
+# THE SECOND, and it is the more dangerous half, because a missing row cannot
+# be seen at all. The rule in this repo is "the moment anything is built it
+# gets a row. Nothing ships by being remembered." CM051 main took 47 commits
+# between tag v1.0.98 and fc46e245 and this file held rows for eleven of them.
+# Every one of the other 36 was read. The customer-visible ones were added.
+#
+# THE ONES DELIBERATELY LEFT OUT ARE NAMED HERE, because "it looked internal"
+# is how things go missing and an exclusion nobody can audit is not a
+# decision, it is a gap with a note on it:
+#
+#   TEST-ONLY / TEST-HARNESS (no shipped file changed)
+#     ba9414b7 #1985  a suite that stopped partway printed PASS above the failure
+#     901b160b #1998  wires the #282 governor revendor guard that nothing ran
+#     9e27307c #2005  the Swift tamper test flaked 1.4% of runs
+#     e0fb21bf #2001  test_hydrate control (7) had a false pass
+#     e42ab56d #2006  pins the consent button outside the scroll region, test only
+#     4f1bc8a1 #2034  a mutation pinned to a moving ref stops being a mutation
+#     36bce0c5 #2008  a matched grep -q EPIPEs its own producer; tests plus
+#                     scripts/install_depth.sh, which install.sh does not carry
+#     8bf81a37 #1989  the manifest selector must survive v1.0.100, test only
+#
+#   CUT MECHANISM / CI (runs at cut time, never on a customer's Mac)
+#     d15adb8f #1991  moves the four version sites and vendors the BOM. The
+#                     version a customer sees does move, and it is covered by
+#                     gates/verify_version_stamp_matches_cut.sh, which is the
+#                     dedicated check for exactly this and is not a BOM row.
+#     d98af6f1 #2002  re-vendors the BOM into CM051
+#     1a00cea3 #2003  the staging self-test's needle check could invert
+#     663c2300 #2004  "not an open issue here" is not "closed" in the cut gate
+#     b125ab5b #2000  the grounded probe's cap could not fit the probe
+#     a63e7fd7 #2035  asserts declared cut-blockers RAN at the commit being cut
+#     3c1f7a5a #2039  lane starvation and a stuck check printed the same word
+#     793f4665 #2020  a walk probe says which kind of nothing paired_devices is
+#
+#   REGISTER / BOARD EDITS (no code at all)
+#     5b75b4bf #1993  cut paperwork, and the register that missed v1.0.98
+#     d42532a8 #1996  adjudicates the FDA and ERR-14 manifest rows
+#     774e48cf #2044  adjudicates 35 ungated board rows
+#     fc46e245 #2047  the last ungated board row
+#
+# EVERY CAPABILITY ROW WRITTEN FOR THIS CUT WAS PROVED IN BOTH DIRECTIONS
+# THROUGH THE GATE ITSELF, not by reading a diff and believing it.
+# gates/capability_matrix.sh reports all 28 of them IN against a clean CM051
+# worktree at fc46e245, and ALL 28 FAIL against a clean worktree at tag
+# v1.0.98, with ZERO CANNOT-RUN in that arm -- so the v1.0.98 zero is real
+# absence and not an unreadable path. Two deliberate negative-control rows, one
+# absent pattern with expect=present and one present pattern with
+# expect=absent, FAIL in BOTH arms, so neither verdict came from a harness that
+# had stopped reading.
+#
+# THE GATE COULD NOT RUN AT ALL UNTIL THIS CHANGE, and that is worth more than
+# the rows. Five manifest rows added on 2026-09-09 spelled the repo column
+# `CM051` where capability_matrix.sh's repo_dir accepts only `cm051`, so
+# require_known_repos refused the whole manifest with exit 2 -- CANNOT RUN, on
+# every row, for every cut since. It is fixed in the same change.
+#
+# BE PRECISE ABOUT WHAT THAT MEANS, because the loose version of this sentence
+# ("the guard went dark") implies cuts sailed past a silently green gate, and
+# that is NOT what was measured. Two separate facts:
+#
+#   1. Where the matrix IS invoked -- OS003 bin/cut.sh:550 -- rc=2 is handled
+#      as CANNOT-RUN and cut.sh's cannot() exits 2. So a cut driven through
+#      bin/cut.sh would have STOPPED on this, loudly, not passed.
+#   2. The path that actually produces the DMG never invokes it at all. A
+#      v1.0.* tag push fires CM051 .github/workflows/cut.yml, and that file
+#      says so about itself at line 734: "a tag push firing THIS workflow never
+#      consults OS003". MEASURED on CM051 origin/main: `capability_matrix`
+#      reads 0 in cut.yml and 0 across the whole .github/workflows tree, with
+#      `MUST_CONTAIN` reading 2 and `verify_must_contain` 1 in that same file
+#      as the controls, so the zero is real absence and not a dead reader.
+#
+# Together: the only automatic consumer of the capability manifest is a script
+# the shipping path does not call, and that script has been unable to parse the
+# manifest since 2026-09-09. Neither half is a silent green; the pair is a
+# guard that was not going to fire either way.
+#
+# Note the two registers genuinely disagree: this BOM's repo column must read `CM051`
+# (bin/bom_add.sh and gates/bom_shas_resolve.sh key on that spelling) and the
+# capability manifest's must read `cm051`. They are not interchangeable.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+THE DOCTOR PAGE RENDERS AT ALL. It returned 500 on every load for three builds while /api/v1/sources answered 200 throughout, so every artefact-shaped check passed and nothing went red. One missing import; measured 500 and 21 bytes before, 200 and 59,690 bytes with a rendered table after.	CM051	e3fccdff637c	no	doctor_dashboard_imports_html	capability_matrix.sh gate	CM051 #1971
+FIVE WRITERS STORED ONE NAME AND FIVE READERS ASKED FOR ANOTHER, so five customer-visible surfaces read empty on a box full of data. Six mutants, six kills.	CM051	bc17a0bbb583	no	compartment_filter_matches_the_stored_string	capability_matrix.sh gate	CM051 #1972
+FORGET THIS PERSON NOW ACTUALLY DELETES THEM. Pre-fix the API returned forgotten true and stores_purged while 4 of 4 triples survived in the named graph. One fix served all five readers rather than five copies; a control person's records were untouched, so the delete is precise and not broad.	CM051	bf5f376d25cb	no	forget_person_deletes_every_named_graph	capability_matrix.sh gate	CM051 #1973 / HR015 #950
+ONE SLOW ROUTE NO LONGER WEDGES THE WHOLE HUB API, and the walk can see the data it was blind to. contacts/diff 121s to 11.6s with an identical 91 matches; the walk dump went from 155,270 quads to 231,841, the exact store total.	CM051	fb5c7bcff509	no	contact_diff_cannot_wedge_the_hub_api	capability_matrix.sh gate	CM051 #1974
+THE LICENCE FILE IS REALLY 0600 AND SURVIVES AN UNINSTALL. FileManager.replaceItem carries the destination's mode onto the replacement, so a customer's email and payment identity sat in a world-readable file while a green test vouched for 0600; the test's fixture had no destination, the one case where the bug cannot show. Also: the config stops telling the customer their password self-encrypts when nothing does, a real E.164 validator at all three consumers, and the calendar scan finds 6 of 6 calendars where it found 1.	CM051	764e5c2d53c3	no	licence_file_mode_is_verified_after_the_swap	capability_matrix.sh gate	CM051 #1983 / issue #1976
+ostler-unlock IS ON THE CUSTOMER'S PATH. The recovery CLI shipped and could not be typed: it was installed outside any directory on PATH, so the documented recovery route did not exist for a person at a terminal.	CM051	2bb84015978a	no	ostler_unlock_resolves_by_bare_name	capability_matrix.sh gate	CM051 #1969
+A REFUSED QUERY RENDERED AS "no interests", and the RDF reader had no producer. The editor turned an authorisation failure into a confident empty state, so a box full of data and a box that refused to answer looked identical to the customer.	CM051	cd475b249d3b	no	editor_refusal_is_not_an_empty_interest_list	capability_matrix.sh gate	CM051 #1975
+THE TRIAL ACTUALLY ENDS, AND GRACE MUST BE EARNED. The subscription spine let an expired trial continue and handed out grace nobody qualified for, so the paid boundary was not enforced on the customer's own machine.	CM051	7bde358c3e2b	no	trial_grace_requires_a_prior_payment	capability_matrix.sh gate	CM051 #1978
+THE RECOVERY KEY IS REACHABLE ON A FAILED INSTALL. It was generated, shown once, and the only surface that could redeem it was unreachable precisely when a customer needs it, plus four more blind spots found in the same sweep.	CM051	bb712db0eba4	no	recovery_key_presents_on_a_failed_install	capability_matrix.sh gate	CM051 #1982
+THE PERSONAL-USE TERMS ARE SHOWN AND THE ACKNOWLEDGEMENT IS RECORDED. The consent string existed in the tree and was rendered nowhere, and the tickbox was unregistered, so the decision could not have persisted even if it had been asked.	CM051	81e341a0c0c4	no	personal_use_terms_shown_and_recorded	capability_matrix.sh gate	CM051 #1977
+THE DOCTOR STATUS DAEMON STOPS FORKING ITSELF TO DEATH. 58,914 forks in 40 hours and macOS killed it, so the Doctor silently stopped reporting. 300 forks per minute before, 9 after, with a fork budget rather than a slower poll.	CM051	c7a961cdcf9c	no	doctor_status_poll_has_a_fork_budget	capability_matrix.sh gate	CM051 #1979
+THE WHATSAPP KEEPALIVE EXECS A PATH THE PROMOTE KEEPS. It pointed at the staging tree the installer then deletes, so it diagnosed the wrong object, fixed nothing and exited 0.	CM051	1828fc9d7cca	no	whatsapp_keepalive_execs_a_path_the_promote_keeps	capability_matrix.sh gate	CM051 #1984
+THE EMAIL PASSWORD PROMPT SAYS WHAT HAPPENS TO THE PASSWORD. It is stored in plain text under ~/.ostler, protected only by file permissions, and the help text said nothing at all.	CM051	103083cb1e35	no	email_password_prompt_says_it_is_stored_in_clear	capability_matrix.sh gate	CM051 #1997
+A FAILED IMPORT IS NO LONGER ANNOUNCED AS DONE. Both branches sent the same Imported your latest export notification and the dedupe hash was written outside the success branch, so a failed import was marked done and that export set was skipped for ever.	CM051	60c84d69b5d5	no	a_failed_import_is_not_announced_as_done	capability_matrix.sh gate	CM051 #1999
+THE LAST THING A CUSTOMER READS POINTS AT ROUTES THAT EXIST. The closing steps referred them to a POST_INSTALL_SETUP.md that has never existed, and to an iCloud app-specific password for a CalDAV path that was abandoned.	CM051	26d39f758542	no	post_install_steps_name_a_route_that_exists	capability_matrix.sh gate	CM051 #1987
+AN INSTALL THAT DIES ON A HELD OLLAMA PORT SAYS SO. It aborted as a catch-all with no cause at step 5 of 41 while the evidence sat unread in ollama.err. The population is not people who run Ollama: it is every repeat installer with a leftover LaunchAgent.	CM051	e03be5fc41fe	no	ollama_port_abort_names_its_own_cause	capability_matrix.sh gate	CM051 #1995
+THE OLLAMA LOG-ROTATION AGENT POINTS AT A PROGRAM THE INSTALLER DOES NOT DELETE. It was the one generated tool written outside the promoted bin, so the promote deleted it: EX_CONFIG 78 on every install since it shipped, with 0-byte logs to show for it.	CM051	e49bb62f3d55	no	ollama_logrotate_survives_the_promote	capability_matrix.sh gate	CM051 #1992
+THE WIKI SIGN-IN IS SHOWN WHETHER OR NOT THE WIKI HAS COMPILED. It was printed inside the wiki-is-ready branch, so a customer whose first compile was still running finished the install with no password and no idea one existed.	CM051	d0c207fd7e53	no	wiki_sign_in_is_shown_even_when_the_wiki_is_not_ready	capability_matrix.sh gate	CM051 #2016 / HR015 #943
+THE END OF THE INSTALL ASKS WHOSE CALENDARS THESE ARE AND WHO THE CUSTOMER IS. Two helpers under lib/, invoked from install.sh rather than merely shipped.	CM051	b5822b541e4f	no	end_of_install_confirms_calendars_and_identity	capability_matrix.sh gate	CM051 #399
+THE DOCTOR SOURCE TABLE'S ITEMS COLUMN IS A COUNT AND NOT A RETURN CODE. The payload parser took the last numeric field it saw, so rc=0 was shown to the customer as the number of items ingested.	CM051	d1da669afbe6	no	doctor_items_column_is_a_count_not_a_return_code	capability_matrix.sh gate	CM051 #2010 / HR015 #946
+THE END-OF-INSTALL PANEL DOES NOT SAY HUB NOT RESPONDING BEFORE IT HAS ASKED. The state started at notResponding, so every healthy install showed the failure on first paint.	CM051	8de5e3856744	no	hub_row_does_not_claim_not_responding_before_it_asks	capability_matrix.sh gate	CM051 #2037
+THE PAIRING QR REFUSES AN ADDRESS THE PHONE CANNOT OPEN. It could carry loopback, unspecified or link-local, each of which means something different or nothing at all on the phone scanning it.	CM051	4fbb5d3ee9a5	no	pairing_qr_refuses_an_address_a_phone_cannot_open	capability_matrix.sh gate	CM051 #2042 / board #947
+THE RECOVERY CLI DOES NOT PRINT THE DATABASE KEY BY DEFAULT. It did, so the key landed in shell history, scrollback and any screen share of a customer following the documented recovery route.	CM051	f8462ef12296	no	recovery_cli_does_not_print_the_key_by_default	capability_matrix.sh gate	CM051 #2041 / board #1970
+USE PREVIOUS ANSWERS STILL SHOWS THE LICENCE TERMS. The reuse path skipped the personal-use acknowledgement entirely, so a re-installing customer was never shown the term the product's household-activity position rests on.	CM051	1e62638ee265	no	reuse_path_still_asks_the_licence_terms	capability_matrix.sh gate	CM051 #2038 / board #969
+A DECLINED TRANSCRIPTION CONSENT ACTUALLY STOPS THE CAPTURE COMPANION. Declining left an earlier install's RemoteCapture LaunchAgent in place and starting at login, so the customer's answer changed the copy and nothing else.	CM051	1b8aa47413e0	no	declined_recording_consent_removes_the_capture_agent	capability_matrix.sh gate	CM051 #2014 / HR015 #940
+THE END-OF-INSTALL SCREEN DOES NOT OFFER A WIKI BUTTON THAT WILL NOT LOAD. It sent customers to localhost:8044 before the first compile had served anything.	CM051	923c50677001	no	wiki_button_is_not_offered_before_the_wiki_serves	capability_matrix.sh gate	CM051 #2012 / board #944
+THE DAILY BRIEF DECLARES WHICH SECTIONS WERE EMPTY AND WHICH COULD NOT BE READ. Four briefs reached a customer as messages and one announced trips that do not exist, because a refusal and a genuine emptiness were handed to the model identically.	CM051	c4d4b5af953d	no	brief_declares_a_gap_it_could_not_read	capability_matrix.sh gate	CM051 #2013 / HR015 #948

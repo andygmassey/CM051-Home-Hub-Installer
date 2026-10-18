@@ -46,8 +46,123 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/companion_unpair.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it and calls "
+        "companion_walk_baseline before the pairing probes and "
+        "companion_walk_unpair after every measurement, so the walk leaves no "
+        "synthetic companion paired. It has no PROBE_NAME and no verdict.",
+    "lib/scale_fixture_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it after "
+        "usage_seed and calls scale_fixture_apply, which replays the synthetic "
+        "scale fixture (lib/scale_fixture.py) through the installed hydrate "
+        "so qdrant_has_fd_headroom_and_writes_land reads a box that carried "
+        "real volume. It has no PROBE_NAME and no verdict; collecting it would "
+        "run a seed as if it were a measurement. Its invocation is pinned by "
+        "tests/test_scale_gate_probes.sh (grep for ^scale_fixture_apply).",
+    "lib/companion_pair.sh":
+        "a sourced library, not a probe: it only prints the box-side shell "
+        "that pairs a synthetic companion through the real customer flow "
+        "(owner QR token, /auth/pair/init + /auth/pair/register, via "
+        "lib/companion_pair.py). It has no PROBE_NAME and no verdict. It IS "
+        "invoked: probes/pairing_recovers_without_a_repair_storm.sh and "
+        "lib/conversation_capture_seed.sh both call "
+        "companion_pair_box_snippet, pinned by "
+        "tests/test_a_pairing_non_answer_is_not_a_rejection.sh and "
+        "tests/test_the_walk_seeds_the_conversation_capture.sh.",
+    "lib/conversation_capture_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, after owner_employer_seed and before "
+        "conversation_seed, and calls conversation_capture_seed_apply, which "
+        "mints a device bearer against the paired gateway (:8443) and POSTs "
+        "two synthetic conversations through /api/v1/conversation/process "
+        "-- the network path a paired iPhone or Watch actually uses, which "
+        "lib/conversation_seed.sh deliberately does not exercise (it calls "
+        "pwg-convo directly). It has no PROBE_NAME and no probe_pass/"
+        "probe_fail verdict, so the collector could not report it; "
+        "collecting it would run a seed as if it were a measurement. It IS "
+        "invoked, and that invocation is pinned by "
+        "tests/test_the_walk_seeds_the_conversation_capture.sh, which fails "
+        "if the runner stops sourcing it, stops calling "
+        "conversation_capture_seed_apply, or moves the call below the "
+        "phase-2 loop.",
+    "lib/owner_employer_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it and, only "
+        "when the walk may write, imports a synthetic LinkedIn Positions.csv "
+        "through ostler-import so owner_digest_knows_the_owner has a known "
+        "employer to ask about; it removes the position again after phase 2. "
+        "It has no PROBE_NAME and no verdict. Its wiring and its seeded/failed "
+        "states are pinned by tests/test_the_walk_seeds_the_owner_employer.sh.",
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
+    "lib/converge_wait.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it beside the "
+        "grounding seed and calls converge_wait, which waits for the two people "
+        "stores to STOP CHANGING before the two probes that read counts. It "
+        "asserts nothing and has no verdict of its own; collecting it would run "
+        "a wait as if it were a measurement. Its invocation is pinned by "
+        "tests/test_the_walk_waits_for_converge.sh, which fails if the runner "
+        "stops sourcing it, calling it, or gating on it.",
+    "lib/daemon_memory.sh":
+        "a sourced library, not a probe: it reads and forgets the assistant "
+        "daemon's own memory for the walk's SYNTHETIC seed person. "
+        "grounding_seed.sh sources it to purge what an earlier run taught the "
+        "daemon (#2381), and assistant_grounds_the_opening_turn.sh sources it "
+        "for its precondition 1 (#2379). It has no verdict of its own. Its "
+        "purge is pinned by tests/test_the_seed_forgets_what_the_walk_taught.sh.",
+    "lib/grounding_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2 and calls grounding_seed_apply, which seeds the "
+        "known person the BLOCKING assistant_answers_grounded probe asks "
+        "about. It asserts nothing and has no verdict, so the collector could "
+        "not report it; collecting it would run a seed as if it were a "
+        "measurement. It IS invoked, and that invocation is pinned by "
+        "tests/test_the_walk_seeds_the_grounded_probe.sh, which fails if the "
+        "runner stops sourcing or calling it.",
+    "lib/preference_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, beside the grounding seed, and calls "
+        "preference_seed_apply, which seeds the PREFERENCE pair the interest "
+        "profile is read against and then asserts both sides of the 0.28 "
+        "confidence floor. It asserts about the box, but it has no PROBE_NAME "
+        "and no probe_pass/probe_fail verdict, so the collector could not "
+        "report it; collecting it would run a seed as if it were a "
+        "measurement, and would run it AFTER phase 2 rather than before, which "
+        "is the one ordering that seeds nothing. It IS invoked, and that "
+        "invocation is pinned by "
+        "tests/test_the_walk_seeds_the_preference_pair.sh, which fails if the "
+        "runner stops sourcing it, stops calling preference_seed_apply, or "
+        "moves the call below the phase-2 loop.",
+    "lib/conversation_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, after the other two seeds, and calls "
+        "conversation_seed_apply, which puts ONE fictional voice note through "
+        "the shipped conversation pipeline with a real model call so that "
+        "ingest_coverage reads a conversations collection the installer "
+        "pre-creates EMPTY, and assistant_answers_grounded asks a box that has "
+        "at least one pwg:ConversationTopic in it. It asserts about the box, "
+        "but it has no PROBE_NAME and no probe_pass/probe_fail verdict, so the "
+        "collector could not report it; collecting it would run a seed as if "
+        "it were a measurement, and would run it AFTER phase 2 rather than "
+        "before, which is the one ordering that seeds nothing. It IS invoked, "
+        "and that invocation is pinned by "
+        "tests/test_the_walk_seeds_the_conversation.sh, which fails if the "
+        "runner stops sourcing it, stops calling conversation_seed_apply, or "
+        "moves the call below the phase-2 loop.",
+    "lib/usage_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, last of the four seeds and after the "
+        "conversation seed in particular, and calls "
+        "usage_seed_apply, which runs the installer's own people sweep "
+        "(install.sh:29420-29424) so the cm051_ostler_fda_ingest producer has "
+        "made a measured embedding call before usage_journal_producers reads "
+        "the journal. It asserts about the box, but it has no PROBE_NAME and "
+        "no probe_pass/probe_fail verdict, so the collector could not report "
+        "it; collecting it would run a sweep as if it were a measurement, and "
+        "would run it AFTER phase 2 rather than before, which is the one "
+        "ordering that seeds nothing. It IS invoked, and that invocation is "
+        "pinned by tests/test_the_walk_seeds_the_usage_producer.sh, which "
+        "fails if the runner stops sourcing it, stops calling usage_seed_apply, "
+        "or moves the call below the phase-2 loop.",
     "acceptance_gate_v1013.sh":
         "BY DESIGN, and verified rather than assumed. verify_cut_manifest.py's "
         "registry searches probes/ FIRST and then the flat directory (see its "
@@ -58,6 +173,50 @@ EXEMPT: dict[str, str] = {
         "it anyway. It IS invoked, through its permanent.yaml row, and "
         "post_walk_qa.sh runs the manifest verifier alongside the walk, so its "
         "result does reach the QA output under the manifest section.",
+    "lib/real_person_choose.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it before "
+        "the phase-2 loop and calls real_person_choose right before "
+        "hub_screens_render_for_a_customer, only to export "
+        "HUB_SCREENS_REAL_PERSON (env only, name never logged). It makes no "
+        "measurement and has no PROBE_NAME or verdict; its invocation is "
+        "pinned by scripts/tests/test_full_walk_chooses_the_real_person.sh.",
+    "lib/promote_order.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it just "
+        "before the phase-2 loop and calls promote_order, which only REORDERS "
+        "the probes already collected so the previous walk's FAILs run first "
+        "(a probe declaring WALK_WRITES is never moved). It makes no "
+        "measurement, has no PROBE_NAME and no probe_pass/probe_fail verdict, "
+        "and adds or drops nothing; collecting it would run a reorder helper "
+        "as if it were a measurement. Its invocation and its order guarantees "
+        "are pinned by tests/test_a_writing_probe_declares_it_and_is_never_"
+        "promoted.sh, tests/test_a_pairing_reader_runs_before_the_pairing_"
+        "mutator.sh (promoted lists) and arm G of scripts/tests/"
+        "test_the_early_pass_rechecks_last_walks_failures.sh (the runner "
+        "really reorders).",
+    "lib/wiki_summaries_wait.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, below the usage seed and above the phase-2 loop, "
+        "and calls wiki_summaries_wait, which kickstarts the wiki-recompile "
+        "LaunchAgent so the compile includes what the seeds wrote and then "
+        "waits, bounded, for every sign of life in the detached summary "
+        "backfill (wiki-recompile-tick.sh:394-451) to end: the wrapper pid, "
+        "the summaries log growing, the slot lock's holder, the processes of "
+        "this account naming the compiler, the compile container; never the "
+        "pid alone, because on the v1.0.82 box at 19:08Z the wrapper was gone "
+        "with a 0-byte log and every signal green. That is how "
+        "cm044_wiki_compiler gets its one chance to write a cm044-compile- "
+        "row before usage_journal_producers reads the journal. It "
+        "asserts about the box (the row delta either side of the backfill), "
+        "but it has no PROBE_NAME and no probe_pass/probe_fail verdict, so the "
+        "collector could not report it; collecting it would run a wait as if "
+        "it were a measurement, and would run it AFTER phase 2 rather than "
+        "before, which is the one ordering that waits for nothing. It IS "
+        "invoked, and that invocation is pinned by "
+        "tests/test_the_walk_waits_for_wiki_summaries.sh, which fails if the "
+        "runner stops sourcing it, stops calling wiki_summaries_wait, moves "
+        "the call above the usage seed or below the phase-2 loop, or if the "
+        "lib treats an empty summaries log, or a dead pid alone, as a "
+        "finished compile.",
 }
 
 PASS = 0

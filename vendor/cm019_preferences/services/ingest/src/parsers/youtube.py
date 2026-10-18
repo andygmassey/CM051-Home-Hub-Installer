@@ -8,7 +8,7 @@ from typing import AsyncIterator, Optional
 from datetime import datetime
 import aiofiles
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, describe_json_parse_failure
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -171,7 +171,7 @@ class YouTubeParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         # Aggregate by video to count views
@@ -264,7 +264,7 @@ class YouTubeParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         for item in _takeout_records(data, file_path):
@@ -317,7 +317,7 @@ class YouTubeParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         for item in _takeout_records(data, file_path):
@@ -413,7 +413,7 @@ class YouTubeParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         # Count comments by video

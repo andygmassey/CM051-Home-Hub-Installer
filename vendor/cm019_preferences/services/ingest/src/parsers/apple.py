@@ -5,7 +5,7 @@ import json
 import logging
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 import aiofiles
 import zipfile
@@ -17,6 +17,27 @@ from .base import BaseParser, ParsedPreference
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+# ONE SCALE FOR EVERY MUSIC SERVICE (CM051 walk #27). Apple Music play rows
+# use the SAME base strength the Spotify parser gives one passive play, and
+# carry the play count in extra["play_count"]; the frequency filter turns
+# plays and the LAST play into strength for every service alike. These used
+# to be count-encoded strengths (0.5 + n * 0.03..0.05, capped 0.75..0.8),
+# which became double counting once the filter weighs play_count.
+MUSIC_PASSIVE_PLAY_STRENGTH = 0.10   # spotify.py: "V2: Passive play"
+# Spotify drops plays under 30 s (spotify.py, ms_played < 30000). Same rule.
+MUSIC_MIN_PLAY_MS = 30000
+
+
+def _later(a, b):
+    """The later of two datetimes, tolerating None and naive/aware mixes."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    def aware(dt):
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return b if aware(b) > aware(a) else a
 
 
 # Apple Health record types - ALLOWLIST (aggregate patterns only)
@@ -173,7 +194,7 @@ class AppleParser(BaseParser):
       * Heart: HR, HRV (aggregated patterns only)
       * Body: weight trends
       * Sleep: analysis patterns
-      * All health data: compartment_level=5 (highest privacy)
+      * All health data: compartment_level=0 (L0Personal, the most private)
     - iCloud Calendars and Reminders.zip (calendar patterns with privacy controls)
       * Calendar categories used (Work, Home, Family, etc.)
       * Subscribed calendars as interests (AI Tinkerers, Sports teams)
@@ -521,13 +542,22 @@ class AppleParser(BaseParser):
                         logger.warning(f"Could not parse date: {last_modified}")
 
                 # Determine strength based on favorite type
-                strength = 0.8 if preference == 'LIKE' else 0.5
-                if fav_type == 'Artist':
-                    strength = 0.85  # Artists are stronger signals than playlists
+                pref_word = preference.upper()
+                if pref_word == 'DISLIKE':
+                    # Explicit dislike: a negative, not a like (Ostler #30).
+                    preference_type, strength = "Dislike", -0.45
+                elif pref_word in ('LIKE', 'LOVE', 'LOVED', 'FAVORITE'):
+                    preference_type = "Like"
+                    strength = 0.8
+                    if fav_type == 'Artist':
+                        strength = 0.85  # Artists are stronger signals than playlists
+                else:
+                    # A row that says neither: not evidence of a like.
+                    preference_type, strength = "Neutral", 0.0
 
                 yield ParsedPreference(
                     subject=item_desc,
-                    preference_type="Like",
+                    preference_type=preference_type,
                     category="music",
                     strength=strength,
                     observed_at=timestamp,
@@ -588,13 +618,14 @@ class AppleParser(BaseParser):
 
                 play_counts[track_name]['count'] += 1
 
-                # Parse timestamp
-                if last_played_str and play_counts[track_name]['last_played'] is None:
+                # Parse timestamp; keep the LATEST play, whatever the row order
+                if last_played_str:
                     try:
                         # Timestamp is in milliseconds since epoch
                         timestamp_ms = int(last_played_str)
-                        timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0)
-                        play_counts[track_name]['last_played'] = timestamp
+                        timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+                        play_counts[track_name]['last_played'] = _later(
+                            play_counts[track_name]['last_played'], timestamp)
                     except (ValueError, OSError):
                         pass
 
@@ -604,13 +635,13 @@ class AppleParser(BaseParser):
 
         # Create preferences from play counts
         for track_name, data in play_counts.items():
-            # Base strength 0.5, increase with play count
-            # Cap at 0.75 to keep it below favorites
-            strength = min(0.5 + (data['count'] * 0.05), 0.75)
+            # One passive play's strength; plays and recency are the filter's
+            # job, on the same scale as Spotify (see MUSIC_PASSIVE_PLAY_STRENGTH).
+            strength = MUSIC_PASSIVE_PLAY_STRENGTH
 
             yield ParsedPreference(
                 subject=track_name,
-                preference_type="Like",
+                preference_type="Neutral",
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -620,6 +651,7 @@ class AppleParser(BaseParser):
                 extra={
                     "play_count": data['count'],
                     "content_type": "track",
+                    "passive_play": True,
                 }
             )
 
@@ -663,6 +695,15 @@ class AppleParser(BaseParser):
                         if event_type != 'PLAY_END':
                             continue
 
+                        # Under 30 s is not a play, exactly as for Spotify.
+                        # A row with no duration is kept (not evidence of a skip).
+                        if play_duration_ms:
+                            try:
+                                if int(play_duration_ms) < MUSIC_MIN_PLAY_MS:
+                                    continue
+                            except ValueError:
+                                pass
+
                         if not song_name:
                             continue
 
@@ -687,11 +728,12 @@ class AppleParser(BaseParser):
                             except ValueError:
                                 pass
 
-                        # Parse timestamp for last played
-                        if event_timestamp and play_counts[key]['last_played'] is None:
+                        # Last played = the LATEST event, whatever the row order
+                        if event_timestamp:
                             try:
                                 timestamp = datetime.fromisoformat(event_timestamp.replace('Z', '+00:00'))
-                                play_counts[key]['last_played'] = timestamp
+                                play_counts[key]['last_played'] = _later(
+                                    play_counts[key]['last_played'], timestamp)
                             except ValueError:
                                 pass
 
@@ -708,9 +750,9 @@ class AppleParser(BaseParser):
 
         # Create preferences from aggregated data
         for key, data in play_counts.items():
-            # Base strength 0.5, increase with play count
-            # More generous than track history since these are completed plays
-            strength = min(0.5 + (data['count'] * 0.03), 0.8)
+            # One passive play's strength; the filter weighs play_count and the
+            # last play on the same scale as Spotify.
+            strength = MUSIC_PASSIVE_PLAY_STRENGTH
 
             subject = data['song_name']
             if data['album_name']:
@@ -718,7 +760,7 @@ class AppleParser(BaseParser):
 
             yield ParsedPreference(
                 subject=subject,
-                preference_type="Like",
+                preference_type="Neutral",
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -729,6 +771,7 @@ class AppleParser(BaseParser):
                     "play_count": data['count'],
                     "total_duration_ms": data['total_duration_ms'],
                     "content_type": "song",
+                    "passive_play": True,
                     "album": data['album_name'],
                 }
             )
@@ -790,11 +833,12 @@ class AppleParser(BaseParser):
                 track_plays[track_desc]['play_count'] += play_count
                 track_plays[track_desc]['skip_count'] += skip_count
 
-                # Parse timestamp (format: 20150702)
-                if date_played_str and track_plays[track_desc]['last_played'] is None:
+                # Parse timestamp (format: 20150702); keep the LATEST day
+                if date_played_str:
                     try:
-                        timestamp = datetime.strptime(date_played_str, '%Y%m%d')
-                        track_plays[track_desc]['last_played'] = timestamp
+                        timestamp = datetime.strptime(date_played_str, '%Y%m%d').replace(tzinfo=timezone.utc)
+                        track_plays[track_desc]['last_played'] = _later(
+                            track_plays[track_desc]['last_played'], timestamp)
                     except ValueError:
                         pass
 
@@ -811,13 +855,16 @@ class AppleParser(BaseParser):
             total = play_count + skip_count
             skip_ratio = skip_count / total if total > 0 else 0
 
-            # Start at 0.5, add up to 0.3 for many plays, subtract up to 0.2 for high skip ratio
-            strength = 0.5 + min(play_count * 0.02, 0.3) - (skip_ratio * 0.2)
-            strength = max(0.3, min(strength, 0.8))  # Clamp between 0.3 and 0.8
+            # Skips are not plays (Spotify drops them too); only plays count.
+            # One passive play's strength; the filter weighs play_count and the
+            # last play on the same scale as every other music service.
+            if play_count <= 0:
+                continue
+            strength = MUSIC_PASSIVE_PLAY_STRENGTH
 
             yield ParsedPreference(
                 subject=track_desc,
-                preference_type="Like" if strength >= 0.5 else "Neutral",
+                preference_type="Neutral",
                 category="music",
                 strength=strength,
                 observed_at=data['last_played'],
@@ -829,6 +876,7 @@ class AppleParser(BaseParser):
                     "skip_count": skip_count,
                     "skip_ratio": round(skip_ratio, 2),
                     "content_type": "song",
+                    "passive_play": True,
                 }
             )
 
@@ -3668,7 +3716,7 @@ class AppleParser(BaseParser):
         Parse iCloud Notes export with strict privacy filtering.
 
         PRIVACY CONTROLS:
-        - compartment_level=5 (highest privacy) for ALL notes
+        - compartment_level=0 (L0Personal, the most private) for ALL notes
         - Skips notes with sensitive keywords in title OR content
         - Does NOT store content preview - only word count
         - Skips "Recently Deleted" folder
@@ -3771,7 +3819,12 @@ class AppleParser(BaseParser):
                     strength=strength,
                     observed_at=None,  # iCloud Notes export doesn't include timestamps in file structure
                     source=self.source_name,
-                    compartment_level=5,  # HIGHEST PRIVACY - notes contain personal info
+                    # 0 is L0Personal, the MOST private. This read 5 with the
+                    # comment HIGHEST PRIVACY, and 5 is L5Commercial, which
+                    # privacy_model.py maps to LEVEL_L2 and labels publishable.
+                    # The comment stated the intent correctly and the number
+                    # said the opposite. Notes contain personal info, so 0.
+                    compartment_level=0,  # L0Personal, the most private level
                     size=size,
                     extra={
                         "folder_path": folder_path,
@@ -3803,7 +3856,7 @@ class AppleParser(BaseParser):
         Parse Apple Health export.xml with STRICT privacy controls.
 
         PRIVACY REQUIREMENTS:
-        - compartment_level=5 for ALL health data (highest privacy)
+        - compartment_level=0 for ALL health data (L0Personal, the most private)
         - Only aggregate patterns, NOT individual readings
         - BLOCKED: blood pressure, medications, lab results, reproductive health
         - ALLOWED: activity, heart rate patterns, weight, sleep, workouts
@@ -4196,7 +4249,9 @@ class AppleParser(BaseParser):
                 strength=strength,
                 observed_at=None,  # Aggregate pattern, no single date
                 source=self.source_name,
-                compartment_level=5,  # HIGHEST PRIVACY for health data
+                # 0 is L0Personal. See the note on the Notes parser above:
+                # 5 is L5Commercial and resolves to publishable.
+                compartment_level=0,  # L0Personal, the most private level
                 size="Medium",
                 extra={
                     "health_metric": record_type,
@@ -4291,7 +4346,7 @@ class AppleParser(BaseParser):
                 strength=strength,
                 observed_at=None,
                 source=self.source_name,
-                compartment_level=5,  # HIGHEST PRIVACY
+                compartment_level=0,  # L0Personal, the most private level
                 size="Medium",
                 extra={
                     "workout_type": workout_type,
@@ -4341,7 +4396,7 @@ class AppleParser(BaseParser):
                 strength=strength,
                 observed_at=None,
                 source=self.source_name,
-                compartment_level=5,  # HIGHEST PRIVACY
+                compartment_level=0,  # L0Personal, the most private level
                 size="Medium",
                 extra={
                     "avg_sleep_hours": round(avg_asleep_hours, 2),

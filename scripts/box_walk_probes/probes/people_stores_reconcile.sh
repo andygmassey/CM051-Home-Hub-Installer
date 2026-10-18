@@ -73,6 +73,30 @@
 # WHY THIS IS NOT A TOLERANCE CHECK. A residual is not drift. Each of A, B and C
 # names a specific broken write path, and the correct value for each is zero.
 # There is no ingest race that produces a merge survivor with no rdf:type.
+#
+# AND WHY IT STILL TAKES MORE THAN ONE READING. That paragraph is about the
+# PASSING VALUE, which is still exactly zero and is not widened anywhere below.
+# It is not about WHEN you read. On the v1.0.79 box the two stores were read
+# once, reported as holding different sets, and were still being written: the
+# population moved 1921 -> 1957 after the converge marked itself done, after a
+# five-reading 60s plateau, and after the Doctor reported contacts state=done.
+# Re-read, both stores held the same 1957 and C and B were zero. No marker on
+# that box means "ingestion has stopped", so a single reading cannot separate a
+# store that DISAGREES from one that is still being FILLED. The probe therefore
+# reads three times and fails for the URIs missing in EVERY reading -- identity,
+# not tolerance. A set that shrinks, grows or swaps is ingestion in flight and
+# is reported in those words. Residual A is exempt: nothing above touches the
+# argument that no race produces an untyped merge survivor.
+#
+# KNOW THE DIRECTION THIS CAN BEND. The re-read can only ever move a verdict
+# from FAIL to PASS, never the reverse: it starts from the first reading's set
+# and intersects, so the failing set can only shrink. Within its two minutes of
+# observation, a defect that reconciles INTERMITTENTLY on that timescale reads
+# as in flight by this probe's own definition and passes. That is the deliberate
+# trade -- the alternative is failing every box whose ingestion has not finished
+# -- but a check that can only get kinder should be known rather than discovered
+# by whoever is holding the next red. Anything slower than two minutes is
+# unaffected, which is the case the v1.0.79 box actually presented.
 # ============================================================================
 
 set -uo pipefail
@@ -105,7 +129,7 @@ _store_resolve() {
 # -- so the join runs in python3 on the box. Single-quoted below and free of
 # "$" and backticks so nothing expands on the way through box_run.
 read -r -d '' RECONCILE_PY <<'PYPAYLOAD'
-import glob, json, os, sys
+import glob, hashlib, json, os, sys
 try:
     import urllib.request, urllib.error
 except Exception as exc:
@@ -147,6 +171,81 @@ else:
         CRED_REASON = ("the store curl config " + CONF
                        + " is readable but carries no 'header = ' lines")
 HAVE_CRED = bool(STORE_HEADERS)
+
+# WHY THE RESIDUAL URIs LEAVE THIS BOX AS DIGESTS AND NEVER AS THEMSELVES.
+# The re-read below has to know whether the SAME people are missing on the last
+# reading or merely the same NUMBER of them, so identity has to survive the trip
+# off the box. It must not survive as a readable person URI: this probe's own
+# header records that 30 unvectored persons carried prefLabel identical to their
+# email address, a person URI can carry the same, and the probe's notes are
+# copied verbatim into walks/v1.0.NN.tsv, which is committed to a PUBLIC repo.
+# A digest compares equal exactly when the URIs are equal, which is the whole
+# property the re-read needs, and it discloses nobody.
+def fp(u):
+    return hashlib.sha256(u.encode("utf-8")).hexdigest()[:12]
+
+def fpset(us):
+    # "-" for empty, never the empty string: these ride on a positional
+    # whitespace-separated line, and an empty field would silently shift every
+    # field after it.
+    return ",".join(sorted(fp(u) for u in us)) or "-"
+
+# URI SHAPE, never the URI: every run of 6+ hex digits and every digit run is
+# replaced by a placeholder, so the namespace and the minting pattern stay
+# visible ("...#person_<h>") and nothing identifying does. Added after walk #15,
+# whose single orphan could only be characterised by hand-querying the box.
+import re
+def shape(u):
+    t = re.sub(r"[0-9a-fA-F]{6,}", "<h>", u)
+    t = re.sub(r"[0-9]+", "<n>", t)
+    return t.replace(",", "_").replace(" ", "_")[:90]
+
+def orphan_shapes(us):
+    # "source=<payload source> shape=<uri shape> x<count>", comma-joined, no
+    # whitespace (it rides on a positional line). "-" when there is none.
+    c = {}
+    for u in us:
+        k = "source=%s;shape=%s" % (src_of.get(u, "none").replace(" ", "_"), shape(u))
+        c[k] = c.get(k, 0) + 1
+    return ",".join("%s;x%d" % (k, n) for k, n in sorted(c.items())) or "-"
+
+# DELETION RECORD JOIN (walk #15 follow-up). Every writer that can remove a
+# Person node, its type or its name appends one JSON line to
+# ~/.ostler/logs/person-deletions.jsonl (person_audit.py, identical in each
+# vendored tree) keyed by the same 12-hex URI digest as fp() above. For each
+# orphan we print the writer's component, reason and time, so the walk NAMES the
+# deleter. "log-absent" and "no-record" are different findings and are never
+# merged: absent means no audited writer has removed anyone on this box,
+# no-record means the log exists but nothing audited removed THIS URI (an
+# unaudited remover, or the node never reached the graph).
+def removal_records(us):
+    path = os.path.expanduser(os.environ.get("OSTLER_PERSON_DELETION_LOG")
+                              or "~/.ostler/logs/person-deletions.jsonl")
+    if not us:
+        return "-"
+    by = {}
+    present = os.path.exists(path)
+    if present:
+        try:
+            for line in open(path, encoding="utf-8"):
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                by.setdefault(r.get("uri_fp"), []).append(r)
+        except Exception:
+            present = False
+    out = []
+    for u in sorted(us):
+        recs = by.get(fp(u)) or []
+        if not present:
+            v = "log-absent"
+        elif not recs:
+            v = "no-record"
+        else:
+            v = "|".join("%s;%s;%s" % (r.get("component"), r.get("reason"), r.get("ts")) for r in recs)
+        out.append("%s:%s" % (fp(u), v.replace(" ", "_").replace(",", "_")))
+    return ",".join(out)
 
 # Bypass any operator proxy (HTTP_PROXY / http_proxy) -- the python analogue of
 # curl --noproxy '*'. Without it a local proxy answers for 127.0.0.1 with its own
@@ -213,6 +312,7 @@ try:
         graph.add(b["p"]["value"])
 
     vec, fixture, nxt, npoints = set(), set(), None, 0
+    src_of = {}
     while True:
         # ASK FOR THE FIXTURE FLAG TOO. people_seed_and_retrieval seeds a point
         # carrying "box_walk_probe": True and removes it in its phase 5. It is
@@ -220,7 +320,7 @@ try:
         # so if its cleanup ever fails, the leaked point lands in residual B
         # below and THIS probe blames the product for the suite's own fixture.
         # Reading the flag is what lets the two be told apart.
-        body = {"limit": 1000, "with_payload": ["person_uri", "box_walk_probe"], "with_vector": False}
+        body = {"limit": 1000, "with_payload": ["person_uri", "box_walk_probe", "source"], "with_vector": False}
         if nxt is not None:
             body["offset"] = nxt
         r = qpost("/collections/" + COLL + "/points/scroll", body)["result"]
@@ -230,6 +330,7 @@ try:
             u = pl.get("person_uri")
             if u:
                 vec.add(u)
+                src_of[u] = str(pl.get("source") or "none")
                 if pl.get("box_walk_probe"):
                     fixture.add(u)
         nxt = r.get("next_page_offset")
@@ -255,6 +356,7 @@ try:
     # residual D.
     b_orphan = 0
     b_fixture = 0
+    b_orphan_u = []
     for u in sorted(vec - graph):
         n_s = int(sparql("SELECT (COUNT(*) AS ?n) WHERE { <" + u + "> ?p ?o }")[0]["n"]["value"])
         n_o = int(sparql("SELECT (COUNT(*) AS ?n) WHERE { ?s ?p <" + u + "> }")[0]["n"]["value"])
@@ -263,9 +365,11 @@ try:
                 b_fixture += 1
             else:
                 b_orphan += 1
+                b_orphan_u.append(u)
 
     # C: graph Person with no vector, split by whether a HUMAN NAME is known.
     c_named = 0; c_unnamed = 0
+    c_named_u = []
     for u in sorted(graph - vec):
         label = ""; email = ""
         rows = sparql("SELECT ?l WHERE { <" + u + "> <" + SKOS + "> ?l }")
@@ -274,16 +378,21 @@ try:
         if rows: email = rows[0]["e"]["value"].strip()
         dn = sparql("SELECT ?d WHERE { <" + u + "> <" + P + "displayName> ?d }")
         named = bool(dn) or (label != "" and label.lower() != email.lower())
-        if named: c_named += 1
-        else: c_unnamed += 1
+        if named:
+            c_named += 1
+            c_named_u.append(u)
+        else:
+            c_unnamed += 1
 
     # b_fixture is APPENDED, ninth. The reader below takes $2..$8 exactly as
     # before, so a self-test fixture written against the eight-field line still
     # drives the same arithmetic and reports the attribution as NOT MEASURED
-    # rather than as zero.
-    print("OK %d %d %d %d %d %d %d %d" % (
+    # rather than as zero. The two digest sets are APPENDED the same way, tenth
+    # and eleventh, and the reader treats their absence as "identity was not
+    # measured" and falls back to the stricter single-reading verdict.
+    print("OK %d %d %d %d %d %d %d %d %s %s %s %s" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph),
-        b_fixture))
+        b_fixture, fpset(b_orphan_u), fpset(c_named_u), orphan_shapes(b_orphan_u), removal_records(b_orphan_u)))
 except urllib.error.HTTPError as exc:
     store = getattr(exc, "_store", "an unidentified store")
     if exc.code in (401, 403):
@@ -302,8 +411,18 @@ PYPAYLOAD
 # match (a number span IMMEDIATELY followed by a label span saying People), and
 # a marker that cannot be found returns UNREADABLE rather than 0. A missing tile
 # must never read as "the customer is shown zero people".
+# read_wiki_people_tile [reading-number]. FAKE_TILE_SEQ (pipe-separated, the
+# last repeating) drives the self-test's re-read arms, selected by the reading
+# number passed IN, never by a counter, for the subshell reason read_result
+# gives below. FAKE_TILE alone still drives every single-reading case.
 read_wiki_people_tile() {
-    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_TILE:-UNREADABLE}"; return; fi
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        if [ -n "${FAKE_TILE_SEQ:-}" ]; then
+            printf '%s' "$FAKE_TILE_SEQ" | awk -F'|' -v n="${1:-1}" '{ i = (n > NF) ? NF : n; printf "%s", $i }'
+            return
+        fi
+        printf '%s' "${FAKE_TILE:-UNREADABLE}"; return
+    fi
     box_run "python3 - <<'OSTLERTILE'
 import os, re
 p = os.path.expanduser(\"~/Documents/Ostler/Wiki/index.md\")
@@ -318,23 +437,80 @@ print(m.group(1).replace(\",\", \"\"))
 OSTLERTILE"
 }
 
+# read_result <reading-number>. The number matters only to the self-test, which
+# uses it to select a reading; on a box every call re-measures the live stores.
 read_result() {
-    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_RECONCILE:-CANNOTRUN self-test-unset}"; return; fi
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        # FAKE_RECONCILE_SEQ drives the RE-READ arms: pipe-separated readings,
+        # the caller's reading number selecting which one, the last repeating if
+        # the probe asks for more. FAKE_RECONCILE alone still drives every
+        # single-reading case exactly as before.
+        #
+        # THE READING NUMBER IS AN ARGUMENT AND NEVER A COUNTER, and that is not
+        # a style choice. Every caller invokes this as "$(read_result ...)", so
+        # the body runs in a command substitution -- a subshell. A counter
+        # incremented in here is incremented in a child that then exits, so the
+        # parent sees reading 1 forever and a three-reading test silently
+        # measures the same reading three times. It looked exactly like a
+        # working re-read: identical URIs every time, so the persistent-miss arm
+        # passed for the wrong reason and both changing-set arms failed. Caught
+        # 2026-09-09 by those arms, which is what they are for. Same class as
+        # the defect this whole change exists to fix: a value bound where it is
+        # printed rather than where it is used.
+        if [ -n "${FAKE_RECONCILE_SEQ:-}" ]; then
+            printf '%s' "$FAKE_RECONCILE_SEQ" \
+                | awk -F'[|]' -v i="${1:-1}" '{ if (i > NF) i = NF; printf "%s", $i }'
+            return
+        fi
+        printf '%s' "${FAKE_RECONCILE:-CANNOTRUN self-test-unset}"; return
+    fi
     box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' '${STORE_CONF_PATH}' <<'PYPAYLOAD'
 ${RECONCILE_PY}
 PYPAYLOAD"
 }
 
-run_probe() {
-    if ! box_reachable; then
-        probe_cannot_run "box ${OSTLER_BOX_HOST:-localhost} is not reachable over ssh; nothing was measured"
-    fi
+# HOW MANY READINGS, AND HOW FAR APART. Three at 60s. This is a measurement of
+# whether the residual sets are moving, not a window in which they are permitted
+# to settle: it is entered ONLY when a residual is already non-zero, the passing
+# value is still zero, and a set that stops moving fails immediately at the last
+# reading. Overridable so the self-test costs no wall clock, and so a walk can
+# widen it deliberately rather than by accident.
+RECONCILE_READS="${OSTLER_PROBE_RECONCILE_READS:-3}"
+RECONCILE_READ_GAP_S="${OSTLER_PROBE_RECONCILE_GAP_S:-60}"
+# The wiki People tile: up to ten readings a minute apart, only when it is
+# LOWER than two agreeing stores (see "A TILE STILL CATCHING UP" below).
+TILE_READS="${OSTLER_PROBE_TILE_READS:-10}"
+TILE_READ_GAP_S="${OSTLER_PROBE_TILE_GAP_S:-60}"
 
-    _store_resolve
+_reconcile_sleep() {
+    [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] && return 0
+    sleep "$1"
+}
 
-    local out _af _kl
-    out="$(read_result)"
+# Set arithmetic over the comma-joined digest lists the payload emits. bash 3.2
+# has no associative arrays -- /bin/bash is 3.2.57 here and on the cut host --
+# so these go through sort and comm rather than a hash.
+_set_count() {
+    case "$1" in ''|-) printf '0'; return ;; esac
+    printf '%s' "$1" | tr ',' '\n' | awk 'NF' | sort -u | wc -l | tr -d ' '
+}
 
+_set_intersect() {
+    case "$1" in ''|-) printf '%s' '-'; return ;; esac
+    case "$2" in ''|-) printf '%s' '-'; return ;; esac
+    local r
+    r="$(comm -12 <(printf '%s' "$1" | tr ',' '\n' | awk 'NF' | sort -u) \
+                  <(printf '%s' "$2" | tr ',' '\n' | awk 'NF' | sort -u) \
+         | paste -s -d, -)"
+    [ -z "$r" ] && r='-'
+    printf '%s' "$r"
+}
+
+# The three-state guard, lifted out of run_probe so that EVERY reading is
+# adjudicated by it and not just the first. A re-read that came back AUTHFAIL or
+# empty must be refused with the same words as a first read that did.
+_guard_reconcile_output() {
+    local out="$1" _af _kl
     case "$out" in
         OK\ *) : ;;
         AUTHFAIL\ *)
@@ -361,8 +537,14 @@ run_probe() {
         *)
             probe_cannot_run "unrecognised reconciliation output (first 120 chars): $(printf '%s' "$out" | head -c 120)" ;;
     esac
+}
 
-    local graph vec a b c_named c_unnamed both b_fixture
+# Assigns into the CALLER's locals (bash is dynamically scoped), so nothing here
+# is declared local. b_set and c_set are fields 10 and 11 and are EMPTY on the
+# older nine-field line; the caller reads that emptiness as "identity was not
+# measured" and keeps the stricter single-reading verdict.
+_parse_reconcile() {
+    local out="$1"
     graph=$(printf '%s' "$out" | awk '{print $2}')
     vec=$(printf '%s'   "$out" | awk '{print $3}')
     a=$(printf '%s'     "$out" | awk '{print $4}')
@@ -371,11 +553,243 @@ run_probe() {
     c_unnamed=$(printf '%s' "$out" | awk '{print $7}')
     both=$(printf '%s'  "$out" | awk '{print $8}')
     b_fixture=$(printf '%s' "$out" | awk '{print $9}')
+    b_set=$(printf '%s' "$out" | awk '{print $10}')
+    c_set=$(printf '%s' "$out" | awk '{print $11}')
+    b_shapes=$(printf '%s' "$out" | awk '{print $12}')
+    b_removal=$(printf '%s' "$out" | awk '{print $13}')
+}
+
+# ─── DRIVE THE PRODUCT'S OWN WRITER, THEN ASK AGAIN (v1.0.102 walk 4) ──────
+#
+# Walk 4 FAILED this probe with C=2 named people missing from search across
+# three readings and the People tile 2 behind the graph across ten. Neither was
+# a drop. Measured on the same box afterwards: graph 3433, vectors 3433, tile
+# 3433, residual 0. The two writers run on their own clocks, and both clocks
+# are longer than the probe's windows:
+#
+#     vectors   com.ostler.fda-rerun (people_index leg)   every 3600s, ~6 min
+#     tile      wiki-recompile-catchup                     every 1800s, ~2 min
+#
+# A person that email ingest creates is searchable after the NEXT people_index
+# run, up to an hour later; three readings over two minutes cannot see that.
+# Waiting an hour would pass the probe and prove nothing either. So when a
+# residual survives every re-read, the probe RUNS the writer that owns it
+# (launchctl kickstart, the job's own entry point, never a hand-rolled write),
+# waits for that run's own completion marker, and asks once more:
+#
+#   C  a URI that was missing BEFORE the kick and is still missing after
+#      people_index completed a run STARTED after the kick was not queued, it
+#      was DROPPED. That FAILS, and the note says so in those words.
+#   D  the tile is compared with the graph read immediately before the kick and
+#      immediately after the compile completes. The compile snapshots the graph
+#      somewhere between those two readings, so the tile must fall inside them;
+#      on a quiet box they are equal and this is exact equality. Anything
+#      outside is the #273 third number and FAILS.
+#
+# A writer that cannot be driven (not loaded, kick refused, no completion
+# within the bound) leaves the verdict exactly where the re-reads put it: this
+# path can only move FAIL -> PASS on evidence, never on a timeout.
+#
+# The completion markers are the writers' own: people_index.tsv
+# last_success_at for the vectors, and for the tile the index.md mtime AND the
+# job no longer running (the compile rewrites index.md more than once).
+read -r -d '' WRITER_PY <<'PYWRITER'
+import calendar, os, subprocess, sys, time
+kind, action = sys.argv[1], sys.argv[2]
+label = {"people": "com.ostler.fda-rerun",
+         "wiki": "com.creativemachines.ostler.wiki-recompile-catchup"}[kind]
+tgt = "gui/%d/%s" % (os.getuid(), label)
+def state():
+    try:
+        r = subprocess.run(["launchctl", "print", tgt], capture_output=True, text=True)
+    except Exception:
+        return "unreadable"
+    if r.returncode != 0:
+        return "notloaded"
+    for line in r.stdout.splitlines():
+        if line.startswith("\tstate = "):
+            return line.split("=", 1)[1].strip().replace(" ", "_")
+    return "unreadable"
+def marker():
+    try:
+        if kind == "people":
+            p = os.path.expanduser("~/.ostler/state/source_activity/people_index.tsv")
+            for line in open(p, encoding="utf-8"):
+                if line.startswith("last_success_at="):
+                    v = line.split("=", 1)[1].strip()
+                    return calendar.timegm(time.strptime(v, "%Y-%m-%dT%H:%M:%SZ")) if v else 0
+            return 0
+        return int(os.stat(os.path.expanduser("~/Documents/Ostler/Wiki/index.md")).st_mtime)
+    except Exception:
+        return -1
+if action == "kick":
+    r = subprocess.run(["launchctl", "kickstart", tgt], capture_output=True, text=True)
+    print("KICKED" if r.returncode == 0 else "KICKFAIL %d" % r.returncode)
+else:
+    print("%s %d %d" % (state(), marker(), int(time.time())))
+PYWRITER
+
+WRITER_WAIT_S="${OSTLER_PROBE_WRITER_WAIT_S:-1500}"
+WRITER_POLL_S="${OSTLER_PROBE_WRITER_POLL_S:-15}"
+
+# _drive_writer <people|wiki>. Returns 0 when a run started after the kick has
+# completed, 1 otherwise; WRITER_DETAIL says which, in words.
+WRITER_DETAIL=""
+_drive_writer() {
+    local kind="$1" fake
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        case "$kind" in
+            people) fake="${FAKE_PEOPLE_WRITER:-DONE}" ;;
+            *)      fake="${FAKE_WIKI_WRITER:-DONE}" ;;
+        esac
+        case "$fake" in
+            DONE) WRITER_DETAIL="the ${kind} writer completed a run started after the kick"; return 0 ;;
+            *)    WRITER_DETAIL="the ${kind} writer could not be driven: ${fake}"; return 1 ;;
+        esac
+    fi
+    local st mk now t_kick="" deadline k
+    deadline=$(( $(date +%s) + WRITER_WAIT_S ))
+    # A run already in flight may have snapshotted before the residual existed,
+    # so let it finish first; the kick then starts a run that cannot have.
+    while :; do
+        read -r st mk now <<< "$(box_run "python3 - ${kind} status <<'PYWRITER'
+${WRITER_PY}
+PYWRITER")"
+        case "$st" in
+            notloaded) WRITER_DETAIL="the ${kind} writer job is not loaded on this box"; return 1 ;;
+            running) : ;;
+            ''|unreadable) : ;;
+            *) break ;;
+        esac
+        [ "$(date +%s)" -ge "$deadline" ] && { WRITER_DETAIL="the ${kind} writer was still busy or unreadable after ${WRITER_WAIT_S}s, so no run could be started"; return 1; }
+        sleep "$WRITER_POLL_S"
+    done
+    t_kick="$now"
+    k="$(box_run "python3 - ${kind} kick <<'PYWRITER'
+${WRITER_PY}
+PYWRITER")"
+    case "$k" in
+        KICKED) : ;;
+        *) WRITER_DETAIL="launchctl kickstart of the ${kind} writer was refused (${k:-no answer})"; return 1 ;;
+    esac
+    while :; do
+        sleep "$WRITER_POLL_S"
+        read -r st mk now <<< "$(box_run "python3 - ${kind} status <<'PYWRITER'
+${WRITER_PY}
+PYWRITER")"
+        case "$mk" in ''|*[!0-9-]*) mk=-1 ;; esac
+        if [ "$st" != "running" ] && [ -n "$st" ] && [ "$st" != "unreadable" ] \
+           && [ "$mk" -gt "$t_kick" ]; then
+            WRITER_DETAIL="the ${kind} writer completed a run started after the kick, $(( ${now:-$t_kick} - t_kick ))s after it"
+            return 0
+        fi
+        [ "$(date +%s)" -ge "$deadline" ] && { WRITER_DETAIL="the ${kind} writer did not complete a run within ${WRITER_WAIT_S}s of the kick"; return 1; }
+    done
+}
+
+run_probe() {
+    if ! box_reachable; then
+        probe_cannot_run "box ${OSTLER_BOX_HOST:-localhost} is not reachable over ssh; nothing was measured"
+    fi
+
+    _store_resolve
+
+    local out
+    # ─── DO NOT GRADE THE STORES WHILE THE INGEST TICK IS MINTING ──────────
+    # The hourly com.ostler.fda-rerun moves the graph and the vector store apart
+    # by design between its legs. v1.0.89 read the difference and called it a
+    # disagreement. Hold, then read; a tick that will not stop is CANNOT-RUN,
+    # never a pass, and so is a state that could not be read at all.
+    box_wait_ingest_quiet
+    case $? in
+        0) : ;;
+        1) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+        2) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+    esac
+
+    out="$(read_result 1)"
+    _guard_reconcile_output "$out"
+
+    local graph vec a b c_named c_unnamed both b_fixture b_set c_set b_shapes b_removal
+    _parse_reconcile "$out"
+
+    # ─── READ IT AGAIN BEFORE CALLING A DIFFERENCE A DISAGREEMENT ───────────
+    # The reasoning, and the measurement it came from, are in the header.
+    local reads=1 identity="present" c_persist="$c_set" b_persist="$b_set"
+    if [ -z "$c_set" ] || [ -z "$b_set" ]; then
+        # No digest fields in this reading, so identity was NEVER MEASURED. Do
+        # not re-read and do not soften: fall back to the single-reading
+        # verdict, which is the stricter of the two. A measurement that did not
+        # happen must never buy a pass.
+        identity="absent"
+    elif [ "$c_named" -gt 0 ] || [ "$b" -gt 0 ]; then
+        [ "$RECONCILE_READS" -gt 1 ] && probe_note "first reading has C=${c_named} B=${b}: taking ${RECONCILE_READS} readings ${RECONCILE_READ_GAP_S}s apart, and failing only for the URIs missing in every one"
+        while [ "$reads" -lt "$RECONCILE_READS" ]; do
+            _reconcile_sleep "$RECONCILE_READ_GAP_S"
+            reads=$((reads + 1))
+            out="$(read_result "$reads")"
+            _guard_reconcile_output "$out"
+            _parse_reconcile "$out"
+            probe_note "reading ${reads} of ${RECONCILE_READS}          : graph=${graph} vectors=${vec} A=${a} B=${b} C=${c_named}"
+            c_persist="$(_set_intersect "$c_persist" "$c_set")"
+            b_persist="$(_set_intersect "$b_persist" "$b_set")"
+        done
+    fi
+
+    # WHAT THE VERDICT IS TAKEN ON. Not the first reading and not the last, but
+    # the URIs common to ALL of them. With one reading these are identical, so a
+    # box that never re-reads behaves exactly as it did before.
+    local c_fail b_fail
+    if [ "$identity" = "absent" ]; then
+        c_fail="$c_named"; b_fail="$b"
+    else
+        c_fail="$(_set_count "$c_persist")"; b_fail="$(_set_count "$b_persist")"
+    fi
+
+    # C SURVIVED EVERY RE-READ: run the vector writer and ask once more. See
+    # "DRIVE THE PRODUCT'S OWN WRITER" above. Only the URIs missing in every
+    # earlier reading are carried, so a person created after the kick cannot
+    # fail this, and one missing before it cannot hide behind new arrivals.
+    local c_writer=""
+    if [ "$identity" = "present" ] && [ "$c_fail" -gt 0 ]; then
+        probe_note "C=${c_fail} held across ${reads} readings: running the product's own vector writer (people_index in com.ostler.fda-rerun) and reading once more"
+        if _drive_writer people; then
+            reads=$((reads + 1))
+            out="$(read_result "$reads")"
+            _guard_reconcile_output "$out"
+            _parse_reconcile "$out"
+            c_persist="$(_set_intersect "$c_persist" "$c_set")"
+            b_persist="$(_set_intersect "$b_persist" "$b_set")"
+            c_fail="$(_set_count "$c_persist")"; b_fail="$(_set_count "$b_persist")"
+            if [ "$c_fail" -eq 0 ]; then
+                c_writer="queued"
+                probe_note "            after the writer ran             : ${WRITER_DETAIL}; every person missing before it is now searchable, so they were QUEUED for the next people_index run, not dropped"
+            else
+                c_writer="dropped"
+                probe_note "            after the writer ran             : ${WRITER_DETAIL}; ${c_fail} person(s) missing before the kick are STILL unsearchable after a run that started after it, so they were DROPPED, not queued"
+            fi
+        else
+            c_writer="undriven"
+            probe_note "            vector writer                    : ${WRITER_DETAIL}; the verdict stays on the re-reads alone"
+        fi
+    fi
 
     probe_examined "$((graph + vec))" "person records across two stores (graph ${graph}, vectors ${vec}, in both ${both})"
 
     probe_note "residual A  untyped terminal merge survivors : ${a}"
     probe_note "residual B  orphan vectors, no graph presence: ${b}"
+    # Characterise the orphans (12th field): payload source and URI SHAPE only,
+    # never a name or a real URI. NOT MEASURED when the reading predates it.
+    if [ -n "$b_shapes" ] && [ "$b_shapes" != "-" ]; then
+        probe_note "            orphan source and URI shape      : ${b_shapes}"
+    elif [ "${b:-0}" -gt 0 ] 2>/dev/null; then
+        probe_note "            orphan source and URI shape      : NOT MEASURED -- this reading carried no shape field"
+    fi
+    if [ -n "$b_removal" ] && [ "$b_removal" != "-" ]; then
+        probe_note "            orphan deletion record (digest:writer;reason;time): ${b_removal}"
+    elif [ "${b:-0}" -gt 0 ] 2>/dev/null; then
+        probe_note "            orphan deletion record           : NOT MEASURED -- this reading carried no deletion-record field"
+    fi
     # PRINT IT EVEN WHEN IT IS ZERO. A zero that is never printed and a
     # measurement that never ran look identical from the log, and this suite
     # exists because they used to.
@@ -387,6 +801,32 @@ run_probe() {
     esac
     probe_note "residual C  NAMED persons with no vector     : ${c_named}"
     probe_note "            unnamed stubs with no vector     : ${c_unnamed}  (reported, not failed -- see header)"
+
+    # THE READINGS ARE PART OF THE EVIDENCE, NOT A DETAIL OF THE MACHINERY. A
+    # reader of walks/v1.0.NN.tsv must be able to see how many times this was
+    # measured and whether the answer held still, without going to the box.
+    if [ "$identity" = "absent" ]; then
+        probe_note "            URI identity                     : NOT MEASURED -- the reconciliation returned no digest fields, so this is ONE reading and the stricter single-reading verdict is kept"
+    elif [ "$reads" -eq 1 ] && [ "$c_named" -eq 0 ] && [ "$b" -eq 0 ]; then
+        probe_note "            readings                         : 1  (C and B were both zero on the first, so there was nothing to re-read)"
+    elif [ "$reads" -eq 1 ]; then
+        # C or B was non-zero and the probe STILL only read once, which can only
+        # mean re-reading was turned down. Say so rather than reusing the
+        # sentence above: "nothing to re-read" and "not allowed to re-read" are
+        # different facts and only one of them is good news.
+        probe_note "            readings                         : 1  -- re-reading was disabled (OSTLER_PROBE_RECONCILE_READS=${RECONCILE_READS}), so this verdict rests on a single reading and cannot tell a stable residual from one still in flight"
+    else
+        probe_note "            readings                         : ${reads} at ${RECONCILE_READ_GAP_S}s -- C persisted ${c_fail}, B persisted ${b_fail}  (URIs missing in EVERY reading)"
+        # THE NOTE TRAVELS WITH THE VERDICT, not just with the source. Whoever
+        # reads this row later must know the check bends one way only.
+        probe_note "            direction of the re-read         : it can only move a verdict FAIL -> PASS, never the reverse, so a residual that reconciles intermittently within ${reads} readings reads as in flight here"
+        if [ "$c_named" -gt 0 ] && [ "$c_fail" -eq 0 ]; then
+            probe_note "            residual C did not hold still    : no person URI was missing in all ${reads} readings, so the graph and the vector store are not disagreeing -- ingestion is still in flight and the set is changing under the probe"
+        fi
+        if [ "$b" -gt 0 ] && [ "$b_fail" -eq 0 ]; then
+            probe_note "            residual B did not hold still    : no orphan vector URI was present in all ${reads} readings, so this is ingestion still in flight rather than a disagreement between the stores"
+        fi
+    fi
 
     local tile reconciled d_state
     tile="$(read_wiki_people_tile)"
@@ -406,24 +846,94 @@ run_probe() {
             probe_note "residual D  wiki People tile           : ${tile}  (graph ${graph}, reconciled ${reconciled}) -> ${d_state}" ;;
     esac
 
+    # ── A TILE STILL CATCHING UP IS NOT A THIRD NUMBER (v1.0.102 walks 2 and 3)
+    #
+    # Both walks FAILED here with the stores in exact agreement and the tile
+    # BEHIND them (walk 3: graph 3433, vectors 3433, tile 3422), because email
+    # was still adding people and the wiki People tile is written by the next
+    # recompile, not by the ingest. Re-run minutes later, both read 3433 x3 and
+    # PASSED. So when the stores agree and the tile is LOWER than they are, the
+    # tile is re-read, bounded, and the verdict can only move FAIL -> PASS: it
+    # passes only if a later reading EQUALS the reconciled count. A tile HIGHER
+    # than the stores is never lag and is decided on the first reading, and a
+    # tile that is still short when the bound runs out still FAILS.
+    local tile_reads=1 d_writer=""
+    if [ "$d_state" = "third-number" ] && [ "$a" -eq 0 ] && [ "$b_fail" -eq 0 ] \
+       && [ "$tile" -lt "$reconciled" ] && [ "$TILE_READS" -gt 1 ]; then
+        local first_tile="$tile" t_next
+        while [ "$tile_reads" -lt "$TILE_READS" ]; do
+            [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] || sleep "$TILE_READ_GAP_S"
+            tile_reads=$((tile_reads + 1))
+            t_next="$(read_wiki_people_tile "$tile_reads")"
+            case "$t_next" in ''|UNREADABLE|*[!0-9]*) continue ;; esac
+            tile="$t_next"
+            if [ "$tile" -eq "$reconciled" ]; then d_state="ok"; break; fi
+            [ "$tile" -gt "$reconciled" ] && break
+        done
+        probe_note "            tile re-read                     : ${first_tile} -> ${tile} over ${tile_reads} reading(s) ${TILE_READ_GAP_S}s apart -> ${d_state}"
+
+        # STILL SHORT: run the compile that writes the tile, and bracket it.
+        if [ "$d_state" = "third-number" ] && [ "$tile" -lt "$reconciled" ]; then
+            local g_k="$graph" r_k="$reconciled" g_d r_d lo hi t_after
+            d_writer="ran"
+            probe_note "            tile still short after ${tile_reads} reading(s): running the product's own compile (wiki-recompile-catchup) and bracketing it with two graph readings"
+            if _drive_writer wiki; then
+                reads=$((reads + 1))
+                out="$(read_result "$reads")"
+                _guard_reconcile_output "$out"
+                _parse_reconcile "$out"
+                g_d="$graph"; r_d=$((graph + a - c_unnamed))
+                tile_reads=$((tile_reads + 1))
+                t_after="$(read_wiki_people_tile "$tile_reads")"
+                lo="$g_k"; hi="$g_k"
+                for v in "$r_k" "$g_d" "$r_d"; do
+                    [ "$v" -lt "$lo" ] && lo="$v"; [ "$v" -gt "$hi" ] && hi="$v"
+                done
+                case "$t_after" in
+                    ''|UNREADABLE|*[!0-9]*)
+                        probe_note "            after the compile ran            : ${WRITER_DETAIL}; the tile is UNREADABLE, so the verdict stays" ;;
+                    *)
+                        tile="$t_after"; reconciled="$r_d"
+                        if [ "$tile" -ge "$lo" ] && [ "$tile" -le "$hi" ]; then
+                            d_state="ok"
+                            probe_note "            after the compile ran            : ${WRITER_DETAIL}; tile ${tile} lies inside the graph readings taken before and after it (${lo}..${hi}), so the tile renders the graph, it was only a compile behind"
+                        else
+                            probe_note "            after the compile ran            : ${WRITER_DETAIL}; tile ${tile} lies OUTSIDE the graph readings taken before and after it (${lo}..${hi}), so the tile computed a number of its own"
+                        fi ;;
+                esac
+            else
+                probe_note "            wiki compile                     : ${WRITER_DETAIL}; the verdict stays on the re-reads alone"
+            fi
+        fi
+    fi
+
     local failures=""
+    # A IS STILL DECIDED ON ONE READING, deliberately: the header's argument
+    # that no ingest race produces an untyped merge survivor is untouched by the
+    # re-read, which exists for the two residuals that were measured moving.
     [ "$a" -gt 0 ] && failures="${failures}A=${a} untyped merge survivors; "
-    [ "$b" -gt 0 ] && failures="${failures}B=${b} orphan vectors; "
+    [ "$b_fail" -gt 0 ] && failures="${failures}B=${b_fail} orphan vectors; "
     # A leaked fixture does NOT go in $failures. It is reported above and it is
     # the red of people_seed_and_retrieval, because that probe seeds it, verifies
     # its own removal, and says "probe leaked a fixture into the graph" when the
     # removal did not take. This probe refusing the promote for it would blame
     # the DMG for the harness.
-    [ "$c_named" -gt 0 ] && failures="${failures}C=${c_named} named persons unsearchable; "
+    [ "$c_fail" -gt 0 ] && failures="${failures}C=${c_fail} named persons unsearchable; "
     # D only when the stores agree. If A or B is non-zero the tile tracking the
     # graph is a CONSEQUENCE, and reporting it as a second failure would say one
     # defect twice while hiding whether the UI itself is sound.
-    if [ "$a" -eq 0 ] && [ "$b" -eq 0 ] && [ "$d_state" = "third-number" ]; then
+    if [ "$a" -eq 0 ] && [ "$b_fail" -eq 0 ] && [ "$d_state" = "third-number" ]; then
         failures="${failures}D=wiki tile ${tile} matches neither store (graph ${graph}, reconciled ${reconciled}); "
     fi
 
     if [ -n "$failures" ]; then
         probe_fail "the two stores hold different SETS of people -- ${failures%; }"
+    fi
+    if [ "$c_writer" = "queued" ] || [ "$d_writer" = "ran" ]; then
+        probe_pass "graph, vector store and People tile agree once the product's own writers have run: ${c_writer:+every person missing across the re-reads was queued for the next people_index run and is now searchable; }${d_writer:+the tile was one compile behind and now renders the graph; }nothing was dropped"
+    fi
+    if [ "$reads" -gt 1 ]; then
+        probe_pass "graph and vector store agree: across ${reads} readings ${RECONCILE_READ_GAP_S}s apart, no person URI was missing in all of them, so the sets that differed were ingestion in flight and not a disagreement"
     fi
     probe_pass "graph and vector store hold the same set of people; all three residuals are zero"
 }
@@ -445,20 +955,63 @@ self_test() {
     # and phase 1 treats that as BROKEN. So probe_pass below is the failure
     # path, not the success path.
     SELF_TEST_LOCAL=1
-    probe_examined 22 "synthetic reconciliation results (negative control)"
     local rc out fails=0 firstbad=""
+
+    # ── THE DENOMINATOR COUNTS ITSELF (#2120, #2138) ──────────────────────
+    #
+    # This line used to read `probe_examined 32` BEFORE a single case had run,
+    # and the two verdict sentences below said "32 cases" as well. MEASURED on
+    # origin/main by a second instrument, counting the outcome lines the run
+    # actually prints: 41 distinct assertions fire, every label unique. The
+    # typed number was wrong by NINE on a BLOCKING probe, and the walk record a
+    # person reads said "all 32 cases behaved" while 41 ran.
+    #
+    # Nothing asserted the 32. Measured: 0 files in tests/ or scripts/ name it.
+    # That is #2120 exactly -- a probe that declares its own case count, checked
+    # by nothing, so being wrong costs nothing until somebody relies on it.
+    #
+    # TWO NON-FIXES, both refused, both named in #2120: typing 41 instead, and
+    # adding a test that asserts the literal equals 41. The second pins a claim
+    # to another claim and they drift together.
+    #
+    # So the count is taken AT RUNTIME, by the cases themselves. Every assertion
+    # in this function ends by printing exactly one outcome line, and every
+    # outcome line ticks. A case added in any shape counts itself by running.
+    #
+    # 🔴 THE RESIDUAL RISK, STATED RATHER THAN LEFT TO BE FOUND: a new arm that
+    # prints an outcome without ticking would under-count again, which is #2138.
+    # That is why the tick is not trusted alone. The block below cross-checks it
+    # against a SECOND instrument, the outcome lines the run printed, and goes
+    # BROKEN if the two disagree. One instrument can be wrong silently; two that
+    # must agree cannot.
+    _st_n=0
+    _st_tick() { _st_n=$(( _st_n + 1 )); }
 
     _case() {
         # _case <label> <FAKE value> <expected exit code>
         local label="$1" fake="$2" want="$3"
         out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="$fake" run_probe 2>&1)"; rc=$?
         if [ "$rc" -ne "$want" ]; then
-            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
             printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
             fails=$((fails + 1))
             [ -z "$firstbad" ] && firstbad="$label"
         else
-            printf '  ok [%s] exit %s\n' "$label" "$rc"
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+
+    _scase() {
+        # _scase <label> <FAKE_RECONCILE_SEQ: readings separated by |> <expected exit>
+        local label="$1" seq="$2" want="$3"
+        out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="$seq" run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
+            fails=$((fails + 1))
+            [ -z "$firstbad" ] && firstbad="$label"
+        else
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
 
@@ -468,12 +1021,12 @@ self_test() {
         local label="$1" fake="$2" tile="$3" want="$4"
         out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="$fake" FAKE_TILE="$tile" run_probe 2>&1)"; rc=$?
         if [ "$rc" -ne "$want" ]; then
-            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
             printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
             fails=$((fails + 1))
             [ -z "$firstbad" ] && firstbad="$label"
         else
-            printf '  ok [%s] exit %s\n' "$label" "$rc"
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
 
@@ -482,6 +1035,18 @@ self_test() {
     _tcase "D tile correct -> PASS"           "OK 7187 7187 0 0 0 0 7187" "7187" "$PROBE_EX_PASS"
     # stores agree, tile matches NEITHER -> the #273 defect -> FAIL
     _tcase "D tile is a THIRD number -> FAIL" "OK 7187 7187 0 0 0 0 7187" "6547" "$PROBE_EX_FAIL"
+    # A tile still catching up: lower, then equal on a later reading -> PASS
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" FAKE_TILE_SEQ="7100|7150|7187" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -eq "$PROBE_EX_PASS" ] && [ "$(printf '%s' "$out" | grep -c 'tile re-read .*7100 -> 7187')" -gt 0 ]; then _st_tick; printf '  ok [D tile catches up on a re-read -> PASS, and the re-read is what passed it]\n'
+    else _st_tick; printf '  SELF-TEST FAIL [D catch-up]: expected %s, got %s\n' "$PROBE_EX_PASS" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D catch-up"; fi
+    # A tile that stays short for every reading -> FAIL
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" FAKE_TILE_SEQ="7100|7100|7100" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -eq "$PROBE_EX_FAIL" ]; then _st_tick; printf '  ok [D tile never catches up -> FAIL]\n'
+    else _st_tick; printf '  SELF-TEST FAIL [D stuck]: expected %s, got %s\n' "$PROBE_EX_FAIL" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D stuck"; fi
+    # A tile HIGHER than the stores is never lag: FAIL even if a later reading would match
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" FAKE_TILE_SEQ="7300|7187" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -eq "$PROBE_EX_FAIL" ]; then _st_tick; printf '  ok [D tile above the stores is not re-read -> FAIL]\n'
+    else _st_tick; printf '  SELF-TEST FAIL [D above]: expected %s, got %s\n' "$PROBE_EX_FAIL" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D above"; fi
     # stores agree, tile tracks the graph, which here EQUALS reconciled -> PASS
     _tcase "D tile tracks graph -> PASS"      "OK 7187 7187 0 0 0 0 7187" "7187" "$PROBE_EX_PASS"
     # THE ONE THAT MATTERS: A is non-zero, so a graph-tracking tile is a
@@ -492,14 +1057,14 @@ self_test() {
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7111 7284 106 0 0 30 7081" \
            FAKE_TILE="7111" run_probe 2>&1)"; rc=$?
     if [ "$rc" -ne "$PROBE_EX_FAIL" ]; then
-        printf '  SELF-TEST FAIL [D suppressed]: expected exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
+        _st_tick; printf '  SELF-TEST FAIL [D suppressed]: expected exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
         fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D suppressed exit"
     else
         case "$out" in
             *"D=wiki tile"*)
-                printf '  SELF-TEST FAIL [D suppressed]: the verdict names D even though A=106 explains it.\n'
+                _st_tick; printf '  SELF-TEST FAIL [D suppressed]: the verdict names D even though A=106 explains it.\n'
                 fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D suppressed message" ;;
-            *) printf '  ok [D suppressed while A non-zero -- verdict names A, not D]\n' ;;
+            *) _st_tick; printf '  ok [D suppressed while A non-zero -- verdict names A, not D]\n' ;;
         esac
     fi
     # an unreadable tile must never read as "the customer is shown zero people"
@@ -509,6 +1074,27 @@ self_test() {
     _case "all residuals zero -> PASS"        "OK 7187 7187 0 0 0 0 7187"   "$PROBE_EX_PASS"
     _case "A untyped survivors -> FAIL"       "OK 7111 7284 106 0 0 30 7081" "$PROBE_EX_FAIL"
     _case "B orphan vectors -> FAIL"          "OK 7187 7284 0 97 0 0 7187"  "$PROBE_EX_FAIL"
+    # The orphan's payload source and URI SHAPE must be printed (walk #15 had to
+    # characterise its one orphan by hand). Positive: a 12th field is echoed.
+    # Control: a reading with no 12th field says NOT MEASURED, never a shape.
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=fda_people_index;shape=https://x/person_<h>;x1" run_probe 2>&1)"
+    if grep -qF "orphan source and URI shape      : source=fda_people_index;shape=https://x/person_<h>;x1" <<< "$out"; then
+        _st_tick; printf '  ok [orphan source and URI shape is printed]\n'
+    else
+        _st_tick; printf '  SELF-TEST FAIL [orphan source and URI shape is printed]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape"
+    fi
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=x;shape=y;x1 eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z" run_probe 2>&1)"
+    if grep -qF "eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z" <<< "$out"; then
+        _st_tick; printf '  ok [orphan deletion record is printed]\n'
+    else
+        _st_tick; printf '  SELF-TEST FAIL [orphan deletion record is printed]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan deletion record"
+    fi
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 -" run_probe 2>&1)"
+    if grep -qF "orphan source and URI shape      : NOT MEASURED" <<< "$out"; then
+        _st_tick; printf '  ok [orphan shape absent reading says NOT MEASURED]\n'
+    else
+        _st_tick; printf '  SELF-TEST FAIL [orphan shape absent reading says NOT MEASURED]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape absent"
+    fi
     _case "C named unsearchable -> FAIL"      "OK 7200 7187 0 0 13 0 7187"  "$PROBE_EX_FAIL"
     # THE ONE THAT MATTERS MOST: unnamed stubs alone must NOT fail, or the probe
     # goes permanently red on a box where nothing is actually broken.
@@ -530,9 +1116,240 @@ self_test() {
     # alone cannot test this -- both branches pass -- so assert the MESSAGE.
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" run_probe 2>&1)"; rc=$?
     case "$out" in
-        *"NOT MEASURED"*) printf '  ok [eight-field line says NOT MEASURED, not zero]\n' ;;
-        *) printf '  SELF-TEST FAIL [fixture attribution]: an unmeasured attribution did not say so.\n'
+        *"NOT MEASURED"*) _st_tick; printf '  ok [eight-field line says NOT MEASURED, not zero]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [fixture attribution]: an unmeasured attribution did not say so.\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="fixture attribution unmeasured" ;;
+    esac
+
+    # ══ THE RE-READ. Fields ten and eleven are the B and C residual URI sets,
+    # as digests. Synthetic throughout: these are shaped like the sha256 prefix
+    # the payload emits and are not derived from any real URI.
+    #
+    #        OK graph vec A B Cn Cu both b_fixture   B_set   C_set
+    #
+    # THE ONE THAT MUST STILL FAIL. The same person URI is missing from the
+    # vector store in every reading. Nothing is settling; the stores disagree.
+    _scase "C: the SAME URI missing in all 3 readings -> FAIL" \
+        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1|OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1|OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1" \
+        "$PROBE_EX_FAIL"
+    # THE v1.0.79 SHAPE. C is non-zero at every reading INCLUDING the last, but
+    # never the same people twice: the population is being written under the
+    # probe. A count-only check fails this box; a set check does not.
+    _scase "C: a set that changes every reading -> PASS" \
+        "OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2|OK 7201 7195 0 0 2 0 7195 0 - bbbbbbbbbbb2,ccccccccccc3|OK 7202 7201 0 0 2 0 7201 0 - ccccccccccc3,ddddddddddd4" \
+        "$PROBE_EX_PASS"
+    # THE FALSE GREEN THE RE-READ COULD BUY, and the reason the check is an
+    # INTERSECTION and not "did the count move". One URI is stably missing while
+    # the others churn around it. The churn must not excuse it.
+    _scase "C: one URI persists while the rest churn -> FAIL" \
+        "OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2|OK 7201 7195 0 0 2 0 7195 0 - aaaaaaaaaaa1,ccccccccccc3|OK 7202 7201 0 0 2 0 7201 0 - aaaaaaaaaaa1,ddddddddddd4" \
+        "$PROBE_EX_FAIL"
+    # B gets the same treatment, and must behave the same way in both directions.
+    _scase "B: the SAME orphan vector in all 3 readings -> FAIL" \
+        "OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 -|OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 -|OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 -" \
+        "$PROBE_EX_FAIL"
+    _scase "B: a different orphan each reading -> PASS" \
+        "OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 -|OK 7187 7188 0 1 0 0 7187 0 fffffffffff6 -|OK 7187 7188 0 1 0 0 7187 0 ggggggggggg7 -" \
+        "$PROBE_EX_PASS"
+    # RESIDUAL A IS EXEMPT AND MUST STAY EXEMPT. C and B are zero, so no re-read
+    # happens at all, and A fails on the single reading exactly as it always has.
+    _scase "A: fails on the first reading, no re-read -> FAIL" \
+        "OK 7111 7284 106 0 0 30 7081 0 - -" \
+        "$PROBE_EX_FAIL"
+
+    # ── THE WRITER ARMS (v1.0.102 walk 4) ─────────────────────────────────
+    # _wcase <label> <FAKE_RECONCILE_SEQ> <FAKE_PEOPLE_WRITER> <expected exit> <text the output must carry>
+    _wcase() {
+        local label="$1" seq="$2" writer="$3" want="$4" must="$5"
+        out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="$seq" FAKE_PEOPLE_WRITER="$writer" run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        elif [ "$(printf '%s' "$out" | grep -c -F -- "$must")" -eq 0 ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: exit right but the output never says "%s"\n' "$label" "$must"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        else
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+    _C1="OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1"
+    _C0="OK 7201 7201 0 0 0 0 7201 0 - -"
+    _wcase "C held 3 readings, the writer ran, now searchable -> PASS (queued)" \
+        "${_C1}|${_C1}|${_C1}|${_C0}" DONE "$PROBE_EX_PASS" "QUEUED for the next people_index run"
+    _wcase "C held 3 readings, the writer ran, STILL missing -> FAIL (dropped)" \
+        "${_C1}|${_C1}|${_C1}|${_C1}" DONE "$PROBE_EX_FAIL" "DROPPED, not queued"
+    _wcase "C held, the writer could not be driven -> FAIL on the re-reads" \
+        "${_C1}|${_C1}|${_C1}|${_C0}" "TIMEOUT" "$PROBE_EX_FAIL" "the verdict stays on the re-reads alone"
+    _wcase "C held, a NEW person missing after the writer does not fail it -> PASS" \
+        "${_C1}|${_C1}|${_C1}|OK 7202 7201 0 0 1 0 7201 0 - zzzzzzzzzzz9" DONE "$PROBE_EX_PASS" "QUEUED for the next people_index run"
+
+    # _dcase <label> <FAKE_RECONCILE_SEQ> <FAKE_TILE_SEQ> <FAKE_WIKI_WRITER> <expected exit> <text>
+    _dcase() {
+        local label="$1" seq="$2" tseq="$3" writer="$4" want="$5" must="$6"
+        out="$(SELF_TEST_LOCAL=1 TILE_READS=2 FAKE_RECONCILE_SEQ="$seq" FAKE_TILE_SEQ="$tseq" FAKE_WIKI_WRITER="$writer" run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        elif [ "$(printf '%s' "$out" | grep -c -F -- "$must")" -eq 0 ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: exit right but the output never says "%s"\n' "$label" "$must"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        else
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+    _Q="OK 7187 7187 0 0 0 0 7187 0 - -"
+    _dcase "D short after re-reads, compile ran, tile now equal -> PASS" \
+        "$_Q" "7100|7100|7187" DONE "$PROBE_EX_PASS" "it was only a compile behind"
+    _dcase "D short, graph grew during the compile, tile inside the bracket -> PASS" \
+        "${_Q}|OK 7190 7190 0 0 0 0 7190 0 - -" "7100|7100|7188" DONE "$PROBE_EX_PASS" "(7187..7190)"
+    _dcase "D short, compile ran, tile still outside the bracket -> FAIL" \
+        "$_Q" "7100|7100|7100" DONE "$PROBE_EX_FAIL" "computed a number of its own"
+    _dcase "D short, the compile could not be driven -> FAIL" \
+        "$_Q" "7100|7100|7187" TIMEOUT "$PROBE_EX_FAIL" "the verdict stays on the re-reads alone"
+
+    # ─── THE INGEST-TICK HOLD ───────────────────────────────────────────────
+    #
+    # box_wait_ingest_quiet decides whether this probe reads the stores at all,
+    # so its three outcomes are pinned here and the fourth arm proves the first
+    # three measure the hold rather than sitting beside it.
+    #
+    # A CLEAN reading is used throughout, so the only thing that can move the
+    # verdict is the hold itself.
+    _CLEAN="OK 7111 7111 0 0 0 0 7111 0 - -"
+    _KBUDGET=900
+    _kcase() {
+        # _kcase <label> <FAKE_TICK_SEQ> <FAKE_TICK_UNREADABLE 0|1> <expected exit>
+        local label="$1" tick="$2" unread="$3" want="$4" rc
+        _KLAST_OUT="$(SELF_TEST_LOCAL=1 FAKE_TICK_SEQ="$tick" FAKE_TICK_UNREADABLE="$unread" \
+                      FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S="$_KBUDGET" \
+                      run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$_KLAST_OUT" | tail -1)"
+            fails=$((fails + 1))
+            [ -z "$firstbad" ] && firstbad="$label"
+        else
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+
+    # 1. Running for two polls, then not: the probe holds and then reads.
+    _KBUDGET=900
+    _kcase "tick running twice then quiet -> the probe proceeds" "running|running|quiet" 0 "$PROBE_EX_PASS"
+    # A ZERO-LENGTH WAIT AND A WAIT THAT HAPPENED MUST NOT SHARE A SILENCE.
+    case "$_KLAST_OUT" in
+        *'read "not running" after 30s'*) _st_tick; printf '  ok [the note names the 30s waited]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [the note names the seconds waited]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="tick note" ;;
+    esac
+
+    # 2. A tick that never stops, against a budget of one poll: CANNOT-RUN.
+    _KBUDGET=1
+    _kcase "tick still running past the budget -> CANNOT-RUN" "running" 0 "$PROBE_EX_CANNOT_RUN"
+
+    # 3. The state could not be read at all. A ttywalk --reset box has that job
+    #    loaded, so an unreadable state is a missing prerequisite, never a quiet
+    #    box, and never a pass.
+    _KBUDGET=900
+    _kcase "tick state UNREADABLE -> CANNOT-RUN" "quiet" 1 "$PROBE_EX_CANNOT_RUN"
+
+    # 3a. The job is not loaded on this host: the tick is definitively not
+    #     moving the stores, which is the only question the hold asks. The note
+    #     says "not loaded" verbatim, so a WALK log carrying it is a finding on
+    #     its face: the walked box has that agent loaded and must read running
+    #     or not running, never not loaded.
+    _KBUDGET=900
+    _kcase "the job is not loaded here -> the probe proceeds" "notloaded" 0 "$PROBE_EX_PASS"
+    case "$_KLAST_OUT" in
+        *'not loaded on this host'*) _st_tick; printf '  ok [the note says "not loaded" verbatim, with the label]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [the not-loaded note]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="notloaded note" ;;
+    esac
+
+    # 3b. A host with no /bin/launchctl has no hourly ingest to wait for, and
+    #     that is NOT the same as a launchctl that would not answer. The keyless
+    #     probe tests drive this probe on a Linux runner; without this branch the
+    #     hold refuses there and every one of those arms reads CANNOT-RUN.
+    #     Measured: it did exactly that on run 34501676075 before this existed.
+    _KBUDGET=900
+    _kcase "no launchctl on the host -> the probe proceeds" "noplatform" 0 "$PROBE_EX_PASS"
+    case "$_KLAST_OUT" in
+        *'is not present on this host'*) _st_tick; printf '  ok [the note says why the hold did not apply]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [the note says why the hold did not apply]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="noplatform note" ;;
+    esac
+
+    # 4. CONTROL: with the hold replaced by a no-op, arm 2's input passes.
+    #    Without this, arms 2 and 3 would read the same on a probe that never
+    #    called the helper at all. The real function is captured before it is
+    #    replaced and restored after, and an empty capture is itself a failure:
+    #    a mutant that did not land returns the green you hoped for.
+    _real_hold="$(declare -f box_wait_ingest_quiet)"
+    if [ -z "$_real_hold" ]; then
+        _st_tick; printf '  SELF-TEST FAIL [CONTROL]: box_wait_ingest_quiet is not defined, so arms 1 to 3 prove nothing\n'
+        fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="CONTROL"
+    else
+        box_wait_ingest_quiet() { return 0; }
+        _KBUDGET=1
+        _mrc=0
+        _mout="$(SELF_TEST_LOCAL=1 FAKE_TICK_SEQ="running" FAKE_TICK_UNREADABLE=0 \
+                 FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=1 run_probe 2>&1)" || _mrc=$?
+        eval "$_real_hold"
+        if [ "$_mrc" -eq "$PROBE_EX_PASS" ]; then
+            _st_tick; printf '  ok [CONTROL: without the hold a running tick no longer refuses] exit %s\n' "$_mrc"
+        else
+            _st_tick; printf '  SELF-TEST FAIL [CONTROL]: the no-op mutant exited %s, so arms 2 and 3 measure something else\n' "$_mrc"
+            printf '    output: %s\n' "$(printf '%s' "$_mout" | tail -1)"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="CONTROL"
+        fi
+    fi
+    # A RE-READ IS A MEASUREMENT AND CAN FAIL LIKE ANY OTHER. The three-state
+    # guard runs on EVERY reading, not just the first: a re-read that comes back
+    # refused or empty must be adjudicated, never quietly dropped in favour of
+    # the reading before it.
+    _scase "a re-read refused by the store -> FAIL, not the earlier reading" \
+        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1|AUTHFAIL 401 Oxigraph (SPARQL) at http://127.0.0.1:7878/query" \
+        "$PROBE_EX_FAIL"
+    _scase "a re-read that returns nothing -> CANNOT-RUN, not a pass" \
+        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1|" \
+        "$PROBE_EX_CANNOT_RUN"
+
+    # THE OLD SHAPE MUST STILL GIVE THE OLD VERDICT. A reading with no digest
+    # fields is one where identity was never measured. It must not re-read, it
+    # must not soften, and it must SAY which of those it is -- a probe that
+    # silently kept the strict path would look identical to one that had
+    # measured identity and found a persistent miss.
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -ne "$PROBE_EX_FAIL" ]; then
+        _st_tick; printf '  SELF-TEST FAIL [single-reading shape]: expected the old exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
+        fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="single-reading exit"
+    else
+        case "$out" in
+            *"C=13 named persons unsearchable"*)
+                case "$out" in
+                    *"URI identity"*"NOT MEASURED"*)
+                        _st_tick; printf '  ok [a digest-less reading keeps the old verdict AND says identity was not measured]\n' ;;
+                    *)
+                        _st_tick; printf '  SELF-TEST FAIL [single-reading shape]: it kept the strict verdict without saying identity was unmeasured.\n'
+                        fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="single-reading unexplained" ;;
+                esac ;;
+            *)
+                _st_tick; printf '  SELF-TEST FAIL [single-reading shape]: the old C verdict did not survive.\n'
+                fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="single-reading verdict" ;;
+        esac
+    fi
+
+    # AND THE IN-FLIGHT CASE MUST SAY SO IN ITS OWN WORDS. Exit code alone
+    # cannot test this: a pass here and a pass on a genuinely clean box are both
+    # exit 0, and the whole point is that they are DIFFERENT findings.
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2|OK 7201 7195 0 0 2 0 7195 0 - bbbbbbbbbbb2,ccccccccccc3|OK 7202 7201 0 0 2 0 7201 0 - ccccccccccc3,ddddddddddd4" run_probe 2>&1)"
+    case "$out" in
+        *"ingestion is still in flight"*)
+            _st_tick; printf '  ok [a changing set is reported as ingestion in flight, not as a disagreement]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [in-flight wording]: a changing set passed without saying why.\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="in-flight wording" ;;
     esac
 
     _case "graph unreadable -> CANNOT-RUN"    "CANNOTRUN graph-empty"       "$PROBE_EX_CANNOT_RUN"
@@ -544,22 +1361,44 @@ self_test() {
     _case "worked but EMPTY -> CANNOT-RUN" "CANNOTRUN graph-empty settling=4 wiki=present" "$PROBE_EX_CANNOT_RUN"
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="CANNOTRUN graph-empty settling=4 wiki=present" run_probe 2>&1)"
     case "$out" in
-        *settling=4*wiki=present*) printf '  ok [the evidence reaches the verdict text]\n' ;;
-        *) printf '  SELF-TEST FAIL [work evidence]: the verdict does not carry the signals it was given.\n'
+        *settling=4*wiki=present*) _st_tick; printf '  ok [the evidence reaches the verdict text]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [work evidence]: the verdict does not carry the signals it was given.\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="work evidence dropped" ;;
     esac
     case "$out" in
-        *"has not ingested yet"*|*"HAS done work"*) printf '  ok [the verdict explains which of the two states this is]\n' ;;
-        *) printf '  SELF-TEST FAIL [work evidence]: the verdict names no way to tell a fresh box from a worked one.\n'
+        *"has not ingested yet"*|*"HAS done work"*) _st_tick; printf '  ok [the verdict explains which of the two states this is]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [work evidence]: the verdict names no way to tell a fresh box from a worked one.\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="work evidence unexplained" ;;
     esac
     _case "empty output -> CANNOT-RUN"        ""                            "$PROBE_EX_CANNOT_RUN"
     _case "garbage output -> CANNOT-RUN"      "totally unexpected"          "$PROBE_EX_CANNOT_RUN"
 
-    if [ "$fails" -ne 0 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 22 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+    # ── THE COUNT IS CROSS-CHECKED FROM OUTSIDE ──────────────────────────
+    #
+    # _st_n is incremented by the arms themselves. That is one instrument and
+    # it can still be wrong in one way: an arm added without a tick (#2138).
+    # So a SECOND instrument checks it from outside this process --
+    # tests/test_a_self_test_denominator_counts_itself.sh runs this probe and
+    # counts the outcome lines it printed, which cannot miss an untick'd arm.
+    # The two must agree, and that test goes red if they do not. One instrument
+    # can be wrong silently; two that must agree cannot.
+    _st_behaved="${_st_n:-0}"
+    if [ "${_st_behaved:-0}" -lt 1 ]; then
+        # With a runtime counter a zero means one thing only: not a single arm
+        # executed. That is a broken self-test, not a missing denominator, and
+        # it must never print as a clean count.
+        probe_note "NO SELF-TEST ARM RAN AT ALL. The counter is incremented by the arms themselves, so zero means the block did not execute rather than that the count was unavailable."  # i18n-exempt
+        probe_examined 0 "synthetic reconciliation results (NONE RAN -- see the note above)"
+    else
+        probe_examined "$_st_behaved" "synthetic reconciliation results, counted AT RUNTIME by the cases themselves (negative control) (#2120)"
     fi
-    probe_fail "negative control behaved correctly on all 22 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, a leaked walk fixture is reported but does not refuse the promote while a real orphan beside it still does, an unmeasured fixture attribution says NOT MEASURED rather than zero, and unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass"
+
+    if [ "$fails" -ne 0 ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of ${_st_behaved} self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+    fi
+    probe_fail "negative control behaved correctly on all ${_st_behaved} cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, a leaked walk fixture is reported but does not refuse the promote while a real orphan beside it still does, an unmeasured fixture attribution says NOT MEASURED rather than zero, unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass, and across readings a residual whose URIs do not move still FAILS while a set that changes every reading is reported as ingestion in flight -- including the case where one URI stays missing while the rest churn, which is the false green the re-read could otherwise buy"
 }
 
 probe_main "$@"
+
+# WALK_WRITES: kickstarts the people writer LaunchAgents via launchctl (starts a sync) so the stores can be compared after it

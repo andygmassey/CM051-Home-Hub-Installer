@@ -50,6 +50,84 @@ import Foundation
 private let productionPublicKeyHex =
     "ad31903baa3b2d84ec4bdbfbab860f10e69d5f31649ad5e2a369dbf3377b3dd3"
 
+// MARK: - License tier
+
+/// The tier a licence was issued at.
+///
+/// THE TIER LIVES INSIDE THE SIGNED BODY. `verify` canonicalises the
+/// whole document minus `signature`, so `tier` is covered by the
+/// Ed25519 signature like every other field. Measured against the
+/// shipped shell verifier extracted from install.sh: a licence signed
+/// at `hub` and then hand-edited to `pro` returns rc 13, signature did
+/// not verify. A customer cannot promote themselves by editing the
+/// file, and no separate anti-tamper machinery is needed for it.
+///
+/// FOUR STATES, AND THEY MUST NOT COLLAPSE INTO ONE. `resolvedTier`
+/// answers "what is this customer entitled to"; `tier` (the raw
+/// optional on `LicenseClaims`) answers "what did the licence
+/// actually say". Support needs both:
+///
+///   - absent  a licence issued before tiers existed. Treated as
+///             `.hub`, because that is what every licence sold so far
+///             bought, and refusing it would brick licences already
+///             in customers' hands. `claims.tier == nil` distinguishes
+///             it from an explicit "hub".
+///   - hub/pro/beta  a recognised tier.
+///   - unknown  a tier this build does not recognise, e.g. one CM050
+///             starts issuing after this installer shipped. Recorded
+///             VERBATIM, grants nothing beyond hub, and refuses
+///             nothing. An installer that refused an unrecognised
+///             tier would turn every future tier into a support
+///             incident for every Mac already in the field.
+///
+/// Nothing is GATED on the tier yet, deliberately (HR015 #928). The
+/// point of landing it now is that retrofitting a tier onto licences
+/// already sold is the expensive version.
+enum LicenseTier: Equatable {
+    case hub
+    case pro
+    case beta
+    case unknown(String)
+
+    /// What an absent `tier` field means. See the note above.
+    static let legacyDefault = LicenseTier.hub
+
+    init(raw: String?) {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty
+        else {
+            self = LicenseTier.legacyDefault
+            return
+        }
+        switch raw.lowercased() {
+        case "hub": self = .hub
+        case "pro": self = .pro
+        case "beta": self = .beta
+        default: self = .unknown(raw)
+        }
+    }
+
+    /// The tier as a stable lowercase token, for logs and for the
+    /// entitlement state the Hub keeps. An unrecognised tier is
+    /// reported verbatim rather than mapped to a known one.
+    var name: String {
+        switch self {
+        case .hub: return "hub"
+        case .pro: return "pro"
+        case .beta: return "beta"
+        case .unknown(let raw): return raw
+        }
+    }
+
+    /// False only for a tier this build does not recognise. A caller
+    /// that wants to grant something must check this, because
+    /// `.unknown` must never be treated as one of the known tiers.
+    var isRecognised: Bool {
+        if case .unknown = self { return false }
+        return true
+    }
+}
+
 // MARK: - License schema
 
 /// The frozen v1 licence body, matching
@@ -64,6 +142,13 @@ struct LicenseClaims: Codable, Equatable {
     let stripePaymentId: String
     let signatureAlgorithm: String
     let signature: String
+    /// OPTIONAL, and it stays optional. `nil` means the licence
+    /// predates tiers, NOT that the customer has no tier -- see
+    /// `resolvedTier`. Declared as `String?` so a v1 licence without
+    /// the field still decodes; declared as `String` (not `Any`) so a
+    /// licence carrying a number or an object there is rejected as
+    /// malformed by the decoder rather than silently ignored.
+    let tier: String?
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -75,7 +160,12 @@ struct LicenseClaims: Codable, Equatable {
         case stripePaymentId = "stripe_payment_id"
         case signatureAlgorithm = "signature_algorithm"
         case signature
+        case tier
     }
+
+    /// The tier to act on. Absent maps to `.hub`; an unrecognised
+    /// value stays `.unknown` and is never quietly upgraded.
+    var resolvedTier: LicenseTier { LicenseTier(raw: tier) }
 }
 
 // MARK: - Verification result
@@ -164,6 +254,38 @@ final class LicenseVerifier {
         guard claims.signatureAlgorithm == "Ed25519" else {
             return .malformed(reason: "unsupported signature algorithm: \(claims.signatureAlgorithm)")
         }
+        // 3b. `tier`, when present, must be a short machine token.
+        //
+        // AN UNRECOGNISED TIER IS NOT A MALFORMED ONE -- those are
+        // different states and this check must not merge them. A tier
+        // CM050 starts issuing after this build shipped is accepted and
+        // recorded verbatim (see `LicenseTier.unknown`). What is
+        // rejected here is a value that is not a machine token at all:
+        // empty, hundreds of characters, or carrying whitespace or
+        // control characters. That matters beyond tidiness because the
+        // shell half of this gate hands the tier to install.sh through
+        // a single line of stdout, and a tier carrying a newline would
+        // split that line. Constraining the SCHEMA is the fix; parsing
+        // defensively on one side of a contract the other side does not
+        // hold is not.
+        //
+        // Safe to tighten NOW and only now: no licence in any customer's
+        // hands carries a tier, because nothing has ever issued one.
+        //
+        // 🔴 AN EXPLICIT null IS "ABSENT", NOT "MALFORMED". The
+        // synthesised decoder cannot tell a missing key from a null one
+        // -- both arrive here as nil -- so this side gets that behaviour
+        // for free and the SHELL side had to be written to match it. The
+        // first version of the shell check rejected null, which made a
+        // licence carrying `"tier": null` pass here and abort the
+        // install; see the note beside the same check in install.sh.
+        // Do not "tighten" this by reaching into `dict` for NSNull
+        // without changing install.sh in the same commit.
+        if let rawTier = claims.tier {
+            guard Self.isWellFormedTier(rawTier) else {
+                return .malformed(reason: "licence tier is not a machine token")
+            }
+        }
         // 4. Strip the `signature` field, canonicalise the rest,
         //    and run Ed25519 verify.
         var bodyDict = dict
@@ -213,6 +335,38 @@ final class LicenseVerifier {
 
     private static func canonicalValue(_ value: Any?) -> String? {
         guard let value = value else { return "null" }
+        // 🔴 `NSNull`, NOT Swift `nil`, IS HOW A JSON null ARRIVES HERE,
+        // and the guard above has therefore never once fired.
+        //
+        // `canonicalJSON` is called with a dictionary that came out of
+        // `JSONSerialization`, where a JSON null is the object
+        // `NSNull()`. `body[key]` is then `.some(NSNull())`, the guard
+        // succeeds, and the value fell through every branch below to the
+        // final `return nil` -- which `verify` reports as "could not
+        // canonicalise licence body", i.e. MALFORMED.
+        //
+        // So this implementation refused any licence carrying any null
+        // field, while the Python twin in install.sh accepted it:
+        // `canonical_body` has `if isinstance(value, bool) or value is
+        // None: continue` and `json.dumps` writes `null`. Measured on
+        // origin/main, same body `{"version":1,"tier":null}`:
+        //
+        //     Swift   canonicalJSON -> nil  (REFUSED)
+        //     Python  canonical     -> {"tier":null,"version":1}
+        //
+        // The two are documented at the top of this file as byte-
+        // identical. They were not. A customer handed such a licence
+        // would be told it was fine by one half of the product and
+        // watched the install abort on the other.
+        //
+        // Swift moves to match Python, not the other way round, because
+        // Python is what CM050's signer canonicalises with: making this
+        // side stricter would reject bytes the issuer can legitimately
+        // produce. Nothing is weakened by accepting a null -- every
+        // REQUIRED field is a non-optional in `LicenseClaims`, so a null
+        // in one of those still fails the typed decode as malformed,
+        // before this function is ever reached.
+        if value is NSNull { return "null" }
         if let s = value as? String { return jsonEncodeString(s) }
         if let n = value as? NSNumber {
             // Foundation bridges Bool to NSNumber. `as? Bool` will succeed
@@ -261,6 +415,26 @@ final class LicenseVerifier {
     }
 
     // MARK: - Helpers
+
+    /// 1 to 32 characters of `[A-Za-z0-9_.-]`, and nothing else.
+    ///
+    /// Written as an explicit scalar walk rather than a regex so it
+    /// behaves identically to the shell verifier's character-class
+    /// check in install.sh. Two implementations of one schema rule
+    /// that are written differently WILL drift, and this one has a
+    /// twin by design.
+    static func isWellFormedTier(_ raw: String) -> Bool {
+        guard !raw.isEmpty, raw.count <= 32 else { return false }
+        for scalar in raw.unicodeScalars {
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9", "_", ".", "-":
+                continue
+            default:
+                return false
+            }
+        }
+        return true
+    }
 
     static func hexToData(_ hex: String) -> Data? {
         let normalised = hex.replacingOccurrences(of: " ", with: "")

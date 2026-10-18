@@ -40,6 +40,8 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_hydrate_sentinel_not_on_error.sh'
+      - 'tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh'
+      - 'tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh'
       - 'tests/test_hydrate_counters_survive_a_failed_producer.sh'
       - 'tests/test_an_unmeasured_count_is_not_a_measured_zero.sh'
       - 'tests/test_an_old_format_sentinel_does_not_abort_the_install.sh'
@@ -54,10 +56,15 @@ on:
       - 'tests/test_e1_source_readout_emits.sh'
       - 'tests/test_ostler_home_root_is_one_class.sh'
       - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
+      - 'tests/test_the_source_table_items_column_is_the_number_it_claims.sh'
+      - 'tests/test_the_source_table_items_column_shows_the_live_count.sh'
+      - 'tests/test_doctor_rows_show_one_honest_total.sh'
       - 'vendor/doctor/agent/extension_token.py'
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/ostler_fda/apple_mail.py'
+      - 'vendor/ostler_fda/extract_all.py'
       - 'vendor/divergences/doctor.patch'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
@@ -85,6 +92,19 @@ jobs:
       # pass against a copy of the logic.
       - name: A failed hydrate step must not suppress its retry (#711)
         run: bash tests/test_hydrate_sentinel_not_on_error.sh
+
+      # 🔴 THE GATE ABOVE HAD NEVER BEEN SHOWN TO FAIL. Row 775 measured it:
+      # the mutation/self-test grep returned 0 lines over that test, against a
+      # control that finds them where they exist. It guards every hydrate
+      # source a customer has, and a gate that cannot be demonstrated red is
+      # not evidence. This drives it against MUTATED COPIES of install.sh in a
+      # temp dir: a clean tree must pass, a source writing the success sentinel
+      # on its error path must go red by name, and a broken population
+      # derivation must REFUSE rather than report a number it did not
+      # establish. Nothing under the repo is written.
+      - name: the hydrate sentinel gate can still go red
+        if: always()
+        run: bash tests/test_hydrate_sentinel_not_on_error.sh --self-test
 
       # if: always() so a failure in the first test cannot silence the second.
       # A skipped test reads as "no objection", which is the class of defect
@@ -229,10 +249,82 @@ jobs:
         if: always()
         run: /bin/bash tests/test_an_old_format_sentinel_does_not_abort_the_install.sh
 
-      - name: All twelve tests parse under bash 3.2-compatible syntax
+      # #946: every gate above this line asserts what the WRITER put in the
+      # file. None of them reads what the CUSTOMER is shown. The renderer's own
+      # docstring names that gap -- "the Doctor must serve /api/v1/sources with
+      # one honest per-source row" is true whether or not a human can ever see
+      # one -- and the Items column shipped a return code as a count for three
+      # sources, the skipped count for browsing, and the size of the whole
+      # collection for a timed-out people step, with every producer gate green.
+      # This drives the real recorders, the real vendored reader AND the real
+      # vendored renderer, then asserts on the rendered cells.
+      # Explicit run step, not a loop entry (#647).
+      - name: The source table's Items column is the number it claims (#946)
+        if: always()
+        run: /bin/bash tests/test_the_source_table_items_column_is_the_number_it_claims.sh
+
+      # v1.0.107 walk candidate #9, Andy's console walk, read-only:
+      # /api/v1/sources already knew email held 11,883 items and imessage
+      # 29,157 (last_run_count, #2526/#2529's own live-count mechanism,
+      # working correctly) while the ONE human-visible rendering of this
+      # data -- this same Items column -- still printed 0 beside "read in",
+      # because render_source_status() had never been taught last_run_count
+      # exists. Sibling to the gate immediately above; kept separate because
+      # that one drives install-time sentinel shapes only and this one drives
+      # the live-routine/settling-ledger shapes the #2526 board added.
+      - name: The source table's Items column prefers the live count over a stale sentinel (v1.0.107 walk #9)
+        if: always()
+        run: /bin/bash tests/test_the_source_table_items_column_shows_the_live_count.sh
+
+      # v1.0.107 walk #28, Andy's console walk: Mail showed the last tick's
+      # delta, WhatsApp people (one per DM chat) as messages, Safari visits as
+      # pages, Photos a bare number, and Notes four different numbers. Every
+      # row now carries ONE total in a declared unit (item_count + item_unit),
+      # and this asserts each one on a fixture of known totals, reader and
+      # rendered cell both.
+      - name: Every Doctor source row shows one honest total in the unit it names (walk #28)
+        if: always()
+        run: /bin/bash tests/test_doctor_rows_show_one_honest_total.sh
+
+      # 🔴 #2313, MEASURED ON macmini16-walk 2026-09-23. Every gate above this
+      # line asks whether the sentinel FILE is honest about the run that wrote
+      # it. None of them asks the question the file cannot answer: are the rows
+      # still in the store? The walk box answered no. browsing.done said
+      # `status=ok payload=sent=8626`, the collection did not exist, the step
+      # skipped, and the customer was told "No browsing history to import" over
+      # 8,831 visits the reader had logged 750 lines earlier.
+      #
+      # A sentinel under ~/.ostler and a Qdrant volume inside the container VM
+      # have independent lifetimes, so freshness alone can never license a
+      # skip. This drives the REAL extracted hydrate_browsing block against a
+      # REAL http server standing in for the store, both directions: the
+      # pre-fix guard must still reproduce the skip, and the current one must
+      # not. Explicit run step, not a loop entry (#647).
+      - name: A hydrate skip is corroborated at the destination (#2313)
+        if: always()
+        run: /bin/bash tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh
+
+      # 🔴 #2314: THE OTHER SIX, AND THE SEVENTH NAMED AS A GAP.
+      # _hydrate_sentinel_fresh has EIGHT skip call sites and #2313 corroborated
+      # one of them. This drives the REAL extracted guard region of each
+      # remaining leg against REAL http servers standing in for Qdrant and
+      # Oxigraph, both directions per leg: the pre-fix guard must still
+      # reproduce the skip, the current one must not. Two mutations of the fix
+      # itself, one per destination class, are asserted CAUGHT. It also pins the
+      # ai_conversations gap one-sided: that leg may acquire a real store-side
+      # corroboration at any time and may not acquire one reading a path under
+      # $HOME, because such a path dies with the sentinel and cannot see the
+      # defect. Explicit run step, not a loop entry (#647).
+      - name: Every hydrate skip is corroborated at its own destination (#2314)
+        if: always()
+        run: /bin/bash tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh
+
+      - name: All fourteen tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
+          bash -n tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh
+          bash -n tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh
           bash -n tests/test_aiconv_hydrate_honesty.sh
           bash -n tests/test_email_settling_numerator_is_messages.sh
           bash -n tests/test_no_data_is_not_success.sh

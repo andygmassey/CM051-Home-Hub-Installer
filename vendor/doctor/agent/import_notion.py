@@ -107,9 +107,70 @@ def _embed_model() -> str:
     return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
 
 
+# The collection the SHIPPED reader actually reads.
+#
+# THE DEFECT (CM051, 2026-09-16). This helper used to return
+# f"{source}_knowledge", so a Notion import embedded into
+# "notion_knowledge" and an Obsidian import into "obsidian_knowledge".
+# Nothing reads either name. Measured:
+#
+#   - live box, the complete collection list: safari_history,
+#     evernote_knowledge, preferences, conversations, people. Five, and no
+#     other *_knowledge among them.
+#   - the shipped assistant binary (assistant-agent/OstlerAssistant.app)
+#     carries exactly two knowledge collection literals in its string pool,
+#     "evernote_knowledge" and "apple_notes_knowledge", with no env
+#     override for either. Its own tool description advertises "their
+#     Evernote, Obsidian and Notion notes" while reading neither of the
+#     latter two.
+#   - "notion_knowledge" and "obsidian_knowledge" appear NOWHERE else in
+#     this repository: not in code, comment, doc, test, manifest or cut
+#     record.
+#
+# And it fails silently at both ends. QdrantStore.initialize() creates a
+# missing collection rather than refusing, so the import reports success
+# and really does populate a real collection; the reader maps Qdrant's 404
+# for an unknown collection to an empty result rather than an error. The
+# customer imports Notion, is told it worked, and finds nothing.
+#
+# THE WRITER MOVES, NOT THE READER, and here that is forced rather than
+# preferred: the reader is a compiled Rust tool whose source is not in this
+# repository, so there is no reader here to change. Everything else agrees
+# with it -- install.sh pre-creates exactly "evernote_knowledge" at 768
+# dims, scripts/install_manifest.tsv lists it as required, and
+# tests/test_vendor_knowledge_embed_contract.py pins it as the embed
+# default. Against all of that, one importer generating a name nobody
+# knows is the writer defect.
+#
+# Nothing is orphaned by the change: the live box holds 0 points in
+# evernote_knowledge and no notion_knowledge or obsidian_knowledge
+# collection exists to migrate.
+#
+# THE NAME IS A LEGACY MISNOMER AND IT IS NOT MINE TO FIX HERE. A neutral
+# "knowledge" collection read by every consumer is the right end state; it
+# needs a change to the external assistant crate plus a migration of any
+# existing evernote_knowledge data, so it is deliberately out of scope for
+# a mismatch fix. Until then this is the collection that is read.
+KNOWLEDGE_COLLECTION = "evernote_knowledge"
+
+
 def _collection_for_source(source: str) -> str:
-    """The Qdrant collection the wiki + MCP read for a given source."""
-    return f"{source}_knowledge"
+    """The Qdrant collection the shipped reader queries for knowledge.
+
+    The ``source`` argument is retained for call-site compatibility and is
+    deliberately ignored: every knowledge source shares one collection
+    because that is the only name the reader knows.
+
+    KNOWN GAP, stated rather than papered over: the Qdrant payload written
+    by cm024_knowledge carries no source field (qdrant_store.py ~L240), so
+    once several sources share this collection their chunks are no longer
+    separable at read time. The markdown frontmatter DOES carry ``source``
+    (ingestion/markdown_writer.py) and the embed path parses that
+    frontmatter for six other fields while dropping this one, so closing
+    the gap is small -- but it is a change to a different vendored tree and
+    does not belong in this commit. Filed alongside it.
+    """
+    return KNOWLEDGE_COLLECTION
 
 
 # Privacy cap: the highest compartment level (sensitivity) that may be

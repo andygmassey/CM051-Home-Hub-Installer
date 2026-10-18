@@ -33,6 +33,10 @@
 #   5. the version and the artefact sha were MEASURED off the box, not
 #      asserted -- the record's own *_source fields say which, and until #931
 #      nothing read them
+#   6. the walk was a CONSOLE walk, declared by whoever was at the box. An ssh
+#      thin walk cannot grant TCC, cannot answer a GUI sheet, and cannot see
+#      first launch, so it does not authorise a customer-facing repoint. Absent
+#      declaration reads as thin, never as unknown-therefore-fine.
 #
 # EXIT CODES -- CANNOT-RUN IS NOT A PASS AND NOT A FAIL
 #   0  a clean walk of this exact version is on record
@@ -164,6 +168,66 @@ for f in pass fail cannot_run broken; do
         exit 2
     fi
 done
+
+# --- a human must have been at the console -----------------------------------
+#
+# 🔴 THIS FILE'S OWN HEADER HAS ALWAYS SAID "the cut publishes; A HUMAN WALKS;
+# the walk writes evidence", AND UNTIL NOW IT COULD NOT READ THAT. The record
+# carried no field distinguishing an ssh thin walk from a console walk, so the
+# sentence was a description of intent sitting above a gate that did not check
+# it.
+#
+# WHAT WAS ASSUMED INSTEAD, and it is false. The belief was that a CLEAN verdict
+# implies a console walk: the TCC and GUI probes cannot run over ssh, so they
+# land in cannot_run, and cannot_run > 0 makes the verdict PARTIAL. Measured
+# 2026-09-17 on committed records, denominator first -- 20 records, 20 FAILED,
+# 0 CLEAN in this repo's entire history:
+#
+#   walks/v1.0.88.tsv   pass=25 fail=1 cannot_run=0
+#   walks/v1.0.89.tsv   pass=25 fail=1 cannot_run=0
+#
+# Both ssh thin walks, both cannot_run=0. One probe away from CLEAN, and CLEAN
+# would have repointed the public customer download on the strength of a walk no
+# human ever saw. CLEAN is not even the only door: the FAILED|PARTIAL arm below
+# exits 0 whenever every named non-pass is advisory.
+#
+# ⚠️ WHERE THIS IS CALLED FROM IS THE WHOLE DESIGN, AND MY FIRST VERSION PUT IT
+# IN THE WRONG PLACE. I ran it once, before the verdict, as a single early gate.
+# tests/test_walk_record_gates_customer_download.sh arm 931-9 failed
+# immediately: the live walks/v1.0.44.tsv, a walk that MEASURED REAL DEFECTS on
+# a real box, went from rc=1 to rc=2. That converts evidence of badness into
+# absence of evidence -- the exact inversion this file's own comments warn about
+# two screens down, written after the same mistake was made there.
+#
+# So it is a function, invoked immediately before each of the two exit-0 paths
+# and nowhere else. A record that refuses for a DEFECT keeps refusing for the
+# defect and keeps saying so. Only a record that would otherwise AUTHORISE A
+# PROMOTE is asked who was at the box.
+#
+# FAIL-CLOSED ON ABSENCE, and absence is the common case: every record written
+# before scripts/post_walk_qa.sh gained the field has no walk_kind at all, and
+# each must read as "not a console walk" rather than "unknown, therefore fine".
+# Same doctrine as walk_promote_scope.tsv's unlisted probe.
+_require_console_walk() {
+    local _kind; _kind="$(field walk_kind)"
+    [[ "$_kind" == "console" ]] && return 0
+    echo "[walk-gate] REFUSED: ${RECORD} records walk_kind='${_kind:-<absent>}', not 'console'." >&2
+    echo "            $(field walk_kind_source)" >&2
+    echo "" >&2
+    echo "            Nothing is wrong with this walk. It simply is not the evidence" >&2
+    echo "            this decision needs: passing this gate repoints" >&2
+    echo "            ostler.ai/install.dmg at this build, and an ssh walk grades only" >&2
+    echo "            what ssh can reach. It cannot grant Full Disk Access, cannot" >&2
+    echo "            answer a GUI consent sheet, and cannot see what a customer sees" >&2
+    echo "            on first launch." >&2
+    echo "" >&2
+    echo "            Walk it at the console, then record THAT walk:" >&2
+    echo "              OSTLER_CONSOLE_WALK=\"<who was at the console, when, what they granted>\" \\" >&2
+    echo "                  scripts/post_walk_qa.sh <box-host> ${VERSION}" >&2
+    echo "" >&2
+    echo "            Exit 2: absence of the evidence, not evidence of a defect." >&2
+    exit 2
+}
 
 # --- the verdict must agree with the counts ----------------------------------
 # A record is a claim plus its evidence. If they disagree, the claim is the
@@ -398,7 +462,41 @@ _adjudicate_scoped() {
     # error the assistant probe made with a timeout, and the pairing probe made
     # with a non-answer. Both still refuse. They send the operator to different
     # places, and that is the whole value of saying which is which.
-    local blk_failed=() blk_notmeas=()
+    local blk_failed=() blk_notmeas=() blk_broken=()
+
+    # A PROBE THAT FAILED ITS OWN NEGATIVE CONTROL IS NEVER A CANDIDATE FOR
+    # ADVISORY SCOPE, AND UNTIL THIS BLOCK IT WAS INVISIBLE HERE.
+    #
+    # broken_probe rows (written by the BROKEN_NAMES loop in post_walk_qa.sh)
+    # name a probe whose own self-test did not behave as its control demands.
+    # Phase 2 skips it, so it
+    # measured NOTHING -- not a defect, not a clean bill of health, in either
+    # direction. The caller builds its non-pass list from failed_probe and
+    # not_measured_probe rows only (see the awk two lines above the call site),
+    # so a record could carry a broken probe ALONGSIDE a failed_probe that gets
+    # scoped advisory below, and the broken probe would never enter this
+    # function at all: blocking would end up empty, and the promote would read
+    # "every ARTEFACT-OWNED probe passed" about a probe nobody ever looked at.
+    #
+    # Read directly off $RECORD, bypassing _scope_of on purpose: the scope file
+    # answers "does this failure describe the artefact", which presupposes the
+    # measurement can be trusted. A broken probe fails that presupposition, so
+    # it is unconditionally blocking and cannot be declared advisory by any row
+    # in walk_promote_scope.tsv.
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && blk_broken+=("$p")
+    done < <(awk -F'\t' '$1=="broken_probe" {print $2}' "$RECORD")
+
+    # SAME COMPLETENESS DISCIPLINE AS failed_probe BELOW. post_walk_qa.sh writes
+    # no "N of M" counter for broken probes, but the record's own `broken` count
+    # is the ground truth: fewer broken_probe rows than that count means at
+    # least one broken probe is unnamed, and an unnamed one cannot be checked.
+    if [[ "${N_BROKEN:-0}" -gt "${#blk_broken[@]}" ]]; then
+        echo "[walk-gate] REFUSED: ${RECORD} reports broken=${N_BROKEN} but only" >&2
+        echo "            ${#blk_broken[@]} broken_probe row(s) are named. An unnamed" >&2
+        echo "            broken probe cannot be checked. CANNOT-RUN, not a pass." >&2
+        exit 2
+    fi
 
     # THE LIST MUST BE COMPLETE. "6 of 8" means two failures are unnamed, and an
     # unnamed failure cannot be checked against the scope. That is CANNOT-RUN.
@@ -417,6 +515,25 @@ _adjudicate_scoped() {
         echo "            failed_probe_names_recorded field, so WHICH probes failed is unknown." >&2
         exit 2
     fi
+
+    # 🔴 EMPTY-ARRAY EXPANSION IS AN ERROR UNDER bash 3.2, WHICH IS THE SHELL
+    # THE CUT HOST RUNS. `"${arr[@]}"` on an empty array under `set -u` is an
+    # unbound-variable error in 3.2 and legal only from 4.4. This line is
+    # reached on EVERY record that is not clean, so the gate died before it
+    # could refuse, anonymously, on exactly the inputs it exists to judge.
+    #
+    # CI never saw it: walk-record-gate.yml runs ubuntu-latest, where bash is
+    # 5.x. The crash lives only on the path publish_release.sh takes on a Mac
+    # without Homebrew bash, which is the host that matters.
+    #
+    # Reproduced and fixed both directions under /bin/bash 3.2.57:
+    #   old form, empty array      -> blk_broken[@]: unbound variable
+    #   new form, empty array      -> survives, 0 entries carried
+    #   new form, two entries      -> survives, 2 entries carried
+    #
+    # The ${arr[@]+"${arr[@]}"} form expands to nothing when unset and to the
+    # quoted elements otherwise, so it is not a workaround that loses data.
+    blocking+=(${blk_broken[@]+"${blk_broken[@]}"})
 
     for p in "$@"; do
         sc="$(_scope_of "$p")"
@@ -460,6 +577,13 @@ _adjudicate_scoped() {
             echo "            stores are still empty, by design. If this was a fresh install," >&2
             echo "            let it finish ingesting and walk again." >&2
         fi
+        if [[ ${#blk_broken[@]} -gt 0 ]]; then
+            echo "            BROKEN -- these failed their OWN negative control. They measured" >&2
+            echo "            NOTHING, in either direction, and are never eligible for advisory" >&2
+            echo "            scope: a failure this gate cannot trust is not a failure it can wave" >&2
+            echo "            through either." >&2
+            for p in "${blk_broken[@]}"; do echo "              - ${p}" >&2; done
+        fi
         # WHICH BOX STATE DID THEY DESCRIBE? A reset does NOT wipe: ttywalk.sh
         # runs the shipped uninstaller if it can find one and says so when it
         # cannot, and it says in that same output that any probe reading the
@@ -482,6 +606,37 @@ _adjudicate_scoped() {
                 echo "            artefact. Still refused -- but debug the data, not the build." >&2 ;;
             *)
                 echo "            stores_provenance: ${_stores}" >&2 ;;
+        esac
+        # GROUNDING SEED. The sibling of the block above, and it disambiguates
+        # the single most-failed probe in the corpus. assistant_answers_grounded
+        # is red on 17 of the 21 committed records, and an UNSEEDED box and a
+        # BROKEN product produce exactly the same red. Until this field existed,
+        # not one of those 17 said which it was.
+        #
+        # PURELY INFORMATIONAL, like the block above: it changes what a human
+        # debugs next, never whether the promote is allowed.
+        _seed="$(field grounding_seed)"
+        case "${_seed}" in
+            '')
+                echo "            grounding_seed: ABSENT from this record. It predates the field," >&2
+                echo "            so whether a grounded-answer red means an unseeded box or a" >&2
+                echo "            broken product is NOT RECORDED. Those are different defects." >&2 ;;
+            seeded*)
+                echo "            grounding_seed: SEEDED. A grounded-answer red here is about the" >&2
+                echo "            product, because the fact the probe asks for was put there first." >&2 ;;
+            skipped*)
+                echo "            grounding_seed: SKIPPED. The probe ran UNSEEDED, so a red says" >&2
+                echo "            nothing about grounding: there was no planted fact to find." >&2 ;;
+            absent*|failed*)
+                echo "            grounding_seed: ${_seed}. The seed did NOT apply, so a" >&2
+                echo "            grounded-answer red is NOT evidence against the build. Fix the" >&2
+                echo "            seed oracle and walk again before debugging the product." >&2 ;;
+            not-recorded*)
+                echo "            grounding_seed: ${_seed}" >&2
+                echo "            The marker could not be read. That is CANNOT-RUN for this field," >&2
+                echo "            not a seeded box and not an unseeded one." >&2 ;;
+            *)
+                echo "            grounding_seed: ${_seed}" >&2 ;;
         esac
         # EVIDENCE OF BADNESS OUTRANKS ABSENCE OF EVIDENCE. That rule is already
         # stated forty lines up, for records naming no probes; this applies it to
@@ -507,7 +662,8 @@ _adjudicate_scoped() {
 
 case "$VERDICT" in
     CLEAN)
-        echo "[walk-gate] OK: ${VERSION} walked clean on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
+        _require_console_walk
+        echo "[walk-gate] OK: ${VERSION} walked clean at the console on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
         exit 0
         ;;
     FAILED|PARTIAL)
@@ -545,7 +701,11 @@ case "$VERDICT" in
             exit 2
         fi
         _adjudicate_scoped "$VERDICT" "${_NONPASS[@]}"
-        echo "[walk-gate] OK: ${VERSION} -- every ARTEFACT-OWNED probe passed."
+        # Reached only when every named non-pass is advisory, i.e. this record
+        # is about to authorise a promote despite a non-CLEAN verdict. Same
+        # question, same door.
+        _require_console_walk
+        echo "[walk-gate] OK: ${VERSION} -- every ARTEFACT-OWNED probe passed, and it was walked at the console."
         echo "            Record verdict stays ${VERDICT} (pass=${N_PASS} fail=${N_FAIL} cannot_run=${N_CANNOT} broken=${N_BROKEN});"
         echo "            the scoreboard is unchanged and the advisory reds above are unclosed."
         exit 0

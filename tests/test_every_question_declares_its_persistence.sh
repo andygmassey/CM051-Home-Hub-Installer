@@ -47,7 +47,15 @@ PERSISTED="USER_ID USER_NAME ASSISTANT_NAME USER_TZ COUNTRY_CODE
            CHANNEL_EMAIL_IMAP_HOST CHANNEL_EMAIL_SMTP_HOST CHANNEL_EMAIL_USERNAME"
 TRANSIENT="REUSE TZ_CONFIRM CC_CONFIRM RP_CONFIRM PERMS_OK ACK_PASSKEY
            IMPORT_CONFIRM TAKEOUT_CONFIRM FV_CONTINUE MANUAL_PATH CONSENT"
-SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD"
+SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD _DISNEY_XLSX_PASSWORD"
+#
+# _DISNEY_XLSX_PASSWORD (task #270 second pass, Andy's ruling "Installer
+# should ask"): a password for one Disney+ export's encrypted spreadsheet,
+# asked only when that export is detected. Never written to config/.env or
+# any other artefact -- it is exported as DISNEY_XLSX_PASSWORD for the one
+# Phase 3 import call that needs it and unset immediately after. A reuse run
+# is expected to ask again if the same encrypted export is still present;
+# there is nothing to restore.
 #
 # ⚠️ CONSENT WAS IN THIS LIST AND WAS WRONG. I put it here on the strength of
 # its NAME. Read: it resolves to INSTALL or CANCEL at install.sh:10102 and does
@@ -89,9 +97,42 @@ SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD"
 # are still real decisions with no durable home; they are not consent tickboxes
 # and none of them gates a data feed, which is why they were not in the same
 # change. Do not raise this ceiling to accommodate them.
+# TERMS_PERSONAL_USE joins the PERSISTED six on the same measurement they were
+# admitted on, not on the strength of its name. Its decision variable is now in
+# the ENVEOF block, so a reuse run sources config/.env and restores exactly the
+# variable the recorder reads. Checked before claiming it: the raw answer is
+# read only by its own CANCEL test, and the durable artefact is
+# OSTLER_CONSENT_PERSONAL_USE_DECISION, which is what the recorder is guarded
+# on. Without that .env line this would have been a GAP, and a GAP for a
+# LICENCE TERM means a reuse run silently records nothing while the customer
+# sees an accept.
 PERSISTED="${PERSISTED}
-           THIRD_PARTY ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE"
-GAP="PRESET SAVE_KEYCHAIN TAILSCALE_CONFIRM"
+           THIRD_PARTY ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE
+           TERMS_PERSONAL_USE"
+#
+# TAILSCALE_CONFIRM joins them (#1539), and it was the one GAP entry whose
+# question a reuse run could actually reach. MEASURED BY EXECUTING the late
+# prompt block against a reuse run, not by reading indentation: with the
+# customer's previous answer of "skip" restored and SHOWN_EARLY unset, the
+# fallback asked again and the prompt default replaced "skip" with "setup".
+#
+#   PRESET           gui_read at install.sh:10380, INSIDE the SKIP_PHASE2
+#                    guard (8416 to 11207), so a reuse run never reaches it.
+#   SAVE_KEYCHAIN    gui_read at install.sh:32699, inside the block that mints
+#                    a NEW recovery key, which a reuse over an existing
+#                    install does not do.
+#   TAILSCALE_CONFIRM  gui_read at install.sh:26801, OUTSIDE both guards, and
+#                    it ran.
+#
+# It is classified on the same rule as the six above: the classification is on
+# the DECISION and its durable home, not on the question. Its home is a
+# TAILSCALE_CONFIRM= line in config/.env, written by the ENVEOF block AND by a
+# persist-with-read-back immediately after the late prompt, because the .env
+# writer runs far above that prompt and an answer given there would otherwise
+# never be in the file. The reuse path already sources config/.env, so the
+# value comes back under the name the fallback reads.
+PERSISTED="${PERSISTED} TAILSCALE_CONFIRM"
+GAP="PRESET SAVE_KEYCHAIN"
 
 _declared() {
     local v="$1" b
@@ -145,7 +186,8 @@ fi
 
 # ── The ratchet: the GAP list may only shrink ────────────────────────────
 gap_n=0; for v in $GAP; do gap_n=$((gap_n+1)); done
-CEILING=3
+# 3 -> 2 on #1539. The ratchet may only DECREASE; this is that decrease.
+CEILING=2
 if [ "$gap_n" -le "$CEILING" ]; then
     ok "unpersisted-decision backlog is ${gap_n} (ceiling ${CEILING}, may only DECREASE)"
 else

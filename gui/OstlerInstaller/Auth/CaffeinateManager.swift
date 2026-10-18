@@ -33,10 +33,32 @@
 //   -u   declare user-active, ensuring the screen stays on for the
 //        full install window
 //
-// We deliberately omit -w (wait-for-pid) and -t (timeout) because
-// the lifetime is bound to the parent Swift process, which calls
-// `stop()` from InstallerCoordinator.handleTermination() on every
-// install end path (success, failure, cancel, user quit).
+// -w IS PASSED, and the comment here used to say it deliberately was
+// not. The claim it rested on -- that "the lifetime is bound to the
+// parent Swift process, which calls `stop()` ... on every install end
+// path (success, failure, cancel, user quit)" -- was false in two
+// directions at once.
+//
+//   1. `stop()` had ONE call site, in
+//      InstallerCoordinator.handleTermination(), which is the INSTALL
+//      SUBPROCESS handler. A user quit does not go through it, and the
+//      target had no app-termination hook at all (measured: zero hits
+//      for applicationWillTerminate / NSApplicationDelegate /
+//      willTerminateNotification across gui/, with `onAppear` as a
+//      live control in the same grep shape).
+//
+//   2. Nothing binds a child's lifetime to its parent on macOS. An
+//      orphaned `caffeinate -dimsu` reparents to launchd and keeps its
+//      IOPMAssertion, so the customer's Mac would not sleep again
+//      until they rebooted.
+//
+// `-w <our pid>` closes the half a Swift-side hook cannot: caffeinate
+// exits when OUR process does, including on a crash or SIGKILL where
+// no handler of ours gets to run. InstallerAppDelegate's
+// applicationWillTerminate (App.swift) still calls `stop()` so the
+// ordinary quit releases promptly rather than at process teardown.
+// -t (timeout) is still omitted: an install has no predictable
+// duration and a wrong ceiling would let the Mac sleep mid-install.
 //
 // What we lose vs the previous pmset path:
 //
@@ -63,6 +85,17 @@ final class CaffeinateManager {
 
     private var process: Process? = nil
 
+    /// The exact argv handed to /usr/bin/caffeinate. Split out as a pure
+    /// function so a unit test can assert the `-w <pid>` binding is
+    /// present WITHOUT spawning a real caffeinate and then having to
+    /// clean up a live power assertion on the test host.
+    /// `nonisolated` because it touches no state: it is a pure mapping
+    /// from a pid to an argv, and the test asserting it should not have
+    /// to hop to the main actor to read a constant.
+    nonisolated static func arguments(watchingPid pid: pid_t) -> [String] {
+        ["-dimsu", "-w", String(pid)]
+    }
+
     /// Spawn `caffeinate -dimsu` if one is not already running.
     /// Returns the pid on success, nil if launch failed (which is
     /// non-fatal: install.sh will still run, the machine may sleep
@@ -81,7 +114,7 @@ final class CaffeinateManager {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-        proc.arguments = ["-dimsu"]
+        proc.arguments = Self.arguments(watchingPid: ProcessInfo.processInfo.processIdentifier)
         // Detach stdio: caffeinate produces no output on the happy
         // path; we don't want its (empty) pipe sticking around in
         // file-descriptor land for the lifetime of the install.

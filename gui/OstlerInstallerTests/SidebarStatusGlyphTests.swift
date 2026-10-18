@@ -91,18 +91,120 @@ final class SidebarStatusGlyphTests: XCTestCase {
     /// returning one shared value, the inequality assertions above
     /// would still be the only thing catching it. This asserts the
     /// mapping actually discriminates across the whole enum.
+    /// THE AXIS THE SUITE DID NOT HAVE, AND THE ONE A CUSTOMER SEES.
+    ///
+    /// Every assertion above compares finished states to OTHER FINISHED
+    /// STATES. None of them asks whether a finished state can be mistaken
+    /// for a step that has NOT finished, because "pending" and "running"
+    /// are not StepStatus cases -- pending is the ABSENCE of a STEP_END and
+    /// is drawn in SidebarView, running is a ProgressView spinner.
+    ///
+    /// So on 2026-09-24 `unmeasured` shipped as `circle.dashed` while
+    /// pending was `circle`, the suite was fully green, and fourteen
+    /// COMPLETED steps rendered as though they were still going. Andy found
+    /// it by looking at the installer for thirty seconds. A control that
+    /// only compares within one compartment cannot see across the boundary
+    /// that matters.
+    ///
+    /// These two literals are the glyphs SidebarView draws for the
+    /// unfinished states. If SidebarView changes them, this test must
+    /// change with it -- which is the point: the collision becomes a thing
+    /// somebody has to look at, rather than a thing nobody owns.
+    func testNoStatusGlyphCollidesWithAnUnfinishedStep() {
+        let pendingSymbol = "circle"          // SidebarView: not started
+        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail, .unmeasured]
+
+        for status in all {
+            let glyph = StepStatusGlyph.forStatus(status)
+            XCTAssertNotEqual(
+                glyph.symbolName, pendingSymbol,
+                "\(status) is drawn with the NOT-STARTED glyph, so a finished step reads as pending"
+            )
+        }
+
+        // The specific regression: done-but-unverified must READ as done.
+        // A tick carries completion; muted ink and no fill carry "nobody
+        // checked". Asserting the family rather than the exact string so a
+        // later restyle inside the checkmark family does not fail this,
+        // while a return to a bare or dashed circle does.
+        let unmeasured = StepStatusGlyph.forStatus(.unmeasured)
+        XCTAssertTrue(
+            unmeasured.symbolName.hasPrefix("checkmark"),
+            "unmeasured must read as COMPLETE, not as an empty circle a customer reads as stuck"
+        )
+        XCTAssertFalse(
+            unmeasured.symbolName.contains("dashed"),
+            "a dashed circle is indistinguishable from the pending circle at a glance"
+        )
+
+        // #2318's property MOVED on 2026-09-24, it did not go away. The
+        // sidebar now draws a finished step as finished either way, on Andy's
+        // decision, so the two assertions that used to sit here would
+        // contradict it. What they were really protecting is the WIRE, and
+        // that is asserted here instead -- deliberately in this test, so the
+        // rule travels with the glyph it used to constrain.
+        XCTAssertFalse(
+            StepStatus.unmeasured.isMeasured,
+            "the sidebar stopped showing the measured/unmeasured split; the WIRE must not. "
+            + "If this fails, `ok by default` is back and the pixels are the least of it."
+        )
+        XCTAssertTrue(
+            StepStatus.ok.isMeasured,
+            "a measured success must still say so on the wire"
+        )
+    }
+
     func testEveryStatusMapsToADistinctSeverityBucketWhereIntended() {
-        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail]
+        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail, .unmeasured]
         let glyphs = all.map { StepStatusGlyph.forStatus($0) }
 
         // warn and error intentionally share; everything else is unique.
+        // #2318: `unmeasured` shares the INFORMATIONAL bucket with
+        // `timeout` (neither is an alarm) but must keep its own glyph --
+        // "we gave up waiting" and "we never looked" are different facts.
+        // 🔴 REWRITTEN 2026-09-24 ON ANDY'S DECISION, watching his own
+        // console walk: a FINISHED step reads as finished in the customer's
+        // sidebar, measured or not. `unmeasured` therefore shares the glyph
+        // AND the severity of `ok`, deliberately, so the counts below drop
+        // by one each.
+        //
+        // The assertions this replaces said "unmeasured must not wear the
+        // green tick". That was the right rule for a WIRE and the wrong one
+        // for a SIDEBAR: it put an engineering distinction in front of a
+        // customer who cannot act on it. They are not deleted to make a red
+        // go away -- the property they protected has MOVED, and the test
+        // below now asserts it where it actually lives.
         let buckets = Set(glyphs.map { $0.severity })
         XCTAssertEqual(buckets.count, 4,
-                       "expected done / informational / alert / fatal")
+                       "expected done / informational / alert / fatal -- `timeout` still holds "
+                       + "informational on its own now that unmeasured has moved to done")
 
         let symbols = Set(glyphs.map { $0.symbolName })
         XCTAssertEqual(symbols.count, 4,
-                       "expected four distinct glyphs across five states")
+                       "expected four distinct glyphs: ok+unmeasured share, warn+error share")
+
+        // THE CUSTOMER-FACING RULE, stated positively.
+        XCTAssertEqual(StepStatusGlyph.forStatus(.unmeasured).symbolName,
+                       StepStatusGlyph.forStatus(.ok).symbolName,
+                       "a finished step must read as finished, whether or not it was verified")
+
+        // AND THE PROPERTY #2318 ACTUALLY PROTECTS, WHICH IS NOT A PIXEL.
+        // The distinction lives in the WIRE and must survive this change in
+        // full: an operator reading STEP_END, the marker stream or
+        // walks/*.tsv must still be able to tell a measured success from a
+        // step that measured nothing. If this ever fails, `ok by default`
+        // has come back and the sidebar is the least of it.
+        XCTAssertTrue(StepStatus.ok.isMeasured,
+                      "ok must still report as measured on the wire")
+        XCTAssertFalse(StepStatus.unmeasured.isMeasured,
+                       "unmeasured must still report as UNMEASURED on the wire -- "
+                       + "the sidebar stopped showing the distinction, the log must not")
+        XCTAssertNotEqual(StepStatus.ok, StepStatus.unmeasured,
+                          "the two states must remain distinct values, not merged")
+
+        XCTAssertNotEqual(StepStatusGlyph.forStatus(.unmeasured).severity,
+                          StepStatusGlyph.forStatus(.error).severity,
+                          "unmeasured must not be drawn as an alert")
 
         for g in glyphs {
             XCTAssertFalse(g.symbolName.isEmpty)
@@ -144,7 +246,7 @@ final class SidebarStatusGlyphTests: XCTestCase {
     /// one renders the raw dotted key to VoiceOver at runtime.
     func testAccessibilityKeysResolveInTheCatalogue() throws {
         let sidebar = try sidebarCopy()
-        for status in [StepStatus.ok, .timeout, .warn, .error, .fail] {
+        for status in [StepStatus.ok, .timeout, .warn, .error, .fail, .unmeasured] {
             let key = StepStatusGlyph.forStatus(status).accessibilityCopyKey
             // "sidebar.status_ok" -> "status_ok"
             let leaf = String(key.split(separator: ".").last ?? "")

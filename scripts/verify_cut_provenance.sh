@@ -284,6 +284,23 @@ while IFS='|' read -r kind target pattern desc; do
         info "the daemon tag predates this fix; re-tag from a main HEAD that contains it"
       fi
       ;;
+    assistant_tag_absent)
+      # The mirror of assistant_tag_grep: `target` must NOT exist in the exact
+      # tag the daemon is built from (e.g. a broken vendored file a fix
+      # deleted). Pair every row with an assistant_tag_grep on a sibling file,
+      # so a mistyped path cannot pass by being absent everywhere.
+      if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
+        cannot "assistant_tag_absent ${target} :: ostler-assistant checkout absent at ${ASSISTANT_DIR} -- this check observed nothing (${desc})"; continue
+      fi
+      if [[ -z "${DAEMON_TAG}" ]] || ! git -C "${ASSISTANT_DIR}" rev-parse -q --verify "${DAEMON_TAG}^{commit}" >/dev/null 2>&1; then
+        red "assistant_tag_absent ${target} :: no readable tag for pin '${DAEMON_PIN}' (${desc})"; continue
+      fi
+      if git -C "${ASSISTANT_DIR}" cat-file -e "${DAEMON_TAG}:${target}" 2>/dev/null; then
+        red "assistant_tag_absent ${DAEMON_TAG}:${target} PRESENT -- STALE DAEMON SOURCE (${desc})"
+      else
+        green "assistant_tag_absent ${DAEMON_TAG}:${target} absent (${desc})"
+      fi
+      ;;
     wiki_image_grep)
       # Verify a fix is baked into the PINNED wiki Docker image digest the cut
       # actually ships (install.sh `image: ghcr.io/...@sha256:...`). This closes
@@ -442,6 +459,26 @@ if [[ "${CANNOT}" -gt 0 ]]; then
   echo "  exit 2, distinct from the exit 1 that names a defect."
   echo "  On a hosted runner this usually means the ostler-assistant checkout is"
   echo "  absent: supply it and set OSTLER_ASSISTANT_DIR."
+  exit 2
+fi
+# THE ANTI-VACUITY FLOOR. EXAMINING NOTHING MUST NEVER PRINT GREEN.
+#
+# By this point FAIL and CANNOT are both proven zero, so the only way PASS can
+# also be zero is that every marker row was filtered out of this invocation --
+# by ONLY_KINDS/SKIP_KINDS, or because the manifest held nothing to run. That
+# is not evidence the estate is clean; it is evidence this run looked at
+# nothing, and the two must not read the same on the one line an operator
+# tails. Demonstrated live: OSTLER_PROVENANCE_ONLY_KINDS set to a kind that
+# does not exist printed "0 pass / 0 fail / 0 could-not-run / 47 not-run-here"
+# and then PROVENANCE GREEN, exit 0. A typo'd kind filter, or a future manifest
+# edit that empties one side of the cut workflow's two-job split, must refuse
+# here rather than certify a cut it never inspected.
+if [[ "${PASS}" -eq 0 ]]; then
+  echo "  PROVENANCE CANNOT-RUN -- 0 pass / 0 fail / 0 could-not-run (${SKIPPED} not-run-here)."
+  echo "  This invocation examined NOTHING: every marker row was filtered out of"
+  echo "  scope (only=${ONLY_KINDS:-<all>} skip=${SKIP_KINDS:-<none>}), or the"
+  echo "  manifest held no rows at all. Silence here proves nothing about the"
+  echo "  artefact. Fail-closed, exit 2 -- an empty run is not a green one."
   exit 2
 fi
 echo "  PROVENANCE GREEN -- every merged fix is present. Safe to cut."

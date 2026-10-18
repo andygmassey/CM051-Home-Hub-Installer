@@ -19,9 +19,11 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from collections import defaultdict
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -40,12 +42,12 @@ from identity_resolver.normalise import (
     normalise_phone,
 )
 from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
-from identity_resolver.canonical_name import (
-    choose_canonical_display_name,
-    prefer_real_given_name,
-)
+from identity_resolver.canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
 
 logger = logging.getLogger(__name__)
+
+from . import exact_identifier, merge_journal, retirement
+from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
 
@@ -57,6 +59,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "review_threshold": 0.5,
     # Detection weights
     "exact_name_confidence": 0.9,
+    # DMG #27: a "Same person?" suggestion. Above review_threshold so it is
+    # offered, below auto_merge_threshold so it is NEVER merged automatically.
+    "same_name_suggest_confidence": 0.6,
     "email_match_confidence": 1.0,
     # Shared LinkedIn profile URL is an exact identifier (RULE 1): always merge.
     "linkedin_url_match_confidence": 1.0,
@@ -93,9 +98,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Fuzzy thresholds
     "fuzzy_jaro_winkler_threshold": 0.85,
     "fuzzy_levenshtein_max_distance": 2,
+    # Wall-clock backstop for the quadratic duplicate scan. Measured on the
+    # founder graph after the eager-edit-distance fix: 3,604 contacts /
+    # 6,492,606 pairs in 11.8s, so 60s is roughly a 5x headroom on today's
+    # shape rather than a limit anybody normally meets. Exceeding it yields a
+    # PARTIAL report that says so. Set to 0 to disable the bound.
+    "fuzzy_match_max_seconds": 60.0,
     # Phone normalisation
-    "default_country_code": 852,
-    # Common free email domains — too generic to count as a signal for fuzzy matching
+    "default_country_code": None,  # Archie 2026-10-01: no operator default; set from the installer env
+    # Common free email domains – too generic to count as a signal for fuzzy matching
     "common_email_domains": {
         "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
         "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
@@ -134,6 +145,10 @@ class PersonRecord:
     email_domains: Set[str] = field(default_factory=set)
     linkedin_urls: Set[str] = field(default_factory=set)
     triple_count: int = 0
+    # Every employer the node carries (``organization`` keeps the first one
+    # for the existing callers) and every Contacts card behind it.
+    organizations: Set[str] = field(default_factory=set)
+    contact_card_uids: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -161,6 +176,7 @@ class MergeAction:
     strategy: str
     details: str
     executed: bool = False
+    merge_id: str = ""
 
 
 @dataclass
@@ -197,6 +213,47 @@ def _levenshtein(s1: str, s2: str) -> int:
     return prev[-1]
 
 
+def _levenshtein_within(s1: str, s2: str, max_dist: int) -> int:
+    """Levenshtein distance, ABANDONED as soon as it provably exceeds max_dist.
+
+    🔴 THE RETURN VALUE IS ONLY VALID FOR A ``> max_dist`` TEST. When the true
+    distance is <= max_dist this returns it exactly; when it is greater this
+    returns SOME value greater than max_dist, not necessarily the true one.
+    Never print this number or put it in evidence -- call :func:`_levenshtein`
+    for that, and only for the few pairs that actually survive the gate.
+
+    Why this exists: :func:`detect_fuzzy_name_matches` is O(n^2) over the whole
+    address book, and it used to run a FULL edit-distance DP on every pair. On
+    the founder graph that is 3,604 contacts = 6,492,606 pairs, and the endpoint
+    that calls it (GET /api/v1/contacts/diff) did not return inside 90 seconds.
+    Two cut-offs make the same answer cheap:
+
+      * a length delta above max_dist already PROVES the distance exceeds it,
+        so the DP never starts (max_dist is 2, so most pairs die here);
+      * within the DP, once an entire row's minimum exceeds max_dist, every
+        later row's minimum is >= it, so no completion can come back under the
+        bound.
+    """
+    if len(s1) < len(s2):
+        s1, s2 = s2, s1
+    # A length difference alone forces at least that many edits.
+    if len(s1) - len(s2) > max_dist:
+        return max_dist + 1
+    if len(s2) == 0:
+        return len(s1)
+    prev = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + (c1 != c2)))
+        # Rows are non-decreasing in their minimum, so this is a real proof,
+        # not a heuristic.
+        if min(curr) > max_dist:
+            return max_dist + 1
+        prev = curr
+    return prev[-1]
+
+
 def has_hard_conflict(
     a: PersonRecord, b: PersonRecord, config: Dict[str, Any]
 ) -> Optional[str]:
@@ -227,6 +284,30 @@ def has_hard_conflict(
     return None
 
 
+_ORG_SUFFIXES = frozenset({
+    "ltd", "limited", "inc", "incorporated", "llc", "llp", "plc", "gmbh",
+    "co", "corp", "corporation", "company", "group", "the",
+})
+
+
+def _org_tokens(org: str) -> frozenset:
+    words = re.sub(r"[^\w\s]", " ", (org or "").lower()).split()
+    return frozenset(w for w in words if w not in _ORG_SUFFIXES)
+
+
+def employers_overlap(a: PersonRecord, b: PersonRecord) -> bool:
+    """True when the two records share an employer. Compared on the words of
+    the organisation name without legal suffixes, so "ACME Ltd" and "Acme" are
+    one employer; a one-sided word subset counts ("Acme" vs "Acme Corp")."""
+    orgs_a = [t for t in (_org_tokens(o) for o in (a.organizations or {a.organization})) if t]
+    orgs_b = [t for t in (_org_tokens(o) for o in (b.organizations or {b.organization})) if t]
+    return any(x <= y or y <= x for x in orgs_a for y in orgs_b)
+
+
+def _has_employer(p: PersonRecord) -> bool:
+    return any(_org_tokens(o) for o in (p.organizations or {p.organization}))
+
+
 def detect_exact_name_matches(
     persons: Dict[str, PersonRecord], config: Dict[str, Any]
 ) -> List[DuplicateMatch]:
@@ -235,6 +316,27 @@ def detect_exact_name_matches(
     Hard-conflict veto applies (spec §3b): two records with an identical name
     but a conflicting verified identifier are different people (the two real
     John Smiths), so they are never matched.
+
+    SAME NAME, DMG #27 (Archie ruling: SUGGEST only, no automatic merge). One
+    real contact was split across three nodes: identical full name, different
+    employer cards, no shared phone or email. Two outcomes are added, and both
+    only ever reduce merging:
+
+    - both records name an employer and the employers do NOT overlap: two
+      people with a common name at different employers. They stay apart (this
+      used to auto-merge at 0.9 when neither held an identifier), UNLESS every
+      record is a card in the owner's own Contacts, which is the split-contact
+      shape: then it is a "Same person?" suggestion for the owner to confirm.
+    - two different Contacts cards with an identical name and overlapping (or
+      absent) employers: a "Same person?" suggestion. RULE 2 forbids merging
+      two cards automatically; previously the pair was planned as an auto-merge
+      and refused at execution.
+
+    A suggestion is a ``same_name_suggest`` match at
+    ``same_name_suggest_confidence``, which is above the review threshold and
+    below the auto-merge threshold: it lands in ``needs_review`` and is never
+    merged without the owner. A conflicting phone, email domain or LinkedIn
+    URL still vetoes everything.
     """
     by_name: Dict[str, List[str]] = defaultdict(list)
     for uri, p in persons.items():
@@ -253,6 +355,32 @@ def detect_exact_name_matches(
                 # Hard-conflict veto: different LinkedIn / phone / corporate
                 # email = different people, even with identical names.
                 if has_hard_conflict(a, b, config):
+                    continue
+                both_cards = bool(a.contact_card_uids) and bool(b.contact_card_uids)
+                disjoint_employers = (
+                    _has_employer(a) and _has_employer(b) and not employers_overlap(a, b)
+                )
+                if disjoint_employers and not both_cards:
+                    continue  # a common name at different employers: stay apart
+                if disjoint_employers or (
+                    both_cards and a.contact_card_uids != b.contact_card_uids
+                ):
+                    why = ("all cards from your Contacts" if disjoint_employers
+                           else "employers overlap" if (_has_employer(a) and _has_employer(b))
+                           else "both cards from your Contacts")
+                    matches.append(DuplicateMatch(
+                        uri_a=uris[i],
+                        name_a=a.display_name,
+                        uri_b=uris[j],
+                        name_b=b.display_name,
+                        confidence=config["same_name_suggest_confidence"],
+                        strategy="same_name_suggest",
+                        details=(
+                            f"Same person? Identical full name, {why}, no "
+                            "conflicting phone, email or LinkedIn. Not merged "
+                            "until you confirm."
+                        ),
+                    ))
                     continue
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
@@ -284,17 +412,25 @@ def detect_email_matches(
     name_threshold = config.get("email_name_similarity_threshold", 0.7)
     high_conf = config["email_match_confidence"]
     low_conf = config.get("email_name_mismatch_confidence", 0.7)
+    holders = exact_identifier.build_holder_index(persons, _normalise_linkedin_url)
 
     matches = []
     for email, uris in email_index.items():
         if len(uris) < 2:
             continue
+        guarded = exact_identifier.is_guarded(("email", email), holders)
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
                 verdict = names_agree(
                     persons[uris[i]].display_name, persons[uris[j]].display_name
                 )
-                if verdict == "agree":
+                if guarded:
+                    confidence = low_conf
+                    detail = (
+                        f"Shared email: {email} (held by 3+ distinct names, "
+                        f"so a shared inbox and not a merge key)"
+                    )
+                elif verdict == "agree":
                     confidence = high_conf
                     detail = f"Shared email: {email} (names agree)"
                 elif verdict == "disagree":
@@ -339,11 +475,13 @@ def detect_phone_matches(
     name_threshold = config.get("phone_name_similarity_threshold", 0.5)
     high_conf = config["phone_match_confidence"]
     low_conf = config.get("phone_name_mismatch_confidence", 0.6)
+    holders = exact_identifier.build_holder_index(persons, _normalise_linkedin_url)
 
     matches = []
     for phone, uris in phone_index.items():
         if len(uris) < 2:
             continue
+        guarded = exact_identifier.is_guarded(("phone", phone), holders)
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
                 name_a = _normalise_name(persons[uris[i]].display_name)
@@ -351,7 +489,13 @@ def detect_phone_matches(
                 verdict = names_agree(
                     persons[uris[i]].display_name, persons[uris[j]].display_name
                 )
-                if verdict == "agree":
+                if guarded:
+                    confidence = low_conf
+                    detail = (
+                        f"Shared phone: {phone} (held by 3+ distinct names, "
+                        f"so a switchboard or shared handset and not a merge key)"
+                    )
+                elif verdict == "agree":
                     confidence = high_conf
                     detail = f"Shared phone: {phone} (names agree)"
                 elif verdict == "disagree":
@@ -519,10 +663,18 @@ def detect_linkedin_url_matches(
                 url_index[key].append(uri)
 
     confidence = config.get("linkedin_url_match_confidence", 1.0)
+    holders = exact_identifier.build_holder_index(persons, _normalise_linkedin_url)
     matches = []
     for key, uris in url_index.items():
         if len(uris) < 2:
             continue
+        if exact_identifier.is_guarded(("linkedin", key), holders):
+            # One profile URL on 3+ distinct names is a scraping artefact,
+            # not a person: never an automatic merge key.
+            confidence_here = min(
+                confidence, config.get("phone_name_mismatch_confidence", 0.6))
+        else:
+            confidence_here = confidence
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
                 matches.append(DuplicateMatch(
@@ -530,7 +682,7 @@ def detect_linkedin_url_matches(
                     name_a=persons[uris[i]].display_name,
                     uri_b=uris[j],
                     name_b=persons[uris[j]].display_name,
-                    confidence=confidence,
+                    confidence=confidence_here,
                     strategy="linkedin_url_match",
                     details=f"Shared LinkedIn profile URL: {key}",
                 ))
@@ -538,7 +690,9 @@ def detect_linkedin_url_matches(
 
 
 def detect_fuzzy_name_matches(
-    persons: Dict[str, PersonRecord], config: Dict[str, Any]
+    persons: Dict[str, PersonRecord],
+    config: Dict[str, Any],
+    stats: Optional[Dict[str, Any]] = None,
 ) -> List[DuplicateMatch]:
     """Strategy 4: Fuzzy name match via Jaro-Winkler + Levenshtein (confidence 0.6-0.8).
 
@@ -548,6 +702,12 @@ def detect_fuzzy_name_matches(
     = 0.852 due to 4-char prefix bonus), we require either:
     - Very high similarity (JW >= 0.93) for standalone matches, OR
     - Corroboration (same org or shared corporate email domain) for JW 0.85-0.93
+
+    ``stats`` is an optional caller-owned dict. When the scan stops early on the
+    ``fuzzy_match_max_seconds`` budget it is populated with ``truncated=True``
+    plus how far it got, so the caller can tell the customer the report is
+    partial instead of quietly serving a short one. The dict is caller-owned so
+    this stays safe to call from more than one request thread at a time.
     """
     uris = list(persons.keys())
     matches = []
@@ -567,14 +727,36 @@ def detect_fuzzy_name_matches(
     rare_max_holders = config.get("rare_surname_max_holders", 2)
     rare_min_len = config.get("rare_surname_min_length", 3)
 
+    # HOISTED OUT OF THE INNER LOOP. _normalise_name(b.display_name) used to be
+    # recomputed once per PAIR, i.e. 6,492,606 times on the founder graph for
+    # 3,604 distinct values. Normalise once per person instead.
+    norms = [_normalise_name(persons[u].display_name) for u in uris]
+
+    # Wall-clock backstop. The cause of the v1.0.98 wedge is fixed below, but
+    # this loop is still quadratic, so an address book an order of magnitude
+    # larger would walk back into the same shape. Budget exhausted = a PARTIAL
+    # report that says so, never an unbounded scan.
+    budget = config.get("fuzzy_match_max_seconds", 60.0)
+    deadline = (time.monotonic() + budget) if budget and budget > 0 else None
+
     for i in range(len(uris)):
-        a = persons[uris[i]]
-        norm_a = _normalise_name(a.display_name)
+        norm_a = norms[i]
         if not norm_a:
             continue
+        if deadline is not None and time.monotonic() > deadline:
+            if stats is not None:
+                stats["truncated"] = True
+                stats["truncated_reason"] = (
+                    f"duplicate scan stopped after {budget:.0f}s "
+                    f"({i} of {len(uris)} contacts compared)"
+                )
+                stats["compared"] = i
+                stats["total"] = len(uris)
+            break
+        a = persons[uris[i]]
+        len_a = len(norm_a)
         for j in range(i + 1, len(uris)):
-            b = persons[uris[j]]
-            norm_b = _normalise_name(b.display_name)
+            norm_b = norms[j]
             if not norm_b:
                 continue
 
@@ -583,10 +765,21 @@ def detect_fuzzy_name_matches(
                 continue
 
             jw_score = _jaro_winkler(norm_a, norm_b)
-            lev_dist = _levenshtein(norm_a, norm_b)
 
-            if jw_score < jw_threshold and lev_dist > lev_max:
-                continue
+            # 🔴 DO NOT HOIST THE EDIT DISTANCE BACK OUT OF THIS BRANCH.
+            # The gate below is "jw bad AND lev bad -> skip", so the edit
+            # distance only DECIDES anything when jw has already failed its
+            # threshold. It used to be computed eagerly for all 6.49M pairs,
+            # which is why GET /api/v1/contacts/diff did not return inside 90
+            # seconds, and -- the server being single-threaded -- took every
+            # other route down with it while it ran.
+            if jw_score < jw_threshold:
+                if abs(len_a - len(norm_b)) > lev_max:
+                    continue
+                if _levenshtein_within(norm_a, norm_b, lev_max) > lev_max:
+                    continue
+
+            b = persons[uris[j]]
 
             # Hard-conflict veto (spec §3b): different LinkedIn / phone /
             # corporate email = different people, never merge.
@@ -664,6 +857,14 @@ def detect_fuzzy_name_matches(
                     f"(surname '{surname_a}' held by "
                     f"{surname_holder_counts.get(surname_a, 0)})"
                 )
+
+            # THE EXACT DISTANCE, AND THIS IS THE ONLY PLACE IT IS NEEDED.
+            # Deliberately computed AFTER the last `continue` above, so the
+            # full DP is paid for only by pairs that actually become matches
+            # (91 of 6,492,606 on the founder graph). The bounded
+            # _levenshtein_within used by the gate cannot be reused here: its
+            # answer is only valid for a "> lev_max" test, never to print.
+            lev_dist = _levenshtein(norm_a, norm_b)
 
             detail_parts = [
                 f"Jaro-Winkler={jw_score:.3f}",
@@ -810,7 +1011,7 @@ def check_before_insert(
     email: Optional[str] = None,
     phone: Optional[str] = None,
     config: Optional[Dict[str, Any]] = None,
-    default_country_code: int = 852,
+    default_country_code: Optional[int] = None,
 ) -> Optional[str]:
     """Check if a person already exists before creating a new node.
 
@@ -924,6 +1125,14 @@ def _fetch_all_persons(
             ?person a pwg:Person ;
                     pwg:displayName ?name .
             FILTER NOT EXISTS {{ ?person pwg:mergedInto ?merged }}
+            # The owner anchor (pwg:user_<id>, pwg:isOwner true) is never an
+            # auto-merge candidate. It carries the owner's name and nothing
+            # else, so exact_name (0.9, over the 0.8 auto threshold) would
+            # pair it with the owner's own contact card -- or a namesake --
+            # and pick_canonical keeps the side with more triples. Relating
+            # fragments to the owner is lib/ostler-confirm-identity.py's job,
+            # with the owner's confirmation (walk #27).
+            FILTER NOT EXISTS {{ ?person pwg:isOwner true }}
             FILTER NOT EXISTS {{
                 ?person pwg:contactType ?ct .
                 FILTER(LCASE(STR(?ct)) IN (
@@ -943,7 +1152,7 @@ def _fetch_all_persons(
         }}
     """)
 
-    country_code = config.get("default_country_code", 852)
+    country_code = config.get("default_country_code")
     persons: Dict[str, PersonRecord] = {}
     for row in rows:
         uri = row["person"]
@@ -957,8 +1166,12 @@ def _fetch_all_persons(
                 job_title=row.get("title", ""),
             )
         p = persons[uri]
+        if row.get("org"):
+            p.organizations.add(row["org"])
         id_type = row.get("idType", "")
         id_value = row.get("idValue", "")
+        if id_type == "icloud_contact_uid" and id_value:
+            p.contact_card_uids.add(id_value)
         if id_type == "phone" and id_value:
             p.phones.add(normalise_phone(id_value, country_code))
         elif id_type == "email" and id_value:
@@ -1091,10 +1304,44 @@ def _canonical_keys_conflict(
     return None
 
 
+def _all_canonical_conflicts(
+    url: str, client: httpx.Client, uri_a: str, uri_b: str
+) -> Set[str]:
+    """EVERY canonical id_type on which two nodes provably differ.
+
+    _canonical_keys_conflict above returns the FIRST conflict in sorted order
+    (icloud_contact_uid sorts before linkedin_url and whatsapp_lid), so it
+    cannot tell "only the card uid differs" from "the card uid AND the
+    LinkedIn profile differ". The exact-identifier override needs that
+    distinction. LinkedIn values are compared in canonical form so a trailing
+    slash or http/https is not read as a different profile.
+
+    FAILS CLOSED: an unreadable store returns {"unreadable"}, which the
+    override treats as a conflict it may not override.
+    """
+    from identity_resolver.resolver import IdentityResolver
+
+    out: Set[str] = set()
+    for id_type in sorted(IdentityResolver._CANONICAL_ID_TYPES):
+        try:
+            va = _person_canonical_values(url, client, uri_a, id_type)
+            vb = _person_canonical_values(url, client, uri_b, id_type)
+        except httpx.HTTPError:
+            return {"unreadable"}
+        if id_type == "linkedin_url":
+            va = {_normalise_linkedin_url(v) for v in va} - {""}
+            vb = {_normalise_linkedin_url(v) for v in vb} - {""}
+        if va and vb and not (va & vb):
+            out.add(id_type)
+    return out
+
+
 def _merge_oxigraph(
     url: str, client: httpx.Client, keep_uri: str, discard_uri: str,
-) -> None:
-    """Merge discard_uri into keep_uri in Oxigraph."""
+) -> Optional[str]:
+    """Merge discard_uri into keep_uri in Oxigraph. Returns the survivor's new
+    name when the name-tier rule renamed it upward (so the caller can sync
+    Qdrant), else None."""
     now = datetime.now(timezone.utc).isoformat()
 
     # 1. Move identifiers
@@ -1141,6 +1388,11 @@ def _merge_oxigraph(
             f"}}"
         )
 
+    # 5b. NAME TIERS (DMG #27): the survivor takes the highest-tier displayName
+    #     among the merged nodes (human > email > phone). Step 5 only copies
+    #     where keep has none. Equal tiers change nothing.
+    renamed = _rename_survivor_upward_oxigraph(url, client, keep_uri, discard_uri)
+
     # 6. Mark discard as merged
     _sparql_update(url, client,
         f"INSERT DATA {{ "
@@ -1158,10 +1410,12 @@ def _merge_oxigraph(
         f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
     )
 
-    # 7. Remove discard's type triple (no longer a live Person)
-    _sparql_update(url, client,
-        f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
-    )
+    # 7. RETIRE the discard: REPLACE its type, do not merely remove it.
+    #    An untyped node answers every writer's existence check with "no such
+    #    node" and gets re-created on the next ingest. retirement.py carries
+    #    the measurement that proved it.
+    record_person_removal(discard_uri, "identity_resolver.batch_merge", "merge_retire_type")
+    _sparql_update(url, client, retirement.retire_update(discard_uri))
 
     # 8. Collapse accumulated displayName values on the kept node to ONE
     #    canonical value. Step 5 copies every displayName off the discard when
@@ -1170,6 +1424,31 @@ def _merge_oxigraph(
     _canonicalise_display_name_oxigraph(url, client, keep_uri)
 
     logger.info("Oxigraph merge: %s → %s", discard_uri, keep_uri)
+    return renamed
+
+
+def _display_names_oxigraph(url: str, client: httpx.Client, person_uri: str) -> list:
+    rows = _sparql_query(url, client,
+        f"SELECT ?n WHERE {{ <{person_uri}> <{PWG}displayName> ?n }}")
+    return [r["n"] for r in rows if r.get("n")]
+
+
+def _rename_survivor_upward_oxigraph(
+    url: str, client: httpx.Client, keep_uri: str, discard_uri: str,
+) -> Optional[str]:
+    """Mirror of ``IdentityResolver.rename_survivor_upward`` for the batch path.
+    Returns the new name (so the caller can sync Qdrant), or None."""
+    new = upward_name(_display_names_oxigraph(url, client, keep_uri),
+                      _display_names_oxigraph(url, client, discard_uri))
+    if not new:
+        return None
+    _sparql_update(url, client,
+        f"DELETE {{ <{keep_uri}> <{PWG}displayName> ?old }} "
+        f"WHERE {{ <{keep_uri}> <{PWG}displayName> ?old }} ; "
+        f'INSERT DATA {{ <{keep_uri}> <{PWG}displayName> "{_escape(new)}" }}'
+    )
+    logger.info("Survivor %s renamed upward to %r", keep_uri, new)
+    return new
 
 
 def _canonicalise_display_name_oxigraph(
@@ -1213,6 +1492,27 @@ def _canonicalise_display_name_oxigraph(
         person_uri, canonical, len(candidates),
     )
     return canonical
+
+
+def _set_qdrant_display_name(
+    qdrant_url: str, collection: str, person_uri: str, display_name: str,
+) -> bool:
+    """Push a survivor's (upward-renamed) name into its Qdrant point: the Hub's
+    People list reads Qdrant. False when it could not be done or there is no
+    point; never raises (the graph side is already correct)."""
+    try:
+        from qdrant_client import QdrantClient
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+        client = QdrantClient(url=qdrant_url, timeout=10)
+        if not client.retrieve(collection_name=collection, ids=[point_id], with_payload=False):
+            return False
+        client.set_payload(collection_name=collection,
+                           payload={"display_name": display_name, "name": display_name},
+                           points=[point_id])
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Qdrant display-name sync failed for %s: %s", person_uri, exc)
+        return False
 
 
 def _merge_qdrant(
@@ -1415,6 +1715,188 @@ class QdrantReconcileReport:
         return sum(len(g.discard_point_ids) for g in self.groups)
 
 
+@dataclass
+class QdrantOrphanSweepReport:
+    """What the retired-person sweep found, and what it did about it."""
+    total_points: int = 0
+    distinct_person_uris: int = 0
+    retired_uris_in_graph: int = 0
+    orphan_point_ids: List[Any] = field(default_factory=list)
+    deleted: int = 0
+    applied: bool = False
+    backup_path: Optional[str] = None
+
+    @property
+    def orphans(self) -> int:
+        return len(self.orphan_point_ids)
+
+
+def sweep_qdrant_orphans_of_merged_people(
+    qdrant_url: str,
+    collection: str,
+    oxigraph_url: str,
+    *,
+    apply: bool = False,
+    backup_dir: str = "./backups",
+    scroll_batch: int = 256,
+) -> QdrantOrphanSweepReport:
+    """Delete Qdrant points whose person has been MERGED AWAY in the graph.
+
+    WHY THIS EXISTS, AND WHY reconcile_qdrant_by_person_uri DOES NOT COVER IT.
+
+    ``reconcile_qdrant_by_person_uri`` collapses points that SHARE a
+    ``person_uri`` -- several points for one live person. This sweep is the
+    other population entirely: ONE point for a person who is no longer live,
+    because a merge retired them. The existing net is aimed one address along,
+    which is why it has never caught these.
+
+    MEASURED on the live 16GB box, 2026-09-18:
+
+        oxigraph distinct Person subjects : 2596
+        qdrant  points_count             : 2620
+        gap                              : 24
+
+    Every one of those 24 points carried source=icloud_contacts, and every one
+    of their ``person_uri`` values existed in Oxigraph with EXACTLY ONE triple:
+    ``pwg:mergedInto``. Correctly retired from the graph; never removed from the
+    vector store. people/search reads Qdrant, so an orphan point means search
+    can still return a person the graph says no longer exists -- which is also
+    the older people_stores_reconcile finding, where the two stores held
+    different SETS rather than different counts.
+
+    The merge path is supposed to prevent this (``_merge_qdrant``), and when it
+    cannot it says so by returning False. Nothing acts on that. This sweep is
+    the net UNDER that, and it is deliberately independent of which merge path
+    ran: it asks the graph who is retired and reconciles the vector store to the
+    answer, so it repairs misses from either path and from any future one.
+
+    Propose-then-apply, mirroring the sibling function:
+      * ``apply=False`` (default) -- DETECT only, no writes.
+      * ``apply=True`` -- every orphan point (id + vector + payload) is written
+        to a timestamped backup under ``backup_dir`` BEFORE any delete.
+
+    A point whose ``person_uri`` is absent from the graph entirely is LEFT
+    ALONE. Absent is not the same as retired, and deleting on an unproven
+    absence is how a sweep becomes a data-loss incident.
+    """
+    try:
+        from qdrant_client import QdrantClient
+    except ImportError:
+        logger.warning(
+            "qdrant-client not installed -- CANNOT sweep retired-person orphans"
+        )
+        return QdrantOrphanSweepReport()
+
+    report = QdrantOrphanSweepReport(applied=apply)
+    client = QdrantClient(url=qdrant_url, timeout=30)
+
+    # 1. Every point, with its person_uri.
+    points: List[Any] = []
+    offset = None
+    while True:
+        batch, offset = client.scroll(
+            collection_name=collection, limit=scroll_batch,
+            offset=offset, with_payload=True, with_vectors=True,
+        )
+        points.extend(batch)
+        if offset is None or not batch:
+            break
+    report.total_points = len(points)
+    by_uri: Dict[str, List[Any]] = {}
+    for pt in points:
+        uri = (pt.payload or {}).get("person_uri")
+        if uri:
+            by_uri.setdefault(uri, []).append(pt)
+    report.distinct_person_uris = len(by_uri)
+
+    # 2. Ask the GRAPH who is retired, in one query rather than per point.
+    #    Retired == carries mergedInto AND is no longer typed as a Person.
+    #    Both halves matter: a subject that still has the type is still being
+    #    counted as a live person, which is a different defect (see
+    #    resolver.py step 5c) and must not be swept away here.
+    retired: Set[str] = set()
+    # trust_env=False: these are the customer's LOCAL stores. A client that
+    # reads HTTP_PROXY can have every probe answered by a local proxy, which
+    # is indistinguishable from the store answering. Gated by
+    # tests/test_local_stores_do_not_route_through_a_proxy.py.
+    with httpx.Client(timeout=30, trust_env=False) as hc:
+        # _sparql_query already unwraps bindings to flat {var: value} dicts.
+        rows = _sparql_query(
+            oxigraph_url, hc,
+            f"SELECT DISTINCT ?s WHERE {{ "
+            f"  ?s <{PWG}mergedInto> ?t . "
+            f"  FILTER NOT EXISTS {{ ?s a <{PWG}Person> }} "
+            f"}}",
+        )
+    for row in rows:
+        if row.get("s"):
+            retired.add(row["s"])
+    report.retired_uris_in_graph = len(retired)
+
+    orphan_points = [pt for uri, pts in by_uri.items() if uri in retired for pt in pts]
+    report.orphan_point_ids = [pt.id for pt in orphan_points]
+
+    if not orphan_points:
+        logger.info(
+            "Qdrant orphan sweep: %d points, %d distinct person_uris, "
+            "%d retired in graph, 0 orphans",
+            report.total_points, report.distinct_person_uris,
+            report.retired_uris_in_graph,
+        )
+        return report
+
+    logger.warning(
+        "Qdrant orphan sweep: %d point(s) belong to people the graph has "
+        "retired by merge. apply=%s",
+        len(orphan_points), apply,
+    )
+    if not apply:
+        return report
+
+    os.makedirs(backup_dir, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = os.path.join(
+        backup_dir, f"qdrant_orphan_sweep_backup_{timestamp}.jsonl"
+    )
+    # NO default=str. It would silently stringify a vector this cannot
+    # serialise -- a numpy array or a named-vector object becomes
+    # "array([0.1, ...])". The file is written, the log says "backed up", the
+    # delete proceeds, and the backup cannot restore a single vector. A backup
+    # that cannot be read back is not a backup, it is a claim. Let it RAISE.
+    try:
+        with open(backup_path, "w", encoding="utf-8") as fh:
+            for pt in orphan_points:
+                fh.write(json.dumps({
+                    "id": pt.id, "payload": pt.payload, "vector": pt.vector,
+                }) + "\n")
+        # READ IT BACK. Written is not the same as restorable.
+        with open(backup_path, encoding="utf-8") as fh:
+            restored = [json.loads(line) for line in fh if line.strip()]
+    except (TypeError, ValueError, OSError) as exc:
+        logger.error(
+            "REFUSING TO DELETE: the backup at %s could not be written and read "
+            "back (%s). Nothing was deleted.", backup_path, exc,
+        )
+        return report
+    if len(restored) != len(orphan_points):
+        logger.error(
+            "REFUSING TO DELETE: backup holds %d record(s) for %d orphan "
+            "point(s). Nothing was deleted.",
+            len(restored), len(orphan_points),
+        )
+        return report
+    report.backup_path = backup_path
+    logger.info(
+        "Backed up %d orphan point(s) to %s and read all %d back",
+        len(orphan_points), backup_path, len(restored),
+    )
+
+    client.delete(collection_name=collection, points_selector=report.orphan_point_ids)
+    report.deleted = len(report.orphan_point_ids)
+    logger.info("Deleted %d orphan point(s)", report.deleted)
+    return report
+
+
 def reconcile_qdrant_by_person_uri(
     qdrant_url: str,
     collection: str,
@@ -1573,6 +2055,11 @@ class BatchResolver:
         """Run all detection strategies and return a report."""
         persons = _fetch_all_persons(self.oxigraph_url, self._client, self.config)
         logger.info("Loaded %d active person nodes from Oxigraph", len(persons))
+        # Kept for execute()'s exact-identifier override (same snapshot the
+        # report was planned from).
+        self._persons = persons
+        self._holders = exact_identifier.build_holder_index(
+            persons, _normalise_linkedin_url)
 
         all_matches: List[DuplicateMatch] = []
         all_matches.extend(detect_exact_name_matches(persons, self.config))
@@ -1651,6 +2138,15 @@ class BatchResolver:
                 self.oxigraph_url, self._client,
                 action.keep_uri, action.discard_uri,
             )
+            override_reason = ""
+            if conflict is not None:
+                override_reason = self._exact_identifier_override(action)
+                if override_reason:
+                    logger.info(
+                        "RULE 2 overridden for %s -> %s: %s",
+                        action.discard_uri, action.keep_uri, override_reason,
+                    )
+                    conflict = None
             if conflict is not None:
                 refused_rule2 += 1
                 # The TYPE and the node URIs, never the values: canonical keys
@@ -1661,6 +2157,39 @@ class BatchResolver:
                     "different %s (canonical keys must not merge)",
                     action.discard_uri, action.keep_uri, conflict,
                 )
+                # CM051 walk-defect E (v1.0.107): a RULE-2-refused pair used to
+                # end HERE -- `continue` with nothing but this log line, which
+                # install logs and support bundles get but the customer never
+                # sees. detect()'s OWN classification said this pair was a
+                # high-confidence duplicate (that is why it is in auto_merges
+                # at all); RULE 2 is right to refuse the AUTO-MERGE, but a
+                # refused auto-merge is not "nothing to do", it is a duplicate
+                # that now needs a HUMAN to adjudicate (same household/office
+                # phone vs. two Contacts cards for one person). Dropping it
+                # meant the exact same pair was re-detected, re-proposed and
+                # re-refused every converge round forever -- measured on a
+                # live box: round 2 onward plateaued at the identical refused
+                # count every single round, 0 of it ever reaching review --
+                # which is what "CM051 #2545 is not fixed on the box" actually
+                # measures as. Route it to needs_review instead, so it reaches
+                # whatever reads that list (the Doctor "tidy your contacts"
+                # queue, support bundles, the next person to look). This adds
+                # no new rule, threshold or merge decision -- RULE 2 still
+                # vetoes the merge exactly as before; this only stops the
+                # refusal's OUTCOME from being silently discarded.
+                report.needs_review.append(DuplicateMatch(
+                    uri_a=action.discard_uri,
+                    name_a=action.discard_name,
+                    uri_b=action.keep_uri,
+                    name_b=action.keep_name,
+                    confidence=action.confidence,
+                    strategy=action.strategy,
+                    details=(
+                        f"{action.details} -- RULE 2 refused the auto-merge: "
+                        f"the two nodes carry different {conflict} values, so "
+                        "this needs a human decision, not an automatic merge"
+                    ),
+                ))
                 continue
             logger.info(
                 "Merging: %s (%s) → %s (%s) [%s, conf=%.2f]",
@@ -1668,7 +2197,47 @@ class BatchResolver:
                 action.keep_name, action.keep_uri,
                 action.strategy, action.confidence,
             )
-            _merge_oxigraph(
+            # BACKUP + JOURNAL BEFORE THE FIRST WRITE. A merge with no
+            # restorable snapshot does not happen: if the snapshot cannot be
+            # written the pair is skipped and left for the next pass.
+            try:
+                action.merge_id = merge_journal.record_merge(
+                    self.oxigraph_url, self._client,
+                    os.path.join(backup_dir, "merge_journal"),
+                    action.keep_uri, action.discard_uri,
+                    strategy=action.strategy, confidence=action.confidence,
+                    details="identifier values withheld from the journal",
+                    override=override_reason,
+                    qdrant_url=self.qdrant_url,
+                    qdrant_collection=self.qdrant_collection,
+                    shared_kinds=sorted({
+                        k for k in ("email", "phone", "linkedin")
+                        if k in action.details.lower() or k + "_" in action.strategy
+                    }),
+                )
+            except merge_journal.SnapshotUnavailable:
+                # Not a RULE 2 refusal and not a pin: the pair is simply not
+                # merged this pass and the next converge retries it.
+                self._qdrant_skipped = getattr(self, "_qdrant_skipped", 0) + 1
+                logger.warning(
+                    "SKIPPING merge %s -> %s: qdrant_unavailable, so no vector "
+                    "snapshot can be taken. No snapshot, no merge; retried on "
+                    "the next converge.", action.discard_uri, action.keep_uri)
+                try:
+                    merge_journal.record_skip(
+                        os.path.join(backup_dir, "merge_journal"),
+                        action.keep_uri, action.discard_uri, "qdrant_unavailable")
+                except OSError:
+                    pass
+                continue
+            except (OSError, httpx.HTTPError) as exc:
+                logger.warning(
+                    "SKIPPING merge %s -> %s: the pre-merge snapshot could not "
+                    "be written (%s). No snapshot, no merge.",
+                    action.discard_uri, action.keep_uri, type(exc).__name__,
+                )
+                continue
+            _renamed = _merge_oxigraph(
                 self.oxigraph_url, self._client,
                 action.keep_uri, action.discard_uri,
             )
@@ -1676,6 +2245,9 @@ class BatchResolver:
                 self.qdrant_url, self.qdrant_collection,
                 action.keep_uri, action.discard_uri,
             )
+            if _renamed:
+                _set_qdrant_display_name(self.qdrant_url, self.qdrant_collection,
+                                         action.keep_uri, _renamed)
             # executed stays True: the GRAPH merge above really did happen and
             # is not undone by a vector-side failure. What must not happen is
             # that failure passing silently -- an unreconciled merge is a
@@ -1709,6 +2281,38 @@ class BatchResolver:
                 "irreversible in practice, a duplicate is not.",
                 refused_rule2, len(report.auto_merges),
             )
+
+    def _exact_identifier_override(self, action: "MergeAction") -> str:
+        """Non-empty reason when an exact shared identifier may override a
+        card-uid-only RULE 2 refusal for this planned merge, else "". See
+        exact_identifier.py for the rule and why it is this narrow."""
+        persons = getattr(self, "_persons", None)
+        holders = getattr(self, "_holders", None)
+        if not persons or holders is None:
+            return ""
+        a = persons.get(action.keep_uri)
+        b = persons.get(action.discard_uri)
+        if a is None or b is None:
+            return ""
+        if action.strategy not in (
+            "email_match", "phone_match", "linkedin_url_match"
+        ):
+            # Name-only strategies never override a card conflict.
+            return ""
+        conflicts = _all_canonical_conflicts(
+            self.oxigraph_url, self._client, action.keep_uri, action.discard_uri)
+        ok, reason = exact_identifier.card_uid_override(
+            a, b, conflicts, holders, _normalise_linkedin_url)
+        return reason if ok else ""
+
+    def undo_merge(self, merge_id: str, backup_dir: str = "./backups") -> Dict[str, Any]:
+        """Undo one journalled merge: graph and Qdrant points (see merge_journal)."""
+        return merge_journal.undo_merge(
+            self.oxigraph_url, self._client,
+            os.path.join(backup_dir, "merge_journal"), merge_id,
+            corrections_dir=self.config.get("corrections_dir", ""),
+            qdrant_url=self.qdrant_url,
+        )
 
     def reconcile_qdrant(
         self, *, apply: bool = False, backup_dir: str = "./backups",
@@ -1772,6 +2376,15 @@ class BatchResolver:
             if n == 0:
                 break
             self.execute(report, backup_dir=backup_dir)
+            # A round that executed nothing (every planned merge was refused
+            # by RULE 2 or skipped) will plan the identical set next round.
+            # Measured on the test fixture: ten identical rounds, then the
+            # max_rounds warning. That is the fixpoint, so stop.
+            if not any(a.executed for a in report.auto_merges):
+                logger.info(
+                    "Converge round %d executed 0 of %d planned merge(s); "
+                    "fixpoint reached", i + 1, n)
+                break
         else:
             logger.warning(
                 "Converge hit max_rounds=%d without a fixpoint; remaining "
@@ -1895,6 +2508,16 @@ def main() -> None:
              "(over-split vectors). Detect-only unless --execute is also set.",
     )
     parser.add_argument(
+        "--undo-merge", metavar="MERGE_ID", default="",
+        help="Undo one journalled merge (restores both nodes in the graph from "
+             "<backup-dir>/merge_journal and pins the pair as distinct). "
+             "Restores the Qdrant people points (ids, vectors, payloads) too.",
+    )
+    parser.add_argument(
+        "--list-merges", action="store_true",
+        help="List journalled merges (id, time, strategy, override) and exit.",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable verbose logging",
     )
@@ -1918,6 +2541,23 @@ def main() -> None:
     )
 
     try:
+        if args.list_merges:
+            done = set()
+            entries = merge_journal.read_journal(
+                os.path.join(args.backup_dir, "merge_journal"))
+            for e in entries:
+                if e.get("kind") == "undo":
+                    done.add(e["merge_id"])
+            for e in entries:
+                if e.get("kind") == "merge":
+                    print(e["id"], e["ts"], e["strategy"],
+                          e.get("override") or "-",
+                          "UNDONE" if e["id"] in done else "live")
+            return
+        if args.undo_merge:
+            result = resolver.undo_merge(args.undo_merge, backup_dir=args.backup_dir)
+            print(json.dumps(result))
+            return
         # Whole-graph convergence path: loop to a fixpoint, then report the
         # final round. Used by the post-hydrate install pass so transitive
         # clusters collapse fully rather than spilling to review.
@@ -1925,7 +2565,7 @@ def main() -> None:
             rounds = resolver.converge(
                 max_rounds=args.max_rounds, backup_dir=args.backup_dir,
             )
-            total_merged = sum(len(r.auto_merges) for r in rounds)
+            total_merged = sum(1 for r in rounds for a in r.auto_merges if a.executed)
             report = rounds[-1]
             print(f"\n{'=' * 70}")
             print("IDENTITY RESOLVER - WHOLE-GRAPH CONVERGENCE")

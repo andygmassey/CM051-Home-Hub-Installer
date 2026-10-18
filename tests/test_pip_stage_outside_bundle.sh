@@ -94,6 +94,11 @@ if [[ -n "$target" && -d "$target" ]]; then
     echo "built" > "$target/build/lib/mod.py"
 fi
 echo "$target" > "${FAKE_PIP_MARKER:-/dev/null}"
+# Full argv, one per line, for tests that must prove a pseudo-flag this
+# wrapper consumes (e.g. --pip-extras=) never reaches pip's own argv.
+if [[ -n "${FAKE_PIP_ARGV:-}" ]]; then
+    printf '%s\n' "$@" > "$FAKE_PIP_ARGV"
+fi
 exit "${FAKE_PIP_RC:-0}"
 FAKEPIP
 chmod +x "$HARNESS/bin/pip"
@@ -188,6 +193,58 @@ rc=0
   unset SCRIPT_DIR
   _ostler_pip_install_pkg "$PIP" "$BUNDLE/ostler_security" --quiet ) >/dev/null 2>&1 || rc=$?
 check "(5b) an UNSET SCRIPT_DIR under set -u does not abort or refuse" "$rc" "0"
+
+# (5c) CM051 walk #5: --pip-extras=NAME must append pip's bracket-extras
+#      syntax to the STAGED target, not to src_dir (src_dir must stay a real,
+#      -d-testable directory path). CONTROL first: with no --pip-extras= at
+#      all, the target pip receives carries no brackets.
+mk_src
+MARK5C="$HARNESS/mark5c"; rm -f "$MARK5C"
+( export TMPDIR="$HARNESS/tmp5c"; mkdir -p "$TMPDIR"
+  source "$HARNESS/helpers.sh"
+  SCRIPT_DIR="$BUNDLE"
+  FAKE_PIP_MARKER="$MARK5C" _ostler_pip_install_pkg "$PIP" "$BUNDLE/ostler_security" --quiet ) >/dev/null 2>&1
+CHECKS=$((CHECKS + 1))
+if [[ -f "$MARK5C" ]] && [[ "$(cat "$MARK5C")" == */ostler_security ]]; then
+    pass "(5c) CONTROL: with no --pip-extras=, pip receives the plain staged path"
+else
+    fail "(5c) CONTROL: expected a plain .../ostler_security target, got '$(cat "$MARK5C" 2>/dev/null)'"
+fi
+
+# (5d) THE FIX. --pip-extras=encrypted must make pip receive
+# .../ostler_security[encrypted] -- this is what actually pulls sqlcipher3
+# in, since it is an opt-in extra in ostler_security's own pyproject.toml,
+# not a default dependency (CM051 walk #5: 13 of 18 failed conversations on
+# a cold v1.0.107 install were the CM048 coach-db write refusing to open in
+# plaintext because sqlcipher3 was never installed).
+mk_src
+MARK5D="$HARNESS/mark5d"; rm -f "$MARK5D"
+( export TMPDIR="$HARNESS/tmp5d"; mkdir -p "$TMPDIR"
+  source "$HARNESS/helpers.sh"
+  SCRIPT_DIR="$BUNDLE"
+  FAKE_PIP_MARKER="$MARK5D" _ostler_pip_install_pkg "$PIP" "$BUNDLE/ostler_security" --pip-extras=encrypted --quiet ) >/dev/null 2>&1
+CHECKS=$((CHECKS + 1))
+if [[ -f "$MARK5D" ]] && [[ "$(cat "$MARK5D")" == *"/ostler_security[encrypted]" ]]; then
+    pass "(5d) --pip-extras=encrypted makes pip receive .../ostler_security[encrypted]"
+else
+    fail "(5d) expected .../ostler_security[encrypted], got '$(cat "$MARK5D" 2>/dev/null)'"
+fi
+
+# (5e) The pseudo-flag is CONSUMED here, never forwarded to pip's own argv --
+# pip has no idea what --pip-extras= means and would error on an unknown
+# option if this leaked through.
+mk_src
+ARGV5E="$HARNESS/argv5e"; rm -f "$ARGV5E"
+( export TMPDIR="$HARNESS/tmp5e"; mkdir -p "$TMPDIR"
+  source "$HARNESS/helpers.sh"
+  SCRIPT_DIR="$BUNDLE"
+  FAKE_PIP_ARGV="$ARGV5E" _ostler_pip_install_pkg "$PIP" "$BUNDLE/ostler_security" --pip-extras=encrypted --quiet ) >/dev/null 2>&1
+CHECKS=$((CHECKS + 1))
+if [[ -f "$ARGV5E" ]] && ! grep -qF -- '--pip-extras' "$ARGV5E"; then
+    pass "(5e) the --pip-extras= pseudo-flag never appears in pip's own argv"
+else
+    fail "(5e) the pseudo-flag leaked into pip's argv: $(cat "$ARGV5E" 2>/dev/null | tr '\n' ' ')"
+fi
 
 # (6) DIAGNOSTICS SURVIVE A CALLER'S 2>/dev/null. Two call sites are written
 #     `... 2>/dev/null || true`, so a staging failure would otherwise be

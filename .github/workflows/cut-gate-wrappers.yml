@@ -34,6 +34,38 @@ on:
       # Caught by verify_invoked_tests_are_watched.py on this very PR.
       - 'scripts/new_cut.sh'
       - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
+      - 'tests/test_new_cut_checks_what_preflight_checks.sh'
+      - 'tests/test_new_cut_covers_every_pretag_gate.sh'
+      - 'scripts/verify_bom_rows_are_in_the_pin.sh'
+      # Both the guard AND its subject, same rule as new_cut.sh above.
+      - '.github/workflows/cut.yml'
+      - 'tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh'
+      # Wired 2026-09-09: a staging copy guarded on its DESTINATION leaves the
+      # previous DMG's vendored code on any box that already has the tree, so a
+      # v1.0.82 vendored fix never reaches the walk box that must demonstrate it.
+      - 'tests/test_a_staging_copy_is_guarded_on_its_source.py'
+      - 'tests/test_store_port_first_install_stale_store.sh'
+      - 'install.sh'
+      - '.github/workflows/cut.yml'
+      # Wired 2026-09-19. The dispatch gate ran in ONE place: the `preflight`
+      # job of cut.yml. Measured across the 154 workflow files in this repo,
+      # 152 of which carry a pull_request trigger, NOT ONE names it, so its
+      # first real execution was a tag push or a dispatch. #2118 then changed
+      # the contract the gate enforces and nothing re-ran it, so the gate has
+      # been RED against its own repo since 2026-09-17 and the next tag would
+      # have died in preflight. Both halves listed, guard and subject, per the
+      # self-edit note above.
+      - 'scripts/verify_dispatch_cannot_ship.py'
+      - 'tests/test_cut_dispatch_is_dry.sh'
+      - 'scripts/push_cut_tag.sh'
+      - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
+      - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
+      # Wired 2026-09-19. Row 1519 asks whether the dry run is reachable at
+      # all, and said the decisive proof was to FIRE a dispatch. Arm 3 answers
+      # it structurally, for free, on every PR: it walks the dry-run job's
+      # transitive `needs` closure and requires every job in it to admit a
+      # dispatch. Recovered from a local-only branch the orphan gate found.
+      - 'tests/test_the_dry_run_is_reachable_on_a_dispatch.py'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -45,6 +77,10 @@ on:
       - 'scripts/verify_commit_parity.sh'
       - 'scripts/tests/test_verify_commit_parity_gate.sh'
       - 'scripts/tests/test_verify_stapling_gate.sh'
+      # Wired 2026-09-17 after cut run 35187827169 (tag v1.0.99) died at
+      # `make: *** [staple-apps] Error 1`. gui/Makefile is already a path
+      # above; this entry is the GUARD half, so editing the test re-runs it.
+      - 'tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh'
       - 'scripts/verify_no_env_trust_anchors.sh'
       - 'scripts/tests/test_no_env_trust_anchors.sh'
       - 'tests/test_pr_age_gate_declares_partial_runs.sh'
@@ -65,6 +101,9 @@ on:
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
       - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
+      # The anti-vacuity floor and its subject. BOTH are triggers: a run: with
+      # no matching paths: entry is dark on self-edit.
+      - 'tests/test_provenance_gate_refuses_when_it_examined_nothing.sh'
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
       - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
@@ -103,6 +142,14 @@ on:
       # which is how a test rots while reporting green on every unrelated push.
       - 'tests/test_pinned_wiki_images_are_arm64_only.sh'
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
+      # #1167. The run-at-commit gate, its wiring test, and the baseline both
+      # of them read. All three are triggers: the gate is the defect surface,
+      # the test is the instrument, and a `run:` with no matching paths entry
+      # is dark on self-edit. cut.yml is already listed above, which is the
+      # fourth surface this test reads.
+      - 'scripts/verify_declared_gates_ran_at_commit.sh'
+      - 'tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh'
+      - 'scripts/cut_trigger_reachability_baseline.tsv'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
       # Without this line the step that runs it below is DARK ON SELF-EDIT:
@@ -155,6 +202,17 @@ on:
       - 'scripts/sync_cut_bom.sh'
       - 'scripts/sync_rollforward_registry.sh'
       - 'tests/test_os003_sync_defaults_agree.sh'
+      # THE OTHER THREE RESOLVERS THE GUARD NOW READS. It used to compare only
+      # the two `:-` defaults above, so these could diverge in silence. It now
+      # follows the declared pointer and reads the discovery lists, which means
+      # a change to any of them can flip the verdict -- and an unwatched subject
+      # is a gate that is dark on the very edit that breaks it.
+      - 'scripts/verify_os003_pointer.sh'
+      - 'scripts/box_walk_probes/lib/grounding_seed.sh'
+      - 'scripts/box_walk_probes/lib/preference_seed.sh'
+      # The pointer itself. The rule file is the value one resolver defaults to,
+      # so editing the rule changes where that script looks.
+      - 'CLAUDE.md'
       - 'tests/test_rollforward_pin_is_watched_on_prs.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
@@ -224,6 +282,84 @@ jobs:
         if: always()
         run: /bin/bash tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
 
+      # THE DISPATCH GATE, ON A PR, FOR THE FIRST TIME.
+      #
+      # Its control 14 runs the checker against this repo's REAL cut.yml, so a
+      # change that reopens the publish route, or that moves the contract
+      # without moving the enforcer, fails here instead of in preflight on a
+      # tag. That is the whole difference between a version number spent and a
+      # PR turned red.
+      #
+      # /bin/bash deliberately: the cut host is macOS and ships bash 3.2, and
+      # this suite drives python mutations whose quoting differs under 5.
+      #
+      # if: always() so an earlier red in this job cannot mask it.
+      - name: The dispatch relaxation is tied to the no-publish property
+        # always() because a gate its own job can switch off is not a gate.
+        # Without this the step is SKIPPED when an earlier test in the same
+        # job fails, and this one exists to hold a RELAXED cut gate: the one
+        # run where other things are already red is exactly the run where it
+        # most needs to speak. ci-maskless caught the omission.
+        if: always()
+        run: /bin/bash tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
+
+      - name: A workflow_dispatch cannot publish
+        if: always()
+        run: /bin/bash tests/test_cut_dispatch_is_dry.sh
+
+      # v1.0.103's one tag push was refused at preflight because nothing ran the
+      # ship-mode checklist before the tag existed. push_cut_tag.sh runs it first.
+      - name: A cut tag is not pushed while the tag-time checklist is red
+        if: always()
+        run: /bin/bash tests/test_push_cut_tag_refuses_a_red_checklist.sh
+
+      # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
+      # The suite above asks whether a dispatch can SHIP. This one asks whether
+      # a dispatch can RUN AT ALL: arm 3 walks the dry-run job's transitive
+      # `needs` closure and requires every job in it to admit a dispatch, and
+      # arm 4 requires that no step in that closure reads the tag
+      # unconditionally, because a dispatch has no tag to read.
+      #
+      # if: always() so an earlier red in this job cannot mask it.
+      # PyYAML FIRST, OR THE STEP BELOW CANNOT PARSE cut.yml AT ALL.
+      #
+      # This job runs on macos-latest, whose python3 has no PyYAML, and the test
+      # correctly exits 2 CANNOT-RUN rather than pretending it looked. Measured
+      # on this PR's first run: "CANNOT-RUN  PyYAML is not importable, so
+      # cut.yml could not be parsed", exit 2. That is the right behaviour from
+      # the test and the wrong environment from the job.
+      #
+      # Same remedy and same wording as appcast-ship-wiring.yml, which learned
+      # this the expensive way: an assertion there was dark on EVERY run from
+      # the day it was written because of this exact gap, while the summary
+      # still printed that all four assertions held.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true` on
+      # the verify.
+      - name: PyYAML must be present, or the dry-run check cannot parse cut.yml
+        if: always()
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      # After the PyYAML step: this test parses cut.yml. Placed before it, the
+      # first run crashed on import and the mutant arms read the crash as caught.
+      - name: A tag rehearsal runs the tag preflight and builds nothing
+        if: always()
+        run: /bin/bash tests/test_rehearse_tag_is_the_tag_preflight.sh
+
+      - name: The dry run is structurally reachable on a dispatch
+        if: always()
+        run: python3 tests/test_the_dry_run_is_reachable_on_a_dispatch.py
+
       # Wired 2026-09-06 (#1694). See the paths note above: three gate
       # self-tests that ran nowhere. Each proves its gate REJECTS a violation,
       # not merely that it compiles -- the distinction this repo learned the
@@ -240,6 +376,18 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_verify_stapling_gate.sh
 
+      - name: A bundle name with a space survives the staple loops (v1.0.99)
+        # The cut that died: staple-apps iterated `for app in $NESTED_APPS`,
+        # which splits on IFS, so "Recover Ostler.app" (added by #1970) became
+        # two paths that do not exist. Both were reported as "no ticket issued
+        # for this CDHash" and then as "ticket missing after staple", and the
+        # bundle that needed the ticket was never named. The dry run cannot
+        # reach this code: it does not build, sign or staple.
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
+        run: /bin/bash tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
+
       - name: The cross-language trust-anchor guard FIRES, on the right axis
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
@@ -249,6 +397,45 @@ jobs:
       - name: run() cannot report a gate that died as a pass
         if: always()
         run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
+
+      # #1167. The gate's own --self-test proves it can discriminate and runs in
+      # declared-gates-reachable.yml. This proves it is ASKED, on the cut, and
+      # can answer when it is: invoked by cut.yml, if: always(), GH_TOKEN
+      # passed, and the job granted `actions: read`.
+      #
+      # That last one is the reason this exists as a separate file. The first
+      # v1.0.43 tag was refused by verify_tagged_commit_is_green.sh because an
+      # explicit `permissions:` block sets every UNLISTED scope to none and it
+      # had no `checks: read`. The new gate reads the ACTIONS namespace, which
+      # `checks: read` does not cover -- the identical defect, one scope over,
+      # and it would have failed closed on every cut forever.
+      # 🔴 PyYAML IS NOT ON THE RUNNER BY DEFAULT, AND THE TEST REFUSES WITHOUT
+      # IT. Measured on this very PR: the step below exited 2 "CANNOT-RUN: no
+      # PyYAML; a regex over YAML is not a parse". That refusal is correct --
+      # the permissions question CANNOT be answered by text, because an absent
+      # scope and a scope set to none read differently and mean the same thing
+      # -- but a gate that reports CANNOT-RUN on every run is a gate nobody
+      # reads, which is the #1167 shape wearing a different hat.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true` on
+      # the verification.
+      - name: PyYAML must be present, or the wiring assertion cannot run
+        if: always()
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      - name: The run-at-commit gate is wired into the cut and can answer
+        if: always()
+        run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
 
       - name: Test parses under /bin/bash 3.2 (the cut host's shell)
         if: always()
@@ -374,6 +561,20 @@ jobs:
       - name: provenance gate -- cannot-run is never reported as stale
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # THE ANTI-VACUITY FLOOR. Demonstrated live: OSTLER_PROVENANCE_ONLY_KINDS
+      # set to a kind matching no manifest row printed "0 pass / 0 fail / 0
+      # could-not-run / 47 not-run-here" and then PROVENANCE GREEN, exit 0. The
+      # verdict block checked FAIL > 0, then CANNOT > 0, and fell through to
+      # GREEN with no assertion that the three counts summed to more than
+      # zero -- cut.yml deliberately splits this gate by kind filter across two
+      # jobs, so a typo'd filter or an emptied manifest side certified a cut it
+      # never inspected. This drives the real gate over a genuine one-row
+      # manifest and proves a filter that matches nothing refuses (CANNOT-RUN),
+      # never GREEN, while a filter that matches something is untouched.
+      - name: provenance gate refuses when it examined nothing
+        if: always()
+        run: bash tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
 
       # A marker pattern that cannot RUN must never report the component absent.
       # The wiki_image_absent rows are the #84 LOCK rows; rc=2 used to print green.
@@ -543,6 +744,47 @@ jobs:
         if: always()
         run: bash tests/test_new_cut_guard_scoped_is_not_started.sh
 
+      # NEW_CUT.SH MUST CHECK WHAT THE PREFLIGHT CHECKS.
+      #
+      # Wired 2026-09-08, after the gap cost a tag. v1.0.76 was tagged on
+      # new_cut.sh's own "ALL GREEN. Safe to tag" and cut run 34201583498 died
+      # at preflight in about forty seconds, before the dry-run or cut job ran.
+      # Two hard preflight gates refused and NEITHER was in new_cut.sh: the
+      # missing cut-manifests/<version>.yaml, and an installer plist still
+      # stamped 1.0.75/7500 while the cut was 1.0.76.
+      #
+      # The operator did nothing wrong -- they ran every gate the tool offered
+      # and tagged on green. A checklist that omits a hard gate and then
+      # declares itself complete converts "I forgot" into "the tool said I was
+      # done", which is why this is a wired test and not a comment.
+      #
+      # Its mutation control is not synthetic: it runs against the REAL
+      # pre-fix new_cut.sh from origin/main, and fails naming both refusals.
+      - name: new_cut.sh gates on everything the cut preflight gates on
+        if: always()
+        run: bash tests/test_new_cut_checks_what_preflight_checks.sh
+
+      # new_cut.sh MUST NOT DRIFT FROM cut.yml's PRE-TAG GATE LIST.
+      # Wired 2026-09-08 after the THIRD tag was spent on exactly that drift.
+      # #1825 added two missing gates BY HAND and the list drifted again within
+      # the day. Two careful lists have now failed, so this DERIVES cut.yml's
+      # gates and requires new_cut.sh to invoke each one. Its mutation control
+      # is the REAL pre-fix new_cut.sh from origin/main, on which it fails and
+      # names verify_bom_rows_are_in_the_pin.sh -- the gate that killed v1.0.77.
+      - name: new_cut.sh covers every pre-tag gate cut.yml runs
+        if: always()
+        run: bash tests/test_new_cut_covers_every_pretag_gate.sh
+
+      # A FIRST INSTALL MUST BE ABLE TO CLAIM ITS OWN COLIMA PORT.
+      # Wired 2026-09-08 after the first honestly-cold walk aborted on it:
+      # signal 2 of the #567 port exemption cannot be satisfied by the install
+      # that writes the credential it checks for, so ERR-06-PORTS-HELD refused
+      # the installer's own just-started runtime. Mutation control is the REAL
+      # pre-fix install.sh from origin/main, on which this fails 2 of 5.
+      - name: a first install can claim its own colima port (#567 signal 2)
+        if: always()
+        run: bash tests/test_store_port_first_install_stale_store.sh
+
       # THE VENDORED ROLLFORWARD GATE MATCHES ITS OS003 PIN -- ON THE PR.
       #
       # This exact command already runs in cut.yml. It is duplicated here on
@@ -633,3 +875,13 @@ jobs:
       - name: pinned wiki images carry the design system (presence)
         if: always()
         run: bash tests/test_pinned_wiki_image_has_design_system.sh --presence-only
+
+      # A VENDORED TREE MUST BE RE-STAGED ON EVERY INSTALL.
+      #
+      # Measured on the v1.0.81 walk box: cm019_setup read "already set up" in
+      # 0 s because its cp -R sat under [[ ! -x "$CM019_PY" ]], so the box kept
+      # the previous DMG's code while the install reported success. Thirteen
+      # other staging sites already guard on the SOURCE; this keeps that.
+      - name: no staging copy is guarded on its destination
+        if: always()
+        run: python3 tests/test_a_staging_copy_is_guarded_on_its_source.py

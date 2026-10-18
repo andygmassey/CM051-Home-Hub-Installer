@@ -16,12 +16,63 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 
 logger = logging.getLogger(__name__)
+
+
+# ── Usage journal: the `cm048_conversation_extract` producer ──────────────────
+#
+# CM048 owes ONE row of scripts/usage_journal_producers.tsv in CM051:
+#
+#   cm048_conversation_extract  CM048  enriching  session_prefix  cm048-  required
+#
+# Both halves are load-bearing. The gate matches a record by session_id PREFIX
+# *and* purpose, because "a producer writing the wrong purpose is also a
+# defect" -- its words. `enriching` is not a guess: it is what the roster
+# declares CM048 owes, transcribed from HR015 launch/USAGE_JOURNAL_CONTRACT.md.
+#
+# One id per process, not per call: it identifies the RUN, and the panel groups
+# by it. Timestamped rather than a uuid4 so a human reading the raw journal can
+# tell two runs apart without cross-referencing anything.
+_USAGE_PURPOSE = "enriching"
+_USAGE_RUN_ID = "cm048-" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _record_model_usage(response: Any, model: str) -> None:
+    """Record one usage row from an Ollama response. Never raises.
+
+    Accounting must not be able to break extraction. Every failure path here
+    -- import, journal write, an unexpected response shape -- degrades to a log
+    line and returns, because a customer losing their conversation processing
+    to a cost-panel bug would be a far worse defect than a missing row.
+
+    Counts are passed through EXACTLY as the runtime reported them. When
+    Ollama reports neither, `record_usage` writes nothing and returns False;
+    that absence is deliberate and visible on the panel as a gap, which is the
+    contract's stated preference over an invented number.
+    """
+    try:
+        from ._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
+
+        prompt, completion = tokens_from_ollama(
+            response if isinstance(response, dict) else {}
+        )
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose=_USAGE_PURPOSE,
+            session_id=_USAGE_RUN_ID,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "usage journal write skipped (%s): %s", type(exc).__name__, exc
+        )
 
 
 @dataclass
@@ -119,6 +170,9 @@ class OllamaClient:
             resp = client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()
+        # Before `raw` discards everything but the text: the token counts live
+        # on `data`, not on the response string, so this has to happen here.
+        _record_model_usage(data, model)
         raw = data.get("response", "")
         duration = time.time() - t0
         logger.info(
@@ -196,6 +250,7 @@ class OllamaClient:
             resp = client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()
+        _record_model_usage(data, model)
         embs = data.get("embeddings") or [data.get("embedding")]
         return embs[0]
 

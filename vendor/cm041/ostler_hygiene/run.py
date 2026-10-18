@@ -18,11 +18,21 @@ A periodic, off-hot-path job. Safety posture copies CM048's discipline:
 Outputs:
 - verdicts (supersession / archival tombstones / active-with-weight)
   into the ``<urn:ostler:hygiene>`` named graph;
-- a contradiction-flags JSON artifact (the human-review proposal that
-  feeds the wiki's contradictions surface and, later, the fortnightly
-  clarification queue) into ``$OSTLER_HYGIENE_DIR``
+- a contradiction-flags JSON artifact (a human-review proposal, meant for
+  the fortnightly clarification queue) into ``$OSTLER_HYGIENE_DIR``
   (default ``~/.ostler/hygiene/``). L3 fact text is redacted before it
   reaches this artifact.
+
+  CORRECTION (found while wiring this pass's LaunchAgent, CM051): this
+  docstring used to say the flags artifact "feeds the wiki's
+  contradictions surface". It does not. CM044's contradictions page
+  (compiler/contradictions.py) is a separate, self-contained regex/
+  pattern detector that runs at wiki-compile time directly against the
+  fact set; it has zero reference to this artifact, this named graph, or
+  ostler_hygiene at all. Nothing reads $OSTLER_HYGIENE_DIR's JSON files
+  today except a human looking at the directory. Building that
+  integration is a real, separate piece of work, not assumed here by
+  fixing a comment.
 
 Usage::
 

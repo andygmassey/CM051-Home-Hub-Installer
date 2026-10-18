@@ -1,0 +1,38 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.98.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.98/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# v1.0.94 was TAGGED ONCE AT 62db9cc8583c7e47e7f0ea1254ea6cb502288a45 AND
+# NEVER BUILT. check-manifest and check-pr-age were both fully clean this
+# time (20 PASS 0 FAIL 0 CANNOT-RUN; PR-age PARTIAL (DECLARED) naming six
+# repos). The new blocker was check-freshness: wiki:wiki-compiler and
+# wiki:wiki-site both STALE:+12 against CM044 main, because the pinned
+# images predated twelve merged commits including CM044 #275 (kill decimal-
+# hour ages, add per-source status icons, remove a duplicate mkdocs nav
+# entry, finish the People/timeline + People/index dated-list treatment) --
+# the fix Andy asked for repeatedly. Rebuilt and re-pinned rather than
+# acknowledged: a hold_ack would have asserted shipping_bugfixes_grafted =
+# true while shipping none of the twelve.
+#
+# v1.0.98 carries v1.0.91/v1.0.92/v1.0.93/v1.0.94's daemon payload UNCHANGED
+# (hub-v0.4.80) PLUS the wiki image re-pin: CM051 PR #1948, both images
+# rebuilt by CM044 CI (release-images.yml, tag v0.1.32 = 67fe4054) and
+# re-pinned by digest in install.sh, verified BY CONTENT (docker create +
+# docker cp, sha256 against git blobs) rather than taken from either job's
+# claim.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE FRONT PAGE SIGNAL FETCH AUTHENTICATES, restoring the Needs you now band. The vendored cm059 signals.py reads the loopback service token; without it the fetch 401d and the band was empty on every install.	CM051	90fed7bbc0da	no	none	TBD	CM051 #1952
+EVERY LOOPBACK CLIENT OF A GATED SERVICE MUST AUTHENTICATE, as a wired gate rather than a convention.	CM051	3362764512e3	no	none	TBD	CM051 #1953
+A SLOT HOLDER BURNING NO CPU IS HUNG, NOT BUSY, and is now stopped instead of blocking the queue for the dispatch ceiling.	CM051	d05f9161af5e	no	none	TBD	CM051 #1954
+THE DOCTOR SERVES THE EDITOR-FEEDBACK ROUTE and renders the per-source ingest table.	CM051	ac77cd7983ae	no	none	TBD	CM051 #1955
+THE FRONT PAGE TAP REACHES THE STORE ON THE ARTEFACT. cm059_editor re-pinned to 1f5bfb3a: the card controls POST to api/v1/editor/feedback and carry data-card-id, where the vendored copy had neither.	CM051	3acd97a2	no	none	TBD	CM051 #1959
+THE RECOVERY KEY CAN BE REDEEMED AND THE DB KEY REACHES THE DATABASES. ostler-unlock added; existing databases migrated rather than left plaintext; ostler-recovery refuses on a passphrase-primary box and names ostler-unlock instead of misdirecting to Time Machine.	CM051	f2fe7eea	no	none	TBD	CM051 #1956 / HR015 #918 #919
+THE DOCTOR CREDENTIAL ROUTES STOP ANSWERING ANOTHER SITE. Closes the drive-by browser path only: a non-browser or tailnet caller sending no Origin is NOT held, by design, because the iOS client sends only Accept.	CM051	be3ed92e	no	none	TBD	CM051 #1962

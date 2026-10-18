@@ -127,7 +127,7 @@ struct LogDrawerView: View {
     /// Each line is rendered as `HH:mm:ss  [LEVEL] message` so a
     /// pasted support email is grep-friendly without further surgery.
     private func copyAllLogLines() {
-        Self.formatBuffer(coordinator.logLines).copyToPasteboard()
+        Self.formatBuffer(coordinator.supportLogLines).copyToPasteboard()
         copyConfirmActive = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             copyConfirmActive = false

@@ -6,7 +6,10 @@
 # com.creativemachines.ostler.editor-frontpage.plist (hourly by default,
 # RunAtLoad fires one emit at install so the Dashboard is never blank).
 #
-# What it does (two cheap, read-only steps):
+# What it does (one producer, then two cheap emits):
+#   0. Project the Qdrant `preferences` collection into Oxigraph as
+#      preference nodes. The only step that WRITES, and it must precede
+#      step 1, which compiles from what it writes.
 #   1. Emit the stable interest-profile artefact to
 #      ~/.ostler/preferences/interest_profile.json. This is what the Hub
 #      serves at /api/v1/preferences and therefore what the assistant's
@@ -160,14 +163,79 @@ export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
 log "Editor front-page tick start (recompiling interest profile -> front_page.json)"
 cd "$SOURCE_DIR"
 
+# --- Step 0: PROJECT QDRANT PREFERENCES INTO THE GRAPH -----------------
+#
+# 🔴 compiler/project_preferences.py SHIPPED AND WAS CALLED BY NOTHING.
+# Measured on the v1.0.100 box, with a control of the same shape:
+#     grep -rl project_preferences ~/.ostler  -> 1 (the file itself)
+#     grep -rl emit_frontpage      ~/.ostler  -> 15
+# Its own docstring says it "runs before each compile". Nothing ran it.
+#
+# The consequence was the front page a customer actually sees. Before:
+#     Oxigraph pwg:LikePreference nodes   0
+#     interest_profile.json stats         raw_rows 0
+#     front_page.json                     1 card, "Ostler has spotted 0
+#                                         interests from what it has read so far"
+# After running it by hand on the same box:
+#     projected 4792 preference nodes (43128 triples) from 5721 Qdrant points
+#     graph total                         76167 -> 120493 triples
+#     interest_profile.json stats         raw_rows 4792
+#
+# THE ORDERING IS THE WIRING, not a preference. This block WRITES the
+# preference nodes that step 1 below READS: the two name the same ontology
+# host, the same node types and the same four required predicates, and
+# neither side uses a GRAPH clause, so they meet in the default graph. A
+# compile that runs first sees the graph as the PREVIOUS tick left it.
+#
+# THAT IS EXACTLY WHAT THIS FILE DID UNTIL 2026-09-23, and this very comment
+# asserted the opposite while it did so, which is how it survived review. The
+# block was numbered "Step 1.5" and sat BELOW Step 1. It is a ONE-TICK LAG
+# and not a permanent zero, so a box up for two hourly ticks looked correct
+# and nobody saw it; it bites only between ingest completing and the
+# following tick, which is the window a thin walk runs in. Measured there:
+# interest_profile.json count 0 and stats.raw_rows 0 over a graph holding
+# 4718 preference nodes, so /api/v1/preferences served an empty set with
+# HTTP 200, so the assistant's pwg_preferences tool answered "No preferences
+# were found in the personal graph", so the BLOCKING walk probe
+# assistant_answers_grounded scored tool_found_nothing.
+#
+# tests/test_the_preference_projection_runs_before_the_compile_that_reads_it.sh
+# renders this wrapper the way INSTALL_SNIPPET.sh does, runs it, and fails if
+# the two are ever swapped back.
+#
+# Guarded on the file existing for the same reason step 1 below is: a tick
+# against an older staged tree degrades instead of erroring every hour.
+#
+# ⚠️ THIS IS NECESSARY AND NOT SUFFICIENT, AND SAYING SO HERE IS THE POINT.
+# With all 4792 rows present the profile STILL reports 0 interests:
+#     suppressed_low_confidence   4701 of 4792
+# because compile_profile's min_confidence default is 0.28 while the dominant
+# source, bookmarks, has a measured ceiling of 0.18 with unlimited
+# corroboration. That is a separate defect (the interest floor) and this wiring
+# does not close it. Anyone reading a still-empty front page after this change
+# should look there, not here.
+if [ -f "$SOURCE_DIR/compiler/project_preferences.py" ]; then
+    _project_rc=0
+    PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.project_preferences || _project_rc=$?
+    if [ "$_project_rc" -ne 0 ]; then
+        log "preference projection failed (rc=${_project_rc}); the interest profile will read whatever the graph already held, which on a first run is nothing."
+    fi
+else
+    log "compiler/project_preferences.py not in the staged tree; skipping the preference projection (staged tree predates it)."
+fi
+
 # --- Step 1: the interest-profile artefact the Hub actually serves -----
 # DELIBERATELY NON-FATAL, and the ordering matters. This step is new; the
 # front-page emit below has worked on every box since it shipped. Under
 # `set -e` a hard failure here would take the working surface down with the
 # new one, so a failure is logged and stepped over. The reverse ordering
 # (front page first) was rejected: the artefact is the one the ASSISTANT
-# reads, so it gets first call on the tick's budget, and the front page is
+# reads, so it goes first of the two emits, and the front page is
 # unaffected either way because the two writes touch different files.
+#
+# IT MUST STAY BELOW STEP 0. That is not a budget question but a data
+# dependency: this step compiles from the graph the projection writes, so
+# running it first compiles last tick's graph. See Step 0 for the measurement.
 #
 # Guarded on the file existing so a tick running against an older staged
 # tree degrades to previous behaviour instead of erroring every hour.
@@ -189,3 +257,112 @@ fi
 # --- Step 2: the Dashboard front page (unchanged) ----------------------
 PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_frontpage --oxigraph "$OSTLER_OXIGRAPH_URL"
 log "Editor front-page tick complete"
+
+# --- Step 3: close the wiki/front-page staleness gap --------------------
+# CM051 walk #5: the compiled wiki's "Needs you now" and the live app's
+# front_page.json showed ZERO cards in common. Reproduced read-only on
+# macmini16-walk: the wiki-compiler service has the correct editor mount
+# and OSTLER_FRONT_PAGE_JSON, and genuinely reads and uses the feed -- the
+# compile that ran at 2026-10-03T20:54:18Z correctly rendered front_page.json
+# as of its OWN most recent read at that time (confirmed via docker inspect
+# on the live container plus an in-container call to the real
+# _editor_need_cards(), whose returned card content byte-matched the raw
+# feed). The compose service definition is not the bug.
+#
+# The actual gap: this tick runs hourly (StartInterval 3600) and is the only
+# writer of front_page.json, while wiki-recompile ships StartInterval 86400
+# (daily) by deliberate v1 design -- CM051 #20's own "open question" chose
+# daily over hourly for disk/battery cost, which is a decision about the
+# WHOLE wiki (thousands of pages) and is left untouched here. Nothing ever
+# told the wiki that THIS one hourly artefact had changed, so "Needs you
+# now" could run stale by up to a full day in steady state -- exactly the
+# daily-tick-is-a-day-of-latency shape already measured for the container
+# supervisor (3.2a-sup above).
+#
+# Fix: trigger a wiki recompile ONLY when front_page.json's content actually
+# changed since the wiki last picked it up -- not on every hourly tick, so
+# the daily-cadence decision for the rest of the wiki is unaffected when the
+# feed is quiet.
+#
+# 🔴 DO NOT FORK wiki-recompile-tick.sh AS A CHILD OF THIS PROCESS. This
+# plist (vendor/cm059_editor/launchd/com.creativemachines.ostler.editor-
+# frontpage.plist) has NO AbandonProcessGroup key, so launchd kills this
+# job's WHOLE PROCESS GROUP the moment this script exits -- including any
+# plain `( cmd & )` backgrounded child, which stays a member of this group
+# by default. That is the exact v1.0.107 defect (see wiki-recompile-tick.sh's
+# own Phase-2 launch, which exists only because of this same failure mode,
+# and solves it with `set -m` + the sibling plist's AbandonProcessGroup).
+# An earlier version of this fix forked directly and would have silently
+# killed the recompile the instant this tick's own process exited.
+#
+# Fix: ask launchd itself to start the SEPARATE wiki-recompile LaunchAgent
+# job (com.creativemachines.ostler.wiki-recompile, whose own plist DOES set
+# AbandonProcessGroup) via `launchctl kickstart`. That job runs under its
+# own launchd-managed lifetime, entirely independent of this script's --
+# nothing here needs to outlive this process for the recompile to survive.
+# Without `-k`, kickstart is idempotent: if the job is already running (the
+# regular/catch-up schedule, or a previous trigger) it is a no-op, so this
+# never double-compiles or interrupts an in-flight run; wiki-recompile-
+# tick.sh's own single-flight mutex is a second, independent guard against
+# the same thing.
+#
+# Cost: wiki-recompile-tick.sh's Phase 2 (the LLM summary backfill, by far
+# the most expensive part) has no time-based throttle of its own, only an
+# anti-STACKING check (skip if one is still running). An hourly Phase 1
+# trigger is cheap (seconds-to-minutes, no LLM), but doing so would make
+# Phase 2 restart as soon as each run finishes -- turning the deliberate
+# daily LLM cost (CM051 #20) into a near-continuous one. wiki-recompile-
+# tick.sh therefore also gained a Phase-2 debounce (next section) so this
+# trigger can fire hourly without reopening that cost decision.
+FRONT_PAGE_JSON="${OSTLER_DIR}/editor/front_page.json"
+FRONT_PAGE_SEEN="${OSTLER_DIR}/state/wiki-recompile-last-frontpage.sha256"
+WIKI_RECOMPILE_LABEL="com.creativemachines.ostler.wiki-recompile"
+if [ -f "$FRONT_PAGE_JSON" ]; then
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+    # `|| true` on the assignment: under `set -e`, a failed command
+    # substitution used as a plain assignment DOES abort the script (unlike
+    # inside an `if`/`&&`), and this whole step must stay as non-fatal as the
+    # rest of this tick -- a hash hiccup must never take the front-page emit
+    # above down with it.
+    _new_hash="$(shasum -a 256 "$FRONT_PAGE_JSON" 2>/dev/null | awk '{print $1}')" || true
+    _old_hash="$(cat "$FRONT_PAGE_SEEN" 2>/dev/null || true)"
+    if [ -n "$_new_hash" ] && [ "$_new_hash" != "$_old_hash" ]; then
+        printf '%s' "$_new_hash" > "$FRONT_PAGE_SEEN"
+        log "front_page.json changed (was ${_old_hash:-<none>}, now ${_new_hash}); kickstarting ${WIKI_RECOMPILE_LABEL} so Needs-you-now catches up within one tick"
+        _kick_rc=0
+        launchctl kickstart "gui/$(id -u)/${WIKI_RECOMPILE_LABEL}" || _kick_rc=$?
+        if [ "$_kick_rc" -ne 0 ]; then
+            log "launchctl kickstart ${WIKI_RECOMPILE_LABEL} returned rc=${_kick_rc} (job not loaded? agent not installed?); the daily/catch-up schedule will pick this up instead"
+        fi
+    else
+        log "front_page.json unchanged since the wiki last saw it; leaving the daily wiki-recompile schedule alone"
+    fi
+fi
+
+# --- Step 4: tell the context digest when the interest profile changes --
+# CM051 walk #27: the digest's "Preferences and things to keep in mind" was
+# EMPTY while the preferences store held 40,315 points. Measured read-only on
+# macmini16-walk: the digest (context-refresh) reads /api/v1/preferences,
+# which serves THIS tick's interest_profile.json. The digest last ran at
+# 05:14 local; this tick wrote the first non-empty profile at 05:25 (0 before,
+# while hydration was still landing); the next digest was 06:48. The walk read
+# it in between. Same writer/reader gap as Step 3, same fix: when the
+# profile's interest count changes, ask launchd to run the digest now.
+# Count, not hash: the file carries generated_at, so it changes every tick.
+INTEREST_PROFILE="${OSTLER_INTEREST_PROFILE:-${OSTLER_PREFERENCES_DIR:-$HOME/.ostler/preferences}/interest_profile.json}"
+INTEREST_SEEN="${OSTLER_DIR}/state/context-refresh-last-interest-count"
+CONTEXT_REFRESH_LABEL="com.creativemachines.ostler.context-refresh"
+if [ -f "$INTEREST_PROFILE" ]; then
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+    _new_n="$("$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); i=d.get("interests"); print(len(i) if isinstance(i, list) else 0)' "$INTEREST_PROFILE" 2>/dev/null)" || true
+    _old_n="$(cat "$INTEREST_SEEN" 2>/dev/null || true)"
+    if [ -n "$_new_n" ] && [ "$_new_n" != "$_old_n" ]; then
+        printf '%s' "$_new_n" > "$INTEREST_SEEN"
+        log "interest profile now holds ${_new_n} interests (was ${_old_n:-<none>}); kickstarting ${CONTEXT_REFRESH_LABEL} so the digest's Preferences catch up within one tick"
+        _kick_rc=0
+        launchctl kickstart "gui/$(id -u)/${CONTEXT_REFRESH_LABEL}" || _kick_rc=$?
+        if [ "$_kick_rc" -ne 0 ]; then
+            log "launchctl kickstart ${CONTEXT_REFRESH_LABEL} returned rc=${_kick_rc}; the digest's own schedule will pick this up instead"
+        fi
+    fi
+fi

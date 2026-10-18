@@ -80,6 +80,8 @@ import gzip
 import json
 import logging
 import sqlite3
+
+from .tcc_refusal import is_fda_refusal
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -493,7 +495,7 @@ def extract_notes(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
-        if "authorization denied" in str(e).lower():
+        if is_fda_refusal(e, db_path):
             raise PermissionError(
                 "Cannot read Apple Notes. Grant Full Disk Access."
             ) from e

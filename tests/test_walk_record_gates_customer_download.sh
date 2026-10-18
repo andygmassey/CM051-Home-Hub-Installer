@@ -48,6 +48,21 @@ write_record() {
       printf 'artefact_sha256_source\t%s\n'  "${9:-$FIXTURE_SHA_SOURCE}"
       printf 'walked_at\t%s\n'  "2026-08-23T09:00:00Z"
       printf 'box_fp\t%s\n'     "3f8a1c9d2e4b6071"
+      # walk_kind: the gate refuses a record that does not declare a CONSOLE
+      # walk. Every arm in this file tests something downstream of that, so the
+      # fixtures declare it; the arms testing the console gate ITSELF override
+      # via $11.
+      #
+      # 🔴 THE SENTINEL IS NOT DECORATION. This was `"${11:-console}"` and the
+      # absent-field arm passed "" to it. `:-` substitutes on UNSET **or
+      # EMPTY**, so "" became "console" and the arm named "no walk_kind at all"
+      # was in fact testing a console record -- it reported rc=0 and read as
+      # the gate failing open. The fixture was encoding the flag instead of the
+      # property. `none` means OMIT THE FIELD, and cannot be reached by accident.
+      if [[ "${11:-console}" != "none" ]]; then
+          printf 'walk_kind\t%s\n'  "${11:-console}"
+          printf 'walk_kind_source\tdeclared: synthetic fixture\n'
+      fi
       printf 'pass\t%s\n'       "$4"
       printf 'fail\t%s\n'       "$5"
       printf 'cannot_run\t%s\n' "$6"
@@ -143,6 +158,46 @@ rc="$(run_gate v1.0.48)"
                    || bad "unknown verdict gave rc=${rc}, expected 2"
 
 # ── 8. A TRUNCATED RECORD IS NOT A PASS ──────────────────────────────
+# ── 14. A WALK NOBODY ATTENDED DOES NOT REPOINT THE CUSTOMER DOWNLOAD ────
+#
+# Measured 2026-09-17: walks/v1.0.88.tsv and walks/v1.0.89.tsv were ssh thin
+# walks and BOTH reached cannot_run=0. One probe away from CLEAN. The belief
+# that "CLEAN implies a human granted TCC, because the GUI probes would
+# otherwise land in cannot_run" is therefore false, and it was the only thing
+# standing between an unattended walk and the public download.
+#
+# Run against the SAME fixture in all three arms, differing in one field.
+write_record "v1.0.60.tsv" "v1.0.60" "CLEAN" 14 0 0 0 "" "" "" "thin"
+rc="$(run_gate v1.0.60)"
+[[ "$rc" == "2" ]] \
+    && ok "a CLEAN walk declaring walk_kind=thin is REFUSED (rc=2) -- an ssh walk cannot authorise the customer download" \
+    || bad "a CLEAN THIN walk returned rc=${rc}, expected 2. An unattended walk can repoint ostler.ai/install.dmg."
+
+write_record "v1.0.61.tsv" "v1.0.61" "CLEAN" 14 0 0 0 "" "" "" "console"
+rc="$(run_gate v1.0.61)"
+[[ "$rc" == "0" ]] \
+    && ok "CONTROL: the same record declaring walk_kind=console is ACCEPTED (rc=0) -- the refusal above is about the field, not the fixture" \
+    || bad "the console positive control returned rc=${rc}, expected 0. Every refusal in this section then proves nothing."
+
+# The field must not be ABSENT-equals-fine. Every record written before
+# post_walk_qa.sh gained the field is in exactly this state.
+write_record "v1.0.62.tsv" "v1.0.62" "CLEAN" 14 0 0 0 "" "" "" "none"
+rc="$(run_gate v1.0.62)"
+[[ "$rc" == "2" ]] \
+    && ok "a record with NO walk_kind at all is REFUSED (rc=2) -- absent reads as thin, never as unknown-therefore-fine" \
+    || bad "an absent walk_kind returned rc=${rc}, expected 2 -- the field fails OPEN, which is worse than not having it"
+
+# 🔴 AND THE ORDERING. A console declaration must not turn a MEASURED DEFECT
+# into absence of evidence, and my first version of this gate did exactly that:
+# placed before the verdict, it downgraded the live walks/v1.0.44.tsv from
+# rc=1 to rc=2. Arm 931-9 above pins the live record; this pins the synthetic
+# one, so the ordering is asserted in both directions.
+write_record "v1.0.63.tsv" "v1.0.63" "FAILED" 11 3 0 0 "" "" "" "thin"
+rc="$(run_gate v1.0.63)"
+[[ "$rc" == "1" ]] \
+    && ok "a FAILED thin walk still reports rc=1 -- evidence of badness outranks absence of evidence" \
+    || bad "a FAILED thin walk returned rc=${rc}, expected 1. The console check is masking measured defects."
+
 printf 'version\tv1.0.49\nverdict\tCLEAN\n' > "${TMP}/v1.0.49.tsv"
 rc="$(run_gate v1.0.49)"
 [[ "$rc" == "2" ]] && ok "a record missing its count fields is REFUSED" \
@@ -210,6 +265,11 @@ write_record_qa() {
       printf 'artefact_sha256_source\t%s\n' "$FIXTURE_SHA_SOURCE"
       printf 'walked_at\t2026-08-23T09:00:00Z\n'
       printf 'box_fp\t3f8a1c9d2e4b6071\n'
+      # Declared on BOTH arms for the same reason the #931 fields are: this
+      # pair isolates qa_exit, and a fixture differing in two places cannot
+      # say which one the gate reacted to.
+      printf 'walk_kind\tconsole\n'
+      printf 'walk_kind_source\tdeclared: synthetic fixture\n'
       printf 'pass\t14\nfail\t0\ncannot_run\t0\nbroken\t0\n'
       printf 'verdict\t%s\n' "$1"
       [[ "$2" != "omit" ]] && printf 'qa_exit\t%s\n' "$2"
@@ -422,6 +482,11 @@ write_no_sha() { # a pre-#931 record: version fields present, artefact fields ab
       printf 'version_source\t%s\n' "$FIXTURE_VERSION_SOURCE"
       printf 'walked_at\t2026-08-23T09:00:00Z\n'
       printf 'box_fp\t3f8a1c9d2e4b6071\n'
+      # Declared so this arm refuses for the MISSING SHA, which is what it is
+      # named after, and not for a missing walk_kind. Two reasons to refuse
+      # produce the same rc=2 and the arm would prove nothing.
+      printf 'walk_kind\tconsole\n'
+      printf 'walk_kind_source\tdeclared: synthetic fixture\n'
       printf 'pass\t14\n';  printf 'fail\t0\n'
       printf 'cannot_run\t0\n'; printf 'broken\t0\n'
       printf 'verdict\tCLEAN\n'; printf 'qa_exit\t0\n'

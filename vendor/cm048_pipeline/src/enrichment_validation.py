@@ -94,6 +94,15 @@ EXPECTED_HEADINGS_BY_PROMPT: dict[str, list[str]] = {
         "Next steps",
         "Cleaned transcript",
     ],
+    # A single-speaker capture (voice memo, dictated note). Chosen by the
+    # pipeline from the speaker count, never by the classifier: see
+    # src/capture_truth.py. No roster, no location, no "people mentioned".
+    "02_enrich_voice_memo": [
+        "Summary",
+        "Topics covered",
+        "Commitments",
+        "Cleaned transcript",
+    ],
     "02_enrich_email_thread": [
         "Summary",
         "Key topics",
@@ -377,3 +386,180 @@ def build_retry_system_prompt(prompt_name: str, missing: list[str]) -> str:
         "section has no content, write `_Nothing to report._` under "
         "the heading rather than omitting it."
     )
+
+# v1.0.107 walk #13. The enrich prompts ask the model for a
+# ``reminders_candidates`` sidecar (prompts/02_enrich_*.md). Nothing parses
+# it out of the reply: the structured sidecar is written separately and is
+# empty until Phase C. So the model's copy stayed in the body and reached
+# the customer's wiki as an internal key, under Action items and Commitments.
+# Measured on the walk box: 21 occurrences in four shapes, all handled here:
+# a bare ``reminders_candidates:`` block, the same as a bullet, a fenced
+# block whose first line is the key, and an inline ``[reminders_candidates:
+# ...]`` at the end of a commitment.
+_SIDECAR_KEY = "reminders_candidates"
+_SIDECAR_LINE_RE = re.compile(r"^(\s*)(?:[*-]\s+)?" + _SIDECAR_KEY + r"\s*:")
+_SIDECAR_INLINE_RE = re.compile(r"\s*\[" + _SIDECAR_KEY + r"\s*:[^\]\n]*\]?")
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+
+def strip_reminders_sidecar(text: str) -> tuple[str, int]:
+    """``(text without the reminders sidecar, number of sidecars removed)``.
+
+    A block runs from the key line through every following line that is
+    indented deeper than the key or is a list item, and stops at a blank
+    line, a heading, or the next unindented prose line. Customer text that
+    merely mentions reminders is untouched: only the literal key matches.
+    """
+    if not text or _SIDECAR_KEY not in text:
+        return text, 0
+    lines = text.split("\n")
+    out: list[str] = []
+    removed = 0
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if _FENCE_RE.match(line):
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines) and _SIDECAR_LINE_RE.match(lines[j]):
+                k = j + 1
+                while k < len(lines) and not _FENCE_RE.match(lines[k]):
+                    k += 1
+                removed += 1
+                i = k + 1
+                continue
+        m = _SIDECAR_LINE_RE.match(line)
+        if m:
+            indent = len(m.group(1))
+            removed += 1
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                if not nxt.strip() or nxt.lstrip().startswith("#"):
+                    break
+                nindent = len(nxt) - len(nxt.lstrip())
+                if nindent > indent or nxt.lstrip().startswith("- "):
+                    i += 1
+                    continue
+                break
+            continue
+        new, n = _SIDECAR_INLINE_RE.subn("", line)
+        removed += n
+        out.append(new.rstrip() if n else line)
+        i += 1
+    return "\n".join(out), removed
+
+
+# ---------------------------------------------------------------------------
+# `### Participants` roster: display names only (walk #23)
+# ---------------------------------------------------------------------------
+# The enrichment prompts show the model `{user_name} (user)` and
+# `{other_name} (new acquaintance, ex-[company])` as the SHAPE of a roster
+# bullet. The model copies the role tags (and sometimes the literal
+# `(other_name)`), and a participant with no resolved name carries its raw
+# phone number or address in `metadata.participants[*].display`. The wiki
+# renders the summary verbatim, so a customer read
+# "Owner (user) (user) +<number> (other_name) (new acquaintance, ...".
+# Normalised here, deterministically, from the names the pipeline already
+# holds in metadata.participants (no new resolver): owner -> "You", a
+# resolved display name stays, a bare number/address -> "an unknown contact".
+_PARTICIPANTS_HEADING = re.compile(r"^#{2,4}\s*Participants\s*$", re.I)
+_ANY_HEADING = re.compile(r"^#{1,6}\s+\S")
+_PAREN = re.compile(r"\([^()]*\)")
+_PHONE_SHAPE = re.compile(r"^\+?[\d\s().\-]{6,}$")
+_UNKNOWN_CONTACT = "an unknown contact"
+_OWNER_LABEL = "You"
+
+
+def _is_handle(name: str) -> bool:
+    return "@" in name or (
+        bool(_PHONE_SHAPE.match(name)) and sum(c.isdigit() for c in name) >= 6
+    )
+
+
+_ROLE_TAG_ANYWHERE = re.compile(
+    r"[ \t]*\((?:user|other|other_name|user_name|other:[\w-]+)\)", re.I
+)
+
+
+def scrub_scaffolding(text: str, participants: list[dict] | None) -> str:
+    """Body-wide: role tags the model copied from the prompt shape, and the
+    raw number/address of a participant with no resolved name. Deterministic;
+    only exact copied tags and exact known handle strings are touched."""
+    text = _ROLE_TAG_ANYWHERE.sub("", text)
+    for p in participants or []:
+        display = str(p.get("display") or "").strip()
+        label = display if display and not _is_handle(display) else _UNKNOWN_CONTACT
+        for key in ("display", "id"):
+            raw = str(p.get(key) or "").strip()
+            if raw and _is_handle(raw) and len(raw) >= 6:
+                text = text.replace(raw, label)
+    return text
+
+
+def sanitise_participants_section(
+    text: str, participants: list[dict] | None, user_name: str = ""
+) -> str:
+    """Rewrite the `### Participants` bullets as de-duplicated display names,
+    then scrub copied role tags and raw handles from the rest of the body."""
+    return scrub_scaffolding(
+        _sanitise_participants_roster(text, participants, user_name), participants
+    )
+
+
+def _sanitise_participants_roster(
+    text: str, participants: list[dict] | None, user_name: str = ""
+) -> str:
+    participants = participants or []
+    owner_names = {user_name.strip().lower()} - {""}
+    resolved: dict[str, str] = {}
+    for p in participants:
+        display = str(p.get("display") or "").strip()
+        pid = str(p.get("id") or "").strip()
+        if p.get("role") == "user" and display and not _is_handle(display):
+            owner_names.add(display.lower())
+        if display and not _is_handle(display):
+            if pid:
+                resolved[pid.lower()] = display
+
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        out.append(lines[i])
+        if not _PARTICIPANTS_HEADING.match(lines[i].strip()):
+            i += 1
+            continue
+        j = i + 1
+        while j < len(lines) and not _ANY_HEADING.match(lines[j]):
+            j += 1
+        block = lines[i + 1:j]
+        bullets = [b for b in block if re.match(r"^\s*[-*]\s+", b)]
+        if not bullets:
+            out.extend(block)
+            i = j
+            continue
+        names: list[str] = []
+        for b in bullets:
+            body = re.sub(r"^\s*[-*]\s+", "", b)
+            prev = None
+            while prev != body:  # nested tags
+                prev, body = body, _PAREN.sub("", body)
+            body = re.sub(r"\([^)]*$", "", body)  # unclosed trailing tag
+            body = re.sub(r"\{[a-z_]+\}", "", body)
+            for part in re.split(r"\s*,\s*", body):
+                part = part.strip(" \t*_`")
+                if not part or part.lower() in ("user", "other_name", "user_name"):
+                    continue
+                if part.lower() in owner_names or part.lower() == "you":
+                    part = _OWNER_LABEL
+                elif _is_handle(part):
+                    part = resolved.get(part.lower(), _UNKNOWN_CONTACT)
+                if part not in names:
+                    names.append(part)
+        out.extend(f"- {n}" for n in names)
+        if block and block[-1].strip() == "":
+            out.append("")
+        i = j
+    return "\n".join(out)

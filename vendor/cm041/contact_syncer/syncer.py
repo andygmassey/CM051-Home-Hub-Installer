@@ -33,10 +33,14 @@ from contact_syncer.vcard_parser import parse_vcard
 from contact_syncer.classifier import classify_contact
 from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
+from contact_syncer.relationship_labels import is_relationship_label
+from contact_syncer.person_audit import record_person_removal
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
+from identity_resolver.forget_tombstone import MATCH_TYPE as FORGOTTEN
 from identity_resolver.normalise import (  # type: ignore[import-untyped]
     clean_display_name,
+    is_possible_phone,
     normalise_email,
     normalise_phone,
 )
@@ -209,6 +213,13 @@ class ContactSyncer:
                         parsed["fn"] = _cleaned
                     # Person or unclassified – create person node
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
+                    if person_uri is None:
+                        counts[contact_type] -= 1
+                        skipped.append({
+                            "uid": uid_for_log, "fn": None, "stage": "forgotten",
+                            "error": "person was forgotten (tombstone); not created",
+                        })
+                        continue
                     description = self._build_description(parsed)
                     qdrant_queue.append(
                         {
@@ -419,6 +430,13 @@ class ContactSyncer:
                     if _cleaned:
                         parsed["fn"] = _cleaned
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
+                    if person_uri is None:
+                        counts[contact_type] -= 1
+                        skipped.append({
+                            "uid": uid_for_log, "fn": None, "stage": "forgotten",
+                            "error": "person was forgotten (tombstone); not created",
+                        })
+                        continue
                     description = self._build_description(parsed)
                     qdrant_queue.append(
                         {
@@ -832,6 +850,8 @@ class ContactSyncer:
          trust_env=False)
         resp.raise_for_status()
         data = resp.json()
+        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        record_embed_usage(data, self.cfg.EMBED_MODEL)
         return data.get("embeddings", [])
 
     def _ensure_qdrant_collection(self, vector_size: int) -> None:
@@ -950,7 +970,20 @@ class ContactSyncer:
             "family_name": parsed.get("family_name") or "",
             "organization": parsed.get("org") or "",
             "job_title": parsed.get("title") or "",
-            "phones": [p["value"] for p in parsed.get("phones", [])],
+            # Normalised to E.164, as the Oxigraph identifiers below are, so the
+            # Qdrant payload agrees with the identifier it mirrors (CM041 #182,
+            # CM051 #2545; grafted for v1.0.107).
+            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
+            # graft): normalise_phone() is a pass-through formatter, not a
+            # validator, so an internal-id/LID-shaped vCard value sailed
+            # straight through unchanged. is_possible_phone (shape only, not
+            # libphonenumber's narrower "currently assigned" check) refuses
+            # it without also refusing real numbers in unvalidated ranges.
+            "phones": [
+                normalise_phone(p["value"], self.resolver.default_country_code)
+                for p in parsed.get("phones", [])
+                if p.get("value") and is_possible_phone(p["value"], self.resolver.default_country_code)
+            ],
             "emails": [e["value"] for e in parsed.get("emails", [])],
             "icloud_uid": parsed.get("uid") or "",
             "profile_photo_path": parsed.get("profile_photo_path") or "",
@@ -977,8 +1010,9 @@ class ContactSyncer:
 
     def _resolve_and_write_person(
         self, parsed: Dict[str, Any], contact_type: str
-    ) -> Tuple[str, str]:
-        """Resolve identity, write person node to Oxigraph. Returns (person_id, person_uri)."""
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve identity, write person node to Oxigraph. Returns (person_id, person_uri),
+        or (None, None) for a forgotten person (nothing written)."""
         from identity_resolver.models import PersonIdentity
 
         phones = [p["value"] for p in parsed.get("phones", []) if p.get("value")]
@@ -1032,6 +1066,11 @@ class ContactSyncer:
                     incoming_uid,
                 )
                 match = None
+
+        # A person erased by /people/<slug>/forget: write nothing, not even a
+        # photo. (None, None) tells both sync loops to skip the contact.
+        if match and match.match_type == FORGOTTEN:
+            return None, None
 
         if match and match.person_uri:
             person_uri = match.person_uri
@@ -1090,7 +1129,14 @@ class ContactSyncer:
     ) -> None:
         """Insert a new Person node into Oxigraph via SPARQL UPDATE."""
         now = datetime.now(timezone.utc).isoformat()
-        fn = (parsed.get("fn") or "").replace('"', '\\"')
+        # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become
+        # a person's permanent displayName -- it says how SOMEBODY refers to
+        # this person, not who they are. Matches the WHOLE label only, so a
+        # real name that merely contains the word ("Mum Zhang") is untouched.
+        # A new node (unlike the update path) has no prior name to destroy,
+        # so dropping straight to "" is safe here.
+        _raw_fn = parsed.get("fn") or ""
+        fn = "" if is_relationship_label(_raw_fn) else _raw_fn.replace('"', '\\"')
         given = (parsed.get("given_name") or "").replace('"', '\\"')
         family = (parsed.get("family_name") or "").replace('"', '\\"')
         org = (parsed.get("org") or "").replace('"', '\\"')
@@ -1141,6 +1187,10 @@ class ContactSyncer:
                 f'<{id_uri}> pwg:identifierValue "{parsed["uid"]}"'
             )
 
+        # A duplicate number within one vCard (the same number typed in two
+        # formats) is written once, as seen_emails dedupes below (CM041 #182,
+        # CM051 #2545; grafted for v1.0.107).
+        seen_phones: set = set()
         for idx, phone in enumerate(parsed.get("phones", [])):
             id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_phone{idx}"
             # Store the NORMALISED value so it matches what the resolver's
@@ -1148,9 +1198,22 @@ class ContactSyncer:
             # vCard value (e.g. a space-separated international form) while the resolver looked up
             # the E.164 form (no spaces), so Tier-1 exact-identifier dedup
             # never fired and every repeat minted a duplicate (BW-1).
+            #
+            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
+            # graft): see the identical guard in the Qdrant payload above --
+            # a cold install measured 8 of 3,307 phone identifiers were
+            # exactly 14 digits (a WhatsApp-LID/internal-id shape), all
+            # produced here, because normalise_phone() returns a value it
+            # cannot validate UNCHANGED rather than refusing it.
+            raw_phone_value = phone.get("value") or ""
+            if not is_possible_phone(raw_phone_value, self.resolver.default_country_code):
+                continue
             phone_value = normalise_phone(
-                phone["value"], self.resolver.default_country_code
+                raw_phone_value, self.resolver.default_country_code
             )
+            if not phone_value or phone_value in seen_phones:
+                continue
+            seen_phones.add(phone_value)
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "phone"')
@@ -1205,18 +1268,34 @@ class ContactSyncer:
         incoming vCard onto the existing node. Idempotent – adding an
         identifier that already exists is a no-op.
         """
-        fn = (parsed.get("fn") or "").replace('"', '\\"')
+        _raw_fn = parsed.get("fn") or ""
         org = (parsed.get("org") or "").replace('"', '\\"')
         title = (parsed.get("title") or "").replace('"', '\\"')
 
+        # CM051 #2556: a bare kinship word ("Mum", "Wife") in the INCOMING
+        # vCard must never overwrite this person's displayName -- including
+        # by blanking it. If the delete fires unconditionally and fn is then
+        # "" (falsy), the existing GOOD name is deleted and nothing replaces
+        # it, which is worse than leaving a stale name alone. So
+        # pwg:displayName is dropped from this run's delete set entirely
+        # when the incoming value is a relationship label, and whatever is
+        # already on the node (good or bad) is left untouched.
+        _fn_is_relationship_label = is_relationship_label(_raw_fn)
+        fn = "" if _fn_is_relationship_label else _raw_fn.replace('"', '\\"')
+
         # Part A: delete-then-reinsert mutable scalar properties
         delete_preds = [
-            "pwg:displayName",
             "pwg:organization",
             "pwg:jobTitle",
             "pwg:contactType",
             "foaf:img",
         ]
+        if not _fn_is_relationship_label:
+            delete_preds.insert(0, "pwg:displayName")
+        if not _fn_is_relationship_label and not fn:
+            # displayName is deleted below and nothing replaces it: the node
+            # leaves every reader that requires a name.
+            record_person_removal(person_uri, "contact_syncer.syncer", "blank_incoming_name_deleted_displayName")
         for pred in delete_preds:
             sparql = (
                 "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
@@ -1255,6 +1334,10 @@ class ContactSyncer:
             new_ids.append(("icloud_contact_uid", uid, None))
         for phone in parsed.get("phones", []):
             v = phone.get("value") if isinstance(phone, dict) else None
+            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
+            # graft): see the identical guard in _create_person_oxigraph.
+            if v and not is_possible_phone(v, self.resolver.default_country_code):
+                v = None
             if v:
                 # Normalise to the resolver's lookup form so dedup matches (BW-1).
                 v = normalise_phone(v, self.resolver.default_country_code)

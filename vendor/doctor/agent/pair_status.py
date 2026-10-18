@@ -26,6 +26,7 @@ gate.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -158,12 +159,68 @@ def _validate_envelope(envelope: object) -> Optional[str]:
         return f"qr_payload rp_id is wrong: {envelope.get('rp_id')!r}"
     if not isinstance(envelope.get("hub_addr"), str) or not envelope["hub_addr"]:
         return "qr_payload hub_addr is not a non-empty string"
+    _addr_problem = _hub_addr_is_not_reachable_from_a_phone(envelope["hub_addr"])
+    if _addr_problem:
+        return f"qr_payload hub_addr {_addr_problem}"
     if not isinstance(envelope.get("pairing_token"), str):
         return "qr_payload pairing_token is not a string"
     if not isinstance(envelope.get("expires_at"), int):
         return "qr_payload expires_at is not an integer"
     return None
 
+
+def _hub_addr_is_not_reachable_from_a_phone(hub_addr: str) -> Optional[str]:
+    """Return a reason string when ``hub_addr`` cannot work on the phone, else None.
+
+    #947. The envelope used to validate this field as "a non-empty string" and
+    then encode it verbatim into the QR. Non-empty is not the property that
+    matters: the phone has to OPEN it.
+
+    The case that put thirteen refused connections on :8443 in the issue is an
+    IPv6 LINK-LOCAL address with a zone index, ``fe80::1%en0``. That address is
+    only meaningful on the interface named by the zone, and ``en0`` on the Hub
+    is not ``en0`` on the phone: the scope travels with the string while the
+    thing it scopes does not. The QR scans perfectly and the connection cannot
+    succeed, which is the worst failure shape available, because nothing looks
+    broken.
+
+    Loopback is the same class from the other direction: ``127.0.0.1`` resolves
+    on the phone, to the phone.
+
+    A HOSTNAME IS LEFT ALONE. ``ostler.local`` is how a Mac is normally found on
+    a LAN and mDNS is the intended path, so only strings that PARSE as an IP
+    address are judged. Anything else is passed through untouched, because this
+    function must not become a second, weaker name resolver.
+    """
+    raw = hub_addr.strip()
+    for scheme in ("https://", "http://"):
+        if raw.lower().startswith(scheme):
+            raw = raw[len(scheme):]
+    raw = raw.split("/", 1)[0]
+    if raw.startswith("["):                      # [v6]:port
+        host = raw[1:].split("]", 1)[0]
+    elif raw.count(":") == 1:                    # v4:port or host:port
+        host = raw.split(":", 1)[0]
+    else:                                        # bare v6, or bare host
+        host = raw
+    if not host:
+        return "is empty once the port is removed"
+    try:
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return None                              # a hostname: not ours to judge
+    if ip.is_link_local:
+        return (f"is the link-local address {host}, which is only valid on the "
+                f"interface it names and cannot be opened from another device")
+    if ip.is_loopback:
+        return (f"is the loopback address {host}, which on the phone means the "
+                f"phone itself")
+    if ip.is_unspecified:
+        return (f"is the unspecified address {host}, a listen-on-everything "
+                f"wildcard and not somewhere to connect to")
+    if ip.is_multicast:
+        return f"is a multicast address {host}, which is not a host to connect to"
+    return None
 
 def _build_status_from_envelope(envelope: dict) -> PairStatus:
     qr_json = envelope_to_qr_payload(envelope)

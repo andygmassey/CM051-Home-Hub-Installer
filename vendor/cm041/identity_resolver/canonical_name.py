@@ -356,3 +356,43 @@ def choose_canonical_display_name(
     if cleaned:
         return cleaned[0]
     return None
+
+
+# ---------------------------------------------------------------------------
+# NAME TIERS ON MERGE (DMG #27). phone < email < human; a name only ever moves UP.
+# ---------------------------------------------------------------------------
+# Measured on a candidate box: 150 of 787 merges put a named person into a
+# survivor whose displayName was a phone number (145) or an email (5). Step 4 of
+# both merge paths copies a scalar only where the survivor has NONE, so a
+# survivor that already carried a placeholder kept it, and canonicalise (which
+# only collapses MULTIPLE values) had nothing to choose between.
+
+NAME_TIER_NONE = -1
+NAME_TIER_PHONE = 0     # raw phone, or a system / automation alias: a placeholder
+NAME_TIER_EMAIL = 1
+NAME_TIER_HUMAN = 2
+
+
+def name_tier(value: Optional[str]) -> int:
+    if not value or not value.strip():
+        return NAME_TIER_NONE
+    v = value.strip()
+    if _looks_like_email(v):
+        return NAME_TIER_EMAIL
+    if is_acceptable_display_name(v):
+        return NAME_TIER_HUMAN
+    return NAME_TIER_PHONE
+
+
+def upward_name(keep_names: Iterable[str], discard_names: Iterable[str]) -> Optional[str]:
+    """The discard's best name when it is a HIGHER tier than anything the
+    survivor carries, else None. Equal tiers return None on purpose: two human
+    names keep the existing rule (the survivor's own name, then canonicalise),
+    and a survivor with no name at all is left to the existing copy step."""
+    keep = [n for n in keep_names if name_tier(n) >= 0]
+    if not keep:
+        return None
+    best_keep = max(name_tier(n) for n in keep)
+    cands = sorted((n for n in discard_names if name_tier(n) > best_keep),
+                   key=lambda n: (-name_tier(n), n))
+    return cands[0] if cands else None

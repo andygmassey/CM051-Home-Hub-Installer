@@ -1,0 +1,105 @@
+# Ostler walk record -- written by scripts/post_walk_qa.sh
+# Read by scripts/verify_walk_record.sh, which gates the customer download.
+# The box is recorded as a hash: this repo is public.
+# version_source says how the version was obtained. Anything other than
+# measured(...) means the version is an assertion, not an observation.
+#
+# artefact_sha256 is the build this box was walked with. A version does
+# NOT identify a build -- "1.0.50" named eleven distinct assemblies -- so
+# this is the field the publish gate binds on. artefact_sha256_source
+# reads measured(...) only when the DMG was found on the box and hashed
+# there; that establishes WHICH BUILD, not that it was the one mounted.
+#
+# counts_scope says WHICH population pass/fail/cannot_run/broken describe.
+# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut
+# manifest runtime proofs) contributes to verdict and qa_exit but emits no
+# counts, so it is deliberately absent from these four numbers.
+# failed_probe_names_recorded and the failed_probe/not_measured_probe rows
+# below are the EXCEPTION: those DO cover both phases, because a phase-2-
+# only failure still has to reach scripts/verify_walk_record.sh by name or
+# its promote gate cannot scope its decision and refuses unscoped.
+# READ verdict AND qa_exit FOR THE WHOLE-SUITE RESULT. The four counts are
+# a subset and summing them will not reconcile against the console tally --
+# 2026-08-24 that mismatch (13 here vs 33 on console) was carried for hours
+# as an unexplained discrepancy in a v1.0.44 verdict that was correct all
+# along, because these keys were unqualified.
+version	v1.0.100
+version_source	measured(CFBundleShortVersionString, matches argument)
+artefact_sha256	unavailable
+artefact_sha256_source	asserted-unverifiable(no OstlerInstaller-1.0.100.dmg on the box)
+walked_at	2026-09-17T14:10:01Z
+box_fp	f0a5e4fd0536754c
+walk_kind	thin
+walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download
+#
+# instrument_rev answers the question this record has never
+# answered: WHICH PROBES graded that artefact. The subject is
+# named six ways above -- version, version_source,
+# artefact_sha256, artefact_sha256_source, box_fp, walked_at --
+# and the instrument was named nowhere.
+#
+# It matters because the probes do NOT come from the artefact. In
+# --from-dmg mode ttywalk.sh copies the .app Resources verbatim,
+# and gui/project.yml bundles box_walk_probes ZERO times, so the
+# suite that runs is the one in THIS checkout. A walk is therefore
+# artefact X judged by instrument Y, and only X was recorded.
+#
+# The case that forced it: no_person_holds_two_contact_cards
+# gained a collision-opportunity measure in #1549. Before it, a
+# clean graph printed a bare pass; after it, the same graph prints
+# EARNED or UNEXERCISED. BOTH WRITE THE SAME `pass` HERE. Reading
+# this file later, nobody could tell an earned zero from a vacuous
+# one -- which is the exact distinction that probe exists to make.
+#
+# instrument_source says HOW the value was obtained, same idiom as
+# version_source. A sha that does not describe the probes that ran
+# is worse than no sha, so local edits under box_walk_probes are
+# named rather than hidden behind a clean-looking commit id.
+#
+# 🔴 A CLEAN SHA DOES NOT MEAN main. It means the probes are EXACTLY
+# that commit, which may be a branch, a tag or a detached head. The
+# v1.0.71 walk ran from a harness branch that was main plus five
+# reset fixes: a correct, clean, committed sha that was nonetheless
+# not main. Resolve the sha before assuming the lineage -- this
+# field answers WHICH probes ran, never WHERE they came from.
+instrument_rev	003aebdcf80214cb8e435e84152b80b23937d7c9
+instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
+#
+# stores_provenance answers the question every store-reading probe
+# begs and none of them state: was the graph this walk measured
+# CREATED by this artefact, or CARRIED OVER from a previous install?
+# A red from no_person_holds_two_contact_cards, people_stores_reconcile
+# or people_count_agreement means something different in each case. A
+# reset does NOT wipe: ttywalk.sh runs the shipped uninstaller if it can
+# find one and says so when it cannot.
+stores_provenance	carried-over-from-previous-install
+counts_scope	box_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases
+pass	19
+fail	6
+cannot_run	3
+broken	1
+measured	28 of 29 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
+verdict	FAILED
+qa_exit	1
+failed_probe_names_recorded	7 of 19
+failed_probe	acceptance_gate_v1013
+failed_probe	assistant_answers_grounded
+failed_probe	install_manifest_complete
+failed_probe	no_store_port_is_tcp_reachable
+failed_probe	no_unexpected_egress
+failed_probe	ostler_unlock_reachable_by_name
+failed_probe	people_count_agreement
+failed_probe_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
+not_measured_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
+not_measured_probe	assistant_grounds_the_opening_turn
+not_measured_probe	doctor_page_renders_for_a_customer
+not_measured_probe	ingest_coverage
+not_measured_probe	usage_journal_producers
+broken_probe	assistant_grounds_the_opening_turn
+regression_of	acceptance_gate_v1013	v1.0.95
+regression_of	assistant_answers_grounded	v1.0.89
+regression_of	install_manifest_complete	v1.0.95
+regression_of	no_store_port_is_tcp_reachable	v1.0.95
+regression_of	no_unexpected_egress	v1.0.95
+regression_of	ostler_unlock_reachable_by_name	v1.0.95
+regression_of	people_count_agreement	v1.0.95

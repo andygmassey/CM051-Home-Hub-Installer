@@ -1,0 +1,51 @@
+name: email channel (allowlist question and loopback round trip)
+
+# v1.0.107 #10. The installer asks who may email the assistant and writes the
+# answer to [channels.email] allowed_senders; the box-walk probe
+# email_channel_round_trip drives the installed daemon against a loopback mail
+# server. Each check exits 2 on CANNOT-RUN, never 0.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_email_allowlist_installer.sh'
+      - 'scripts/box_walk_probes/lib/email_channel_probe.py'
+      - 'scripts/box_walk_probes/probes/email_channel_round_trip.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'cut-manifests/v1.0.107.yaml'
+      - '.github/workflows/email-channel.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  email-channel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: The installer asks, pre-fills, requires one address, and keeps the password out of logs
+        run: bash tests/test_email_allowlist_installer.sh
+      - name: The email judge catches every mutant by its own assertion
+        if: always()
+        run: set +e; python3 scripts/box_walk_probes/lib/email_channel_probe.py --self-test; rc=$?; test "$rc" -eq 1
+      - name: The loopback IMAP and SMTP servers speak to stdlib clients
+        if: always()
+        run: python3 scripts/box_walk_probes/lib/email_channel_probe.py --server-test
+      - name: The probe's own self-test goes red on known-bad facts
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/email_channel_round_trip.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1"; exit 1; fi
+          printf '%s\n' "$out" | grep -q 'negative control behaved' || { echo "no 'negative control behaved' verdict"; exit 1; }

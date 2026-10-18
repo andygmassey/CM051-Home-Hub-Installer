@@ -1,0 +1,41 @@
+{
+  "_comment": "Lane 6 wire contract between the browser extensions and the Hub. The Hub handlers are api_safari_ingest and api_safari_save in CM041 assistant_api/ical-server.py, shipped via vendor/cm041 in CM051. Both routes sit behind the Doctor proxy on :8089 and need Authorization: Bearer <token>. No em dashes in any file.",
+  "version": 1,
+  "ingest": {
+    "method": "POST",
+    "path": "/api/safari/ingest",
+    "auth_header": "Authorization: Bearer <paired-or-extension token>",
+    "required": {"url": "string", "title": "string (may be empty)", "timestamp": "ISO-8601 UTC string", "device": "string: Chrome | macOS | iOS"},
+    "legacy_optional": {"html": "string, kept for older extensions; the Hub never stores it"},
+    "new_optional": {
+      "text": "string, readable plain text, at most 20480 characters, ONLY sent when the page passes the worth-it filter and is not skip-listed",
+      "dwell_ms": "integer, visible time on page in milliseconds"
+    },
+    "text_cap_chars": 20480,
+    "notes": [
+      "The visit is sent at the existing 2.5 s debounce WITHOUT text. If the page is a revisit, text rides on that first send.",
+      "Otherwise, when visible dwell reaches the dwell threshold (default 15000 ms), the extension sends a SECOND POST with identical url and timestamp plus text and dwell_ms. The Hub treats same url+timestamp as the same visit (point id is uuid5 of url+timestamp).",
+      "Response 200 JSON: {ok, stored, id, summary_status}. summary_status is one of: queued, unsummarised, skipped_text."
+    ]
+  },
+  "save": {
+    "method": "POST",
+    "path": "/api/safari/save",
+    "auth_header": "Authorization: Bearer <paired-or-extension token>",
+    "required": {"url": "string", "title": "string", "text": "string, at most 204800 characters", "timestamp": "ISO-8601 UTC string", "device": "string"},
+    "optional": {"tags": "array of short strings (user tags, max 20, 40 chars each)", "note": "string, user note, max 2000 chars"},
+    "text_cap_chars": 204800,
+    "notes": [
+      "Explicit user action. The skip list does NOT apply, but the Hub sensitive-domain filter still does (returns skipped_sensitive).",
+      "Response 202 JSON: {ok, status: queued, id}. The summary is written asynchronously as a Knowledge item."
+    ]
+  },
+  "default_text_skiplist": {
+    "host_substrings": ["bank", "paypal", "stripe.com", "wise.com", "revolut", "monzo", "barclays", "hsbc", "natwest", "lloyds", "santander", "halifax", "nationwide", "amex", "americanexpress", "mastercard", "visa.com", "coinbase", "binance", "kraken.com", "nhs.uk", "patient", "healthgrades", "webmd", "mayoclinic", "pharmacy", "doctolib", "zocdoc", "medical", "clinic", "hospital", "therapy", "psychology", "mentalhealth", "mail.google.com", "outlook.live.com", "outlook.office.com", "mail.yahoo.com", "mail.proton.me", "icloud.com", "accounts.google.com", "appleid.apple.com", "login.microsoftonline"],
+    "path_patterns": ["login", "log-in", "signin", "sign-in", "signup", "sign-up", "auth", "oauth", "password", "checkout", "cart", "basket", "payment", "billing", "account", "settings", "search", "results"],
+    "query_params": ["q", "query", "search", "s"],
+    "hosts_exact_or_suffix": ["localhost", "127.0.0.1", "::1"],
+    "host_patterns": ["intranet", "internal", "corp", ".local", ".lan"],
+    "private_ip_prefixes": ["10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31."]
+  }
+}

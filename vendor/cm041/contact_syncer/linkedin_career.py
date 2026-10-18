@@ -44,6 +44,8 @@ if _PARENT_DIR not in sys.path:
 
 from contact_syncer import config
 from contact_syncer import privacy_model as _pm
+from contact_syncer.relationship_labels import is_relationship_label
+from identity_resolver import forget_tombstone
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -96,6 +98,8 @@ def embed_text(
         )
         resp.raise_for_status()
         data = resp.json()
+        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        record_embed_usage(data, model)
     embs = data.get("embeddings") or [data.get("embedding")]
     return embs[0]
 
@@ -280,11 +284,19 @@ def _create_person_from_endorser(
     user_id: str,
 ) -> None:
     """Create a minimal Person node from an endorser."""
+    forget_tombstone.guard(
+        [linkedin_url] if linkedin_url else [], name=display_name
+    )
     now = datetime.now(timezone.utc).isoformat()
+    # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become a
+    # person's permanent displayName -- it says how SOMEBODY refers to this
+    # person, not who they are. Matches the WHOLE label only, so a real name
+    # that merely contains the word ("Mum Zhang") is untouched.
+    _fn = "" if is_relationship_label(display_name) else _escape(display_name)
 
     triples = [
         f"<{person_uri}> a pwg:Person",
-        f'<{person_uri}> pwg:displayName "{_escape(display_name)}"',
+        f'<{person_uri}> pwg:displayName "{_fn}"',
         f'<{person_uri}> pwg:contactType "person"',
         f'<{person_uri}> pwg:privacyLevel "{config.DEFAULT_PRIVACY_LEVEL}"',
         f'<{person_uri}> pwg:createdAt "{now}"^^xsd:dateTime',
@@ -384,6 +396,13 @@ def import_endorsements(
             )
 
             match = resolver.resolve(identity, use_fuzzy=True)
+
+            # Forgotten (tombstoned) people are never created or linked.
+            if match and match.match_type == "forgotten":
+                counts["skipped"] += 1
+                if verbose:
+                    print("    FORGOTTEN (skipped)")
+                continue
 
             if match and match.person_uri and match.match_type != "new":
                 person_uri = match.person_uri
@@ -549,6 +568,13 @@ def import_recommendations(
             )
 
             match = resolver.resolve(identity, use_fuzzy=True)
+
+            # Forgotten (tombstoned) people are never created or linked.
+            if match and match.match_type == "forgotten":
+                counts["skipped"] += 1
+                if verbose:
+                    print("    FORGOTTEN (skipped)")
+                continue
 
             if match and match.person_uri and match.match_type != "new":
                 person_uri = match.person_uri

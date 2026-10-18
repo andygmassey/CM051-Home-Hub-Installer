@@ -17,14 +17,19 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from .thread_aggregator import EmailThread
+from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
 
 logger = logging.getLogger(__name__)
+
+# One run id per process for the lifetime of this module, used to group
+# usage-journal rows from the same enrichment run.
+_USAGE_RUN_ID = "cm024k-enrich-" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # Prompt template for thread summarization
@@ -301,6 +306,19 @@ class EmailSummarizer:
             response.raise_for_status()
 
             data = response.json()
+
+            try:
+                input_tokens, output_tokens = tokens_from_ollama(data)
+                record_usage(
+                    model=self.model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    purpose="enriching",
+                    session_id=_USAGE_RUN_ID,
+                )
+            except Exception as usage_err:
+                logger.warning(f"Usage journal recording failed: {usage_err}")
+
             return data.get("response", "")
 
     async def _call_gemini(self, prompt: str, max_retries: int = 10) -> str:

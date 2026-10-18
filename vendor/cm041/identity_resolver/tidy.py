@@ -265,6 +265,11 @@ class TidyReport:
 
     items: List[TidyItem] = field(default_factory=list)
     total_persons: int = 0
+    # Set when the duplicate scan hit its wall-clock budget. A short report
+    # that does not say it is short is indistinguishable from a clean one, and
+    # the user would read "no duplicates left" off a scan that never finished.
+    truncated: bool = False
+    truncated_reason: str = ""
 
     def counts(self) -> Dict[str, int]:
         out: Dict[str, int] = {
@@ -277,18 +282,24 @@ class TidyReport:
         return out
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        out: Dict[str, Any] = {
             "schema_version": 1,
             "total_persons": self.total_persons,
             "counts": self.counts(),
             "items": [it.to_dict() for it in self.items],
         }
+        if self.truncated:
+            out["truncated"] = True
+            out["truncated_reason"] = self.truncated_reason
+        return out
 
 
 # ── Duplicate-cluster -> proposed-merge items ────────────────────────────────
 
 def _duplicate_items(
-    persons: Dict[str, PersonRecord], config: Dict[str, Any]
+    persons: Dict[str, PersonRecord],
+    config: Dict[str, Any],
+    stats: Optional[Dict[str, Any]] = None,
 ) -> List[TidyItem]:
     """Run the resolver's duplicate detection and turn every candidate pair into
     a PROPOSED merge item.
@@ -303,8 +314,27 @@ def _duplicate_items(
     all_matches.extend(detect_exact_name_matches(persons, config))
     all_matches.extend(detect_email_matches(persons, config))
     all_matches.extend(detect_phone_matches(persons, config))
-    all_matches.extend(detect_fuzzy_name_matches(persons, config))
+    all_matches.extend(detect_fuzzy_name_matches(persons, config, stats=stats))
     all_matches.extend(detect_name_subset_matches(persons, config))
+
+    # CM051 walk #3, item E: consolidate_matches keeps only the HIGHEST-
+    # confidence match per pair, so a pair that shares BOTH an email and a
+    # phone is filed under whichever strategy scored higher (email_match is
+    # 1.0, phone_match tops out at 0.95) -- the phone-sharing fact is then
+    # never recorded in that item's evidence at all. Measured on a cold
+    # v1.0.107 install (walk #3): 34 of 104 phone-matched pairs were "won"
+    # by a different strategy this way. The underlying pair IS already
+    # merged or listed for review -- RULE 2 and the auto/review split are
+    # unaffected -- but anything reading evidence for "is this phone
+    # already surfaced" (the walk probe; a future Doctor UI detail view)
+    # found nothing, because the winning item's details text never
+    # mentions the phone at all. Record every OTHER strategy's match for
+    # the same pair so the evidence is honest about every reason the pair
+    # looks like a duplicate, not just the highest-scoring one.
+    other_matches_by_pair: Dict[Tuple[str, str], List[DuplicateMatch]] = {}
+    for m in all_matches:
+        key = tuple(sorted((m.uri_a, m.uri_b)))
+        other_matches_by_pair.setdefault(key, []).append(m)
 
     auto, review = consolidate_matches(all_matches, config)
 
@@ -312,14 +342,40 @@ def _duplicate_items(
     for bucket, action in ((auto, ACTION_PROPOSE_MERGE), (review, ACTION_REVIEW)):
         for m in bucket:
             keep, discard = pick_canonical(persons, m.uri_a, m.uri_b)
+            key = tuple(sorted((m.uri_a, m.uri_b)))
+            # CM051 walk #4, item E: filtered on STRATEGY NAME, which missed
+            # the case of two people sharing TWO DIFFERENT VALUES under the
+            # SAME strategy -- e.g. a work number and a mobile number both
+            # matching between the same two nodes produces two separate
+            # phone_match entries for this one pair, and consolidate_matches
+            # keeps only one (confidence ties go to whichever was built
+            # first), silently dropping the OTHER shared phone number from
+            # ever being mentioned anywhere. Measured on a cold v1.0.107
+            # install (walk #4): the pair with 2 shared phones had its
+            # second number named in NO item's evidence at all, even after
+            # the walk #3 fix, because that fix only folded in matches whose
+            # STRATEGY differed from the winner's. Compare by object
+            # identity instead, so a same-strategy sibling is folded in too.
+            other_matches = [
+                om for om in other_matches_by_pair.get(key, []) if om is not m
+            ]
+            other_strategies = sorted({
+                om.strategy for om in other_matches if om.strategy != m.strategy
+            })
+            details = m.details
+            if other_matches:
+                also = "; ".join(om.details for om in other_matches)
+                details = f"{details}; {also}"
             evidence = {
                 "strategy": m.strategy,
-                "details": m.details,
+                "details": details,
                 "name_a": persons[m.uri_a].display_name,
                 "name_b": persons[m.uri_b].display_name,
                 "keep_name": persons[keep].display_name,
                 "discard_name": persons[discard].display_name,
             }
+            if other_strategies:
+                evidence["other_strategies"] = other_strategies
             items.append(TidyItem(
                 item_type=ITEM_MERGE_DUPLICATE,
                 person_refs=[m.uri_a, m.uri_b],
@@ -382,12 +438,21 @@ class TidyEngine:
                 self.resolver.oxigraph_url, self.resolver._client, self.config
             )
 
+        # Caller-owned, so two request threads building a report at the same
+        # time never share it.
+        stats: Dict[str, Any] = {}
+
         items: List[TidyItem] = []
-        items.extend(_duplicate_items(persons, self.config))
+        items.extend(_duplicate_items(persons, self.config, stats=stats))
         items.extend(detect_low_quality(persons, self.config))
         items.extend(detect_incomplete(persons, self.config))
 
-        return TidyReport(items=items, total_persons=len(persons))
+        return TidyReport(
+            items=items,
+            total_persons=len(persons),
+            truncated=bool(stats.get("truncated")),
+            truncated_reason=str(stats.get("truncated_reason", "")),
+        )
 
     # -- apply ---------------------------------------------------------------
 

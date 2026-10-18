@@ -26,7 +26,9 @@
 #
 # Configuration (env, set by the installer or LaunchAgent):
 #   OSTLER_DIR         (default ~/.ostler) -- artefact root
-#   OSTLER_HOME        (default $HOME)     -- ostler-fda needs this
+#   (OSTLER_HOME is NOT read from the environment any more: the tick
+#    hands ostler-fda OSTLER_HOME=$OSTLER_DIR so its checkpoint lands in
+#    $OSTLER_DIR/state, where the uninstaller and Doctor both look.)
 #   OSTLER_PYTHON      (default python3)   -- python interpreter
 #   OSTLER_BACKFILL_DAYS (default 1825)    -- first-tick clamp
 #   OSTLER_BACKFILL_CHUNK_DAYS (default 30) -- backward-sweep chunk
@@ -46,7 +48,6 @@ set -euo pipefail
 # up over a handful of hourly ticks rather than blocking the
 # install on the full multi-year scan.
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
-OSTLER_HOME="${OSTLER_HOME:-$HOME}"
 OSTLER_PYTHON="${OSTLER_PYTHON:-python3}"
 OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-1825}"
 OSTLER_BACKFILL_CHUNK_DAYS="${OSTLER_BACKFILL_CHUNK_DAYS:-30}"
@@ -63,13 +64,128 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# --- Rule 0.8: the Ostler Pro subscription gate ----------------------
+# PRODUCTISATION_CHECKLIST.md Rule 0.8, locked 2026-05-09: every
+# ingestion pipeline checks the subscription gate before processing NEW
+# data. This is email triage (CM046), one of the eleven named surfaces.
+#
+# Placed BEFORE step 1 on purpose. Harvesting the mbox and then refusing
+# to ingest it would leave a half-done pass and move the Apple Mail
+# checkpoint past messages nothing read. Gate before the first read, or
+# a paused customer silently loses the mail they receive while paused.
+#
+# FAIL OPEN on anything that is not an unambiguous "paused" (exit 3).
+# A customer who has paid must never be stopped because we could not
+# ask. Paused exits 0, because an unsubscribed Hub is a steady state,
+# not a fault to light up Doctor with every hour.
+_ostler_gate="$OSTLER_DIR/services/ical-server/subscription_gate.py"
+if [ -f "$_ostler_gate" ]; then
+    set +e
+    "$OSTLER_PYTHON" "$_ostler_gate" --check
+    _ostler_gate_rc=$?
+    set -e
+    if [ "$_ostler_gate_rc" -eq 3 ]; then
+        log "Ostler Pro is not active, so new email ingestion is paused. Mail already in your Hub stays available. Subscribe in the Ostler app and this resumes on the next tick."
+        exit 0
+    fi
+    if [ "$_ostler_gate_rc" -ne 0 ]; then
+        log "WARNING: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); continuing to ingest. A customer is never paused because we could not ask."
+    fi
+else
+    log "WARNING: subscription gate not found at ${_ostler_gate}; continuing to ingest. Rule 0.8 is NOT being enforced on this surface -- this line is the only evidence of that, so do not remove it."
+fi
+# --- end Rule 0.8 gate -----------------------------------------------
+
 # ---------------------------------------------------------------------------
 # 1. Emit fresh messages from Apple Mail
 # ---------------------------------------------------------------------------
 
+_report_email_settling() {
+    # $1 = messages read this tick. An EMPTY tick reports too (read=0), so a
+    # backfill the reader has marked complete still reaches 100% (walk #16
+    # review: completion was only read after a tick that found mail).
+# Settling panel, `emails` channel (walk #16 console). This agent is what
+# actually reads the customer's mail, hour by hour, yet it never reported
+# progress, so the panel kept the install-time pass's "nothing found" while
+# 12,339 emails were processed. Report CUMULATIVE messages read: the writer
+# keeps done monotonic, so pass previous + this tick. The total is the
+# mailbox size, measured once. Best effort: a failed report never fails the
+# tick, and the reason is logged.
+OSTLER_HOME="$OSTLER_DIR" OSTLER_SETTLING_TICK_READ="${1:-0}" \
+OSTLER_SETTLING_WINDOW_DAYS="$OSTLER_BACKFILL_DAYS" \
+"$OSTLER_PYTHON" - <<'PYEOF' || log "WARNING: settling progress for emails not written (exit $?); the ingest itself succeeded."
+import json, os, time
+from pathlib import Path
+from ostler_fda.settling_progress import report_settling_progress
+home = Path(os.environ["OSTLER_HOME"])
+state = home / "state"
+shard = state / "settling_progress.d" / "emails.json"
+prev_done = prev_total = 0
+try:
+    d = json.loads(shard.read_text(encoding="utf-8"))
+    prev_done = max(0, int(d.get("done") or 0))
+    prev_total = max(0, int(d.get("total") or 0))
+except Exception:
+    pass
+read = int(os.environ.get("OSTLER_SETTLING_TICK_READ") or 0)
+# The denominator is what THIS agent will ever read: whole messages (not
+# *.partial.emlx) inside its backfill window. Counting the whole mailbox made
+# an old mailbox unable to reach 100%. Measured once, then kept.
+total = prev_total
+if total <= 0:
+    window_s = int(os.environ.get("OSTLER_SETTLING_WINDOW_DAYS") or 1825) * 86400
+    floor = time.time() - window_s
+    mail = Path.home() / "Library" / "Mail"
+    total = 0
+    if mail.is_dir():
+        for p in mail.rglob("*.emlx"):
+            if p.name.endswith(".partial.emlx"):
+                continue
+            try:
+                if p.stat().st_mtime >= floor:
+                    total += 1
+            except OSError:
+                pass
+done = prev_done + read
+# The reader says when its backward sweep has crossed the oldest message.
+# That is "finished", whatever the running count says, so the bar reaches
+# 100% instead of freezing just short of it.
+complete = False
+try:
+    ck = json.loads((state / "apple_mail_mbox_checkpoint.json").read_text(encoding="utf-8"))
+    complete = bool(ck.get("backfill_complete"))
+except Exception:
+    pass
+if total > 0:
+    done = total if complete else min(done, total)
+else:
+    total = done
+report_settling_progress("emails", done=done, total=total, needs_source=False, state_dir=state)
+print(f"settling: emails done={done} total={total} complete={complete} (+{read} this tick)")
+PYEOF
+}
+
 log "email-ingest tick start: mbox=$MBOX backfill_days=$OSTLER_BACKFILL_DAYS"
 
-OSTLER_HOME="$OSTLER_HOME" "$OSTLER_PYTHON" -m ostler_fda.apple_mail_mbox \
+# Legacy checkpoint location. This tick used to hand ostler-fda
+# OSTLER_HOME=$HOME, and ostler-fda appends /state itself, so the
+# checkpoint was written to ~/state/apple_mail_mbox_checkpoint.json,
+# OUTSIDE ~/.ostler. The uninstaller never removed it, so a reinstall
+# inherited a "backfill complete" marker from the previous install and
+# emitted zero messages, every hour, forever (measured on a walk box:
+# 12 ticks, 20986 .emlx scanned per tick, 0 emitted). Remove it once; a
+# fresh checkpoint under $OSTLER_DIR/state is seeded on this tick.
+_LEGACY_CKPT_DIR="$HOME/state"
+_LEGACY_CKPT="$_LEGACY_CKPT_DIR/apple_mail_mbox_checkpoint.json"
+if [ -f "$_LEGACY_CKPT" ]; then
+    rm -f -- "$_LEGACY_CKPT"
+    if [ -z "$(ls -A -- "$_LEGACY_CKPT_DIR")" ]; then
+        rmdir -- "$_LEGACY_CKPT_DIR"
+    fi
+    log "removed legacy email checkpoint outside $OSTLER_DIR; reseeding under $OSTLER_DIR/state"
+fi
+
+OSTLER_HOME="$OSTLER_DIR" "$OSTLER_PYTHON" -m ostler_fda.apple_mail_mbox \
     --emit-mbox "$MBOX" \
     --backfill-days "$OSTLER_BACKFILL_DAYS" \
     --backfill-chunk-days "$OSTLER_BACKFILL_CHUNK_DAYS" \
@@ -86,6 +202,7 @@ if [ ! -s "$MBOX" ]; then
     log "no new messages this tick, skipping ingest"
     # Tidy up an empty file if one was created (defence in depth).
     [ -f "$MBOX" ] && rm -f "$MBOX"
+    _report_email_settling 0
     exit 0
 fi
 
@@ -146,6 +263,10 @@ fi
 }
 
 log "ingested $MBOX successfully"
+_SETTLING_TICK_READ="$(grep -c '^From ' "$MBOX" 2>/dev/null || true)"
+case "${_SETTLING_TICK_READ:-}" in ''|*[!0-9]*) _SETTLING_TICK_READ=0 ;; esac
+_report_email_settling "$_SETTLING_TICK_READ"
+
 
 # ---------------------------------------------------------------------------
 # 3. Mark first_ingest_complete_ts (#260)

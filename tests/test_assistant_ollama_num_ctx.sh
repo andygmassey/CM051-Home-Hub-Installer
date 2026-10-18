@@ -47,6 +47,24 @@ KEEPALIVE="$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:OLLAMA_KEEP
     && ok "OLLAMA_KEEP_ALIVE present (${KEEPALIVE}) -- model stays warm between turns" \
     || bad "OLLAMA_KEEP_ALIVE missing"
 
+echo "== keep-alive: forever, matching the server, in a form Ollama accepts =="
+# Walk #19: 30m let the chat model expire, and the cold reload starved chat.
+# The server runs OLLAMA_KEEP_ALIVE=-1, so the daemon must ask for forever too.
+# The daemon sends the value as a JSON STRING; Ollama parses a string with Go's
+# time.ParseDuration, which rejects a bare "-1" (missing unit) and fails the
+# request. So the value must be a NEGATIVE duration WITH a unit.
+is_forever_duration() { [[ "$1" =~ ^-[0-9]+(ns|us|ms|s|m|h)$ ]]; }
+# Predicate controls: it must reject the old value and the unit-less trap.
+is_forever_duration "30m" && bad "predicate accepts 30m" || ok "predicate rejects 30m (expires)"
+is_forever_duration "-1"  && bad "predicate accepts bare -1" || ok "predicate rejects bare -1 (Ollama 400: missing unit)"
+is_forever_duration "-1m" && ok "predicate accepts -1m" || bad "predicate rejects -1m"
+is_forever_duration "$KEEPALIVE" \
+    && ok "OLLAMA_KEEP_ALIVE=${KEEPALIVE}: forever, with a unit" \
+    || bad "OLLAMA_KEEP_ALIVE must be a negative duration with a unit (e.g. -1m) so the chat model never expires; got '${KEEPALIVE:-<unset>}'"
+grep -A1 '<key>OLLAMA_KEEP_ALIVE</key>' "${HERE}/../install.sh" | grep -q '<string>-1</string>' \
+    && ok "the Ollama server is started with OLLAMA_KEEP_ALIVE=-1 (the value the daemon matches)" \
+    || bad "install.sh no longer starts Ollama with OLLAMA_KEEP_ALIVE=-1; re-check what the daemon should match"
+
 echo "== render-safety: keys survive INSTALL_SNIPPET's SELF_HANDLES sed =="
 # Reproduce the snippet's substitution (the only sed that touches the plist)
 # and confirm it does not disturb the OLLAMA_* keys.

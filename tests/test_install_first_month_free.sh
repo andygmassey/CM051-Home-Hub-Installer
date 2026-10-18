@@ -99,7 +99,7 @@ done
 # Locked 2026-05-27 (project_pricing_v1_0_locked_2026-05-27): USD is
 # canonical for v1.0; GBP / £ must not appear in customer copy.
 pricing=$(grep '^MSG_INFO_SUBSCRIPTION_PRICING_HINT=' "$STRINGS_FILE")
-if ! echo "$pricing" | grep -q '9.99 USD'; then
+if ! grep -q '9.99 USD' <<<"$pricing"; then
     echo "FAIL [i18n]: pricing hint must use '9.99 USD' (USD-canonical v1.0)" >&2
     exit 1
 fi

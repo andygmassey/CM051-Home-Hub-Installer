@@ -132,6 +132,14 @@ final class StepCatalog {
         "import_data",
         "doctor_setup",
         "ical_server_setup",
+        // memory_hygiene_setup fires immediately after ical_server_setup:
+        // ostler_hygiene is staged as a sibling of ical-server under
+        // services/ in that same block, and this step schedules the
+        // com.ostler.memory-hygiene LaunchAgent that actually runs it
+        // (CM041 ostler_hygiene/run.py, MEMORY_HYGIENE_SPEC.md §4). Before
+        // this the read side (ical-server's hygiene overlay) was wired and
+        // fail-open; nothing ever wrote the verdicts it reads.
+        "memory_hygiene_setup",
         "knowledge_setup",
         // Preferences wire (2026-05-31): cm019_setup builds the CM019 ingest +
         // enrich venv (~/.ostler/services/cm019) that the shared ostler-import
@@ -167,6 +175,13 @@ final class StepCatalog {
         // it installs the hourly agent that writes ~/.ostler/editor/
         // front_page.json, the file the Hub Dashboard's Front Page reads.
         "editor_frontpage",
+        // The Front Page first-day catch-up LaunchAgent. install.sh emits the
+        // matching `progress "..." "editor_frontpage_catchup_agent"`
+        // immediately after editor_frontpage, at phase 3.14d-editor-bis. The
+        // hourly agent's RunAtLoad run fires at the end of the install, when
+        // the graph is still empty; this one re-emits until the interest
+        // profile actually fills, then removes itself.
+        "editor_frontpage_catchup_agent",
         "ostler_hub_app",
         "ostler_remotecapture",
         // CX-81 Tailscale step (2026-05-26): dedicated "Connect your
@@ -199,6 +214,13 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // merge_consistency_repair: install.sh emits `progress "Reconciling
+        // merged people across both stores" "merge_consistency_repair"`
+        // between hydrate_imessage and hydrate_apple_notes, and HintCopy.json
+        // already carries its copy. The canonicalOrder row was missing, and
+        // the contract test could not see it: its extractor went blind past
+        // install.sh ~30076 until F2 moved the Tailscale sign-in block.
+        "merge_consistency_repair",
         // CM024 §7: hydrate_apple_notes fires after hydrate_imessage and
         // before hydrate_people. Reads apple_notes.json (written by
         // fda_extract) and runs the bundled ostler-knowledge convert+embed
@@ -207,6 +229,14 @@ final class StepCatalog {
         // no-op unless apple_notes.json exists and is non-empty. Counts-only
         // stdout; no note titles or bodies cross the boundary.
         "hydrate_apple_notes",
+        // hydrate_reminders fires immediately after hydrate_apple_notes,
+        // same position rule (after fda_extract, before hydrate_people).
+        // Reads reminders.json (written by fda_extract) and runs the same
+        // ostler-knowledge convert+embed path (--source reminders) into its
+        // own reminders_knowledge Qdrant collection. Ship-dark: a no-op
+        // unless reminders.json exists and is non-empty. Counts-only
+        // stdout; no reminder titles or notes cross the boundary.
+        "hydrate_reminders",
         // #600: hydrate_people fires after hydrate_imessage (so Oxigraph is
         // fully populated) and before initial_hydrate. Sweeps pwg:Person from
         // Oxigraph into the Qdrant `people` collection so the iOS People tab +
@@ -227,6 +257,13 @@ final class StepCatalog {
         "initial_hydrate",
         "wiki_compile",
         "health_check",
+        // F2 (console walk of DMG #16): the Tailscale browser sign-in and
+        // `tailscale serve` publish moved out of tailscale_connect (which now
+        // only installs the binary + LaunchAgent) to the END of the install.
+        // install.sh opens this row with gui_step_begin "tailscale_signin"
+        // after health_check and before the final assistant-daemon start,
+        // only when remote access was chosen and the CLI installed.
+        "tailscale_signin",
     ]
 
     /// Minimal in-code fallback if HintCopy.json is missing entirely.

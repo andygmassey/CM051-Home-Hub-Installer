@@ -1,0 +1,159 @@
+name: os003-pointer
+
+# THE FILE THAT IS READ FIRST MUST NOT CARRY A FACT THAT MOVES.  CM051 #1038.
+#
+# CLAUDE.md says, in bold, to read the OS003 release repository before
+# answering ANY question about what ships. Until this workflow existed it named
+# a DIRECTORY, and a directory on a laptop is exactly the kind of fact that
+# moves while the sentence naming it stays still.
+#
+# MEASURED 2026-09-17 on the operator's machine, which is what makes this a
+# defect rather than a tidiness argument:
+#
+#   the checkout CLAUDE.md named    HEAD a strict ancestor of origin/main,
+#                                   41 commits behind, 53 cut directories,
+#                                   1,607 iCloud-EVICTED files
+#   the checkout it names now       0 behind, 0 evicted, 70 cut directories
+#
+# Seventeen cuts invisible to any agent obeying the rule, and worse than that:
+# an evicted file makes grep return NOTHING and return it successfully, so
+# every search of that tree could produce a FALSE ZERO indistinguishable from
+# real absence. The instruction did not only send readers somewhere stale, it
+# sent them somewhere that answers questions with silence.
+#
+# WHAT CI CAN AND CANNOT SEE, SAID PLAINLY
+#
+# A GitHub runner has no OS003 checkout, so this workflow CANNOT report whether
+# the operator's tree is current. It is not trying to. It guards the two things
+# that CAN rot inside this repository and that caused the defect:
+#
+#   1. THE POINTER. Exactly one machine-readable OS003_CHECKOUT line, the
+#      checker named beside it, and no copy-pasteable path to the evicted tree.
+#      Each assertion carries a positive control on the same file, so a zero
+#      cannot be a blind grep.
+#   2. THE CHECKER'S ABILITY TO SAY RED. Synthetic git repositories built in
+#      the job drive the real script through current / stale / ancient-ref /
+#      not-a-repo / no-origin-main / no-rule-line / two-rule-lines / no-cuts,
+#      each asserting a specific exit code AND a specific string. A gate nobody
+#      has watched fail is not a gate.
+#
+# WHY TWO RUNNERS, AND IT IS NOT FOR SYMMETRY
+#
+# The eviction limb's instrument is BSD `find -flags`, which reads the macOS
+# `dataless` flag. GNU find has no `-flags` at all. So the two hosts assert
+# DIFFERENT correct behaviours: on macOS the limb must run and pass its own
+# positive control, and on ubuntu the checker must REFUSE with CANNOT-RUN,
+# because a freshness verdict that cannot see eviction is not a verdict. Only
+# running the macOS job would leave the refusal path unobserved; only running
+# the ubuntu job would leave the limb that matters unobserved.
+#
+# British English throughout. No em dashes.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_os003_pointer.sh'
+      - 'tests/test_the_os003_pointer_cannot_rot.sh'
+      # The subject of arm A. A gate that asserts on a file it does not watch
+      # cannot fire on the commit that breaks it, which is the whole shape of
+      # this row.
+      - 'CLAUDE.md'
+      # A gate must trigger on changes to ITSELF, or it can be quietly narrowed
+      # in the very PR that narrows it.
+      - '.github/workflows/os003-pointer.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  # ==========================================================================
+  # macOS. The host the rule is actually obeyed on, and the only one where the
+  # eviction limb has an instrument.
+  # ==========================================================================
+  pointer-macos:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record the instrument this host has
+        run: |
+          set -u
+          echo "/bin/bash -> $(/bin/bash --version | head -1)"
+          if find . -maxdepth 0 -flags +dataless >/dev/null 2>&1; then
+            echo "find -flags: PRESENT. The eviction limb is exercised for real."
+          else
+            echo "find -flags: ABSENT on a macOS runner, which should be impossible."
+            echo "The suite would silently take its ubuntu branch and this job would"
+            echo "report a second green for the ubuntu job's reason."
+            exit 1
+          fi
+
+      - name: The pointer is sound and the checker can say RED
+        run: /bin/bash tests/test_the_os003_pointer_cannot_rot.sh
+
+      # if: always(), ci-maskless (#1695): without it a red above SKIPS this
+      # step, and a skipped check reports nothing at all rather than no
+      # objection. It shares no state with the step above.
+      - name: The checker and its suite PARSE under /bin/bash 3.2
+        if: always()
+        run: |
+          /bin/bash -n scripts/verify_os003_pointer.sh
+          /bin/bash -n tests/test_the_os003_pointer_cannot_rot.sh
+          echo "both parse under $(/bin/bash --version | head -1)"
+
+  # ==========================================================================
+  # ubuntu. Cheap, and it asserts the REFUSAL path: a host with no instrument
+  # for the eviction limb must be told CANNOT-RUN rather than handed a green.
+  # ==========================================================================
+  pointer-ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record the instrument this host has
+        run: |
+          set -u
+          if find . -maxdepth 0 -flags +dataless >/dev/null 2>&1; then
+            echo "find -flags: PRESENT on ubuntu, which this job does not expect."
+            echo "The suite would take its macOS branch here and the refusal path"
+            echo "would go unobserved, so this is reported rather than ignored."
+            exit 1
+          fi
+          echo "find -flags: ABSENT, as expected. The checker must REFUSE."
+
+      - name: The same suite, taking the no-instrument branch
+        run: bash tests/test_the_os003_pointer_cannot_rot.sh
+
+      # THE REFUSAL, ASSERTED IN PLAIN SIGHT rather than only inside the suite.
+      # A reader of the CI log should be able to see the exit code with their
+      # own eyes, because CANNOT-RUN collapsing into PASS is the defect class
+      # this whole row belongs to.
+      - name: CANNOT-RUN is exit 2, printed where a human can see it
+        if: always()
+        run: |
+          set -u
+          RULE="${RUNNER_TEMP}/rule.md"
+          printf 'OS003_CHECKOUT = %s\n' "${RUNNER_TEMP}/nothing-here" > "$RULE"
+          set +e
+          OS003_RULE_FILE="$RULE" bash scripts/verify_os003_pointer.sh > "${RUNNER_TEMP}/o.txt" 2>&1
+          rc=$?
+          set -e
+          cat "${RUNNER_TEMP}/o.txt"
+          echo "exit=${rc}"
+          if [ "$rc" -ne 2 ]; then
+            echo "A checkout that is not there produced ${rc}, not 2. 'It is stale'"
+            echo "and 'I could not look' would then share an exit code, and one of"
+            echo "them will eventually be acted on as the other."
+            exit 1
+          fi
+          echo "no such directory -> exit 2, distinct from RED."

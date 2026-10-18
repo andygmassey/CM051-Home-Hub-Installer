@@ -27,10 +27,16 @@ name: tests-unwired-sweep-al
 #   test itself excludes), and the test is WIRED to cold-box-source-truth.yml
 #   at line 321, where it passes. A deferral list that still names a finished
 #   item teaches the next reader that the work is outstanding.
-#   * test_calendar_attendee_resolve_before_create.py FIX-NEEDED: the vendored
-#       ostler_fda.pwg_ingest still mints-a-URI-then-checks-self instead of
-#       resolving an existing person before creating one (no
-#       _person_uri_by_identifier_value, ingest_calendar writes no identifier).
+#   test_calendar_attendee_resolve_before_create.py WAS listed here with
+#   "FIX-NEEDED: the vendored ostler_fda.pwg_ingest still
+#   mints-a-URI-then-checks-self instead of resolving an existing person
+#   before creating one (no _person_uri_by_identifier_value, ingest_calendar
+#   writes no identifier)". THAT IS NOW FIXED, so the entry is removed rather
+#   than left to teach the next reader that the work is outstanding:
+#   pwg_ingest gained _person_uri_by_identifier_value, ingest_calendar writes
+#   the identifier triples and returns people_created / people_matched, and
+#   the test is INVOKED as an individual step in
+#   .github/workflows/privacy-spine.yml.
 #   * test_dmg_contains_bundled_python.sh             CANNOT-RUN: needs a built +
 #       notarised DMG (cd gui && make ship); it SKIPs (green-but-inert) otherwise.
 
@@ -119,6 +125,41 @@ jobs:
           done
           exit $fail
 
+      # INDIVIDUAL STEP, not an entry in the `for t in ...` list above -- same
+      # reasoning as the W003 step in sweep-macos below: the new-tests-wired
+      # gate needs the test's path and an execution verb on one line, which a
+      # loop body cannot give it.
+      - name: The manual Homebrew tarball install targets a pinned release tag
+        if: always()
+        run: bash tests/test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh
+      - name: The Homebrew bootstrap is pinned and sha256-verified (red team DMG #27 F3-1)
+        if: always()
+        run: bash tests/test_homebrew_bootstrap_is_pinned.sh
+
+      # INDIVIDUAL STEP for the same reason as the one above (#2520): chat
+      # history survived a box_pristine reset AND a reinstall because it
+      # lives in WebKit localStorage, which neither the reset tool nor the
+      # shipped uninstaller had ever named.
+      - name: box_pristine and the generated uninstaller remove WebKit chat history
+        if: always()
+        run: bash tests/test_uninstall_and_pristine_remove_webkit_chat_history.sh
+
+      # INDIVIDUAL STEP for the same reason as the one above (#2347).
+      - name: The Apple Mail checkpoint lives under ~/.ostler, so a reinstall reads email
+        if: always()
+        run: bash tests/test_email_checkpoint_lives_under_dot_ostler.sh
+
+      # INDIVIDUAL STEP (row 2220): A8 read the installer's own planned
+      # kickstart -k (last exit -15) as a crash and failed a healthy walk.
+      - name: Acceptance check A8 excuses only a recorded, running, planned restart
+        if: always()
+        run: bash tests/test_a8_excuses_only_a_planned_restart.sh
+
+      # INDIVIDUAL STEP (#2372): a retried model pull emitted a fatal DONE.
+      - name: A retried AI model pull emits no fatal DONE marker
+        if: always()
+        run: bash tests/test_a_retried_model_pull_emits_no_fatal_done.sh
+
       - name: Python tests (a..l)
         # Independent axis from the shell tests: run even if those failed, so a
         # red shell run never hides whether the Python guards also broke.
@@ -181,6 +222,11 @@ jobs:
       - name: a walk record is found under either spelling
         if: always()
         run: bash tests/test_a_walk_record_is_found_under_either_spelling.sh
+      # INDIVIDUAL STEP, macOS: box_pristine.sh runs on a Mac and ps comm is a
+      # full executable path only there.
+      - name: pristine stops processes running from removed Ostler paths
+        if: always()
+        run: bash tests/test_pristine_stops_processes_running_from_removed_paths.sh
       - name: an identity mismatch shows the difference, not two identical strings
         if: always()
         run: bash tests/test_identity_mismatch_shows_the_difference.sh

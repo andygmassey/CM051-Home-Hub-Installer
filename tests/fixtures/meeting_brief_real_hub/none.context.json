@@ -1,0 +1,32 @@
+{
+  "found": true,
+  "identifiers": [
+    {
+      "type": "email",
+      "value": "philip@fixture.example"
+    }
+  ],
+  "last_contact": "2026-05-31",
+  "name": "Philip Coe",
+  "organisation": "Globex Corp",
+  "person": {
+    "identifiers": [
+      {
+        "type": "email",
+        "value": "philip@fixture.example"
+      }
+    ],
+    "last_contact": "2026-05-31",
+    "name": "Philip Coe",
+    "organisation": "Globex Corp",
+    "person_uri": "urn:ostler-walk-fixture:philip",
+    "relationship": "client",
+    "slug": "philip-coe",
+    "wiki_url": "http://wiki.example/People/philip-coe/"
+  },
+  "person_uri": "urn:ostler-walk-fixture:philip",
+  "query": "Philip Coe",
+  "relationship": "client",
+  "slug": "philip-coe",
+  "wiki_url": "http://wiki.example/People/philip-coe/"
+}

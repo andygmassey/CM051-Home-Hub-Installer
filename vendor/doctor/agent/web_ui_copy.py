@@ -427,6 +427,142 @@ composition. Future cleanup can lift the JS side to a
 window-injected constants block at the top of the rendered template."""
 
 
+# ── _render_import_notion_page (/import-notion) ──────────────────────
+
+
+NOTION_TITLE_TAG = "Ostler Doctor &ndash; Import Notion"
+NOTION_HEADING = "Import Notion"
+NOTION_SUBTITLE = (
+    "CM024 Knowledge import &ndash; "
+    "<a href=\"/doctor\">Back to dashboard</a>"
+)
+
+NOTION_SECTION_SOURCE = "Source"
+NOTION_INTRO_HTML = (
+    "Paste the path to a Notion export "
+    "<code style=\"font-family:var(--font-mono);font-size:0.82rem;"
+    "background:var(--ostler-ink-deep);padding:0.05rem 0.3rem;"
+    "border-radius:3px;color:var(--ostler-accent-warm)\">.zip</code> "
+    "(or an already-unzipped export folder). Ostler converts the pages "
+    "into searchable knowledge stored in the personal wiki. The import "
+    "runs in the background and survives closing this tab."
+)
+NOTION_LABEL_PATH = "Path to Notion export"
+NOTION_PLACEHOLDER_PATH = "/Users/you/Downloads/Notion-Export.zip"
+NOTION_HELP_TIP_HTML = (
+    "Tip: drag the file (or the unzipped folder) from Finder into a "
+    "Terminal window to get the absolute path. Or use "
+    "<code>~/Downloads/export.zip</code> &mdash; the tilde is expanded "
+    "for you. From Notion: Settings &amp; members &rarr; Export all "
+    "workspace content &rarr; Markdown &amp; CSV."
+)
+NOTION_BTN_START = "Start import"
+NOTION_BTN_STARTING = "Starting…"
+
+NOTION_SECTION_STATUS = "Import status"
+NOTION_SECTION_LOG_TAIL = "Log tail"
+NOTION_PILL_STARTING = "starting"
+NOTION_WAITING_FIRST_LOG = "Waiting for first log output&hellip;"
+NOTION_BTN_IMPORT_ANOTHER = "Import another"
+
+NOTION_META_FOOTER_HTML = (
+    "Imports land in <code style=\"font-family:var(--font-mono);"
+    "font-size:0.7rem\">~/.ostler/data/knowledge-staging/</code> "
+    "&ndash; the wiki compiler picks them up on the next rebuild."
+)
+
+NOTION_ERROR_NO_PATH = "Please paste the path to a Notion export (.zip or folder)."
+NOTION_ERROR_JOB_NOT_FOUND = "Job not found. Reload the page."
+NOTION_ERROR_STATUS_FAIL_PREFIX = "Status check failed: "
+NOTION_ERROR_NETWORK_PREFIX = "Network error: "
+NOTION_ERROR_IMPORT_FAIL_FMT = "Import failed to start (HTTP {status})"
+"""Used JS-side: kept here as the canonical reference for the
+``'Import failed to start (HTTP ' + status + ')'`` JS concatenation
+at the ``showError(body.error || ...)`` call site. Not imported by
+Python directly -- the JS source still composes the string at run
+time. Future cleanup can lift the JS side to a window-injected
+constant."""
+
+NOTION_STATUS_JOB_FMT = "job {job_id}"
+NOTION_STATUS_STARTED_FMT = "started {ts}Z"
+NOTION_STATUS_FINISHED_FMT = "finished {ts}Z"
+NOTION_STATUS_EXIT_FMT = "exit {code}"
+"""The four status-meta strings above are composed JS-side inside the
+``renderStatus(state)`` function via direct string concatenation
+(``'job ' + state.job_id``, etc). They are catalogued here as the
+canonical English reference but the JS source still owns the runtime
+composition. Future cleanup can lift the JS side to a
+window-injected constants block at the top of the rendered template."""
+
+
+# ── _render_import_obsidian_page (/import-obsidian) ──────────────────
+
+
+OBSIDIAN_TITLE_TAG = "Ostler Doctor &ndash; Import Obsidian"
+OBSIDIAN_HEADING = "Import Obsidian"
+OBSIDIAN_SUBTITLE = (
+    "CM024 Knowledge import &ndash; "
+    "<a href=\"/doctor\">Back to dashboard</a>"
+)
+
+OBSIDIAN_SECTION_SOURCE = "Source"
+OBSIDIAN_INTRO_HTML = (
+    "Paste the path to an Obsidian vault "
+    "<code style=\"font-family:var(--font-mono);font-size:0.82rem;"
+    "background:var(--ostler-ink-deep);padding:0.05rem 0.3rem;"
+    "border-radius:3px;color:var(--ostler-accent-warm)\">folder</code> "
+    "(must contain a <code>.obsidian/</code> subfolder). Ostler "
+    "converts the notes into searchable knowledge stored in the "
+    "personal wiki. The import runs in the background and survives "
+    "closing this tab."
+)
+OBSIDIAN_LABEL_PATH = "Path to Obsidian vault folder"
+OBSIDIAN_PLACEHOLDER_PATH = "/Users/you/Documents/MyVault"
+OBSIDIAN_HELP_TIP_HTML = (
+    "Tip: drag the vault folder from Finder into a Terminal window to "
+    "get the absolute path. Or use <code>~/Documents/MyVault</code> "
+    "&mdash; the tilde is expanded for you. The folder must contain a "
+    "<code>.obsidian/</code> subfolder."
+)
+OBSIDIAN_BTN_START = "Start import"
+OBSIDIAN_BTN_STARTING = "Starting…"
+
+OBSIDIAN_SECTION_STATUS = "Import status"
+OBSIDIAN_SECTION_LOG_TAIL = "Log tail"
+OBSIDIAN_PILL_STARTING = "starting"
+OBSIDIAN_WAITING_FIRST_LOG = "Waiting for first log output&hellip;"
+OBSIDIAN_BTN_IMPORT_ANOTHER = "Import another"
+
+OBSIDIAN_META_FOOTER_HTML = (
+    "Imports land in <code style=\"font-family:var(--font-mono);"
+    "font-size:0.7rem\">~/.ostler/data/knowledge-staging/</code> "
+    "&ndash; the wiki compiler picks them up on the next rebuild."
+)
+
+OBSIDIAN_ERROR_NO_PATH = "Please paste the path to an Obsidian vault folder."
+OBSIDIAN_ERROR_JOB_NOT_FOUND = "Job not found. Reload the page."
+OBSIDIAN_ERROR_STATUS_FAIL_PREFIX = "Status check failed: "
+OBSIDIAN_ERROR_NETWORK_PREFIX = "Network error: "
+OBSIDIAN_ERROR_IMPORT_FAIL_FMT = "Import failed to start (HTTP {status})"
+"""Used JS-side: kept here as the canonical reference for the
+``'Import failed to start (HTTP ' + status + ')'`` JS concatenation
+at the ``showError(body.error || ...)`` call site. Not imported by
+Python directly -- the JS source still composes the string at run
+time. Future cleanup can lift the JS side to a window-injected
+constant."""
+
+OBSIDIAN_STATUS_JOB_FMT = "job {job_id}"
+OBSIDIAN_STATUS_STARTED_FMT = "started {ts}Z"
+OBSIDIAN_STATUS_FINISHED_FMT = "finished {ts}Z"
+OBSIDIAN_STATUS_EXIT_FMT = "exit {code}"
+"""The four status-meta strings above are composed JS-side inside the
+``renderStatus(state)`` function via direct string concatenation
+(``'job ' + state.job_id``, etc). They are catalogued here as the
+canonical English reference but the JS source still owns the runtime
+composition. Future cleanup can lift the JS side to a
+window-injected constants block at the top of the rendered template."""
+
+
 # ── _render_pair_ios_page (/pair-ios) ────────────────────────────────
 
 
@@ -689,6 +825,7 @@ REMINDERS_RUNTIME_SECTION_TITLE = "Reminders sync"
 REMINDERS_RUNTIME_STATUS_OK = "Reminders are syncing"
 REMINDERS_RUNTIME_STATUS_DENIED = "Reminders access denied"
 REMINDERS_RUNTIME_STATUS_NO_DATA = "No reminders synced yet"
+REMINDERS_RUNTIME_STATUS_LIST_REMOVED = "Ostler's Reminders list was removed"
 
 REMINDERS_RUNTIME_DETAIL_OK = (
     "Commitments Ostler captured from your conversations are reaching the "
@@ -699,6 +836,22 @@ REMINDERS_RUNTIME_DETAIL_DENIED = (
     "Ostler tried to push extracted todos to the macOS Reminders app and was "
     "refused because Reminders access is denied or has been revoked. Those "
     "reminders are not appearing until you grant access again."
+)
+REMINDERS_RUNTIME_STATUS_PUSH_FAILING = "Reminders are not syncing"
+REMINDERS_RUNTIME_DETAIL_PUSH_FAILING = (
+    "Every commitment Ostler tried to add to the macOS Reminders app has "
+    "failed, and none has got through. They are not reaching your Reminders."
+)
+REMINDERS_RUNTIME_FAILED_COUNT_FMT = "{count} reminder(s) could not be added."
+REMINDERS_RUNTIME_STATUS_CANNOT_READ = "Could not check Reminders sync"
+REMINDERS_RUNTIME_DETAIL_CANNOT_READ = (
+    "Ostler could not read its record of what it sent to the Reminders app, so "
+    "it cannot tell whether reminders are arriving."
+)
+REMINDERS_RUNTIME_BTN_TURN_ON = "Turn reminders back on"
+REMINDERS_RUNTIME_DETAIL_LIST_REMOVED = (
+    "Ostler's Reminders list was removed; turn reminders back on? Until you do, "
+    "new commitments are held and nothing is added to your Reminders."
 )
 REMINDERS_RUNTIME_DETAIL_NO_DATA = (
     "Ostler has not yet pushed any commitments to the macOS Reminders app, so "
@@ -892,3 +1045,78 @@ EXTENSION_SETUP_BACK_LINK = "Back to Doctor"
 # page has to notice one without the customer reloading. Slower than the
 # WhatsApp panel because nothing here is short-lived.
 EXTENSION_SETUP_POLL_MS = 8000
+
+
+# ── WhatsApp keepalive tile ──────────────────────────────────────────
+#
+# GRAFTED (CM051, board item 965). The keepalive LaunchAgent used to run
+# `ostler-assistant channel doctor`, which builds its own never-connected
+# WhatsApp channel object, so it reported unhealthy on every run on every
+# box and then exited 0 anyway. Nobody knew, because the only trace was a
+# log file and a zero exit code. The keepalive now asks the running daemon,
+# repairs what it can, and its verdict lands here so a person sees it.
+#
+# Apple Restraint voice: say what is true and what to do, in one breath,
+# without alarming a customer whose channel is working.
+
+WHATSAPP_KEEPALIVE_SECTION_TITLE = "WhatsApp connection"
+
+WHATSAPP_KEEPALIVE_STATUS_HEALTHY = "WhatsApp is connected"
+WHATSAPP_KEEPALIVE_STATUS_RECOVERED = "WhatsApp was reconnected"
+WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER = "WhatsApp needs linking again"
+WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY = "WhatsApp is not connected"
+WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN = "WhatsApp connection not checked"
+
+WHATSAPP_KEEPALIVE_DETAIL_HEALTHY = (
+    "Ostler checks the WhatsApp connection twice a day, before your morning "
+    "brief and your evening wrap. It was connected at the last check."
+)
+WHATSAPP_KEEPALIVE_DETAIL_RECOVERED = (
+    "The WhatsApp connection had dropped and Ostler reconnected it for you. "
+    "Nothing is needed from you. If this keeps happening it is worth a look, "
+    "so the count of recent repairs is shown below."
+)
+# The only verdict that asks the customer for anything, so it is the only one
+# that says what to do and where. It never says "re-scan" without saying that
+# Ostler will not do it for them: silently re-pairing a customer's WhatsApp
+# account would be a far worse defect than the one this tile reports.
+WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER = (
+    "WhatsApp is no longer linked to Ostler, so messages are not arriving. "
+    "Only you can link it again, from your phone. Ostler will not do this on "
+    "your behalf and has stopped retrying, because retrying cannot fix it."
+)
+WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY = (
+    "The WhatsApp connection is down. Ostler restarted itself to try to bring "
+    "it back and that did not work, so messages are not arriving and your "
+    "briefs will not be delivered over WhatsApp."
+)
+# Deliberately NOT phrased as a failure. A check that could not run has not
+# passed, and it has not failed either. Telling a customer their WhatsApp is
+# broken because the daemon was asleep would be a false alarm.
+WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN = (
+    "Ostler could not check the WhatsApp connection at the last attempt, "
+    "usually because the assistant was not running at the time. This is not a "
+    "report that WhatsApp is down. The next check is at 08:50 or 17:50."
+)
+
+WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL = "What to do"
+WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER = (
+    "Open the Link WhatsApp page from the link below, then on your phone open "
+    "WhatsApp, go to Settings, then Linked Devices, then Link a Device, and "
+    "enter the code shown. Your messages and chats are not affected by "
+    "linking again."
+)
+WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY = (
+    "Quit and reopen Ostler. If WhatsApp is still not connected after the "
+    "next check, use the Link WhatsApp page below to link it again."
+)
+WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN = (
+    "Make sure Ostler is running. The connection is checked again at 08:50 "
+    "and 17:50."
+)
+
+WHATSAPP_KEEPALIVE_LINK_LABEL = "Link WhatsApp"
+WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT = "Last checked {relative}."
+WHATSAPP_KEEPALIVE_REPAIRS_FMT = (
+    "Ostler has reconnected WhatsApp {count} time(s) in the last 24 hours."
+)

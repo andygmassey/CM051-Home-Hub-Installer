@@ -6,9 +6,12 @@ name: unreachable-not-absence
 #   honesty      an unreachable WEB SERVICE recorded as a missing book (#833)
 #   denied-read  a refused FILESYSTEM READ recorded as a missing bundle
 #                (v1.0.46 BOM row 6)
+#   driver-not-box
+#                a probe that could not REACH the box recording that the
+#                service on it was down (v1.0.100 and v1.0.101 walks)
 #
-# Same defect class, opposite ends of the estate. They share a workflow so that
-# neither can be quietly dropped without the other's name showing up in the
+# Same defect class, three ends of the estate. They share a workflow so that
+# none can be quietly dropped without the others' names showing up in the
 # diff.
 
 on:
@@ -81,3 +84,45 @@ jobs:
           /bin/bash -n scripts/box_walk_probes/lib/probe.sh
           /bin/bash -n tests/test_a_denied_read_is_not_an_absence.sh
           python3 -c "import py_compile; py_compile.compile('scripts/box_walk_probes/lib/bundle_inspect.py', doraise=True)"
+
+  driver-not-box:
+    # macos, DELIBERATELY, and for two reasons. The walk is driven from a Mac,
+    # so the machine that mistakes itself for the box IS a Mac; and the probes
+    # run under /bin/bash 3.2 there, which is the shell that has to parse them.
+    # The test stubs ssh, so nothing here opens a connection off 127.0.0.1.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stubs ssh with a recorder and requires every HTTP read the Doctor page
+      # probe makes to have crossed it, then requires the probe to refuse a
+      # dead port WITHOUT asserting the service is down. Carries its own
+      # mutation: a copy with the transport reverted to a bare local curl must
+      # make the first arm go red, so a green cannot come from a stub that
+      # never ran or a predicate that matches anything.
+      - name: a probe must measure the box, not the machine driving the walk
+        run: /bin/bash tests/test_a_probe_must_measure_the_box_not_the_driver.sh
+
+      # The probe's negative control, run the way run_box_walk.sh runs it.
+      # Phase 1 requires exit 1 from --self-test; anything else marks the probe
+      # BROKEN and discards its measurement.
+      - name: the Doctor page probe can still demonstrate a FAIL
+        if: always()
+        run: |
+          set +e
+          /bin/bash scripts/box_walk_probes/probes/doctor_page_renders_for_a_customer.sh --self-test
+          rc=$?
+          set -e
+          echo "self-test rc=${rc}"
+          if [ "${rc}" -ne 1 ]; then
+            echo "A probe that cannot produce a FAIL has not earned a PASS." >&2
+            exit 1
+          fi
+
+      - name: probe and test parse under the box's own shell
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n scripts/box_walk_probes/probes/doctor_page_renders_for_a_customer.sh
+          /bin/bash -n tests/test_a_probe_must_measure_the_box_not_the_driver.sh

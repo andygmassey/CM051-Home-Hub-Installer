@@ -79,6 +79,22 @@ jobs:
         if: always()
         run: /bin/bash tests/test_no_internal_codenames_in_customer_strings.sh
 
+      # TWO LOCKED BRAND RULES, BOTH BROKEN IN CUSTOMER COPY AND NEITHER
+      # GATED (#1008). Measured on main 2026-09-18: 9 MSG_ lines said "iOS
+      # Companion" against the locked "the Ostler app on your iPhone", and 2
+      # promised a roadmap. The roadmap pair was a SELF-CONTRADICTION inside
+      # one file: one string told the customer Intel was not on the roadmap
+      # while the ABORT MESSAGE an Intel customer actually hits promised it in
+      # v1.0.1. Arm 3 is what catches that, because each string alone reads
+      # perfectly reasonably and only the pair is a lie.
+      #
+      # Scope is MSG_ assignments only, so a comment explaining why a word is
+      # banned may contain the word. The guard must not forbid its own
+      # documentation, and arm 4c asserts that.
+      - name: customer copy keeps the Companion and roadmap rules
+        if: always()
+        run: /bin/bash tests/test_customer_copy_keeps_two_locked_rules.sh
+
       # The two checks above guard the SHAPE of a string and the CONTENT of a
       # string. Neither asks whether the string the installer reads EXISTS.
       #
