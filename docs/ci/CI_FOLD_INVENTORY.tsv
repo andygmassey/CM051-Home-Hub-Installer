@@ -106,21 +106,20 @@ catchup-browser.yml	catchup-browser	catchup-browser	ubuntu-latest	1	pull_request
 catchup-browser.yml	catchup-browser	catchup-browser	ubuntu-latest	1	pull_request,push	9 paths	installer	2	run	-
 catchup-browser.yml	catchup-browser	catchup-browser	ubuntu-latest	1	pull_request,push	9 paths	installer	3	run	tests/test_catchup_browser.py
 catchup-browser.yml	catchup-browser	catchup-browser	ubuntu-latest	1	pull_request,push	9 paths	installer	4	run	tests/test_export_scan_runs_the_catchup_step.sh
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	0	uses:actions/checkout@v4	-
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	1	uses:actions/setup-python@v5	-
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	2	run	-
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	3	run	tests/test_catchup_core.py
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	4	run	tests/test_cm048_exit_75_when_the_sink_is_unreachable.py
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	5	run	tests/test_export_scan_runs_the_catchup_step.sh
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	6	run	tests/test_doctor_shows_catchup_progress.sh
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	7	run	tests/test_catchup_first_48h_cadence.sh
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	8	run	tests/test_first_window_adaptive.py
-catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	18 paths	installer	9	run	tests/test_first_window_end_to_end.py
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	0	uses:actions/checkout@v4	-
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	1	uses:actions/setup-python@v5	-
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	2	run	-
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	3	run	tests/test_catchup_core.py
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	4	run	tests/test_cm048_exit_75_when_the_sink_is_unreachable.py
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	5	run	tests/test_export_scan_runs_the_catchup_step.sh
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	6	run	tests/test_doctor_shows_catchup_progress.sh
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	7	run	tests/test_catchup_first_48h_cadence.sh
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	8	run	tests/test_first_window_adaptive.py
+catchup-machinery.yml	catchup-machinery	catchup-machinery	ubuntu-latest	1	pull_request,push	23 paths	installer	9	run	tests/test_first_window_end_to_end.py
 catchup-mail.yml	catchup-mail	catchup-mail	ubuntu-latest	1	pull_request,push	7 paths	installer	0	uses:actions/checkout@v4	-
 catchup-mail.yml	catchup-mail	catchup-mail	ubuntu-latest	1	pull_request,push	7 paths	installer	1	uses:actions/setup-python@v5	-
 catchup-mail.yml	catchup-mail	catchup-mail	ubuntu-latest	1	pull_request,push	7 paths	installer	2	run	-
 catchup-mail.yml	catchup-mail	catchup-mail	ubuntu-latest	1	pull_request,push	7 paths	installer	3	run	tests/test_catchup_mail.py
-catchup-mail.yml	catchup-mail	catchup-mail	ubuntu-latest	1	pull_request,push	7 paths	installer	4	run	tests/test_catchup_core.py
 catchup-messages.yml	catchup-messages	catchup-messages	ubuntu-latest	1	pull_request,push	8 paths	installer	0	uses:actions/checkout@v4	-
 catchup-messages.yml	catchup-messages	catchup-messages	ubuntu-latest	1	pull_request,push	8 paths	installer	1	uses:actions/setup-python@v5	-
 catchup-messages.yml	catchup-messages	catchup-messages	ubuntu-latest	1	pull_request,push	8 paths	installer	2	run	-
@@ -145,6 +144,10 @@ ci-required-gate.yml	gate	CI Required Gate	ubuntu-latest	1	pull_request	unfilter
 ci-required-gate.yml	gate	CI Required Gate	ubuntu-latest	1	pull_request	unfiltered	standalone	1	run	-
 ci-required-gate.yml	gate	CI Required Gate	ubuntu-latest	1	pull_request	unfiltered	standalone	2	run	tests/test_pr_gate_aggregate.sh
 ci-required-gate.yml	gate	CI Required Gate	ubuntu-latest	1	pull_request	unfiltered	standalone	3	run	scripts/verify_pr_gate_aggregate.sh
+cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-output	ubuntu-latest	3	pull_request,push	4 paths	py-matrix	0	uses:actions/checkout@v4	-
+cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-output	ubuntu-latest	3	pull_request,push	4 paths	py-matrix	1	uses:actions/setup-python@v5	-
+cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-output	ubuntu-latest	3	pull_request,push	4 paths	py-matrix	2	run	-
+cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-output	ubuntu-latest	3	pull_request,push	4 paths	py-matrix	3	run	tests/test_cm048_multilingual_vendored.py
 cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	0	uses:actions/checkout@v4	-
 cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	1	uses:actions/setup-python@v5	-
 cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	2	run	-
@@ -346,57 +349,58 @@ cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	
 cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	8 paths	release-walk	1	run	tests/test_cut_freshness_gate.sh
 cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	8 paths	release-walk	2	run	tests/test_repin_wiki_images_refuses_a_typed_sha.sh
 cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	8 paths	release-walk	3	run	release.sh tests/test_cut_gate_wrappers.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	0	uses:actions/checkout@v4	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	1	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	2	run	tests/test_cut_gate_wrappers.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	3	run	tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	4	run	tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	5	run	tests/test_cut_dispatch_is_dry.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	6	run	tests/test_push_cut_tag_refuses_a_red_checklist.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	7	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	8	run	tests/test_rehearse_tag_is_the_tag_preflight.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	9	run	tests/test_the_dry_run_is_reachable_on_a_dispatch.py
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	10	run	scripts/tests/test_verify_commit_parity_gate.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	11	run	scripts/tests/test_verify_stapling_gate.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	12	run	tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	13	run	scripts/tests/test_no_env_trust_anchors.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	14	run	tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	15	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	16	run	tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	17	run	tests/test_cut_gate_wrappers.sh tests/test_pr_age_gate_declares_partial_runs.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	18	run	tests/test_pr_age_gate_declares_partial_runs.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	19	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	20	run	tests/test_sign_python_bundle_reports_why.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	21	run	tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	22	run	tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	23	run	tests/test_pyc_seed_excludes_nested_ostler_app.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	24	run	tests/test_pyc_bytes_depend_on_compile_path.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	25	run	tests/test_stage_payload_strips_ambient_pyc.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	26	run	tests/test_provenance_gate_cannot_run_is_not_stale.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	27	run	tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	28	run	tests/test_provenance_gate_marker_read_is_not_piped.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	29	run	tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	30	run	tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	31	run	tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	32	run	tests/test_marker_grep_is_three_state.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	33	run	tests/test_every_marker_pattern_compiles.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	34	run	tests/test_no_gate_execs_a_pinned_image.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	35	run	tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	36	run	tests/test_mergeable_unknown_is_not_clean.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	37	run	tests/test_pinned_wiki_images_are_arm64_only.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	38	run	tests/test_new_cut_guard_scoped_is_not_started.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	39	run	tests/test_new_cut_checks_what_preflight_checks.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	40	run	tests/test_new_cut_covers_every_pretag_gate.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	41	run	tests/test_store_port_first_install_stale_store.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	42	run	tests/test_rollforward_registry_pin.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	43	run	tests/test_os003_sync_defaults_agree.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	85 paths	macos-latest	44	run	tests/test_rollforward_pin_is_watched_on_prs.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	85 paths	installer	0	uses:actions/checkout@v4	-
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	85 paths	installer	1	run	-
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	85 paths	installer	2	run	tests/test_wiki_provenance_extracts_without_exec.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	85 paths	installer	3	run	tests/test_exemption_ref_form.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	85 paths	installer	4	run	tests/test_pinned_wiki_image_has_design_system.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	85 paths	installer	5	run	tests/test_a_staging_copy_is_guarded_on_its_source.py
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	0	uses:actions/checkout@v4	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	1	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	2	run	tests/test_cut_gate_wrappers.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	3	run	tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	4	run	tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	5	run	tests/test_cut_dispatch_is_dry.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	6	run	tests/test_push_cut_tag_refuses_a_red_checklist.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	7	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	8	run	tests/test_rehearse_tag_is_the_tag_preflight.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	9	run	tests/test_the_dry_run_is_reachable_on_a_dispatch.py
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	10	run	scripts/tests/test_verify_commit_parity_gate.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	11	run	scripts/tests/test_verify_stapling_gate.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	12	run	tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	13	run	scripts/tests/test_no_env_trust_anchors.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	14	run	tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	15	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	16	run	tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	17	run	tests/test_cut_gate_wrappers.sh tests/test_pr_age_gate_declares_partial_runs.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	18	run	tests/test_pr_age_gate_declares_partial_runs.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	19	run	tests/test_pr_age_review_by_ignores_an_inline_comment.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	20	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	21	run	tests/test_sign_python_bundle_reports_why.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	22	run	tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	23	run	tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	24	run	tests/test_pyc_seed_excludes_nested_ostler_app.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	25	run	tests/test_pyc_bytes_depend_on_compile_path.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	26	run	tests/test_stage_payload_strips_ambient_pyc.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	27	run	tests/test_provenance_gate_cannot_run_is_not_stale.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	28	run	tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	29	run	tests/test_provenance_gate_marker_read_is_not_piped.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	30	run	tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	31	run	tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	32	run	tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	33	run	tests/test_marker_grep_is_three_state.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	34	run	tests/test_every_marker_pattern_compiles.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	35	run	tests/test_no_gate_execs_a_pinned_image.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	36	run	tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	37	run	tests/test_mergeable_unknown_is_not_clean.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	38	run	tests/test_pinned_wiki_images_are_arm64_only.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	39	run	tests/test_new_cut_guard_scoped_is_not_started.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	40	run	tests/test_new_cut_checks_what_preflight_checks.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	41	run	tests/test_new_cut_covers_every_pretag_gate.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	42	run	tests/test_store_port_first_install_stale_store.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	43	run	tests/test_rollforward_registry_pin.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	44	run	tests/test_os003_sync_defaults_agree.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	45	run	tests/test_rollforward_pin_is_watched_on_prs.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	0	uses:actions/checkout@v4	-
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	1	run	-
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	2	run	tests/test_wiki_provenance_extracts_without_exec.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	3	run	tests/test_exemption_ref_form.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	4	run	tests/test_pinned_wiki_image_has_design_system.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	5	run	tests/test_a_staging_copy_is_guarded_on_its_source.py
 cut-manifest.yml	manifest-tests	manifest-tests	ubuntu-latest	1	pull_request,push	46 paths	release-walk	0	uses:actions/checkout@v4	-
 cut-manifest.yml	manifest-tests	manifest-tests	ubuntu-latest	1	pull_request,push	46 paths	release-walk	1	run	tests/test_a_gate_that_cannot_look_says_97.sh
 cut-manifest.yml	manifest-tests	manifest-tests	ubuntu-latest	1	pull_request,push	46 paths	release-walk	2	run	tests/test_the_emergency_cut_row_tells_the_truth.sh
@@ -511,12 +515,13 @@ declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	u
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	3	run	scripts/verify_declared_gates_ran_at_commit.sh
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	4	run	scripts/verify_declared_gates_ran_at_commit.sh
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	5	run	scripts/verify_declared_gates_reachable.sh
-declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	6	run	scripts/verify_declared_gates_reachable.sh
-declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	7	run	scripts/verify_declared_gates_reachable.sh
+declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	6	run	-
+declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	7	run	-
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	8	run	scripts/verify_declared_gates_reachable.sh
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	9	run	-
-declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	10	run	tests/test_every_workflow_step_can_run.py
-declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	11	run	tests/test_a_cut_gate_is_reachable_in_the_cut.py
+declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	10	run	-
+declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	11	run	tests/test_every_workflow_step_can_run.py
+declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	12	run	tests/test_a_cut_gate_is_reachable_in_the_cut.py
 dedupe-merge-rule-2.yml	dedupe-merge-rule-2	dedupe-merge-rule-2	ubuntu-latest	1	pull_request,push	5 paths	vendor	0	uses:actions/checkout@v4	-
 dedupe-merge-rule-2.yml	dedupe-merge-rule-2	dedupe-merge-rule-2	ubuntu-latest	1	pull_request,push	5 paths	vendor	1	run	tests/test_dedupe_merge_enforces_rule_2.py
 dedupe-merge-rule-2.yml	dedupe-merge-rule-2	dedupe-merge-rule-2	ubuntu-latest	1	pull_request,push	5 paths	vendor	2	run	tests/test_dedupe_merge_name_tier_upward_only.py
@@ -686,44 +691,45 @@ hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_re
 hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	2	run	scripts/gen_hub_contract.py
 hub-contract.yml	client-pin-drift	client-pin-drift	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	0	uses:actions/checkout@v4	-
 hub-contract.yml	client-pin-drift	client-pin-drift	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	1	run	scripts/hub_contract_drift.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	0	uses:actions/checkout@v4	-
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	1	run	scripts/box_walk_probes/lib/hub_screens.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	2	run	scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	3	run	scripts/box_walk_probes/lib/customer_read.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	4	run	tests/test_customer_read_exempts_marked_customer_text.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	5	run	tests/test_hub_screens_people_judges_every_row.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	6	run	tests/test_walk_probes_bypass_a_local_proxy.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	7	run	scripts/box_walk_probes/probes/hub_screens_customer_read.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	8	run	tests/test_the_timeline_opens_on_today.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	9	run	tests/test_the_hub_app_can_record_card_feedback.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	10	run	tests/test_editor_feedback_accepts_the_real_client_action_strings.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	11	run	tests/test_the_front_page_cards_only_real_interests.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	12	run	tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	13	run	tests/test_interest_card_says_what_and_where.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	14	run	tests/test_hub_screens_real_person_name_never_printed.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	15	run	tests/test_hub_interest_card_shows_a_handle_as_at_handle.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	16	run	scripts/box_walk_probes/lib/owner_digest.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	17	run	scripts/box_walk_probes/probes/owner_digest_knows_the_owner.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	18	run	scripts/box_walk_probes/lib/conversation_capture_e2e.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	19	run	scripts/box_walk_probes/lib/companion_pair.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	20	run	tests/test_walk_unpairs_its_synthetic_companion.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	21	run	tests/test_walk_cleanup_runs_on_abort.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	22	run	tests/test_scale_fixture_forget.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	23	run	scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	24	run	scripts/box_walk_probes/lib/db_key_probe.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	25	run	scripts/box_walk_probes/probes/db_key_reaches_every_service.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	26	run	scripts/box_walk_probes/lib/brief_channel_probe.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	27	run	scripts/box_walk_probes/probes/assistant_sends_over_whatsapp_and_email.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	28	run	scripts/box_walk_probes/lib/todo_reminders_probe.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	29	run	scripts/box_walk_probes/probes/todos_reach_reminders.sh
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	30	run	tests/test_todo_reminders_cleanup_deletes_what_it_created.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	31	run	tests/test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py
-hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	55 paths	vendor	32	run	scripts/box_walk_probes/lib/todo_reminders_box.py
-hub-screens-and-106c.yml	owner-employer-seed	owner-employer-seed	macos-14	1	pull_request,push	55 paths	macos-14	0	uses:actions/checkout@v4	-
-hub-screens-and-106c.yml	owner-employer-seed	owner-employer-seed	macos-14	1	pull_request,push	55 paths	macos-14	1	run	tests/test_the_walk_seeds_the_owner_employer.sh
-hub-screens-and-106c.yml	owner-employer-seed	owner-employer-seed	macos-14	1	pull_request,push	55 paths	macos-14	2	run	tests/test_the_walk_seed_person_reaches_the_digest.py
-hub-screens-and-106c.yml	conversation-capture-seed	conversation-capture-seed	macos-14	1	pull_request,push	55 paths	macos-14	0	uses:actions/checkout@v4	-
-hub-screens-and-106c.yml	conversation-capture-seed	conversation-capture-seed	macos-14	1	pull_request,push	55 paths	macos-14	1	run	tests/test_the_walk_seeds_the_conversation_capture.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	0	uses:actions/checkout@v4	-
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	1	run	scripts/box_walk_probes/lib/hub_screens.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	2	run	scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	3	run	scripts/box_walk_probes/lib/customer_read.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	4	run	tests/test_customer_read_exempts_marked_customer_text.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	5	run	tests/test_hub_screens_people_judges_every_row.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	6	run	tests/test_walk_probes_bypass_a_local_proxy.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	7	run	scripts/box_walk_probes/probes/hub_screens_customer_read.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	8	run	tests/test_the_timeline_opens_on_today.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	9	run	tests/test_the_hub_app_can_record_card_feedback.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	10	run	tests/test_editor_feedback_accepts_the_real_client_action_strings.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	11	run	tests/test_the_front_page_cards_only_real_interests.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	12	run	tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	13	run	tests/test_interest_card_says_what_and_where.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	14	run	tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	15	run	tests/test_hub_screens_real_person_name_never_printed.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	16	run	tests/test_hub_interest_card_shows_a_handle_as_at_handle.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	17	run	scripts/box_walk_probes/lib/owner_digest.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	18	run	scripts/box_walk_probes/probes/owner_digest_knows_the_owner.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	19	run	scripts/box_walk_probes/lib/conversation_capture_e2e.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	20	run	scripts/box_walk_probes/lib/companion_pair.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	21	run	tests/test_walk_unpairs_its_synthetic_companion.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	22	run	tests/test_walk_cleanup_runs_on_abort.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	23	run	tests/test_scale_fixture_forget.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	24	run	scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	25	run	scripts/box_walk_probes/lib/db_key_probe.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	26	run	scripts/box_walk_probes/probes/db_key_reaches_every_service.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	27	run	scripts/box_walk_probes/lib/brief_channel_probe.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	28	run	scripts/box_walk_probes/probes/assistant_sends_over_whatsapp_and_email.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	29	run	scripts/box_walk_probes/lib/todo_reminders_probe.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	30	run	scripts/box_walk_probes/probes/todos_reach_reminders.sh
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	31	run	tests/test_todo_reminders_cleanup_deletes_what_it_created.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	32	run	tests/test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py
+hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	33	run	scripts/box_walk_probes/lib/todo_reminders_box.py
+hub-screens-and-106c.yml	owner-employer-seed	owner-employer-seed	macos-14	1	pull_request,push	56 paths	macos-14	0	uses:actions/checkout@v4	-
+hub-screens-and-106c.yml	owner-employer-seed	owner-employer-seed	macos-14	1	pull_request,push	56 paths	macos-14	1	run	tests/test_the_walk_seeds_the_owner_employer.sh
+hub-screens-and-106c.yml	owner-employer-seed	owner-employer-seed	macos-14	1	pull_request,push	56 paths	macos-14	2	run	tests/test_the_walk_seed_person_reaches_the_digest.py
+hub-screens-and-106c.yml	conversation-capture-seed	conversation-capture-seed	macos-14	1	pull_request,push	56 paths	macos-14	0	uses:actions/checkout@v4	-
+hub-screens-and-106c.yml	conversation-capture-seed	conversation-capture-seed	macos-14	1	pull_request,push	56 paths	macos-14	1	run	tests/test_the_walk_seeds_the_conversation_capture.sh
 hydrate-sentinel.yml	sentinel-honesty	sentinel-honesty	macos-14	1	pull_request,push	30 paths	macos-14	0	uses:actions/checkout@v4	-
 hydrate-sentinel.yml	sentinel-honesty	sentinel-honesty	macos-14	1	pull_request,push	30 paths	macos-14	1	run	tests/test_hydrate_sentinel_not_on_error.sh
 hydrate-sentinel.yml	sentinel-honesty	sentinel-honesty	macos-14	1	pull_request,push	30 paths	macos-14	2	run	tests/test_hydrate_sentinel_not_on_error.sh
@@ -893,10 +899,11 @@ killed-converge-gets-its-catchup.yml	killed-converge-gets-its-catchup	killed-con
 killed-converge-gets-its-catchup.yml	killed-converge-gets-its-catchup	killed-converge-gets-its-catchup	ubuntu-latest	1	pull_request,push	4 paths	installer	2	run	tests/test_the_merge_budget_scales_with_the_address_book.sh
 killed-converge-leaves-a-record.yml	killed-converge-leaves-a-record	killed-converge-leaves-a-record	ubuntu-latest	1	pull_request,push	3 paths	installer	0	uses:actions/checkout@v4	-
 killed-converge-leaves-a-record.yml	killed-converge-leaves-a-record	killed-converge-leaves-a-record	ubuntu-latest	1	pull_request,push	3 paths	installer	1	run	tests/test_killed_converge_leaves_a_record.sh
-kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	10 paths	py-matrix	0	uses:actions/checkout@v4	-
-kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	10 paths	py-matrix	1	uses:actions/setup-python@v5	-
-kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	10 paths	py-matrix	2	run	-
-kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	10 paths	py-matrix	3	run	tests/test_kinship_label_write_guard_vendored.py
+kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	0	uses:actions/checkout@v4	-
+kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	1	uses:actions/setup-python@v5	-
+kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	2	run	-
+kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	3	run	tests/test_kinship_label_write_guard_vendored.py
+kinship-label-write-guard.yml	kinship-label-write-guard	kinship-label-write-guard	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	4	run	contact_syncer/tests/test_instagram_handle_is_not_a_name.py
 lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	0	uses:actions/checkout@v4	-
 lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	1	uses:actions/setup-python@v5	-
 lane11-hub-routes.yml	hub	hub	ubuntu-latest	3	pull_request,push	7 paths	py-matrix	2	run	-
@@ -1150,12 +1157,17 @@ privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	
 privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	12	run	-
 privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	13	run	tests/test_email_only_people_get_a_provisional_name.py
 privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	14	run	tests/test_automated_senders_are_not_people.py
-privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	15	run	tests/test_ai_conversations_default_to_the_locked_privacy_level.py
-privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	16	run	tests/test_the_retention_tier_is_written_and_read_by_nothing.py
+privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	15	run	tests/test_junk_names_are_not_people.py
+privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	16	run	tests/test_ai_conversations_default_to_the_locked_privacy_level.py
+privacy-spine.yml	privacy-spine	privacy-spine	ubuntu-latest	1	pull_request,push	unfiltered	always	17	run	tests/test_the_retention_tier_is_written_and_read_by_nothing.py
 py311-syntax-gate.yml	py311	py311	ubuntu-latest	1	pull_request,push	3 paths	misc	0	uses:actions/checkout@v4	-
 py311-syntax-gate.yml	py311	py311	ubuntu-latest	1	pull_request,push	3 paths	misc	1	uses:actions/setup-python@v5	-
 py311-syntax-gate.yml	py311	py311	ubuntu-latest	1	pull_request,push	3 paths	misc	2	run	tests/py311_compile_all.py
 py311-syntax-gate.yml	py311	py311	ubuntu-latest	1	pull_request,push	3 paths	misc	3	run	tests/py311_compile_all.py
+reader-schema-fails-loud.yml	reader-schema	reader-schema	macos-latest	1	pull_request,push	6 paths	macos-latest	0	uses:actions/checkout@v4	-
+reader-schema-fails-loud.yml	reader-schema	reader-schema	macos-latest	1	pull_request,push	6 paths	macos-latest	1	uses:actions/setup-python@v5	-
+reader-schema-fails-loud.yml	reader-schema	reader-schema	macos-latest	1	pull_request,push	6 paths	macos-latest	2	run	-
+reader-schema-fails-loud.yml	reader-schema	reader-schema	macos-latest	1	pull_request,push	6 paths	macos-latest	3	run	tests/test_reader_schema_mismatch_fails_loud.py
 reclassify-subject-names-wired.yml	reclassify-subject-names-wired	reclassify-subject-names-wired	ubuntu-latest	1	pull_request,push	4 paths	installer	0	uses:actions/checkout@v4	-
 reclassify-subject-names-wired.yml	reclassify-subject-names-wired	reclassify-subject-names-wired	ubuntu-latest	1	pull_request,push	4 paths	installer	1	run	tests/test_reclassify_subject_names_is_wired.sh
 red-main-opens-an-issue.yml	report	report	ubuntu-latest	1	push,schedule,workflow_dispatch	-	standalone	0	uses:actions/checkout@v4	-
@@ -1301,21 +1313,23 @@ suppress-suggestions-loopback.yml	native-loopback	native-loopback	ubuntu-latest	
 suppress-suggestions-loopback.yml	native-loopback	native-loopback	ubuntu-latest	1	pull_request,push	4 paths	vendor	1	uses:actions/setup-python@v5	-
 suppress-suggestions-loopback.yml	native-loopback	native-loopback	ubuntu-latest	1	pull_request,push	4 paths	vendor	2	run	-
 suppress-suggestions-loopback.yml	native-loopback	native-loopback	ubuntu-latest	1	pull_request,push	4 paths	vendor	3	run	tests/test_suppress_suggestions_loopback_reaches_the_store.py
-swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	6 paths	release-walk	0	uses:actions/checkout@v4	-
-swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	6 paths	release-walk	1	run	scripts/verify_swift_tests_ran.sh
-swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	6 paths	release-walk	2	run	scripts/verify_swift_tests_ran.sh
-swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	6 paths	release-walk	3	run	tests/test_the_consent_button_is_not_below_the_fold.py
-swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	6 paths	release-walk	4	run	tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	0	uses:actions/checkout@v4	-
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	1	run	scripts/select_pinned_xcode.sh
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	2	run	-
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	3	run	make:gui:download-safari-extension
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	4	run	make:gui:download-python
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	5	run	-
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	6	run	-
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	7	run	-
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	8	uses:actions/upload-artifact@v4	-
-swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	6 paths	macos-26	9	run	scripts/verify_swift_tests_ran.sh
+swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	7 paths	release-walk	0	uses:actions/checkout@v4	-
+swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	7 paths	release-walk	1	run	scripts/verify_swift_tests_ran.sh
+swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	7 paths	release-walk	2	run	scripts/verify_swift_tests_ran.sh
+swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	7 paths	release-walk	3	run	tests/test_the_consent_button_is_not_below_the_fold.py
+swift-tests.yml	verifier-self-test	verifier-self-test	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	7 paths	release-walk	4	run	tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	0	uses:actions/checkout@v4	-
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	1	run	scripts/select_pinned_xcode.sh
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	2	run	-
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	3	run	make:gui:download-safari-extension
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	4	run	make:gui:download-python
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	5	run	-
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	6	run	-
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	7	run	tests/test_uninstaller_app_decoder_and_flags.sh
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	8	run	-
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	9	run	-
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	10	uses:actions/upload-artifact@v4	-
+swift-tests.yml	swift-tests	swift-tests	macos-26	1	pull_request,push,schedule,workflow_dispatch	7 paths	macos-26	11	run	scripts/verify_swift_tests_ran.sh
 symbol-regression.yml	symbol-regression	symbol-regression	macos-latest	1	pull_request,push	4 paths	macos-latest	0	uses:actions/checkout@v4	-
 symbol-regression.yml	symbol-regression	symbol-regression	macos-latest	1	pull_request,push	4 paths	macos-latest	1	run	tests/test_verify_no_symbol_regression.sh
 symbol-regression.yml	symbol-regression	symbol-regression	macos-latest	1	pull_request,push	4 paths	macos-latest	2	run	scripts/sync_vendor.sh
@@ -1382,12 +1396,15 @@ timeline-dates-with-offset.yml	timeline-dates-with-offset	timeline-dates-with-of
 total-steps-denominator-ratchet.yml	ratchet	ratchet	macos-latest	1	pull_request,push	4 paths	macos-latest	0	uses:actions/checkout@v4	-
 total-steps-denominator-ratchet.yml	ratchet	ratchet	macos-latest	1	pull_request,push	4 paths	macos-latest	1	run	-
 total-steps-denominator-ratchet.yml	ratchet	ratchet	macos-latest	1	pull_request,push	4 paths	macos-latest	2	run	install.sh make:.:this tests/test_total_steps_denominator_ratchet.sh
-uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	8 paths	installer	0	uses:actions/checkout@v4	-
-uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	8 paths	installer	1	run	tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh
-uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	8 paths	installer	2	run	tests/test_the_generated_uninstaller_parses.sh
-uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	8 paths	installer	3	run	tests/test_an_uninstall_that_cannot_ask_removes_nothing.sh
-uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	8 paths	installer	4	run	tests/test_the_uninstaller_speaks_the_gui_marker_protocol.sh
-uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	8 paths	installer	5	run	tests/test_a_gui_uninstall_needs_its_decoder_cases.sh
+uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	14 paths	installer	0	uses:actions/checkout@v4	-
+uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	14 paths	installer	1	run	tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh
+uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	14 paths	installer	2	run	tests/test_the_generated_uninstaller_parses.sh
+uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	14 paths	installer	3	run	tests/test_an_uninstall_that_cannot_ask_removes_nothing.sh
+uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	14 paths	installer	4	run	tests/test_the_uninstaller_speaks_the_gui_marker_protocol.sh
+uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	14 paths	installer	5	run	tests/test_a_gui_uninstall_needs_its_decoder_cases.sh
+uninstall-removal-honesty.yml	uninstall-removal-honesty	uninstall-removal-honesty	ubuntu-latest	1	pull_request,push	14 paths	installer	6	run	tests/test_uninstall_colima_and_data_choices.sh
+uninstall-removal-honesty.yml	uninstall-leaves-no-ostler-behind	uninstall-leaves-no-ostler-behind	macos-latest	1	pull_request,push	14 paths	macos-latest	0	uses:actions/checkout@v4	-
+uninstall-removal-honesty.yml	uninstall-leaves-no-ostler-behind	uninstall-leaves-no-ostler-behind	macos-latest	1	pull_request,push	14 paths	macos-latest	1	run	tests/test_uninstall_leaves_no_ostler_behind.sh
 unreachable-not-absence.yml	honesty	honesty	ubuntu-latest	1	pull_request,push	unfiltered	always	0	uses:actions/checkout@v4	-
 unreachable-not-absence.yml	honesty	honesty	ubuntu-latest	1	pull_request,push	unfiltered	always	1	run	tests/test_unreachable_is_not_absence.sh
 unreachable-not-absence.yml	denied-read	denied-read	macos-latest	1	pull_request,push	unfiltered	macos-latest	0	uses:actions/checkout@v4	-
@@ -1613,27 +1630,28 @@ walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-gu
 walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-guard	walk5-conversation-failure-reason-guard	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	1	uses:actions/setup-python@v5	-
 walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-guard	walk5-conversation-failure-reason-guard	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	2	run	-
 walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-guard	walk5-conversation-failure-reason-guard	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	3	run	tests/test_vendored_conversation_process_failure_reason.py
-walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	0	uses:actions/checkout@v4	-
-walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	1	uses:actions/setup-python@v5	-
-walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	2	run	-
-walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	3	run	tests/test_canonicalise_syncs_qdrant.py
-walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	0	uses:actions/checkout@v4	-
-walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	1	uses:actions/setup-python@v5	-
-walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	2	run	-
-walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	3	run	vendor/cm041/assistant_api/tests/test_people_list_endpoint.py
-walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	0	uses:actions/checkout@v4	-
-walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	1	uses:actions/setup-python@v5	-
-walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	2	run	-
-walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	3	run	vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py
-walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	0	uses:actions/checkout@v4	-
-walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	1	uses:actions/setup-python@v5	-
-walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	2	run	-
-walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	3	run	vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py
-walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	4	run	vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
-walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	0	uses:actions/checkout@v4	-
-walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	1	uses:actions/setup-python@v5	-
-walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	2	run	-
-walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	11 paths	py-matrix	3	run	tests/test_cm041_deceased_excluded_from_proactive_surfaces.py
+walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	0	uses:actions/checkout@v4	-
+walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	1	uses:actions/setup-python@v5	-
+walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	2	run	-
+walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant	canonicalise-syncs-qdrant	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	3	run	tests/test_canonicalise_syncs_qdrant.py
+walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	0	uses:actions/checkout@v4	-
+walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	1	uses:actions/setup-python@v5	-
+walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	2	run	-
+walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	3	run	vendor/cm041/assistant_api/tests/test_people_list_endpoint.py
+walk6-people-list-correctness-guard.yml	people-list-correctness	people-list-correctness	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	4	run	vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py
+walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	0	uses:actions/checkout@v4	-
+walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	1	uses:actions/setup-python@v5	-
+walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	2	run	-
+walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters	suggestions-apply-people-list-filters	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	3	run	vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py
+walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	0	uses:actions/checkout@v4	-
+walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	1	uses:actions/setup-python@v5	-
+walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	2	run	-
+walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	3	run	vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py
+walk6-people-list-correctness-guard.yml	person-context-finds-merged-names	person-context-finds-merged-names	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	4	run	vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
+walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	0	uses:actions/checkout@v4	-
+walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	1	uses:actions/setup-python@v5	-
+walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	2	run	-
+walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces	deceased-excluded-from-proactive-surfaces	ubuntu-latest	3	pull_request,push	12 paths	py-matrix	3	run	tests/test_cm041_deceased_excluded_from_proactive_surfaces.py
 whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	0	uses:actions/checkout@v4	-
 whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	1	uses:actions/setup-python@v5	-
 whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone	whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	5 paths	py-matrix	2	run	-

@@ -129,6 +129,8 @@ on:
       - 'vendor/cm041/contact_syncer/owner_node.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_kinship_label_write_guard_vendored.py'
+      - 'contact_syncer/instagram_social.py'
+      - 'contact_syncer/tests/test_instagram_handle_is_not_a_name.py'
       - 'vendor/cm041/assistant_api/speaker_identify.py'
       - 'vendor/cm041/assistant_api/conversation_upload.py'
       - 'vendor/cm041/assistant_api/tests/test_lane11_routes.py'
@@ -172,6 +174,7 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
       - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
@@ -278,6 +281,8 @@ on:
       - 'vendor/cm041/contact_syncer/owner_node.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_kinship_label_write_guard_vendored.py'
+      - 'contact_syncer/instagram_social.py'
+      - 'contact_syncer/tests/test_instagram_handle_is_not_a_name.py'
       - 'vendor/cm041/assistant_api/speaker_identify.py'
       - 'vendor/cm041/assistant_api/conversation_upload.py'
       - 'vendor/cm041/assistant_api/tests/test_lane11_routes.py'
@@ -321,6 +326,7 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
       - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
@@ -1452,6 +1458,11 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_kinship_label_write_guard_vendored.py -v
+      - id: b11_s03
+        if: ${{ steps.select.outputs.b11 != 'false' && (always()) }}
+        timeout-minutes: 20
+        name: A bare Instagram handle stays @handle, never a person's name (S9), both shipped copies
+        run: python -m pytest contact_syncer/tests/test_instagram_handle_is_not_a_name.py -v
 
       # ========================================================================
       # b12: lane11-hub-routes.yml :: hub
@@ -2729,6 +2740,19 @@ jobs:
             exit 1
           fi
           python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py -v
+      - id: b26_s03
+        if: ${{ steps.select.outputs.b26 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: The assistant's decisions tool reads the store the wiki Decisions page reads
+        run: |
+          out="$(python -m pytest vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py -q 2>&1)" || true
+          echo "$out"
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then exit 1; fi
+          if [ "${got:-0}" -lt 6 ]; then
+            echo "::error::expected 6 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
+            exit 1
+          fi
 
       # ========================================================================
       # b27: walk6-people-list-correctness-guard.yml :: suggestions-apply-people-list-filters
