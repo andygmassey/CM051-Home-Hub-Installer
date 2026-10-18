@@ -267,8 +267,11 @@ assistant_tag_grep|Cargo.lock|^version = "9\.0\.4"|oa #551 zip 9.0.4 clears RUST
 assistant_tag_grep|crates/zeroclaw-tools/src/stop_suggesting_person.rs|stop_suggesting_person|oa #554 conversational bereavement: stop suggesting a person, explicit statement and yes only. 0 -> 4.
 assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|fn default_pwg_derived_preferences_enabled|oa #556 derived-preferences tool off by default (no producer yet). 0 -> 1.
 assistant_tag_grep|web/src/lib/dataSources.ts|const failing = sourceRow|oa #530 (batch #549) a failing last tick never reads Up to date. 0 -> 1.
-# --- v1.0.109 hub-v0.5.21 (oa ab9dc4d1). Each 0 at hub-v0.5.19 (58d65239), 1 at ab9dc4d1 (measured with git show per tag).
+# --- v1.0.109 hub-v0.5.22 (oa 21d5d5ad). Each 0 at hub-v0.5.19 (58d65239), 1 at 21d5d5ad (measured with git show per tag; the last three also 0 at hub-v0.5.21).
 assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|at the SAME context window every chat turn asks for|oa #560 the warm-up loads the chat model at the chat path's num_ctx (no second cold load on the first turn). 0 -> 1.
 assistant_tag_grep|crates/zeroclaw-memory/src/consolidation.rs|^pub fn is_non_answer|oa #561 a non-answer reply is never consolidated into a memory. 0 -> 1.
 assistant_tag_grep|crates/zeroclaw-channels/src/email_channel.rs|^pub fn resolve_email_password|oa #562 the email channel reads the mailbox password from ~/.ostler/secrets, never an empty login (pairs with CM051 #2974). 0 -> 1.
-assistant_tag_grep|crates/zeroclaw-memory/src/consolidation.rs|^fn strip_assistant_filler|oa #564 a mixed consolidation entry keeps the user's half and drops only the assistant clause. 0 -> 1 (also 0 at hub-v0.5.20).
+assistant_tag_grep|crates/zeroclaw-memory/src/consolidation.rs|^fn strip_assistant_filler|oa #564 a mixed consolidation entry keeps the user's half and drops only the assistant clause. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-memory/src/consolidation.rs|^fn text_or_list|oa #568 an unparseable summary stores nothing (no raw User/Assistant fallback); a list-shaped memory_update parses. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-memory/src/consolidation.rs|^fn is_filler_user_turn|oa #568 a greeting or capability turn stores nothing. 0 -> 1.
+assistant_tag_grep|crates/zeroclaw-runtime/src/brief/fallback.rs|^pub fn human_start|oa #565 the brief reads as written for a person (local times, intro first, grouped birthdays). 0 -> 1.
