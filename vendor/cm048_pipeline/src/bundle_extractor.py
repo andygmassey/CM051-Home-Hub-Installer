@@ -31,6 +31,7 @@ re-run on a partial pipeline restart.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -72,11 +73,54 @@ class BundleExtraction:
 
     @classmethod
     def from_dict(cls, data: dict) -> "BundleExtraction":
+        topics = []
+        for topic in list(data.get("topics") or []):
+            if isinstance(topic, dict):
+                topic = dict(topic)
+                topic["name"] = scrub_placeholder_people(topic.get("name", ""))
+                topic["points"] = [
+                    scrub_placeholder_people(pt) if isinstance(pt, str) else pt
+                    for pt in (topic.get("points") or [])
+                ]
+            topics.append(topic)
+        todos = []
+        for todo in list(data.get("todos") or []):
+            if isinstance(todo, dict) and isinstance(todo.get("text"), str):
+                todo = dict(todo)
+                todo["text"] = scrub_placeholder_people(todo["text"])
+            todos.append(todo)
         return cls(
-            overall_summary=str(data.get("overall_summary", "")).strip(),
-            topics=list(data.get("topics") or []),
-            todos=list(data.get("todos") or []),
+            overall_summary=scrub_placeholder_people(
+                str(data.get("overall_summary", "")).strip()
+            ),
+            topics=topics,
+            todos=todos,
         )
+
+
+# The prompt's machine label for a non-user participant is ``other``.
+# Small local models echo it back as prose, capitalised, as if it were a
+# name: "Speaker 1 informed the Other", "Chase X with the Other" (v1.0.108
+# Hub, 2026-10-18 phone capture). That is a placeholder reaching customer
+# copy. The prompt now forbids it; this is the backstop, applied on every
+# parse including a resume from persisted 09_bundle.json. Only the
+# capitalised token is touched, so ordinary English ("the other day")
+# passes through.
+_PLACEHOLDER_PEOPLE = (
+    (re.compile(r"\bthe Other's\b"), "your"),
+    (re.compile(r"\bThe Other's\b"), "Your"),
+    (re.compile(r"\bthe Other\b"), "you"),
+    (re.compile(r"\bThe Other\b"), "You"),
+)
+
+
+def scrub_placeholder_people(text: str) -> str:
+    """Replace the leaked ``the Other`` placeholder with "you"."""
+    if not isinstance(text, str) or "Other" not in text:
+        return text
+    for pattern, repl in _PLACEHOLDER_PEOPLE:
+        text = pattern.sub(repl, text)
+    return text
 
 
 def extract(
@@ -87,6 +131,7 @@ def extract(
     channel: str,
     model: str,
     locale: str = "en-GB",
+    output_language=None,
     timeout: float | None = None,
 ) -> BundleExtraction:
     """Run the LLM call and return parsed ``BundleExtraction``.
@@ -120,6 +165,7 @@ def extract(
         enrichment_md=enrichment_md,
         channel=channel_for_prompt,
         locale=locale,
+        output_language=output_language,
     )
     full_prompt = template + "\n\n---\n\n" + body
 
@@ -163,7 +209,12 @@ _CHANNEL_GUIDANCE: dict[str, str] = {
         "('um', 'uh', repeats); strip them when writing topic points. "
         "Speaker labels look like '**Andrew:**' or '**Speaker 1:**'. "
         "Multiple speakers per topic is normal; attribute todos to "
-        "the speaker who committed."
+        "the person who has to act: the speaker who committed, or the "
+        "person a request was addressed to. When only one speaker is "
+        "labelled, they are usually talking TO the user, who captured "
+        "the conversation: their 'you', 'please' and 'tell her' are "
+        "actions for the user (owner \"user\"), and the summary calls "
+        "that listener \"you\"."
     ),
     "im": (
         "Source: instant-messaging thread (iMessage / SMS). Messages "
@@ -200,23 +251,37 @@ def _build_input(
     enrichment_md: str,
     channel: str,
     locale: str,
+    output_language=None,
 ) -> str:
     """Render the per-call body that gets appended to the prompt
     template. The template itself is static instructions; this
     function fills in the conversation-specific data and the
     channel guidance."""
     guidance = _CHANNEL_GUIDANCE.get(channel, _CHANNEL_GUIDANCE["spoken"])
+    from .language import scale_char_budget
+
     enrichment_excerpt = (enrichment_md or "").strip()
-    if len(enrichment_excerpt) > 4000:
-        enrichment_excerpt = enrichment_excerpt[:4000] + "\n\n[...truncated]"
+    enrichment_cap = scale_char_budget(enrichment_excerpt, 4000)
+    if len(enrichment_excerpt) > enrichment_cap:
+        enrichment_excerpt = enrichment_excerpt[:enrichment_cap] + "\n\n[...truncated]"
     transcript_excerpt = transcript or ""
-    if len(transcript_excerpt) > 12000:
-        transcript_excerpt = transcript_excerpt[:12000] + "\n\n[...truncated]"
+    transcript_cap = scale_char_budget(transcript_excerpt, 12000)
+    if len(transcript_excerpt) > transcript_cap:
+        transcript_excerpt = transcript_excerpt[:transcript_cap] + "\n\n[...truncated]"
+
+    if output_language is None:
+        # No resolved language supplied: derive it from the text so a
+        # direct caller still gets the conversation-language default.
+        from .language import OutputLanguage, detect_language, normalise_code, LANGUAGE_NAMES
+        code = detect_language(transcript or "") or normalise_code(locale) or "en"
+        output_language = OutputLanguage(code, LANGUAGE_NAMES.get(code, code), "detected")
+    from .language import language_instruction
 
     return (
         f"--- CHANNEL ---\n{channel}\n\n"
         f"--- CHANNEL GUIDANCE ---\n{guidance}\n\n"
         f"--- LOCALE ---\n{locale}\n\n"
+        f"{language_instruction(output_language)}\n"
         f"--- ENRICHMENT (for topic seeding) ---\n{enrichment_excerpt}\n\n"
         f"--- TRANSCRIPT ---\n{transcript_excerpt}\n"
     )

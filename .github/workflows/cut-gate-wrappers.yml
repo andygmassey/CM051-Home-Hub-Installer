@@ -89,6 +89,7 @@ on:
       - 'tests/test_pr_age_live_exemption_cap.sh'
       - 'tests/test_drain_pr_exemptions.sh'
       - 'scripts/drain_pr_exemptions.sh'
+      - 'tests/test_pr_age_review_by_ignores_an_inline_comment.sh'
       - 'scripts/provenance_gate.sh'
       - 'scripts/verify_stapling.sh'
       - 'scripts/verify_commit_parity.sh'
@@ -478,6 +479,13 @@ jobs:
       - name: The exemption drain removes only dead rows, and loses nothing else
         if: always()
         run: /bin/bash tests/test_drain_pr_exemptions.sh
+
+      # An inline YAML comment on a review_by line was read as part of the
+      # date: BSD date called it valid, GNU date called it undated (the
+      # CM051#1818 row, 2026-10-18). This pins the parsed value.
+      - name: The PR-age gate reads review_by without its inline comment
+        if: always()
+        run: /bin/bash tests/test_pr_age_review_by_ignores_an_inline_comment.sh
 
       - name: Every wrapper still HAS a cannot-run branch
         if: always()
