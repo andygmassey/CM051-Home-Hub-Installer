@@ -78,6 +78,12 @@ on:
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
       - 'tests/test_doctor_routines_are_measured_live.py'
       - 'tests/test_the_hub_reads_the_doctor_like_the_app.py'
+      # #2977: the Doctor's "Ollama is not on Ostler's pinned version" row. The
+      # test runs install.sh's pin writer (watched above) and these Doctor files.
+      - 'tests/test_doctor_says_when_ollama_is_not_pinned.sh'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
+      - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_remote_access_reads_the_installers_tailscale.py'
       - 'vendor/doctor/agent/routine_status.py'
       - 'vendor/doctor/agent/remote_access.py'
