@@ -81,22 +81,22 @@ self_test() {
     local t got bad=0
     t="$(mktemp -d)"
     _case() {  # _case <name> <expected VERDICT word>
-        got="$(RC_TMP_ROOT="${t}/$1/tmp/RemoteCapture" RC_HOME="${t}/$1/home" /bin/bash -c "${_GATHER}")"
+        got="$(RC_TMP_ROOT="${t}/$1/tmp/RemoteCapture" RC_HOME="${t}/$1/hm" /bin/bash -c "${_GATHER}")"
         got="$( (judge "${got}") | sed -n 's/^VERDICT: \([A-Z-]*\).*/\1/p')"
         [ "${got}" = "$2" ] || { echo "  self-test case $1: expected $2, got '${got}'"; bad=1; }
     }
-    mkdir -p "${t}/live/tmp/RemoteCapture/S1" "${t}/live/home/Documents/Ostler/Transcripts/2026/10"
+    mkdir -p "${t}/live/tmp/RemoteCapture/S1" "${t}/live/hm/Documents/Ostler/Transcripts/2026/10"
     : > "${t}/live/tmp/RemoteCapture/S1/system_audio.wav"
-    : > "${t}/live/home/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
+    : > "${t}/live/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
     _case live FAIL
-    mkdir -p "${t}/kept/home/Documents/Ostler/Transcripts/2026/10"
-    : > "${t}/kept/home/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-mic.wav"
-    : > "${t}/kept/home/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
+    mkdir -p "${t}/kept/hm/Documents/Ostler/Transcripts/2026/10"
+    : > "${t}/kept/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-mic.wav"
+    : > "${t}/kept/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
     _case kept FAIL
-    mkdir -p "${t}/nocap/home/Documents/Ostler/Transcripts"
+    mkdir -p "${t}/nocap/hm/Documents/Ostler/Transcripts"
     _case nocap CANNOT-RUN
-    mkdir -p "${t}/clean/tmp/RemoteCapture" "${t}/clean/home/Documents/Ostler/Transcripts/2026/10"
-    : > "${t}/clean/home/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
+    mkdir -p "${t}/clean/tmp/RemoteCapture" "${t}/clean/hm/Documents/Ostler/Transcripts/2026/10"
+    : > "${t}/clean/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
     _case clean PASS
     rm -rf "${t}"
     probe_examined 4 "synthetic trees (live temp audio, retained audio, no capture, clean)"
