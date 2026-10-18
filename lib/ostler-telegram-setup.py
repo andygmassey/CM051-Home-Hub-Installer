@@ -219,6 +219,30 @@ def restart_assistant(launchctl: str) -> str | None:
     return None
 
 
+def write_off_status(path: Path) -> None:
+    """Say "off" in the Doctor's status file, so a stopped daemon cannot leave
+    "connected" behind. Keeps the ignored-message count. Field names are the
+    daemon's (ostler-assistant telegram_ostler::TelegramStatus)."""
+    prior = read_status(path) or {}
+    st = {
+        "status": "off",
+        "bot_username": prior.get("bot_username"),
+        "last_owner_message_at": prior.get("last_owner_message_at"),
+        "non_owner_dropped": prior.get("non_owner_dropped") or 0,
+        "last_dropped_at": prior.get("last_dropped_at"),
+        "last_error": None,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "daemon_pid": None,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(st, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
 def read_status(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text())
@@ -260,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
             set_telegram_section(cfg, None)
             if secret.exists():
                 secret.unlink()
+            write_off_status(status_path)
             if not a.no_restart and (why := restart_assistant(a.launchctl)):
                 say(f"Telegram is switched off in the settings, but the assistant did not restart: {why}")
                 return EXIT_CANNOT
