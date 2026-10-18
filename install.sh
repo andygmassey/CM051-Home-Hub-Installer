@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8589) captures the path BY
+    # _ostler_write_store_curl_config (defined :8606) captures the path BY
     # VALUE and never re-reads it:
-    #     :8590   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8635   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8644 and :16137, both of which run
+    #     :8607   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8652   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8661 and :16154, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16917, where the note reads
+    # WhatsApp Web session path did it again at :16943, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16934 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16960 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5964 against a definition at :8589. Top-level
+    # writer's own definition: :5964 against a definition at :8606. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8644, :16137) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8661, :16154) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19080 / :19258 / :19415 / :19860 path. There the
+    # :19106 / :19284 / :19441 / :19886 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -7559,6 +7559,23 @@ _ostler_existing_email_block() {
     ' "$cfg"
 }
 # END email-allowlist-helpers
+
+# BEGIN telegram-config-helpers
+# [channels.telegram] is written by ~/.ostler/bin/ostler-telegram-setup, never
+# by these questions, and the config.toml regeneration below runs on EVERY DMG
+# run. Lift the existing block out verbatim (it carries no secret: the token is
+# in ~/.ostler/secrets/telegram_bot_token) and write it back, or a re-run
+# silently switches Telegram off. Prints nothing when absent. Any
+# [channels.telegram.*] sub-table travels with it.
+_ostler_existing_telegram_block() {
+    local cfg="${1:-}"
+    [[ -n "$cfg" && -f "$cfg" ]] || return 0
+    awk '
+        /^\[/ { in_s = ($0 == "[channels.telegram]" || index($0, "[channels.telegram.") == 1) }
+        in_s { print }
+    ' "$cfg" | awk '{ buf[NR] = $0 } END { n = NR; while (n > 0 && buf[n] ~ /^[ \t]*$/) n--; for (i = 1; i <= n; i++) print buf[i] }'
+}
+# END telegram-config-helpers
 
 # ── Email sources ──────────────────────────────────────────────────
 #
@@ -16488,6 +16505,8 @@ _ostler_restore_channels_from_existing_config() {
 }
 # MUST run BEFORE the truncating redirect below -- once `{ ... } > "$cfg"` has
 # opened the file it is already empty and there is nothing left to read.
+# Telegram is never asked about here, so carry it on EVERY run, reuse or not.
+_TELEGRAM_BLOCK_PRESERVED="$(_ostler_existing_telegram_block "$ASSISTANT_CONFIG")"
 if [[ "${SKIP_PHASE2:-false}" == true ]]; then
     _ostler_restore_channels_from_existing_config "$ASSISTANT_CONFIG"
     if [[ "${CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED:-false}" != true ]]; then
@@ -16825,6 +16844,13 @@ TOMLPREAMBLE
         printf '%s\n' "$_EMAIL_BLOCK_PRESERVED"
     fi
     unset _email_section_active
+
+    # [channels.telegram], carried verbatim from the previous config.toml
+    # (ostler-telegram-setup writes it; nothing above does).
+    if [[ -n "${_TELEGRAM_BLOCK_PRESERVED:-}" ]]; then
+        echo
+        printf '%s\n' "$_TELEGRAM_BLOCK_PRESERVED"
+    fi
 
     # #134 (v1.0.1): the Apple Mail COMMS channel -- email the assistant from
     # your OWN address (the email analogue of the iMessage Note-to-Self) and
@@ -17323,7 +17349,7 @@ umask "$umask_orig"
 # Scrub the plaintext password from the bash environment as soon as
 # the file is written. The TOML still has it on disk; this just
 # narrows the in-memory exposure for the rest of the install.
-unset CHANNEL_EMAIL_PASSWORD _EMAIL_BLOCK_PRESERVED
+unset CHANNEL_EMAIL_PASSWORD _EMAIL_BLOCK_PRESERVED _TELEGRAM_BLOCK_PRESERVED
 
 # Same treatment for the chat admin token. Both copies (TOML +
 # secrets file) are written and locked down by now.
