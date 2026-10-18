@@ -54,15 +54,6 @@ install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	needs_revie
 install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Article 9 consent text: legal force should be checked by a lawyer. Also confirm that the "Ostler 재설정" menu label matches the app.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal GDPR terminology (controller, lawful basis) needs a lawyer's check.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	Legal liability wording: a lawyer should check it. 녹음 is used correctly here because the text is about recording law.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Consent/responsibility clause; clarified the 'just like email' comparison to attach to responsibility. Legal force should be checked by a lawyer.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	Made controller/processor terminology consistent (original used 처리자 for both roles). GDPR legal text needs lawyer review.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment concatenated in code; Korean word order may not work with the surrounding pieces. Needs check in the assembled sentence.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment concatenated in code; Korean word order may not work with the surrounding pieces. Needs check in the assembled sentence.
-gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_body_middle	needs_review	Smoother fragment; assembled reads '다음을 입력하세요: INSTALL 입력 시 다음에 동의한 것으로 확인됩니다: 약관'. Still a workaround for English fragment order; consent wording, needs developer and legal check.
-gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/consent_install_body_prefix	needs_review	Fragment of a sentence assembled in English word order (type + INSTALL + to confirm + terms). Korean needs a different order; developer should consider a single string with placeholders.
 gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/subtitle	needs_review	Source says 'Recording', which conflicts with the transcribe-not-record rule; consent-related heading, used 전사. Human should confirm source wording.
 gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/why	needs_review	Source uses 'record'; per glossary rendered as transcription to avoid implying stored audio. Consent wording, human/legal check advised.
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
@@ -71,3 +62,5 @@ gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_rev
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Consent statement; legal force should be checked. Source itself uses 'recordings' (user's own existing files), so 녹음 kept faithfully, but confirm against the transcribing-not-recording policy.
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment concatenated in code; Korean word order may not work with the surrounding pieces. Needs check in the assembled sentence.
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment concatenated in code; Korean word order may not work with the surrounding pieces. Needs check in the assembled sentence.

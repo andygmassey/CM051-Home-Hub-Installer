@@ -61,12 +61,6 @@ install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	needs_revie
 install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Article 9 consent text: legal force needs lawyer review; also confirm whether the "Reset Ostler" menu item is localised.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal text: lawyer should check.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/intro_body	needs_review	Smoothed awkward "texto con búsqueda" and the singular verb; consent wording still needs lawyer review.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	Legal text citing statutes: lawyer should check. "Grabar" is correct here because the text is about the law.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Consent/responsibility wording; legal force should be checked by a lawyer.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	Legal text citing GDPR articles; a lawyer should verify citation style (official Spanish RGPD uses 'punto' for Art. 4 definitions) and legal force.
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key

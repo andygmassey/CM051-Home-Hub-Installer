@@ -244,7 +244,7 @@ MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="Mac mini 또는 Mac Studio Hub는 별�
 MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="나중에 시스템 설정 > 개인정보 보호 및 보안 > 전체 디스크 접근 권한에서"
 MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC="  실행하여 cron 전달 및 imessage-tcc 상태를 확인합니다)."
 MSG_INFO_LICENCE_APACHE_2_0_FULL_TEXT="라이선스: %s는 Apache 2.0입니다. 전문: %s/LICENSES/Apache-2.0.txt"
-MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL="라이선스: %s – 상업적으로 사용하기 전에 원저작자의 약관을 확인하세요."
+MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL="Licence: %s – check upstream terms before commercial use."
 MSG_INFO_LOCAL_STORE_GOOGLE_NEVER_SEES_THAT="로컬 저장소 – Google은 Ostler의 존재를 전혀 알지 못합니다."
 MSG_INFO_LOGS_EMAIL_INGEST_LOG_ERR="로그: %s/email-ingest.log (및 .err)"
 MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR="로그: %s/ostler-assistant.log (및 .err)"
@@ -275,15 +275,13 @@ MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="이 DMG에 포함된 ostler-assi
 MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge가 venv에 설치되었습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler는 설치하기 전에 추가 동의 화면을 표시합니다"
+MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler will show an extra consent screen before installing"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  대화 메모리 엔진의 소스 저장소는 ./install.sh --help에 설명된 환경 변수로 변경할 수 있습니다."
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR="  소스 저장소를 변경하려면: PWG_DOCTOR_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB="  소스 저장소를 변경하려면: PWG_HUB_POWER_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  소스 저장소를 변경하려면: PWG_KNOWLEDGE_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE="  소스 저장소를 변경하려면: PWG_PIPELINE_REPO=<url> ./install.sh"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="동의 기록과 지역을 저장하는 중..."
+MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and region..."
 MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="3단계 배터리 감시기가 작동 중입니다 (PID %s)"
 MSG_INFO_PLEASE_WAIT_READING_CONTACTS="주소록을 읽는 중입니다 (라이브러리가 크면 몇 분 걸릴 수 있습니다 – 설치 프로그램을 닫지 마세요)..."
 MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="정책 변경: ~/.ostler/power.conf를 편집하세요 (normal / aggressive / eco)"
@@ -308,18 +306,15 @@ MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="%s에 있는 기존 이메일 �
 MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="%s에 있는 기존 hub-power 설치를 재사용합니다"
 MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="%s에 있는 기존 브라우저 확장 프로그램 키를 재사용합니다"
 MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE="Chrome용 Ostler 확장 프로그램은 이번 릴리스에 포함되어 있지 않습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="이메일 대화: 설정되지 않음. Ostler가 다른 사람의 메시지를 읽는 것에 동의하지 않으셨습니다."
+MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
 MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="이메일 대화: 설정되지 않음. 이 Mac에 Apple Mail이 설정되어 있지 않습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="메시지 대화: 설정되지 않음. Ostler가 다른 사람의 메시지를 읽는 것에 동의하지 않으셨습니다."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
 MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="메시지 대화: 설정되지 않음. 이 Mac에 메시지 기록이 없습니다."
 MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  Ostler로 통화를 받아쓰면 이 기능이 자동으로 켜집니다."
 MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="음성 대화: 아직 설정되지 않음. 읽을 전사본이 없습니다."
 MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED="음성 대화: 꺼짐. Ostler를 설치한 후 Transcripts 폴더가 삭제되었습니다."
 MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW="  다시 켜려면 %s을(를) 다시 만드세요. Ostler는 이를 자동으로 다시 만들지 않습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp 대화: 설정되지 않음. Ostler가 다른 사람의 메시지를 읽는 것에 동의하지 않으셨습니다."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
 MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF="WhatsApp 대화: 설정되지 않음. WhatsApp이 꺼져 있습니다."
 MSG_INFO_CHROME_HISTORY_STILL_READ="  Ostler는 여전히 Chrome 방문 기록을 읽으므로 방문한 페이지는 기억됩니다. 탐색 중 실시간 캡처는 현재 Safari에서만 지원됩니다."
 MSG_INFO_REUSING_EXISTING_JWT_SECRET="%s에 있는 기존 JWT_SECRET을 재사용합니다"
@@ -418,10 +413,8 @@ MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="이 설치 프로그램에 컨테이너 �
 MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="Ostler Doctor 대시보드를 시작하지 못해 http://localhost:8089에서 응답하지 않습니다. 여기에서 데이터를 읽는 앱의 페이지(사람, 타임라인, Governor, 채널 상태)는 대시보드가 실행될 때까지 사용할 수 없다고 표시됩니다. 설치 프로그램을 다시 실행해 다시 시도하세요."
 MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="절전 방지 도우미를 예약하지 못했습니다. Ostler는 계속 작동하지만, 긴 백그라운드 작업 중에 이 Mac이 잠자기 상태가 될 수 있으며, 작업은 밤새 끝나지 않고 깨어난 뒤에 이어서 진행됩니다."
 MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="백그라운드 보충 도우미를 예약하지 못해 새 메시지, 메일, 캘린더 항목을 자동으로 가져오지 않습니다. 설치 프로그램을 다시 실행해 복원하세요."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s이(가) 설정되지 않았습니다. 이를 결정하는 질문에 대한 답변 기록이 Ostler에 없어서 임의로 가정하지 않았습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Ostler를 다시 실행하고 질문에 다시 답하도록 선택하면 켤 수 있습니다. (동의 기록: %s)"
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="데일리 브리프를 예약하지 못해 아침 요약을 받을 수 없습니다. 다른 기능은 모두 정상 작동합니다. 설치 프로그램을 다시 실행해 복원하세요."
 MSG_WARN_MEMORY_HYGIENE_NOT_LOADED="메모리 정리 작업을 예약하지 못해 오래되었거나 대체된 정보의 가중치가 자동으로 낮아지지 않습니다. 다른 기능은 모두 정상 작동합니다. 설치 프로그램을 다시 실행해 복원하세요."
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="다운로드 감시 기능을 시작하지 못해 다운로드 폴더에 넣은 파일을 자동으로 가져오지 않습니다. 이미 가져온 항목에는 영향이 없으며, 앱 안에서 파일을 직접 추가할 수 있습니다. 설치 프로그램을 다시 실행해 복원하세요."
@@ -432,8 +425,7 @@ MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="기기 등록 재시도 도우
 MSG_OK_CONTAINER_ENGINE_ANSWERED="컨테이너 런타임 응답 중"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="이전 버전이 남긴 오래된 Colima 시작 항목을 제거했습니다"
 MSG_OK_CONFIG_SAVED_ENV="설정을 %s/.env에 저장했습니다"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="동의 기록과 지역 정보를 ~/.ostler/posture/에 저장했습니다"
+MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
 MSG_OK_AT_REST_EXCLUDED="Spotlight와 Time Machine에서 제외됨(확인 완료): %s"
 MSG_WARN_AT_REST_NOT_EXCLUDED="%s은(는) Time Machine 또는 Spotlight에서 제외되지 않았습니다: %s. Ostler의 비밀 정보를 포함한 내용이 백업 디스크에 복사될 수 있습니다. 문제가 해결될 때까지 Doctor에 계속 표시됩니다."
 MSG_INFO_AT_REST_FOLDER_ABSENT="%s이(가) 아직 없으므로 백업에서 제외할 항목이 없습니다."
@@ -658,8 +650,7 @@ MSG_OK_USER_FACING_TREE_READY="사용자용 폴더 구조가 준비되었습니�
 MSG_OK_USING_OSTLER_FOLDER_LABEL_INSTEAD="대신 'Ostler' 폴더/레이블을 사용합니다."
 MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH="Vane 정상 작동 중(로컬 웹 검색)"
 MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS="Vane이 http://localhost:3000에서 실행 중입니다(로컬 Ollama와 연결됨)"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp 커넥터가 활성화됩니다(동의 기록됨)"
+MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp connector will be enabled (consent recorded)"
 MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED="첫날 위키 따라잡기 LaunchAgent를 불러왔습니다(처음 몇 시간 동안 30분마다 위키를 다시 빌드한 후 중지됩니다)"
 # ── Deferred whole-graph dedupe converge (v1.0.2) ──
 MSG_INFO_DEDUPE_STILL_MERGING="중복 연락처를 계속 병합하는 중입니다. 주소록이 크면 몇 분 걸릴 수 있습니다(%ss 경과)"
@@ -724,8 +715,7 @@ MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP="Colima를 시작하지 못�
 MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE="GNU coreutils를 설치하지 못했습니다. 긴 단계는 시간 제한 없이 실행됩니다(작동 중임을 알리는 진행 표시는 계속 나타납니다)."
 MSG_WARN_COLIMA_START_RETRY="Colima가 정상적으로 시작되지 않았습니다(Docker 소켓이 준비되지 않음). %s초 후 다시 시도합니다..."
 MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="흔한 원인: 태그 v%s가 아직 게시되지 않았거나, 네트워크가 오프라인이거나,"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr(처음 400자):"
+MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
 MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML="  %s에 콘솔 스크립트가 생성되지 않았습니다. pyproject.toml에 [project.scripts] 항목이 없을 수 있습니다."
 MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="--allow-plaintext가 전달되었으므로 계속합니다."
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="설치를 계속합니다. 위 오류를 진단한 후 \`ostler-fda\`를 다시 실행하세요."
@@ -737,8 +727,7 @@ MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="ostler-assistant v%s을(를) %s�
 MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="Takeout zip에서 Gmail mbox를 추출할 수 없습니다. 건너뜁니다."
 MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL="ostler-assistant tarball을 추출할 수 없습니다. LaunchAgent를 건너뜁니다."
 MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU="Tailscale CLI를 찾을 수 없습니다. 나중에 직접 설정할 수 있습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS="legal/ 동의 문구 패키지를 설치할 수 없습니다. 계속 진행합니다."
+MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS="Could not install legal/ consent-strings package; continuing"
 MSG_WARN_COULD_NOT_INSTALL_LICENSES_DIRECTORY_NON="LICENSES/ 디렉토리를 설치할 수 없습니다(치명적이지 않음)."
 MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO="Hub venv에 ostler_security를 설치할 수 없습니다."
 MSG_WARN_COULD_NOT_INSTALL_THIRD_PARTY_NOTICES="THIRD_PARTY_NOTICES.md를 설치할 수 없습니다(치명적이지 않음)."
@@ -1151,10 +1140,8 @@ MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="원하는 이름을 자유롭게 입력하
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="어시스턴트가 어떻게 연락할까요?"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="어시스턴트가 사용할 메시지 채널을 선택하세요. 나중에 앱의 Doctor 섹션에서 변경할 수 있습니다."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_WHATSAPP_CONSENT_TITLE="어시스턴트의 WhatsApp 메시지를 활성화할까요?"
-# NEEDS REVIEW: Legal/consent wording; lawyer should check.
-MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web은 제3자 서비스입니다. 활성화하면 메시지가 로컬 Ostler로 전달되기 전에 WhatsApp 자체 인프라를 거치며, 자동화된 사용을 이유로 WhatsApp(Meta Platforms Ireland Ltd)이 WhatsApp 계정을 정지, 제한 또는 종료할 수 있음에 동의하는 것입니다. 나중에 설정에서 비활성화할 수 있습니다."
+MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
+MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="WhatsApp 전화번호"
 # The example used to read "+44 7700 900123" – spaces – in the same sentence as
@@ -1331,15 +1318,11 @@ MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="사용자 지정. 다음 화면에서 �
 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="이 데이터 소스를 켜거나 끕니다."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="결정 (Y / N)"
-# NEEDS REVIEW: Legal consent wording; lawyer should confirm Korean GDPR terminology.
-MSG_PROMPT_CONSENT_ARTICLE_9_HELP="제9조 특수 범주 동의(영국 GDPR). 처리의 적법한 근거를 위해 필요합니다."
+MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
+MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_VOICE_EU_TITLE="캡처한 통화에서 음성을 인식하시겠습니까?"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_VOICE_EU_HELP="화자 인식은 이 Mac에서만 이루어집니다. Creative Machines는 음성 특징 데이터를 받지 않습니다."
+MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
+MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
 # Enrichment opt-in (Q_ENRICH). Andy, 2026-08-18: "users must EXPLICITLY
 # decide whether public-data enrichment runs. Not a default-on setting."
@@ -1353,29 +1336,25 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="화자 인식은 이 Mac에서만 이루어집
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="저장한 항목의 공개 정보를 조회하시겠습니까?"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler는 책, 영화, 앨범, 장소처럼 찾아낸 항목에 공개 참고 정보를 추가할 수 있습니다. 이를 위해 해당 항목 하나의 이름을 Wikidata, MusicBrainz, OpenLibrary 같은 공개 참고 서비스로 보내고, 받은 답변을 이 Mac에 저장합니다.
+MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Look up public facts about things you save?"
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
 
-Mac에서 나가는 정보: 조회하는 항목의 이름뿐입니다. 그 외에는 아무것도 나가지 않습니다. 메시지, 연락처, 파일, 그 항목을 누가 언급했는지도 나가지 않습니다.
+What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
 
-상대 서비스가 볼 수 있는 정보: 사용자의 IP 주소와 요청이 Ostler에서 왔다는 사실입니다. 조회는 Mac에서 해당 서비스로 직접 전달되며 저희 서버를 거치지 않으므로, 누군가 요청했다는 사실이 알려지지 않게 할 방법은 없습니다.
+What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
 
-아니요를 선택하면: 조회가 이루어지지 않으며 백그라운드 보강 작업도 아예 설치되지 않습니다. 그 외의 모든 기능은 똑같이 작동합니다. 라이브러리에는 공개 카탈로그가 더하는 정보 없이 직접 넣은 정보만 담깁니다.
+If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
 
-지금은 아니요를 선택하고, 나중에 설치 프로그램을 다시 실행하여 마음을 바꿀 수도 있습니다."
+You can say No now and change your mind later by re-running the installer."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="마지막으로, 외부 데이터의 처리 방식"
-# NEEDS REVIEW: Legal text; adjusted article citation style to Korean convention (호/항), lawyer should verify.
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="외부 서비스에서 가져오는 모든 데이터(Google Takeout, Meta 다운로드, LinkedIn 내보내기 등)는 이 Mac에 남습니다. Ostler는 이를 로컬 지식 그래프에 저장하며 어떤 것도 기기 밖으로 나가지 않습니다.
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
 
-계속하면, 이미 하드 드라이브에 있는 이메일 메시지와 마찬가지로 이 데이터를 사용자의 기기에서 처리하고 보관하는 책임이 전적으로 본인에게 있음을 이해하고 동의하는 것으로 간주합니다.
+By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
 
-법적 고지: 이 Mac으로 가져오는 기록에 대해 사용자는 영국 및 EU 법에 따른 데이터 컨트롤러이자 프로세서입니다(영국 GDPR 제4조 제7호 및 제8호). Creative Machines는 이 데이터를 받지 않으며 컨트롤러가 아닙니다. 개인 및 가정 목적의 처리는 영국/EU GDPR 제2조 제2항 (c)호에 해당합니다.
+Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
 
-자세한 내용은 docs.ostler.ai/privacy/third-party-data에서 확인하세요."
+Read more at docs.ostler.ai/privacy/third-party-data."
 
 # Spoken-capture recording-consent acknowledgement (every region). Shown
 # in the Phase-2 consent batch. The HELP string is the substantive text
@@ -1384,76 +1363,51 @@ MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="외부 서비스에서 가져오는 모든 
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_TERMS_PERSONAL_USE_HEADING="Ostler의 용도"
-MSG_TERMS_PERSONAL_USE_INTRO="Ostler는 한 사람이 자신의 Mac에서 자신의 삶을 이해하도록 만들어졌습니다. 이것이 설계의 전부이며, 데이터가 이 기기 밖으로 나가지 않는 이유입니다."
-# NEEDS REVIEW: Licence term wording; legal review advised.
-MSG_TERMS_PERSONAL_USE_BUSINESS="업무용으로는 만들어지지 않았습니다. 직원에게 Ostler를 배포하거나, 업무 중에 동료, 고객, 환자, 거래처의 정보를 수집하는 데 사용하지 마세요. 조직이 그렇게 하면 그 조직이 수집한 모든 사람의 정보에 대한 책임을 지게 되며, Ostler는 그 책임을 감당하도록 설계되지 않았습니다."
-# NEEDS REVIEW: Replaced awkward '당신' with '사용자' for consistency; legal responsibility wording needs lawyer review.
-MSG_TERMS_PERSONAL_USE_RECORDER="녹음하는 주체는 사용자입니다. Ostler는 도구일 뿐입니다. 대화를 녹음하기 전에 현지 법률이 동의를 요구하는 경우, 동의를 받는 것은 사용자의 몫이며, 특정 녹음이 사용자가 계신 곳에서 적법한지는 저희가 알 수 없습니다."
-MSG_TERMS_PERSONAL_USE_ASK_HEADING="다음 세 가지는 하지 않도록 부탁드립니다."
-MSG_TERMS_PERSONAL_USE_ASK_1="부모나 보호자의 동의 없이 아이를 녹음하지 마세요. 아이는 스스로 동의할 수 없으며, 사용자 본인의 확인이 그 동의를 대신할 수 없습니다."
-MSG_TERMS_PERSONAL_USE_ASK_2="진료실, 변호사 상담, 심리 상담, 종교적 고해, 화장실이나 탈의실처럼 사생활이 실제로 보장되어야 하는 장소에서는 녹음하지 마세요."
-MSG_TERMS_PERSONAL_USE_ASK_3="현지 법률이 허용하지 않는 경우, Ostler로 다른 사람을 몰래 녹음하지 마세요."
-# NEEDS REVIEW: Restored 'natural person' (자연인); licence/liability wording needs lawyer review.
-MSG_TERMS_PERSONAL_USE_LEGAL="Ostler는 자연인이 개인적, 비상업적 용도로 사용하도록 허가된 소프트웨어입니다. Creative Machines는 사용자가 Mac에 보관한 정보의 데이터 컨트롤러나 처리자가 아니며, 그 정보를 전혀 수신하지 않고, 특정 녹음이나 캡처가 사용자의 관할권에서 적법하다고 보증하지 않습니다."
-MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler는 개인용입니다"
-# NEEDS REVIEW: Terms acceptance text; lawyer should check.
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler는 사용자 본인의 Mac에서 개인적으로 사용하도록 허가되어 있습니다. 직원에게 배포하거나 직장에서 동료, 고객, 환자를 캡처하는 데 사용하지 마세요. 부모의 동의 없이 아이를 녹음하지 말고, 진료, 변호사 상담, 심리 상담처럼 사생활이 실제로 보장되어야 하는 장소에서는 녹음하지 마세요. 이 약관에 동의하려면 계속을 누르세요."
-MSG_INFO_TERMS_PERSONAL_USE_DECLINED="괜찮습니다. 아무것도 설치되지 않았습니다."
+MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_INTRO="Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine."
+MSG_TERMS_PERSONAL_USE_BUSINESS="It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
+MSG_TERMS_PERSONAL_USE_RECORDER="You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are."
+MSG_TERMS_PERSONAL_USE_ASK_HEADING="Three things we ask you not to do:"
+MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs."
+MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
+MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
+MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_HEADING="음성 대화를 텍스트로 변환"
-# NEEDS REVIEW: Legal responsibility statement; lawyer should check.
-MSG_CONSENT_SPOKEN_CAPTURE_INTRO="요약: 음성을 캡처하여 텍스트로 변환할 때 법률이 요구하는 동의를 받는 책임은 저희가 아닌 사용자에게 있습니다. 입력과 메시지는 해당되지 않습니다."
-# NEEDS REVIEW: Legal statement about recording law; lawyer should check.
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler는 사용자가 캡처한 음성 대화(통화와 회의)를 검색 가능한 텍스트로 변환할 수 있습니다. 이는 사용자가 직접 텍스트로 변환하기로 선택한 음성에만 해당합니다. 사람의 말을 녹음하는 것에 관한 규정은 나라마다 다르며, 독일과 프랑스처럼 참여자 모두가 먼저 동의해야 하는 곳도 있습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="캡처한 음성을 사용자의 Mac에만 보관하더라도 이 의무가 없어지지는 않습니다. Ostler는 음성을 어디로도 보내지 않지만, 현지 법률이 요구하는 경우에는 여전히 동의를 받아야 합니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="부탁드리는 사항:"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="음성 대화를 캡처하기 전에 현지 법률이 요구하는 동의를 받으세요."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="함께 있는 사람들에게 음성이 캡처되고 있음을 분명히 알리세요. 예를 들어 시작할 때 미리 알리거나 눈에 보이는 표시등을 계속 켜 두세요."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="확실하지 않다면 음성 텍스트 변환을 끄세요. 텍스트 대화는 어느 쪽이든 정상적으로 작동합니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="사용자의 결정:"
-# NEEDS REVIEW: Consent undertaking; lawyer should check legal force.
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] 이해했으며, 현지 법률이 요구하는 동의를 받겠습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] 지금은 안 함 – 음성 텍스트 변환을 끈 상태로 둡니다. (나중에 설정에서 켤 수 있습니다.)"
-# NEEDS REVIEW: Legal note citing statutes; lawyer should check.
-MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="법적 고지: 말을 녹음하는 행위는 개인정보 보호법과는 별개로 각국 법률의 규제를 받을 수 있습니다. 예를 들어 독일 형법 제201조(Verletzung der Vertraulichkeit des Wortes)나 프랑스 형법 제226-1조가 있습니다. 이 Mac에서 녹음하는 사람으로서 법규 준수는 사용자의 책임입니다. Creative Machines는 사용자의 녹음을 수신하지 않으며 그 당사자도 아닙니다."
+MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
+MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Your text conversations work either way."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="음성 대화를 텍스트로 변환할까요?"
-# NEEDS REVIEW: Fixed self-honorific '말씀하시거나'; legal text needs lawyer review.
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="요약: 음성을 캡처하여 텍스트로 변환할 때 법률이 요구하는 동의를 받는 책임은 사용자에게 있습니다. 입력과 메시지는 해당되지 않습니다.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
 
-Ostler는 사용자가 캡처한 음성 대화(통화와 회의)를 검색 가능한 텍스트로 변환할 수 있습니다. 이는 사용자가 직접 텍스트로 변환하기로 선택한 음성에만 해당합니다.
+Ostler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.
 
-부탁드리는 사항:
-• 음성을 캡처하기 전에 현지 법률이 요구하는 동의를 받으세요.
-• 음성이 캡처되고 있음을 분명히 알리세요. 말로 알리거나 눈에 보이는 표시등을 계속 켜 두세요.
-• 확실하지 않다면 끄세요. 텍스트 대화는 어느 쪽이든 정상적으로 작동하며, 나중에 설정에서 켤 수 있습니다.
+What we ask of you:
+• Get whatever consent your local law requires before you capture audio.
+• Make it clear audio is being captured – say so, or keep a visible indicator on.
+• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.
 
-법적 고지: 말을 녹음하는 행위는 개인정보 보호법과는 별개로 각국 법률의 규제를 받을 수 있습니다. 예를 들어 독일 형법 제201조나 프랑스 형법 제226-1조가 있습니다. 녹음하는 사람으로서 법규 준수는 사용자의 책임입니다. Creative Machines는 사용자의 녹음을 수신하지 않습니다."
+Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
 MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="음성 텍스트 변환은 꺼진 상태로 유지됩니다. 나중에 설정에서 켤 수 있습니다."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_TITLE="설치할 준비가 되셨나요?"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_HELP="약관에 동의하시면 INSTALL을 입력해 확인해 주세요."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="INSTALL 입력"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Ostler 설치"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="취소"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="확인하려면 INSTALL을 그대로 입력하세요(대소문자는 구분하지 않습니다). 돌아가려면 취소를 클릭하세요."
+MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
+MSG_PROMPT_CONSENT_INSTALL_HELP="Please type INSTALL to confirm you accept the terms."
+MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Type INSTALL"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
+MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
 
 MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="iPhone과 Watch 연결"
 MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale은 이 Mac에 고정된 비공개 주소를 부여하여, iPhone과 Watch가 어디서든 접속할 수 있게 합니다. 암호화되며 외부에 공개되지 않습니다."
@@ -1835,8 +1789,7 @@ MSG_WARN_ASSISTANT_AGENT_NOT_BUNDLED_LAUNCHAGENT_SKIPPED="assistant-agent가 설
 MSG_WARN_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED="위키 재컴파일 스크립트가 설치 프로그램에 포함되어 있지 않습니다. 위키가 자동으로 업데이트되지 않습니다."
 
 # F3 - legal package missing
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED="legal 패키지가 설치 프로그램에 포함되어 있지 않습니다. 다시 설치하기 전까지 Article 9 / WhatsApp / 음성 동의 확인 단계에서 ModuleNotFoundError가 발생합니다."
+MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED="legal package not bundled with installer. Article 9 / WhatsApp / voice consent gates will raise ModuleNotFoundError until re-installed."
 
 # F4 - gws (Google Workspace CLI) install
 MSG_OK_GWS_INSTALLED_AT_VERSION_DEST="Google Workspace CLI v%s을(를) %s에 설치했습니다"
@@ -1887,8 +1840,7 @@ MSG_INFO_AUTOLOGIN_EXPLAIN="Ostler는 항상 켜져 있는 Hub이므로 정전�
 암호를 저장하면 이 Mac의 보안이 약해집니다. 암호는 암호화되는 것이 아니라 뒤섞여 저장되므로, 이 Mac의 관리자 계정을 사용할 수 있거나 디스크를 꺼내 다른 곳에서 읽을 수 있는 사람은 이를 원래 암호로 되돌릴 수 있습니다. 입력하기 전에 저장 위치를 정확히 보여 드립니다.
 
 허용하지 않으면 아무것도 저장되지 않으며 다른 변경도 없습니다. 정전 후에는 평소처럼 로그인하면 되고, Ostler 서비스는 세션과 함께 시작됩니다. 나중에 시스템 설정 > 사용자 및 그룹 > 자동 로그인에서 변경할 수 있습니다."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_AUTOLOGIN_CONSENT="재시동 후 스스로 로그인할 수 있도록 로그인 암호를 이 Mac에 저장할까요? [y/N]"
+MSG_PROMPT_AUTOLOGIN_CONSENT="Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
 MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler는 이 암호를 이 Mac의 /etc/kcpassword 파일에 기록합니다. 암호는 모든 Mac에서 동일하고 공개적으로 문서화된 고정 패턴으로 뒤섞이므로 암호화가 아니며 원래대로 되돌릴 수 있습니다. 이 Mac의 관리자 계정을 사용할 수 있거나 디스크를 꺼내 다른 곳에서 읽을 수 있는 사람은 해당 파일을 %s의 로그인 암호로 되돌릴 수 있습니다.
 
 FileVault를 사용하면 시동 암호 없이는 디스크를 전혀 읽을 수 없으므로 이를 막을 수 있습니다. 같은 이유로 FileVault는 자동 로그인도 막기 때문에, Ostler는 FileVault가 꺼져 있을 때만 이 기능을 제공합니다.

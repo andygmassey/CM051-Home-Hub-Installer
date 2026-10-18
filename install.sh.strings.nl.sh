@@ -244,7 +244,7 @@ MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="Een Hub op een Mac mini of Mac Studio b
 MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="later in Systeeminstellingen > Privacy en beveiliging > Volledige schijftoegang"
 MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC="  start om de status van cron-delivery + imessage-tcc te controleren)."
 MSG_INFO_LICENCE_APACHE_2_0_FULL_TEXT="Licentie: %s valt onder Apache 2.0. Volledige tekst: %s/LICENSES/Apache-2.0.txt"
-MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL="Licentie: %s – controleer de upstream-voorwaarden vóór commercieel gebruik."
+MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL="Licence: %s – check upstream terms before commercial use."
 MSG_INFO_LOCAL_STORE_GOOGLE_NEVER_SEES_THAT="lokale opslag – Google merkt nooit dat Ostler bestaat."
 MSG_INFO_LOGS_EMAIL_INGEST_LOG_ERR="Logs: %s/email-ingest.log (en .err)"
 MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR="Logs: %s/ostler-assistant.log (en .err)"
@@ -275,15 +275,13 @@ MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="De ostler-assistant-binary uit d
 MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge geïnstalleerd in venv."
-# NEEDS REVIEW: Source is a line fragment ('before installing' likely continues with an object on the next line); Dutch rendering may not join correctly with the continuation.
-MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler toont een extra toestemmingsscherm voordat de installatie begint"
+MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler will show an extra consent screen before installing"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  Overschrijf de bronrepository voor de gespreksgeheugen-engine via de omgevingsvariabele die staat beschreven in ./install.sh --help."
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR="  Overschrijf de bronrepository met PWG_DOCTOR_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB="  Overschrijf de bronrepository met PWG_HUB_POWER_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  Overschrijf de bronrepository met PWG_KNOWLEDGE_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE="  Overschrijf de bronrepository met PWG_PIPELINE_REPO=<url> ./install.sh"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Toestemmingsregistraties en regio worden opgeslagen..."
+MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and region..."
 MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="Fase 3: accubewaker actief (PID %s)"
 MSG_INFO_PLEASE_WAIT_READING_CONTACTS="Je adresboek wordt gelezen (grote bibliotheken kunnen een paar minuten duren – sluit het installatieprogramma niet)..."
 MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="Beleid overschrijven: bewerk ~/.ostler/power.conf (normal / aggressive / eco)"
@@ -308,18 +306,15 @@ MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Bestaande email-ingest-installat
 MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="Bestaande hub-power-installatie wordt hergebruikt op %s"
 MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="Bestaande sleutel voor de browserextensie wordt hergebruikt op %s"
 MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE="De Ostler-extensie voor Chrome maakt geen deel uit van deze versie."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="E-mailgesprekken: niet ingesteld, omdat je geen toestemming hebt gegeven dat Ostler berichten van andere mensen leest."
+MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
 MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="E-mailgesprekken: niet ingesteld, omdat Apple Mail niet is ingesteld op deze Mac."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Berichtengesprekken: niet ingesteld, omdat je geen toestemming hebt gegeven dat Ostler berichten van andere mensen leest."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
 MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="Berichtengesprekken: niet ingesteld, omdat er geen Berichten-geschiedenis op deze Mac is."
 MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  Laat Ostler een gesprek transcriberen en dit wordt vanzelf ingeschakeld."
 MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="Gesproken gesprekken: nog niet ingesteld, omdat er geen transcripties zijn om te lezen."
 MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED="Gesproken gesprekken: uitgeschakeld, omdat de map Transcripts is verwijderd sinds Ostler is geïnstalleerd."
 MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW="  Maak %s opnieuw aan om het weer in te schakelen. Ostler maakt het niet voor je aan."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp-gesprekken: niet ingesteld, omdat je geen toestemming hebt gegeven dat Ostler berichten van andere mensen leest."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
 MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF="WhatsApp-gesprekken: niet ingesteld, omdat WhatsApp is uitgeschakeld."
 MSG_INFO_CHROME_HISTORY_STILL_READ="  Ostler leest nog steeds je Chrome-geschiedenis, dus pagina's die je hebt bezocht worden onthouden. Live vastleggen tijdens het browsen werkt voorlopig alleen in Safari."
 MSG_INFO_REUSING_EXISTING_JWT_SECRET="Bestaande JWT_SECRET wordt hergebruikt in %s"
@@ -419,10 +414,8 @@ MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="De bestanden voor de supervisor van de co
 MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="Het Doctor-dashboard van Ostler kon niet worden gestart, dus http://localhost:8089 reageert niet. De eigen pagina's van de app die hieruit lezen (Mensen, Tijdlijn, Governor, kanaalstatus) worden als niet beschikbaar getoond totdat het draait. Voer het installatieprogramma opnieuw uit om het nog eens te proberen."
 MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="De helper die de Mac wakker houdt kon niet worden ingepland. Ostler werkt nog steeds, maar deze Mac kan tijdens lange achtergrondtaken in slaap vallen. Ze gaan verder zodra hij wakker wordt, in plaats van 's nachts af te ronden."
 MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="De helper voor aanvulling op de achtergrond kon niet worden ingepland, dus nieuwe berichten, e-mails en agenda-items worden niet vanzelf opgehaald. Voer het installatieprogramma opnieuw uit om hem te herstellen."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s niet ingesteld: Ostler heeft geen vastgelegd antwoord van jou op de vraag die hierover gaat, dus er is niets aangenomen."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Voer Ostler opnieuw uit en kies ervoor de vragen opnieuw te beantwoorden om het in te schakelen. (toestemmingsregistratie: %s)"
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="Het dagelijkse overzicht kon niet worden ingepland, dus je ontvangt de ochtendsamenvatting niet. Al het andere werkt; voer het installatieprogramma opnieuw uit om het te herstellen."
 MSG_WARN_MEMORY_HYGIENE_NOT_LOADED="De geheugenopschoning kon niet worden ingepland, dus verouderde of vervangen feiten krijgen niet automatisch een lager gewicht. Al het andere werkt; voer het installatieprogramma opnieuw uit om het te herstellen."
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="De Downloads-watcher kon niet worden gestart, dus bestanden die je in Downloads zet worden niet automatisch opgepikt. Alles wat al is geïmporteerd blijft ongewijzigd, en je kunt nog steeds bestanden toevoegen vanuit de app. Voer het installatieprogramma opnieuw uit om het te herstellen."
@@ -433,8 +426,7 @@ MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="De helper voor het opnieuw pro
 MSG_OK_CONTAINER_ENGINE_ANSWERED="Containerruntime reageert"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Een verouderd Colima-opstartitem van een oudere versie is verwijderd"
 MSG_OK_CONFIG_SAVED_ENV="Configuratie opgeslagen in %s/.env"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Toestemmingsregistraties en regio opgeslagen in ~/.ostler/posture/"
+MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
 MSG_OK_AT_REST_EXCLUDED="Uitgesloten van Spotlight en Time Machine (gecontroleerd): %s"
 MSG_WARN_AT_REST_NOT_EXCLUDED="%s is NIET uitgesloten van Time Machine of Spotlight: %s. De inhoud, inclusief de geheimen van Ostler, kan naar je back-upschijf worden gekopieerd. De Doctor blijft dit tonen totdat het is opgelost."
 MSG_INFO_AT_REST_FOLDER_ABSENT="%s bestaat nog niet, dus er valt niets uit te sluiten van back-ups."
@@ -659,8 +651,7 @@ MSG_OK_USER_FACING_TREE_READY="Gebruikersmap gereed"
 MSG_OK_USING_OSTLER_FOLDER_LABEL_INSTEAD="In plaats daarvan wordt de map/het label 'Ostler' gebruikt."
 MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH="Vane werkt goed (lokaal zoeken op het web)"
 MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS="Vane draait op http://localhost:3000 (praat met je lokale Ollama)"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp-connector wordt ingeschakeld (toestemming vastgelegd)"
+MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp connector will be enabled (consent recorded)"
 MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED="LaunchAgent voor het bijwerken van de wiki op de eerste dag geladen (bouwt je wiki de eerste paar uur elke 30 minuten opnieuw op en stopt dan)"
 # ── Deferred whole-graph dedupe converge (v1.0.2) ──
 MSG_INFO_DEDUPE_STILL_MERGING="Dubbele contacten worden nog samengevoegd – grote adresboeken kunnen enkele minuten duren (%ss verstreken)"
@@ -725,8 +716,7 @@ MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP="Colima kon niet starten. Doc
 MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE="GNU coreutils kon niet worden geïnstalleerd; lange stappen worden zonder tijdslimiet uitgevoerd (een voortgangsregel laat nog steeds zien dat ze bezig zijn)."
 MSG_WARN_COLIMA_START_RETRY="Colima is niet goed gestart (de Docker-socket was niet gereed). Opnieuw proberen over %ss..."
 MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="Veelvoorkomende oorzaken: tag v%s is nog niet gepubliceerd, je bent offline,"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (eerste 400 tekens):"
+MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
 MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML="  Consolescript niet aangemaakt op %s; mogelijk ontbreekt de [project.scripts]-vermelding in pyproject.toml."
 MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Doorgaan omdat --allow-plaintext is meegegeven."
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Installatie wordt voortgezet. Voer \`ostler-fda\` opnieuw uit nadat je de bovenstaande fout hebt onderzocht."
@@ -738,8 +728,7 @@ MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="Kan ostler-assistant v%s niet do
 MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="Kan de Gmail-mbox niet uitpakken uit de Takeout-zip – wordt overgeslagen."
 MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL="Kan de ostler-assistant-tarball niet uitpakken; LaunchAgent wordt overgeslagen."
 MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU="Kan de Tailscale CLI niet vinden. Je kunt dit later handmatig instellen."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS="Kan het pakket met toestemmingsteksten (legal/) niet installeren; gaat door"
+MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS="Could not install legal/ consent-strings package; continuing"
 MSG_WARN_COULD_NOT_INSTALL_LICENSES_DIRECTORY_NON="Kan de map LICENSES/ niet installeren (niet fataal)."
 MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO="Kan ostler_security niet installeren in de venv van de Hub."
 MSG_WARN_COULD_NOT_INSTALL_THIRD_PARTY_NOTICES="Kan THIRD_PARTY_NOTICES.md niet installeren (niet fataal)."
@@ -1151,10 +1140,8 @@ MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Typ elke naam die je wilt – de suggestie
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="Hoe bereikt je assistent jou?"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="Kies de berichtenkanalen die je assistent mag gebruiken. Je kunt dit later wijzigen in het Doctor-gedeelte van de app."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_WHATSAPP_CONSENT_TITLE="WhatsApp-berichten inschakelen voor je assistent?"
-# NEEDS REVIEW: Legal acceptance wording; lawyer should confirm legal force in Dutch.
-MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is een dienst van een derde partij. Door dit in te schakelen accepteer je dat je berichten via de eigen infrastructuur van WhatsApp lopen voordat ze je lokale Ostler-installatie bereiken, en dat WhatsApp (Meta Platforms Ireland Ltd) je WhatsApp-account kan opschorten, beperken of beëindigen vanwege geautomatiseerd gebruik. Je kunt dit later uitschakelen in Instellingen."
+MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
+MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Je WhatsApp-telefoonnummer"
 # The example used to read "+44 7700 900123" – spaces – in the same sentence as
@@ -1331,15 +1318,11 @@ MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Aanpassen. Kies elke bron op het volgend
 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Zet deze gegevensbron aan of uit."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Jouw beslissing (Y / N)"
-# NEEDS REVIEW: Legal consent wording; a lawyer should check it.
-MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Toestemming voor bijzondere categorieën volgens artikel 9 (UK GDPR). Vereist voor de rechtsgrond van de verwerking."
+MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
+MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Stemmen herkennen in de gesprekken die je transcribeert?"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_VOICE_EU_HELP="Sprekerherkenning blijft op deze Mac. Creative Machines ontvangt de stemafdrukken nooit."
+MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
+MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
 # Enrichment opt-in (Q_ENRICH). Andy, 2026-08-18: "users must EXPLICITLY
 # decide whether public-data enrichment runs. Not a default-on setting."
@@ -1353,29 +1336,25 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Sprekerherkenning blijft op deze Mac. Creative
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Openbare feiten opzoeken over dingen die je bewaart?"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler kan openbare referentiegegevens toevoegen aan dingen die het vindt – een boek, een film, een album, een plaats. Daarvoor stuurt het de NAAM van dat ene ding naar openbare referentiediensten zoals Wikidata, MusicBrainz en OpenLibrary en slaat het antwoord op deze Mac op.
+MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Look up public facts about things you save?"
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
 
-Wat je Mac verlaat: de naam van het ding dat wordt opgezocht. Verder niets. Niet je berichten, niet je contacten, niet je bestanden en niet wie het heeft genoemd.
+What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
 
-Wat de dienst aan de andere kant kan zien: je IP-adres, en dat het verzoek van Ostler kwam. Het opzoeken gaat rechtstreeks van je Mac naar hen - er loopt niets via onze servers - dus je kunt het niet vragen zonder dat zij weten dat iemand het vroeg.
+What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
 
-Als je Nee zegt: er worden geen opzoekingen gedaan en de achtergrondtaak voor verrijking wordt helemaal niet geïnstalleerd. Al het andere werkt precies hetzelfde. Je bibliotheek bevat dan alleen wat jij eraan hebt gegeven, niet wat een openbare catalogus toevoegt.
+If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
 
-Je kunt nu Nee zeggen en later van gedachten veranderen door het installatieprogramma opnieuw te starten."
+You can say No now and change your mind later by re-running the installer."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="Nog één ding: hoe gegevens van derden werken"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Alle gegevens die je van derden importeert (Google Takeout, Meta-downloads, LinkedIn-exports enz.) blijven op deze Mac. Ostler slaat ze op in je lokale kennisgraaf; er verlaat niets je apparaat.
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
 
-Door door te gaan begrijp en accepteer je dat je zelf volledig verantwoordelijk bent voor het verwerken en bewaren van deze gegevens op je computer, net als voor de e-mailberichten die al op je harde schijf staan.
+By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
 
-Juridische opmerking: Voor gegevens die je naar deze Mac importeert, ben jij de verwerkingsverantwoordelijke en verwerker volgens Brits en EU-recht (UK GDPR artikel 4(7) en 4(8)). Creative Machines ontvangt deze gegevens nooit en is niet de verwerkingsverantwoordelijke. Je verwerking voor persoonlijke en huishoudelijke doeleinden valt onder artikel 2(2)(c) van de UK/EU-AVG.
+Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
 
-Lees meer op docs.ostler.ai/privacy/third-party-data."
+Read more at docs.ostler.ai/privacy/third-party-data."
 
 # Spoken-capture recording-consent acknowledgement (every region). Shown
 # in the Phase-2 consent batch. The HELP string is the substantive text
@@ -1384,77 +1363,51 @@ Lees meer op docs.ostler.ai/privacy/third-party-data."
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_TERMS_PERSONAL_USE_HEADING="Waar Ostler voor bedoeld is"
-MSG_TERMS_PERSONAL_USE_INTRO="Ostler is gemaakt voor één persoon, op de eigen Mac, om het eigen leven te begrijpen. Dat is het hele ontwerp, en daarom verlaten je gegevens deze computer nooit."
-# NEEDS REVIEW: Licence term with legal force; a lawyer should check it.
-MSG_TERMS_PERSONAL_USE_BUSINESS="Het is niet gemaakt voor zakelijk gebruik. Zet Ostler niet in voor medewerkers en gebruik het niet in je werk om collega's, klanten, cliënten of patiënten vast te leggen. Als een organisatie dat doet, wordt de organisatie verantwoordelijk voor iedereen van wie zij gegevens verzamelt, en Ostler is er niet op ontworpen dat te dragen."
-# NEEDS REVIEW: Legal responsibility wording; lawyer should check.
-MSG_TERMS_PERSONAL_USE_RECORDER="Jij bent degene die opneemt. Ostler is het hulpmiddel. Als de wet bij jou vereist dat er toestemming is voordat een gesprek wordt opgenomen, moet je die zelf regelen, en wij kunnen van hieruit niet weten of een bepaalde opname rechtmatig is waar jij bent."
-MSG_TERMS_PERSONAL_USE_ASK_HEADING="Drie dingen die we je vragen niet te doen:"
-# NEEDS REVIEW: 'verzekering' reads as insurance; changed to 'toezegging'. Consent wording, lawyer should check.
-MSG_TERMS_PERSONAL_USE_ASK_1="Neem geen kinderen op zonder dat een ouder of voogd daarmee instemt. Een kind kan die instemming zelf niet geven, en jouw eigen toezegging komt niet in de plaats van die van hen."
-MSG_TERMS_PERSONAL_USE_ASK_2="Maak geen opnamen op plekken waar mensen echte privacy verwachten: een afspraak bij een arts, een gesprek met een advocaat, een therapiesessie, een biecht, een toilet of een kleedkamer."
-MSG_TERMS_PERSONAL_USE_ASK_3="Gebruik Ostler niet om iemand heimelijk op te nemen waar de wet bij jou dat niet toestaat."
-# NEEDS REVIEW: Licence and liability text; lawyer should check.
-MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is in licentie gegeven voor persoonlijk, niet-commercieel gebruik door een natuurlijke persoon. Creative Machines is geen verwerkingsverantwoordelijke of verwerker van de informatie die je op je Mac bewaart, ontvangt daar niets van, en geeft geen garantie dat een bepaalde opname of vastlegging rechtmatig is in jouw rechtsgebied."
-MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is voor persoonlijk gebruik"
-# NEEDS REVIEW: Fixed awkward 'neem niet op op'. Acceptance of terms, so a lawyer should check.
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is in licentie gegeven voor je eigen persoonlijke gebruik op je eigen Mac. Zet het niet in voor medewerkers en gebruik het niet op het werk om collega's, klanten of patiënten vast te leggen. Neem geen kinderen op zonder instemming van een ouder, en maak geen opnamen op plekken waar mensen echte privacy verwachten, zoals een afspraak bij een arts, advocaat of therapeut. Klik op Ga door om deze voorwaarden te accepteren."
-MSG_INFO_TERMS_PERSONAL_USE_DECLINED="Geen probleem. Er is niets geïnstalleerd."
+MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_INTRO="Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine."
+MSG_TERMS_PERSONAL_USE_BUSINESS="It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
+MSG_TERMS_PERSONAL_USE_RECORDER="You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are."
+MSG_TERMS_PERSONAL_USE_ASK_HEADING="Three things we ask you not to do:"
+MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs."
+MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
+MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
+MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Gesproken gesprekken omzetten in tekst"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_INTRO="Kort gezegd: als je gesproken audio vastlegt om die te transcriberen, ben jij verantwoordelijk voor de toestemming die de wet vereist, niet wij. Dit geldt niet voor typen en berichten."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler kan gesproken gesprekken die je vastlegt – telefoongesprekken en vergaderingen – omzetten in doorzoekbare tekst. Dit gaat alleen over audio die je zelf wilt transcriberen. De regels over het opnemen van sprekende mensen verschillen per land – op sommige plekken (bijvoorbeeld in Duitsland en Frankrijk) moet iedereen die meedoet eerst instemmen."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Het op je eigen Mac houden van de vastgelegde audio neemt deze plicht niet weg. Ostler stuurt die nergens naartoe, maar je hebt nog steeds toestemming nodig als de wet bij jou dat vereist."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="Wat we van je vragen:"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Zorg voor de toestemming die de wet bij jou vereist voordat je een gesproken gesprek vastlegt."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Maak duidelijk aan de mensen bij wie je bent dat er audio wordt vastgelegd. Zeg het bijvoorbeeld aan het begin, of laat een zichtbare indicator aan."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="Twijfel je? Laat gesproken transcriptie dan uit. Je tekstgesprekken werken in beide gevallen."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Jouw keuze:"
-# NEEDS REVIEW: Consent declaration; lawyer should check.
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] Ik begrijp het en zal zorgen voor de toestemming die de wet bij mij vereist."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Nu niet – laat gesproken transcriptie uit. (Je kunt dit later aanzetten in Instellingen.)"
-# NEEDS REVIEW: Lowercase after the colon (Dutch style). Legal text, lawyer should check.
-MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Juridische opmerking: het opnemen van het gesproken woord kan door nationale wetgeving worden geregeld, bijvoorbeeld paragraaf 201 van het Duitse Wetboek van Strafrecht (Verletzung der Vertraulichkeit des Wortes) of artikel 226-1 van het Franse Wetboek van Strafrecht, los van de gegevensbeschermingswetgeving. Als degene die op deze Mac opneemt, ben jij verantwoordelijk voor naleving. Creative Machines ontvangt je opnamen nooit en is er geen partij bij."
+MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
+MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Your text conversations work either way."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Gesproken gesprekken omzetten in tekst?"
-# NEEDS REVIEW: Fixed 'niet afhankelijk' and 'calls'. Legal text, lawyer should check.
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="Kort gezegd: als je gesproken audio vastlegt om die te transcriberen, ben jij verantwoordelijk voor de toestemming die de wet vereist. Dit geldt niet voor typen en berichten.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
 
-Ostler kan gesproken gesprekken die je vastlegt – telefoongesprekken en vergaderingen – omzetten in doorzoekbare tekst. Dit gaat alleen over audio die je zelf wilt transcriberen.
+Ostler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.
 
-Wat we van je vragen:
-• Zorg voor de toestemming die de wet bij jou vereist voordat je audio vastlegt.
-• Maak duidelijk dat er audio wordt vastgelegd: zeg het, of laat een zichtbare indicator aan.
-• Twijfel je? Laat dit dan uit. Je tekstgesprekken werken in beide gevallen, en je kunt het later aanzetten in Instellingen.
+What we ask of you:
+• Get whatever consent your local law requires before you capture audio.
+• Make it clear audio is being captured – say so, or keep a visible indicator on.
+• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.
 
-Juridische opmerking: het opnemen van het gesproken woord kan los van de gegevensbeschermingswetgeving door nationale wetgeving worden geregeld – bijvoorbeeld paragraaf 201 van het Duitse Wetboek van Strafrecht of artikel 226-1 van het Franse Wetboek van Strafrecht. Als degene die opneemt, ben jij verantwoordelijk voor naleving. Creative Machines ontvangt je opnamen nooit."
+Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
 MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Gesproken transcriptie blijft uit. Je kunt dit later aanzetten in Instellingen."
 
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_TITLE="Klaar om te installeren?"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_HELP="Typ INSTALL om te bevestigen dat je de voorwaarden accepteert."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Typ INSTALL"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Installeer Ostler"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Annuleer"
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Typ precies INSTALL (hoofdletters maken niet uit) om te bevestigen, of klik op Annuleer om terug te gaan."
+MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
+MSG_PROMPT_CONSENT_INSTALL_HELP="Please type INSTALL to confirm you accept the terms."
+MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Type INSTALL"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
+MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
 
 MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Verbind je iPhone en Watch"
 MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale geeft deze Mac een vast privéadres dat je iPhone en Watch overal kunnen bereiken – versleuteld en niet openbaar zichtbaar."
@@ -1836,8 +1789,7 @@ MSG_WARN_ASSISTANT_AGENT_NOT_BUNDLED_LAUNCHAGENT_SKIPPED="assistant-agent is nie
 MSG_WARN_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED="Wiki-hercompilatiescripts zijn niet meegeleverd met het installatieprogramma. De wiki wordt niet automatisch bijgewerkt."
 
 # F3 - legal package missing
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED="Het legal-pakket is niet meegeleverd met het installatieprogramma. De toestemmingspoorten voor Artikel 9, WhatsApp en spraak geven een ModuleNotFoundError totdat je opnieuw installeert."
+MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED="legal package not bundled with installer. Article 9 / WhatsApp / voice consent gates will raise ModuleNotFoundError until re-installed."
 
 # F4 - gws (Google Workspace CLI) install
 MSG_OK_GWS_INSTALLED_AT_VERSION_DEST="Google Workspace CLI v%s geïnstalleerd in %s"
@@ -1888,8 +1840,7 @@ MSG_INFO_AUTOLOGIN_EXPLAIN="Ostler is een Hub die altijd aan staat, dus na een s
 Het opslaan hiervan maakt deze Mac minder veilig. Het wachtwoord wordt door elkaar gehusseld, niet versleuteld. Wie hier een beheerdersaccount kan gebruiken, of de schijf eruit kan halen en elders kan uitlezen, kan er je wachtwoord weer van maken. Je ziet precies waar het wordt opgeslagen voordat je iets typt.
 
 Als je nee zegt, wordt er niets opgeslagen en verandert er niets. Na een stroomstoring meld je je gewoon aan en starten de diensten van Ostler met je sessie. Je kunt dit later wijzigen in Systeeminstellingen > Gebruikers en groepen > Automatisch inloggen."
-# NEEDS REVIEW: legal/consent wording: needs a qualified human check
-MSG_PROMPT_AUTOLOGIN_CONSENT="Je inlogwachtwoord op deze Mac opslaan zodat hij zichzelf na een herstart kan aanmelden? [y/N]"
+MSG_PROMPT_AUTOLOGIN_CONSENT="Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
 MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler schrijft dit wachtwoord naar een bestand op deze Mac op /etc/kcpassword. Het wordt daar gehusseld met een vast patroon dat op elke Mac hetzelfde en openbaar gedocumenteerd is, dus het is geen versleuteling en het kan worden teruggedraaid. Wie een beheerdersaccount op deze Mac kan gebruiken, of de schijf eruit kan halen en elders kan uitlezen, kan dat bestand weer omzetten in het inlogwachtwoord van %s.
 
 FileVault zou dat voorkomen, want zonder het opstartwachtwoord is de schijf helemaal niet te lezen. Om dezelfde reden blokkeert FileVault automatisch aanmelden, en daarom biedt Ostler dit alleen aan als FileVault uit staat.
