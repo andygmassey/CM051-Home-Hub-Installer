@@ -4178,6 +4178,73 @@ exec 9>&2
 OSTLER_MARKER_FD=9
 export OSTLER_MARKER_FD
 
+# v1.0.109 BLOCKER: THE RECOVERY KEY MUST NEVER REACH ${INSTALL_LOG}.
+#
+# fd 8 is a dup of stdout taken HERE, before the tee, for the same reason
+# as fd 9 above: it is the customer's real terminal, and nothing written to
+# it passes through the tee. The recovery-key reveal writes the key to fd 8
+# ONLY; the log gets "recovery key shown (N chars)". Until this, the reveal
+# echoed the key to stdout, so every install.log (and every support upload,
+# failsafe copy and Time Machine snapshot of one) held the key that
+# unwraps the DEK.
+exec 8>&1
+OSTLER_TTY_FD=8
+
+# _ostler_scrub_recovery_key_from_logs FILE...
+#
+# Upgrade scrub. Logs written by earlier installers carry the key on the
+# first non-blank line after "Your recovery key:", and the raw
+# RECOVERY_PHRASE= line if setup output was ever echoed. Rewrite those lines
+# in place, every run, every file given. Nothing else in the file changes.
+# Never fails the install: a log we cannot rewrite is reported, not fatal.
+_ostler_scrub_recovery_key_from_logs() {
+    local _f _tmp _n
+    for _f in "$@"; do
+        [[ -f "$_f" && ! -L "$_f" ]] || continue
+        if ! /usr/bin/grep -q -a -E 'Your recovery key:|RECOVERY_PHRASE=' "$_f"; then
+            continue
+        fi
+        _tmp="${_f}.scrub.$$"
+        if /usr/bin/awk '
+            BEGIN { pending = 0 }
+            /RECOVERY_PHRASE=/ { sub(/RECOVERY_PHRASE=.*/, "RECOVERY_PHRASE=<redacted>"); print; next }
+            pending > 0 {
+                plain = $0
+                gsub(/\033\[[0-9;]*[A-Za-z]/, "", plain)
+                gsub(/[ \t\r]/, "", plain)
+                if (plain == "<recoverykeyredactedfromthislog>") { pending = 0 }
+                else if (plain != "") { print "    <recovery key redacted from this log>"; n++; pending = 0; next }
+                pending--
+            }
+            /Your recovery key:/ { pending = 3 }
+            { print }
+            END { printf "%d\n", n > "/dev/stderr" }
+        ' "$_f" > "$_tmp" 2> "${_tmp}.n" \
+            && /bin/chmod 600 "$_tmp" \
+            && /bin/mv -f "$_tmp" "$_f"; then
+            _n="$(/bin/cat "${_tmp}.n" 2>/dev/null)"
+            echo "recovery-key scrub: ${_f}: ${_n:-0} line(s) redacted"
+        else
+            echo "WARN: recovery-key scrub could not rewrite ${_f}" >&2
+            /bin/rm -f "$_tmp"
+        fi
+        /bin/rm -f "${_tmp}.n"
+    done
+    return 0
+}
+_ostler_scrub_targets=(
+    "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/logs"/install.log*
+    "${LOGS_DIR}"/install.log*
+    "${TMPDIR:-/tmp}"/ostler-diag-*/install*.log
+    /tmp/ostler-diag-*/install*.log
+)
+if [[ -w "${LOGS_DIR}" ]]; then
+    _ostler_scrub_recovery_key_from_logs "${_ostler_scrub_targets[@]}" >> "${INSTALL_LOG}" 2>&1 || true
+else
+    _ostler_scrub_recovery_key_from_logs "${_ostler_scrub_targets[@]}" >&2 || true
+fi
+unset _ostler_scrub_targets
+
 if [[ -w "${LOGS_DIR}" ]]; then
     {
         echo ""
@@ -39311,12 +39378,27 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     # customer an earlier run covered it. A mint that is never delivered
     # is a diagnosed, disclosed gap now, not a permanent, silent one.
     gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
+    # v1.0.109 BLOCKER: the key goes to fd 8 (the real terminal, dup'd
+    # before the tee near the top) and NOWHERE ELSE. stdout is the tee, so
+    # an echo here wrote the key into install.log on every install. The log
+    # gets the fact and the length, never the value.
+    #
+    # Under OSTLER_GUI=1 the GUI's delivery is the RECOVERY_KEY marker
+    # above (fd 9, RecoveryKeyView). fd 8 there is the GUI's stdout pipe,
+    # which feeds logLines and the Log drawer's Copy button, so the plain
+    # block is NOT written there either: RecoveryKeyView.swift says the
+    # value must never reach logLines.
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Your recovery key:${NC}"
-    echo ""
-    echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+        {
+            echo -e "  ${BOLD}Your recovery key:${NC}"
+            echo ""
+            echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+        } >&"${OSTLER_TTY_FD:-8}"
+    fi
+    echo "  recovery key shown (${#RECOVERY_KEY} chars)"
     echo ""
     # #1540. The honest boundary: we HANDED IT OVER. Whether the human
     # wrote it down is not knowable from here, and claiming otherwise
@@ -39419,7 +39501,7 @@ PY
         # OstlerPasskeyHelper / CM031 / ostler_security elsewhere.
         # The `security` CLI cannot set these attributes, so we shell
         # out to swift when available, and fall back to the CLI otherwise.
-        SAVED_TO_KEYCHAIN_VIA="cli"
+        SAVED_TO_KEYCHAIN_VIA="none"
         SWIFT_BIN=""
         if command -v swift &>/dev/null; then
             SWIFT_BIN="swift"
@@ -39460,22 +39542,19 @@ SWIFTEOF
             fi
             rm -f "$KC_HELPER"
         fi
-        # Fallback: `security` CLI. Default accessibility class is
-        # kSecAttrAccessibleWhenUnlocked (item travels in Time Machine
-        # backups / Migration Assistant). Acceptable for first-run when
-        # swift isn't available – the user is told to write it down.
+        # v1.0.109: NO `security add-generic-password -w <key>` FALLBACK.
+        # It put the recovery key on argv, readable by any process via ps
+        # for the life of the call. It is not needed: the CLT wait (search
+        # ERR-02-PREREQ-XCODE-CLI) is top-level and fails the install unless
+        # `xcode-select -p` succeeds, and CLT ships swift, so SWIFT_BIN is
+        # set on every run that reaches this line. `security -i` (commands on
+        # stdin) was measured and rejected: it exits 0 when its command
+        # fails, so a save could not be told from a non-save. If swift does
+        # fail at runtime, the customer is told to write the key down, which
+        # is the honest outcome, and the CLI's weaker accessibility class
+        # (item travels in Time Machine / Migration Assistant) is gone too.
         if [[ "$SAVED_TO_KEYCHAIN" == false ]]; then
-            if security add-generic-password \
-                -a "${USER_ID}" \
-                -s "Ostler Recovery Key" \
-                -w "${RECOVERY_KEY}" \
-                -T "" \
-                -U 2>/dev/null; then
-                ok "$MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER"
-                SAVED_TO_KEYCHAIN=true
-            else
-                warn "$MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE"
-            fi
+            warn "$MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE"
         fi
     fi
 
