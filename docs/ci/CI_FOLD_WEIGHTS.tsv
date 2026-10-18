@@ -5,6 +5,8 @@
 # Rows marked 'folded' are the block's own time inside a folded family on
 # GitHub's macOS runners (isolate step included), measured on PRs #2962/
 # #2963's first runs; they replace the pre-fold job medians for those jobs.
+# hub-screens-and-106c.yml::owner-employer-seed is 3 + 7 s: main added a step
+# measured at 7 s on main's own run of that job (2026-10-18).
 appcast-fail-closed.yml::fail-closed	5	8
 appcast-ship-wiring.yml::appcast-ship-wiring	48	8
 apple-music-library.yml::apple-music-library	18	2
@@ -81,7 +83,7 @@ hub-contract.yml::contract-is-current	10	2
 hub-contract.yml::generator-tests	8	2
 hub-screens-and-106c.yml::conversation-capture-seed	12	folded
 hub-screens-and-106c.yml::hub-screens	42	1
-hub-screens-and-106c.yml::owner-employer-seed	3	folded
+hub-screens-and-106c.yml::owner-employer-seed	10	folded
 hydrate-sentinel.yml::sentinel-honesty	23	folded
 hydrate-timeout-honesty.yml::timeout-must-record-failure	6	5
 imessage-ladder.yml::ladder-not-pinned	8	folded

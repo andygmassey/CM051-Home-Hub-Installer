@@ -351,18 +351,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b01" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -454,18 +461,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b02" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -526,18 +540,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b03" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -1192,18 +1213,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b04" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -1421,18 +1449,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b05" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -1481,18 +1516,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b06" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -1578,18 +1620,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b07" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -1644,18 +1693,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b08" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -1813,18 +1869,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b09" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -1899,18 +1962,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b10" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2003,18 +2073,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b11" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2097,18 +2174,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b12" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2288,18 +2372,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b13" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2381,18 +2472,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b14" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2517,18 +2615,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b15" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2563,18 +2668,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b16" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2742,18 +2854,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b17" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2788,18 +2907,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b18" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2843,18 +2969,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b19" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2903,18 +3036,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b20" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -2981,18 +3121,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b21" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -3055,18 +3202,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b22" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq
@@ -3118,18 +3272,25 @@ jobs:
           # (via GITHUB_ENV), and a process inherits it even once orphaned, so
           # anything an earlier block left running still carries it. Kill exactly
           # those: nothing else on the machine carries the marker.
-          mkdir -p "$RUNNER_TEMP/ci-fold"
+          cf="$RUNNER_TEMP/ci-fold"
+          mkdir -p "$cf"
           me=$$
-          ps -A -o pid=,ppid= > "$RUNNER_TEMP/ci-fold/procs" || true
+          ps -A -o pid=,ppid= > "$cf/procs" || true
+          # ONE read of every process's environment, not one per process: on
+          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
+          if [ -d /proc/self ]; then
+            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
+            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
+          else
+            ps eww -A -o pid=,command= > "$cf/marked.raw"
+            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          fi
+          marked=" $(tr '\n' ' ' < "$cf/marked") "
           while read -r pid ppid; do
             if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            if [ -r "/proc/$pid/environ" ]; then
-              tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^CI_FOLD_BLOCK=' || continue
-            else
-              ps eww -o command= -p "$pid" 2>/dev/null | grep -q 'CI_FOLD_BLOCK=' || continue
-            fi
+            case "$marked" in *" $pid "*) ;; *) continue ;; esac
             kill -KILL "$pid" 2>/dev/null || true
-          done < "$RUNNER_TEMP/ci-fold/procs"
+          done < "$cf/procs"
           echo "CI_FOLD_BLOCK=b23" >> "$GITHUB_ENV"
           git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
           git -C "$GITHUB_WORKSPACE" clean -ffdxq

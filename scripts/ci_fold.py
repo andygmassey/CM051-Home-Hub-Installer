@@ -847,22 +847,32 @@ def cmd_generate(args):
               "carries it. Kill exactly",
               "          # those: nothing else on the machine carries the "
               "marker.",
-              "          mkdir -p \"$RUNNER_TEMP/ci-fold\"",
+              "          cf=\"$RUNNER_TEMP/ci-fold\"",
+              "          mkdir -p \"$cf\"",
               "          me=$$",
-              "          ps -A -o pid=,ppid= > \"$RUNNER_TEMP/ci-fold/procs\" "
-              "|| true",
+              "          ps -A -o pid=,ppid= > \"$cf/procs\" || true",
+              "          # ONE read of every process's environment, not one per "
+              "process: on",
+              "          # macOS a ps per process cost 2 to 5 s per block "
+              "(measured, PR #2962).",
+              "          if [ -d /proc/self ]; then",
+              "            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ "
+              "> \"$cf/marked.raw\" || true",
+              "            sed -n 's|^/proc/\\([0-9]*\\)/environ$|\\1|p' "
+              "\"$cf/marked.raw\" > \"$cf/marked\"",
+              "          else",
+              "            ps eww -A -o pid=,command= > \"$cf/marked.raw\"",
+              "            awk '/CI_FOLD_BLOCK=/ {print $1}' \"$cf/marked.raw\" "
+              "> \"$cf/marked\"",
+              "          fi",
+              "          marked=\" $(tr '\\n' ' ' < \"$cf/marked\") \"",
               "          while read -r pid ppid; do",
               "            if [ \"$pid\" = \"$me\" ] || [ \"$ppid\" = \"$me\" ]; "
               "then continue; fi",
-              "            if [ -r \"/proc/$pid/environ\" ]; then",
-              "              tr '\\0' '\\n' < \"/proc/$pid/environ\" 2>/dev/null "
-              "| grep -q '^CI_FOLD_BLOCK=' || continue",
-              "            else",
-              "              ps eww -o command= -p \"$pid\" 2>/dev/null "
-              "| grep -q 'CI_FOLD_BLOCK=' || continue",
-              "            fi",
+              "            case \"$marked\" in *\" $pid \"*) ;; *) continue ;; "
+              "esac",
               "            kill -KILL \"$pid\" 2>/dev/null || true",
-              "          done < \"$RUNNER_TEMP/ci-fold/procs\"",
+              "          done < \"$cf/procs\"",
               f"          echo \"CI_FOLD_BLOCK={b['tag']}\" >> \"$GITHUB_ENV\"",
               "          git -C \"$GITHUB_WORKSPACE\" reset --hard -q HEAD",
               "          git -C \"$GITHUB_WORKSPACE\" clean -ffdxq",
