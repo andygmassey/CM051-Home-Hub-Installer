@@ -10,6 +10,7 @@ on:
     paths:
       - 'lib/ostler-telegram-setup.py'
       - 'tests/test_telegram_setup.py'
+      - 'tests/test_telegram_block_survives_config_regeneration.sh'
       - 'tests/test_doctor_telegram_tile.py'
       - 'tests/fixtures/telegram_channel_status.json'
       - 'vendor/doctor/agent/telegram_status.py'
@@ -40,6 +41,9 @@ jobs:
           python-version: '3.11'
       - name: The setup helper connects only the owner and stores the token 0600, never in config.toml
         run: python3 tests/test_telegram_setup.py
+      - name: A DMG re-run keeps [channels.telegram] across the config.toml regeneration
+        if: always()
+        run: bash tests/test_telegram_block_survives_config_regeneration.sh
       - name: The Doctor tile renders the daemon's status file and nothing else
         if: always()
         run: python3 tests/test_doctor_telegram_tile.py

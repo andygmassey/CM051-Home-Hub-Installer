@@ -711,6 +711,7 @@ test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-m
 test_tailscale_signin_is_at_the_end.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_signin_opens_one_tab.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_telegram_block_survives_config_regeneration.sh	WIRED	.github/workflows/telegram-channel.yml
 test_telegram_setup.py	WIRED	.github/workflows/telegram-channel.yml
 test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
 test_the_config_does_not_promise_encryption_that_never_happens.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
