@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Doctor Telegram tile: renders what the daemon's status file says, and
+"""The Doctor's Telegram tile: renders what the daemon's status file says, and
 nothing it does not. The fixture is the CONTRACT with ostler-assistant
 `telegram_ostler::TelegramStatus` (the same file is asserted there).
 Exit 0 all pass, 1 any fail."""

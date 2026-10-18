@@ -267,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
 
         base = loopback_api_base(os.environ.get("OSTLER_TELEGRAM_API_BASE")) or API
-        say("Connect Telegram to your assistant")
+        say("Telegram setup for your assistant")
         say("")
         say("1. In Telegram, open a chat with @BotFather and send /newbot.")
         say("   Pick a name and a username ending in 'bot'. BotFather replies with a token.")
