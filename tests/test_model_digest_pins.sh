@@ -55,10 +55,10 @@ command -v python3 >/dev/null || { echo "CANNOT-RUN: no python3"; exit 2; }
 # Lift the pin table and the four pin functions (and the pull pair) verbatim.
 lift() {   # lift <install.sh> <out>
     awk '
-      /^OSTLER_MODEL_PINS=\(/                {p=1}
+      /^(OSTLER_MODEL_PINS|OSTLER_MODEL_WEIGHT_MEDIATYPES)=\(/ {p=1}
       p                                       {print}
       p && /^\)$/                             {p=0}
-      /^(ostler_model_canonical|ostler_model_pinned_digest|ostler_verify_model_digest|ostler_require_model_digest|ostler_note_existing_model|_gui_ollama_pull|ollama_pull_with_retry)\(\) \{/ {f=1}
+      /^(ostler_model_canonical|ostler_model_pinned_weights|ostler_model_pinned_digest|ostler_verify_model_digest|ostler_require_model_digest|ostler_note_existing_model|_gui_ollama_pull|ollama_pull_with_retry)\(\) \{/ {f=1}
       f                                       {print}
       f && /^}$/                              {f=0}
     ' "$1" > "$2"
@@ -115,22 +115,41 @@ else
 fi
 
 # Helpers that write a fake model store (python, so no shasum dependency on the runner).
-mkstore() {   # mkstore <models_dir> <name> <tag> <cfg-seed> [tamper-blob|wrong-layers]
+# Every layer is a REAL blob whose filename is its own sha256, as Ollama stores it.
+# One SHARED non-weight layer (identical across models, like a tokenizer json)
+# plus three weight layers of mediaType $WT whose bytes depend on the seed; the
+# third is the largest. Prints the row value "<n> <fingerprint>".
+mkstore() {   # mkstore <models_dir> <name> <tag> <seed> [truncate-largest|missing-largest|noweights]
     python3 -I - "$@" <<'PY'
 import hashlib, json, os, sys
 d, name, tag, seed = sys.argv[1:5]; mode = sys.argv[5] if len(sys.argv) > 5 else ""
-layers = ["sha256:" + hashlib.sha256((seed + str(i)).encode()).hexdigest() for i in range(3)]
-cfg = json.dumps({"model_format": "gguf", "rootfs": {"type": "layers", "diff_ids": layers}}).encode()
-cd = "sha256:" + hashlib.sha256(cfg).hexdigest()
-os.makedirs(os.path.join(d, "blobs"), exist_ok=True)
-with open(os.path.join(d, "blobs", cd.replace(":", "-")), "wb") as f:
-    f.write(cfg + (b" " if mode == "tamper-blob" else b""))
-ml = layers if mode != "wrong-layers" else layers[:2] + ["sha256:" + "0" * 64]
+wt = os.environ.get("WT") or "application/vnd.ollama.image.model"
+bd = os.path.join(d, "blobs"); os.makedirs(bd, exist_ok=True)
+def blob(data):
+    dg = "sha256:" + hashlib.sha256(data).hexdigest()
+    with open(os.path.join(bd, dg.replace(":", "-")), "wb") as f:
+        f.write(data)
+    return dg
+layers = [{"mediaType": "application/vnd.ollama.image.json", "digest": blob(b"shared-tokenizer"), "size": 16}]
+weights = []
+if mode != "noweights":
+    for i in range(3):
+        data = (("%s-weights-%d-" % (seed, i)) * (10 * (i + 1) ** 3)).encode()
+        dg = blob(data); weights.append(dg)
+        layers.append({"mediaType": wt, "digest": dg, "size": len(data)})
+    big = os.path.join(bd, weights[-1].replace(":", "-"))
+    if mode == "truncate-largest":
+        with open(big, "r+b") as f:
+            f.truncate(os.path.getsize(big) // 2)
+    elif mode == "missing-largest":
+        os.remove(big)
+cfg = blob(json.dumps({"seed": "shared-config"}).encode())
 md = os.path.join(d, "manifests", "registry.ollama.ai", "library", name)
 os.makedirs(md, exist_ok=True)
 with open(os.path.join(md, tag), "w") as f:
-    json.dump({"schemaVersion": 2, "config": {"digest": cd}, "layers": [{"digest": l} for l in ml]}, f)
-print(cd)
+    json.dump({"schemaVersion": 2, "config": {"digest": cfg}, "layers": layers}, f)
+ds = sorted(weights)
+print("%d sha256:%s" % (len(ds), hashlib.sha256("".join(x + "\n" for x in ds).encode()).hexdigest()))
 PY
 }
 
@@ -140,52 +159,93 @@ if ! grep -q '^ostler_require_model_digest() {' "$W/fns.sh"; then
     bad "C end to end: nothing to run"
     echo; echo "$fails FAIL"; exit 1
 fi
+WT="$(FNS="$W/fns.sh" bash -c '. "$FNS"; printf "%s" "${OSTLER_MODEL_WEIGHT_MEDIATYPES[0]:-}"')"
+[ -n "$WT" ] || { echo "CANNOT-RUN: install.sh OSTLER_MODEL_WEIGHT_MEDIATYPES is empty"; exit 2; }
+export WT
 
 # ── B: the verifier ──────────────────────────────────────────────────
 S="$W/b"; mkdir -p "$S"
-good="$(mkstore "$S" pinned m "good")"
-other="$(mkstore "$W/other" pinned m "other")"
-mkstore "$S" wrongcfg m "other" >/dev/null                # manifest names the OTHER config
-mkstore "$W/t" tamper m "good" tamper-blob >/dev/null      # blob bytes != pin
-mkdir -p "$S/manifests/registry.ollama.ai/library/tamper"
-cp "$W/t/manifests/registry.ollama.ai/library/tamper/m" "$S/manifests/registry.ollama.ai/library/tamper/m"
-mkstore "$W/l" layers m "good" wrong-layers >/dev/null     # layers != diff_ids
-mkdir -p "$S/manifests/registry.ollama.ai/library/layers"
-cp "$W/l/manifests/registry.ollama.ai/library/layers/m" "$S/manifests/registry.ollama.ai/library/layers/m"
-# tamper: the store's blob for the good digest must be the TAMPERED one for
-# that case only, so give it its own store.
-TS="$W/ts"; mkdir -p "$TS"; cp -R "$W/t/." "$TS/"
+P4="$(mkstore "$S" qwen 4b "four")"                       # the model pinned as qwen:4b
+P9="$(mkstore "$S" qwen 9b "nine")"                       # a different model, qwen:9b
+mkstore "$S" other m "other" >/dev/null                   # other weights under a pinned tag
+mkstore "$S" trunc m "trunc" truncate-largest >/dev/null  # largest weight blob cut in half
+PT="$(mkstore "$W/pt" trunc m "trunc")"                   # its pin = the intact version
+mkstore "$S" gone m "gone" missing-largest >/dev/null     # largest weight blob deleted
+PG="$(mkstore "$W/pg" gone m "gone")"
+mkstore "$S" now m "now" noweights >/dev/null             # no weight layers at all
+# swapped: the 9b manifest written under the 4b tag of another name
+mkdir -p "$S/manifests/registry.ollama.ai/library/swap"
+cp "$S/manifests/registry.ollama.ai/library/qwen/9b" "$S/manifests/registry.ollama.ai/library/swap/4b"
 
-res="$(OLLAMA_MODELS="$S" TS="$TS" GOOD="$good" FNS="$W/fns.sh" STRINGS="$STRINGS" bash -c '
+res="$(OLLAMA_MODELS="$S" P4="$P4" P9="$P9" PT="$PT" PG="$PG" FNS="$W/fns.sh" STRINGS="$STRINGS" bash -c '
     set -Eeuo pipefail
     errs=0; trap "errs=\$((errs+1))" ERR
     . "$STRINGS"
     ok(){ echo "OKLINE $*" >&2; }; info(){ :; }; warn(){ :; }
     fail_with_code(){ echo "CODE $1"; }
     . "$FNS"
-    OSTLER_MODEL_PINS=( "pinned:m $GOOD" "wrongcfg:m $GOOD" "tamper:m $GOOD" "layers:m $GOOD" "absent:m $GOOD" )
-    for m in pinned:m wrongcfg:m layers:m absent:m notpinned:m; do
+    OSTLER_MODEL_PINS=( "qwen:4b $P4" "qwen:9b $P9" "other:m $P4" "swap:4b $P4" "trunc:m $PT" "gone:m $PG" "now:m $P4" "absent:m $P4" )
+    for m in qwen:4b qwen:9b other:m swap:4b trunc:m gone:m now:m absent:m notpinned:m; do
         rc=0; ostler_verify_model_digest "$m" || rc=$?
-        echo "RC $m $rc"; ostler_require_model_digest "$m" 2>/dev/null | sed "s/^/REQ $m /"
+        echo "RC $m $rc"; echo "GOT $m $OSTLER_MODEL_DIGEST_GOT"; echo "DETAIL $m $OSTLER_MODEL_DIGEST_DETAIL"
+        ostler_require_model_digest "$m" 2>/dev/null | sed "s/^/REQ $m /"
     done
-    rc=0; OLLAMA_MODELS="$TS" ostler_verify_model_digest tamper:m || rc=$?
-    echo "RC tamper:m $rc"
     echo "ERRS $errs"
 ' 2>/dev/null)"
 expect() {   # expect <label> <pattern>
     if grep -qx -- "$2" <<<"$res"; then pass "B $1"; else bad "B $1 (want line '$2'; got: $(tr '\n' ';' <<<"$res"))"; fi
 }
-expect "matching digest passes (rc 0)"                          "RC pinned:m 0"
-expect "different config digest is a MISMATCH (rc 1)"           "RC wrongcfg:m 1"
-expect "  ...and fails the step ERR-13-MODEL-DIGEST-MISMATCH"   "REQ wrongcfg:m CODE ERR-13-MODEL-DIGEST-MISMATCH"
-expect "tampered config blob is a MISMATCH (rc 1)"              "RC tamper:m 1"
-expect "layer list not the pinned config's is a MISMATCH"       "RC layers:m 1"
-expect "missing manifest is CANNOT-VERIFY, not a pass (rc 2)"   "RC absent:m 2"
-expect "  ...and fails the step ERR-13-MODEL-DIGEST-UNREADABLE" "REQ absent:m CODE ERR-13-MODEL-DIGEST-UNREADABLE"
-expect "unpinned model is refused (rc 3)"                       "RC notpinned:m 3"
-expect "  ...and fails the step ERR-13-MODEL-UNPINNED"          "REQ notpinned:m CODE ERR-13-MODEL-UNPINNED"
-expect "ERR trap fired 0 times across every case"               "ERRS 0"
-if grep -q '^REQ pinned:m CODE' <<<"$res"; then bad "B a MATCHING model was failed"; else pass "B matching model is not failed (control)"; fi
+expect "matching weights pass (rc 0)"                                 "RC qwen:4b 0"
+expect "a second model matching its own pin passes (rc 0)"            "RC qwen:9b 0"
+expect "other weights under a pinned tag are a MISMATCH (rc 1)"       "RC other:m 1"
+expect "  ...and fail the step ERR-13-MODEL-DIGEST-MISMATCH"          "REQ other:m CODE ERR-13-MODEL-DIGEST-MISMATCH"
+expect "SWAPPED manifest (9b weights under a 4b-pinned tag) FAILS"    "RC swap:4b 1"
+expect "TRUNCATED largest weight blob fails the recompute (rc 1)"     "RC trunc:m 1"
+expect "  ...named as a corrupt store"                                "DETAIL trunc:m largest weight blob does not hash to its own name (corrupt store)"
+expect "missing largest weight blob is CANNOT-VERIFY (rc 2)"          "RC gone:m 2"
+expect "a manifest with NO weight layers is CANNOT-VERIFY (rc 2)"     "RC now:m 2"
+expect "missing manifest is CANNOT-VERIFY, not a pass (rc 2)"         "RC absent:m 2"
+expect "  ...and fails the step ERR-13-MODEL-DIGEST-UNREADABLE"       "REQ absent:m CODE ERR-13-MODEL-DIGEST-UNREADABLE"
+expect "unpinned model is refused (rc 3)"                             "RC notpinned:m 3"
+expect "  ...and fails the step ERR-13-MODEL-UNPINNED"                "REQ notpinned:m CODE ERR-13-MODEL-UNPINNED"
+expect "ERR trap fired 0 times across every case"                     "ERRS 0"
+if grep -q '^REQ qwen:4b CODE' <<<"$res"; then bad "B a MATCHING model was failed"; else pass "B matching model is not failed (control)"; fi
+
+# The 4b and 9b pins must DIFFER. Two layers of defence:
+#  (1) the fingerprints the verifier computes for two different models differ;
+#  (2) MUTANT: if the weight mediaType set degenerates to the SHARED layer's
+#      type, the two fingerprints collide, and the distinct-pins check below
+#      must catch it, or a pin that matches every model would ship.
+g4="$(sed -n 's/^GOT qwen:4b //p' <<<"$res")"; g9="$(sed -n 's/^GOT qwen:9b //p' <<<"$res")"
+[ -n "$g4" ] && [ "$g4" != "$g9" ] && pass "B 4b and 9b weight fingerprints DIFFER ($g4 vs $g9)" \
+    || bad "B 4b and 9b weight fingerprints are equal or empty ('$g4' / '$g9')"
+distinct_pins() {   # distinct_pins <fns.sh> -> "DUP <fp> <tagA> <tagB>" lines, or nothing
+    FNS="$1" bash -c '
+        . "$FNS"
+        for row in "${OSTLER_MODEL_PINS[@]}"; do
+            read -r tag n fp <<<"$row"
+            [[ "$fp" == sha256:* ]] && printf "%s\n" "$fp"
+        done | sort | uniq -d | sed "s/^/DUP /"'
+}
+mut="$(OLLAMA_MODELS="$S" FNS="$W/fns.sh" bash -c '
+    . "$FNS"
+    OSTLER_MODEL_WEIGHT_MEDIATYPES=( "application/vnd.ollama.image.json" )
+    OSTLER_MODEL_PINS=( "qwen:4b 0 sha256:x" "qwen:9b 0 sha256:x" )
+    ostler_verify_model_digest qwen:4b || true; a="$OSTLER_MODEL_DIGEST_GOT"
+    ostler_verify_model_digest qwen:9b || true; b="$OSTLER_MODEL_DIGEST_GOT"
+    printf "%s\n%s\n" "$a" "$b"' 2>/dev/null)"
+m4="$(sed -n 1p <<<"$mut")"; m9="$(sed -n 2p <<<"$mut")"
+cp "$W/fns.sh" "$W/fns_dup.sh"
+printf '\nOSTLER_MODEL_PINS=( "qwen:4b %s" "qwen:9b %s" )\n' "$m4" "$m9" >> "$W/fns_dup.sh"
+if [ -n "$m4" ] && [ "$m4" = "$m9" ] && grep -q '^DUP ' <<<"$(distinct_pins "$W/fns_dup.sh")"; then
+    pass "B mutant: a weight set degenerated to the shared layer gives 4b == 9b, and the distinct-pins check catches it"
+else
+    bad "B mutant: shared-layer degeneration not caught (4b='$m4' 9b='$m9')"
+fi
+# The REAL table: no two rows may share a fingerprint.
+dups="$(distinct_pins "$W/fns.sh")"
+[ -z "$dups" ] && pass "B the shipped table has no two rows with the same weight fingerprint" \
+    || bad "B the shipped table has duplicate fingerprints: $(tr '\n' ';' <<<"$dups")"
 # The real table resolves a bare name to :latest, as `ollama pull` does.
 real="$(OLLAMA_MODELS="$W/empty" FNS="$W/fns.sh" bash -c '. "$FNS"; ostler_model_pinned_digest nomic-embed-text' 2>/dev/null || true)"
 [[ "$real" =~ ^sha256:[0-9a-f]{64}$ ]] && pass "B bare 'nomic-embed-text' resolves to its :latest pin" \

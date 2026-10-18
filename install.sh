@@ -1963,8 +1963,8 @@ ollama_pull_with_retry() {
 # sha256 in transit, so CONTENT integrity already held; what nothing held was
 # PROVENANCE. If a tag is repointed upstream, two customers installing a week
 # apart get different weights for the model that reads all of their data, and
-# nothing notices. This table says WHICH weights we ship, and every pull is
-# checked against it before the install moves on.
+# nothing notices. This table says WHICH weights we ship, and every model we
+# PULL is checked against it before the install moves on.
 #
 # THE ONE PLACE. Every model the installer can pull has exactly one row here:
 # the RAM-tier chat models in lib/ostler-model-fit.sh OSTLER_MODEL_TAGS, the
@@ -1972,29 +1972,46 @@ ollama_pull_with_retry() {
 # release.toml [models] mirrors this table and names it as the source.
 # tests/test_model_digest_pins.sh goes RED if any pulled model has no row.
 #
-# WHAT THE DIGEST IS. The manifest CONFIG digest. The config blob lists every
-# layer digest (weights, template, params, licence) in rootfs.diff_ids, so the
-# config digest commits to the whole model, and it is a value INSIDE the
-# manifest rather than a hash of the manifest bytes, which Ollama re-serialises
-# on write and so would not match the registry's own digest.
+# WHAT IS PINNED (Archie, #2972): the WEIGHT LAYERS, read from the ON-DISK
+# manifest the pinned Ollama (OLLAMA_PIN_VERSION) writes after the pull.
+# Not the config digest: on 0.40.5 MLX models share one config blob
+# (qwen3.5:4b-nvfp4 and qwen3.5:9b-mlx both carry 2dacb491...), so a config
+# pin would accept the wrong model. Not the registry manifest digest: the
+# registry serves a manifest LIST and the client picks a child per runner,
+# which is not what lands on disk to be checked.
 #
-# TO UPDATE A ROW (e.g. a tier model is replaced): resolve the new tag's
-# config digest from registry.ollama.ai, direct AND via the default route
-# (a local proxy can answer for every host), with a tag that cannot exist as a
-# 404 control. tests/test_model_digest_pins.sh prints the recipe.
+# A row is   <tag>  <n>  sha256:<fingerprint>
+#   n            how many manifest layers have a weight mediaType
+#                (OSTLER_MODEL_WEIGHT_MEDIATYPES below)
+#   fingerprint  sha256 of those layers' digests, SORTED, one per line, each
+#                line ending "\n". It commits to the exact set of weight blobs.
+# Plus one integrity check: the LARGEST weight blob is re-hashed once and must
+# match its own filename, which catches a corrupt or truncated store.
 #
-# Resolved 2026-10-18T04:30Z, direct remote_ip 104.18.16.170/104.18.17.170,
-# proxy path agreed byte for byte, control 404 on both paths. Two tags had
-# moved since OS003 recorded them on 2026-09-06: qwen3.5:9b and gemma4:e2b.
+# TO UPDATE A ROW: pull the tag through the PINNED Ollama into an EMPTY
+# OLLAMA_MODELS on a clean box, run ostler_verify_model_digest against a dummy
+# pin (it prints the n and fingerprint it computed), and cite that run's log
+# beside the row. tests/test_model_digest_pins.sh refuses two rows with the
+# same fingerprint: a pin that degenerated to a shared layer would match both.
+
+# Layer mediaTypes that carry model WEIGHTS. Any other layer (template,
+# params, licence, tokenizer, config json) is not weights and is not pinned.
+OSTLER_MODEL_WEIGHT_MEDIATYPES=(
+    "application/vnd.ollama.image.model"
+    # PENDING: the MLX tensor-layer mediaType(s) written by Ollama 0.40.5,
+    # exact strings from ~/walkdriver/evidence/pins_0405_2026-10-18.md.
+)
+
+# PENDING: every value below comes from the Mini16 clean 0.40.5 pull
+# (~/walkdriver/evidence/pins_0405_2026-10-18.md), with the log line cited
+# per row. Until then each row is PENDING, which arm A of
+# tests/test_model_digest_pins.sh reports as RED, never as a pass.
 OSTLER_MODEL_PINS=(
-    "qwen3.6:35b-a3b         sha256:99afa5bbf1e7038bda7d028e100ee76b7337c943468d52590de3282db7b52adb"
-    "qwen3.5:9b              sha256:08f9698c1116d2ba3d2c1751f6e98919823e13bb28ff5eb7451c7bc9b40907c5"
-    "gemma4:e2b              sha256:3ff8a734c316b74964b7c7f7318e56ad85077da655a985aaa73f466c450d993a"
-    "nomic-embed-text:latest sha256:31df23ea7daa448f9ccdbbcecce6c14689c8552222b80defd3830707c0139d4f"
-    # TODO(#2990): "qwen3.5:4b  sha256:<config digest>" -- #2990 moves the 16 GB
-    # tier to qwen3.5:4b. That PR must add this row (resolved by the recipe
-    # above) in the same diff, or its fresh 16 GB installs stop on
-    # ERR-13-MODEL-UNPINNED. tests/test_model_digest_pins.sh arm A enforces it.
+    "qwen3.6:35b-a3b         PENDING PENDING"
+    "qwen3.5:9b              PENDING PENDING"
+    "qwen3.5:4b              PENDING PENDING"
+    "gemma4:e2b              PENDING PENDING"
+    "nomic-embed-text:latest PENDING PENDING"
 )
 
 # A name with no tag is `:latest`, exactly as `ollama pull` reads it.
@@ -2005,27 +2022,36 @@ ostler_model_canonical() {
     esac
 }
 
-# Echo the pinned digest for <model>; return 1 (echo nothing) when unpinned.
-ostler_model_pinned_digest() {
-    local want row tag dig
+# Echo "<n> <fingerprint>" for <model>; return 1 (echo nothing) when unpinned.
+ostler_model_pinned_weights() {
+    local want row tag n fp
     want="$(ostler_model_canonical "$1")"
     for row in "${OSTLER_MODEL_PINS[@]}"; do
-        read -r tag dig <<<"$row"
+        read -r tag n fp <<<"$row"
         if [[ "$tag" == "$want" ]]; then
-            printf '%s' "$dig"
+            printf '%s %s' "$n" "$fp"
             return 0
         fi
     done
     return 1
 }
 
+# Echo just the pinned fingerprint (the coverage test's single value).
+ostler_model_pinned_digest() {
+    local v
+    v="$(ostler_model_pinned_weights "$1")" || return 1
+    printf '%s' "${v#* }"
+}
+
 # ostler_verify_model_digest <model>
-#   Reads the INSTALLED model from Ollama's own store and compares it with the
-#   pin. Sets OSTLER_MODEL_DIGEST_WANT / _GOT / _DETAIL. Returns:
-#     0  installed config digest == pin, the config blob on disk hashes to it,
-#        and its diff_ids are exactly the manifest's layers
-#     1  MISMATCH: a different model is installed under this tag
-#     2  CANNOT VERIFY: manifest or blob missing/unreadable (never a pass)
+#   Reads the INSTALLED model's on-disk manifest from Ollama's own store and
+#   compares its weight layers with the pin. Sets OSTLER_MODEL_DIGEST_WANT /
+#   _GOT ("<n> <fingerprint>") / _DETAIL. Returns:
+#     0  the sorted weight-layer digests fingerprint to the pin, the count
+#        matches, and the largest weight blob hashes to its own name
+#     1  MISMATCH: other weights under this tag, or a corrupt largest blob
+#     2  CANNOT VERIFY: manifest or largest blob missing/unreadable, or no
+#        layer has a weight mediaType (never a pass)
 #     3  UNPINNED: this model has no row in OSTLER_MODEL_PINS
 #   No command in here may exit non-zero: install.sh runs `set -Eeuo pipefail`
 #   with an ERR trap, which a failing substitution would fire.
@@ -2034,42 +2060,45 @@ ostler_verify_model_digest() {
     model="$(ostler_model_canonical "$1")"
     name="${model%%:*}"; tag="${model#*:}"
     OSTLER_MODEL_DIGEST_WANT=""; OSTLER_MODEL_DIGEST_GOT=""; OSTLER_MODEL_DIGEST_DETAIL=""
-    if ! OSTLER_MODEL_DIGEST_WANT="$(ostler_model_pinned_digest "$model")"; then
+    if ! OSTLER_MODEL_DIGEST_WANT="$(ostler_model_pinned_weights "$model")"; then
         OSTLER_MODEL_DIGEST_DETAIL="no row in OSTLER_MODEL_PINS"
         return 3
     fi
     models_dir="${OLLAMA_MODELS:-${HOME}/.ollama/models}"
     manifest="${models_dir}/manifests/registry.ollama.ai/library/${name}/${tag}"
-    out="$(python3 -I - "$manifest" "${models_dir}/blobs" "$OSTLER_MODEL_DIGEST_WANT" <<'PY' || printf 'UNREADABLE\t-\tpython3 could not run (exit %s)\n' "$?"
+    out="$(python3 -I - "$manifest" "${models_dir}/blobs" "$OSTLER_MODEL_DIGEST_WANT" "${OSTLER_MODEL_WEIGHT_MEDIATYPES[@]}" <<'PY' || printf 'UNREADABLE\t-\tpython3 could not run (exit %s)\n' "$?"
 import hashlib, json, os, sys
 manifest, blobs, want = sys.argv[1], sys.argv[2], sys.argv[3]
+types = set(sys.argv[4:])
 def out(status, got, detail):
     print("%s\t%s\t%s" % (status, got or "-", detail)); sys.exit(0)
 try:
     with open(manifest, "rb") as f:
         m = json.load(f)
-    got = m["config"]["digest"]
-    layers = [l["digest"] for l in m["layers"]]
+    layers = [(l["mediaType"], l["digest"], int(l.get("size", 0))) for l in m["layers"]]
 except Exception as e:
     out("UNREADABLE", "", "manifest %s: %s" % (manifest, type(e).__name__))
+weights = [l for l in layers if l[0] in types]
+if not weights:
+    out("UNREADABLE", "", "no layer has a weight mediaType (%d layers; types %s)"
+        % (len(layers), ",".join(sorted({l[0] for l in layers})) or "none"))
+digests = sorted(l[1] for l in weights)
+fp = "sha256:" + hashlib.sha256("".join(d + "\n" for d in digests).encode()).hexdigest()
+got = "%d %s" % (len(digests), fp)
 if got != want:
-    out("MISMATCH", got, "installed config digest differs from the pin")
-blob = os.path.join(blobs, got.replace(":", "-", 1))
+    out("MISMATCH", got, "weight layers differ from the pin")
+big = max(weights, key=lambda l: l[2])
+blob = os.path.join(blobs, big[1].replace(":", "-", 1))
 try:
     h = hashlib.sha256()
     with open(blob, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
+        for chunk in iter(lambda: f.read(1 << 22), b""):
             h.update(chunk)
-        f.seek(0)
-        cfg = json.loads(f.read())
-    diff_ids = cfg["rootfs"]["diff_ids"]
 except Exception as e:
-    out("UNREADABLE", got, "config blob %s: %s" % (blob, type(e).__name__))
-if "sha256:" + h.hexdigest() != want:
-    out("MISMATCH", "sha256:" + h.hexdigest(), "config blob on disk does not hash to the pin")
-if diff_ids != layers:
-    out("MISMATCH", got, "manifest layers are not the layers the pinned config names")
-out("OK", got, "config digest, config blob and layer list all match the pin")
+    out("UNREADABLE", got, "largest weight blob %s: %s" % (blob, type(e).__name__))
+if "sha256:" + h.hexdigest() != big[1]:
+    out("MISMATCH", got, "largest weight blob does not hash to its own name (corrupt store)")
+out("OK", got, "weight layers match the pin and the largest weight blob is intact")
 PY
 )"
     IFS=$'\t' read -r status OSTLER_MODEL_DIGEST_GOT OSTLER_MODEL_DIGEST_DETAIL <<<"$out"
@@ -3582,14 +3611,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8756) captures the path BY
+    # _ostler_write_store_curl_config (defined :8785) captures the path BY
     # VALUE and never re-reads it:
-    #     :8757   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8802   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8811 and :16274, both of which run
+    #     :8786   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8831   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8840 and :16303, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3568 above has just deleted
-    # that tree and :3572 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3597 above has just deleted
+    # that tree and :3601 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3604,13 +3633,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17054, where the note reads
+    # WhatsApp Web session path did it again at :17083, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17071 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17100 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3619,13 +3648,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6134 against a definition at :8756. Top-level
+    # writer's own definition: :6163 against a definition at :8785. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8811, :16274) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8840, :16303) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19217 / :19395 / :19552 / :19997 path. There the
+    # :19246 / :19424 / :19581 / :20026 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
