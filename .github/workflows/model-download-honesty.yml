@@ -58,3 +58,9 @@ jobs:
       # limb cannot be shown to fire. CANNOT-RUN is a third state, not a pass.
       - name: The advertised model download is not smaller than what we measured
         run: /bin/bash tests/test_model_download_size_honesty.sh
+
+      # v1.0.109: the shipped daemon must warm the chat model at the chat
+      # num_ctx, or Ollama cold-loads it twice before the first reply. RED
+      # until gui/Makefile DAEMON_VERSION >= 0.5.20 (ostler-assistant #560).
+      - name: The shipped daemon warms the chat model at the chat num_ctx
+        run: /bin/bash tests/test_daemon_warmup_loads_at_chat_num_ctx.sh
