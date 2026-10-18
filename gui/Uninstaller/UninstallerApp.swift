@@ -1,6 +1,6 @@
 // UninstallerApp.swift
 //
-// Uninstaller.app: a minimal, standalone SwiftUI app (Andy's explicit choice —
+// Uninstaller.app: a minimal, standalone SwiftUI app (Andy's explicit choice:
 // a separate app, not a button inside OstlerInstaller.app). It is placed in
 // /Applications at install time so it survives the customer deleting the DMG,
 // and it runs the installed ~/.ostler/bin/ostler-uninstall with OSTLER_GUI=1.

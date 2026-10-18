@@ -1,7 +1,7 @@
 // ContentView.swift
 //
 // The three screens: confirm (with the two destructive opt-ins), running
-// (phase progress), and done (an honest summary — including when the data
+// (phase progress), and done (an honest summary, including when the data
 // stores were NOT removed, which is a privacy fact, not a cosmetic one).
 
 import SwiftUI
@@ -129,7 +129,7 @@ struct DoneView: View {
     private var headline: String {
         if !coordinator.succeeded { return "Uninstall did not finish" }
         return coordinator.storesRemoved ? "Ostler has been removed"
-                                         : "Ostler removed — but your data stores were NOT"
+                                         : "Ostler removed, but your data stores were NOT"
     }
 
     private var headlineColor: Color {
@@ -154,7 +154,7 @@ struct DoneView: View {
             VStack(alignment: .leading, spacing: 6) {
                 summaryRow("Data stores",
                            coordinator.storesRemoved ? "removed"
-                           : "NOT removed — start Docker and run: cd ~/.ostler && docker compose down -v")
+                           : "NOT removed. Start Docker and run: cd ~/.ostler && docker compose down -v")
                 summaryRow("Shared colima VM", colimaSummary)
                 summaryRow("Knowledge data", knowledgeSummary)
             }
@@ -184,7 +184,7 @@ struct DoneView: View {
         case "removed":           return "deleted"
         case "kept":              return "kept (still on disk)"
         case "absent":            return "none present"
-        case "delete_failed":     return "delete failed — remove manually with: colima delete default"
+        case "delete_failed":     return "delete failed. Remove manually with: colima delete default"
         case "skipped_no_binary": return "not deleted (colima not found)"
         case "":                  return "kept"
         default:                  return coordinator.colimaResult

@@ -119,7 +119,7 @@ enum InstallerEvent: Equatable {
     /// The shared colima `default` VM is never deleted without explicit consent;
     /// this reports what actually happened to it.
     case uninstallColima(result: String)
-    /// UNINSTALL_DONE — the terminal summary. `storesRemoved` false means the
+    /// UNINSTALL_DONE: the terminal summary. `storesRemoved` false means the
     /// customer's data volumes are STILL on disk (a privacy-relevant fact the
     /// done screen must not gloss). `knowledgeStaging` is
     /// preserved|purged|absent|preserve_failed; `colima` mirrors uninstallColima.
