@@ -15,7 +15,7 @@ Formats:
   Last interaction, Keep-in-touch frequency, Twitter, LinkedIn, Facebook,
   Groups. Column names CONFIRMED by Dex's docs (via search summary);
   multi-value separators (comma, semicolon, ":::") ASSUMED.
-- Mesh: Settings > General > Export my Data; CSV emailed from notify@me.sh,
+- Mesh: Settings > General > Export my Data; CSV emailed to the owner by Mesh,
   "backward compatible with" Google's contacts format
   (library.me.sh/hc/en-us/articles/6821989456027). Column names are NOT
   documented: Google's contacts CSV headers (both the legacy "given name /

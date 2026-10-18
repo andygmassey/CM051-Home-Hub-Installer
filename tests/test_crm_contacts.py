@@ -27,7 +27,7 @@ DEX = ('Id,First Name,Last Name,Full Name,Title,Company,Description,Birthday,Ema
        'dx3,,,,,,,,,,,,,,,\n')
 
 # Mesh (formerly Clay): Settings > General > Export my Data, CSV emailed from
-# notify@me.sh, "backward compatible with" Google's contacts format
+# by email, "backward compatible with" Google's contacts format
 # (library.me.sh/hc/en-us/articles/6821989456027). Columns are NOT documented:
 # Google's contacts CSV headers are ASSUMED (lower-cased here; the reader is case-blind).
 MESH = ('name,given name,family name,birthday,notes,group membership,e-mail 1 - type,e-mail 1 - value,'
