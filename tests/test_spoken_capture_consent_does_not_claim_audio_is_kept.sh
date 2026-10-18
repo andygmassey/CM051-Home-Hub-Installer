@@ -9,7 +9,8 @@
 # (ViewCopy.json, parsed as JSON) and the TTY line (the strings file,
 # sourced by bash exactly as install.sh sources it).
 #
-# Self-test first: the predicate must REJECT the old wording, or a
+# Self-test first: the predicate must REJECT both earlier wordings (audio
+# kept; audio transcribed "on this Mac", false for iPhone captures), or a
 # passing run proves nothing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,8 +21,14 @@ check() { # $1 surface, $2 text
     if printf '%s' "$t" | grep -qiE 'keeping the captured audio|audio on your own mac|storing (it|them) locally'; then
         echo "FAIL $1: still claims captured audio is kept: $t"; return 1
     fi
-    if ! printf '%s' "$t" | grep -qF 'deletes it straight away'; then
-        echo "FAIL $1: does not say captured audio is deleted: $t"; return 1
+    if printf '%s' "$t" | grep -qiE 'transcribes captured audio on this Mac'; then
+        echo "FAIL $1: says audio is transcribed on this Mac, false for iPhone captures: $t"; return 1
+    fi
+    if ! printf '%s' "$t" | grep -qF 'on the device that captured it and deletes the audio straight away'; then
+        echo "FAIL $1: does not say audio is deleted on the capturing device: $t"; return 1
+    fi
+    if ! printf '%s' "$t" | grep -qF 'including to your own Mac'; then
+        echo "FAIL $1: does not say audio is never sent to the owner's Mac: $t"; return 1
     fi
     echo "PASS $1"
 }
@@ -31,6 +38,11 @@ if check self-test "$old" >/dev/null; then
     echo "FAIL self-test: predicate accepted the old retained-audio wording"; exit 1
 fi
 echo "PASS self-test: old wording rejected"
+mac="Ostler transcribes captured audio on this Mac and deletes it straight away – it is never kept and never sent anywhere – but that does not remove this duty: you still need consent where your local law requires it."
+if check self-test-mac "$mac" >/dev/null; then
+    echo "FAIL self-test: predicate accepted the on-this-Mac wording"; exit 1
+fi
+echo "PASS self-test: on-this-Mac wording rejected"
 
 gui="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["consent_spoken_capture"]["legal_note"])' gui/OstlerInstaller/Resources/ViewCopy.json)"
 check "ViewCopy.json consent_spoken_capture.legal_note" "$gui" || fail=1
