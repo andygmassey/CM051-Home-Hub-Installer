@@ -173,7 +173,7 @@ fi
 # next echo "") must NOT direct the user to FDA for the -1743
 # remediation. Grep for the iMessage banner block specifically.
 BANNER_BLOCK=$(awk '/iMessage delivery posture: NOT YET CONFIRMED/,/^fi$/' "$INSTALL_SCRIPT")
-if printf '%s\n' "$BANNER_BLOCK" | grep -q "Full Disk Access"; then
+if grep -q "Full Disk Access" <<< "$BANNER_BLOCK"; then
     echo "FAIL [banner-fda-mismatch]: -1743 remediation incorrectly points at FDA (should be Automation)" >&2
     exit 1
 fi

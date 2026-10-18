@@ -74,7 +74,7 @@ done < <(grep -E '^[[:space:]]*image:' "$COMPOSE")
 # before judging.
 while IFS= read -r cline; do
     ccode="${cline%%#*}"
-    if printf '%s' "$ccode" | grep -q 'itzcrazykns1337/vane'; then
+    if grep -q 'itzcrazykns1337/vane' <<< "$ccode"; then
         fail "compose has a LIVE itzcrazykns1337/vane reference (personal Docker Hub account): $cline"
     fi
 done < <(grep 'itzcrazykns1337/vane' "$COMPOSE" || true)
@@ -91,7 +91,7 @@ grep -Eq '^[[:space:]]*image:[[:space:]]*ghcr\.io/ostler-ai/vane@sha256:' "$COMP
 while IFS= read -r line; do
     # drop everything from the first '#' -- if the token survives, it's live
     code="${line%%#*}"
-    if printf '%s' "$code" | grep -q 'itzcrazykns1337/vane'; then
+    if grep -q 'itzcrazykns1337/vane' <<< "$code"; then
         fail "live (non-comment) reference to itzcrazykns1337/vane survives in install.sh: $line"
     fi
 done < <(grep -n 'itzcrazykns1337/vane' "$INSTALL_SCRIPT" || true)
