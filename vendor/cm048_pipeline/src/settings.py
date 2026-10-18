@@ -69,6 +69,12 @@ class Settings:
     user_id: str = ""
     user_display_name: str = ""
     locale: str = "en-GB"
+    # Language of summaries and todos. "conversation" (default) writes
+    # them in the language the conversation was held in; a language code
+    # ("de", "fr", "ja" ...) writes them in the owner's preferred language
+    # instead. Headings and JSON keys always stay English. See
+    # src/language.py.
+    summary_language: str = "conversation"
     coaching_tone: CoachingTone = "supportive"
     redaction: RedactionPolicy = field(default_factory=RedactionPolicy)
     work_geofence: WorkGeofence = field(default_factory=WorkGeofence)
@@ -125,6 +131,7 @@ _FLAT_KEYS: tuple[str, ...] = (
     "user_id",
     "user_display_name",
     "locale",
+    "summary_language",
     "coaching_tone",
     "ollama_url",
     "ollama_classify_model",

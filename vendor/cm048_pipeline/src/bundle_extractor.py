@@ -87,6 +87,7 @@ def extract(
     channel: str,
     model: str,
     locale: str = "en-GB",
+    output_language=None,
     timeout: float | None = None,
 ) -> BundleExtraction:
     """Run the LLM call and return parsed ``BundleExtraction``.
@@ -120,6 +121,7 @@ def extract(
         enrichment_md=enrichment_md,
         channel=channel_for_prompt,
         locale=locale,
+        output_language=output_language,
     )
     full_prompt = template + "\n\n---\n\n" + body
 
@@ -200,23 +202,37 @@ def _build_input(
     enrichment_md: str,
     channel: str,
     locale: str,
+    output_language=None,
 ) -> str:
     """Render the per-call body that gets appended to the prompt
     template. The template itself is static instructions; this
     function fills in the conversation-specific data and the
     channel guidance."""
     guidance = _CHANNEL_GUIDANCE.get(channel, _CHANNEL_GUIDANCE["spoken"])
+    from .language import scale_char_budget
+
     enrichment_excerpt = (enrichment_md or "").strip()
-    if len(enrichment_excerpt) > 4000:
-        enrichment_excerpt = enrichment_excerpt[:4000] + "\n\n[...truncated]"
+    enrichment_cap = scale_char_budget(enrichment_excerpt, 4000)
+    if len(enrichment_excerpt) > enrichment_cap:
+        enrichment_excerpt = enrichment_excerpt[:enrichment_cap] + "\n\n[...truncated]"
     transcript_excerpt = transcript or ""
-    if len(transcript_excerpt) > 12000:
-        transcript_excerpt = transcript_excerpt[:12000] + "\n\n[...truncated]"
+    transcript_cap = scale_char_budget(transcript_excerpt, 12000)
+    if len(transcript_excerpt) > transcript_cap:
+        transcript_excerpt = transcript_excerpt[:transcript_cap] + "\n\n[...truncated]"
+
+    if output_language is None:
+        # No resolved language supplied: derive it from the text so a
+        # direct caller still gets the conversation-language default.
+        from .language import OutputLanguage, detect_language, normalise_code, LANGUAGE_NAMES
+        code = detect_language(transcript or "") or normalise_code(locale) or "en"
+        output_language = OutputLanguage(code, LANGUAGE_NAMES.get(code, code), "detected")
+    from .language import language_instruction
 
     return (
         f"--- CHANNEL ---\n{channel}\n\n"
         f"--- CHANNEL GUIDANCE ---\n{guidance}\n\n"
         f"--- LOCALE ---\n{locale}\n\n"
+        f"{language_instruction(output_language)}\n"
         f"--- ENRICHMENT (for topic seeding) ---\n{enrichment_excerpt}\n\n"
         f"--- TRANSCRIPT ---\n{transcript_excerpt}\n"
     )

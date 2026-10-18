@@ -25,6 +25,13 @@ on:
       - 'vendor/ostler_fda/backfill_ladder.py'
       - 'vendor/ostler_fda/extract_all.py'
       - 'tests/test_doctor_shows_catchup_progress.sh'
+      # catchup-mail.yml's paths: tests/test_catchup_core.py runs ONLY here
+      # now, so every change that used to run it there must run it here.
+      - 'vendor/ostler_fda/catchup_mail.py'
+      - 'vendor/ostler_fda/apple_mail.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_catchup_mail.py'
+      - '.github/workflows/catchup-mail.yml'
       - '.github/workflows/catchup-machinery.yml'
   pull_request:
     paths:
@@ -45,6 +52,13 @@ on:
       - 'vendor/ostler_fda/backfill_ladder.py'
       - 'vendor/ostler_fda/extract_all.py'
       - 'tests/test_doctor_shows_catchup_progress.sh'
+      # catchup-mail.yml's paths: tests/test_catchup_core.py runs ONLY here
+      # now, so every change that used to run it there must run it here.
+      - 'vendor/ostler_fda/catchup_mail.py'
+      - 'vendor/ostler_fda/apple_mail.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_catchup_mail.py'
+      - '.github/workflows/catchup-mail.yml'
       - '.github/workflows/catchup-machinery.yml'
 
 concurrency:

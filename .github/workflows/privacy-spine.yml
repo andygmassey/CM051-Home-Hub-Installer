@@ -125,6 +125,13 @@ jobs:
           python3 -m pip install --quiet beautifulsoup4
           python3 tests/test_automated_senders_are_not_people.py
 
+      # Andy #30 console walk: a notification SUBJECT ("~~\"Unusual sign-in
+      # on your iCloud.") and gibberish strings became People. Exercises the
+      # shipped vendor/cm021/src/cli.py name-validity predicate.
+      - name: Notification subjects and gibberish strings do not become people
+        if: always()
+        run: python3 tests/test_junk_names_are_not_people.py
+
       - name: AI conversations are private by default in BOTH pinning places
         if: always()
         run: python3 tests/test_ai_conversations_default_to_the_locked_privacy_level.py
