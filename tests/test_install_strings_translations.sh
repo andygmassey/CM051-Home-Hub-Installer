@@ -134,9 +134,9 @@ sys.exit(bad)
 PY
 
 # 6. shipped by both delivery paths.
-/usr/bin/grep -qF "for _l in $LANGS; do" gui/project.yml || bad "project.yml copy loop does not list exactly: $LANGS"
 for l in $LANGS; do
     /usr/bin/grep -qF "\$(SRCROOT)/../install.sh.strings.$l.sh" gui/project.yml || bad "project.yml inputFiles lack $l"
+    /usr/bin/grep -qF "cp \"\${SRCROOT}/../install.sh.strings.$l.sh\"" gui/project.yml || bad "project.yml build phase does not copy $l"
     /usr/bin/grep -q "\"install.sh.strings.$l.sh\"" release.sh || bad "release.sh tarball does not include $l"
     /usr/bin/grep -qF "install.sh.strings.$l.sh" gui/OstlerInstaller.xcodeproj/project.pbxproj || bad "pbxproj not regenerated for $l"
 done

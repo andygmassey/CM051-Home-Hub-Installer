@@ -292,13 +292,21 @@ targets:
           chmod 644 "${DEST}/lib/ostler_catchup.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           # Translated install.sh catalogues, one per language InstallerLanguage
-          # ships. OSTLER_LANG picks one at run time; a missing file falls back
-          # to en-GB, so each is copied explicitly (a glob that matched nothing
-          # would silently ship English-only again).
-          for _l in de fr es it nl pt-BR ja ko zh-Hans zh-HK; do
-            cp "${SRCROOT}/../install.sh.strings.${_l}.sh" "${DEST}/install.sh.strings.${_l}.sh"
-            chmod 644 "${DEST}/install.sh.strings.${_l}.sh"
-          done
+          # ships (de fr es it nl pt-BR ja ko zh-Hans zh-HK). OSTLER_LANG picks
+          # one at run time; a missing file falls back to en-GB. One explicit cp
+          # per file, so tests/test_bundle_phase_declares_every_copy.sh can
+          # match each against its inputFiles/outputFiles entry.
+          cp "${SRCROOT}/../install.sh.strings.de.sh" "${DEST}/install.sh.strings.de.sh"
+          cp "${SRCROOT}/../install.sh.strings.fr.sh" "${DEST}/install.sh.strings.fr.sh"
+          cp "${SRCROOT}/../install.sh.strings.es.sh" "${DEST}/install.sh.strings.es.sh"
+          cp "${SRCROOT}/../install.sh.strings.it.sh" "${DEST}/install.sh.strings.it.sh"
+          cp "${SRCROOT}/../install.sh.strings.nl.sh" "${DEST}/install.sh.strings.nl.sh"
+          cp "${SRCROOT}/../install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.pt-BR.sh"
+          cp "${SRCROOT}/../install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ja.sh"
+          cp "${SRCROOT}/../install.sh.strings.ko.sh" "${DEST}/install.sh.strings.ko.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-Hans.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.zh-HK.sh"
+          chmod 644 "${DEST}/install.sh.strings.de.sh" "${DEST}/install.sh.strings.fr.sh" "${DEST}/install.sh.strings.es.sh" "${DEST}/install.sh.strings.it.sh" "${DEST}/install.sh.strings.nl.sh" "${DEST}/install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ko.sh" "${DEST}/install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-HK.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Second chmod rather than a continuation of the line above, purely so
