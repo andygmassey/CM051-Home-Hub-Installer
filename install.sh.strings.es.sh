@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# CM051 install.sh -- es strings catalogue (machine-translated from
-# install.sh.strings.en-GB.sh, then independently reviewed). Generated; do not hand-edit
-# without updating the en-GB source first. Keys marked '# NEEDS REVIEW' await a
-# native speaker; any key missing a translation keeps its English value.
+# install.sh.strings.en-GB.sh translated to es by l10n/ostler_l10n.py.
+# Generated: edit the en-GB source, never this file. '# NEEDS REVIEW' marks a key
+# awaiting a native speaker; a key with no current translation carries English.
 # CM051 install.sh -- en-GB strings catalogue
 # Generated 2026-05-19 as part of Rule 0.9
 # (customer strings extractable from day one).
