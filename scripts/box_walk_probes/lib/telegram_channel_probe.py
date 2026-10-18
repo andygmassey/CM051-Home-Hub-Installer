@@ -73,8 +73,11 @@ class FakeBotApi:
             def log_message(self, *a):
                 pass
 
+            def do_GET(self):  # noqa: N802  (the channel fetches getMe with GET)
+                self.do_POST()
+
             def do_POST(self):  # noqa: N802
-                n = int(self.headers.get("Content-Length", "0"))
+                n = int(self.headers.get("Content-Length", "0") or 0)
                 raw = self.rfile.read(n) or b"{}"
                 try:
                     body = json.loads(raw)
@@ -130,6 +133,24 @@ class _Ollama(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n) or b"{}")
         msg = {"role": "assistant", "content": "Synthetic reply from the loopback model."}
+        if "chat/completions" in self.path:
+            # OpenAI-compatible route, which the daemon uses for a custom base_url.
+            if req.get("stream"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                chunk = {"id": "c1", "object": "chat.completion.chunk", "model": "stub",
+                         "choices": [{"index": 0, "delta": msg, "finish_reason": None}]}
+                done = {"id": "c1", "object": "chat.completion.chunk", "model": "stub",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                for c in (chunk, done):
+                    self.wfile.write(f"data: {json.dumps(c)}\n\n".encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+                return
+            self._json({"id": "c1", "object": "chat.completion", "model": "stub",
+                        "choices": [{"index": 0, "message": msg, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+            return
         base = {"model": req.get("model", "stub"), "created_at": "2026-10-18T00:00:00Z"}
         if req.get("stream", True) and self.path.endswith("/api/chat"):
             self.send_response(200)
@@ -152,7 +173,7 @@ def _free_port() -> int:
     return p
 
 
-def write_config(cfg_dir: str, llm: int) -> str:
+def write_config(cfg_dir: str, llm: int, allowed: int = OWNER) -> str:
     os.makedirs(os.path.join(cfg_dir, "workspace"), exist_ok=True)
     text = f'''schema_version = 2
 
@@ -170,7 +191,7 @@ ack_reactions = true
 [channels.telegram]
 enabled = true
 bot_token = ""
-allowed_users = ["{OWNER}"]
+allowed_users = ["{allowed}"]
 '''
     p = os.path.join(cfg_dir, "config.toml")
     with open(p, "w") as f:
@@ -204,7 +225,10 @@ def drive(binary: str, keep_log: str | None) -> dict:
     l_srv = http.server.ThreadingHTTPServer(("127.0.0.1", llm_port), _Ollama)
     for s in (a_srv, l_srv):
         threading.Thread(target=s.serve_forever, daemon=True).start()
-    cfg_text = write_config(os.path.join(root, "cfg"), llm_port)
+    # --control wrong-owner: allow the STRANGER instead, on the REAL daemon.
+    # The judge must then FAIL, proving the probe can see a wrong gate.
+    allowed = STRANGER if os.environ.get("TG_PROBE_CONTROL") == "wrong-owner" else OWNER
+    cfg_text = write_config(os.path.join(root, "cfg"), llm_port, allowed)
 
     facts: dict = {"daemon_started": False, "config_bot_token_empty": 'bot_token = ""' in cfg_text}
     env = dict(os.environ)
@@ -407,7 +431,11 @@ def main() -> int:
             with open(a.facts, "w") as fh:
                 json.dump(facts, fh, indent=2)
         print(json.dumps(facts, indent=2))
-        return judge(facts)
+        # Verdict lines to stderr so stdout stays one JSON document: the walk
+        # wrapper captures stdout as the facts file and judges it itself.
+        import contextlib
+        with contextlib.redirect_stdout(sys.stderr):
+            return judge(facts)
     ap.print_usage()
     return 2
 

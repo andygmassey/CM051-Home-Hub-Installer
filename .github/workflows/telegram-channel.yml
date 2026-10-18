@@ -14,6 +14,8 @@ on:
       - 'tests/fixtures/telegram_channel_status.json'
       - 'vendor/doctor/agent/telegram_status.py'
       - 'scripts/box_walk_probes/lib/telegram_channel_probe.py'
+      - 'scripts/box_walk_probes/probes/telegram_channel_round_trip.sh'
+      - 'scripts/walk_promote_scope.tsv'
       - 'install.sh'
       - 'gui/project.yml'
       - '.github/workflows/telegram-channel.yml'
@@ -44,3 +46,12 @@ jobs:
       - name: The Telegram probe judge catches every mutant
         if: always()
         run: set +e; python3 scripts/box_walk_probes/lib/telegram_channel_probe.py --self-test; rc=$?; test "$rc" -eq 1
+      - name: The walk probe's own self-test goes red on known-bad facts
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/telegram_channel_round_trip.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1"; exit 1; fi
+          printf '%s\n' "$out" | grep -q 'negative control behaved' || { echo "no 'negative control behaved' verdict"; exit 1; }
