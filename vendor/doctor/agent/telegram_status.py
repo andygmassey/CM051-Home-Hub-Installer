@@ -27,7 +27,7 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 STATE_FILENAME = "telegram_channel.json"
-STATUSES = ("starting", "connected", "config_error", "api_error")
+STATUSES = ("starting", "connected", "config_error", "api_error", "off")
 
 SECTION_TITLE = "Telegram"
 LABELS = {
@@ -35,20 +35,58 @@ LABELS = {
     "starting": "Starting",
     "config_error": "Not running",
     "api_error": "Telegram refused the connection",
+    "off": "Off",
+    "unknown": "Could not check",
 }
 COLOURS = {
     "connected": "#2C4A2C",
     "starting": "rgba(236,232,221,0.40)",
     "config_error": "#5C4611",
     "api_error": "#7A1F1F",
+    "off": "rgba(236,232,221,0.40)",
+    "unknown": "rgba(236,232,221,0.40)",
 }
 ICONS = {
     "connected": "&#10003;",
     "starting": "&#8211;",
     "config_error": "&#9888;",
     "api_error": "&#10007;",
+    "off": "&#8211;",
+    "unknown": "&#8211;",
 }
 SETUP_HINT = "To set it up again, run ~/.ostler/bin/ostler-telegram-setup in Terminal."
+ON_HINT = "To switch it on, run ~/.ostler/bin/ostler-telegram-setup in Terminal."
+UNKNOWN_DEAD = ("The assistant is not running, so this is its last report, not its current "
+                "state. It updates when the assistant starts again.")
+# Process names the installed assistant runs under.
+_ASSISTANT_COMMS = ("ostler-assistant", "zeroclaw")
+
+
+def assistant_pid_alive(pid) -> bool:
+    """True only when `pid` is a running assistant daemon.
+
+    A status file outlives the process that wrote it: a stopped daemon, or a
+    restarted one that never touched Telegram, leaves "connected" behind. So
+    the file is believed only while the pid that wrote it is still the
+    assistant. A dead pid, or one the OS has reused for something else, is
+    unknown. Never raises.
+    """
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        pass  # exists, owned by someone else; the name check decides
+    except OSError:
+        return False
+    try:
+        import subprocess
+        out = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="],
+                             capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    name = os.path.basename(out.strip())
+    return any(c in name for c in _ASSISTANT_COMMS)
 
 
 @dataclass
@@ -59,6 +97,7 @@ class TelegramStatus:
     non_owner_dropped: int
     last_error: Optional[str]
     updated_at: Optional[str]
+    daemon_pid: Optional[int] = None
 
 
 def state_path() -> Path:
@@ -96,6 +135,8 @@ def read_telegram_status(path: Optional[Path] = None) -> Optional[TelegramStatus
         non_owner_dropped=dropped,
         last_error=_opt_str(payload.get("last_error")),
         updated_at=_opt_str(payload.get("updated_at")),
+        daemon_pid=payload.get("daemon_pid") if isinstance(payload.get("daemon_pid"), int)
+        and not isinstance(payload.get("daemon_pid"), bool) else None,
     )
 
 
@@ -123,6 +164,16 @@ def render_telegram_status(now_dt: Optional[datetime] = None, path: Optional[Pat
         return ""
     e = html.escape
     lines = []
+    shown = st.status
+    # "off" is a decision, true whether or not the daemon is up. Every other
+    # status is only as current as the process that wrote it.
+    if shown != "off" and not assistant_pid_alive(st.daemon_pid):
+        shown = "unknown"
+    if shown == "off":
+        lines.append(ON_HINT)
+        return _card(shown, lines)
+    if shown == "unknown":
+        lines.append(UNKNOWN_DEAD)
     if st.bot_username:
         lines.append(f"Bot: @{st.bot_username}")
     rel = _relative(st.last_owner_message_at, now_dt)
@@ -131,17 +182,22 @@ def render_telegram_status(now_dt: Optional[datetime] = None, path: Optional[Pat
         n = st.non_owner_dropped
         lines.append(f"Ignored {n} message{'s' if n != 1 else ''} from other people "
                      "(only you can talk to your assistant)")
-    if st.status in ("config_error", "api_error"):
+    if shown in ("config_error", "api_error"):
         if st.last_error:
             lines.append(st.last_error)
         lines.append(SETUP_HINT)
+    return _card(shown, lines)
+
+
+def _card(shown: str, lines) -> str:
+    e = html.escape
     detail = "".join(f'<div class="status-detail">{e(x)}</div>' for x in lines)
     return f"""
     <div class="section" id="telegramChannelSection">
         <div class="section-title">{e(SECTION_TITLE)}</div>
         <div class="status-grid">
-            <div class="status-card" style="border-left:3px solid {COLOURS[st.status]}">
-                <div class="status-label">{ICONS[st.status]} {e(LABELS[st.status])}</div>
+            <div class="status-card" style="border-left:3px solid {COLOURS[shown]}">
+                <div class="status-label">{ICONS[shown]} {e(LABELS[shown])}</div>
                 {detail}
             </div>
         </div>

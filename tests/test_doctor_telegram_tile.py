@@ -76,7 +76,7 @@ if callable(real_inspector):
 
 out = render(dict(FIX, daemon_pid=dead.pid))
 check("dead daemon: never says Connected", "Connected" not in out, out)
-check("dead daemon: says it could not check", "Couldn't check" in out, out)
+check("dead daemon: says it could not check", "Could not check" in out, out)
 out = render(dict(FIX, daemon_pid=os.getpid()))
 check("pid reused by another process: never says Connected", "Connected" not in out, out)
 out = render({k: v for k, v in FIX.items() if k != "daemon_pid"})

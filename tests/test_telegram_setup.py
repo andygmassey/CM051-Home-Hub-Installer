@@ -93,7 +93,10 @@ def stub_launchctl(d: Path, status: str, error: str | None = None) -> Path:
     p.write_text(f"""#!/bin/sh
 printf '%s\\n' "$*" >> "{d}/launchctl.args"
 mkdir -p "{d}/ostler/state"
-printf '%s' '{st}' > "{d}/ostler/state/telegram_channel.json"
+# Like the daemon: report only when [channels.telegram] is enabled.
+if {sys.executable} -c "import tomllib,sys; c=tomllib.load(open(sys.argv[1],'rb')); sys.exit(0 if c.get('channels',{{}}).get('telegram',{{}}).get('enabled') else 1)" "{d}/ostler/assistant-config/config.toml"; then
+  printf '%s' '{st}' > "{d}/ostler/state/telegram_channel.json"
+fi
 """)
     p.chmod(0o755)
     return p
@@ -238,6 +241,13 @@ def main() -> int:
     check("off: disabled, no owner", c["channels"]["telegram"]["enabled"] is False and c["channels"]["telegram"]["allowed_users"] == [])
     check("off: token deleted", not (d / secret_rel).exists())
     check("off: other settings untouched", c["channels"]["email"]["allowed_senders"] == ["owner@example.test"])
+    st = json.loads((d / "ostler/state/telegram_channel.json").read_text())
+    check("off: the Doctor status file says off (no stale Connected)", st.get("status") == "off", str(st))
+    # and with --no-restart (no daemon involved at all) it still says off
+    run(d, base, TOKEN + "\n")
+    run(d, base, "", "--off", "--no-restart")
+    st = json.loads((d / "ostler/state/telegram_channel.json").read_text())
+    check("off --no-restart: status file says off", st.get("status") == "off", str(st))
     srv.shutdown()
 
     # 9. a config with no telegram section at all gains one, and stays valid
