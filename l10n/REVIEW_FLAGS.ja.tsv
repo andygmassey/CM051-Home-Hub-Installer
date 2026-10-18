@@ -61,17 +61,11 @@ install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	needs_revie
 install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Fixed 'このMacにも届きません' (implied 'also') to 'このMacには届きません'. Article 9 consent text: lawyer should check; also confirm the 'Reset Ostler' menu item label matches the localised UI.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal text with statutory references; translation is accurate but a lawyer should confirm its legal force.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/intro_body	needs_review	Liability allocation sentence in consent screen; lawyer check advised. Translation is accurate.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	Legal note citing criminal statutes; 'recording' wording is correct here (law context). Lawyer should check.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Responsibility acknowledgement. A lawyer should check its legal force in Japanese.
-gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	GDPR legal text. A lawyer should verify the Japanese terms for controller and processor (管理者/処理者) and the legal force of the wording.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; Japanese word order may not fit the concatenated sentence. A human should check the assembled string.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; Japanese word order may not fit the concatenated sentence. A human should check the assembled string.
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Consent statement about recordings; legal wording should be checked by a human. 録音 kept since source refers to user's own pre-existing recordings.
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; Japanese word order may not fit the concatenated sentence. A human should check the assembled string.
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; Japanese word order may not fit the concatenated sentence. A human should check the assembled string.

@@ -45,7 +45,11 @@ keep_english:
   - MSG_OK_IMESSAGE_AUTOMATION_PERMISSION_GRANTED
 
 # Shell keys matching these (key or developer comment) ship needs_review.
-legal_patterns: [consent, verbatim, "legal/", "article 9"]
+# Legal / consent keys (regex on key + developer comment). A translation of
+# one ships only with a legal_reviews.tsv row (reviewed_by + date) for its
+# current English; otherwise English ships and the translation waits in
+# l10n/legal_pending/ (`legal-list`, `legal-approve`).
+legal_patterns: [consent, verbatim, "legal/", "article 9", '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
 
 # The en-GB header asks for a human translation of these.
 human_review_keys:

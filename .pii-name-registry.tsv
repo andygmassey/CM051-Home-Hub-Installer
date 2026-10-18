@@ -2402,3 +2402,4 @@ skip	l10n/REVIEW_FLAGS.*.tsv	TRANSLATION derived from an examined en-GB catalogu
 nonperson	l10n/glossary.yaml::4928967a80b398af	PRODUCT: Ostler's own product names (the app, its Pro tier, the Hub Mac) that every translation must keep untranslated
 nonperson	l10n/glossary.yaml::1fd85320979722e9	PRODUCT: Apple's macOS/iOS UI names (System Settings, Full Disk Access and similar) the glossary tells translators to localise officially
 skip	install.sh.strings.zh-Hant.sh	TRANSLATION derived from an examined en-GB catalogue (zh-Hant, Taiwan): same reasoning as the rows above; the ?? glob cannot match a 7-character code
+skip	l10n/legal_pending/*.json	TRANSLATION derived from an examined en-GB catalogue, parked until a named legal reviewer approves it (same reasoning as the rows above)

@@ -716,6 +716,60 @@ def save_state(st):
         f.write("\n")
 
 # --------------------------------------------------------------------------
+# Legal / consent keys: a translation SHIPS only once a named person has
+# reviewed it (l10n/legal_reviews.tsv: lang, catalogue, key, source hash,
+# reviewed_by, date). Until then the catalogue carries ENGLISH and the machine
+# translation waits in l10n/legal_pending/<lang>.json for the reviewer.
+# --------------------------------------------------------------------------
+
+def _reviews_path():
+    return os.path.join(HERE, "legal_reviews.tsv")
+
+
+def _pending_dir():
+    return os.path.join(HERE, "legal_pending")
+
+
+def is_legal(u, cfg):
+    pats = [re.compile(p, re.I) for p in cfg.get("legal_patterns", [])]
+    tpats = [re.compile(p, re.I) for p in cfg.get("legal_text_patterns", [])]
+    return (u.key in set(cfg.get("legal_keys", []))
+            or any(p.search(u.key + " " + u.ctx) for p in pats)
+            or any(p.search(u.src) for p in tpats))
+
+
+def load_reviews():
+    out = {}
+    if os.path.exists(_reviews_path()):
+        for line in open(_reviews_path(), encoding="utf-8").read().splitlines():
+            f = line.split("\t")
+            if len(f) >= 6 and not line.startswith("#") and f[0] != "lang":
+                out[(f[0], f"{f[1]}::{f[2]}")] = {"hash": f[3], "by": f[4], "date": f[5]}
+    return out
+
+
+def reviewed(reviews, lang, u):
+    r = reviews.get((lang, u.uid))
+    return bool(r and r["hash"] == h(u.src) and r["by"].strip() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", r["date"]))
+
+
+def load_legal_pending(lang):
+    p = os.path.join(_pending_dir(), f"{lang}.json")
+    return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
+
+
+def save_legal_pending(lang, d):
+    os.makedirs(_pending_dir(), exist_ok=True)
+    p = os.path.join(_pending_dir(), f"{lang}.json")
+    if not d:
+        if os.path.exists(p):
+            os.remove(p)
+        return
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(dict(sorted(d.items())), f, ensure_ascii=False, indent=1)
+        f.write("\n")
+
+# --------------------------------------------------------------------------
 # Mechanical checks (the BLOCKING part of the gate)
 # --------------------------------------------------------------------------
 
@@ -765,6 +819,7 @@ def survey(cfg):
     st = load_state()
     errs, stale, cov = [], [], {}
     keep = set(cfg.get("keep_english", []))
+    reviews = load_reviews()
     for c in catalogues(cfg):
         units = {u.key: u for u in c.units()}
         for lang in cfg["languages"]:
@@ -784,6 +839,12 @@ def survey(cfg):
                     continue
                 if k in keep:
                     errs.append(f"{c.id} {lang} {k}: must stay English (keep_english)")
+                    continue
+                if is_legal(u, cfg) and not reviewed(reviews, lang, u):
+                    errs.append(f"{c.id} {lang} {k}: UNREVIEWED legal/consent translation would ship; "
+                                "run `stale` (moves it to l10n/legal_pending, English ships) or "
+                                "`legal-approve` once a named reviewer has read it")
+                    n["legal_unreviewed"] += 1
                     continue
                 for e in mech(u, v, cfg):
                     errs.append(f"{c.id} {lang} {k}: {e}")
@@ -827,6 +888,21 @@ def cmd_stale(cfg):
     by = collections.defaultdict(set)
     for c, lang, k in stale:
         by[(c.id, lang)].add(k)
+    # unreviewed legal/consent translations: park them for the reviewer
+    reviews = load_reviews()
+    parked = 0
+    for c in catalogues(cfg):
+        units = {u.key: u for u in c.units()}
+        for lang in cfg["languages"]:
+            tr = c.read(lang)
+            pend = load_legal_pending(lang)
+            for k, u in units.items():
+                v = tr.get(k)
+                if v is not None and v != u.src and is_legal(u, cfg) and not reviewed(reviews, lang, u):
+                    pend[u.uid] = {"text": v, "src_hash": h(u.src), "src": u.src}
+                    by[(c.id, lang)].add(k)
+                    parked += 1
+            save_legal_pending(lang, pend)
     n = 0
     for c in catalogues(cfg):
         for lang in cfg["languages"]:
@@ -848,7 +924,8 @@ def cmd_stale(cfg):
             n += len(ks)
     filled = sum(c.fill_fallbacks(cfg["languages"]) for c in catalogues(cfg) if c.spec["type"] == "xcstrings")
     save_state(st)
-    print(f"stale: {n} translation(s) fell back to English; {filled} missing key-based value(s) given the English")
+    print(f"stale: {n} translation(s) fell back to English ({parked} unreviewed legal/consent parked in "
+          f"l10n/legal_pending); {filled} missing key-based value(s) given the English")
     return 0
 
 
@@ -886,9 +963,12 @@ def pending(cfg):
                 continue
             tr = c.read(lang)
             made = st["made_from"].get(lang, {})
+            parked = load_legal_pending(lang)
             for u in units:
                 if u.key in keep:
                     continue
+                if parked.get(u.uid, {}).get("src_hash") == h(u.src):
+                    continue  # a translation already waits for its legal reviewer
                 if (c.id, lang, u.key) in stale_set or made.get(u.uid) != h(u.src):
                     out.append((lang, u))
     return out
@@ -1126,11 +1206,17 @@ def decide(cfg, ids, tr, rv):
 def apply_results(cfg, results):
     ids = results.pop("__ids__")
     st = load_state()
+    reviews = load_reviews()
     per = collections.defaultdict(lambda: ({}, {}))
+    parked = collections.defaultdict(dict)
     for sid, res in results.items():
         if not res:
             continue
         lang, u = ids[sid]
+        if is_legal(u, cfg) and not reviewed(reviews, lang, u):
+            # legal/consent: never straight into a shipping catalogue
+            parked[lang][u.uid] = {"text": res[0], "src_hash": h(u.src), "src": u.src}
+            continue
         vals, fl = per[(u.cat, lang)]
         vals[u.key] = res[0]
         if res[1]:
@@ -1152,10 +1238,75 @@ def apply_results(cfg, results):
                 c.write(lang, vals, fl)
             else:
                 c.write(lang, merged, flags)
+    for lang, d in parked.items():
+        pend = load_legal_pending(lang)
+        pend.update(d)
+        save_legal_pending(lang, pend)
     for c in catalogues(cfg):
         if c.spec["type"] == "xcstrings":
             c.fill_fallbacks(cfg["languages"])
     save_state(st)
+
+
+def cmd_legal_list(cfg):
+    """What is waiting for a legal/consent reviewer, per language."""
+    total = 0
+    for lang in cfg["languages"]:
+        pend = load_legal_pending(lang)
+        if pend:
+            print(f"{lang}: {len(pend)} waiting")
+            for uid, v in sorted(pend.items())[:200]:
+                print(f"  {uid}\n    EN: {v['src'][:160]}\n    {lang}: {v['text'][:160]}")
+        total += len(pend)
+    print(f"legal-list: {total} translation(s) waiting for review; English ships until approved")
+    return 0
+
+
+def cmd_legal_approve(cfg, args):
+    """legal-approve LANG CATALOGUE::KEY --by NAME [--date YYYY-MM-DD] [--text "edited translation"]
+    Records the review and ships the (possibly edited) translation."""
+    import argparse
+    ap = argparse.ArgumentParser(prog="legal-approve")
+    ap.add_argument("lang"); ap.add_argument("uid")
+    ap.add_argument("--by", required=True); ap.add_argument("--date", default=datetime.date.today().isoformat())
+    ap.add_argument("--text")
+    a = ap.parse_args(args)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.date) or not a.by.strip():
+        raise SystemExit("legal-approve: --by NAME and --date YYYY-MM-DD are required")
+    cat_id, key = a.uid.split("::", 1)
+    c = next(x for x in catalogues(cfg) if x.id == cat_id)
+    u = next(x for x in c.units() if x.key == key)
+    pend = load_legal_pending(a.lang)
+    entry = pend.get(a.uid)
+    text = a.text if a.text is not None else (entry or {}).get("text")
+    if text is None:
+        raise SystemExit(f"legal-approve: nothing pending for {a.lang} {a.uid}; pass --text")
+    if entry and entry.get("src_hash") != h(u.src):
+        raise SystemExit("legal-approve: the English changed since this translation was made; retranslate first")
+    errs = mech(u, text, cfg)
+    if errs:
+        raise SystemExit(f"legal-approve: refused, {errs}")
+    new = not os.path.exists(_reviews_path())
+    with open(_reviews_path(), "a", encoding="utf-8") as f:
+        if new:
+            f.write("lang\tcatalogue\tkey\tsource_hash\treviewed_by\tdate\n")
+        f.write(f"{a.lang}\t{cat_id}\t{key}\t{h(u.src)}\t{a.by.strip()}\t{a.date}\n")
+    existing = c.read(a.lang)
+    units = {x.key: x for x in c.units()}
+    if c.spec["type"] == "xcstrings":
+        c.write(a.lang, {key: text}, {})
+    else:
+        merged = {k: v for k, v in existing.items() if k in units and v != units[k].src}
+        merged[key] = text
+        fl = {k: v for k, v in c.flags(a.lang).items() if k in merged and k != key}
+        c.write(a.lang, merged, fl)
+    st = load_state()
+    st["made_from"].setdefault(a.lang, {})[a.uid] = h(u.src)
+    save_state(st)
+    pend.pop(a.uid, None)
+    save_legal_pending(a.lang, pend)
+    print(f"legal-approve: {a.lang} {a.uid} reviewed by {a.by.strip()} on {a.date}; translation ships")
+    return 0
 
 # --------------------------------------------------------------------------
 # self-test: the gate must fail on the defects it exists for
@@ -1175,7 +1326,7 @@ def cmd_self_test(cfg):
         open(os.path.join(tmp, "s.en-GB.sh"), "w").write('MSG_A="Saved to %s"\nMSG_B="Type INSTALL to go on"\n')
         open(os.path.join(tmp, "s.de.sh"), "w").write('MSG_A="Gespeichert unter %s"\nMSG_B="Gib INSTALL ein, um fortzufahren"\n')
         open(os.path.join(tmp, "l10n", "config.yaml"), "w").write(
-            "languages: [de]\nbudget_usd: 1\nverbatim_tokens: [INSTALL]\nmodels:\n  translate: claude-sonnet-5-5\n  review: claude-opus-5-5\n"
+            "languages: [de]\nbudget_usd: 1\nverbatim_tokens: [INSTALL]\nlegal_patterns: [consent]\nmodels:\n  translate: claude-sonnet-5-5\n  review: claude-opus-5-5\n"
             "catalogues:\n  - id: x\n    type: xcstrings\n    source: L.xcstrings\n  - id: sh\n    type: shell\n    source: s.en-GB.sh\n    target: s.{lang}.sh\n")
         REPO, HERE, STATE = tmp, os.path.join(tmp, "l10n"), os.path.join(tmp, "l10n", "provenance.json")
         c2 = load_yaml(open(os.path.join(HERE, "config.yaml")).read())
@@ -1214,6 +1365,22 @@ def cmd_self_test(cfg):
         results["check passes after fill"] = quiet(cmd_check, c2) == 0
         # yaml subset round-trip of the real config
         results["real config parses"] = bool(_REAL_CFG.get("catalogues"))
+        # legal/consent: an unreviewed translation must never ship
+        en_sh = os.path.join(tmp, "s.en-GB.sh"); de_sh = os.path.join(tmp, "s.de.sh")
+        open(en_sh, "a").write('MSG_CONSENT_X="I agree to %s"\n')
+        open(de_sh, "a").write('MSG_CONSENT_X="Ich stimme %s zu"\n')
+        results["unreviewed consent translation fails"] = quiet(cmd_check, c2) == 1
+        quiet(cmd_stale, c2)
+        de_now = ShellCatalogue(c2["catalogues"][1]).read("de").get("MSG_CONSENT_X")
+        results["stale ships English for it"] = de_now == "I agree to %s"
+        results["and parks the translation for review"] = load_legal_pending("de").get("sh::MSG_CONSENT_X", {}).get("text") == "Ich stimme %s zu"
+        results["check passes with English"] = quiet(cmd_check, c2) == 0
+        quiet(cmd_legal_approve, c2, ["de", "sh::MSG_CONSENT_X", "--by", "Test Reviewer", "--date", "2026-10-19"])
+        results["approved translation ships"] = ShellCatalogue(c2["catalogues"][1]).read("de").get("MSG_CONSENT_X") == "Ich stimme %s zu"
+        results["check passes once reviewed"] = quiet(cmd_check, c2) == 0
+        t = open(en_sh).read().replace('MSG_CONSENT_X="I agree to %s"', 'MSG_CONSENT_X="I fully agree to %s"')
+        open(en_sh, "w").write(t)
+        results["a review of OLD English does not cover new English"] = quiet(cmd_check, c2) == 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     for k, v in results.items():
@@ -1236,5 +1403,6 @@ if __name__ == "__main__":
     cfg, gl = load_config()
     _REAL_CFG = cfg
     sys.exit({"check": lambda: cmd_check(cfg), "stale": lambda: cmd_stale(cfg), "diff": lambda: cmd_diff(cfg),
-              "adopt": lambda: cmd_adopt(cfg), "run": lambda: cmd_run(cfg, gl, dry="--dry-run" in sys.argv),
+              "adopt": lambda: cmd_adopt(cfg),
+              "legal-list": lambda: cmd_legal_list(cfg), "legal-approve": lambda: cmd_legal_approve(cfg, sys.argv[2:]), "run": lambda: cmd_run(cfg, gl, dry="--dry-run" in sys.argv),
               "self-test": lambda: cmd_self_test(cfg)}[cmd]())
