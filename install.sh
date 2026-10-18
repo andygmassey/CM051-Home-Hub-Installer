@@ -17349,7 +17349,8 @@ umask "$umask_orig"
 # Scrub the plaintext password from the bash environment as soon as
 # the file is written. The TOML still has it on disk; this just
 # narrows the in-memory exposure for the rest of the install.
-unset CHANNEL_EMAIL_PASSWORD _EMAIL_BLOCK_PRESERVED _TELEGRAM_BLOCK_PRESERVED
+unset CHANNEL_EMAIL_PASSWORD _EMAIL_BLOCK_PRESERVED
+unset _TELEGRAM_BLOCK_PRESERVED
 
 # Same treatment for the chat admin token. Both copies (TOML +
 # secrets file) are written and locked down by now.
