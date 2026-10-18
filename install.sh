@@ -3416,7 +3416,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8587   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8632   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8641 and :16315, both of which run
+    # Its two top-level arming calls are :8641 and :16319, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17095, where the note reads
+    # WhatsApp Web session path did it again at :17099, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17112 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17116 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3453,9 +3453,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8641, :16315) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8641, :16319) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19258 / :19436 / :19593 / :20038 path. There the
+    # :19262 / :19440 / :19597 / :20042 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -14385,7 +14385,11 @@ progress "Setting up Ollama (local AI engine)" "ollama_install"
 # (app/updater in the Ollama source, gated on the app's own settings
 # store); a binary that has no app has nothing to update itself with.
 #
-# 0.40.5 because it is the version the validated qwen3.5:9b A/B ran on.
+# 0.34.0 (GGUF runner), Archie's v1.0.109 decision: 0.40.5 pulls MLX builds
+# and regressed memory on every RAM tier. The sha256 below is from a real
+# download of the official v0.34.0 asset (2026-10-19, remote_ip
+# 185.199.110.133, 159589632 bytes), equal to GitHub's own asset digest;
+# the unpacked tree carries ollama + llama-server and no .app.
 #
 # The archive's sha256 is recorded HERE, not fetched: the release's own
 # sha256sum.txt comes from the same place as the archive and proves
@@ -14402,9 +14406,9 @@ progress "Setting up Ollama (local AI engine)" "ollama_install"
 # proof against the new engine, cut. On the customer Mac the new install
 # writes ollama-<new>/, the plist check below sees the agent pointing at
 # the old path and rewrites it. Nothing else moves the engine.
-OLLAMA_PIN_VERSION="0.40.5"
-OLLAMA_PIN_URL="https://github.com/ollama/ollama/releases/download/v0.40.5/ollama-darwin.tgz"
-OLLAMA_PIN_SHA256="75f9907dafa2fd4c61b5967de2ebb81ccc17eb28da9172edbad0dbc717474dcf"
+OLLAMA_PIN_VERSION="0.34.0"
+OLLAMA_PIN_URL="https://github.com/ollama/ollama/releases/download/v0.34.0/ollama-darwin.tgz"
+OLLAMA_PIN_SHA256="dd12b00bcce2d6551178e67ada90d5af9f75bdb54a118b96655250fa3e8ef734"
 OLLAMA_PIN_DIR="${HOME}/.ostler/runtime/ollama-${OLLAMA_PIN_VERSION}"
 # Name kept for every consumer below (LaunchAgent ProgramArguments, the
 # direct-serve fallback): it is THE binary this install serves from.
