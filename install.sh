@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8653) captures the path BY
+    # _ostler_write_store_curl_config (defined :8652) captures the path BY
     # VALUE and never re-reads it:
-    #     :8654   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8699   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8708 and :16171, both of which run
+    #     :8653   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8698   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8707 and :16170, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16951, where the note reads
+    # WhatsApp Web session path did it again at :16950, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16968 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16967 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6031 against a definition at :8653. Top-level
+    # writer's own definition: :6030 against a definition at :8652. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8708, :16171) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8707, :16170) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19116 / :19294 / :19451 / :19896 path. There the
+    # :19115 / :19293 / :19450 / :19895 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4236,7 +4236,6 @@ _ostler_scrub_targets=(
     "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/logs"/install.log*
     "${LOGS_DIR}"/install.log*
     "${TMPDIR:-/tmp}"/ostler-diag-*/install*.log
-    /tmp/ostler-diag-*/install*.log
 )
 if [[ -w "${LOGS_DIR}" ]]; then
     _ostler_scrub_recovery_key_from_logs "${_ostler_scrub_targets[@]}" >> "${INSTALL_LOG}" 2>&1 || true
