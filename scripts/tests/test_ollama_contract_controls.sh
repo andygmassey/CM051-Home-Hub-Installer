@@ -91,7 +91,7 @@ run_control "control 7: 'open -a Ollama' reintroduced   (expect FAIL)" 1 \
 run_control "control 9: sha256 record not 64 hex        (expect FAIL)" 1 \
     sed -E 's#^(OLLAMA_PIN_SHA256="[0-9a-f]{63})[0-9a-f]"#\1"#'
 run_control "control 10: already-running skip unpinned  (expect FAIL)" 1 \
-    sed -E 's#^(   && grep -qF "<string>\$\{OLLAMA_APP_BIN\}</string>" "\$OLLAMA_PLIST"; then)$#   ; then#'
+    sed -E 's# && grep -qF "<string>\$\{OLLAMA_APP_BIN\}</string>" "\$OLLAMA_PLIST"; then$#; then#'
 run_control "control 8: port drifted to 11435           (expect FAIL)" 1 \
     sed 's#localhost:11434/api/tags#localhost:11435/api/tags#g'
 

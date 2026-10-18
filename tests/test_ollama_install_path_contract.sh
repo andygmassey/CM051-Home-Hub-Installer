@@ -115,7 +115,7 @@ if ! grep -nE '^OLLAMA_APP_BIN="\$\{OLLAMA_PIN_DIR\}/ollama"$' "$INSTALL_SH" > /
 fi
 # An agent written by a cask-era install must not satisfy the "already
 # running" skip, or the upgraded customer stays on the self-updating app.
-if ! grep -nE '&& grep -qF "<string>\$\{OLLAMA_APP_BIN\}</string>" "\$OLLAMA_PLIST"; then$' "$INSTALL_SH" > /dev/null; then
+if ! grep -nE '^if curl -sf http://localhost:11434/api/tags .*&& grep -qF "<string>\$\{OLLAMA_APP_BIN\}</string>" "\$OLLAMA_PLIST"; then$' "$INSTALL_SH" > /dev/null; then
     fail "the 'Ollama already running' skip no longer requires com.ostler.ollama to serve OLLAMA_APP_BIN, so an install upgraded from the cask keeps serving /Applications/Ollama.app."
 fi
 
