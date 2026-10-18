@@ -147,6 +147,19 @@ def read_scout_cards(profile: dict, now: datetime, ledger) -> list | None:
         return None
 
 
+def read_setup_state() -> dict | None:
+    """Best-effort setup-card inputs (setup_cards.py): which capture apps are
+    installed and whether each has started working. Any failure -> ``None``
+    (no setup cards), never an error."""
+    try:
+        from compiler import setup_cards as su
+        return su.read_setup_state()
+    except Exception as exc:  # noqa: BLE001 - a setup probe never breaks a feed
+        print(f"front-page: setup state unavailable "
+              f"({type(exc).__name__}: {exc})", file=sys.stderr)
+        return None
+
+
 def _atomic_write(path: str, text: str) -> str:
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
@@ -215,9 +228,11 @@ def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
         profile = _obtain_profile(oxigraph_url, from_artefact)
         scout_cards = None if demo else read_scout_cards(profile, now, ledger)
         explore = not os.environ.get("OSTLER_EDITOR_DISABLE_EXPLORATION")
+        setup_state = None if demo else read_setup_state()
         feed = fp.build_frontpage(profile, now=now, settling=settling,
                                   card_states=card_states, ledger=ledger,
                                   signals=signals, scout_cards=scout_cards,
+                                  setup_state=setup_state,
                                   demo=demo, entitled=entitled,
                                   exploration=explore)
     except Exception as exc:  # graph down / artefact missing -> never blank

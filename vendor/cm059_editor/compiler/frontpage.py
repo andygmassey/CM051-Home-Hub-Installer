@@ -989,6 +989,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
                     ledger: dict | None = None,
                     signals: dict | None = None,
                     scout_cards: list | None = None,
+                    setup_state: dict | None = None,
                     demo: bool = False,
                     entitled: bool | None = None,
                     exploration: bool = True) -> dict:
@@ -1086,6 +1087,14 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     if not demo and scout_cards:
         cards.extend(scout_cards)
 
+    # Setup cards (Safari extension, RemoteCapture): each shown only while
+    # its app is installed and not yet working, so the button always has a
+    # target (the CM051 #2878 rule). ``setup_state`` is read by the emitter
+    # (setup_cards.read_setup_state); None, or demo mode, yields none.
+    if not demo and setup_state:
+        from compiler import setup_cards as _setup
+        cards.extend(_setup.setup_cards(setup_state, now, _make_card))
+
     # Feed assembly: overlay the ledger (stable created_utc) and age-decay from
     # first emission, TTL sweep, state store, fail-closed privacy gate,
     # fail-closed Pro entitlement gate, then rank by (decayed) priority,
@@ -1139,6 +1148,11 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     n_explore = sum(1 for c in cards if c.get("exploration") is True)
     if n_explore:
         out["stats"]["exploration_cards"] = n_explore
+    # Additive, optional: present only when a setup card made the page.
+    n_setup = sum(1 for c in cards
+                  if str(c.get("source") or "").startswith("ostler:setup_"))
+    if n_setup:
+        out["stats"]["setup_cards"] = n_setup
     n_consent = sum(1 for c in cards if c.get("kind") == "consent")
     if n_consent:
         out["stats"]["consent_cards"] = n_consent
