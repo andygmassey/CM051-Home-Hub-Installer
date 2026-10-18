@@ -49,7 +49,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_catchup_mail.py -v -rs -s
-      - name: the machinery the mail family stands on still holds
-        if: always()
-        run: |
-          python -m pytest tests/test_catchup_core.py -q -rs
+      # tests/test_catchup_core.py ("the machinery the mail family stands on
+      # still holds") used to run here AND in catchup-machinery.yml: the same
+      # 92 s suite twice on every PR that fired both, which is every PR that
+      # touches install.sh. Measured on Actions 2026-10-17: 58 s here, 64 s
+      # there. It now runs once, in catchup-machinery.yml, which watches every
+      # path this workflow watches (added in the same change), so a change that
+      # used to run it here still runs it. The suite loads only
+      # lib/ostler_catchup.py, which is stdlib-only, so this job's extra
+      # packages (rapidfuzz) never changed its result; and the run there is
+      # the stricter one, with a collected-tests floor of 16.
