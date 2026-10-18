@@ -63,4 +63,5 @@ jobs:
       # num_ctx, or Ollama cold-loads it twice before the first reply. RED
       # until gui/Makefile DAEMON_VERSION >= 0.5.20 (ostler-assistant #560).
       - name: The shipped daemon warms the chat model at the chat num_ctx
+        if: always()
         run: /bin/bash tests/test_daemon_warmup_loads_at_chat_num_ctx.sh
