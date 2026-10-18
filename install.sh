@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8652) captures the path BY
+    # _ostler_write_store_curl_config (defined :8701) captures the path BY
     # VALUE and never re-reads it:
-    #     :8653   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8698   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8707 and :16170, both of which run
+    #     :8702   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8747   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8756 and :16199, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16950, where the note reads
+    # WhatsApp Web session path did it again at :16994, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16967 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17011 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6030 against a definition at :8652. Top-level
+    # writer's own definition: :6030 against a definition at :8701. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8707, :16170) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8756, :16199) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19115 / :19293 / :19450 / :19895 path. There the
+    # :19159 / :19337 / :19494 / :19939 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -7620,6 +7620,55 @@ _ostler_existing_email_block() {
         in_s && /^\[/ { in_s = 0 }
         in_s { print }
     ' "$cfg"
+}
+
+# ── The mailbox password lives in ~/.ostler/secrets, NEVER in config.toml ──
+#
+# CM051 #1976. config.toml is the file a customer opens, edits, backs up and
+# pastes into a support thread, so it carries `password = ""` and the value
+# lives in ${SECRETS_DIR}/email_password beside every other Ostler secret
+# (service_token, wiki_password, qdrant_api_key). The daemon reads that file
+# when config.toml's password is empty (ostler-assistant
+# crates/zeroclaw-channels/src/email_channel.rs, email_password_file_path).
+#
+# $1 = value, $2 = path. Born 0600 (umask in a subshell, so it is never briefly
+# readable), written to a temp name and renamed so a crash leaves the old file.
+# The value never reaches argv: printf is a builtin and the subshell is a fork.
+# No trailing newline: the daemon strips at most one, and a password may end in
+# a space.
+_email_password_store() {
+    local _v="$1" _p="$2" _d _t
+    _d="$(dirname "$_p")"; _t="${_p}.tmp.$$"
+    mkdir -p "$_d" || return 1
+    chmod 700 "$_d" || return 1
+    if ! ( umask 0077; printf '%s' "$_v" > "$_t" ); then rm -f "$_t"; return 1; fi
+    chmod 600 "$_t" && mv -f "$_t" "$_p" || { rm -f "$_t"; return 1; }
+}
+# Upgrade migration. $1 = an existing [channels.email] block. Sets
+#   _EMAIL_PASSWORD_MIGRATED  the plaintext password it held ("" if none)
+#   _EMAIL_BLOCK_MIGRATED     the same block with that line set to `password = ""`
+# An `enc:`/`enc2:` value is left exactly where it is: the daemon decrypts it,
+# and it is not plaintext. A double-quoted value is un-escaped the one way the
+# old writer escaped it (`\"` -> `"`), so the customer gets back what they typed.
+_email_block_extract_password() {
+    local _blk="$1" _line _v _out="" _pw="" _re_dq _re_sq
+    _re_dq='^[[:space:]]*password[[:space:]]*=[[:space:]]*"(([^"\\]|\\.)*)"[[:space:]]*(#.*)?$'
+    _re_sq="^[[:space:]]*password[[:space:]]*=[[:space:]]*'([^']*)'[[:space:]]*(#.*)?\$"
+    while IFS= read -r _line || [[ -n "$_line" ]]; do
+        if [[ "$_line" =~ $_re_dq ]]; then
+            _v="${BASH_REMATCH[1]}"; _v="${_v//\\\"/\"}"
+        elif [[ "$_line" =~ $_re_sq ]]; then
+            _v="${BASH_REMATCH[1]}"
+        else
+            _out="${_out}${_line}"$'\n'; continue
+        fi
+        case "$_v" in
+            enc:*|enc2:*) _out="${_out}${_line}"$'\n' ;;
+            *) _pw="$_v"; _out="${_out}password = \"\""$'\n' ;;
+        esac
+    done <<< "$_blk"
+    _EMAIL_BLOCK_MIGRATED="${_out%$'\n'}"
+    _EMAIL_PASSWORD_MIGRATED="$_pw"
 }
 # END email-allowlist-helpers
 
@@ -15755,39 +15804,19 @@ ok "$(printf "$MSG_OK_CONFIG_SAVED_ENV" "${CONFIG_DIR}")"
 # produces an empty config that the assistant will treat as
 # defaults.
 #
-# Password handling: written in plaintext, and it STAYS in plaintext.
-# Mode 0600 is the whole of the protection.
+# Password handling (CM051 #1976): config.toml carries `password = ""` and
+# the value lives in ${SECRETS_DIR}/email_password, born 0600 under umask
+# 0077, beside every other Ostler secret. The daemon reads that file when
+# config.toml's password is empty (ostler-assistant email_channel.rs,
+# email_password_file_path). A reuse-settings re-run that finds a plaintext
+# password in the old config moves it into that file and blanks the line;
+# an `enc2:` value is left alone because the daemon decrypts it.
 #
-# 🔴 THIS COMMENT USED TO SAY THE ASSISTANT "cannot encrypt before its
-# own first run", AND THE PREAMBLE WRITTEN INTO THE CUSTOMER'S OWN
-# config.toml SAID SO IN SO MANY WORDS: credentials "are stored in
-# plaintext until the assistant first runs and encrypts them in place".
-# Both sentences describe a step that does not exist and never has.
-#
-# The nearest thing to a proposal was, three lines further down, a
-# `ostler-assistant secrets encrypt-config` step "Phase C should add".
-# Measured on origin/main: `encrypt-config` has exactly ONE match in
-# this repo, and it is that proposal. Controls run in the same command
-# shape against the same file, so the search is not the thing that is
-# broken: `doctor` 93 matches, `allow-plaintext` 17.
-#
-# The daemon side says the same thing from the other direction, at the
-# 3.14e staging block below: the secrets store auto-migrates legacy
-# `enc:` values to `enc2:` on read, and does NOT bootstrap from
-# plaintext. So a plaintext value put here is not the start of a
-# process, it is the end state.
-#
-# The customer-facing preamble now tells them that, names the one
-# mitigation actually available to them (an app-specific password, which
-# is revocable on its own), and does not promise a step that is not
-# coming. Lying to a customer in a file they open themselves is worse
-# than the plaintext.
-#
-# THE IMPLEMENTATION IS FILED, NOT FORGOTTEN: issue #1976. It is a Rust
-# PR in ostler-assistant (the key derivation lives in
-# crates/zeroclaw-config/src/secrets.rs and no subcommand exposes it),
-# plus the call site here in 3.14e. It is not something install.sh can
-# do on its own, which is why it is not in the PR that fixed the text.
+# What this is NOT: encryption at rest. The secrets file is plaintext at
+# mode 0600, exactly like service_token and wiki_password. What changes is
+# that the password is no longer in the file a customer opens, edits, backs
+# up or pastes into a support ticket. The `encrypt-config` subcommand the
+# old comment proposed still does not exist.
 
 # ── Chat admin token seed (CM031 PR #43 / HR015 PR #63 sister) ────
 #
@@ -16528,6 +16557,34 @@ if [[ "${SKIP_PHASE2:-false}" == true ]]; then
     fi
 fi
 
+# ── Email password -> ${SECRETS_DIR}/email_password (CM051 #1976) ──
+# BEFORE config.toml is regenerated, so an abort between the two can never
+# leave a migrated password in neither place.
+EMAIL_PASSWORD_FILE="${SECRETS_DIR}/email_password"
+if [[ "${CHANNEL_EMAIL_ENABLED:-false}" == true \
+      && "${CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED:-false}" == true ]]; then
+    # A fresh answer replaces the stored one. No answer (a reuse re-run that
+    # restored the flags) keeps the stored one, which the old writer lost.
+    if [[ -n "${CHANNEL_EMAIL_PASSWORD:-}" ]]; then
+        _email_password_store "$CHANNEL_EMAIL_PASSWORD" "$EMAIL_PASSWORD_FILE" \
+            || fail_with_code "ERR-14-STORE-EMAIL-CREDENTIAL" "Could not write the email password to ~/.ostler/secrets (it was not written anywhere else)."  # i18n-exempt
+    fi
+elif [[ -n "${_EMAIL_BLOCK_PRESERVED:-}" ]]; then
+    _email_block_extract_password "$_EMAIL_BLOCK_PRESERVED"
+    if [[ -n "$_EMAIL_PASSWORD_MIGRATED" ]]; then
+        if _email_password_store "$_EMAIL_PASSWORD_MIGRATED" "$EMAIL_PASSWORD_FILE"; then
+            _EMAIL_BLOCK_PRESERVED="$_EMAIL_BLOCK_MIGRATED"
+            info "Moved the email password out of config.toml into ~/.ostler/secrets."  # i18n-exempt
+        else
+            warn "Could not move the email password out of config.toml; it stays there until the next run."  # i18n-exempt
+        fi
+    fi
+    unset _EMAIL_PASSWORD_MIGRATED _EMAIL_BLOCK_MIGRATED
+else
+    # No email channel any more: no stale mailbox credential either.
+    rm -f "$EMAIL_PASSWORD_FILE"
+fi
+
 umask_orig=$(umask)
 umask 0077
 {
@@ -16537,29 +16594,15 @@ umask 0077
 # Generated by the Ostler installer. Edit by hand or re-run the
 # installer to regenerate.
 #
-# READ THIS IF YOU GAVE THE INSTALLER AN EMAIL PASSWORD.
+# Your email password is NOT in this file. If you gave the
+# installer one, it is in ~/.ostler/secrets/email_password, which
+# only your own account can read (mode 0600), and `password = ""`
+# below tells the assistant to read it from there.
 #
-# Your email password is in this file, in plain text, and it STAYS
-# in plain text. Nothing encrypts it later. The only thing
-# protecting it is this file's permissions: it is mode 0600, which
-# means your own account can read it and no other account on this
-# Mac can.
-#
-# What that means for you:
-#   - Anyone with your Mac unlocked, or with Full Disk Access to it,
-#     can read this password.
-#   - Copying this file to another machine, a backup you do not
-#     control, or a support ticket copies the password with it.
-#   - If that is not a trade you want to make, give Ostler an
-#     app-specific password instead of your main one. Apple, Google
-#     and Fastmail all issue them, they can be revoked on their own,
-#     and they cannot be used to sign in to your account.
-#
-# The assistant can hold secrets as `enc2:` ChaCha20-Poly1305
-# ciphertext, and it will keep any `enc2:` value you put here
-# encrypted. What it cannot do is take a plain-text value and
-# encrypt it for you, so writing one here does not start that
-# process off.
+# To change it, re-run the installer, or replace the contents of
+# that file. An app-specific password is still a better choice
+# than your main one: Apple, Google and Fastmail all issue them,
+# and they can be revoked on their own.
 
 # Schema version this file was written against. Matches
 # CURRENT_SCHEMA_VERSION in crates/zeroclaw-config/src/migration.rs
@@ -16847,7 +16890,8 @@ TOMLPREAMBLE
         echo "smtp_port = ${CHANNEL_EMAIL_SMTP_PORT}"
         echo "smtp_tls = true"
         echo "username = \"$(_esc "$CHANNEL_EMAIL_USERNAME")\""
-        echo "password = \"$(_esc "$CHANNEL_EMAIL_PASSWORD")\""
+        # Always empty: the value is in ${EMAIL_PASSWORD_FILE} (#1976).
+        echo 'password = ""'
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
         # The customer's own answer (validated full addresses). Empty renders
         # `[]`, which the daemon reads as "answer no one", never as everyone.
@@ -18167,7 +18211,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.19}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.22}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -18280,7 +18324,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="b9b2484bbc8f05de4009c5ebc77114a475af9d74b86cf73091f02b464429bddb"
+DEFAULT_ASSISTANT_TARBALL_SHA256="9c5032190b635bf7d1c71a8328a4fc85a4a8c38e27c318e630ad2acc98ba058a"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -22277,7 +22321,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.19"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.22"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -31428,7 +31472,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.6}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.7}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 # ── RemoteCapture integrity pin (cross-origin) ──────────────────
 # The .sha256 sidecar is fetched from the SAME release URL as the tarball, so
@@ -31444,6 +31488,7 @@ OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-release
 # the published asset, never type it by hand.
 _ostler_remotecapture_pinned_sha() {
     case "$1" in
+        0.1.7) echo "e269af01b058204cca41d72b6c0afc8d90f1de73054ebbcf456e8b7101c599f5" ;;
         0.1.6) echo "8f7f4a2333f814181413b21397dc3a7f77395af7845346518d1339746ad24656" ;;
         *)     echo "" ;;
     esac

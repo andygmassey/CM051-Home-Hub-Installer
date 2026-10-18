@@ -46,7 +46,7 @@ BLOCK="$(awk '
     grab && /^    if \[\[ \$_ollama_rc -eq 2 \]\]; then/           { exit }
 ' "${INSTALL_SH}")"
 
-printf '%s\n' "${BLOCK}" | grep -qF '_ollama_agent_is_running || _ollama_rc=$?' || {
+grep -qF '_ollama_agent_is_running || _ollama_rc=$?' <<< "${BLOCK}" || {
     printf 'FAIL: could not extract the fixed block from install.sh\n' >&2
     printf '      (has the guarded call at :12399 been reverted or moved?)\n' >&2
     exit 1
