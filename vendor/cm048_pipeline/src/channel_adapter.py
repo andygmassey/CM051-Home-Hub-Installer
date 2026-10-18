@@ -145,6 +145,7 @@ def _spoken_adapter(
         participants=tuple(participants),
         started_at=started_at,
         ended_at=ended_at,
+        date=_resolve_date(metadata, started_at),
         privacy_level=level,
         source_app=_resolve_source_app(metadata),
         summary=_build_summary(extraction),
@@ -258,6 +259,7 @@ def _imessage_adapter(
         participants=tuple(participants),
         started_at=started_at,
         ended_at=ended_at,
+        date=_resolve_date(metadata, started_at),
         privacy_level=level,
         source_app=source_app,
         summary=_build_summary(extraction),
@@ -428,6 +430,7 @@ def _email_adapter(
         participants=tuple(participants),
         started_at=started_at,
         ended_at=ended_at,
+        date=_resolve_date(metadata, started_at),
         privacy_level=level,
         source_app=_resolve_email_source_app(metadata),
         summary=_build_summary(extraction),
@@ -613,6 +616,7 @@ def _whatsapp_adapter(
         participants=tuple(participants),
         started_at=started_at,
         ended_at=ended_at,
+        date=_resolve_date(metadata, started_at),
         privacy_level=level,
         source_app=_resolve_whatsapp_source_app(metadata),
         summary=_build_summary(extraction),
@@ -680,29 +684,42 @@ def _resolve_whatsapp_source_app(metadata: dict) -> str:
 def _resolve_timestamps(metadata: dict) -> tuple[str, str]:
     """Return (started_at, ended_at) ISO strings from metadata.
 
-    CM048 metadata historically uses ``date`` (YYYY-MM-DD) plus
-    optional ``started_at`` / ``ended_at`` ISO timestamps. We
-    prefer the explicit timestamps; fall back to ``date`` with
-    a midnight time and ``date`` + 1h end (so the bundle has a
-    valid range without lying about precision).
+    Accepts both key spellings in use: ``started_at`` / ``ended_at``
+    (CM048 and the Mac capture path) and ``start_time`` / ``end_time``
+    (the iPhone capture app, CM031, as POSTed to
+    ``/api/v1/conversation/process``). The iPhone keys used to be
+    ignored, so every phone capture was stamped with a fake
+    ``<date>T00:00:00Z`` to ``<date>T01:00:00Z`` window.
+
+    A time that is genuinely unknown is returned as ``""`` and the
+    writer omits it. It is never defaulted to midnight: a made-up
+    clock time reads to the customer exactly like a measured one.
+    The folder date still comes from ``metadata['date']`` via
+    :func:`_resolve_date`.
     """
-    # CM031's iPhone / Watch envelope names them start_time / end_time
-    # (APIClient.ConversationMetadata). Read before the date fallback, which
-    # otherwise stamped a real 14:23 memo as 00:00-01:00 (Mini16 2026-10-15).
-    started = str(metadata.get("started_at") or metadata.get("start_time") or "").strip()
-    ended = str(metadata.get("ended_at") or metadata.get("end_time") or "").strip()
-    if started and ended:
-        return started, ended
-    date_part = (metadata.get("date") or "1970-01-01")[:10]
-    if not started:
-        started = f"{date_part}T00:00:00Z"
-    if not ended:
-        # 1h placeholder window when only date is known. Better
-        # than reusing started_at (which would mark a 0s
-        # conversation) and clearly recoverable downstream
-        # because it lands at exactly +1h00:00.
-        ended = f"{date_part}T01:00:00Z"
+    started = _first_str(metadata, "started_at", "start_time")
+    ended = _first_str(metadata, "ended_at", "end_time")
     return started, ended
+
+
+def _first_str(metadata: dict, *keys: str) -> str:
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _resolve_date(metadata: dict, started_at: str = "") -> str:
+    """The conversation's calendar date (YYYY-MM-DD), or ``""``.
+
+    Prefers the real start timestamp, then ``metadata['date']``.
+    Used for the bundle folder when no start time is known.
+    """
+    for candidate in (started_at, _first_str(metadata, "date")):
+        if len(candidate) >= 10 and candidate[4] == "-" and candidate[7] == "-":
+            return candidate[:10]
+    return ""
 
 
 def _normalise_participants(metadata: dict) -> list[str]:

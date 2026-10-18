@@ -231,7 +231,7 @@
 +Then `## Summary`. No preamble.
 --- a/prompts/09_bundle_extract.md
 +++ b/prompts/09_bundle_extract.md
-@@ -57,7 +57,13 @@
+@@ -71,7 +71,13 @@
    id, include it. Otherwise omit.
  - If there are no todos, return ``"todos": []`` -- empty list,
    not omitted.
@@ -243,9 +243,9 @@
 +  that script's normal capitalisation.
 +- Use the user's locale for spelling (en-GB, en-US, etc.) when the
 +  output language is English.
- 
- # Channel-specific guidance
- 
+ - The owner values (user, other, both) are machine labels for the
+   ``owner`` field ONLY. Never write them into the summary, topic
+   points or todo text. Never write "the Other", "the other party"
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -18,20 +18,17 @@
@@ -497,7 +497,7 @@
 +    return facts
 --- a/src/bundle_extractor.py
 +++ b/src/bundle_extractor.py
-@@ -87,6 +87,7 @@
+@@ -131,6 +131,7 @@
      channel: str,
      model: str,
      locale: str = "en-GB",
@@ -505,7 +505,7 @@
      timeout: float | None = None,
  ) -> BundleExtraction:
      """Run the LLM call and return parsed ``BundleExtraction``.
-@@ -120,6 +121,7 @@
+@@ -164,6 +165,7 @@
          enrichment_md=enrichment_md,
          channel=channel_for_prompt,
          locale=locale,
@@ -513,7 +513,7 @@
      )
      full_prompt = template + "\n\n---\n\n" + body
  
-@@ -200,23 +202,37 @@
+@@ -249,23 +251,37 @@
      enrichment_md: str,
      channel: str,
      locale: str,
@@ -996,14 +996,14 @@
          source_session_id=str(
              metadata.get("source_session_id") or conversation_id
          ),
-@@ -259,9 +264,26 @@
+@@ -261,7 +266,24 @@
          transcript=transcript or "",
          todos=_build_todos(conversation_id, extraction),
          extra_metadata=extra,
 +        participant_handles=_counterpart_handles(metadata),
      )
- 
- 
++
++
 +def _counterpart_handles(metadata: dict) -> tuple[str, ...]:
 +    """The non-owner participants' raw handles, from the threader's
 +    participant dicts (``handle`` / ``jid``; role ``user`` is the owner and
@@ -1018,25 +1018,9 @@
 +        if handle:
 +            out.append(handle)
 +    return tuple(out)
-+
-+
+ 
+ 
  # ---------------------------------------------------------------------------
- # Email adapter (CM046)
- # ---------------------------------------------------------------------------
-@@ -664,8 +686,11 @@
-     a midnight time and ``date`` + 1h end (so the bundle has a
-     valid range without lying about precision).
-     """
--    started = (metadata.get("started_at") or "").strip()
--    ended = (metadata.get("ended_at") or "").strip()
-+    # CM031's iPhone / Watch envelope names them start_time / end_time
-+    # (APIClient.ConversationMetadata). Read before the date fallback, which
-+    # otherwise stamped a real 14:23 memo as 00:00-01:00 (Mini16 2026-10-15).
-+    started = str(metadata.get("started_at") or metadata.get("start_time") or "").strip()
-+    ended = str(metadata.get("ended_at") or metadata.get("end_time") or "").strip()
-     if started and ended:
-         return started, ended
-     date_part = (metadata.get("date") or "1970-01-01")[:10]
 --- a/src/chunker.py
 +++ b/src/chunker.py
 @@ -17,7 +17,9 @@
@@ -1140,10 +1124,10 @@
 +    # NOT rendered into any artefact; used only to derive the reminder
 +    # ``thread_key`` the assistant daemon matches against chat.db.
 +    participant_handles: tuple[str, ...] = ()
- 
- 
- @dataclass(frozen=True)
-@@ -361,7 +367,11 @@
+     # Calendar date (YYYY-MM-DD) for the folder when ``started_at`` is
+     # unknown. Never used to invent a clock time.
+     date: str = ""
+@@ -364,7 +370,11 @@
      return "L3"
  
  
@@ -1156,7 +1140,7 @@
  
  
  def _slug_segment(text: str, max_len: int = 32) -> str:
-@@ -372,7 +382,9 @@
+@@ -375,7 +385,9 @@
      ``"conversation"`` for empty / all-symbol inputs so the
      caller never has to handle ``""``.
      """
@@ -3581,7 +3565,7 @@
 +    L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
 +    the partner only when they resolve to a person; never a raw handle.
      """
-     started = (bundle.started_at or "")[:10] or "unknown date"
+     started = (bundle.started_at or "")[:10] or bundle.date or "unknown date"
      if privacy_level == "L2":
          context = f"From a private conversation on {started}"
      else:
