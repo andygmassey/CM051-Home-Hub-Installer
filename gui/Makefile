@@ -132,6 +132,18 @@ DMG_PATH      := $(DIST_DIR)/$(DMG_NAME)
 APP_PATH      := $(DIST_DIR)/$(APP_NAME).app
 DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 
+# GAP3: the standalone Ostler Uninstaller.app. Built by `build-uninstaller` and nested
+# into OstlerInstaller.app/Contents/Resources by the installer's bundle phase
+# (gui/project.yml), which reads UNINSTALLER_APP_PATH as a build setting exactly
+# as it reads OSTLER_APP_PATH. It then rides the existing sign / notarise-app /
+# staple-apps chain -- no separate notarise step. Exported as a build setting on
+# the release archive below and exported here so a plain `make build-uninstaller`
+# also resolves it.
+UNINSTALLER_SCHEME   := Ostler Uninstaller
+UNINSTALLER_APP_PATH ?= $(DIST_DIR)/Ostler Uninstaller.app
+UNINSTALLER_ARCHIVE  := $(BUILD_DIR)/Ostler Uninstaller.xcarchive
+export UNINSTALLER_APP_PATH
+
 # The standalone Recover Ostler.app. Built by `build-recovery` and nested into
 # OstlerInstaller.app/Contents/Resources by the installer's bundle phase
 # (gui/project.yml), which reads RECOVERY_APP_PATH as a build setting exactly
@@ -210,7 +222,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.5.19
+DAEMON_VERSION       ?= 0.5.22
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -304,7 +316,7 @@ DAEMON_VERSION       ?= 0.5.19
 # has been published at ostler-ai/ostler-assistant. Cutting v1.0.91 before
 # that second artefact exists will fail exactly as v1.0.81 did (see the
 # v1.0.81 note above) -- out of scope for this pin, flagged for whoever cuts.
-DAEMON_SHA256        ?= b9b2484bbc8f05de4009c5ebc77114a475af9d74b86cf73091f02b464429bddb
+DAEMON_SHA256        ?= 9c5032190b635bf7d1c71a8328a4fc85a4a8c38e27c318e630ad2acc98ba058a
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -425,7 +437,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # produced is byte-identical (sha256 2b65537ee0...) to the copy already
 # grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
 # and both binaries carry the same *_FRONTEND_COMMIT marker.
-HUB_APP_SHA256       ?= 22bcf00e10af81e70c6a6bc70c2036aded9a8e204f28fbb87d576187f0423eab
+HUB_APP_SHA256       ?= 4ad89a8a2fd0ad6eb11da46afc70222294dccdf14372b020e7225ecc20f3069e
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
@@ -1408,6 +1420,7 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 	    CODE_SIGN_STYLE=Manual \
 	    CODE_SIGN_IDENTITY="$(CODESIGN_ID)" \
 	    OSTLER_APP_PATH="$(OSTLER_APP_PATH)" \
+	    UNINSTALLER_APP_PATH="$(UNINSTALLER_APP_PATH)" \
 	    RECOVERY_APP_PATH="$(RECOVERY_APP_PATH)" \
 	    archive
 	$(STEP) "Exporting Developer ID archive → $(DIST_DIR)/"
@@ -1423,6 +1436,48 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 	@echo ""
 	@echo "Release .app: $(APP_PATH)"
 	@echo "Version:      $(VERSION)"
+
+# ---------------------------------------------------------------------------
+# GAP3: build the standalone Ostler Uninstaller.app (Developer ID signed)
+#
+# Mirrors `release` but for the Uninstaller scheme. Runs BEFORE `release` in
+# the ship chain so UNINSTALLER_APP_PATH exists when the installer's bundle
+# phase copies it into Contents/Resources. From there it is sealed by
+# sign-python-bundle's outer reseal, its CDHash is registered by notarise-app's
+# whole-installer submission, and staple-apps' nested-.app walk staples it --
+# so it needs no separate notarise/staple step of its own.
+#
+# Exports into $(DIST_DIR) alongside the installer; the app names differ so they
+# do not collide, and `release` only removes its OWN archive + app, leaving this
+# one in place.
+# ---------------------------------------------------------------------------
+build-uninstaller: guard-local-cut check-tools check-identity check-pbxproj-sync
+	$(STEP) "Uninstaller archive → $(UNINSTALLER_ARCHIVE)"
+	rm -rf "$(UNINSTALLER_ARCHIVE)" "$(UNINSTALLER_APP_PATH)"
+	mkdir -p "$(DIST_DIR)"
+	/usr/bin/xattr -cr "Uninstaller" "OstlerInstaller.xcodeproj" || true
+	xcodebuild \
+	    -project $(PROJECT) \
+	    -scheme "$(UNINSTALLER_SCHEME)" \
+	    -configuration Release \
+	    -archivePath "$(UNINSTALLER_ARCHIVE)" \
+	    -derivedDataPath $(DERIVED_DATA) \
+	    DEVELOPMENT_TEAM=$(TEAM_ID) \
+	    CODE_SIGN_STYLE=Manual \
+	    CODE_SIGN_IDENTITY="$(CODESIGN_ID)" \
+	    archive
+	$(STEP) "Exporting Developer ID Uninstaller archive → $(DIST_DIR)/"
+	xcodebuild \
+	    -exportArchive \
+	    -archivePath "$(UNINSTALLER_ARCHIVE)" \
+	    -exportPath "$(DIST_DIR)" \
+	    -exportOptionsPlist "$(EXPORT_OPTS)"
+	$(STEP) "Stripping xattrs from exported Ostler Uninstaller.app (post-export hygiene)"
+	/usr/bin/xattr -cr "$(UNINSTALLER_APP_PATH)" || true
+	$(STEP) "Verifying the Ostler Uninstaller.app signature"
+	codesign --verify --deep --strict --verbose=2 "$(UNINSTALLER_APP_PATH)"
+	@echo ""
+	@echo "Uninstaller .app: $(UNINSTALLER_APP_PATH)"
 
 # ---------------------------------------------------------------------------
 # Build the standalone Recover Ostler.app (Developer ID signed)
@@ -3369,7 +3424,7 @@ verify-appcast:
 # failure at the end destroyed the finished DMG (v1.0.34). It now runs from
 # cut.yml after the artefact is uploaded. See the publish-appcast block above.
 # ---------------------------------------------------------------------------
-ship: guard-local-cut check-ship-version check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub build-recovery release seed-installer-app-pyc sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: guard-local-cut check-ship-version check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub build-uninstaller build-recovery release seed-installer-app-pyc sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"

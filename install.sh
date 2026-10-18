@@ -3412,11 +3412,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8635) captures the path BY
+    # _ostler_write_store_curl_config (defined :8701) captures the path BY
     # VALUE and never re-reads it:
-    #     :8636   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8681   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8690 and :16133, both of which run
+    #     :8702   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8747   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8756 and :16199, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16928, where the note reads
+    # WhatsApp Web session path did it again at :16994, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16945 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17011 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3449,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5964 against a definition at :8635. Top-level
+    # writer's own definition: :6030 against a definition at :8701. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8690, :16133) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8756, :16199) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19091 / :19269 / :19426 / :19871 path. There the
+    # :19159 / :19337 / :19494 / :19939 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4177,6 +4177,72 @@ _OSTLER_TEE_CMD="$(_ostler_select_tee_cmd)"
 exec 9>&2
 OSTLER_MARKER_FD=9
 export OSTLER_MARKER_FD
+
+# v1.0.109 BLOCKER: THE RECOVERY KEY MUST NEVER REACH ${INSTALL_LOG}.
+#
+# fd 8 is a dup of stdout taken HERE, before the tee, for the same reason
+# as fd 9 above: it is the customer's real terminal, and nothing written to
+# it passes through the tee. The recovery-key reveal writes the key to fd 8
+# ONLY; the log gets "recovery key shown (N chars)". Until this, the reveal
+# echoed the key to stdout, so every install.log (and every support upload,
+# failsafe copy and Time Machine snapshot of one) held the key that
+# unwraps the DEK.
+exec 8>&1
+OSTLER_TTY_FD=8
+
+# _ostler_scrub_recovery_key_from_logs FILE...
+#
+# Upgrade scrub. Logs written by earlier installers carry the key on the
+# first non-blank line after "Your recovery key:", and the raw
+# RECOVERY_PHRASE= line if setup output was ever echoed. Rewrite those lines
+# in place, every run, every file given. Nothing else in the file changes.
+# Never fails the install: a log we cannot rewrite is reported, not fatal.
+_ostler_scrub_recovery_key_from_logs() {
+    local _f _tmp _n
+    for _f in "$@"; do
+        [[ -f "$_f" && ! -L "$_f" ]] || continue
+        if ! /usr/bin/grep -q -a -E 'Your recovery key:|RECOVERY_PHRASE=' "$_f"; then
+            continue
+        fi
+        _tmp="${_f}.scrub.$$"
+        if /usr/bin/awk '
+            BEGIN { pending = 0 }
+            /RECOVERY_PHRASE=[^<]/ { sub(/RECOVERY_PHRASE=.*/, "RECOVERY_PHRASE=<redacted>"); n++; print; next }
+            pending > 0 {
+                plain = $0
+                gsub(/\033\[[0-9;]*[A-Za-z]/, "", plain)
+                gsub(/[ \t\r]/, "", plain)
+                if (plain == "<recoverykeyredactedfromthislog>") { pending = 0 }
+                else if (plain != "") { print "    <recovery key redacted from this log>"; n++; pending = 0; next }
+                pending--
+            }
+            /Your recovery key:/ { pending = 3 }
+            { print }
+            END { printf "%d\n", n > "/dev/stderr" }
+        ' "$_f" > "$_tmp" 2> "${_tmp}.n" \
+            && /bin/chmod 600 "$_tmp" \
+            && /bin/mv -f "$_tmp" "$_f"; then
+            _n="$(/bin/cat "${_tmp}.n" 2>/dev/null)"
+            echo "recovery-key scrub: ${_f}: ${_n:-0} line(s) redacted"
+        else
+            echo "WARN: recovery-key scrub could not rewrite ${_f}" >&2
+            /bin/rm -f "$_tmp"
+        fi
+        /bin/rm -f "${_tmp}.n"
+    done
+    return 0
+}
+_ostler_scrub_targets=(
+    "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/logs"/install.log*
+    "${LOGS_DIR}"/install.log*
+    "${TMPDIR:-/tmp}"/ostler-diag-*/install*.log
+)
+if [[ -w "${LOGS_DIR}" ]]; then
+    _ostler_scrub_recovery_key_from_logs "${_ostler_scrub_targets[@]}" >> "${INSTALL_LOG}" 2>&1 || true
+else
+    _ostler_scrub_recovery_key_from_logs "${_ostler_scrub_targets[@]}" >&2 || true
+fi
+unset _ostler_scrub_targets
 
 if [[ -w "${LOGS_DIR}" ]]; then
     {
@@ -17573,7 +17639,9 @@ except Exception as e:
             warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
         else
             warn "$MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT"
-            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -15
+            # v1.0.109: SETUP_OUTPUT can carry RECOVERY_PHRASE=<key> (printed
+            # before the DB-key step that can raise), and stdout is the tee.
+            echo "$SETUP_OUTPUT" | sed -e 's/^RECOVERY_PHRASE=.*/RECOVERY_PHRASE=<redacted>/' -e 's/^/    /' | head -15
             fail_with_code "ERR-09-PASSKEY-SETUP" "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
@@ -18143,7 +18211,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.19}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.22}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -18256,7 +18324,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="b9b2484bbc8f05de4009c5ebc77114a475af9d74b86cf73091f02b464429bddb"
+DEFAULT_ASSISTANT_TARBALL_SHA256="9c5032190b635bf7d1c71a8328a4fc85a4a8c38e27c318e630ad2acc98ba058a"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -22253,7 +22321,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.19"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.22"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -23046,6 +23114,91 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
         if [[ -s "${OSTLER_DIAG_DIR}/cm048-pip.log" ]]; then
             sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm048-pip.log" | tail -5
         fi
+    fi
+
+    # ── Coach database: created KEYED, with its schema, at install ────
+    # (walk #31, v1.0.108). CM048 used to create observations.db lazily, on
+    # the first coaching row. Since #2931 a one-speaker capture is a memo and
+    # is never coached, so on many fresh boxes the db never existed: the walk
+    # probe's forget created a 0-byte stray, GET /api/v1/coach/recent then
+    # 500'd on it, and context-refresh exited 3 on every tick. The installer
+    # now lays the database down itself, through the SAME ostler_security
+    # get_db_connection and key resolver the writer uses, never plaintext.
+    # Idempotent: CREATE TABLE IF NOT EXISTS, so a re-install or upgrade
+    # leaves existing rows alone. The DDL is the writer's (cm048 ingest.py
+    # _write_coach); tests/test_install_creates_the_coach_db_keyed.py
+    # fails if the two ever drift. NOT fatal: the writer still creates the
+    # db lazily, and the reader declares an absent db as empty.
+    # BEGIN _ostler_init_coach_db
+    _ostler_init_coach_db() {
+        local py="$1" db="$2" key_file="${3:-}" out="" rc=0 tmp
+        # A heredoc inside $(...) mis-parses under /bin/bash 3.2, so the
+        # program runs as a plain redirection and its output is read back.
+        tmp="$(mktemp -t ostler-coach-db)" || tmp="${TMPDIR:-/tmp}/ostler-coach-db.$$"
+        OSTLER_DB_KEY_FILE="${key_file:-${OSTLER_DB_KEY_FILE:-}}" "$py" - "$db" >"$tmp" 2>&1 <<'COACHPY' || rc=$?
+import os, sys
+from pathlib import Path
+db = Path(sys.argv[1])
+try:
+    from ostler_security.db_key import resolve_db_key
+    from ostler_security.database import get_db_connection, HAS_SQLCIPHER
+except ImportError as exc:
+    print("CANNOT-RUN ostler_security not importable: %s" % exc)
+    sys.exit(3)
+if not HAS_SQLCIPHER:
+    print("CANNOT-RUN sqlcipher3 missing; refusing to create a plaintext coach db")
+    sys.exit(3)
+key = resolve_db_key().key
+if not key:
+    print("CANNOT-RUN no database key resolved; refusing to create a plaintext coach db")
+    sys.exit(3)
+existed = db.exists() and db.stat().st_size > 0
+db.parent.mkdir(parents=True, exist_ok=True)
+conn = get_db_connection(str(db), key)
+try:
+    conn.execute("""
+            CREATE TABLE IF NOT EXISTS observations (
+                observation_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                conversation_type TEXT,
+                tone TEXT,
+                what_went_well_json TEXT,
+                what_to_work_on_json TEXT,
+                tip_json TEXT,
+                tags_json TEXT,
+                overall_severity INTEGER,
+                confidence REAL,
+                flags_json TEXT,
+                user_id TEXT NOT NULL,
+                visibility TEXT NOT NULL,
+                retention_tier TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE (conversation_id)
+            )
+        """)
+    conn.commit()
+    rows = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+finally:
+    conn.close()
+with open(db, "rb") as fh:
+    if fh.read(16) == b"SQLite format 3\x00":
+        print("FAIL coach db is plaintext after a keyed create")
+        sys.exit(1)
+print("OK %s rows=%d %s" % ("kept" if existed else "created", rows, db))
+COACHPY
+        out="$(tail -3 "$tmp" || true)"
+        rm -f "$tmp"
+        if [[ "$rc" -eq 0 ]]; then
+            info "$(printf "$MSG_INFO_COACH_DB_READY" "$out")"
+        else
+            warn "$(printf "$MSG_WARN_COACH_DB_NOT_CREATED" "$out")"
+        fi
+        return 0
+    }
+    # END _ostler_init_coach_db
+    if [[ -x "$CM048_VENV/bin/python" ]]; then
+        _ostler_init_coach_db "$CM048_VENV/bin/python" "${OSTLER_DIR}/coach/observations.db" "${DB_KEY_FILE:-}"
     fi
 
     if [[ -x "$CM048_BIN" ]]; then
@@ -26218,6 +26371,18 @@ _assume_yes_granted() {
     esac
 }
 KEEP_CONTENT_DECISION=""
+# ── #GAP2 / #GAP1: two more destructive OPTIONS, both OFF by default ──
+#
+# PURGE_DATA gates whether ~/.ostler/data/knowledge-staging is wiped
+# (default: preserved, so a reinstall reuses the imported operator data).
+#
+# REMOVE_COLIMA_DECISION gates whether the SHARED colima `default` Docker
+# VM is deleted. Empty means "ask" (interactive) / "keep" (unattended);
+# it is NEVER set by --yes, because --yes is consent to uninstall Ostler,
+# not consent to delete a VM that may hold Docker data unrelated to
+# Ostler. See the colima teardown block for the full reasoning.
+PURGE_DATA=""
+REMOVE_COLIMA_DECISION=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --keep-content)
@@ -26226,6 +26391,24 @@ while [[ $# -gt 0 ]]; do
             ;;
         --remove-content)
             KEEP_CONTENT_DECISION="remove"
+            shift
+            ;;
+        --purge-data)
+            # Also wipe ~/.ostler/data/knowledge-staging (imported Evernote
+            # markdown + images). Off by default; this is the "remove
+            # everything" / privacy opt-in.
+            PURGE_DATA=1
+            shift
+            ;;
+        --remove-colima)
+            # Explicit opt-in to delete the shared colima `default` VM.
+            REMOVE_COLIMA_DECISION="remove"
+            shift
+            ;;
+        --keep-colima)
+            # Explicit opt-out (the default), so a GUI checkbox can pass
+            # its state either way and a scripted caller can be unambiguous.
+            REMOVE_COLIMA_DECISION="keep"
             shift
             ;;
         --yes|-y)
@@ -26245,12 +26428,23 @@ flags below to skip the prompt:
 
   --keep-content     Keep ~/Documents/Ostler/ after uninstall
   --remove-content   Remove ~/Documents/Ostler/ as well
+  --purge-data       Also wipe ~/.ostler/data/knowledge-staging (imported
+                     Evernote markdown + images). Default is to keep it so
+                     a reinstall reuses it. Use for a full/privacy removal.
+  --remove-colima    Also delete the SHARED colima 'default' Docker VM
+                     (~30 GB). Only do this if Ostler was the only thing
+                     using Docker on this Mac -- the VM may hold Docker
+                     data that predates Ostler. NOT implied by --yes.
+  --keep-colima      Never delete the colima VM (this is the default).
   --yes, -y          Proceed without the interactive confirmation.
                      Also settable as OSTLER_UNINSTALL_ASSUME_YES=1.
                      Without it, a run that cannot ask removes NOTHING.
+                     Does NOT authorise --remove-colima; that needs its
+                     own flag or an explicit interactive 'yes'.
   --help, -h         Show this help
 
-The interactive YES confirm gate cannot be skipped.
+The interactive YES confirm gate cannot be skipped, and deleting the
+shared colima VM needs its own explicit consent even under --yes.
 HELPEOF
             exit 0
             ;;
@@ -26271,7 +26465,8 @@ echo "  This will remove:"
 echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
 echo "      ostler-wiki-site, ostler-wiki-compiler, ostler-vane)"
 echo "    - Docker volumes (your knowledge graph data + web-search history)"
-echo "    - Ostler directory (~/.ostler, except power.conf and your licence)"
+echo "    - Ostler directory (~/.ostler, except power.conf, your licence, and"
+echo "      data/knowledge-staging unless you pass --purge-data)"
 echo "    - Doctor, export watcher, hub power, email-ingest, conversation feeds"
 echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
@@ -26282,8 +26477,12 @@ echo "    - Chat history and other locally cached app data (WebKit storage,"
 echo "      cookies and caches for the Hub app and the installer)"
 echo "    - Ostler commands from PATH"
 echo ""
-echo "  This will NOT remove:"
-echo "    - Docker Desktop or Colima"
+echo "  This will NOT remove (unless you ask):"
+echo "    - Docker Desktop"
+echo "    - The shared colima 'default' Docker VM (~30 GB). Kept by"
+echo "      default because it may hold Docker data unrelated to Ostler;"
+echo "      it is only deleted with --remove-colima or an explicit 'yes'"
+echo "      at the prompt near the end. --yes alone does NOT delete it."
 echo "    - Homebrew"
 echo "    - Ollama or downloaded models (may be 7.2-23 GB)"
 echo "      To remove: ollama rm <model-name>"
@@ -26297,6 +26496,9 @@ echo "      kept so a reinstall reuses your existing policy"
 echo "    - /Applications/OstlerInstaller.app"
 echo "      the installer itself, which is very likely the app running"
 echo "      this uninstall right now. Drag it to the Bin when you are done."
+echo "    - /Applications/Ostler/Ostler Uninstaller.app, ONLY if you launched"
+echo "      the uninstall from it (it cannot delete itself while running)."
+echo "      Drag the /Applications/Ostler folder to the Bin when you are done."
 echo "    - /usr/local/bin/gws (the official Google Workspace CLI)"
 echo "      installed by Ostler, but a working standalone tool that is"
 echo "      not ours to delete. To remove: sudo rm -f /usr/local/bin/gws"
@@ -26737,7 +26939,9 @@ done
 
 # AND SAY SO IF ANY SURVIVED. The whole reason /Applications/Ostler stayed
 # invisible for months is that a removal failed and nothing graded it.
-_u_ns_re="^(${_U_NS_CORE}|${_U_NS_BRAND})\\."
+# Brand prefix WITHOUT a trailing dot, matching the enumeration above:
+# com.creativemachines.ostler-remotecapture is ours and has a hyphen there.
+_u_ns_re="^(${_U_NS_CORE}\\.|${_U_NS_BRAND})"
 _u_left="$(ls "${HOME}/Library/LaunchAgents" 2>/dev/null | grep -cE "$_u_ns_re" || true)"
 if [ "${_u_left:-0}" -gt 0 ]; then
     echo "  (warning: ${_u_left} Ostler LaunchAgent(s) could not be removed:)"
@@ -26746,6 +26950,137 @@ if [ "${_u_left:-0}" -gt 0 ]; then
 fi
 unset _label _plist _found _known _dupe _u_left
 unset _u_agent_labels
+
+# ── #GAP1: the SHARED colima `default` Docker VM ───────────────
+_u_emit UNINSTALL_PHASE "name=colima"
+# Ostler runs its Docker stores inside the SHARED colima `default` profile:
+# install.sh starts it with `colima start --cpu 2 --memory 4 --disk 30`, with
+# NO --profile, so it is the `default` instance that every other Docker-on-Mac
+# user of this account shares. `docker compose down -v` above removed our
+# CONTAINERS and named VOLUMES; it did NOT remove that ~30GB Linux VM.
+#
+# 🔴 WE DO NOT OWN THIS VM AND MUST NOT ASSUME WE CREATED IT. A customer may
+# have run `colima` for their own Docker work long before installing Ostler --
+# in which case Ostler was a tenant inside THEIR VM, and deleting it wipes
+# their unrelated images, containers and volumes. Andy's rule, verbatim: "if
+# it could wipe something else that was already there, then we need to ask for
+# permission first."
+#
+# So this NEVER deletes on the strength of --yes. --yes is consent to uninstall
+# Ostler; it is not consent to delete a shared Docker VM that may predate it.
+# Deletion needs its OWN explicit opt-in: --remove-colima (which the GUI
+# checkbox passes) or an interactive answer of exactly `yes` to the prompt
+# below. Every other input -- including EOF, no tty, or --yes on its own --
+# KEEPS the VM.
+#
+# Resolve the binaries by ABSOLUTE PATH for the same reason the docker
+# resolution above does: /opt/homebrew/bin is not on a non-login PATH, so an
+# ssh / launchd / piped run would otherwise see `colima: command not found`,
+# skip the whole question, and silently strand a 30GB VM.
+COLIMA_RESULT="absent"
+_OSTLER_COLIMA="${_OSTLER_COLIMA:-}"
+[ -x "$_OSTLER_COLIMA" ] || _OSTLER_COLIMA=/opt/homebrew/bin/colima
+[ -x "$_OSTLER_COLIMA" ] || _OSTLER_COLIMA=/usr/local/bin/colima
+[ -x "$_OSTLER_COLIMA" ] || _OSTLER_COLIMA="$(command -v colima 2>/dev/null || true)"
+_OSTLER_LIMACTL="${_OSTLER_LIMACTL:-}"
+[ -x "$_OSTLER_LIMACTL" ] || _OSTLER_LIMACTL=/opt/homebrew/bin/limactl
+[ -x "$_OSTLER_LIMACTL" ] || _OSTLER_LIMACTL=/usr/local/bin/limactl
+[ -x "$_OSTLER_LIMACTL" ] || _OSTLER_LIMACTL="$(command -v limactl 2>/dev/null || true)"
+
+# Does a colima `default` instance exist? EXACT first-column match, so a
+# sibling profile (this account may also run e.g. a `ostlercut` build VM) can
+# NEVER be seen, asked about, or deleted here. Prefer `colima list`; fall back
+# to `limactl list`, whose colima default instance is the lima instance named
+# exactly `colima`. A stopped VM still occupies ~30GB, so status is ignored.
+_colima_default_exists() {
+    if [ -n "$_OSTLER_COLIMA" ] && [ -x "$_OSTLER_COLIMA" ]; then
+        "$_OSTLER_COLIMA" list 2>/dev/null \
+            | awk 'NR>1 && $1=="default"{f=1} END{exit f?0:1}' && return 0
+        return 1
+    fi
+    if [ -n "$_OSTLER_LIMACTL" ] && [ -x "$_OSTLER_LIMACTL" ]; then
+        "$_OSTLER_LIMACTL" list 2>/dev/null \
+            | awk 'NR>1 && $1=="colima"{f=1} END{exit f?0:1}' && return 0
+        return 1
+    fi
+    return 1
+}
+
+# `colima stop` then `colima delete`, then PROVE it is gone. The `default`
+# profile is named EXPLICITLY on every call so a mis-set global default can
+# never redirect the delete at another instance. -f/--force answers colima's
+# own y/n confirmation, which is correct because the human already consented
+# at the prompt or via the flag. Sets COLIMA_RESULT (a global; no `local`) so
+# the caller can emit one honest marker.
+_u_delete_colima() {
+    if [ -z "$_OSTLER_COLIMA" ] || [ ! -x "$_OSTLER_COLIMA" ]; then
+        echo "  (warning: consented to remove colima but no colima binary was found; skipped)"
+        COLIMA_RESULT="skipped_no_binary"
+        return 0
+    fi
+    echo "  Stopping the shared colima 'default' VM..."
+    "$_OSTLER_COLIMA" stop default 2>/dev/null || \
+        "$_OSTLER_COLIMA" stop --force default 2>/dev/null || true
+    echo "  Deleting the shared colima 'default' VM..."
+    "$_OSTLER_COLIMA" delete --force default 2>/dev/null || true
+    # `colima delete --force` reports done and can leave the persistent data
+    # disk (measured 2026-09-24: 16G surviving a successful delete). Remove
+    # it by its own path, and count it in the verify-gone below.
+    rm -rf "${HOME}/.colima/_lima/_disks/colima" 2>/dev/null \
+        || sudo rm -rf "${HOME}/.colima/_lima/_disks/colima" 2>/dev/null || true
+    # Verify-gone: a delete that failed must not be reported as done -- the
+    # same lesson the store teardown above learned.
+    if [[ -e "${HOME}/.colima/_lima/_disks/colima/datadisk" ]]; then
+        echo "  (warning: the VM data disk could not be removed; remove ~/.colima/_lima/_disks/colima yourself)"
+        COLIMA_RESULT="delete_failed"
+    elif _colima_default_exists; then
+        echo "  (warning: the colima 'default' VM is still present; remove it"
+        echo "   manually with: colima delete default)"
+        COLIMA_RESULT="delete_failed"
+    else
+        echo "  The shared colima 'default' VM has been removed."
+        COLIMA_RESULT="removed"
+    fi
+    return 0
+}
+
+if _colima_default_exists; then
+    if [ "$REMOVE_COLIMA_DECISION" = "keep" ]; then
+        COLIMA_RESULT="kept"
+        echo "  Keeping the shared colima 'default' Docker VM (--keep-colima)."
+    elif [ "$REMOVE_COLIMA_DECISION" = "remove" ]; then
+        echo "  --remove-colima set; removing the shared colima 'default' VM."
+        _u_delete_colima
+    else
+        # No flag. Ask, defaulting to KEEP. EOF / no answer keeps it: we never
+        # delete a possibly-preexisting VM without a human saying so. --yes is
+        # deliberately NOT consulted here.
+        echo ""
+        echo "  Ostler used the shared colima 'default' Docker VM (about 30 GB)."
+        echo "  This is the DEFAULT Docker VM on this Mac, not one private to"
+        echo "  Ostler. If you use Docker (or colima) for anything else, KEEP it."
+        echo "  Only delete it if Ostler was the only thing using Docker here."
+        if ! read -r -p "  Delete the shared colima 'default' VM? (type yes to delete) [keep]: " _colima_reply; then
+            _colima_reply=""
+            echo ""
+            echo "  No answer on stdin; keeping the colima VM (the safe default)."
+        fi
+        case "${_colima_reply:-}" in
+            yes|YES|Yes)
+                _u_delete_colima
+                ;;
+            *)
+                COLIMA_RESULT="kept"
+                echo "  Keeping the shared colima 'default' Docker VM."
+                ;;
+        esac
+    fi
+else
+    # No default instance, or no colima binary to check with. Nothing to ask
+    # about and nothing to delete.
+    COLIMA_RESULT="absent"
+fi
+_u_emit UNINSTALL_COLIMA "result=${COLIMA_RESULT}"
 
 # Ollama's cask is Homebrew's to remove, not launchd's. Sequenced after the
 # loop so com.ostler.ollama is already unloaded and nothing is holding the
@@ -26970,7 +27305,14 @@ done
 # directory whose contents we did not put there. So remove the bundles we
 # DID put there, BY NAME, and only then rmdir. A customer file still stops
 # the removal, and now says so instead of passing in silence.
-for _u_ours in "Recover Ostler.app" "Ostler RemoteCapture.app" "Ostler Safari Extension.app" "Ostler.app"; do
+# "Ostler Uninstaller.app" is ours too (install.sh stages it at 3.14a), but
+# when OSTLER_GUI=1 it is very likely the process running this script, so it
+# is kept and named in the "will NOT remove" half above. A command-line
+# uninstall removes it like every other bundle.
+for _u_ours in "Recover Ostler.app" "Ostler RemoteCapture.app" "Ostler Safari Extension.app" "Ostler.app" "Ostler Uninstaller.app"; do
+    if [[ "$_u_ours" == "Ostler Uninstaller.app" && "${OSTLER_GUI:-}" == "1" ]]; then
+        continue
+    fi
     if [[ -d "/Applications/Ostler/${_u_ours}" ]]; then
         _u_quit_bundle_processes "/Applications/Ostler/${_u_ours}"
         echo "  Removing /Applications/Ostler/${_u_ours}..."
@@ -26987,35 +27329,31 @@ if [[ -d "/Applications/Ostler" ]]; then
     if ! rmdir "/Applications/Ostler" 2>/dev/null && ! sudo rmdir "/Applications/Ostler" 2>/dev/null; then
         # NO LONGER SILENT. This exact silence is what hid the step-33
         # defect, so the refusal now names what is still in there.
-        echo "  Note: /Applications/Ostler was kept because it is not empty:"
-        ls -1 "/Applications/Ostler" 2>/dev/null | sed 's/^/      /' | head -5
-        echo "      Those are not files Ostler installed. Remove them and the"
-        echo "      folder yourself if you want it gone."
+        if [[ "$(ls -1 "/Applications/Ostler" 2>/dev/null)" == "Ostler Uninstaller.app" ]]; then
+            echo "  Note: /Applications/Ostler still holds Ostler Uninstaller.app, the"
+            echo "      app running this uninstall. Drag the folder to the Bin when done."
+        else
+            echo "  Note: /Applications/Ostler was kept because it is not empty:"
+            ls -1 "/Applications/Ostler" 2>/dev/null | sed 's/^/      /' | head -5
+            echo "      Those are not files Ostler installed. Remove them and the"
+            echo "      folder yourself if you want it gone."
+        fi
     fi
 fi
 
-# ── The container VM, and the disk it leaves behind ────────────
+# ── The container VM: handled ONCE, by the consented #GAP1 block above ──
 #
-# 🔴 MEASURED 2026-09-24: after a "successful" uninstall the colima VM was
-# STILL RUNNING and ~/.colima held 17G. The customer is told Ostler has been
-# removed while a virtual machine and its disk stay on the Mac.
-#
-# AND `colima delete --force` IS NOT ENOUGH ON ITS OWN. It reports done and
-# leaves the persistent data disk: measured, 16G surviving a successful
-# delete, with five other surfaces all reading clean at the same moment.
-# The disk is removed explicitly, by its own path, because a delete that
-# says done and leaves 16G is the reason anyone has to check.
-_u_emit UNINSTALL_PHASE "name=container_vm"
-echo "  Removing the container VM and its disk..."
-if command -v colima >/dev/null 2>&1 || [[ -x /opt/homebrew/bin/colima ]]; then
-    PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" colima stop >/dev/null 2>&1 || true
-    PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" colima delete --force >/dev/null 2>&1 || true
-fi
-rm -rf "${HOME}/.colima/_lima/_disks/colima" 2>/dev/null \
-    || sudo rm -rf "${HOME}/.colima/_lima/_disks/colima" 2>/dev/null || true
-if [[ -e "${HOME}/.colima/_lima/_disks/colima/datadisk" ]]; then
-    echo "  (warning: the VM data disk could not be removed; remove ~/.colima yourself)"
-fi
+# This used to stop and `colima delete --force` the `default` VM here
+# UNCONDITIONALLY, then rm its data disk. Both halves of that were measured
+# truths (2026-09-24: the VM survived a "successful" uninstall, and a
+# successful delete still left a 16G datadisk). But the unconditional delete
+# also destroyed a colima VM the customer may have been using before Ostler,
+# against Andy's rule "if it could wipe something else that was already
+# there, then we need to ask for permission first". The datadisk removal now
+# lives inside _u_delete_colima, so it runs exactly when the customer has
+# consented to the delete (--remove-colima, or typing `yes`) and never
+# otherwise. A second, unconditional delete here would make that consent
+# meaningless.
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -27033,7 +27371,7 @@ sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true
 echo "  Removing /usr/local/bin/pwg-convo symlink..."
 sudo rm -f /usr/local/bin/pwg-convo 2>/dev/null || true
 
-echo "  Removing Ostler directory (licence + hub power + knowledge staging preserved)..."
+echo "  Removing Ostler directory (licence + hub power preserved; knowledge staging preserved unless --purge-data)..."
 # Preserve ~/.ostler/power.conf so a reinstall reuses the user's hub power
 # policy. Also preserve ~/.ostler/data/knowledge-staging/ so a reinstall does
 # not throw away the imported Evernote markdown + image trees (operator data
@@ -27065,12 +27403,37 @@ echo "  Removing Ostler directory (licence + hub power + knowledge staging prese
 # THIS DOES NOT MAKE THE UNINSTALL A LIE. The contract printed at the
 # top of this script now names the licence in its "will NOT remove"
 # half, so a customer who wants it gone is told where it is and how.
+#
+# --purge-data does NOT remove the licence: Andy's 2026-09-10 decision
+# above stands for every mode. Only the staging tree is opted out below.
+#
+# ── #GAP2: --purge-data opts OUT of that preservation ──────────
+# A "remove everything" / privacy run wants the staging tree gone too. When
+# PURGE_DATA is set we simply do NOT move it aside, so the find below deletes
+# it with the rest of ~/.ostler. The outcome is a STATE, not a boolean, so a
+# GUI can tell the three apart and so an honesty summary never claims a tree
+# was preserved when it was not:
+#   absent          the staging tree was not there to begin with
+#   preserved       moved aside and restored (the default)
+#   purged          intentionally removed via --purge-data
+#   preserve_failed we meant to keep it but could not move it aside; it went
 KNOWLEDGE_STAGING_DIR="${HOME}/.ostler/data/knowledge-staging"
 KNOWLEDGE_STAGING_BAK=""
+KNOWLEDGE_STAGING_OUTCOME="absent"
 if [[ -d "$KNOWLEDGE_STAGING_DIR" ]]; then
-    KNOWLEDGE_STAGING_BAK="$(mktemp -d -t ostler-knowledge-staging-XXXXXX)"
-    if ! mv "$KNOWLEDGE_STAGING_DIR" "${KNOWLEDGE_STAGING_BAK}/staging" 2>/dev/null; then
-        KNOWLEDGE_STAGING_BAK=""
+    if [[ -n "$PURGE_DATA" ]]; then
+        KNOWLEDGE_STAGING_OUTCOME="purged"
+        echo "  --purge-data set; knowledge staging at ${KNOWLEDGE_STAGING_DIR} will be REMOVED."
+    else
+        KNOWLEDGE_STAGING_BAK="$(mktemp -d -t ostler-knowledge-staging-XXXXXX)"
+        if mv "$KNOWLEDGE_STAGING_DIR" "${KNOWLEDGE_STAGING_BAK}/staging" 2>/dev/null; then
+            KNOWLEDGE_STAGING_OUTCOME="preserved"
+        else
+            # Could not move it aside; it will be deleted below with ~/.ostler.
+            # Do NOT report this as preserved.
+            KNOWLEDGE_STAGING_BAK=""
+            KNOWLEDGE_STAGING_OUTCOME="preserve_failed"
+        fi
     fi
 fi
 
@@ -27103,7 +27466,12 @@ if [[ -n "$KNOWLEDGE_STAGING_BAK" ]] && [[ -d "${KNOWLEDGE_STAGING_BAK}/staging"
     mv "${KNOWLEDGE_STAGING_BAK}/staging" "$KNOWLEDGE_STAGING_DIR"
     rmdir "$KNOWLEDGE_STAGING_BAK" 2>/dev/null || true
     echo "  Knowledge staging preserved at ${KNOWLEDGE_STAGING_DIR}."
+elif [[ "$KNOWLEDGE_STAGING_OUTCOME" == "purged" ]]; then
+    echo "  Knowledge staging removed (--purge-data)."
+elif [[ "$KNOWLEDGE_STAGING_OUTCOME" == "preserve_failed" ]]; then
+    echo "  (warning: could not set knowledge staging aside; it was removed with ~/.ostler)"
 fi
+_u_emit UNINSTALL_PHASE "name=knowledge_staging" "outcome=${KNOWLEDGE_STAGING_OUTCOME}"
 
 # ── Apply the keep-content decision made earlier ───────────────
 _u_emit UNINSTALL_PHASE "name=user_content"
@@ -27115,7 +27483,7 @@ elif [[ -d "$USER_FACING_ROOT" ]]; then
 fi
 
 echo ""
-_u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}"
+_u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}" "knowledge_staging=${KNOWLEDGE_STAGING_OUTCOME}" "colima=${COLIMA_RESULT}"
 if [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
     echo "  Done. Ostler has been removed."
 else
@@ -31656,6 +32024,51 @@ if [[ -n "$HUB_APP_SOURCE" ]]; then
 else
     warn "$MSG_WARN_HUB_APP_NOT_FOUND"
     info "$MSG_INFO_HUB_APP_DRAG_HINT"
+fi
+
+# ── 3.14a Ostler Uninstaller.app (GAP3) ────────────────────────────────
+#
+# Place the standalone Ostler Uninstaller.app in ${OSTLER_APPS_DIR} (the Ostler
+# sub-folder, not /Applications itself: Andy banned /Applications sprawl) at
+# install time so it
+# survives the customer deleting the DMG. It is Developer-ID-signed, notarised
+# and stapled INSIDE the installer (nested at
+# OstlerInstaller.app/Contents/Resources/Ostler Uninstaller.app by gui/project.yml's
+# bundle phase and carried through the cut's sign/notarise/staple), so the copy
+# below preserves a fully signed bundle. Same SCRIPT_DIR source pattern as the
+# Hub app above; SCRIPT_DIR is Contents/Resources when install.sh runs from the
+# signed .app.
+#
+# GUARDED ON PRESENCE so a dev run of a raw install.sh (which does not bundle
+# the app) is a silent no-op rather than a false warning. The generated
+# ~/.ostler/bin/ostler-uninstall shell script is written regardless, so a box
+# without the .app is still fully uninstallable from the command line.
+UNINSTALLER_APP_DEST="${OSTLER_APPS_DIR}/Ostler Uninstaller.app"
+UNINSTALLER_APP_SOURCE=""
+if [[ -d "${SCRIPT_DIR}/Ostler Uninstaller.app" ]]; then
+    UNINSTALLER_APP_SOURCE="${SCRIPT_DIR}/Ostler Uninstaller.app"
+elif [[ -d "${SCRIPT_DIR}/../Ostler Uninstaller.app" ]]; then
+    UNINSTALLER_APP_SOURCE="${SCRIPT_DIR}/../Ostler Uninstaller.app"
+fi
+if [[ -n "$UNINSTALLER_APP_SOURCE" ]]; then
+    # Quit a running copy before overwriting, then remove + copy, with a sudo
+    # fallback for an admin-owned /Applications. The bundle is already signed;
+    # we only strip the quarantine xattr so first launch is not gatekept.
+    # The parent folder does not exist on a fresh Mac; create it first, the
+    # same way the Recover Ostler.app placement below does.
+    _ostler_apps_dir_ready || true
+    if [[ -d "$UNINSTALLER_APP_DEST" ]]; then
+        pkill -f "${UNINSTALLER_APP_DEST}/Contents/MacOS" 2>/dev/null || true
+        sleep 0.5
+        rm -rf "$UNINSTALLER_APP_DEST" 2>/dev/null || sudo rm -rf "$UNINSTALLER_APP_DEST" 2>/dev/null || true
+    fi
+    if cp -R "$UNINSTALLER_APP_SOURCE" "$UNINSTALLER_APP_DEST" 2>/dev/null \
+       || sudo cp -R "$UNINSTALLER_APP_SOURCE" "$UNINSTALLER_APP_DEST" 2>/dev/null; then
+        xattr -dr com.apple.quarantine "$UNINSTALLER_APP_DEST" 2>/dev/null || true
+        ok "$(printf "$MSG_OK_UNINSTALLER_APP_STAGED" "${UNINSTALLER_APP_DEST}")"
+    else
+        warn "$MSG_WARN_UNINSTALLER_APP_STAGE_FAILED"
+    fi
 fi
 
 # ── Recover Ostler.app ────────────────────────────────────────
@@ -39355,12 +39768,27 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     # customer an earlier run covered it. A mint that is never delivered
     # is a diagnosed, disclosed gap now, not a permanent, silent one.
     gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
+    # v1.0.109 BLOCKER: the key goes to fd 8 (the real terminal, dup'd
+    # before the tee near the top) and NOWHERE ELSE. stdout is the tee, so
+    # an echo here wrote the key into install.log on every install. The log
+    # gets the fact and the length, never the value.
+    #
+    # Under OSTLER_GUI=1 the GUI's delivery is the RECOVERY_KEY marker
+    # above (fd 9, RecoveryKeyView). fd 8 there is the GUI's stdout pipe,
+    # which feeds logLines and the Log drawer's Copy button, so the plain
+    # block is NOT written there either: RecoveryKeyView.swift says the
+    # value must never reach logLines.
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Your recovery key:${NC}"
-    echo ""
-    echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+        {
+            echo -e "  ${BOLD}Your recovery key:${NC}"
+            echo ""
+            echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+        } >&"${OSTLER_TTY_FD:-8}"
+    fi
+    echo "  recovery key shown (${#RECOVERY_KEY} chars)"
     echo ""
     # #1540. The honest boundary: we HANDED IT OVER. Whether the human
     # wrote it down is not knowable from here, and claiming otherwise
@@ -39462,8 +39890,8 @@ PY
         # out of Time Machine backups and Migration Assistant – matching
         # OstlerPasskeyHelper / CM031 / ostler_security elsewhere.
         # The `security` CLI cannot set these attributes, so we shell
-        # out to swift when available, and fall back to the CLI otherwise.
-        SAVED_TO_KEYCHAIN_VIA="cli"
+        # out to swift (guaranteed by the CLT gate; no CLI fallback, see below).
+        SAVED_TO_KEYCHAIN_VIA="none"
         SWIFT_BIN=""
         if command -v swift &>/dev/null; then
             SWIFT_BIN="swift"
@@ -39504,22 +39932,19 @@ SWIFTEOF
             fi
             rm -f "$KC_HELPER"
         fi
-        # Fallback: `security` CLI. Default accessibility class is
-        # kSecAttrAccessibleWhenUnlocked (item travels in Time Machine
-        # backups / Migration Assistant). Acceptable for first-run when
-        # swift isn't available – the user is told to write it down.
+        # v1.0.109: NO `security add-generic-password -w <key>` FALLBACK.
+        # It put the recovery key on argv, readable by any process via ps
+        # for the life of the call. It is not needed: the CLT wait (search
+        # ERR-02-PREREQ-XCODE-CLI) is top-level and fails the install unless
+        # `xcode-select -p` succeeds, and CLT ships swift, so SWIFT_BIN is
+        # set on every run that reaches this line. `security -i` (commands on
+        # stdin) was measured and rejected: it exits 0 when its command
+        # fails, so a save could not be told from a non-save. If swift does
+        # fail at runtime, the customer is told to write the key down, which
+        # is the honest outcome, and the CLI's weaker accessibility class
+        # (item travels in Time Machine / Migration Assistant) is gone too.
         if [[ "$SAVED_TO_KEYCHAIN" == false ]]; then
-            if security add-generic-password \
-                -a "${USER_ID}" \
-                -s "Ostler Recovery Key" \
-                -w "${RECOVERY_KEY}" \
-                -T "" \
-                -U 2>/dev/null; then
-                ok "$MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER"
-                SAVED_TO_KEYCHAIN=true
-            else
-                warn "$MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE"
-            fi
+            warn "$MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE"
         fi
     fi
 

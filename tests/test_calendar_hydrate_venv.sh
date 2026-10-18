@@ -61,10 +61,10 @@ CAL_BLOCK="$(sed -n "${CAL_HEADER_LINE},${NEXT_HEADER_LINE}p" "$INSTALL_SH")"
 
 # Axis 1: the calendar venv resolves to the email-ingest venv -- the one
 # that pip-installs ostler_fda -- NOT the contact-syncer pipeline venv.
-if ! printf '%s' "$CAL_BLOCK" | grep -qE '_HYDRATE_CALENDAR_VENV="\$\{OSTLER_DIR\}/services/email-ingest/\.venv"'; then
+if ! grep -qE '_HYDRATE_CALENDAR_VENV="\$\{OSTLER_DIR\}/services/email-ingest/\.venv"' <<< "$CAL_BLOCK"; then
     failure "calendar steps do not target the email-ingest venv (the one with ostler_fda installed)"
 fi
-if ! printf '%s' "$CAL_BLOCK" | grep -qE '_HYDRATE_CALENDAR_PY="\$\{_HYDRATE_CALENDAR_VENV\}/bin/python"'; then
+if ! grep -qE '_HYDRATE_CALENDAR_PY="\$\{_HYDRATE_CALENDAR_VENV\}/bin/python"' <<< "$CAL_BLOCK"; then
     failure "_HYDRATE_CALENDAR_PY is not derived from _HYDRATE_CALENDAR_VENV"
 fi
 
@@ -86,10 +86,10 @@ fi
 # block must branch on an "error" status to a DISTINCT message, and that
 # branch must come BEFORE (take priority over) the accounts>0 PENDING
 # ("not synced") branch.
-if ! printf '%s' "$CAL_BLOCK" | grep -qE '_HYDRATE_CALENDAR_(EXTRACT|INGEST)_STATUS.*==.*"error"'; then
+if ! grep -qE '_HYDRATE_CALENDAR_(EXTRACT|INGEST)_STATUS.*==.*"error"' <<< "$CAL_BLOCK"; then
     failure "no branch distinguishes a raised extractor/ingest error from the empty-calendar state"
 fi
-if ! printf '%s' "$CAL_BLOCK" | grep -q 'MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED'; then
+if ! grep -q 'MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED' <<< "$CAL_BLOCK"; then
     failure "the error branch does not emit MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED"
 fi
 # Ordering: the EXTRACTOR_FAILED line must appear before the
