@@ -427,6 +427,7 @@ test_imessage_zero_is_declared_not_undeclared.sh	WIRED	.github/workflows/hydrate
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
+test_install_creates_the_coach_db_keyed.py	WIRED	.github/workflows/coach-db-created-keyed-at-install.yml
 test_install_daily_briefs.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_depth_reports_a_trustworthy_number.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_install_diagnostics_survive_the_run.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
