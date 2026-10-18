@@ -77,6 +77,7 @@ on:
       - 'tests/test_real_person_miss_inputs_are_printed.py'
       - 'tests/test_real_person_link_miss_classified.py'
       - 'tests/test_owner_digest_hydration_retries_5xx.py'
+      - 'tests/test_owner_digest_counts_only_meetings_that_happened.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
       - 'scripts/tests/test_walk_screens_never_land_in_the_repo.sh'
       - 'scripts/box_walk_probes/lib/real_person_choose.sh'
@@ -760,6 +761,9 @@ jobs:
       - name: owner_digest retries a transient 5xx inside its budget (DMG #24)
         if: always()
         run: python3 tests/test_owner_digest_hydration_retries_5xx.py
+      - name: owner_digest counts only meetings that have happened, in UTC (walk #31)
+        if: always()
+        run: python3 tests/test_owner_digest_counts_only_meetings_that_happened.py
 
       - name: Screens evidence never lands in the public repo checkout (DMG #23)
         if: always()
