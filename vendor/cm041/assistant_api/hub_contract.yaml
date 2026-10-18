@@ -209,6 +209,60 @@
     "none"
    ],
    "body_limit_bytes": null,
+   "cross_site_refusal": false,
+   "id": "doctor GET /api/v1/assistant-mailbox",
+   "listener": "doctor",
+   "method": "GET",
+   "path": "/api/v1/assistant-mailbox",
+   "ports": [
+    8089
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "address",
+    "configured",
+    "drops_24h",
+    "drops_24h_total",
+    "enabled",
+    "last_inbound",
+    "last_reply",
+    "owner_verified",
+    "provider",
+    "selftest_age",
+    "selftest_result"
+   ],
+   "source": "vendor/doctor/agent/web_ui.py"
+  },
+  {
+   "auth": [
+    "none"
+   ],
+   "body_limit_bytes": null,
+   "cross_site_refusal": true,
+   "id": "doctor POST /api/v1/assistant-mailbox/{action}",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/assistant-mailbox/{action}",
+   "ports": [
+    8089
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "error",
+    "message",
+    "result"
+   ],
+   "source": "vendor/doctor/agent/web_ui.py"
+  },
+  {
+   "auth": [
+    "none"
+   ],
+   "body_limit_bytes": null,
    "cross_site_refusal": true,
    "id": "doctor POST /api/v1/auth/chat-token",
    "listener": "doctor",
@@ -2174,6 +2228,25 @@
    "listener": "gateway",
    "method": "POST",
    "path": "/announce",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/assistant-mailbox/self-test",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/assistant-mailbox/self-test",
    "ports": [
     8000,
     8443
