@@ -766,24 +766,26 @@ imessage-probe-cannot-hang.yml	imessage-probe-cannot-hang	imessage-probe-cannot-
 import-path-error-honesty.yml	import-path-error-honesty	import-path-error-honesty	ubuntu-latest	1	pull_request,push	7 paths	installer	0	uses:actions/checkout@v4	-
 import-path-error-honesty.yml	import-path-error-honesty	import-path-error-honesty	ubuntu-latest	1	pull_request,push	7 paths	installer	1	run	tests/test_install_error_honesty_counts_import_errors.sh
 import-path-error-honesty.yml	import-path-error-honesty	import-path-error-honesty	ubuntu-latest	1	pull_request,push	7 paths	installer	2	run	tests/test_install_error_honesty_counts_import_errors.sh
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	0	uses:actions/checkout@v4	-
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	1	uses:actions/setup-python@v5	-
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	2	run	tests/test_ingest_slot_fairness.sh
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	3	run	tests/test_a_hung_slot_holder_is_stopped.sh
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	4	run	tests/test_prelaunch_libs_survive_promote.sh
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	5	run	tests/test_wiki_compile_honours_public_lookup_consent.sh
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	6	run	-
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	7	run	wiki-recompile/tests/test_wiki_recompile_tick.py
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	8	run	wiki-recompile/bin/wiki-recompile-tick.sh
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	9	run	wiki-recompile/tests/test_wiki_recompile_tick.py
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	10	run	wiki-recompile/tests/test_wiki_recompile_tick.py
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	11	run	wiki-recompile/bin/wiki-recompile-tick.sh
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	12	run	wiki-recompile/tests/test_wiki_recompile_tick.py
-ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	13 paths	installer	13	run	wiki-recompile/tests/test_wiki_recompile_tick.py
-ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	13 paths	macos-latest	0	uses:actions/checkout@v4	-
-ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	13 paths	macos-latest	1	run	-
-ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	13 paths	macos-latest	2	run	-
-ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	13 paths	macos-latest	3	run	lib/ostler-ingest-slot.sh tests/test_ingest_slot_fairness.sh tests/test_prelaunch_libs_survive_promote.sh vendor/email_source/bin/email-bundle-tick.sh vendor/imessage_source/bin/imessage-bundle-tick.sh vendor/spoken_source/bin/spoken-bundle-tick.sh vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh wiki-recompile/bin/wiki-recompile-tick.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	0	uses:actions/checkout@v4	-
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	1	uses:actions/setup-python@v5	-
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	2	run	tests/test_ingest_slot_fairness.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	3	run	tests/test_a_hung_slot_holder_is_stopped.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	4	run	tests/test_background_qos_yields_to_chat.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	5	run	tests/test_no_heavy_job_bypasses_the_chat_yield.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	6	run	tests/test_prelaunch_libs_survive_promote.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	7	run	tests/test_wiki_compile_honours_public_lookup_consent.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	8	run	-
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	9	run	wiki-recompile/tests/test_wiki_recompile_tick.py
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	10	run	wiki-recompile/bin/wiki-recompile-tick.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	11	run	wiki-recompile/tests/test_wiki_recompile_tick.py
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	12	run	wiki-recompile/tests/test_wiki_recompile_tick.py
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	13	run	wiki-recompile/bin/wiki-recompile-tick.sh
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	14	run	wiki-recompile/tests/test_wiki_recompile_tick.py
+ingest-slot.yml	suite	A feed cannot be starved, and every feed is wired to the slot	ubuntu-latest	1	pull_request,push	15 paths	installer	15	run	wiki-recompile/tests/test_wiki_recompile_tick.py
+ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	15 paths	macos-latest	0	uses:actions/checkout@v4	-
+ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	15 paths	macos-latest	1	run	-
+ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	15 paths	macos-latest	2	run	-
+ingest-slot.yml	shell-3-2	The shipped ticks parse under bash 3.2, the customer's shell	macos-latest	1	pull_request,push	15 paths	macos-latest	3	run	lib/ostler-ingest-slot.sh tests/test_background_qos_yields_to_chat.sh tests/test_ingest_slot_fairness.sh tests/test_no_heavy_job_bypasses_the_chat_yield.sh tests/test_prelaunch_libs_survive_promote.sh vendor/email_source/bin/email-bundle-tick.sh vendor/imessage_source/bin/imessage-bundle-tick.sh vendor/spoken_source/bin/spoken-bundle-tick.sh vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh wiki-recompile/bin/wiki-recompile-tick.sh
 install-abort-and-egress.yml	gates	gates	ubuntu-latest	1	pull_request,push	unfiltered	always	0	uses:actions/checkout@v4	-
 install-abort-and-egress.yml	gates	gates	ubuntu-latest	1	pull_request,push	unfiltered	always	1	run	tests/test_install_sh_no_call_before_definition.sh
 install-abort-and-egress.yml	gates	gates	ubuntu-latest	1	pull_request,push	unfiltered	always	2	run	scripts/tests/test_egress_probe_attribution.sh
