@@ -66,7 +66,7 @@ emit_email_block() {
         echo "smtp_port = ${CHANNEL_EMAIL_SMTP_PORT}"
         echo "smtp_tls = true"
         echo "username = \"$(_esc "$CHANNEL_EMAIL_USERNAME")\""
-        echo "password = \"$(_esc "$CHANNEL_EMAIL_PASSWORD")\""
+        echo 'password = ""'
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
         echo "allowed_senders = []"
     fi
@@ -120,7 +120,15 @@ assert_contains "username set"         "$out" 'username = "alice@example.com"'
 # pattern out of the source line so the operator-pii-scan pre-commit
 # hook does not flag it. The token itself is a build-time random string
 # generated above; it has no static value committed to the repo.
-assert_contains "password populated"   "$out" "${TEST_SECRET_TOKEN}"
+# #1976: the password is NOT in the TOML; install.sh stores it in
+# ~/.ostler/secrets/email_password (tests/test_email_password_never_in_config.sh
+# runs the real writer and checks that file).
+assert_contains "password empty"       "$out" 'password = ""'
+if printf '%s' "$out" | grep -qF "${TEST_SECRET_TOKEN}"; then
+    printf '  FAIL password value reached the TOML\n'; FAIL=$((FAIL + 1))
+else
+    printf '  ok   password value absent from the TOML\n'; PASS=$((PASS + 1))
+fi
 
 # ── Case 3: Both sources ──────────────────────────────────────────
 echo "Case 3: Apple Mail FDA + custom IMAP"
@@ -161,6 +169,7 @@ for needle in \
     'CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED' \
     'apple_mail = true' \
     'custom_imap = true' \
+    "echo 'password = \"\"'" \
     'imap.gmail.com|imap-mail.outlook.com|outlook.office365.com|imap.mail.me.com'
 do
     if grep -q "$needle" "$INSTALL_SH"; then
