@@ -210,3 +210,77 @@ def test_flag_off_by_default(drop, tmp_path, monkeypatch):
     assert r["status"] == "disabled" and not (tmp_path / "o").exists()
     monkeypatch.setenv(importer.FLAG, "1")
     assert importer.enabled()
+
+
+# ---- Granola, official public API v1 schema (docs.granola.ai/api-reference/openapi.json,
+# fetched 2026-10-18: Note, User, CalendarEvent, Transcript, Speaker). Values synthetic.
+GRANOLA_V1 = {
+    "id": "not_AAAAAAAAAAAAA1", "object": "note", "title": "Synthetic quarterly review",
+    "owner": {"name": "Owen Owner", "email": "owen@example.test"},
+    "created_at": "2026-03-10T09:58:00Z", "updated_at": "2026-03-10T11:00:00Z", "deleted_at": None,
+    "web_url": "https://notes.granola.ai/d/00000000-0000-0000-0000-000000000000",
+    "calendar_event": {"event_title": "Synthetic quarterly review",
+                       "invitees": [{"email": "alex@example.test"}, {"email": "robin@example.test"}],
+                       "organiser": "owen@example.test", "calendar_event_id": "synthetic_evt_1",
+                       "scheduled_start_time": "2026-03-10T10:00:00Z",
+                       "scheduled_end_time": "2026-03-10T10:30:00Z"},
+    "attendees": [{"name": "Owen Owner", "email": "owen@example.test"},
+                  {"name": "Alex Example", "email": "alex@example.test"}],
+    "folder_membership": [], "space_membership": [],
+    "summary_text": "Plain synthetic summary.",
+    "summary_markdown": "Synthetic overview line.\n\n### Budget\n- Hold spend flat\n\n### Action items\n- Alex to circulate the deck",
+    "transcript": [
+        {"speaker": {"source": "microphone", "attribution": "me"}, "text": "Shall we start?",
+         "start_time": "2026-03-10T10:00:05Z", "end_time": "2026-03-10T10:00:07Z"},
+        {"speaker": {"source": "speaker", "attribution": "them", "name": "Alex Example"},
+         "text": "Yes, deck is ready.", "start_time": "2026-03-10T10:01:10Z", "end_time": "2026-03-10T10:01:14Z"},
+        {"speaker": {"source": "microphone", "diarization_label": "Speaker B"},
+         "text": "One more point.", "start_time": "2026-03-10T10:02:00Z", "end_time": "2026-03-10T10:02:03Z"},
+    ],
+}
+
+def test_granola_official_v1_note(tmp_path):
+    p = tmp_path / "note.json"; p.write_text(json.dumps(GRANOLA_V1))
+    m = parse_file("granola", p)[0]
+    # speaker is an OBJECT in the official schema, never a string
+    assert [u.speaker for u in m.utterances] == ["Me", "Alex Example", "Speaker B"]
+    assert [u.start_s for u in m.utterances] == [5.0, 70.0, 120.0]   # relative to the scheduled start
+    assert m.started_at == "2026-03-10T10:00:00Z" and m.ended_at == "2026-03-10T10:30:00Z"
+    assert m.source_id == "not_AAAAAAAAAAAAA1"
+    emails = {a.email for a in m.attendees}
+    assert {"alex@example.test", "robin@example.test", "owen@example.test"} <= emails
+    assert len([a for a in m.attendees if a.email == "alex@example.test"]) == 1  # invitee deduped
+    assert [a.text for a in m.action_items] == ["Alex to circulate the deck"]
+    assert m.summary_topics[0][0] == "Budget"
+
+def test_granola_v1_list_page_and_summary_text_fallback(tmp_path):
+    n = dict(GRANOLA_V1, summary_markdown=None, transcript=None)
+    p = tmp_path / "page.json"; p.write_text(json.dumps({"notes": [n], "hasMore": False, "cursor": None}))
+    m = parse_file("granola", p)[0]
+    assert m.summary_overview == "Plain synthetic summary." and m.utterances == ()
+
+# Granola Settings > Profile > Generate CSV (docs.granola.ai/help-center/sharing/exporting-notes):
+# "title, note summary, transcript, and other basic details for each note". Column
+# NAMES are not documented: these headers are ASSUMED, matched case-insensitively.
+GRANOLA_CSV = (
+    'Title,Created At,Attendees,Summary,Transcript\n'
+    '"Synthetic hiring sync",2026-03-12T14:00:00Z,"Alex Example <alex@example.test>; Sam Sample",'
+    '"Overview of the synthetic sync.\n\n## Next steps\n- Sam to draft the role",'
+    '"Me: Thanks for joining.\nAlex Example: Happy to."\n'
+)
+
+def test_granola_csv_export(tmp_path):
+    p = tmp_path / "granola-export.csv"; p.write_text(GRANOLA_CSV)
+    ms = parse_file("granola", p)
+    assert len(ms) == 1
+    m = ms[0]
+    assert m.title == "Synthetic hiring sync" and m.started_at.startswith("2026-03-12")
+    assert [u.speaker for u in m.utterances] == ["Me", "Alex Example"]
+    assert [a.text for a in m.action_items] == ["Sam to draft the role"]
+    assert {a.email for a in m.attendees if a.email} == {"alex@example.test"}
+    assert "Sam Sample" in {a.name for a in m.attendees}
+
+def test_granola_csv_without_a_transcript_column_is_refused_loudly(tmp_path):
+    p = tmp_path / "other.csv"; p.write_text("Foo,Bar\n1,2\n")
+    with pytest.raises(ValueError):
+        parse_file("granola", p)
