@@ -65,7 +65,7 @@ ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # measurement; it does not relax a floor so a convenient label passes.
 #
 # v1.0.109 pins Ollama 0.34.0 (#2977), which pulls the GGUF build. Every
-# floor below is for THAT version. Source for e2b and 9b: clean pulls into an
+# floor below is for THAT version. Source for all three: clean pulls into an
 # empty scratch store with the official 0.34.0 binary, every blob re-hashed,
 # ~/walkdriver/evidence/pins_0340_2026-10-19.md. Total = every layer + config.
 #
@@ -75,15 +75,11 @@ ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 #                    before the tag moved (config c6bc3775 -> 3ff8a734).
 #   qwen3.5:9b       6,550,825,550 B -> 6.6  (ollama list ID 56671c2ab938,
 #                    config 08f9698c).
-#   qwen3.6:35b-a3b  NOT MEASURED by a pull (the evidence file says so: ~12 h
-#                    on the Mini16 link, Studio under STUDIO_LOCK, MBP short
-#                    of disk). Floor from a REGISTRY READ instead: the plain
-#                    (pre-manifest-list) manifest, sha256 a7eb95c53bcf..., the
-#                    same digest the manifest list names as its llamacpp/GGUF
-#                    entry, totals 22,621,314,381 B -> 22.6. The same read
-#                    gives e2b 4,587,156,505 and 9b 6,550,825,550, equal to
-#                    the clean pulls to the byte, so the method is validated
-#                    on the two tags that were pulled.
+#   qwen3.6:35b-a3b  22,621,314,381 B -> 22.6 (ollama list ID a7eb95c53bcf,
+#                    config 99afa5bb). Clean 0.34.0 pull on the Mac Studio
+#                    into an empty scratch store, every blob re-hashed (row
+#                    10 of the evidence file). It equals, to the byte, the
+#                    earlier registry read of the same GGUF manifest.
 #
 # NOT for v1.0.110: under Ollama 0.40.5 on Apple Silicon these tags pull the
 # MLX builds (e2b 7.48, 9b 7.64, 35b 23.60 GB; registry read 2026-10-18,
@@ -91,7 +87,7 @@ ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # Ollama pin changes every floor here; re-measure before that lands.
 MEASURED_FLOORS='gemma4:e2b 4.6 clean pull, Ollama 0.34.0, 4,587,156,505 B, ollama list b37049369adf (pins_0340_2026-10-19.md)
 qwen3.5:9b 6.6 clean pull, Ollama 0.34.0, 6,550,825,550 B, ollama list 56671c2ab938 (pins_0340_2026-10-19.md)
-qwen3.6:35b-a3b 22.6 registry read of the GGUF manifest a7eb95c53bcf, 22,621,314,381 B; NOT MEASURED by a 0.34.0 pull'
+qwen3.6:35b-a3b 22.6 clean pull, Ollama 0.34.0, 22,621,314,381 B, ollama list a7eb95c53bcf (pins_0340_2026-10-19.md)'
 
 # The RAM tiers the picker serves. Each must resolve to a measured tag.
 # 16 GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW).

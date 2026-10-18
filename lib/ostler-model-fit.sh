@@ -79,8 +79,8 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
 # v1.0.109: every label re-measured for Ollama 0.34.0, the version install.sh
 # pins (#2977), which pulls the GGUF build: e2b 4.59 GB -> "~4.6 GB" (the 7.2
 # above predates the tag moving), 9b 6.55 GB -> "~6.6 GB", both clean pulls
-# (~/walkdriver/evidence/pins_0340_2026-10-19.md). 35b-a3b: NOT MEASURED by a
-# pull; a registry read of its GGUF manifest gives 22.62 GB, under "~23 GB".
+# (~/walkdriver/evidence/pins_0340_2026-10-19.md). 35b-a3b 22.62 GB, a clean
+# pull on the Mac Studio, under "~23 GB".
 # Ollama 0.40.5 would pull MLX builds that are LARGER (e2b 7.48, 9b 7.64,
 # 35b 23.60 GB), so a pin change must re-measure every label. Gated by
 # tests/test_model_download_size_honesty.sh (MEASURED_FLOORS, every tier).
