@@ -2285,6 +2285,22 @@ def coach_recent(user_id=None, hours=168, limit=10):
             "db_state": "absent",
             "note": f"coach database not yet created at {COACH_DB}",
         }
+    # A 0-byte file is a database nothing has initialised yet (an early
+    # caller connected to the path before the installer or the writer laid
+    # the schema down). There is nothing in it to read, and opening it with
+    # a key would only make sqlcipher3 report "no such table". Same declared
+    # empty as an absent file, never a 500.
+    try:
+        _coach_db_size = COACH_DB.stat().st_size
+    except OSError:
+        _coach_db_size = None
+    if _coach_db_size == 0:
+        return {
+            "observations": [],
+            "count": 0,
+            "db_state": "empty",
+            "note": f"coach database at {COACH_DB} is empty (not yet initialised)",
+        }
 
     cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
@@ -2312,6 +2328,18 @@ def coach_recent(user_id=None, hours=168, limit=10):
             (user_id, cutoff, limit),
         ).fetchall()
     except Exception as exc:
+        # A keyed database that opened and simply has no observations table
+        # yet is a fresh install where nothing has been coached (a one-speaker
+        # capture is a memo and is never coached). Declared empty, 200. Every
+        # other failure (wrong key "file is not a database", corruption, no
+        # sqlcipher) stays a loud CoachDbError and a 500.
+        if "no such table: observations" in str(exc):
+            return {
+                "observations": [],
+                "count": 0,
+                "db_state": "no_table",
+                "note": f"coach database at {COACH_DB} has no observations yet",
+            }
         msg = f"coach database {COACH_DB} could not be read: {exc}"
         print(f"ERROR: {msg}", file=sys.stderr, flush=True)
         raise CoachDbError(msg) from exc
