@@ -233,7 +233,7 @@ Ostler can turn spoken conversations you record – calls and meetings – into 
 
 The law on recording people speaking is different from the law on written messages, and it varies by country. In some places – for example Germany and France – everyone taking part has to agree before a spoken conversation is recorded. Because you are the person doing the recording, meeting that obligation is your responsibility, not ours.
 
-Ostler transcribes captured audio on this Mac and deletes the audio straight away. It is never kept and never sent anywhere. That does not remove your duty to obtain consent where your local law requires it.
+Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove your duty to obtain consent where your local law requires it.
 
 What we ask of you:
 
