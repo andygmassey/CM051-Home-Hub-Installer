@@ -156,7 +156,7 @@ jobs:
       - name: The vendored Front Page holds back consent cards (no card without a working action)
         if: always()
         run: python3 tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py
-      - name: The vendored Front Page offers the Safari extension and Remote Capture until each works
+      - name: The vendored Front Page offers the Safari extension and RemoteCapture until each works
         if: always()
         run: python3 tests/test_vendored_cm059_frontpage_setup_cards.py
       - name: A real person's name never reaches the screens probe's output or record (DMG #23)

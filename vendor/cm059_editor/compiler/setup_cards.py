@@ -1,4 +1,4 @@
-"""Front Page setup cards: the Safari extension and Remote Capture.
+"""Front Page setup cards: the Safari extension and RemoteCapture.
 
 Two capture surfaces ship on every Hub but do nothing until the customer
 switches them on, and nothing on the Front Page told them so. These cards do,
@@ -8,7 +8,7 @@ Each card follows the CM051 #2878 rule (walk #27): a card never appears
 without a working action. So a card is held back unless the thing its button
 opens is actually on this Mac.
 
-  Card                 Shown when                       Hidden when
+  card                 shown when                       hidden when
   -------------------  -------------------------------  -------------------------------
   browser_extension    the Safari extension app is      the Hub has received a page
                        installed in /Applications/      from the extension
@@ -179,8 +179,8 @@ def browser_extension_card(now: datetime, make_card) -> dict:
 def remote_capture_card(now: datetime, make_card) -> dict:
     return _card(
         make_card, "remote_capture",
-        title="Transcribe your calls with Remote Capture",
-        body=("Remote Capture transcribes your Zoom, Teams, Meet and FaceTime "
+        title="Transcribe your calls with RemoteCapture",
+        body=("RemoteCapture transcribes your Zoom, Teams, Meet and FaceTime "
               "calls right here on your Mac. No bot joins the call, and the "
               "audio is never kept: once it is transcribed, it is gone. Click "
               "the microphone icon in the menu bar and choose Start Capture "
@@ -188,7 +188,7 @@ def remote_capture_card(now: datetime, make_card) -> dict:
               "files a summary, the to-dos and the transcript for you."),
         evidence=("Needs Microphone and Screen & System Audio Recording "
                   "permission in System Settings"),
-        label="Open Remote Capture",
+        label="Open RemoteCapture",
         action_kind=ACTION_OPEN_REMOTE_CAPTURE, now=now)
 
 

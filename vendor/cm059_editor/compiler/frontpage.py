@@ -1087,7 +1087,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     if not demo and scout_cards:
         cards.extend(scout_cards)
 
-    # Setup cards (Safari extension, Remote Capture): each shown only while
+    # Setup cards (Safari extension, RemoteCapture): each shown only while
     # its app is installed and not yet working, so the button always has a
     # target (the CM051 #2878 rule). ``setup_state`` is read by the emitter
     # (setup_cards.read_setup_state); None, or demo mode, yields none.

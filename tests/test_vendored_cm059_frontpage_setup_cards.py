@@ -1,4 +1,4 @@
-"""The shipped Front Page offers the Safari extension and Remote Capture.
+"""The shipped Front Page offers the Safari extension and RemoteCapture.
 
 Proven on the vendored copy that ships (vendor/cm059_editor), through its real
 emitter and its real feedback route, not upstream CM059. For each card:
