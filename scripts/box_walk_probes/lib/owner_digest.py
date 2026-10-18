@@ -277,16 +277,27 @@ def measure_stores():
 
     out["user_asserted_facts"] = sparql_count('?f a pwg:PersonFact ; pwg:factSource "user_asserted" .')
     import datetime
-    since = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
-    today = datetime.date.today().isoformat()
-    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-    ahead = (datetime.date.today() + datetime.timedelta(days=8)).isoformat()
+    # UTC, and bounded by NOW, exactly as generate_pwg_context.py reads them
+    # (_today() is UTC; _meeting_rows keeps a past row only when its
+    # "YYYY-MM-DD HH:MM" is <= now, an upcoming one only when >= now). The
+    # calendar ingest stores UTC ("2026-10-18 01:00:00+00:00", 30 days ahead).
+    # Walk #31 (v1.0.108): this count used LOCAL dates and no now-bound, so on a
+    # UTC+8 box after midnight it counted an entry later that day and graded
+    # the generator's correct "Recent meetings: nothing stored" as a lie.
+    utcnow = datetime.datetime.utcnow()
+    today_utc = utcnow.date()
+    since = (today_utc - datetime.timedelta(days=7)).isoformat()
+    today = today_utc.isoformat()
+    tomorrow = (today_utc + datetime.timedelta(days=1)).isoformat()
+    ahead = (today_utc + datetime.timedelta(days=8)).isoformat()
+    now_s = utcnow.strftime("%Y-%m-%d %H:%M")
+    at = 'REPLACE(SUBSTR(STR(?d), 1, 16), "T", " ")'
     # The same windows and predicates generate_pwg_context.py reads (#2654):
     # past 7 days for Recent meetings; calendar PersonFacts plus the next 7
     # days of pwg:Meeting for Calendar events by owner.
-    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (since, tomorrow))
+    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s <= "%s")' % (since, tomorrow, at, now_s))
     cal_facts = sparql_count('?f a pwg:PersonFact ; pwg:factDomain "calendar" ; pwg:factText ?t .')
-    cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (today, ahead))
+    cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s >= "%s")' % (today, ahead, at, now_s))
     out["calendar_events"] = None if cal_facts is None or cal_ahead is None else cal_facts + cal_ahead
     uid = ""
     try:

@@ -203,12 +203,12 @@ where the leg can run on Linux.
 
 | # | leg (workflow) | runner | median / max | queue median | measured cause | proposed speed-up |
 |---|---|---|---|---|---|---|
-| 1 | declared-gates-self-test (`declared-gates-reachable.yml`) | ubuntu | 302 / 329 s | 31 s | `verify_declared_gates_reachable.sh` takes 157 s locally, and two consecutive steps each run the **full** script just to grep a different marker in its output | run it once, `tee` the output to `$RUNNER_TEMP`, and grade both properties from the file (about −150 s). Then profile the fixpoint's per-file `while read` / `grep` forks and move the hot loop into a single Python pass |
+| 1 | declared-gates-self-test (`declared-gates-reachable.yml`) | ubuntu | 302 / 329 s | 31 s | `verify_declared_gates_reachable.sh` runs **three times** in series (78 + 79 + 80 s on Actions), differing only in `OSTLER_PROVED_RED_FLOOR` | run the three side by side, each graded by its own unchanged step (#2964: 463 s to 161 s locally). Then profile the fixpoint's per-file forks |
 | 2 | catchup-takeout | ubuntu | 256 / 259 s | 26 s | three tests account for 272 s of 280 s: `test_install_plus_catchup_reads_every_thread_once` 162 s, `test_sigkill_in_index_and_dispatch_never_duplicates_or_loses` 71 s, `test_bounded_cost_measured` 39 s | they drive real ticks against real time. Inject the clock (or the tick budget) so the same sequence runs at simulated speed, and keep one slow end-to-end run on `push` to main only |
 | 3 | cold-box-truth (`cold-box-source-truth.yml`) | macos-14 | 212 / 223 s | 322 s | 59 serial bash 3.2 test steps, plus a venv build and pip install inside the job. The queue costs more than the run | fold into macos-14 (removes the queue). Then move steps that need neither `/bin/bash` 3.2 nor a macOS tool to the Ubuntu family, and keep the 3.2-parse checks on macOS |
 | 4 | "A feed cannot be starved…" (`ingest-slot.yml` suite) | ubuntu | 201 / 203 s | 4 s | `tests/test_ingest_slot_fairness.sh` alone took 309 s locally (on a loaded 4-core box). It has 14 sections and 20 fixed `sleep N` calls. `test_a_hung_slot_holder_is_stopped.sh` took 36 s, and the pytest tick suite took 20 s | replace the fixed sleeps with poll-until-condition (the idiom `doctor_page_renders_for_a_customer.sh:259` already uses), and drive the slot timers through their env knobs at sub-second values in the test. Same assertions, less waiting |
 | 5 | driver-not-box (`unreachable-not-absence.yml`) | macos-latest | 192 / 228 s | 500 s | **not reproducible on Linux**: both test steps take about 1 s here (4 of 4 and 5 of 5 arms pass). The 192 s is macOS-specific, and the 500 s queue costs more than the run | fold into macos-latest first, because the queue is the bigger cost. Then time each arm on the next macOS run (`date +%s` around each arm). The suspects are the `curl --max-time 12` arms against a server that never answers |
-| 6 | cut-gate-wrappers | macos-latest | 140 / 156 s | 38 s | 45 serial steps, PyYAML installed three times by three different pip spellings | install once at the top. Fold the ten `bash -n` / grep-count checks into one step. Fold the job into macos-latest |
+| 6 | cut-gate-wrappers | macos-latest | 140 / 156 s | 38 s | 45 serial steps; `test_sign_python_bundle_reports_why.sh` alone is 66 s. I first wrote "PyYAML installed three times"; measured, it is 7 s once, and the other two installs are guarded no-ops | profile `test_sign_python_bundle_reports_why.sh` on macOS. Folded into macos-latest (#2963) |
 | 7 | catchup-messages | ubuntu | 99 / 102 s | 4 s | `tests/test_catchup_messages.py` takes 103 s: two hang-quarantine cases at 15 s each, then 10 s timeout cases. The vendored source suites take 9 s | the 15 s is the real per-item hang timeout. Pass the timeout in (env or argument), set it to about 1 s in all but one case, and keep a single full-length case so the real value is still exercised |
 | 8 | catchup-machinery | ubuntu | 97 / 100 s | 29 s | `tests/test_catchup_core.py` takes 92 s, with its top three cases at 14 to 15 s each (the same per-item timeout). The other steps take 4 s | the same injected timeout as #7. And `test_catchup_core.py` is **run twice per PR**, here and in catchup-mail (#10). Run it once, from a block whose selection rows are the union of both workflows' paths |
 | 9 | sweep-macos (`tests-unwired-sweep-al.yml`) | macos-latest | 92 / 96 s | 288 s | the queue (288 s) is three times the run | fold into macos-latest. That removes the queue, which is the cost here |
@@ -221,23 +221,13 @@ removes a test or loosens an assertion. Each one either removes a duplicate
 run or replaces wall-clock waiting with an injected clock, which the test
 must still exercise.
 
-## Needs a human call
+## Decided (2026-10-17)
 
-1. **Folding the 29 unconditional Ubuntu jobs shrinks the CI Required Gate's
-   anti-vacuity floor.** `verify_pr_gate_aggregate.sh` recomputes its floor as
-   the number of unconditional workflow **files**, which is 34 today. If those
-   files are folded into one family, the floor drops to about 6, and the
-   aggregate will accept a far smaller enumeration before it refuses. The
-   proposal is to have the floor count expected **check-runs** (jobs ×
-   matrix legs) instead, and to land that change before the `always` family
-   is folded. That changes the gate, so it is your call.
-2. **Selection uses the PR files API** with `pull-requests: read`. The
-   alternative is a `git diff` against the merge commit's first parent. That
-   needs no token, but it can differ from GitHub's own three-dot diff when the
-   base has independently made the same change, and in that case it would
-   skip a block GitHub would have run. The API was chosen for that reason.
-   Say if a token-less family is preferred.
-3. **Stale prose references.** Historical cut manifests (`cut-manifests/
-   v1.0.99`–`v1.0.108`) and OS003's v1.0.68 BOM mention folded workflow
-   names. They are records, v1.0.108 is frozen, and they are left as written.
-   `.github/ci-fold-families.tsv` is the map from an old name to its family.
+1. **The CI Required Gate counts EXPECTED check-runs, required by identity
+   (workflow file, name), and lands before any unconditional job is
+   folded.** That is #2960. It was shown RED live on a PR that dropped a
+   required job (#2961), and the old file-count floor was GREEN on the same
+   shape.
+2. **The selector reads the PR files API** with `pull-requests: read`, and
+   stays fail-open.
+3. **Frozen cut manifests and OS003's v1.0.68 BOM are left as written.**
