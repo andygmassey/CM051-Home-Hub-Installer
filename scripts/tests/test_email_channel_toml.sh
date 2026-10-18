@@ -124,7 +124,7 @@ assert_contains "username set"         "$out" 'username = "alice@example.com"'
 # ~/.ostler/secrets/email_password (tests/test_email_password_never_in_config.sh
 # runs the real writer and checks that file).
 assert_contains "password empty"       "$out" 'password = ""'
-if printf '%s' "$out" | grep -qF "${TEST_SECRET_TOKEN}"; then
+if grep -qF "${TEST_SECRET_TOKEN}" <<< "$out"; then
     printf '  FAIL password value reached the TOML\n'; FAIL=$((FAIL + 1))
 else
     printf '  ok   password value absent from the TOML\n'; PASS=$((PASS + 1))
