@@ -464,7 +464,10 @@ class XcstringsCatalogue:
         for k, v in self._load()["strings"].items():
             locs = v.get("localizations", {})
             en = locs.get(self.src_lang, {}).get("stringUnit", {}).get("value")
-            if en is None or en == k:
+            # Literal-keyed (the key IS the English; Xcode may store it with
+            # positional %1$@ forms): a missing value falls back to the key,
+            # which is the English. Only a real key ("brand.name") is at risk.
+            if en is None or en == k or re.sub(r"%\d+\$", "%", en) == k:
                 continue
             out += [(k, l) for l in languages if "stringUnit" not in locs.get(l, {}) and "variations" not in locs.get(l, {})]
         return out
