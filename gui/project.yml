@@ -290,6 +290,12 @@ targets:
           # warns and no older history is ever read on a .app install.
           cp "${SRCROOT}/../lib/ostler_catchup.py"               "${DEST}/lib/ostler_catchup.py"
           chmod 644 "${DEST}/lib/ostler_catchup.py"
+          # Telegram setup helper. install.sh stages it into ~/.ostler/lib and
+          # writes the ~/.ostler/bin/ostler-telegram-setup wrapper ONLY if it
+          # finds ${SCRIPT_DIR}/lib/ostler-telegram-setup.py; missing here =
+          # every .app install warns and Telegram cannot be switched on.
+          cp "${SRCROOT}/../lib/ostler-telegram-setup.py"        "${DEST}/lib/ostler-telegram-setup.py"
+          chmod 644 "${DEST}/lib/ostler-telegram-setup.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
@@ -365,6 +371,7 @@ targets:
           - $(SRCROOT)/../lib/ostler-confirm-calendars.py
           - $(SRCROOT)/../lib/ostler-confirm-identity.py
           - $(SRCROOT)/../lib/ostler_catchup.py
+          - $(SRCROOT)/../lib/ostler-telegram-setup.py
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
@@ -378,6 +385,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-calendars.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-identity.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_catchup.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-telegram-setup.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that

@@ -7063,6 +7063,9 @@ echo -e "    ${BOLD}3. Both${NC}          – iMessage + email (recommended)"
 echo -e "    ${BOLD}4. Skip for now${NC}  – set up later"
 echo -e "    ${BOLD}5. + WhatsApp${NC}    – iMessage + email + WhatsApp (read-only)"
 echo ""
+echo "  Telegram: after the install, run ~/.ostler/bin/ostler-telegram-setup"
+echo "  in Terminal. It takes about two minutes and only your account can use it."
+echo ""
 CHANNEL_CHOICE="$(gui_read "$MSG_PROMPT_CHANNEL_CHOICE_TITLE" choice "3" "$MSG_PROMPT_CHANNEL_CHOICE_HELP" "1,2,3,4,5" "channel_choice")"
 CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
 
@@ -13938,6 +13941,36 @@ fi
 if [[ -f "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" ]]; then
     cp "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" "${OSTLER_DIR}/bin/"
     chmod +x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh"
+fi
+
+# Telegram setup helper (public launch, owner-only). The customer runs
+# `~/.ostler/bin/ostler-telegram-setup` in Terminal: paste a @BotFather token,
+# message the bot once, and only that Telegram account can talk to the
+# assistant. The token goes to ~/.ostler/secrets/telegram_bot_token (0600),
+# never config.toml. Staged by every DMG install, including a re-install over
+# an existing Hub (which skips the Phase 2 questions), so an existing customer
+# gets it by running the new DMG. NOT staged by the Sparkle OSTLER_UPGRADE_MODE
+# path, which returns before this block. The wrapper
+# resolves ~/.ostler at RUN time: OSTLER_DIR can still be the prelaunch /tmp
+# path here, and a baked /tmp path dies at the first reboot (#573).
+if [[ -f "${SCRIPT_DIR}/lib/ostler-telegram-setup.py" ]]; then
+    cp "${SCRIPT_DIR}/lib/ostler-telegram-setup.py" "${OSTLER_DIR}/lib/ostler-telegram-setup.py"
+    chmod 644 "${OSTLER_DIR}/lib/ostler-telegram-setup.py"
+    cat > "${OSTLER_DIR}/bin/ostler-telegram-setup" <<'TGSETUPEOF'
+#!/bin/bash
+# Connect a Telegram bot to your Ostler assistant. Installed by the Ostler installer.
+O="${OSTLER_HOME:-$HOME/.ostler}"
+PY="$O/.venv/bin/python3"
+if [[ ! -x "$PY" ]]; then
+    echo "Couldn't start: Ostler's Python is missing at $PY. Re-run the Ostler installer." >&2
+    exit 78
+fi
+exec "$PY" "$O/lib/ostler-telegram-setup.py" "$@"
+TGSETUPEOF
+    chmod 755 "${OSTLER_DIR}/bin/ostler-telegram-setup"
+    dbg "telegram setup helper staged at ${OSTLER_DIR}/bin/ostler-telegram-setup"
+else
+    warn "Telegram setup helper missing from this installer (lib/ostler-telegram-setup.py); Telegram cannot be switched on from this install."
 fi
 
 # Walk the post-condition: a supervisor that was never staged would leave
