@@ -29,10 +29,10 @@ CONTRACT="${OSTLER_HUB_CONTRACT:-${_REPO}/vendor/cm041/assistant_api/hub_contrac
 
 self_test() {
     if python3 "${LIB}" --self-test; then
-        probe_examined 10 "fake-gateway arms"
-        probe_fail "negative control behaved: a planted token, URL-encoded token and base64 Vane password each went red naming the route, the mailbox app password echoed by the self-test route went red, and a blind control or an unreadable Keychain item went CANNOT-RUN"
+        probe_examined 13 "fake-gateway arms"
+        probe_fail "negative control behaved: a planted token, URL-encoded token and base64 Vane password each went red naming the route, the mailbox app password echoed by the self-test route went red, a blind control or an unreadable Keychain item went CANNOT-RUN, and with a real mailbox host the self-test was never POSTed"
     fi
-    probe_examined 10 "fake-gateway arms"
+    probe_examined 13 "fake-gateway arms"
     probe_pass "SELF-TEST BROKEN: the sweep let a planted secret through"
 }
 

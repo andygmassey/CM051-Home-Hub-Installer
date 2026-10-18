@@ -2,7 +2,7 @@
 # gateway_never_serves_a_stored_secret, RED/GREEN end to end through the real
 # probe script (box_run on this machine, OSTLER_BOX_HOST unset) and the real
 # hub contract's gateway route list, against a fake gateway:
-#   1. the lib's own --self-test (10 arms) passes, and the probe's --self-test
+#   1. the lib's own --self-test (13 arms) passes, and the probe's --self-test
 #      returns FAIL (1), as the walk runner's phase 1 demands
 #   2. a fake gateway that leaks the paired token on GET /api/config: the
 #      probe FAILs (1) and names GET /api/config
@@ -16,6 +16,10 @@
 #      and requested with the bearer. Its Keychain read goes to the security
 #      stand-in (tests/e2e/fakebin/security), first on PATH: no test touches a
 #      real keychain.
+#   9. no outward mail: with a REAL provider host in [email_assistant] the
+#      probe prints CANNOT for the self-test route with the reason, sweeps a
+#      read-only GET instead, and still PASSes a clean gateway; with loopback
+#      hosts (the fixture default, the mailsim case) it POSTs it.
 # Synthetic values only (the lib's SYN_* constants).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
@@ -115,6 +119,18 @@ no_values "clean arm"
     && ok "the clean arm swept the mailbox app password" || bad "the mailbox app password was not swept"
 /usr/bin/grep -q 'find-generic-password' "$FAKE_SECURITY_LOG" && ! /usr/bin/grep -q UNSUPPORTED "$FAKE_SECURITY_LOG" \
     && ok "the Keychain read went to the stand-in" || bad "no stand-in Keychain read recorded"
+
+# No outward mail: point the fixture's mailbox at a real provider host.
+cp "$work/ostler/assistant-config/config.toml" "$work/cfg.loopback"
+sed 's/^imap_host = .*/imap_host = "imap.mail.me.com"/; s/^smtp_host = .*/smtp_host = "smtp.mail.me.com"/' "$work/cfg.loopback" > "$work/ostler/assistant-config/config.toml"
+chmod 600 "$work/ostler/assistant-config/config.toml"
+rc="$(run_arm "http://127.0.0.1:$pc")"
+[ "$rc" -eq 0 ] && /usr/bin/grep -q 'CANNOT POST /api/assistant-mailbox/self-test on .*mailbox host is not loopback; self-test would send real mail' "$work/out" \
+    && ok "a real mailbox host: the self-test is not POSTed, CANNOT names why, the rest still PASSes" || { bad "real-host arm rc=$rc"; tail -5 "$work/out"; }
+no_values "real-host arm"
+cp "$work/cfg.loopback" "$work/ostler/assistant-config/config.toml"
+! /usr/bin/grep -q 'mailbox host is not loopback' <(OSTLER_DIR="$work/ostler" OSTLER_SECRET_SWEEP_BASES="http://127.0.0.1:$pc" bash "$PROBE" 2>&1) \
+    && ok "loopback mailbox hosts: no CANNOT for the self-test (it is POSTed)" || bad "loopback hosts still skipped the self-test"
 
 # Control sees 0: drive the lib directly with a control file lacking the secret
 # (the probe has no flag for it on purpose); then a dead base through the probe.

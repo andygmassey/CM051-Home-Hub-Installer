@@ -7,9 +7,13 @@ entry of [gateway].paired_tokens and the Vane password embedded in vane_url
 the assistant mailbox's app password, read from the Keychain with `security`
 (the tool the installer stored it with, so no access prompt). Its positive
 control is the raw Keychain answer, since config.toml never holds it.
-POST /api/assistant-mailbox/self-test IS sent in the authenticated arm (it
-runs the mailbox self-test, the same as Doctor's "Test now") with a 75 s
-timeout, so its real response is examined, not a timeout's empty body.
+POST /api/assistant-mailbox/self-test runs the mailbox self-test (it SENDS a
+mail). The probe must never send outward mail, so it is POSTed only when the
+mailbox is off or both its IMAP and SMTP hosts are loopback (the mailsim), with
+a 75 s timeout so its real response is examined. Otherwise it is NOT POSTed in
+either arm: the judge prints CANNOT for it ("mailbox host is not loopback;
+self-test would send real mail") and a read-only GET of the same path is swept
+instead (it reaches the router and the auth layer, never the handler).
 
   sweep  (runs ON the box) reads the secret values from config.toml, holds
          them in memory only (never printed, never written), derives the
@@ -64,6 +68,8 @@ SLOW = re.compile(r"/assistant-mailbox/self-test$")
 SLOW_TIMEOUT = 75.0
 MAILBOX_SERVICE = "Ostler Assistant Mailbox"
 MAILBOX_LABEL = "assistant_mailbox_password"
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1", "[::1]")
+NOT_LOOPBACK = "mailbox host is not loopback; self-test would send real mail"
 BODY_BLIND = re.compile(r"(shutdown|/rotate|/forget|paircode/new|suppress-suggestions|/dismiss|pairing/initiate)")
 
 
@@ -119,6 +125,13 @@ def mailbox_address(text):
         return None
     m = re.search(r'(?m)^\s*address\s*=\s*"([^"]+)"', sec)
     return m.group(1) if m else None
+
+
+def mailbox_hosts_are_loopback(text):
+    """True only when BOTH [email_assistant] hosts are loopback. Missing = not."""
+    sec = _section(text, "email_assistant")
+    hosts = [re.search(r'(?m)^\s*%s\s*=\s*"([^"]*)"' % k, sec) for k in ("imap_host", "smtp_host")]
+    return all(h and h.group(1).strip().lower() in LOOPBACK_HOSTS for h in hosts)
 
 
 def keychain_reader(address):
@@ -223,6 +236,8 @@ def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0, mai
     controls = {}
     addr = mailbox_address(text)
     res["mailbox"] = "enabled" if addr else "not configured"
+    may_send_selftest = (not addr) or mailbox_hosts_are_loopback(text)
+    res["selftest_sent"] = may_send_selftest
     if addr:
         raw = (mailbox_reader or keychain_reader)(addr)
         if raw is None:
@@ -264,6 +279,16 @@ def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0, mai
             if path in NEVER_SEND:
                 res["skipped"].append({"method": method, "path": path, "base": base, "auth": "both", "why": "never sent"})
                 continue
+            if SLOW.search(path) and method == "POST" and not may_send_selftest:
+                # Read-only stand-in: the same path by GET, both arms.
+                res.setdefault("cannot_routes", []).append({"method": method, "path": path, "base": base,
+                                                            "why": NOT_LOOPBACK})
+                for mode in ("none", "paired_bearer"):
+                    st, blob = request(base, "GET", path, bearer if mode == "paired_bearer" else None, timeout)
+                    counts = {l: count(blob, v, x) for (l, v, x) in secrets}
+                    res["rows"].append({"method": "GET", "path": path, "base": base, "auth": mode,
+                                        "status": st, "counts": counts, "read_only_for": "POST"})
+                continue
             for mode in ("none", "paired_bearer"):
                 if mode == "paired_bearer" and method != "GET" and (method == "DELETE" or BODY_BLIND.search(path)):
                     res["skipped"].append({"method": method, "path": path, "base": base, "auth": mode,
@@ -294,6 +319,9 @@ def judge(res):
             lines.append("  CANNOT %s answered none of its %d requests" % (b, len([r for r in rows if r["base"] == b])))
             return lines, EX_CANNOT
         lines.append("  ok     %s answered %d of %d requests" % (b, len(answered), len([r for r in rows if r["base"] == b])))
+    for c in res.get("cannot_routes", []):
+        lines.append("  CANNOT %s %s on %s: %s (a read-only GET of the path was swept instead)" % (
+            c["method"], c["path"], c["base"], c["why"]))
     leaks = [r for r in rows if any(n > 0 for n in r["counts"].values())]
     for s in res.get("skipped", []):
         lines.append("  ok     skipped %s %s on %s (%s): %s" % (s["method"], s["path"], s["base"], s["auth"], s["why"]))
@@ -361,6 +389,7 @@ def _fake_server(leak):
             pass
 
         def _do(self):
+            srv.hits.append((self.command, self.path.split("?")[0]))
             n = int(self.headers.get("Content-Length") or 0)
             if n:
                 self.rfile.read(n)
@@ -383,17 +412,19 @@ def _fake_server(leak):
         do_GET = do_POST = do_DELETE = do_PUT = do_PATCH = _do
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.hits = []
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
 
-def write_fixture(d):
+def write_fixture(d, mailbox_host="127.0.0.1"):
     cfg = os.path.join(d, "config.toml")
     fd = os.open(cfg, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write('[gateway]\nrequire_pairing = true\npaired_tokens = [\n  "%s",\n  "%s",\n]\n\n[web_search]\nprovider = "vane"\n'
                 'vane_url = "http://ostler:%s@localhost:3000"\n\n[email_assistant]\nenabled = true\naddress = "%s"\n'
-                % (SYN_TOKEN, SYN_TOKEN2, SYN_VANE, SYN_MAILBOX_ADDR))
+                'imap_host = "%s"\nsmtp_host = "%s"\n'
+                % (SYN_TOKEN, SYN_TOKEN2, SYN_VANE, SYN_MAILBOX_ADDR, mailbox_host, mailbox_host))
     con = os.path.join(d, "hub_contract.yaml")
     json.dump(CONTRACT, open(con, "w"))
     blind = os.path.join(d, "control_without_secret.txt")
@@ -451,9 +482,43 @@ def self_test():
     print("  %s routes come from the contract's gateway listener; shutdown never sent; authed DELETE skipped" % (
         "ok    " if good else "FAIL  "))
     ok &= good
-    for f in os.listdir(d):
-        os.unlink(os.path.join(d, f))
-    os.rmdir(d)
+    # Branch 2: a REAL provider host. The self-test is never POSTed (no
+    # outward mail), the judge says CANNOT with the reason, a read-only GET is
+    # swept, and the overall verdict comes from everything else.
+    d2 = tempfile.mkdtemp(prefix="secret-sweep-st2-")
+    cfg2, con2, _ = write_fixture(d2, mailbox_host="imap.mail.me.com")
+    srv = _fake_server(None)
+    res = sweep(cfg2, con2, ["http://127.0.0.1:%d" % srv.server_address[1]], timeout=3, mailbox_reader=fake_keychain)
+    srv.shutdown()
+    lines, rc = judge(res)
+    text = "\n".join(lines)
+    posted = [h for h in srv.hits if h == ("POST", "/api/assistant-mailbox/self-test")]
+    got = [h for h in srv.hits if h == ("GET", "/api/assistant-mailbox/self-test")]
+    good = rc == EX_PASS and not posted and len(got) == 2 and ("CANNOT POST /api/assistant-mailbox/self-test" in text) \
+        and NOT_LOOPBACK in text
+    print("  %s a real mailbox host: self-test never POSTed (%d), read-only GET swept (%d), CANNOT names the reason" % (
+        "ok    " if good else "FAIL  ", len(posted), len(got)))
+    ok &= good
+    srv = _fake_server(("GET", "/api/assistant-mailbox/self-test", SYN_MAILBOX))
+    res = sweep(cfg2, con2, ["http://127.0.0.1:%d" % srv.server_address[1]], timeout=3, mailbox_reader=fake_keychain)
+    srv.shutdown()
+    lines, rc = judge(res)
+    good = rc == EX_FAIL and "FAIL   GET /api/assistant-mailbox/self-test" in "\n".join(lines) \
+        and not any(h == ("POST", "/api/assistant-mailbox/self-test") for h in srv.hits)
+    print("  %s a real mailbox host: the read-only check still catches the password on that path" % (
+        "ok    " if good else "FAIL  "))
+    ok &= good
+    # Branch 1 control: loopback hosts DO post it (the mailsim case).
+    srv = _fake_server(None)
+    sweep(cfg, con, ["http://127.0.0.1:%d" % srv.server_address[1]], timeout=3, mailbox_reader=fake_keychain)
+    srv.shutdown()
+    good = ("POST", "/api/assistant-mailbox/self-test") in srv.hits
+    print("  %s loopback mailbox hosts: the self-test IS posted" % ("ok    " if good else "FAIL  "))
+    ok &= good
+    for dd in (d, d2):
+        for f in os.listdir(dd):
+            os.unlink(os.path.join(dd, f))
+        os.rmdir(dd)
     return ok
 
 
