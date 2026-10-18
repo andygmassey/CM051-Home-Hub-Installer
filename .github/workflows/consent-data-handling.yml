@@ -240,7 +240,8 @@ jobs:
       - name: ingest_social is registered and not ship-dark
         if: always()
         run: bash tests/test_social_ingest_wired.sh
-      # The Ollama install path: cask 'ollama-app', de-quarantined, and gated on
+      # The Ollama install path (2026-10-18: no cask; pinned, sha256-verified
+      # release). Previously: cask 'ollama-app', de-quarantined, and gated on
       # a hard binary-exists check. The de-quarantine limb is the load-bearing
       # one -- without it the cask reintroduces the Gatekeeper dialog CX-14 E1
       # was raised about, and the rest of the block still reads as correct.
@@ -253,6 +254,14 @@ jobs:
       - name: control -- prove every limb of the ollama contract can fail
         if: always()
         run: bash scripts/tests/test_ollama_contract_controls.sh
+
+      # The pinned Ollama install EXECUTED, not grepped: stub curl, real
+      # shasum + tar. A tampered archive must be refused (rc 12), an archive
+      # carrying an Ollama.app self-updater must be refused (rc 14), a failed
+      # download must be loud (rc 11).
+      - name: ollama pinned release -- sha256 enforced, updater refused
+        if: always()
+        run: bash tests/test_ollama_pin_install_verifies_sha256.sh
 
       # A killed contacts wrapper must not be reported as an empty address
       # book. The bound added alongside this would otherwise have INTRODUCED

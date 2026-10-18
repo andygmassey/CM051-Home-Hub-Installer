@@ -298,6 +298,7 @@ test_doctor_reminders_list_removed.py	WIRED	.github/workflows/cm048-participants
 test_doctor_repo_fallback.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_routines_are_measured_live.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_rows_show_one_honest_total.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_doctor_says_when_ollama_is_not_pinned.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
@@ -535,6 +536,7 @@ test_notion_obsidian_import_runs_end_to_end.py	WIRED	.github/workflows/tests-unw
 test_ollama_agent_check_survives_a_not_yet_running_agent.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_agent_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_ollama_pin_install_verifies_sha256.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_ollama_watchdog_heals_only_a_wedge.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_one_slow_route_cannot_wedge_the_hub_api.py	WIRED	.github/workflows/one-slow-route-cannot-wedge-the-api.yml

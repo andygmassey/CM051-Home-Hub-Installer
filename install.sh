@@ -1943,6 +1943,16 @@ ollama_pull_with_retry() {
     local model="$1"
     local attempt=1
     local backoff=10
+    # rc 3 = HELD, not failed (Archie, #2977). While the Ollama pin is
+    # DEFERRED the engine may be a drifted, self-updated one (0.40.x pulls
+    # MLX builds, not the GGUF builds the model pins describe), so nothing is
+    # pulled until the pin lands; the next installer run retries both.
+    # Inline on purpose: no helper this wrapper could be lifted without.
+    if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then
+        warn "$(printf "$MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED" "${model}" "${OLLAMA_PIN_VERSION:-?}")"
+        echo "model_pull=held model=${model} reason=ollama_unpinned" >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null || true
+        return 3
+    fi
     while (( attempt <= 3 )); do
         if _gui_ollama_pull "$model"; then
             return 0
@@ -3412,14 +3422,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8701) captures the path BY
+    # _ostler_write_store_curl_config (defined :8711) captures the path BY
     # VALUE and never re-reads it:
-    #     :8702   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8747   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8756 and :16199, both of which run
+    #     :8712   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8757   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8766 and :16424, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
-    # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3408 above has just deleted
+    # that tree and :3412 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3434,13 +3444,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16994, where the note reads
+    # WhatsApp Web session path did it again at :17219, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17011 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17236 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3459,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6030 against a definition at :8701. Top-level
+    # writer's own definition: :6040 against a definition at :8711. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8756, :16199) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8766, :16424) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19159 / :19337 / :19494 / :19939 path. There the
+    # :19384 / :19562 / :19719 / :20164 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -14454,7 +14464,9 @@ _ostler_configure_reboot_autologin
 progress "Setting up Ollama (local AI engine)" "ollama_install"
 
 # CX-43 / Ollama-runner fix (2026-06-02). Install the CASK
-# (Ollama.app), not the Homebrew FORMULA.
+# (Ollama.app), not the Homebrew FORMULA. [SUPERSEDED 2026-10-18: the
+# cask is replaced by a pinned release, see OLLAMA_PIN_* below. The
+# history is kept because its llama-server requirement still holds.]
 #
 # The formula's `ollama` (0.30.0) ships ONLY an MLX runner and NO
 # llama-server, so every GGUF model (nomic-embed-text, the qwen
@@ -14481,18 +14493,195 @@ progress "Setting up Ollama (local AI engine)" "ollama_install"
 # Net: no mid-install dialog (E1's real concern) AND a working
 # llama-server (the bug E1 did not know about).
 
-OLLAMA_APP_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
+# ── OLLAMA IS A PINNED, HASH-VERIFIED RELEASE, NOT THE CASK (2026-10-18) ──
+#
+# The cask above was UNPINNED: `brew install --cask ollama-app` installs
+# whatever Ollama is current on the day the customer runs us, and
+# Ollama.app then updates itself. The on-disk model manifest format and
+# the config digests depend on the Ollama version (0.40.5 writes MLX
+# tensor manifests, qwen3.5:9b -> config 5722a374; 0.34.0 wrote GGUF
+# manifests), so a model-digest pin cannot be correct while the engine
+# floats. A brew cask cannot be version-pinned.
+#
+# So we install ONE named release from Ollama's official GitHub release:
+# the CLI tarball `ollama-darwin.tgz`, which carries `ollama` AND
+# `llama-server` (the CX-43 requirement above still holds) and contains
+# NO Ollama.app and NO updater. The cask's self-update lives in the app
+# (app/updater in the Ollama source, gated on the app's own settings
+# store); a binary that has no app has nothing to update itself with.
+#
+# 0.34.0 (GGUF runner), Archie's v1.0.109 decision: 0.40.5 pulls MLX builds
+# and regressed memory on every RAM tier. The sha256 below is from a real
+# download of the official v0.34.0 asset (2026-10-19, remote_ip
+# 185.199.110.133, 159589632 bytes), equal to GitHub's own asset digest;
+# the unpacked tree carries ollama + llama-server and no .app.
+#
+# The archive's sha256 is recorded HERE, not fetched: the release's own
+# sha256sum.txt comes from the same place as the archive and proves
+# nothing about tampering. A mismatch refuses the install.
+#
+# The binary lives in a VERSIONED, Ostler-owned prefix, so:
+#   * a customer's own /Applications/Ollama.app is never touched, never
+#     downgraded and never upgraded by us (we warn that it is there);
+#   * an upgrade is a new directory, never an in-place overwrite.
+#
+# HOW A PINNED UPGRADE HAPPENS: change the three OLLAMA_PIN_* values
+# below in one reviewed PR (version, URL, sha256 taken from the GitHub
+# release asset digest and re-hashed locally), re-run the model-digest
+# proof against the new engine, cut. On the customer Mac the new install
+# writes ollama-<new>/, the plist check below sees the agent pointing at
+# the old path and rewrites it. Nothing else moves the engine.
+OLLAMA_PIN_VERSION="0.34.0"
+OLLAMA_PIN_URL="https://github.com/ollama/ollama/releases/download/v0.34.0/ollama-darwin.tgz"
+OLLAMA_PIN_SHA256="dd12b00bcce2d6551178e67ada90d5af9f75bdb54a118b96655250fa3e8ef734"
+OLLAMA_PIN_DIR="${HOME}/.ostler/runtime/ollama-${OLLAMA_PIN_VERSION}"
+# Name kept for every consumer below (LaunchAgent ProgramArguments, the
+# direct-serve fallback): it is THE binary this install serves from.
+OLLAMA_APP_BIN="${OLLAMA_PIN_DIR}/ollama"
+# The cask's location, used ONLY to notice a customer's own Ollama.app.
+OLLAMA_CUSTOMER_APP_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
 
-# Detect the CASK specifically. A bare `command -v ollama` is
-# satisfied by a pre-existing broken FORMULA on PATH and would wrongly
-# skip the cask install, so path-match the app binary instead.
-if [[ -x "$OLLAMA_APP_BIN" ]]; then
+# _ostler_ollama_pin_install <dest_dir>
+# Download OLLAMA_PIN_URL, verify OLLAMA_PIN_SHA256, unpack into
+# <dest_dir>, refuse anything carrying an updater, write the pin marker.
+# Returns 0 ok, 11 download failed, 12 sha256 mismatch, 13 unpack
+# failed, 14 the unpacked tree is not the pinned engine. Never leaves a
+# half-written <dest_dir>: it is staged beside it and moved in last.
+# OSTLER-OLLAMA-PIN-FN-BEGIN
+_ostler_ollama_pin_install() {
+    local _dest="$1" _stage _tgz _got _rc
+    _stage="${_dest}.partial.$$"
+    rm -rf "$_stage"
+    mkdir -p "$_stage" || return 13
+    _tgz="${_stage}/ollama-darwin.tgz"
+    curl -fsSL --retry 3 --connect-timeout 20 -o "$_tgz" "$OLLAMA_PIN_URL" && _rc=0 || _rc=$?
+    if [[ $_rc -ne 0 || ! -s "$_tgz" ]]; then
+        echo "ollama pin: download of ${OLLAMA_PIN_URL} failed (curl rc=${_rc})" >&2
+        rm -rf "$_stage"; return 11
+    fi
+    _got="$(shasum -a 256 "$_tgz")" && _rc=0 || _rc=$?
+    _got="${_got%% *}"
+    if [[ $_rc -ne 0 || "$_got" != "$OLLAMA_PIN_SHA256" ]]; then
+        echo "ollama pin: sha256 mismatch for ${OLLAMA_PIN_URL}: expected ${OLLAMA_PIN_SHA256}, got ${_got:-<none>} (shasum rc=${_rc})" >&2
+        rm -rf "$_stage"; return 12
+    fi
+    mkdir -p "${_stage}/tree" || { rm -rf "$_stage"; return 13; }
+    tar -xzf "$_tgz" -C "${_stage}/tree" && _rc=0 || _rc=$?
+    if [[ $_rc -ne 0 ]]; then
+        echo "ollama pin: could not unpack ${_tgz} (tar rc=${_rc})" >&2
+        rm -rf "$_stage"; return 13
+    fi
+    # AUTO-UPDATE OFF, BY CONSTRUCTION, AND CHECKED: the engine we serve
+    # must carry no app bundle (the only thing in Ollama that updates
+    # itself). If a future archive grows one, refuse rather than ship a
+    # self-updating engine under a version pin.
+    if [[ ! -x "${_stage}/tree/ollama" || ! -x "${_stage}/tree/llama-server" ]] \
+       || [[ -n "$(find "${_stage}/tree" -name '*.app' -prune -print 2>&1)" ]]; then
+        echo "ollama pin: unpacked tree is not the pinned CLI engine (missing ollama/llama-server, or carries an .app updater)" >&2
+        rm -rf "$_stage"; return 14
+    fi
+    printf '%s %s\n' "$OLLAMA_PIN_VERSION" "$OLLAMA_PIN_SHA256" > "${_stage}/tree/.ostler-ollama-pin" \
+        || { rm -rf "$_stage"; return 13; }
+    rm -rf "$_dest"
+    mkdir -p "$(dirname "$_dest")" || { rm -rf "$_stage"; return 13; }
+    mv "${_stage}/tree" "$_dest" && _rc=0 || _rc=$?
+    rm -rf "$_stage"
+    [[ $_rc -eq 0 ]] || return 13
+    return 0
+}
+
+# _ostler_ollama_pin_is_current <dest_dir>: the dir holds exactly the pin.
+_ostler_ollama_pin_is_current() {
+    local _m
+    [[ -x "$1/ollama" && -r "$1/.ostler-ollama-pin" ]] || return 1
+    _m="$(cat "$1/.ostler-ollama-pin")" || return 1
+    [[ "$_m" == "$OLLAMA_PIN_VERSION $OLLAMA_PIN_SHA256" ]]
+}
+
+# ── A FAILED PIN MUST NOT BREAK A WORKING INSTALL (Archie, #2977) ──
+#
+# A fresh install has no Ollama at all, so a failed download, sha256 or
+# unpack is fatal: there is nothing to serve models with. An EXISTING
+# install is different. It already has our LaunchAgent and an Ollama that
+# answers, so aborting over a network blip or a bad mirror would take a
+# working Hub and leave it half-installed. There the failure is a WARNING:
+# keep the binary the existing agent serves from, leave its plist exactly
+# as it is, and record ollama_pin=deferred so the walk can see it. The pin
+# is retried on the next installer run, because _is_current is still NO.
+
+# _ostler_ollama_existing_bin <plist>: print the binary an EXISTING
+# com.ostler.ollama agent serves from. Succeeds only when the plist exists,
+# its first ProgramArguments entry is an executable file, and Ollama answers
+# on :11434. Anything less is not a working install and must not defer.
+# _ostler_ollama_plist_bin <plist>: print ProgramArguments[0] of the agent
+# plist (the binary launchd actually runs). rc 1 when absent or unreadable.
+_ostler_ollama_plist_bin() {
+    local _bin
+    [[ -f "$1" ]] || return 1
+    _bin="$(/usr/bin/awk '/<key>ProgramArguments<\/key>/{f=1; next} f && /<string>/{sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit}' "$1")" || return 1
+    [[ -n "$_bin" ]] || return 1
+    printf '%s\n' "$_bin"
+}
+
+# _ostler_ollama_plist_runs_pinned <plist>: TRUE only when launchd runs the
+# PINNED engine, ${OLLAMA_PIN_DIR}/ollama, exactly. A customer's own
+# /Applications/Ollama.app updates itself (measured: the Studio's app moved to
+# 0.40.5 on its own), so an agent pointing at it can drift under any pin.
+_ostler_ollama_plist_runs_pinned() {
+    local _bin
+    _bin="$(_ostler_ollama_plist_bin "$1")" || return 1
+    [[ "$_bin" == "${OLLAMA_PIN_DIR}/ollama" ]]
+}
+
+_ostler_ollama_existing_bin() {
+    local _plist="$1" _bin
+    _bin="$(_ostler_ollama_plist_bin "$_plist")" || return 1
+    [[ -x "$_bin" ]] || return 1
+    curl -sf --max-time 5 http://localhost:11434/api/tags >/dev/null 2>&1 || return 1
+    printf '%s\n' "$_bin"
+}
+
+# _ostler_ollama_pin_record <state> [reason]: ollama_pin=<state> for the walk.
+_ostler_ollama_pin_record() {
+    local _f="${OLLAMA_PIN_STATE_FILE:-${HOME}/.ostler/state/ollama-pin}"
+    mkdir -p "$(dirname "$_f")" || return 1
+    printf 'ollama_pin=%s\nollama_pin_version=%s\nollama_pin_reason=%s\n' \
+        "$1" "$OLLAMA_PIN_VERSION" "${2:-}" > "$_f"
+}
+
+# _ostler_ollama_pin_apply <dest_dir> <plist>
+# Install the pin. On success OLLAMA_APP_BIN is the pinned binary and the
+# outcome is "installed". On failure with a working existing install,
+# OLLAMA_APP_BIN becomes the binary that install already serves from, the
+# outcome is "deferred" and rc is 0. Otherwise rc is the install's own
+# 11/12/13/14, which the caller turns into a hard failure.
+_ostler_ollama_pin_apply() {
+    local _rc=0 _existing
+    OLLAMA_PIN_OUTCOME=""
+    _ostler_ollama_pin_install "$1" || _rc=$?
+    if [[ $_rc -eq 0 ]]; then
+        OLLAMA_APP_BIN="$1/ollama"
+        OLLAMA_PIN_OUTCOME="installed"
+        _ostler_ollama_pin_record installed "" || true
+        return 0
+    fi
+    if _existing="$(_ostler_ollama_existing_bin "$2")"; then
+        OLLAMA_APP_BIN="$_existing"
+        OLLAMA_PIN_OUTCOME="deferred"
+        OLLAMA_PIN_FAIL_RC="$_rc"
+        _ostler_ollama_pin_record deferred "pin_install_rc=${_rc}" || true
+        return 0
+    fi
+    return "$_rc"
+}
+# OSTLER-OLLAMA-PIN-FN-END
+
+if _ostler_ollama_pin_is_current "$OLLAMA_PIN_DIR"; then
     ok "$MSG_OK_OLLAMA_INSTALLED"
 else
-    # If the broken formula is present it shadows the cask binary on
-    # PATH and its brew-services launchd respawns it onto :11434 even
-    # after a pkill, so tear the service down AND uninstall the formula
-    # before the cask goes in.
+    # If the broken formula is present it shadows our binary on PATH and
+    # its brew-services launchd respawns it onto :11434 even after a
+    # pkill, so tear the service down AND uninstall the formula.
     if brew list --formula 2>/dev/null | grep -qx ollama; then
         info "$MSG_INFO_REMOVING_BROKEN_OLLAMA_FORMULA"
         brew services stop ollama 2>/dev/null || true
@@ -14500,12 +14689,32 @@ else
         brew uninstall --formula ollama 2>/dev/null || true
     fi
 
-    info "$MSG_INFO_INSTALLING_OLLAMA"
-    brew install --cask ollama-app
-    # Belt-and-braces de-quarantine (CX-14 E1's concern, neutralised).
-    xattr -dr com.apple.quarantine /Applications/Ollama.app 2>/dev/null || true
-    # DMG #48 silent-bail hardening: verify the CASK binary exists
-    # before declaring success (not a bare `command -v`).
+    # A customer's own Ollama.app (or one an older Ostler installed from
+    # the cask): left untouched, NOT downgraded. Warn and continue. It
+    # shares ~/.ollama/models with us and, if its menu-bar app is running,
+    # can hold :11434; the port-holder diagnosis below names it if so.
+    if [[ -x "$OLLAMA_CUSTOMER_APP_BIN" ]]; then
+        warn "$(printf "$MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT" "$OLLAMA_PIN_VERSION")"
+    fi
+
+    info "$(printf "$MSG_INFO_INSTALLING_OLLAMA_PINNED" "$OLLAMA_PIN_VERSION")"
+    _ollama_pin_rc=0
+    _ostler_ollama_pin_apply "$OLLAMA_PIN_DIR" "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist" || _ollama_pin_rc=$?
+    if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then
+        warn "$(printf "$MSG_WARN_OLLAMA_PIN_DEFERRED" "$OLLAMA_PIN_VERSION" "$OLLAMA_APP_BIN" "$INSTALL_LOG")"
+        echo "ollama_pin=deferred version=${OLLAMA_PIN_VERSION} pin_install_rc=${OLLAMA_PIN_FAIL_RC:-?} serving=${OLLAMA_APP_BIN}" >> "$INSTALL_LOG" 2>/dev/null || true
+    fi
+    case "$_ollama_pin_rc" in
+        0)  ;;
+        11) fail_with_code "ERR-07-OLLAMA-PIN-DOWNLOAD-FAILED" \
+                "$(printf "$MSG_FAIL_OLLAMA_PIN_DOWNLOAD" "$OLLAMA_PIN_VERSION" "$INSTALL_LOG")" ;;
+        12) fail_with_code "ERR-07-OLLAMA-PIN-SHA256-MISMATCH" \
+                "$(printf "$MSG_FAIL_OLLAMA_PIN_SHA256" "$OLLAMA_PIN_VERSION" "$INSTALL_LOG")" ;;
+        *)  fail_with_code "ERR-07-OLLAMA-PIN-UNPACK-FAILED" \
+                "$(printf "$MSG_FAIL_OLLAMA_PIN_UNPACK" "$OLLAMA_PIN_VERSION" "$INSTALL_LOG")" ;;
+    esac
+    # DMG #48 silent-bail hardening: verify the binary exists before
+    # declaring success (not a bare `command -v`).
     if [[ ! -x "$OLLAMA_APP_BIN" ]]; then
         fail_with_code "ERR-07-DMG48-OLLAMA-MISSING-AFTER-BREW" \
             "$(printf "$MSG_FAIL_OLLAMA_MISSING_AFTER_BREW" "$INSTALL_LOG")"
@@ -14595,7 +14804,10 @@ _ollama_agent_is_running() {
 }
 
 OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
-if curl -sf http://localhost:11434/api/tags &>/dev/null && [[ -f "$OLLAMA_PLIST" ]]; then
+# The agent must also serve the PINNED binary: an install upgraded from the
+# cask era has a live agent pointing at /Applications/Ollama.app, and skipping
+# here would leave the customer on an unpinned, self-updating engine.
+if curl -sf http://localhost:11434/api/tags &>/dev/null && [[ -f "$OLLAMA_PLIST" ]] && grep -qF "<string>${OLLAMA_APP_BIN}</string>" "$OLLAMA_PLIST"; then
     ok "$MSG_OK_OLLAMA_RUNNING"
 else
     info "$MSG_INFO_STARTING_OLLAMA"
@@ -15024,6 +15236,19 @@ OLLAMAPLIST
         warn "The local AI agent lost port 11434 once while starting and then took it. That is a normal handover from a previous copy, not a fault, and the bind error in ${_ollama_err_path} is that moment."  # i18n-exempt
     fi
     ok "$MSG_OK_OLLAMA_RUNNING"
+fi
+
+# ── THE AGENT MUST RUN THE PINNED BINARY (Archie, #2977) ──
+# Whatever path got us here (fresh write, rewrite of a cask-era plist, or the
+# already-running skip), launchd's ProgramArguments[0] must now be
+# ${OLLAMA_PIN_DIR}/ollama. The one exception is a DEFERRED pin (download /
+# sha256 / unpack failed on a working existing install): that keeps the old
+# server on purpose, so it is recorded for the walk, not hidden.
+if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then
+    echo "ollama_server=$(_ostler_ollama_plist_bin "$OLLAMA_PLIST" 2>/dev/null || echo unreadable) pinned=no reason=pin_deferred" >> "$INSTALL_LOG" 2>/dev/null || true
+elif ! _ostler_ollama_plist_runs_pinned "$OLLAMA_PLIST"; then
+    fail_with_code "ERR-07-OLLAMA-AGENT-NOT-PINNED" \
+        "$(printf "$MSG_FAIL_OLLAMA_AGENT_NOT_PINNED" "$(_ostler_ollama_plist_bin "$OLLAMA_PLIST" 2>/dev/null || echo unreadable)" "${OLLAMA_PIN_DIR}/ollama" "$INSTALL_LOG")"
 fi
 
 # ── 3.3b Ollama log rotation ──────────────────────────────────────
@@ -16656,7 +16881,7 @@ TOMLPREAMBLE
     #
     # base_url + model are the load-bearing fields. base_url is
     # the Ollama server URL the installer wired up in Phase 3.3
-    # (brew install --cask ollama-app, served headless via the
+    # (the pinned Ollama release, served headless via the
     # com.ostler.ollama LaunchAgent). The model is the
     # tier-aware default the installer chose at AI_MODEL
     # selection time (high RAM = qwen3.6:35b-a3b, mid =
@@ -22619,10 +22844,12 @@ if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
 else
     info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
-    if ! ollama_pull_with_retry nomic-embed-text; then
-        fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT"
-    fi
-    ok "$MSG_OK_EMBEDDING_MODEL_READY"
+    _pull_rc=0; ollama_pull_with_retry nomic-embed-text || _pull_rc=$?
+    case "$_pull_rc" in
+        0) ok "$MSG_OK_EMBEDDING_MODEL_READY" ;;
+        3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
+        *) fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT" ;;
+    esac
 fi
 
 # CX-43 / #177 -- prove the embedding engine actually returns vectors
@@ -22695,10 +22922,12 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
                 ;;
         esac
         info "$(printf "$MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES" "${AI_MODEL}" "${AI_MODEL_SIZE}")"
-        if ! ollama_pull_with_retry "$AI_MODEL"; then
-            fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")"
-        fi
-        ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
+        _pull_rc=0; ollama_pull_with_retry "$AI_MODEL" || _pull_rc=$?
+        case "$_pull_rc" in
+            0) ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")" ;;
+            3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
+            *) fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")" ;;
+        esac
     fi
 else
     info "$(printf "$MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA" "${AI_MODEL}")"
@@ -26950,6 +27179,16 @@ if [ "${_u_left:-0}" -gt 0 ]; then
 fi
 unset _label _plist _found _known _dupe _u_left
 unset _u_agent_labels
+
+# Ostler's pinned Ollama engine (OLLAMA_PIN_DIR in install.sh) lives under
+# ~/.ostler/runtime. Sequenced after the loop so com.ostler.ollama is already
+# unloaded and nothing is holding the binary open.
+#
+# The Ollama.app cask is NO LONGER removed (2026-10-18): Ostler stopped
+# installing it, so an Ollama.app on this Mac is the customer's own, or a
+# leftover from a cask-era Ostler that we cannot tell apart from theirs.
+# Deleting a customer's app on uninstall is worse than leaving ours.
+rm -rf "${HOME}/.ostler/runtime"/ollama-* 2>/dev/null || true
 
 # ── #GAP1: the SHARED colima `default` Docker VM ───────────────
 _u_emit UNINSTALL_PHASE "name=colima"
