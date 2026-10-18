@@ -424,7 +424,7 @@ def _username_to_display_name(username: str) -> str:
     """Best-effort conversion of Instagram username to a display name.
 
     Strips trailing digits, replaces separators with spaces, title-cases.
-    E.g. "janedoe" stays as "janedoe" (no separators to split on),
+    E.g. "janedoe" becomes "@janedoe" (a handle, not a name),
     "jane.doe" → "Jane Doe", "john.smith.779" → "John Smith".
     """
     # Remove common suffixes like trailing numbers after dots/underscores
@@ -437,6 +437,10 @@ def _username_to_display_name(username: str) -> str:
     # Title case if contains spaces (looks like a real name)
     if " " in clean:
         clean = clean.title()
+    elif clean:
+        # A bare handle is not a name. Keep it recognisably a handle so it
+        # never reads as the person's real name downstream (S9 row 3).
+        clean = "@" + clean.lstrip("@")
     return clean
 
 

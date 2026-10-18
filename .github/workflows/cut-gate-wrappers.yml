@@ -84,6 +84,7 @@ on:
       - 'scripts/verify_no_env_trust_anchors.sh'
       - 'scripts/tests/test_no_env_trust_anchors.sh'
       - 'tests/test_pr_age_gate_declares_partial_runs.sh'
+      - 'tests/test_pr_age_review_by_ignores_an_inline_comment.sh'
       - 'scripts/provenance_gate.sh'
       - 'scripts/verify_stapling.sh'
       - 'scripts/verify_commit_parity.sh'
