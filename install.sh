@@ -8444,7 +8444,7 @@ ASSISTANT_MAILBOX_HELLO_ID=""
 _assistant_mailbox_flow() {
     local _code _choice _addr _pw _out _imap _smtp _count _oldest _err _try _tests _owner _name _sugg _first
     _name="${ASSISTANT_NAME:-Your assistant}"
-    _choice="$(gui_read "$MSG_PROMPT_AM_CHOOSE_TITLE" choice "icloud" "$MSG_PROMPT_AM_CHOOSE_HELP" "icloud,gmail,skip" "am_choose")"
+    _choice="$(gui_read "$MSG_PROMPT_AM_CHOOSE_TITLE" choice "skip" "$MSG_PROMPT_AM_CHOOSE_HELP" "icloud,gmail,skip" "am_choose")"
     case "${_choice:-skip}" in
         icloud|gmail) ;;
         loopback) [[ "${OSTLER_E2E_LOOPBACK:-}" == 1 ]] || return 0 ;;

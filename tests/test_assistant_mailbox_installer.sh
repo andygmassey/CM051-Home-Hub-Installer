@@ -139,6 +139,7 @@ gui_read() { # title kind default help choices id [error]
     echo "PROMPT $id" >> "$FAKE_LOG"
     [[ -z "$a" && "$2" == yesno ]] && a="${3:-N}"
     [[ -z "$a" && "$2" == acknowledge ]] && a="OK"
+    [[ -z "$a" && "$2" == choice ]] && a="$3"   # the step's own default, as gui_read gives it
     printf '%s' "$a"
 }
 . "$HELPERS"
@@ -170,6 +171,10 @@ grep -q '^hello ' "$tmp/fake.log" && pass "hello sent to the owner after a good 
 grep -q '^HELLO_ID=<hello-test@example.test>$' <<< "$o" && grep -qxF 'hello_message_id = "<hello-test@example.test>"' <<< "$o" \
     && pass "the hello Message-ID is captured and written to the config block" || fail "hello id not recorded: $o"
 
+o="$(run_flow "$tmp/real.sh" "")"
+grep -q 'ENABLED=false' <<< "$o" && ! grep -q '^probe' "$tmp/fake.log" && ! grep -q '^store' "$tmp/fake.log" \
+    && ! grep -q '^PROMPT am_address' "$tmp/fake.log" \
+    && pass "Default answer (nothing chosen) is Skip: the mailbox stays off, nothing probed or stored" || fail "default: $o"
 o="$(run_flow "$tmp/real.sh" "am_choose=skip")"
 grep -q 'ENABLED=false' <<< "$o" && ! grep -q '^probe' "$tmp/fake.log" && pass "Skip leaves the mailbox off and touches nothing" || fail "skip: $o"
 
