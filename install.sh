@@ -7555,6 +7555,55 @@ _ostler_existing_email_block() {
         in_s { print }
     ' "$cfg"
 }
+
+# ── The mailbox password lives in ~/.ostler/secrets, NEVER in config.toml ──
+#
+# CM051 #1976. config.toml is the file a customer opens, edits, backs up and
+# pastes into a support thread, so it carries `password = ""` and the value
+# lives in ${SECRETS_DIR}/email_password beside every other Ostler secret
+# (service_token, wiki_password, qdrant_api_key). The daemon reads that file
+# when config.toml's password is empty (ostler-assistant
+# crates/zeroclaw-channels/src/email_channel.rs, email_password_file_path).
+#
+# $1 = value, $2 = path. Born 0600 (umask in a subshell, so it is never briefly
+# readable), written to a temp name and renamed so a crash leaves the old file.
+# The value never reaches argv: printf is a builtin and the subshell is a fork.
+# No trailing newline: the daemon strips at most one, and a password may end in
+# a space.
+_email_password_store() {
+    local _v="$1" _p="$2" _d _t
+    _d="$(dirname "$_p")"; _t="${_p}.tmp.$$"
+    mkdir -p "$_d" || return 1
+    chmod 700 "$_d" || return 1
+    if ! ( umask 0077; printf '%s' "$_v" > "$_t" ); then rm -f "$_t"; return 1; fi
+    chmod 600 "$_t" && mv -f "$_t" "$_p" || { rm -f "$_t"; return 1; }
+}
+# Upgrade migration. $1 = an existing [channels.email] block. Sets
+#   _EMAIL_PASSWORD_MIGRATED  the plaintext password it held ("" if none)
+#   _EMAIL_BLOCK_MIGRATED     the same block with that line set to `password = ""`
+# An `enc:`/`enc2:` value is left exactly where it is: the daemon decrypts it,
+# and it is not plaintext. A double-quoted value is un-escaped the one way the
+# old writer escaped it (`\"` -> `"`), so the customer gets back what they typed.
+_email_block_extract_password() {
+    local _blk="$1" _line _v _out="" _pw="" _re_dq _re_sq
+    _re_dq='^[[:space:]]*password[[:space:]]*=[[:space:]]*"(([^"\\]|\\.)*)"[[:space:]]*(#.*)?$'
+    _re_sq="^[[:space:]]*password[[:space:]]*=[[:space:]]*'([^']*)'[[:space:]]*(#.*)?\$"
+    while IFS= read -r _line || [[ -n "$_line" ]]; do
+        if [[ "$_line" =~ $_re_dq ]]; then
+            _v="${BASH_REMATCH[1]}"; _v="${_v//\\\"/\"}"
+        elif [[ "$_line" =~ $_re_sq ]]; then
+            _v="${BASH_REMATCH[1]}"
+        else
+            _out="${_out}${_line}"$'\n'; continue
+        fi
+        case "$_v" in
+            enc:*|enc2:*) _out="${_out}${_line}"$'\n' ;;
+            *) _pw="$_v"; _out="${_out}password = \"\""$'\n' ;;
+        esac
+    done <<< "$_blk"
+    _EMAIL_BLOCK_MIGRATED="${_out%$'\n'}"
+    _EMAIL_PASSWORD_MIGRATED="$_pw"
+}
 # END email-allowlist-helpers
 
 # ── Email sources ──────────────────────────────────────────────────
@@ -15689,39 +15738,19 @@ ok "$(printf "$MSG_OK_CONFIG_SAVED_ENV" "${CONFIG_DIR}")"
 # produces an empty config that the assistant will treat as
 # defaults.
 #
-# Password handling: written in plaintext, and it STAYS in plaintext.
-# Mode 0600 is the whole of the protection.
+# Password handling (CM051 #1976): config.toml carries `password = ""` and
+# the value lives in ${SECRETS_DIR}/email_password, born 0600 under umask
+# 0077, beside every other Ostler secret. The daemon reads that file when
+# config.toml's password is empty (ostler-assistant email_channel.rs,
+# email_password_file_path). A reuse-settings re-run that finds a plaintext
+# password in the old config moves it into that file and blanks the line;
+# an `enc2:` value is left alone because the daemon decrypts it.
 #
-# 🔴 THIS COMMENT USED TO SAY THE ASSISTANT "cannot encrypt before its
-# own first run", AND THE PREAMBLE WRITTEN INTO THE CUSTOMER'S OWN
-# config.toml SAID SO IN SO MANY WORDS: credentials "are stored in
-# plaintext until the assistant first runs and encrypts them in place".
-# Both sentences describe a step that does not exist and never has.
-#
-# The nearest thing to a proposal was, three lines further down, a
-# `ostler-assistant secrets encrypt-config` step "Phase C should add".
-# Measured on origin/main: `encrypt-config` has exactly ONE match in
-# this repo, and it is that proposal. Controls run in the same command
-# shape against the same file, so the search is not the thing that is
-# broken: `doctor` 93 matches, `allow-plaintext` 17.
-#
-# The daemon side says the same thing from the other direction, at the
-# 3.14e staging block below: the secrets store auto-migrates legacy
-# `enc:` values to `enc2:` on read, and does NOT bootstrap from
-# plaintext. So a plaintext value put here is not the start of a
-# process, it is the end state.
-#
-# The customer-facing preamble now tells them that, names the one
-# mitigation actually available to them (an app-specific password, which
-# is revocable on its own), and does not promise a step that is not
-# coming. Lying to a customer in a file they open themselves is worse
-# than the plaintext.
-#
-# THE IMPLEMENTATION IS FILED, NOT FORGOTTEN: issue #1976. It is a Rust
-# PR in ostler-assistant (the key derivation lives in
-# crates/zeroclaw-config/src/secrets.rs and no subcommand exposes it),
-# plus the call site here in 3.14e. It is not something install.sh can
-# do on its own, which is why it is not in the PR that fixed the text.
+# What this is NOT: encryption at rest. The secrets file is plaintext at
+# mode 0600, exactly like service_token and wiki_password. What changes is
+# that the password is no longer in the file a customer opens, edits, backs
+# up or pastes into a support ticket. The `encrypt-config` subcommand the
+# old comment proposed still does not exist.
 
 # ── Chat admin token seed (CM031 PR #43 / HR015 PR #63 sister) ────
 #
@@ -16462,6 +16491,34 @@ if [[ "${SKIP_PHASE2:-false}" == true ]]; then
     fi
 fi
 
+# ── Email password -> ${SECRETS_DIR}/email_password (CM051 #1976) ──
+# BEFORE config.toml is regenerated, so an abort between the two can never
+# leave a migrated password in neither place.
+EMAIL_PASSWORD_FILE="${SECRETS_DIR}/email_password"
+if [[ "${CHANNEL_EMAIL_ENABLED:-false}" == true \
+      && "${CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED:-false}" == true ]]; then
+    # A fresh answer replaces the stored one. No answer (a reuse re-run that
+    # restored the flags) keeps the stored one, which the old writer lost.
+    if [[ -n "${CHANNEL_EMAIL_PASSWORD:-}" ]]; then
+        _email_password_store "$CHANNEL_EMAIL_PASSWORD" "$EMAIL_PASSWORD_FILE" \
+            || fail "Could not write the email password to ~/.ostler/secrets (it was not written anywhere else)."  # i18n-exempt
+    fi
+elif [[ -n "${_EMAIL_BLOCK_PRESERVED:-}" ]]; then
+    _email_block_extract_password "$_EMAIL_BLOCK_PRESERVED"
+    if [[ -n "$_EMAIL_PASSWORD_MIGRATED" ]]; then
+        if _email_password_store "$_EMAIL_PASSWORD_MIGRATED" "$EMAIL_PASSWORD_FILE"; then
+            _EMAIL_BLOCK_PRESERVED="$_EMAIL_BLOCK_MIGRATED"
+            info "Moved the email password out of config.toml into ~/.ostler/secrets."  # i18n-exempt
+        else
+            warn "Could not move the email password out of config.toml; it stays there until the next run."  # i18n-exempt
+        fi
+    fi
+    unset _EMAIL_PASSWORD_MIGRATED _EMAIL_BLOCK_MIGRATED
+else
+    # No email channel any more: no stale mailbox credential either.
+    rm -f "$EMAIL_PASSWORD_FILE"
+fi
+
 umask_orig=$(umask)
 umask 0077
 {
@@ -16471,29 +16528,15 @@ umask 0077
 # Generated by the Ostler installer. Edit by hand or re-run the
 # installer to regenerate.
 #
-# READ THIS IF YOU GAVE THE INSTALLER AN EMAIL PASSWORD.
+# Your email password is NOT in this file. If you gave the
+# installer one, it is in ~/.ostler/secrets/email_password, which
+# only your own account can read (mode 0600), and `password = ""`
+# below tells the assistant to read it from there.
 #
-# Your email password is in this file, in plain text, and it STAYS
-# in plain text. Nothing encrypts it later. The only thing
-# protecting it is this file's permissions: it is mode 0600, which
-# means your own account can read it and no other account on this
-# Mac can.
-#
-# What that means for you:
-#   - Anyone with your Mac unlocked, or with Full Disk Access to it,
-#     can read this password.
-#   - Copying this file to another machine, a backup you do not
-#     control, or a support ticket copies the password with it.
-#   - If that is not a trade you want to make, give Ostler an
-#     app-specific password instead of your main one. Apple, Google
-#     and Fastmail all issue them, they can be revoked on their own,
-#     and they cannot be used to sign in to your account.
-#
-# The assistant can hold secrets as `enc2:` ChaCha20-Poly1305
-# ciphertext, and it will keep any `enc2:` value you put here
-# encrypted. What it cannot do is take a plain-text value and
-# encrypt it for you, so writing one here does not start that
-# process off.
+# To change it, re-run the installer, or replace the contents of
+# that file. Giving Ostler an app-specific password rather than
+# your main one is still the better choice: Apple, Google and
+# Fastmail all issue them and they can be revoked on their own.
 
 # Schema version this file was written against. Matches
 # CURRENT_SCHEMA_VERSION in crates/zeroclaw-config/src/migration.rs
@@ -16781,7 +16824,8 @@ TOMLPREAMBLE
         echo "smtp_port = ${CHANNEL_EMAIL_SMTP_PORT}"
         echo "smtp_tls = true"
         echo "username = \"$(_esc "$CHANNEL_EMAIL_USERNAME")\""
-        echo "password = \"$(_esc "$CHANNEL_EMAIL_PASSWORD")\""
+        # Always empty: the value is in ${EMAIL_PASSWORD_FILE} (#1976).
+        echo 'password = ""'
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
         # The customer's own answer (validated full addresses). Empty renders
         # `[]`, which the daemon reads as "answer no one", never as everyone.
