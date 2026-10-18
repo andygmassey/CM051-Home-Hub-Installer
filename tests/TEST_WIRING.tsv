@@ -427,6 +427,7 @@ test_imessage_zero_is_declared_not_undeclared.sh	WIRED	.github/workflows/hydrate
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
+test_install_creates_the_coach_db_keyed.py	WIRED	.github/workflows/coach-db-created-keyed-at-install.yml
 test_install_daily_briefs.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_depth_reports_a_trustworthy_number.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_install_diagnostics_survive_the_run.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
@@ -767,6 +768,7 @@ test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows
 test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_the_recovery_key_never_reaches_install_log.sh	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_retention_tier_is_written_and_read_by_nothing.py	WIRED	.github/workflows/privacy-spine.yml
 test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
