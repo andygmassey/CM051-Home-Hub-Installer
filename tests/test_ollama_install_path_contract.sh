@@ -99,8 +99,13 @@ pin_sha=$(sed -nE 's/^OLLAMA_PIN_SHA256="([0-9a-f]{64})"$/\1/p' "$INSTALL_SH")
 [ "$(printf '%s\n' "$pin_sha" | grep -c .)" = 1 ] || fail "install.sh must record OLLAMA_PIN_SHA256 as 64 lowercase hex characters exactly once."
 
 # ── 3. the pinned install is what runs, once, and the binary lives in its dir ─
-call_count=$(grep -cE '^[[:space:]]*_ostler_ollama_pin_install "\$OLLAMA_PIN_DIR" \|\| _ollama_pin_rc=\$\?$' "$INSTALL_SH" || true)
-[ "$call_count" -eq 1 ] || fail "install.sh must call _ostler_ollama_pin_install \"\$OLLAMA_PIN_DIR\" exactly once (got ${call_count})."
+# The install step calls _ostler_ollama_pin_apply (which defers on an
+# EXISTING working install, #2977) exactly once, and _apply itself runs the
+# pinned install. Both halves, or the pin is not what runs.
+call_count=$(grep -cE '^[[:space:]]*_ostler_ollama_pin_apply "\$OLLAMA_PIN_DIR" "\$\{HOME\}/Library/LaunchAgents/com\.ostler\.ollama\.plist" \|\| _ollama_pin_rc=\$\?$' "$INSTALL_SH" || true)
+[ "$call_count" -eq 1 ] || fail "install.sh must call _ostler_ollama_pin_apply \"\$OLLAMA_PIN_DIR\" <agent plist> exactly once (got ${call_count})."
+inner_count=$(grep -cE '^[[:space:]]*_ostler_ollama_pin_install "\$1" \|\| _rc=\$\?$' "$INSTALL_SH" || true)
+[ "$inner_count" -eq 1 ] || fail "_ostler_ollama_pin_apply must run _ostler_ollama_pin_install \"\$1\" exactly once (got ${inner_count})."
 grep -nE '^OLLAMA_PIN_DIR="\$\{HOME\}/\.ostler/runtime/ollama-\$\{OLLAMA_PIN_VERSION\}"$' "$INSTALL_SH" > /dev/null \
     || fail "OLLAMA_PIN_DIR must be the versioned Ostler-owned prefix \${HOME}/.ostler/runtime/ollama-\${OLLAMA_PIN_VERSION}."
 

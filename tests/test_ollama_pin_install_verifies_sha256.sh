@@ -15,6 +15,16 @@
 #   case D  download fails                             -> rc 11, dest NOT created
 #   case E  pin marker for another version             -> _is_current says NO
 #   case F  install.sh maps rc 12 to ERR-07-OLLAMA-PIN-SHA256-MISMATCH
+#   case G  EXISTING install (our plist + an Ollama answering) and the
+#           download fails -> _apply rc 0, OLLAMA_APP_BIN is the old binary,
+#           plist byte-identical, ollama_pin=deferred recorded, and the
+#           installer's own "already running" predicate matches (so the
+#           plist is never rewritten)
+#   case H  FRESH install (no plist) and the download fails -> rc 11, no
+#           deferral: the caller's hard failure still fires
+#   case I  plist present but nothing answers :11434 -> rc 11, no deferral
+#           (a dead install is not a working one)
+#   case J  EXISTING install and a tampered archive -> deferred too (rc 0)
 #
 # The sha256 in each case is computed from the fixture by this test and set on
 # OLLAMA_PIN_SHA256 in the test shell, so case B is a real mismatch between a
@@ -64,10 +74,11 @@ APP_SHA="$(sha_of "$W/app.tgz")"
 mkdir -p "$W/bin"
 cat > "$W/bin/curl" <<'STUB'
 #!/bin/sh
-out=""
+out=""; all="$*"
 while [ "$#" -gt 0 ]; do
     case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac
 done
+case "$all" in *11434*) [ "${STUB_TAGS:-1}" = 0 ] && exit 0; exit 7 ;; esac
 echo "stub-curl called" >> "${STUB_LOG:?}"
 [ "${STUB_FAIL:-0}" = 1 ] && exit 22
 cp "${STUB_SRC:?}" "$out"
@@ -123,16 +134,92 @@ if [ "$rc" = 11 ] && [ ! -e "$DEST" ] && [ "$(leftover)" = 0 ]; then
 else bad "D: failed download -> rc=$rc (want 11)"; fi
 
 # F: the caller maps each rc to its own error code
-blk="$(sed -n '/_ostler_ollama_pin_install "\$OLLAMA_PIN_DIR" || _ollama_pin_rc=\$?/,/esac/p' "$INSTALL_SH")"
+blk="$(sed -n '/_ostler_ollama_pin_apply "\$OLLAMA_PIN_DIR" .* || _ollama_pin_rc=\$?/,/esac/p' "$INSTALL_SH")"
 if grep -qE '^[[:space:]]*12\) fail_with_code "ERR-07-OLLAMA-PIN-SHA256-MISMATCH"' <<<"$blk" \
    && grep -qE '^[[:space:]]*11\) fail_with_code "ERR-07-OLLAMA-PIN-DOWNLOAD-FAILED"' <<<"$blk" \
    && grep -qE '^[[:space:]]*\*\)  fail_with_code "ERR-07-OLLAMA-PIN-UNPACK-FAILED"' <<<"$blk"; then
     pass "F: install.sh maps rc 11/12/other to DOWNLOAD-FAILED / SHA256-MISMATCH / UNPACK-FAILED"
 else bad "F: install.sh does not call _ostler_ollama_pin_install with the rc->error-code mapping"; fi
 
+# ── G/H/I/J: a failed pin on an EXISTING install defers, on a FRESH one fails ──
+OLD_BIN="$W/oldhome/Applications/Ollama.app/Contents/Resources/ollama"
+mk_existing() {  # mk_existing: our plist pointing at a working old binary
+    rm -rf "$W/oldhome"; mkdir -p "$(dirname "$OLD_BIN")" "$W/oldhome/Library/LaunchAgents"
+    printf '#!/bin/sh\necho old\n' > "$OLD_BIN"; chmod +x "$OLD_BIN"
+    cat > "$W/oldhome/Library/LaunchAgents/com.ostler.ollama.plist" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.ollama</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OLD_BIN}</string>
+        <string>serve</string>
+    </array>
+</dict>
+</plist>
+PL
+    cp "$W/oldhome/Library/LaunchAgents/com.ostler.ollama.plist" "$W/plist.before"
+}
+PLIST="$W/oldhome/Library/LaunchAgents/com.ostler.ollama.plist"
+STATE="$W/oldhome/.ostler/state/ollama-pin"
+run_apply() {  # run_apply <src> <sha> <fail?> <tags_answer 0|1> <plist> ; prints "rc|bin|outcome"
+    local dest="$W/oldhome/.ostler/runtime/ollama-9.9.9"
+    : > "$W/curl.log"
+    PATH="$W/bin:$PATH" STUB_SRC="$1" STUB_FAIL="$3" STUB_TAGS="$4" STUB_LOG="$W/curl.log" \
+    OLLAMA_PIN_VERSION=9.9.9 OLLAMA_PIN_URL="https://example.invalid/ollama-darwin.tgz" \
+    OLLAMA_PIN_SHA256="$2" OLLAMA_PIN_STATE_FILE="$STATE" OLLAMA_APP_BIN="$dest/ollama" \
+    bash -c '. "$1"; r=0; _ostler_ollama_pin_apply "$2" "$3" || r=$?; printf "%s|%s|%s\n" "$r" "$OLLAMA_APP_BIN" "${OLLAMA_PIN_OUTCOME:-}"' \
+        _ "$FN" "$dest" "$5" 2> "$W/stderr"
+}
+
+# G
+mk_existing
+out="$(run_apply "$W/good.tgz" "$GOOD_SHA" 1 0 "$PLIST")"
+g_rc="${out%%|*}"; g_rest="${out#*|}"; g_bin="${g_rest%%|*}"; g_out="${g_rest#*|}"
+# the installer's own skip predicate, read from install.sh, against the result
+skip_line="$(grep -m1 -E '^if curl -sf http://localhost:11434/api/tags &>/dev/null && \[\[ -f "\$OLLAMA_PLIST" \]\] && grep -qF "<string>\$\{OLLAMA_APP_BIN\}</string>" "\$OLLAMA_PLIST"; then$' "$INSTALL_SH")"
+if [ "$g_rc" = 0 ] && [ "$g_bin" = "$OLD_BIN" ] && [ "$g_out" = deferred ] \
+   && cmp -s "$PLIST" "$W/plist.before" \
+   && grep -qx 'ollama_pin=deferred' "$STATE" && grep -qx 'ollama_pin_reason=pin_install_rc=11' "$STATE" \
+   && [ ! -e "$W/oldhome/.ostler/runtime/ollama-9.9.9" ] \
+   && [ -n "$skip_line" ] && grep -qF "<string>${g_bin}</string>" "$PLIST"; then
+    pass "G: existing install + failed download -> rc 0, keeps $(basename "$g_bin") from the old plist, plist untouched, ollama_pin=deferred, installer skip predicate matches"
+else bad "G: existing+fail -> rc=$g_rc bin=$g_bin outcome=$g_out plist_same=$(cmp -s "$PLIST" "$W/plist.before" && echo yes || echo no) state=$(tr '\n' ' ' < "$STATE" 2>/dev/null) skip_line=${skip_line:+found}"; fi
+
+# J: tampered archive on an existing install defers the same way
+mk_existing
+out="$(run_apply "$W/tampered.tgz" "$GOOD_SHA" 0 0 "$PLIST")"
+if [ "${out%%|*}" = 0 ] && [ "${out##*|}" = deferred ] && cmp -s "$PLIST" "$W/plist.before" \
+   && grep -qx 'ollama_pin_reason=pin_install_rc=12' "$STATE"; then
+    pass "J: existing install + sha256 mismatch -> deferred (rc 0), plist untouched"
+else bad "J: existing+tampered -> $out state=$(tr '\n' ' ' < "$STATE" 2>/dev/null)"; fi
+
+# H: fresh install, no plist
+rm -rf "$W/oldhome"; mkdir -p "$W/oldhome"
+out="$(run_apply "$W/good.tgz" "$GOOD_SHA" 1 0 "$W/oldhome/Library/LaunchAgents/com.ostler.ollama.plist")"
+if [ "${out%%|*}" = 11 ] && [ "${out##*|}" = "" ] && [ ! -e "$STATE" ]; then
+    pass "H: fresh install + failed download -> rc 11, not deferred (the caller's hard failure fires)"
+else bad "H: fresh+fail -> $out (want 11 and no outcome), state exists=$([ -e "$STATE" ] && echo yes || echo no)"; fi
+
+# I: plist present but nothing answers on :11434
+mk_existing; rm -f "$STATE"
+out="$(run_apply "$W/good.tgz" "$GOOD_SHA" 1 1 "$PLIST")"
+if [ "${out%%|*}" = 11 ] && [ "${out##*|}" = "" ] && [ ! -e "$STATE" ]; then
+    pass "I: plist present but Ollama not answering -> rc 11, not deferred"
+else bad "I: dead existing -> $out"; fi
+
+# K: the caller warns on deferral and still hard-fails otherwise
+if grep -qE '^[[:space:]]*_ostler_ollama_pin_apply "\$OLLAMA_PIN_DIR" "\$\{HOME\}/Library/LaunchAgents/com\.ostler\.ollama\.plist" \|\| _ollama_pin_rc=\$\?$' "$INSTALL_SH" \
+   && grep -qE 'warn "\$\(printf "\$MSG_WARN_OLLAMA_PIN_DEFERRED"' "$INSTALL_SH" \
+   && grep -q '^MSG_WARN_OLLAMA_PIN_DEFERRED=' "${REPO_ROOT}/install.sh.strings.en-GB.sh"; then
+    pass "K: install.sh calls _apply on the agent plist, warns MSG_WARN_OLLAMA_PIN_DEFERRED, and the string exists"
+else bad "K: install.sh does not wire _ostler_ollama_pin_apply + the deferral warning"; fi
+
 echo ""
-if [ "$fails" -gt 0 ] || [ "$ran" -ne 6 ]; then
-    echo "FAIL: ollama pin install: ${fails} of ${ran} cases failed (expected 6 run)" >&2
+if [ "$fails" -gt 0 ] || [ "$ran" -ne 11 ]; then
+    echo "FAIL: ollama pin install: ${fails} of ${ran} cases failed (expected 11 run)" >&2
     exit 1
 fi
-echo "PASS: ollama pin install: 6/6 -- sha256 enforced, updater refused, download failure loud"
+echo "PASS: ollama pin install: 11/11 -- sha256 enforced, updater refused, fresh failure loud, existing install deferred untouched"

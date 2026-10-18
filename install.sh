@@ -3416,7 +3416,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8587   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8632   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8641 and :16221, both of which run
+    # Its two top-level arming calls are :8641 and :16283, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
     # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
@@ -3434,13 +3434,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17001, where the note reads
+    # WhatsApp Web session path did it again at :17063, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17018 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17080 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3453,9 +3453,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8641, :16221) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8641, :16283) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19164 / :19342 / :19499 / :19944 path. There the
+    # :19226 / :19404 / :19561 / :20006 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -14468,6 +14468,64 @@ _ostler_ollama_pin_is_current() {
     _m="$(cat "$1/.ostler-ollama-pin")" || return 1
     [[ "$_m" == "$OLLAMA_PIN_VERSION $OLLAMA_PIN_SHA256" ]]
 }
+
+# ── A FAILED PIN MUST NOT BREAK A WORKING INSTALL (Archie, #2977) ──
+#
+# A fresh install has no Ollama at all, so a failed download, sha256 or
+# unpack is fatal: there is nothing to serve models with. An EXISTING
+# install is different. It already has our LaunchAgent and an Ollama that
+# answers, so aborting over a network blip or a bad mirror would take a
+# working Hub and leave it half-installed. There the failure is a WARNING:
+# keep the binary the existing agent serves from, leave its plist exactly
+# as it is, and record ollama_pin=deferred so the walk can see it. The pin
+# is retried on the next installer run, because _is_current is still NO.
+
+# _ostler_ollama_existing_bin <plist>: print the binary an EXISTING
+# com.ostler.ollama agent serves from. Succeeds only when the plist exists,
+# its first ProgramArguments entry is an executable file, and Ollama answers
+# on :11434. Anything less is not a working install and must not defer.
+_ostler_ollama_existing_bin() {
+    local _plist="$1" _bin
+    [[ -f "$_plist" ]] || return 1
+    _bin="$(/usr/bin/awk '/<key>ProgramArguments<\/key>/{f=1; next} f && /<string>/{sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit}' "$_plist")" || return 1
+    [[ -n "$_bin" && -x "$_bin" ]] || return 1
+    curl -sf --max-time 5 http://localhost:11434/api/tags >/dev/null 2>&1 || return 1
+    printf '%s\n' "$_bin"
+}
+
+# _ostler_ollama_pin_record <state> [reason]: ollama_pin=<state> for the walk.
+_ostler_ollama_pin_record() {
+    local _f="${OLLAMA_PIN_STATE_FILE:-${HOME}/.ostler/state/ollama-pin}"
+    mkdir -p "$(dirname "$_f")" || return 1
+    printf 'ollama_pin=%s\nollama_pin_version=%s\nollama_pin_reason=%s\n' \
+        "$1" "$OLLAMA_PIN_VERSION" "${2:-}" > "$_f"
+}
+
+# _ostler_ollama_pin_apply <dest_dir> <plist>
+# Install the pin. On success OLLAMA_APP_BIN is the pinned binary and the
+# outcome is "installed". On failure with a working existing install,
+# OLLAMA_APP_BIN becomes the binary that install already serves from, the
+# outcome is "deferred" and rc is 0. Otherwise rc is the install's own
+# 11/12/13/14, which the caller turns into a hard failure.
+_ostler_ollama_pin_apply() {
+    local _rc=0 _existing
+    OLLAMA_PIN_OUTCOME=""
+    _ostler_ollama_pin_install "$1" || _rc=$?
+    if [[ $_rc -eq 0 ]]; then
+        OLLAMA_APP_BIN="$1/ollama"
+        OLLAMA_PIN_OUTCOME="installed"
+        _ostler_ollama_pin_record installed "" || true
+        return 0
+    fi
+    if _existing="$(_ostler_ollama_existing_bin "$2")"; then
+        OLLAMA_APP_BIN="$_existing"
+        OLLAMA_PIN_OUTCOME="deferred"
+        OLLAMA_PIN_FAIL_RC="$_rc"
+        _ostler_ollama_pin_record deferred "pin_install_rc=${_rc}" || true
+        return 0
+    fi
+    return "$_rc"
+}
 # OSTLER-OLLAMA-PIN-FN-END
 
 if _ostler_ollama_pin_is_current "$OLLAMA_PIN_DIR"; then
@@ -14493,7 +14551,11 @@ else
 
     info "$(printf "$MSG_INFO_INSTALLING_OLLAMA_PINNED" "$OLLAMA_PIN_VERSION")"
     _ollama_pin_rc=0
-    _ostler_ollama_pin_install "$OLLAMA_PIN_DIR" || _ollama_pin_rc=$?
+    _ostler_ollama_pin_apply "$OLLAMA_PIN_DIR" "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist" || _ollama_pin_rc=$?
+    if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then
+        warn "$(printf "$MSG_WARN_OLLAMA_PIN_DEFERRED" "$OLLAMA_PIN_VERSION" "$OLLAMA_APP_BIN" "$INSTALL_LOG")"
+        echo "ollama_pin=deferred version=${OLLAMA_PIN_VERSION} pin_install_rc=${OLLAMA_PIN_FAIL_RC:-?} serving=${OLLAMA_APP_BIN}" >> "$INSTALL_LOG" 2>/dev/null || true
+    fi
     case "$_ollama_pin_rc" in
         0)  ;;
         11) fail_with_code "ERR-07-OLLAMA-PIN-DOWNLOAD-FAILED" \

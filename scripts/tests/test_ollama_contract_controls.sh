@@ -79,7 +79,7 @@ run_control "control 1: ollama-app cask reintroduced  (expect FAIL)" 1 \
 run_control "control 2: bare ollama cask reintroduced  (expect FAIL)" 1 \
     sed -E 's#^(    info "\$\(printf "\$MSG_INFO_INSTALLING_OLLAMA_PINNED".*)$#\1\n    brew install --cask ollama#'
 run_control "control 3: pinned install call removed    (expect FAIL)" 1 \
-    grep -v '^    _ostler_ollama_pin_install "\$OLLAMA_PIN_DIR" || _ollama_pin_rc=\$?$'
+    grep -v '^    _ostler_ollama_pin_apply "\$OLLAMA_PIN_DIR" "\${HOME}/Library/LaunchAgents/com.ostler.ollama.plist" || _ollama_pin_rc=\$?$'
 run_control "control 4: URL for another version        (expect FAIL)" 1 \
     sed -E 's#^(OLLAMA_PIN_URL="https://github.com/ollama/ollama/releases/download/v)[0-9.]+/#\10.0.1/#'
 run_control "control 5: exists-check code removed       (expect FAIL)" 1 \
