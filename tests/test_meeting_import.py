@@ -378,3 +378,61 @@ def test_fireflies_unrecognised_json_is_refused(tmp_path):
     p = tmp_path / "x.json"; p.write_text(json.dumps({"something": "else"}))
     with pytest.raises(ValueError):
         parse_file("fireflies", p)
+
+
+# ---- Fathom, official OpenAPI (developers.fathom.ai/api-reference/openapi.yaml,
+# read 2026-10-18): GET /meetings?include_transcript=true&include_summary=true
+# &include_action_items=true -> {"items": [Meeting], "next_cursor", "limit"}.
+# TranscriptItem.timestamp is "HH:MM:SS"; speaker is {display_name,
+# matched_calendar_invitee_email}. Values synthetic.
+FATHOM_PAGE = {"limit": 10, "next_cursor": None, "items": [{
+    "title": "Synthetic onboarding call", "meeting_title": "Onboarding: Example Co", "meeting_type": None,
+    "recording_id": 900000001, "url": "https://fathom.video/calls/0", "share_url": "https://fathom.video/share/0",
+    "created_at": "2026-03-16T09:31:00Z", "scheduled_start_time": "2026-03-16T09:30:00Z",
+    "scheduled_end_time": "2026-03-16T10:00:00Z", "recording_start_time": "2026-03-16T09:31:10Z",
+    "recording_end_time": "2026-03-16T09:58:40Z", "calendar_invitees_domains_type": "one_or_more_external",
+    "shared_with": None, "transcript_language": "en",
+    "recorded_by": {"name": "Owen Owner", "email": "owen@example.test", "email_domain": "example.test", "team": None},
+    "calendar_invitees": [
+        {"name": "Owen Owner", "email": "owen@example.test", "email_domain": "example.test", "is_external": False,
+         "matched_speaker_display_name": "Owen Owner"},
+        {"name": "Alex Example", "email": "alex@example.test", "email_domain": "example.test", "is_external": True,
+         "matched_speaker_display_name": "Alex Example"}],
+    "transcript": [
+        {"speaker": {"display_name": "Owen Owner", "matched_calendar_invitee_email": "owen@example.test"},
+         "text": "Welcome aboard.", "timestamp": "00:00:04"},
+        {"speaker": {"display_name": "Alex Example", "matched_calendar_invitee_email": "alex@example.test"},
+         "text": "Glad to be here.", "timestamp": "00:01:12"}],
+    "default_summary": {"template_name": "general",
+                        "markdown_formatted": "## Meeting Purpose\nSynthetic onboarding.\n\n## Key Takeaways\n- Access is set up\n"},
+    "action_items": [
+        {"description": "Send the welcome pack", "user_generated": False, "completed": False,
+         "recording_timestamp": "00:10:45", "recording_playback_url": "https://fathom.video/calls/0?timestamp=645",
+         "assignee": {"name": "Owen Owner", "email": "owen@example.test", "team": None}},
+        {"description": "Already done item", "user_generated": True, "completed": True,
+         "recording_timestamp": "00:12:00", "recording_playback_url": "https://fathom.video/calls/0?timestamp=720",
+         "assignee": {"name": None, "email": None, "team": None}}],
+    "highlights": [], "crm_matches": None}]}
+
+def test_fathom_official_meeting_list(tmp_path):
+    p = tmp_path / "meetings.json"; p.write_text(json.dumps(FATHOM_PAGE))
+    m = parse_file("fathom", p)[0]
+    assert m.source_label == "Fathom" and m.source_id == "900000001"
+    assert m.started_at == "2026-03-16T09:31:10Z" and m.ended_at == "2026-03-16T09:58:40Z"
+    assert [(u.speaker, u.start_s) for u in m.utterances] == [("Owen Owner", 4), ("Alex Example", 72)]
+    assert {a.email for a in m.attendees} == {"owen@example.test", "alex@example.test"}
+    assert [(a.text, a.assignee) for a in m.action_items] == [("Send the welcome pack", "Owen Owner")]
+    assert [t[0] for t in m.summary_topics] == ["Meeting Purpose", "Key Takeaways"]
+
+def test_fathom_is_a_drop_folder_source(tmp_path):
+    d = tmp_path / "Imports"; (d / "fathom").mkdir(parents=True)
+    (d / "fathom" / "meetings.json").write_text(json.dumps(FATHOM_PAGE))
+    r, out = run(d, tmp_path)
+    assert r["imported"] == 1 and r["failed"] == 0
+    s = (Path(r["folders"][0]) / "summary.md").read_text()
+    assert 'source_app: "Fathom"' in s and "privacy_level: L2" in s
+
+def test_fathom_unrecognised_json_is_refused(tmp_path):
+    p = tmp_path / "x.json"; p.write_text(json.dumps({"items": [{"nope": 1}]}))
+    with pytest.raises(ValueError):
+        parse_file("fathom", p)

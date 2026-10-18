@@ -3,15 +3,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import fireflies, granola, otter, transcript_files
+from . import fathom, fireflies, granola, otter, transcript_files
 
 # Drop-folder names under ~/Documents/Ostler/Imports/<source>/
-SOURCES = ("granola", "otter", "fireflies", "transcripts")
+SOURCES = ("granola", "otter", "fireflies", "fathom", "transcripts")
 
 _BY_SOURCE = {
     "granola": granola.parse,
     "otter": otter.parse,
     "fireflies": fireflies.parse,
+    "fathom": fathom.parse,
     "transcripts": transcript_files.parse,
 }
 
