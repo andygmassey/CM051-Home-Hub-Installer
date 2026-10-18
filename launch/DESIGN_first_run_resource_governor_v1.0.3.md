@@ -279,3 +279,49 @@ FOLLOW-UPS (scoped, not in this PR):
 | enrich num_ctx | CM048 pwg-convo | No (pipeline script) |
 | cron catch-up tier defer | ostler-assistant | YES |
 | RunAtLoad stagger | CM051 plists | No |
+
+---
+
+## 9. v1.0.108 background-QoS coverage (per heavy job)
+
+Measured follow-up to section 2.3: the first-run storm is a coincident spawn
+spike of fat HOST processes, so v1.0.108 lowers the OS scheduling priority of
+OUR heavy jobs. Interactive chat (the daemon + the separate `ollama serve`,
+both at the default user tier) then outranks them on CPU while settling. On an
+idle box a background-tier process still runs at full speed, so enrichment is
+slowed, never stopped.
+
+Two classes, two mechanisms. `tests/test_no_heavy_job_bypasses_the_chat_yield.sh`
+enforces this table (and catches a new job added without a row).
+
+| Heavy job | Tick / plist | Ollama ingest slot? | Background-QoS mechanism |
+|---|---|---|---|
+| iMessage feed | `vendor/imessage_source/bin/imessage-bundle-tick.sh` | yes | `taskpolicy -b` via `ostler_slot_run` |
+| Email feed | `vendor/email_source/bin/email-bundle-tick.sh` | yes | `taskpolicy -b` via `ostler_slot_run` |
+| WhatsApp feed | `vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh` | yes | `taskpolicy -b` via `ostler_slot_run` |
+| Spoken feed | `vendor/spoken_source/bin/spoken-bundle-tick.sh` | yes | `taskpolicy -b` via `ostler_slot_run` |
+| Wiki recompile (Phase 2 backfill) | `wiki-recompile/bin/wiki-recompile-tick.sh` | yes (backfill holds it) | `taskpolicy -b` via `ostler_slot_run`; Phase 1 baseline stays at normal priority (essential first-impression compile) |
+| fda-rerun | `com.ostler.fda-rerun` plist | no (its LLM use is in the daemon, governed by `ollama_gate`) | `ProcessType=Background` + `Nice=10` (launchd) |
+| enrich | `com.ostler.enrich` plist | no (outbound third-party lookups) | `ProcessType=Background` + `Nice=10` (launchd) |
+| Spotlight / mdworker | Apple's | n/a | not ours; cannot nice (section 2.1) |
+
+Why the split: `taskpolicy -b` is applied in `ostler_slot_run`
+(`lib/ostler-ingest-slot.sh`), the one chokepoint the ingest ticks funnel
+through, so it rides the existing interactive-chat yield and covers all five
+Ollama-ingest jobs in one place. `ProcessType=Background` is the right lever for
+a job that is background end to end and is NOT an ingest-slot contender; forcing
+fda-rerun/enrich through the slot would make them contend for a slot they never
+use. `taskpolicy` sets the policy via `exec`, so the pid is preserved (the
+max-hold and tree-cpu watchdogs are unaffected) and the child `pwg-convo`
+inherits it. It throttles OUR host processes only: a compiler container inside
+the Docker/Colima VM and the shared `ollama serve` are not reachable, so the
+wiki backfill's client gain is small and those stay governed by the slot,
+`WIKI_LLM_WORKERS` and `OLLAMA_NUM_PARALLEL`.
+
+Inference-side priority (interactive chat preempting background batch) is the
+daemon `ollama_gate`'s job (Foreground chat vs Background `chat_with_system`)
+and is unchanged by this PR.
+
+Knobs: `OSTLER_BG_QOS=0` disables the tick-side QoS; `OSTLER_BG_NICE` sets the
+`nice` fallback level; `OSTLER_TASKPOLICY_BIN` overrides the taskpolicy path
+(the tests use a fake to prove the launch path).
