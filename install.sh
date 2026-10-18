@@ -1943,6 +1943,16 @@ ollama_pull_with_retry() {
     local model="$1"
     local attempt=1
     local backoff=10
+    # rc 3 = HELD, not failed (Archie, #2977). While the Ollama pin is
+    # DEFERRED the engine may be a drifted, self-updated one (0.40.x pulls
+    # MLX builds, not the GGUF builds the model pins describe), so nothing is
+    # pulled until the pin lands; the next installer run retries both.
+    # Inline on purpose: no helper this wrapper could be lifted without.
+    if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then
+        warn "$(printf "$MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED" "${model}" "${OLLAMA_PIN_VERSION:-?}")"
+        echo "model_pull=held model=${model} reason=ollama_unpinned" >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null || true
+        return 3
+    fi
     while (( attempt <= 3 )); do
         if _gui_ollama_pull "$model"; then
             return 0
@@ -3412,14 +3422,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8652) captures the path BY
+    # _ostler_write_store_curl_config (defined :8662) captures the path BY
     # VALUE and never re-reads it:
-    #     :8653   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8698   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8707 and :16385, both of which run
+    #     :8663   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8708   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8717 and :16395, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3398 above has just deleted
-    # that tree and :3402 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3408 above has just deleted
+    # that tree and :3412 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3434,13 +3444,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17165, where the note reads
+    # WhatsApp Web session path did it again at :17175, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17182 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17192 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3449,13 +3459,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6030 against a definition at :8652. Top-level
+    # writer's own definition: :6040 against a definition at :8662. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8707, :16385) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8717, :16395) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19330 / :19508 / :19665 / :20110 path. There the
+    # :19340 / :19518 / :19675 / :20120 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -22790,10 +22800,12 @@ if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
 else
     info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
-    if ! ollama_pull_with_retry nomic-embed-text; then
-        fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT"
-    fi
-    ok "$MSG_OK_EMBEDDING_MODEL_READY"
+    _pull_rc=0; ollama_pull_with_retry nomic-embed-text || _pull_rc=$?
+    case "$_pull_rc" in
+        0) ok "$MSG_OK_EMBEDDING_MODEL_READY" ;;
+        3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
+        *) fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT" ;;
+    esac
 fi
 
 # CX-43 / #177 -- prove the embedding engine actually returns vectors
@@ -22866,10 +22878,12 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
                 ;;
         esac
         info "$(printf "$MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES" "${AI_MODEL}" "${AI_MODEL_SIZE}")"
-        if ! ollama_pull_with_retry "$AI_MODEL"; then
-            fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")"
-        fi
-        ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
+        _pull_rc=0; ollama_pull_with_retry "$AI_MODEL" || _pull_rc=$?
+        case "$_pull_rc" in
+            0) ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")" ;;
+            3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
+            *) fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")" ;;
+        esac
     fi
 else
     info "$(printf "$MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA" "${AI_MODEL}")"

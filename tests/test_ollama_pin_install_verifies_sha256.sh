@@ -30,6 +30,14 @@
 #           running the customer's self-updating /Applications/Ollama.app
 #           FAILS ERR-07-OLLAMA-AGENT-NOT-PINNED; the same plist under a
 #           DEFERRED pin is recorded (ollama_server=... pinned=no), not failed
+#   case N  NO MODEL PULLS WHILE UNPINNED: the installer's real embed-model
+#           block and pull wrapper run with a stub `ollama` that logs pulls.
+#           Deferred pin + model absent -> ZERO pulls, the install does not
+#           stop, the hold is warned and logged (model_pull=held). Control:
+#           the same block with the pin installed DOES pull. Run with the
+#           guard removed (bash $0 with a mutated install.sh) it goes RED.
+#   case R  the next run RETRIES: after a deferral, a run whose download
+#           works installs the pin and records ollama_pin=installed
 #
 # The sha256 in each case is computed from the fixture by this test and set on
 # OLLAMA_PIN_SHA256 in the test shell, so case B is a real mismatch between a
@@ -248,9 +256,51 @@ if [ "$(wc -l < "$post" | tr -d ' ')" -ge 5 ] && grep -q 'ERR-07-OLLAMA-AGENT-NO
     else bad "L: pinned=[$r_pin] app=[$r_app] deferred=[$r_def]"; fi
 else bad "L: install.sh has no 'agent must run the PINNED binary' block ending at 3.3b"; fi
 
+# N: no model pulls while the pin is deferred, through the REAL pull path
+PULLFN="$W/pullfn.sh"
+awk '/^_gui_ollama_pull\(\) \{/{f=1} f{print} f && /^}$/{f=0; n++} n==2{exit}' "$INSTALL_SH" > "$PULLFN"
+awk '/^ollama_pull_with_retry\(\) \{/{f=1} f{print} f && /^}$/{exit}' "$INSTALL_SH" >> "$PULLFN"
+EMBED="$W/embed_block.sh"
+awk '/^if ollama list 2>\/dev\/null \| grep -q "nomic-embed-text"; then$/{f=1} f{print} f && /^fi$/{exit}' "$INSTALL_SH" > "$EMBED"
+mkdir -p "$W/obin"
+cat > "$W/obin/ollama" <<'OL'
+#!/bin/sh
+case "$1" in
+  list) exit 0 ;;
+  pull) echo "$2" >> "${PULL_LOG:?}"; exit 0 ;;
+esac
+exit 0
+OL
+chmod +x "$W/obin/ollama"
+run_embed() {  # run_embed <outcome> ; prints "pulls|reached|code|held_log"
+    local d="$W/n_$1"; rm -rf "$d"; mkdir -p "$d"; : > "$d/pulls"
+    PATH="$W/obin:$PATH" PULL_LOG="$d/pulls" OLLAMA_PIN_OUTCOME="$1" OLLAMA_PIN_VERSION=9.9.9 \
+    INSTALL_LOG="$d/install.log" STRINGS="${REPO_ROOT}/install.sh.strings.en-GB.sh" \
+    bash -c 'set -Eeuo pipefail; . "$STRINGS"; ok(){ :; }; info(){ :; }; warn(){ echo "WARN $*"; }
+             fail_with_code(){ echo "CODE $1"; exit 1; }; gui_emit(){ :; }; gui_log(){ :; }; sleep(){ :; }
+             . "$1"; . "$2"; . "$3"; echo REACHED' _ "$FN" "$PULLFN" "$EMBED" > "$d/out" 2>&1
+    printf '%s|%s|%s|%s\n' "$(grep -c . "$d/pulls")" "$(grep -c '^REACHED$' "$d/out")" \
+        "$(sed -n 's/^CODE //p' "$d/out")" "$(grep -c '^model_pull=held model=nomic-embed-text reason=ollama_unpinned$' "$d/install.log" 2>/dev/null)"
+}
+if [ -s "$PULLFN" ] && [ -s "$EMBED" ] && grep -q 'ollama_pull_with_retry nomic-embed-text' "$EMBED"; then
+    n_def="$(run_embed deferred)"; n_ok="$(run_embed installed)"
+    if [ "$n_def" = "0|1||1" ] && [ "${n_ok%%|*}" = 1 ] && [ "$(cut -d'|' -f2 <<<"$n_ok")" = 1 ]; then
+        pass "N: deferred pin -> 0 model pulls, install continues, model_pull=held logged; control: pin installed -> 1 pull"
+    else bad "N: deferred=[pulls|reached|code|held]=$n_def installed=$n_ok (want 0|1||1 and 1|1|...)"; fi
+else bad "N: could not lift the pull wrapper or the embed-model block from install.sh"; fi
+
+# R: the next run retries the pin and clears the deferral
+mk_existing; rm -f "$STATE"
+first="$(run_apply "$W/good.tgz" "$GOOD_SHA" 1 0 "$PLIST")"
+second="$(run_apply "$W/good.tgz" "$GOOD_SHA" 0 0 "$PLIST")"
+if [ "${first##*|}" = deferred ] && [ "${second%%|*}" = 0 ] && [ "${second##*|}" = installed ] \
+   && grep -qx 'ollama_pin=installed' "$STATE" && [ -x "$W/oldhome/.ostler/runtime/ollama-9.9.9/ollama" ]; then
+    pass "R: after a deferral, the next run with a working download installs the pin and records ollama_pin=installed"
+else bad "R: first=[$first] second=[$second] state=$(tr '\n' ' ' < "$STATE" 2>/dev/null)"; fi
+
 echo ""
-if [ "$fails" -gt 0 ] || [ "$ran" -ne 12 ]; then
-    echo "FAIL: ollama pin install: ${fails} of ${ran} cases failed (expected 12 run)" >&2
+if [ "$fails" -gt 0 ] || [ "$ran" -ne 14 ]; then
+    echo "FAIL: ollama pin install: ${fails} of ${ran} cases failed (expected 14 run)" >&2
     exit 1
 fi
-echo "PASS: ollama pin install: 12/12 -- sha256 enforced, updater refused, fresh failure loud, existing install deferred untouched, agent must run the pinned binary"
+echo "PASS: ollama pin install: 14/14 -- sha256 enforced, updater refused, fresh failure loud, existing install deferred untouched, agent must run the pinned binary, no pulls while unpinned, next run retries"

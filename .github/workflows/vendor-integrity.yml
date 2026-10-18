@@ -598,6 +598,12 @@ jobs:
       - name: The Hub reads the Doctor like the app does (#2552, #2538)
         if: always()
         run: python3 tests/test_the_hub_reads_the_doctor_like_the_app.py
+      # #2977, Archie's condition (1): a DEFERRED Ollama pin is visible. Runs the
+      # shipped install.sh writer and the shipped Doctor render_dashboard. Needs
+      # the Doctor deps installed above; exit 2 is CANNOT-RUN, not a pass.
+      - name: The Doctor says when Ollama is not on Ostler's pinned version
+        if: always()
+        run: bash tests/test_doctor_says_when_ollama_is_not_pinned.sh
 
       # #947. The pairing envelope validated hub_addr as a non-empty string and
       # encoded it verbatim into the QR the customer scans. A link-local address

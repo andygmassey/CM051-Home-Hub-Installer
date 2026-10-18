@@ -665,6 +665,34 @@ IMESSAGE_CAPTURE_STALLED_FIX = "Open System Settings to Full Disk Access"
 IMESSAGE_CAPTURE_STALLED_FIX_COMMAND = IMESSAGE_FDA_FIX_COMMAND
 
 
+# ── check_ollama_pin ─────────────────────────────────────────────────
+#
+# Shown when the last installer run could not install Ostler's tested copy
+# of Ollama and kept the one already running (ollama_pin=deferred in
+# ~/.ostler/state/ollama-pin, written by install.sh). Plain words; the
+# reason clause comes from OLLAMA_NOT_PINNED_REASONS.
+
+OLLAMA_NOT_PINNED_TITLE = "Ollama is not on Ostler's pinned version"
+OLLAMA_NOT_PINNED_DETAIL_FMT = (
+    "The last installer run could not install Ostler's tested copy of "
+    "Ollama ({version}) because {reason}, so the copy that was already "
+    "running was kept. Your assistant keeps working. Until this is fixed "
+    "Ostler downloads no new AI models, because a different Ollama could "
+    "fetch the wrong build."
+)
+OLLAMA_NOT_PINNED_FIX = (
+    "Run the Ostler installer again while you are online. It tries the "
+    "tested copy again and, once it is in place, this message goes away."
+)
+OLLAMA_NOT_PINNED_REASONS = {
+    "11": "the download did not complete",
+    "12": "the download did not match its recorded fingerprint",
+    "13": "it could not be unpacked",
+    "14": "the download was not the expected engine",
+}
+OLLAMA_NOT_PINNED_REASON_UNKNOWN = "of a problem the installer recorded"
+
+
 # ── check_last_upgrade ───────────────────────────────────────────────
 #
 # The (B-lite) upgrade audit-trail row. Reads the durable, reboot-

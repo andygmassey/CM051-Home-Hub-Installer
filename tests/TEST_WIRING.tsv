@@ -296,6 +296,7 @@ test_doctor_reminders_list_removed.py	WIRED	.github/workflows/cm048-participants
 test_doctor_repo_fallback.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_routines_are_measured_live.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_rows_show_one_honest_total.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_doctor_says_when_ollama_is_not_pinned.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
