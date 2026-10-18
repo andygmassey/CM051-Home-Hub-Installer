@@ -156,8 +156,17 @@ run_guard() {
         # MUST be rewritten, so it moved to the `pathless` state below. Leaving
         # it here would have been a fixture encoding the shape the old code
         # handled, which is how control (7) reads a correct rewrite as churn.
-        modern) printf '<key>StartInterval</key>\n<integer>3600</integer>\n<key>EnvironmentVariables</key>\n<dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n' > "$plist" ;;
+        # 2026-10-17 (v1.0.108) widened `correct` again: fda-rerun must now run
+        # at background QoS (ProcessType=Background) so its 5-year-window ingest
+        # yields CPU to live chat during first-run settling. A plist without
+        # that key is the `unbackgrounded` state below and MUST be rewritten, so
+        # leaving it out of `modern` would make control (7) read a correct
+        # rewrite as churn -- the same trap the PATH widening sprang.
+        modern) printf '<key>StartInterval</key>\n<integer>3600</integer>\n<key>EnvironmentVariables</key>\n<dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n<key>ProcessType</key>\n<string>Background</string>\n' > "$plist" ;;
         pathless) printf '<key>StartInterval</key>\n<integer>3600</integer>\n' > "$plist" ;;
+        # Modern schedule AND Homebrew PATH, but NOT backgrounded: the shape of
+        # every fda-rerun plist written before v1.0.108. Must be rewritten.
+        unbackgrounded) printf '<key>StartInterval</key>\n<integer>3600</integer>\n<key>EnvironmentVariables</key>\n<dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n' > "$plist" ;;
         absent) : ;;
         *) return 1 ;;
     esac
@@ -269,6 +278,17 @@ c11() { ! grep -qE 'FDA_RERUN_(YEAR|MONTH|DAY|HOUR|MIN)=' "$INSTALL_SH"; }
 #      same fixture and only one answer was possible.
 c12() { [[ "$(run_guard pathless)" == "1 0" ]]; }
 
+# (13) THE THIRD UPGRADE LIMB, 2026-10-17 (v1.0.108). A box carrying a plist
+#      that is modern in SCHEDULE and has the Homebrew PATH but runs at the
+#      default QoS must be rewritten, so fda-rerun's 5-year-window ingest yields
+#      CPU to live chat during first-run settling. Every fda-rerun plist written
+#      before v1.0.108 is exactly this shape, so without the limb the fix
+#      reaches fresh installs only -- the same #768/#769 shape as (6) and (12),
+#      one key over. Discriminated from (7) by the ProcessType=Background key
+#      the `modern` fixture now carries: (7) is "correct, leave alone", (13) is
+#      "modern schedule and PATH but unthrottled, rewrite".
+c13() { [[ "$(run_guard unbackgrounded)" == "1 0" ]]; }
+
 run_controls() {
     PASS=0
     FAIL=0
@@ -285,6 +305,7 @@ run_controls() {
     check "(10) success message key exists in the catalogue"         c10
     check "(11) one-shot date arithmetic is deleted"                 c11
     check "(12) PATH-less plist on disk -> rewrite, not flagged legacy" c12
+    check "(13) un-backgrounded plist on disk -> rewrite for background QoS" c13
 }
 
 # ---------------------------------------------------------------------------
@@ -338,6 +359,14 @@ if [[ "$SELF_TEST" == "1" ]]; then
     probe "no-bootout" \
         's|launchctl bootout|launchctl no_such_subcommand|' \
         "(9)"
+
+    # Defect D (v1.0.108): the background-QoS rewrite trigger removed, so every
+    # box that already carries an un-backgrounded plist keeps running fda-rerun
+    # at full priority -- the first-run chat-starvation defect, reaching fresh
+    # installs only. Same shape as Defect B, one limb over.
+    probe "no-background-trigger" \
+        's|^    elif ! grep -q .<string>Background</string>. "\$FDA_RERUN_PLIST" 2>/dev/null; then$|    elif false; then|' \
+        "(13)"
 
     echo
     if [[ "$SELF_FAIL" -gt 0 ]]; then
