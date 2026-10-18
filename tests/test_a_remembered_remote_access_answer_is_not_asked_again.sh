@@ -130,31 +130,31 @@ echo
 echo "== a re-install with \"use previous answers\" must not re-ask =="
 
 out="$(run_arm skip none true "$PROMPT")"
-printf '%s' "$out" | grep -q 'ASKED prompt_key=tailscale_confirm' \
+grep -q 'ASKED prompt_key=tailscale_confirm' <<< "$out" \
   && bad "(1) the customer who said SKIP last time was asked AGAIN" \
   || ok  "(1) the customer who said SKIP last time is NOT asked again"
-printf '%s' "$out" | grep -q 'FINAL=\[skip\]' \
+grep -q 'FINAL=\[skip\]' <<< "$out" \
   && ok  "(2) and their answer is still skip, not overwritten by the prompt default" \
   || bad "(2) the remembered answer did not survive: $(printf '%s' "$out" | grep '^FINAL=')"
-printf '%s' "$out" | grep -q 'kept your previous answer: skip' \
+grep -q 'kept your previous answer: skip' <<< "$out" \
   && ok  "(3) they are TOLD it was kept, rather than the step happening in silence" \
   || bad "(3) the answer was reused with nothing said to the customer"
 
 out="$(run_arm setup none true "$PROMPT")"
-printf '%s' "$out" | grep -q 'ASKED prompt_key=tailscale_confirm' \
+grep -q 'ASKED prompt_key=tailscale_confirm' <<< "$out" \
   && bad "(4) the customer who said SETUP last time was asked again" \
   || ok  "(4) the customer who said SETUP last time is not asked again either"
-printf '%s' "$out" | grep -q 'FINAL=\[setup\]' \
+grep -q 'FINAL=\[setup\]' <<< "$out" \
   && ok  "(5) and remote access is still set up for them" \
   || bad "(5) the remembered setup answer was lost"
 
 echo
 echo "== the upgrade path: a box whose .env predates the line =="
 out="$(run_arm "" none true "$PROMPT")"
-printf '%s' "$out" | grep -q 'ASKED prompt_key=tailscale_confirm' \
+grep -q 'ASKED prompt_key=tailscale_confirm' <<< "$out" \
   && ok  "(6) with nothing remembered it ASKS, which is right: nothing may be assumed on the customer's behalf" \
   || bad "(6) it skipped the question with no stored answer, which invents one"
-printf '%s' "$out" | grep -q 'ENV=\[1\]' \
+grep -q 'ENV=\[1\]' <<< "$out" \
   && ok  "(7) and the answer is WRITTEN, so the NEXT re-install does not ask" \
   || bad "(7) the answer given here was never persisted, so every future re-install asks again: $(printf '%s' "$out" | grep '^ENV=')"
 
@@ -162,24 +162,24 @@ echo
 echo "== the arms that must still ask, because assuming would be worse =="
 
 out="$(run_arm skip none false "$PROMPT")"
-printf '%s' "$out" | grep -q 'ASKED prompt_key=tailscale_confirm' \
+grep -q 'ASKED prompt_key=tailscale_confirm' <<< "$out" \
   && ok  "(8) a customer who DECLINED reuse is still asked, so a stored answer cannot override a fresh walk" \
   || bad "(8) a stored answer overrode a customer who asked to walk the questions again"
 
 out="$(run_arm maybe none true "$PROMPT")"
-printf '%s' "$out" | grep -q 'ASKED prompt_key=tailscale_confirm' \
+grep -q 'ASKED prompt_key=tailscale_confirm' <<< "$out" \
   && ok  "(9) an unrecognised stored value ASKS, so a hand-edited .env cannot enrol anyone in remote access" \
   || bad "(9) a value that is neither setup nor skip was honoured"
 
 out="$(run_arm "" unreadable true "$PROMPT")"
-printf '%s' "$out" | grep -q 'state unreadable' \
+grep -q 'state unreadable' <<< "$out" \
   && ok  "(10) CANNOT-RUN on the detector is surfaced, then the person is asked" \
   || bad "(10) an unreadable tailnet state was silently treated as absent"
 
 echo
 echo "== order: the disk outranks a remembered answer that contradicts it =="
 out="$(run_arm skip configured true "$PROMPT")"
-printf '%s' "$out" | grep -q 'FINAL=\[setup\]' \
+grep -q 'FINAL=\[setup\]' <<< "$out" \
   && ok  "(11) a box demonstrably ON the tailnet re-applies its serve rather than honouring a stale skip" \
   || bad "(11) a remembered skip stopped an already-joined box being re-served, which breaks the iOS app"
 
@@ -205,10 +205,10 @@ if [ "$M1" = "$PROMPT" ]; then
 else
     ok "(M1a) mutant applied: the reuse arm is gone ($(printf '%s\n' "$PROMPT" | grep -c .) lines to $(printf '%s\n' "$M1" | grep -c .))"
     out="$(run_arm skip none true "$M1")"
-    printf '%s' "$out" | grep -q 'ASKED prompt_key=tailscale_confirm' \
+    grep -q 'ASKED prompt_key=tailscale_confirm' <<< "$out" \
       && ok  "(M1b) PRE-FIX IS CAUGHT: without the reuse arm the remembered skip is asked again" \
       || bad "(M1b) the pre-fix shape did not re-ask, so arm (1) cannot tell the two apart"
-    printf '%s' "$out" | grep -q 'FINAL=\[setup\]' \
+    grep -q 'FINAL=\[setup\]' <<< "$out" \
       && ok  "(M1c) and the pre-fix shape overwrote skip with the prompt default, which is the reported harm" \
       || bad "(M1c) the pre-fix shape did not overwrite the answer, so arm (2) is measuring something else"
 fi
@@ -222,7 +222,7 @@ if [ "$M2" = "$PROMPT" ]; then
 else
     ok "(M2a) mutant applied: the guard now accepts any non-empty stored value"
     out="$(run_arm maybe none true "$M2")"
-    printf '%s' "$out" | grep -q 'ASKED prompt_key=tailscale_confirm' \
+    grep -q 'ASKED prompt_key=tailscale_confirm' <<< "$out" \
       && bad "(M2b) widening the guard changed nothing, so arm (9) is decoration" \
       || ok  "(M2b) arm (9) goes red without the whitelist, so it is measuring it"
 fi
@@ -239,7 +239,7 @@ else
     # answer is never written. That is the upgrade path arm (7) is about.
     out="$(run_arm "" none true "$PROMPT")"
     PERSIST="$M3_PERSIST"
-    printf '%s' "$out" | grep -q 'ENV=\[1\]' \
+    grep -q 'ENV=\[1\]' <<< "$out" \
       && bad "(M3b) the answer was still written, so arm (7) is not measuring the append" \
       || ok  "(M3b) arm (7) goes red when the append arm is unreachable, so it is measuring it"
 fi
