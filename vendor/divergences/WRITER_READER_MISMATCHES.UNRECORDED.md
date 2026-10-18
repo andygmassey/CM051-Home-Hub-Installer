@@ -1605,3 +1605,15 @@ Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness
 ### What a future sync must preserve
 
 `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`.
+
+## The Doctor says when Ollama is not on Ostler's pinned version (CM051 #2977) -- `doctor`
+
+Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollama_pin` and `_ollama_pin_state_path`, the copy imports, one entry in `ALL_RULES`) and `vendor/doctor/agent/diagnostic_copy.py` (new `OLLAMA_NOT_PINNED_*` block).
+
+### Why
+
+#2977 pins Ollama to one verified release. On an existing working install a failed pin download, fingerprint check or unpack DEFERS rather than stopping the customer, and install.sh writes `~/.ostler/state/ollama-pin` (`ollama_pin=deferred`, `ollama_pin_version`, `ollama_pin_reason=pin_install_rc=N`). Archie's condition (1) on that leniency is that it must be VISIBLE. This rule turns the record into one Doctor row, "Ollama is not on Ostler's pinned version", with the reason in plain words. `installed` or a missing record give no row. The rule is read-only.
+
+### What a future sync must preserve
+
+`check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.

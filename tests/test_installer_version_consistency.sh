@@ -216,7 +216,7 @@ PBX
     # (1) THE DEFECT. main as measured 2026-08-16: 1.0.32 everywhere, 2500
     #     everywhere. Perfect agreement, and the build number belongs to 1.0.25.
     run_gate "$(make_tree 1.0.32 2500 1.0.32 2500 1.0.32 2500)"
-    if [[ "$ST_RC" == "1" ]] && printf '%s' "$ST_OUT" | grep -q "3200"; then
+    if [[ "$ST_RC" == "1" ]] && grep -q "3200" <<< "$ST_OUT"; then
         ok "(1) 1.0.32 with a uniformly frozen 2500 fails, and names 3200"
     else
         no "(1) the shipped defect passed, or failed without naming the expected value (rc=$ST_RC)"
@@ -239,7 +239,7 @@ PBX
     # (5) The ORIGINAL #171 check must still work: a half-bumped marketing
     #     version. Adding a predicate must not quietly retire the one it joins.
     run_gate "$(make_tree 1.0.33 3300 1.0.32 3200 1.0.32 3200)"
-    if [[ "$ST_RC" == "1" ]] && printf '%s' "$ST_OUT" | grep -q "marketing version drift"; then
+    if [[ "$ST_RC" == "1" ]] && grep -q "marketing version drift" <<< "$ST_OUT"; then
         ok "(5) marketing half-bump still fails as marketing drift, not as derivation"
     else
         no "(5) the #171 half-bump check was lost or its message changed (rc=$ST_RC)"
@@ -249,7 +249,7 @@ PBX
     #     report drift rather than derivation, or the message sends whoever
     #     reads it to re-derive a number that is already right in one place.
     run_gate "$(make_tree 1.0.32 3200 1.0.32 3300 1.0.32 3300)"
-    if [[ "$ST_RC" == "1" ]] && printf '%s' "$ST_OUT" | grep -q "build number drift"; then
+    if [[ "$ST_RC" == "1" ]] && grep -q "build number drift" <<< "$ST_OUT"; then
         ok "(6) build-number half-bump still fails as drift, before derivation is consulted"
     else
         no "(6) the build-number agreement check was lost or reordered (rc=$ST_RC)"
