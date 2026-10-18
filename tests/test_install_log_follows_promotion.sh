@@ -84,13 +84,13 @@ else
     ok "1a. _ostler_set_paths extracted from install.sh ($(printf '%s\n' "$_fn_body" | wc -l | tr -d ' ') lines)"
 fi
 
-if printf '%s' "$_fn_body" | grep -Fq 'INSTALL_LOG="${LOGS_DIR}/install.log"'; then
+if grep -Fq 'INSTALL_LOG="${LOGS_DIR}/install.log"' <<< "$_fn_body"; then
     ok "1b. _ostler_set_paths re-derives INSTALL_LOG from LOGS_DIR"
 else
     bad "1b. _ostler_set_paths does NOT re-derive INSTALL_LOG; it will stay pinned to the staging tree"
 fi
 
-if printf '%s' "$_fn_body" | grep -Fq 'INSTALL_LOG_FALLBACK_ACTIVE'; then
+if grep -Fq 'INSTALL_LOG_FALLBACK_ACTIVE' <<< "$_fn_body"; then
     ok "1c. the rebind honours the /tmp fallback opt-out"
 else
     bad "1c. the rebind ignores INSTALL_LOG_FALLBACK_ACTIVE and will re-aim at an unwriteable dir"
