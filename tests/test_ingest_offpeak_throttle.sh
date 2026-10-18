@@ -121,6 +121,14 @@ chmod +x "$TMP/bin/date"
 
 LOCK="$TMP/state/ingest.lock.d"
 
+# The tick backs off before the pipeline when chat.db is absent ("Messages
+# never used on this Mac?"). This harness used to lean on the RUNNER's own
+# ~/Library/Messages/chat.db: GitHub's macOS image has one, so it passed
+# there and read '' everywhere else, including any job with its own HOME.
+# Give the tick a readable stand-in through its own override instead.
+CHAT_DB="$TMP/state/chat.db"
+printf 'SQLite format 3\000' > "$CHAT_DB"
+
 # The tick FAILS CLOSED on an unconfigured environment: with no
 # OSTLER_USER_ID it exits EX_CONFIG (78), "Refusing to run an
 # unconfigured...", and writes nothing. The fixture never set it, so
@@ -142,6 +150,7 @@ run_tick() {
         OSTLER_USER_ID="test-user" \
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
+        OSTLER_IMESSAGE_CHAT_DB="$CHAT_DB" \
         OSTLER_USER_ID="${OSTLER_USER_ID:-orm-test-user}" \
         "$@" \
         bash "$IMSG" >"$TMP/tick.log" 2>&1 || true
@@ -249,6 +258,7 @@ run_tick_marker() {
         OSTLER_USER_ID="test-user" \
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
+        OSTLER_IMESSAGE_CHAT_DB="$CHAT_DB" \
         OSTLER_INTERACTIVE_MARKER="$IMARKER" \
         "$@" \
         bash "$IMSG" >"$TMP/tick.log" 2>&1 || true
