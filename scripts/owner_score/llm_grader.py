@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Calibrated Claude grader for owner-knowledge answers and conversation post-processing.
+"""A calibrated LLM grader for owner-knowledge answers and conversation post-processing.
 
-Grades EXISTING evidence (no local model runs) with Claude via the Message Batches API,
+Grades EXISTING evidence (no local model runs) through the anthropic batches endpoint,
 then measures agreement against the labels the evidence already carries. A grader that
 has not been calibrated against existing labels is just another opinion, so `report`
 always prints the agreement rate per label with its denominator, and lists every
