@@ -75,16 +75,16 @@ STUB
 chmod +x "$W/bin/curl"
 
 run_case() {  # run_case <src_archive> <expected_sha> <fail?> ; prints rc
-    local dest="$W/home/.ostler/runtime/ollama-9.9.9"
-    rm -rf "$W/home"; mkdir -p "$W/home"
+    local dest="$W/fakehome/.ostler/runtime/ollama-9.9.9"
+    rm -rf "$W/fakehome"; mkdir -p "$W/fakehome"
     : > "$W/curl.log"
     PATH="$W/bin:$PATH" STUB_SRC="$1" STUB_FAIL="$3" STUB_LOG="$W/curl.log" \
     OLLAMA_PIN_VERSION=9.9.9 OLLAMA_PIN_URL="https://example.invalid/ollama-darwin.tgz" \
     OLLAMA_PIN_SHA256="$2" bash -c '. "$1"; _ostler_ollama_pin_install "$2"' _ "$FN" "$dest" \
         2> "$W/stderr" && echo 0 || echo $?
 }
-DEST="$W/home/.ostler/runtime/ollama-9.9.9"
-leftover() { find "$W/home" -name '*.partial.*' 2>/dev/null | wc -l | tr -d ' '; }
+DEST="$W/fakehome/.ostler/runtime/ollama-9.9.9"
+leftover() { find "$W/fakehome" -name '*.partial.*' 2>/dev/null | wc -l | tr -d ' '; }
 
 # A
 rc="$(run_case "$W/good.tgz" "$GOOD_SHA" 0)"
