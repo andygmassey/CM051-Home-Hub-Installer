@@ -272,3 +272,10 @@ set-aside calendar (written as `type: other, include: false`) as ordinary diary.
 Proven by `tests/test_calendar_set_aside_classification.py` (RED with the `other`
 mapping alone: `test_consumer_withholds_a_set_aside_calendar` returns L1). A sync
 that drops either change turns that test red.
+
+## 2026-10-14: `cm041/contact_syncer` `instagram_social.py` `_username_to_display_name`
+
+Location only: a bare handle (no separator) now returns `"@" + handle`
+instead of the handle itself, so a handle is never stored as a person's name
+(walk #27 shape sweep S9 row 3). Same edit in the shipped `contact_syncer/`
+copy. Hand-grafted; the tree is `regenerate_forbidden`.
