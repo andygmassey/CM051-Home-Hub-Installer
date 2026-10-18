@@ -470,7 +470,7 @@ def catalogues(cfg):
 # Provenance: which English text each translation was made from
 # --------------------------------------------------------------------------
 
-STATE = os.path.join(HERE, "state.json")
+STATE = os.path.join(HERE, "provenance.json")  # not state.json: the repo .gitignore swallows that name
 
 
 def load_state():
@@ -896,7 +896,7 @@ def cmd_self_test(cfg):
         open(os.path.join(tmp, "l10n", "config.yaml"), "w").write(
             "languages: [de]\nbudget_usd: 1\nverbatim_tokens: [INSTALL]\nmodels:\n  translate: claude-sonnet-5-5\n  review: claude-opus-5-5\n"
             "catalogues:\n  - id: x\n    type: xcstrings\n    source: L.xcstrings\n  - id: sh\n    type: shell\n    source: s.en-GB.sh\n    target: s.{lang}.sh\n")
-        REPO, HERE, STATE = tmp, os.path.join(tmp, "l10n"), os.path.join(tmp, "l10n", "state.json")
+        REPO, HERE, STATE = tmp, os.path.join(tmp, "l10n"), os.path.join(tmp, "l10n", "provenance.json")
         c2 = load_yaml(open(os.path.join(HERE, "config.yaml")).read())
         quiet = lambda f, *a: _quiet(f, *a)
         cmd_adopt_q = quiet(cmd_adopt, c2)

@@ -1,7 +1,7 @@
 name: l10n-weekly
 
 # OUT-OF-BAND translation run. Sends ONLY new or changed English strings
-# (l10n/state.json records the English each translation was made from), then
+# (l10n/provenance.json records the English each translation was made from), then
 # opens ONE PR with the result for review. Never runs on pull_request, so a
 # fork can never reach the key.
 #
