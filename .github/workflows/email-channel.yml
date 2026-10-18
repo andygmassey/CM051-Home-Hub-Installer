@@ -11,6 +11,7 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_email_allowlist_installer.sh'
+      - 'tests/test_email_password_never_in_config.sh'
       - 'scripts/box_walk_probes/lib/email_channel_probe.py'
       - 'scripts/box_walk_probes/probes/email_channel_round_trip.sh'
       - 'scripts/walk_promote_scope.tsv'
@@ -34,6 +35,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: The installer asks, pre-fills, requires one address, and keeps the password out of logs
         run: bash tests/test_email_allowlist_installer.sh
+      - name: The email password never lands in config.toml, and an upgrade moves it out (#1976)
+        if: always()
+        run: bash tests/test_email_password_never_in_config.sh
       - name: The email judge catches every mutant by its own assertion
         if: always()
         run: set +e; python3 scripts/box_walk_probes/lib/email_channel_probe.py --self-test; rc=$?; test "$rc" -eq 1

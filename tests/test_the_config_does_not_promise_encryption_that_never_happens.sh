@@ -98,13 +98,23 @@ if ! /usr/bin/grep -q 'Ostler assistant configuration' <<< "$OUT"; then
     echo "CANNOT-RUN: the rendered config has no preamble." >&2
     exit 2
 fi
-if ! /usr/bin/grep -qF "password = \"${MARKER}\"" <<< "$OUT"; then
-    echo "CANNOT-RUN: the rendered config carries no plaintext password, so the" >&2
-    echo "  sentence under test would have nothing to be a lie about." >&2
-    echo "  This is the arm that must not be allowed to pass vacuously." >&2
+if ! /usr/bin/grep -q '^\[channels.email\]$' <<< "$OUT"; then
+    echo "CANNOT-RUN: the rendered config has no [channels.email] block, so the" >&2
+    echo "  password field under test was never rendered." >&2
     exit 2
 fi
-ok "the rendered config carries BOTH the preamble and a plaintext password field"
+ok "the rendered config carries BOTH the preamble and the [channels.email] block"
+# #1976: the value the customer typed must not be in the file at all.
+if /usr/bin/grep -qF "$MARKER" <<< "$OUT"; then
+    bad "the customer's email password is in config.toml in plain text"
+else
+    ok "the customer's email password is NOT in config.toml"
+fi
+if /usr/bin/grep -qx 'password = ""' <<< "$OUT"; then
+    ok "config.toml carries password = \"\" so the daemon reads the secrets file"
+else
+    bad "config.toml has no empty password line for the daemon to fall back from"
+fi
 
 echo "-- 1. THE MEASURED DEFECT: no claim that the password encrypts itself --"
 # Match on the CLAIM, not on one phrasing of it. Each pattern below is a way
@@ -128,10 +138,10 @@ echo "-- 2. and it says what IS true, so the silence is not the fix --"
 # Removing the false sentence and saying nothing would leave the customer
 # with a plaintext password and no idea. Three things they need.
 _said() { /usr/bin/grep -qi "$1" <<< "$OUT"; }
-if _said 'plain text' || _said 'plaintext'; then
-    ok "it states the password is in plain text"
+if _said 'NOT in this file' && _said '~/.ostler/secrets/email_password'; then
+    ok "it tells the customer the password is not here and names where it is"
 else
-    bad "the false promise went and nothing replaced it; the customer is told nothing"
+    bad "the customer is not told where their email password went"
 fi
 if _said '0600'; then
     ok "it names the protection that actually exists (mode 0600)"
@@ -148,12 +158,12 @@ echo "-- 3. the engineering comments agree with what the customer is told --"
 # The two halves of install.sh disagreed for the life of the file: one said
 # the daemon encrypts on first run, the other said it cannot bootstrap from
 # plaintext. Only one of them could be right.
-_bootstrap="$(/usr/bin/grep -c 'does NOT bootstrap from plaintext' "$SUBJECT" || true)"
-_issue="$(/usr/bin/grep -c 'issue #1976' "$SUBJECT" || true)"
+_bootstrap="$(/usr/bin/grep -c 'What this is NOT: encryption at rest' "$SUBJECT" || true)"
+_issue="$(/usr/bin/grep -c '#1976' "$SUBJECT" || true)"
 if [ "${_bootstrap:-0}" -ge 1 ]; then
-    ok "install.sh states the daemon does not bootstrap from plaintext"
+    ok "install.sh states the secrets file is not encryption at rest"
 else
-    bad "the constraint that makes this a defect is no longer stated anywhere"
+    bad "the limit of the fix is no longer stated anywhere"
 fi
 if [ "${_issue:-0}" -ge 2 ]; then
     ok "the follow-up is filed and cited at both sites (${_issue} citations)"
@@ -163,7 +173,7 @@ fi
 
 echo "-- 4. MUTATION: put the old sentence back and arm 1 MUST fail --"
 MUT="${WORK}/emitter_mutant.sh"
-/usr/bin/sed 's|^# Your email password is in this file, in plain text, and it STAYS$|# are stored in plaintext until the assistant first runs and encrypts them in place.|' \
+/usr/bin/sed 's|^# Your email password is NOT in this file. If you gave the$|# are stored in plaintext until the assistant first runs and encrypts them in place.|' \
     "$EMITTER" > "$MUT"
 if [ "$(/usr/bin/grep -c 'until the assistant first runs and encrypts them in place' "$MUT" || true)" -lt 1 ]; then
     bad "MUTATION DID NOT APPLY, so the arm below proves nothing"
