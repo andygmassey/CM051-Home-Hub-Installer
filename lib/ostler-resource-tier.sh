@@ -265,11 +265,11 @@ ostler_resource_tier_detect() {
             #     model              min_fit   min_slow
             #     qwen3.6:35b-a3b       48        36
             #     qwen3.5:9b            24        18
-            #     gemma4:e2b            16        12
+            #     qwen3.5:4b            16        12
             #
             # So at 16GB, qwen3.5:9b is below even its min_slow of 18 and
-            # gemma4:e2b is the only model that fits. EVERY Mac of 23GB or
-            # less runs gemma4:e2b, and 16GB is the hard minimum, so the
+            # qwen3.5:4b is the only model that fits. EVERY Mac of 23GB or
+            # less runs qwen3.5:4b, and 16GB is the hard minimum, so the
             # minimum supported customer runs the smallest model we ship.
             # That is a PRODUCT fact about the minimum spec, not a bug here.
             #

@@ -67,9 +67,9 @@ OSTLER_MODEL_FIT_NUM_CTX="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
 #
 # Ordering matters: BEST-first (most capable model first). The recommender
 # walks this order and picks the first model whose verdict is "fits".
-OSTLER_MODEL_TAGS=(   "qwen3.6:35b-a3b" "qwen3.5:9b" "gemma4:e2b" )
-OSTLER_MODEL_WEIGHTS=( 23                6            5            )
-OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
+OSTLER_MODEL_TAGS=(   "qwen3.6:35b-a3b" "qwen3.5:9b" "qwen3.5:4b" )
+OSTLER_MODEL_WEIGHTS=( 23                6            4            )
+OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "nvfp4"       )
 # size_label PROVENANCE. gemma4:e2b read "~5 GB" until v1061-D002 (reg #623).
 # It was MEASURED at 7.2 GB on the v1.0.61 walk box -- a 44% understatement of
 # the largest single download in the install. The repo already knew: install.sh
@@ -78,11 +78,21 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
 # "7.2 GB of models". Only this customer-facing label still said 5.
 # The other two labels are NOT measured -- they are still inherited from
 # weights_gb and are the remaining live half of the download-honesty class.
-OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~7.2 GB"     )
+#
+# v1.0.109: the 16 GB tier moved from gemma4:e2b to qwen3.5:4b. e2b failed to
+# look anything up on 41/80 questions in the 80Q replay; on a 16 GB Mini,
+# qwen3.5:9b grew swap at 16k with a p90 of 129 s against 4b's 11.5 s, so the
+# 9b could not move down a tier either. qwen3.5:4b's "~4.0 GB" is MEASURED: a
+# real `ollama pull qwen3.5:4b` under Ollama 0.40.5 (the version install.sh
+# pins) reported "4.0 GB/4.0 GB" and `ollama list` 4.0 GB, MLX nvfp4 build,
+# 2026-10-18. The same tag under Ollama 0.34 is a 3.3 GB GGUF build, so the
+# label is the larger of the two and cannot understate either.
+OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~4.0 GB"     )
 # min_fit: comfortable at num_ctx 32768.
 #   35b-a3b: ~23 GB weights + ~5 GB 32k KV + headroom -> needs ~48 GB box.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.
-#   e2b    : ~5 GB weights  + ~1 GB 32k KV + headroom -> needs ~16 GB box.
+#   4b     : ~4 GB resident at 32k (MLX allocation does not grow with num_ctx;
+#            4.07 GB measured) + headroom -> fits a 16 GB box.
 OSTLER_MODEL_MINFIT=( 48                24           16           )
 # min_slow: will load but tight (swap risk) below min_fit.
 OSTLER_MODEL_MINSLOW=(36                18           12           )
