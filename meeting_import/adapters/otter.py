@@ -4,7 +4,7 @@ drop folder.
 
 Layouts CONFIRMED from Otter's own "Export conversations" article
 (help.otter.ai/hc/en-us/articles/360047733634, updated 2026-10-10; its
-"Export Examples" image read 2026-10-18):
+export examples image read 2026-10-18):
 - file name ``<Title>_otter_ai.<ext>``;
 - TXT: no title line; ``Name  m:ss`` header, the paragraph, a blank line;
   footer ``Transcribed by https://otter.ai``. Basic (free) plan exports TXT only;
@@ -15,9 +15,9 @@ PDF is not parsed. "Show speaker names" / "Show timestamps" are export
 toggles; a TXT exported with both OFF has no turn structure and imports as
 one unattributed block.
 
-Otter's Summary (Overview, Action Items, Outline, Insights) is a separate
+Otter's summary (overview, action items, outline, insights) is a separate
 export whose file layout Otter does not show: NOT parsed (Otter's own FAQ:
-"Action Items can't be exported directly"). Imported Otter meetings say
+"action items can't be exported directly"). Each imported Otter meeting says
 plainly that no summary was supplied.
 """
 from __future__ import annotations

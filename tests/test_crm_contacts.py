@@ -20,22 +20,22 @@ from crm_contacts import convert, detect_csv, read_csv  # noqa: E402
 # separators are ASSUMED.
 DEX = ('Id,First Name,Last Name,Full Name,Title,Company,Description,Birthday,Email,Phone,'
        'Last interaction,Keep-in-touch frequency,Twitter,LinkedIn,Facebook,Groups\n'
-       'dx1,Alex,Example,Alex Example,Head of Synthetic Ops,Example Co,"Met at a synthetic conference, likes sailing",'
+       'dx1,Alex,Smith,Alex Smith,Head of synthetic ops,Acme Corp,"Met at a synthetic conference, likes sailing",'
        '1990-04-12,"alex@example.test, alex.work@example.test",+44 7700 900001,2026-02-01,Monthly,'
-       'https://x.com/alexexample,https://www.linkedin.com/in/alex-example,,"Friends:::Work"\n'
-       'dx2,,,Sam Sample,,,,,,+44 7700 900002,,,,,,\n'
+       'https://x.com/alexsmith,https://www.linkedin.com/in/alex-smith,,"Friends:::Work"\n'
+       'dx2,,,Sam Jones,,,,,,+44 7700 900002,,,,,,\n'
        'dx3,,,,,,,,,,,,,,,\n')
 
 # Mesh (formerly Clay): Settings > General > Export my Data, CSV emailed from
-# notify@me.sh, "backward compatible with Google Contacts"
+# notify@me.sh, "backward compatible with" Google's contacts format
 # (library.me.sh/hc/en-us/articles/6821989456027). Columns are NOT documented:
-# Google Contacts CSV headers are ASSUMED.
-MESH = ('Name,Given Name,Family Name,Birthday,Notes,Group Membership,E-mail 1 - Type,E-mail 1 - Value,'
+# Google's contacts CSV headers are ASSUMED (lower-cased here; the reader is case-blind).
+MESH = ('name,given name,family name,birthday,notes,group membership,e-mail 1 - type,e-mail 1 - value,'
         'E-mail 2 - Type,E-mail 2 - Value,Phone 1 - Type,Phone 1 - Value,Organization 1 - Name,'
         'Organization 1 - Title,Website 1 - Value\n'
-        'Robin Sample,Robin,Sample,,"Synthetic note; line two",* myContacts ::: Investors,Home,'
-        'robin@example.test,Work,robin.w@example.test,Mobile,+44 7700 900003,Sample Ltd,Partner,'
-        'https://example.test/robin\n')
+        'Bob Brown,Bob,Brown,,"Synthetic note; line two",* myContacts ::: Investors,Home,'
+        'bob@example.test,Work,bob.w@example.test,Mobile,+44 7700 900003,Globex Corp,Partner,'
+        'https://example.test/bob\n')
 
 
 def test_detects_both_and_refuses_unknown(tmp_path):
@@ -51,18 +51,18 @@ def test_detects_both_and_refuses_unknown(tmp_path):
 def test_dex_fields(tmp_path):
     (tmp_path / "dex.csv").write_text(DEX)
     src, people = read_csv(tmp_path / "dex.csv")
-    assert src == "dex" and [p.full_name for p in people] == ["Alex Example", "Sam Sample"]  # empty row dropped
+    assert src == "dex" and [p.full_name for p in people] == ["Alex Smith", "Sam Jones"]  # empty row dropped
     a = people[0]
     assert a.emails == ["alex@example.test", "alex.work@example.test"]
-    assert a.org == "Example Co" and a.title == "Head of Synthetic Ops" and a.birthday == "1990-04-12"
-    assert a.groups == ["Friends", "Work"] and "https://www.linkedin.com/in/alex-example" in a.urls
+    assert a.org == "Acme Corp" and a.title == "Head of synthetic ops" and a.birthday == "1990-04-12"
+    assert a.groups == ["Friends", "Work"] and "https://www.linkedin.com/in/alex-smith" in a.urls
 
 def test_mesh_google_style_fields(tmp_path):
     (tmp_path / "mesh.csv").write_text(MESH)
     src, people = read_csv(tmp_path / "mesh.csv")
     r = people[0]
-    assert src == "mesh" and r.full_name == "Robin Sample" and r.given == "Robin"
-    assert r.emails == ["robin@example.test", "robin.w@example.test"] and r.phones == ["+44 7700 900003"]
+    assert src == "mesh" and r.full_name == "Bob Brown" and r.given == "Bob"
+    assert r.emails == ["bob@example.test", "bob.w@example.test"] and r.phones == ["+44 7700 900003"]
     assert r.groups == ["Investors"]          # Google's "* myContacts" system group is not a label
 
 def test_vcard_round_trip_is_valid_and_escaped(tmp_path):
@@ -71,7 +71,7 @@ def test_vcard_round_trip_is_valid_and_escaped(tmp_path):
     n = convert(tmp_path / "dex.csv", out)
     v = out.read_bytes().decode()
     assert n == 2 and v.count("BEGIN:VCARD") == 2 and v.count("END:VCARD") == 2
-    assert "VERSION:3.0" in v and "FN:Alex Example" in v and "N:Example;Alex;;;" in v
+    assert "VERSION:3.0" in v and "FN:Alex Smith" in v and "N:Smith;Alex;;;" in v
     assert "EMAIL;TYPE=INTERNET:alex.work@example.test" in v and "TEL:+44 7700 900002" in v
     assert "NOTE:Met at a synthetic conference\\, likes sailing" in v      # RFC 2426 escaping
     assert "BDAY:1990-04-12" in v and "CATEGORIES:Friends,Work" in v and "X-OSTLER-SOURCE:Dex" in v
@@ -103,9 +103,9 @@ def test_ostlers_own_vcard_reader_reads_every_card(tmp_path):
         convert(tmp_path / f"{name}.csv", out)
         cards = [c + "END:VCARD\r\n" for c in out.read_bytes().decode().split("END:VCARD\r\n") if c.strip()]
         got += [parse_vcard(c) for c in cards]
-    assert [c["fn"] for c in got] == ["Alex Example", "Sam Sample", "Robin Sample"]
+    assert [c["fn"] for c in got] == ["Alex Smith", "Sam Jones", "Bob Brown"]
     alex = got[0]
     assert [e["value"] if isinstance(e, dict) else e for e in alex["emails"]] == [
         "alex@example.test", "alex.work@example.test"]
-    assert alex["org"] == "Example Co" and alex["birthday"] == "1990-04-12"
+    assert alex["org"] == "Acme Corp" and alex["birthday"] == "1990-04-12"
     assert alex["notes"] == "Met at a synthetic conference, likes sailing"   # escaping undone by the reader

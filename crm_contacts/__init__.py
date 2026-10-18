@@ -16,9 +16,9 @@ Formats:
   Groups. Column names CONFIRMED by Dex's docs (via search summary);
   multi-value separators (comma, semicolon, ":::") ASSUMED.
 - Mesh: Settings > General > Export my Data; CSV emailed from notify@me.sh,
-  "backward compatible with Google Contacts"
+  "backward compatible with" Google's contacts format
   (library.me.sh/hc/en-us/articles/6821989456027). Column names are NOT
-  documented: Google Contacts CSV headers (both the legacy "Given Name /
+  documented: Google's contacts CSV headers (both the legacy "given name /
   E-mail 1 - Value" and the newer "First Name / E-mail 1 - Value") ASSUMED.
 """
 from __future__ import annotations

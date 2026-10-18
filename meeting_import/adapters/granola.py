@@ -69,7 +69,7 @@ def _iso(v) -> datetime | None:
 
 
 def _speaker(sp) -> str:
-    """Official Speaker object -> display label. A resolved ``name`` wins; an
+    """Official speaker object -> display label. A resolved ``name`` wins; an
     iOS ``diarization_label`` is next; then ``attribution`` (me/them); then
     ``source`` (microphone is the owner's mic on macOS)."""
     if isinstance(sp, str):

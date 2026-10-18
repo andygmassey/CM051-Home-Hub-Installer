@@ -39,10 +39,10 @@ per-source counts) in the key=value shape the Doctor's source table reads.
 |---|---|---|---|
 | Granola | Settings > Profile > Generate CSV (every plan; emailed, 24 h link) | CSV | Export path CONFIRMED (docs.granola.ai/help-center/sharing/exporting-notes). Column NAMES not documented: matched by keyword, ASSUMED. |
 | Granola | Public API `GET /v1/notes/{id}?include=transcript` (Business/Enterprise key) | JSON note or `{"notes": [...]}` | Schema CONFIRMED from docs.granola.ai/api-reference/openapi.json (speaker object, ISO start_time, calendar_event). |
-| Otter | Conversation > three dots > Export (TXT on Basic; DOCX/SRT on paid), bulk ZIP on Business | TXT, DOCX, SRT | Layout CONFIRMED from the "Export Examples" image in help.otter.ai/hc/en-us/articles/360047733634. Otter summary export: layout not shown, NOT parsed. |
+| Otter | Conversation > three dots > Export (TXT on Basic; DOCX/SRT on paid), bulk ZIP on Business | TXT, DOCX, SRT | Layout CONFIRMED from the export examples image in help.otter.ai/hc/en-us/articles/360047733634. Otter summary export: layout not shown, NOT parsed. |
 | Fireflies | API `transcript(id)` with the owner's key | JSON | Schema CONFIRMED (docs.fireflies.ai/schema/transcript, sentence, summary, meeting-attendee). Bold-assignee grouping of action_items ASSUMED. |
 | Fireflies | Meeting > Download (Pro and up): PDF/DOCX/SRT/CSV/JSON/MD | SRT, DOCX, sentence-list JSON | Formats CONFIRMED (guide.fireflies.ai/articles/3319752033); layouts NOT documented: ASSUMED. CSV/MD/PDF not parsed. |
-| Fathom | API key (User Settings > API Access), `GET /external/v1/meetings?include_transcript=true&include_summary=true&include_action_items=true` | JSON | Schema CONFIRMED from developers.fathom.ai/api-reference/openapi.yaml. No in-app file export is documented by Fathom. |
+| Fathom | API key (user settings, API access section), `GET /external/v1/meetings?include_transcript=true&include_summary=true&include_action_items=true` | JSON | Schema CONFIRMED from developers.fathom.ai/api-reference/openapi.yaml. No in-app file export is documented by Fathom. |
 | Zoom / Teams / Meet | transcript file | VTT, SRT, DOCX | Speaker-label conventions ASSUMED. |
 
 Every fixture is synthetic and built to the documented schema, so green tests
