@@ -127,7 +127,7 @@ if [ "${#sha}" -ne 40 ]; then
     exit 1
 fi
 verify_line="$(awk '/name[[:space:]]*=[[:space:]]*"cm052_ai_conversations"/{found=1} found && /^verify/{print; exit}' "$MANIFEST")"
-if ! printf '%s' "$verify_line" | grep -q '"full"'; then
+if ! grep -q '"full"' <<< "$verify_line"; then
     echo "FAIL: cm052_ai_conversations manifest entry is not verify=\"full\" (freshness gate would silently skip it)" >&2
     exit 1
 fi

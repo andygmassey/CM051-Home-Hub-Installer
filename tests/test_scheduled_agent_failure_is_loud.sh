@@ -392,7 +392,7 @@ if [[ "${mb_hit:-0}" -ge 1 ]]; then
 else
     bad "a failing meeting-brief sender produced no card: ${mb}"
 fi
-printf '%s' "$mb" | grep -q 'meeting-brief-sender.err' \
+grep -q 'meeting-brief-sender.err' <<< "$mb" \
     && ok "the card's fix tails meeting-brief-sender.err" \
     || bad "the card does not point at meeting-brief-sender.err: ${mb}"
 grep -q '<string>${LOGS_DIR}/meeting-brief-sender.err</string>' "$(dirname "$0")/../install.sh" \

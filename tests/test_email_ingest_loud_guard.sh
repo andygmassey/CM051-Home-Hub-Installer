@@ -129,7 +129,7 @@ set +e
 # on PATH -- the launchd-minimal-PATH situation.
 OUT="$(EMIT_MODE=write run_tick "$SB" "pwg-email-ingest-DOES-NOT-EXIST-$$")"; RC=$?
 set -e
-if [[ "$RC" -ne 0 ]] && printf '%s' "$OUT" | grep -qi 'harvested'; then
+if [[ "$RC" -ne 0 ]] && grep -qi 'harvested' <<< "$OUT"; then
     pass "Case B regression shape: emitted>0 + ingest absent -> tick fails loudly (rc=$RC)"
 else
     failure "Case B: expected NON-ZERO exit + loud 'harvested' error; rc=$RC"
@@ -151,7 +151,7 @@ SB="$(make_sandbox)"
 set +e
 OUT="$(EMIT_MODE=empty run_tick "$SB" "pwg-email-ingest-DOES-NOT-EXIST-$$")"; RC=$?
 set -e
-if [[ "$RC" -eq 0 ]] && ! printf '%s' "$OUT" | grep -qi 'harvested'; then
+if [[ "$RC" -eq 0 ]] && ! grep -qi 'harvested' <<< "$OUT"; then
     pass "Case C no-work: empty emit -> tick exit 0, guard not tripped"
 else
     failure "Case C: expected exit 0 with no loud guard; rc=$RC"
