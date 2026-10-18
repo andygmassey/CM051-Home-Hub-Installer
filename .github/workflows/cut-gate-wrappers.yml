@@ -84,6 +84,7 @@ on:
       - 'scripts/verify_no_env_trust_anchors.sh'
       - 'scripts/tests/test_no_env_trust_anchors.sh'
       - 'tests/test_pr_age_gate_declares_partial_runs.sh'
+      - 'tests/test_pr_age_review_by_ignores_an_inline_comment.sh'
       - 'scripts/provenance_gate.sh'
       - 'scripts/verify_stapling.sh'
       - 'scripts/verify_commit_parity.sh'
@@ -462,6 +463,13 @@ jobs:
       - name: The PR-age gate declares the repos it could NOT check
         if: always()
         run: /bin/bash tests/test_pr_age_gate_declares_partial_runs.sh
+
+      # An inline YAML comment on a review_by line was read as part of the
+      # date: BSD date called it valid, GNU date called it undated (the
+      # CM051#1818 row, 2026-10-18). This pins the parsed value.
+      - name: The PR-age gate reads review_by without its inline comment
+        if: always()
+        run: /bin/bash tests/test_pr_age_review_by_ignores_an_inline_comment.sh
 
       - name: Every wrapper still HAS a cannot-run branch
         if: always()

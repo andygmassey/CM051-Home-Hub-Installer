@@ -195,6 +195,7 @@ on:
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
       - 'tests/test_interest_card_says_what_and_where.py'
+      - 'tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py'
       - 'tests/test_hub_interest_card_shows_a_handle_as_at_handle.py'
       - 'tests/test_hub_screens_real_person_name_never_printed.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
