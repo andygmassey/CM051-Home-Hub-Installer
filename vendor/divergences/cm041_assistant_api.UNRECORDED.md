@@ -1411,3 +1411,16 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
+## hub_contract.yaml regenerated for the assistant's own mailbox routes (CM051 #2988, 2026-10-19)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/hub_contract.yaml`
+only. Generated, not hand-edited: `scripts/gen_hub_contract.py --gateway-src
+<ostler-assistant #567 head>` added three routes, taking the file from 264 to
+267: `doctor GET /api/v1/assistant-mailbox` and `doctor POST
+/api/v1/assistant-mailbox/{action}` (source `vendor/doctor/agent/web_ui.py`,
+`auth: none`, loopback-only via `_not_hub_local`, the POST with cross-site
+refusal), and `gateway POST /api/assistant-mailbox/self-test` (`device_bearer`,
+source ostler-assistant #567). `--check` reports current against #567 and
+STALE against assistant main until #567 merges. The Doctor routes are recorded
+against the `doctor` tree in `WRITER_READER_MISMATCHES.UNRECORDED.md`; no
+`ical-server.py` change here. Regenerate the contract after any sync.
