@@ -65,7 +65,7 @@ assert_plist_clean() {
         failure "$name: heredoc body <<$delim not found in install.sh (extraction broke)"
         return
     fi
-    if printf '%s' "$body" | grep -qE '\$\(|`'; then
+    if grep -qE '\$\(|`' <<< "$body"; then
         failure "$name: heredoc body contains command substitution -- refusing to eval-render (update this test)"
         return
     fi

@@ -41,7 +41,7 @@ echo "PASS: install.sh parses"
 # Extract the real helper definition from install.sh so we test the
 # shipped code, not a copy.
 HELPER="$(awk '/^_gdpr_folder_readable\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$INSTALL_SH")"
-printf '%s\n' "$HELPER" | grep -q 'ls "\$1"' \
+grep -q 'ls "\$1"' <<< "$HELPER" \
     || fail "could not extract _gdpr_folder_readable from install.sh"
 eval "$HELPER"
 echo "PASS: extracted the real _gdpr_folder_readable helper"
