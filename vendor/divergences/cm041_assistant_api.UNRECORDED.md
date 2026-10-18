@@ -1342,3 +1342,23 @@ Doctor now serves it as a NATIVE unauthenticated route (same trust model as
 token. The new route is recorded against the `doctor` tree in
 `WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
 Regenerate the contract after any sync.
+
+## Decisions tool reads the wiki Decisions store (CM051 v1.0.108, wow gate item 2)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #211, pre-merge head
+`8bb544210dcb4857da304326bb75c0affa945c07` (acked in `hold_ack_shas`; swap for
+the squash sha on merge). The ical-server.py hunks applied unchanged.
+
+`decisions_list` (GET /api/v1/decisions, what the assistant's `pwg_decisions`
+tool calls) read only Oxigraph `pwg:Decision` nodes, while the wiki Decisions
+page reads the Qdrant `conversations` collection (`type == "decision"`). Added
+`_decision_facts_from_conversations` and a merge into `decisions_list`:
+conversations rows are listed, graph rows kept, duplicates collapsed on summary,
+L3 withheld, an unreadable store reported as `conversations_unreadable`, and a
+down graph no longer blanks the answer when conversations can speak.
+
+### What a future sync must preserve
+
+`_decision_facts_from_conversations` and the two edits in `decisions_list`.
+Guarded by `vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py`
+(3 of 6 arms fail against main's ical-server). Retire by re-pinning.
