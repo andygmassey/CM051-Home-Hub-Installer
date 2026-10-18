@@ -762,6 +762,7 @@ test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows
 test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_the_recovery_key_never_reaches_install_log.sh	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_retention_tier_is_written_and_read_by_nothing.py	WIRED	.github/workflows/privacy-spine.yml
 test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
