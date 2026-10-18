@@ -35,6 +35,7 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'vendor/cm041/contact_syncer/linkedin_career.py'
       - 'tests/test_the_walk_seeds_the_owner_employer.sh'
+      - 'tests/test_the_walk_seed_person_reaches_the_digest.py'
       - 'scripts/box_walk_probes/lib/conversation_capture_e2e.py'
       - 'scripts/box_walk_probes/fixtures/conversation_capture_e2e/**'
       - 'scripts/box_walk_probes/lib/conversation_capture_seed.sh'

@@ -564,6 +564,7 @@ macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	scripts/box_walk_prob
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	scripts/box_walk_probes/run_box_walk.sh
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	vendor/cm041/contact_syncer/linkedin_career.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_the_walk_seeds_the_owner_employer.sh
+macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_the_walk_seed_person_reaches_the_digest.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	scripts/box_walk_probes/lib/conversation_capture_e2e.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	scripts/box_walk_probes/fixtures/conversation_capture_e2e/**
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	scripts/box_walk_probes/lib/conversation_capture_seed.sh
@@ -620,6 +621,7 @@ macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	scripts/box_wal
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	scripts/box_walk_probes/run_box_walk.sh
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	vendor/cm041/contact_syncer/linkedin_career.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_the_walk_seeds_the_owner_employer.sh
+macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_the_walk_seed_person_reaches_the_digest.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	scripts/box_walk_probes/lib/conversation_capture_e2e.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	scripts/box_walk_probes/fixtures/conversation_capture_e2e/**
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	scripts/box_walk_probes/lib/conversation_capture_seed.sh
