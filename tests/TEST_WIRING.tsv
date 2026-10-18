@@ -551,6 +551,7 @@ test_ostler_import_exit_code_separates_misses_from_failures.sh	WIRED	.github/wor
 test_ostler_import_owner_name_and_exit_code.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_owner_addresses_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_owner_data_is_never_capped_at_storage.py	WIRED	.github/workflows/owner-data-never-capped.yml
+test_owner_digest_counts_only_meetings_that_happened.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_digest_hydration_retries_5xx.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_node_is_minted_and_read.py	WIRED	.github/workflows/owner-node-is-minted.yml
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
@@ -785,6 +786,7 @@ test_the_uninstaller_resolves_docker_absolutely.sh	WIRED	.github/workflows/reset
 test_the_uninstaller_speaks_the_gui_marker_protocol.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_vane_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_walk_record_says_whether_the_stores_are_history.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_the_walk_seed_person_reaches_the_digest.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_walk_seeds_the_conversation.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_seeds_the_conversation_capture.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_walk_seeds_the_grounded_probe.sh	WIRED	.github/workflows/walk-record-gate.yml
