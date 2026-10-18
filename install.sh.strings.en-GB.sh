@@ -1871,3 +1871,4 @@ MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler could not open System Settings for
 # sentence without removing the corresponding capability.
 MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler runs your wiki and search in containers, so it installs and manages a container engine (Colima) on this Mac. If that engine is removed or reconfigured, your wiki and search will stop working – Ostler will tell you and try to restart it."
 MSG_INFO_ENGINE_ALREADY_PRESENT="A container engine is already installed on this Mac. Ostler will use it rather than installing its own, and will not manage or modify it."
+

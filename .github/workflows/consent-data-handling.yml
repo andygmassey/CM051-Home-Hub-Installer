@@ -189,6 +189,15 @@ jobs:
         if: always()
         run: bash tests/test_no_literal_backslash_n_in_strings.sh
 
+      - name: translated install.sh / GUI catalogues are drop-in for en-GB
+        if: always()
+        run: |
+          bash tests/test_install_strings_translations.sh
+          # The test must be able to fail: drop one %s from a scratch copy.
+          if TEST_INSTALL_STRINGS_MUTATE=1 bash tests/test_install_strings_translations.sh; then
+            echo "self-test: a dropped placeholder was NOT caught"; exit 1
+          fi
+
       - name: daemon TCC pre-probe covers the legacy client on upgrade
         if: always()
         run: bash tests/test_daemon_fda_app_bundle_path.sh

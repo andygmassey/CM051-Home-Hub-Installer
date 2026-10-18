@@ -1,0 +1,78 @@
+file	key	state	reason
+install.sh.strings.en-GB.sh	MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_STEP_SETUP_COMPLETE_WRAP_UP	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER	needs_review	Split-line fragment; 'after first' continues on the next line and 'd'abord' changed the meaning. Check against the adjacent strings.
+install.sh.strings.en-GB.sh	MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS	needs_review	Sentence continues on the next line ('Mail's ...'); check that it joins up grammatically with the following string.
+install.sh.strings.en-GB.sh	MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_WARN_OSTLER_DOCTOR_NOT_LOADED	needs_review	Section names (People, Timeline, Governor) must match the app's localised labels; Governor left in English needs confirmation.
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_OK_POWER_SOURCE_AC_GOOD_10_15	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_PHASE_3_TAKES_10_15_MINUTES	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER	needs_review	Fragment continues a previous line (likely '...until this is resolved'); French may need subjunctive 'soit résolu' depending on the preceding line.
+install.sh.strings.en-GB.sh	MSG_WARN_TO_INSPECT_CRON_DELIVERY_IMESSAGE_TCC	needs_review	Fragment continues on next line (probably 'culprits'); added 'causes' may duplicate the next line's word. Check line pairing.
+install.sh.strings.en-GB.sh	MSG_CONFIRM_CALENDAR_INCLUDE_HELP	needs_review	Inserted fragments ('jours fériés', 'un calendrier auquel…') don't fit 'ressemble à' grammatically; colon form is safer. Check rendered output with each fragment.
+install.sh.strings.en-GB.sh	MSG_CONFIRM_CALENDAR_TYPE_HELP	needs_review	If the installer compares typed input to the English values (personal, work, family, shared, other), these must stay in English. Developer should confirm.
+install.sh.strings.en-GB.sh	MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.en-GB.sh	MSG_PROMPT_WHATSAPP_CONSENT_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_WHATSAPP_CONSENT_HELP	needs_review	Consent/legal wording; a lawyer should check the French legal force.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ARTICLE_9_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ARTICLE_9_HELP	needs_review	Legal consent wording; lawyer should check. Smoothed phrasing.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_VOICE_EU_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_VOICE_EU_HELP	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ENRICHMENT_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_ENRICHMENT_HELP	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_THIRD_PARTY_HELP	needs_review	Legal text; lawyer should verify controller/processor and household-exemption wording.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_HEADING	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_BUSINESS	needs_review	Fixed grammar error "auprès de employés"; licence term, lawyer should check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_RECORDER	needs_review	Legal/consent wording; a lawyer should check its legal force.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_ASK_1	needs_review	Clarified 'assurance' (reads as insurance) and the 'theirs' reference. Legal wording needs lawyer review.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_ASK_2	needs_review	'Changing room' is better rendered as 'vestiaire'. Legal wording needs lawyer review.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_ASK_3	needs_review	Legal wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_TERMS_PERSONAL_USE_LEGAL	needs_review	Licence and data-controller wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_PROMPT_TERMS_PERSONAL_USE_HELP	needs_review	Terms acceptance text; lawyer should check. Changed 'collaborateurs' to 'employés' to match 'staff'.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_HEADING	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_INTRO	needs_review	Consent responsibility wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_LAW	needs_review	Legal wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_LOCAL	needs_review	Legal wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_1	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_2	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_3	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y	needs_review	Consent undertaking; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_CONSENT_SPOKEN_CAPTURE_LEGAL	needs_review	Statute citations and liability wording; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP	needs_review	Consent and legal notice; lawyer should check.
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_TITLE	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_HELP	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
+install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Accurate; GDPR Article 9 consent text needs legal review, and menu labels must match the app's French UI.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/legal_note	needs_review	Legal text; lawyer should confirm wording.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/intro_body	needs_review	Smoother 'Il vous appartient'; liability sentence needs legal review.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_spoken_capture/legal_note	needs_review	Legal text on recording law; lawyer should check.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/intro_body	needs_review	Consent/liability wording; a lawyer should confirm legal force in French.
+gui/OstlerInstaller/Resources/ViewCopy.json	consent_third_party/legal_note	needs_review	Made GDPR naming consistent (RGPD); legal text with article references needs lawyer review.
+gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	Quoted labels must match WhatsApp's current French UI exactly; second label unverified.
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
+gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Source itself uses 'recorded/recordings' (conflicts with transcribe-not-record policy) and contains consent wording; needs human/legal check of source and translation.

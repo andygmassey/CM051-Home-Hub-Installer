@@ -34,6 +34,7 @@ Sources span TWO repos (CM051 + HR015):
 ```
 install/
 ├── install.sh              ← CM051: ./install.sh
+├── install.sh.strings.*.sh ← CM051: en-GB plus the 12 translated catalogues (de fr es it nl pt-BR ja ko zh-Hans zh-Hant zh-HK ar)
 ├── lib/                    ← CM051: ./lib/
 ├── assistant-agent/        ← CM051: ./assistant-agent/
 ├── wiki-recompile/         ← CM051: ./wiki-recompile/
