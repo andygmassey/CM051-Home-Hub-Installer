@@ -6,7 +6,7 @@
 # printf's the values with positional arguments:
 #
 #   1. every install.sh.strings.<lang>.sh parses under /bin/bash (3.2 on macOS)
-#      and defines EXACTLY the en-GB MSG_* set, no more, no fewer
+#      and defines no MSG_* key en-GB lacks (fewer is fine: English fills them)
 #   2. every value carries the same printf placeholders, in the same order
 #      (a dropped %s shifts every later argument; an extra one prints garbage)
 #   3. no em dash (U+2014) anywhere
@@ -58,8 +58,11 @@ def load(p):
 en,tr,lang=load(sys.argv[1]),load(sys.argv[2]),sys.argv[3]
 SPEC=re.compile(r'%(?:\d+\$)?[-+ #0]*\d*(?:\.\d+)?[a-zA-Z%]')
 errs=[]
-if set(en)!=set(tr):
-    errs.append(f"key set differs: missing {sorted(set(en)-set(tr))[:5]} extra {sorted(set(tr)-set(en))[:5]}")
+# A key the translation lacks is fine (install.sh loads en-GB first, so it
+# prints English; the weekly l10n run fills it). A key English does NOT have
+# is a stale or misspelt key and fails.
+if set(tr)-set(en):
+    errs.append(f"keys not in en-GB: {sorted(set(tr)-set(en))[:5]}")
 for k in en:
     if k in tr:
         if SPEC.findall(en[k])!=SPEC.findall(tr[k]):
@@ -115,8 +118,8 @@ def cmp(a,b,path,lang,stem):
     if type(a)!=type(b):
         print(f"FAIL: {stem}.{lang}.json {path}: type {type(a).__name__} -> {type(b).__name__}"); bad=1; return
     if isinstance(a,dict):
-        if set(a)!=set(b):
-            print(f"FAIL: {stem}.{lang}.json {path}: keys differ {sorted(set(a)^set(b))[:5]}"); bad=1
+        if set(b)-set(a):  # fewer is fine (English overlay fills them); extra is stale
+            print(f"FAIL: {stem}.{lang}.json {path}: keys not in English {sorted(set(b)-set(a))[:5]}"); bad=1
         for k in a:
             if k in b: cmp(a[k],b[k],path+'/'+k,lang,stem)
     elif isinstance(a,list):
