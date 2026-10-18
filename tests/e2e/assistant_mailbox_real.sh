@@ -27,7 +27,7 @@
 #   3. Decide the OWNER address: the mailbox you will send the test mail FROM
 #      (a different address from the assistant's). It must be a provider that
 #      DKIM-signs outgoing mail (iCloud, Gmail and Outlook all do).
-#   4. A daemon binary built from ostler-assistant v108/assistant-own-email-daemon.
+#   4. A daemon binary built from ostler-assistant v110/assistant-own-email-daemon.
 # Exit 0 pass, 1 a check failed, 2 CANNOT-RUN (a skipped step is never a pass).
 set -uo pipefail
 set +x
@@ -44,7 +44,7 @@ fi
 [ -n "$PY" ] || { echo "CANNOT-RUN: no python3"; exit 2; }
 "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' || { echo "CANNOT-RUN: python >= 3.9 needed ($PY)"; exit 2; }
 [ -n "${OSTLER_E2E_DAEMON:-}" ] && [ -x "${OSTLER_E2E_DAEMON}" ] \
-    || { echo "CANNOT-RUN: set OSTLER_E2E_DAEMON to the daemon binary (built from ostler-assistant v108/assistant-own-email-daemon)"; exit 2; }
+    || { echo "CANNOT-RUN: set OSTLER_E2E_DAEMON to the daemon binary (built from ostler-assistant v110/assistant-own-email-daemon)"; exit 2; }
 
 umask 077
 tmp="$(mktemp -d)"

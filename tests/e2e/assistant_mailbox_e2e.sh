@@ -12,7 +12,7 @@
 #   OSTLER_E2E_DAEMON=/path/to/ostler-assistant-binary \
 #       bash tests/e2e/assistant_mailbox_e2e.sh
 #
-# Build the daemon from ostler-assistant branch v108/assistant-own-email-daemon:
+# Build the daemon from ostler-assistant branch v110/assistant-own-email-daemon:
 #   cargo build --release --bin zeroclaw      (binary: target/release/zeroclaw)
 #
 # Exit 0 pass, 1 a check failed, 2 CANNOT-RUN (and says why). A walk must treat
@@ -28,7 +28,7 @@ fi
 [ -n "$PY" ] || { echo "CANNOT-RUN: no python3"; exit 2; }
 "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' || { echo "CANNOT-RUN: python >= 3.9 needed ($PY)"; exit 2; }
 [ -n "${OSTLER_E2E_DAEMON:-}" ] && [ -x "${OSTLER_E2E_DAEMON}" ] \
-    || { echo "CANNOT-RUN: set OSTLER_E2E_DAEMON to the daemon binary (built from ostler-assistant v108/assistant-own-email-daemon)"; exit 2; }
+    || { echo "CANNOT-RUN: set OSTLER_E2E_DAEMON to the daemon binary (built from ostler-assistant v110/assistant-own-email-daemon)"; exit 2; }
 
 tmp="$(mktemp -d)"
 cleanup() { rm -rf "$tmp"; }
