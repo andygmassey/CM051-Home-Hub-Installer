@@ -16,6 +16,7 @@ on:
       - 'tests/fixtures/assistant_mailbox_contract.json'
       - 'tests/e2e/**'
       - 'tests/test_assistant_mailbox_sim.py'
+      - 'tests/test_assistant_mailbox_not_on_8443.py'
       - 'vendor/doctor/agent/assistant_mailbox.py'
       - 'vendor/doctor/agent/test_assistant_mailbox.py'
       - 'CONTRACT.md'
@@ -53,6 +54,9 @@ jobs:
         run: |
           python3 -m pip install --quiet fastapi httpx pyyaml 'qrcode>=7.4,<9.0'
           python3 vendor/doctor/agent/test_assistant_mailbox.py
+      - name: The 8443 allowlist check reddens on a mailbox entry or a swallowing wildcard, and refuses an unreadable list
+        if: always()
+        run: python3 tests/test_assistant_mailbox_not_on_8443.py --self-test
       - name: The assistant-mailbox loopback provider behaves like a provider (login, delete, unforgeable Authentication-Results)
         if: always()
         run: python3 tests/test_assistant_mailbox_sim.py
