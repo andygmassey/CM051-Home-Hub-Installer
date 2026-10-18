@@ -2,7 +2,7 @@
 """Render persona.json as a CONTEXT.md-shaped digest.
 
 Purpose: a throwaway test workspace (never a customer's) can be given this file
-as ~/.zeroclaw/workspace/CONTEXT.md, the owner cheat sheet the daemon injects
+as ~/.ostler/assistant-config/workspace/CONTEXT.md, the owner cheat sheet the daemon injects
 into every system prompt (ostler-assistant crates/zeroclaw-runtime/src/agent/
 prompt.rs IdentitySection -> system_prompt::inject_workspace_file), so the 80
 questions have something to be answered from without a seeded graph.

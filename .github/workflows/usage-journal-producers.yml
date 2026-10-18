@@ -101,6 +101,8 @@ on:
       - 'vendor/cm059_editor/compiler/_vendor/**'
       - 'tests/test_cm019_vectorizer_usage_journal.sh'
       - 'tests/test_hub_screens_calls_summing.sh'
+      - 'tests/test_bursar_counts_every_ollama_endpoint.sh'
+      - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'scripts/box_walk_probes/probes/hub_screens_customer_read.sh'
       - 'tests/test_cm024k_embedder_usage_journal.sh'
       - 'tests/test_cm024k_classifier_usage_journal.sh'
@@ -223,6 +225,10 @@ jobs:
       - name: '#2603 hub_screens_customer_read sums calls, not rows'
         if: always()
         run: /bin/bash tests/test_hub_screens_calls_summing.sh
+
+      - name: 'walk #27 the Bursar counts every Ollama model endpoint (/api and /v1)'
+        if: always()
+        run: /bin/bash tests/test_bursar_counts_every_ollama_endpoint.sh
 
       - name: '#2472 cm024 knowledge embedder writes a record'
         if: always()
@@ -489,6 +495,10 @@ jobs:
       - name: '#2603 hub_screens_customer_read sums calls, not rows, on bash 3.2 + BSD'
         if: always()
         run: /bin/bash tests/test_hub_screens_calls_summing.sh
+
+      - name: 'walk #27 the Bursar counts every Ollama model endpoint, on bash 3.2 + BSD'
+        if: always()
+        run: /bin/bash tests/test_bursar_counts_every_ollama_endpoint.sh
 
       - name: '#2472 cm024 knowledge embedder writes a record, on bash 3.2 + BSD'
         if: always()

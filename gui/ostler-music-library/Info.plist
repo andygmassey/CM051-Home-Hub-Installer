@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Embedded into the ostler-music-library Mach-O via
+	  `swiftc -sectcreate __TEXT __info_plist Info.plist` at build time,
+	  exactly as gui/ostler-mecard/Info.plist is. The iTunesLibrary
+	  framework reads the Music app's library, which macOS gates behind the
+	  "Media & Apple Music" privacy permission. A command-line tool that
+	  touches a TCC-gated store must carry its own usage string or a
+	  hardened-runtime process is killed rather than prompted. In practice
+	  the helper runs as a descendant of the installer app and is attributed
+	  to it, so the app's own NSAppleMusicUsageDescription (gui/project.yml)
+	  is the string the customer sees. Keep the two identical.
+	-->
+	<key>CFBundleIdentifier</key>
+	<string>ai.ostler.installer.musiclibrary</string>
+	<key>CFBundleName</key>
+	<string>ostler-music-library</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Ostler reads your Music library (play counts, loved songs and playlists) so the Hub knows the music you actually listen to. Your library never leaves this Mac.</string>
+</dict>
+</plist>

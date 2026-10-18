@@ -303,6 +303,36 @@ the system it models misses them. Both cost the same amount of trust.
 | `daemon_is_listening` | does the gateway accept connections, and can the daemon load its config at all? | #363 |
 | `installed_bundle_seal_intact` | does the installed bundle's signature still verify **on the box**, and can the reader prove what it looked at? | #375, v1.0.46 BOM row 6 |
 | `people_seed_and_retrieval` | can a person seeded on the box be retrieved again through the route the daemon really uses? | v1.0.12 |
+| `data_conservation` | per source and category, do IN (importer logs), STORED (Qdrant, Oxigraph, bundles) and SHOWN (wiki text, Doctor) agree, or is there an unexplained loss or duplication? | the 2026-10-15 sweep: about eleven silent drops, e.g. 68,314 of 70,667 music prefs hidden by one missing allow-list entry |
+
+### data_conservation: how to run it
+
+Read-only (GET, Qdrant scroll, SPARQL SELECT, file reads; never writes, never
+creates a payload index). Verdicts per row: CONSERVED, EXPLAINED (a declared
+exclusion with its reason matches the gap), LOST (fewer than expected, or than
+the previous stage less declared exclusions), INFLATED (more than expected, e.g.
+Oxigraph holding every like twice), KNOWN-GAP (declared, visible, non-failing),
+NOT-MEASURED (an instrument could not read; CANNOT-RUN, never a pass). Exit 1 on
+any LOST or INFLATED.
+
+    # the walk runs it automatically (probes/*.sh is globbed). By hand, on the Studio marta80q install:
+    OSTLER_BOX_HOST=marta80q@macstudio \
+      OSTLER_CONSERVATION_PROFILE=chain \
+      OSTLER_CONSERVATION_TABLE_OUT=/tmp/conservation.md \
+      scripts/box_walk_probes/probes/data_conservation.sh
+
+    scripts/box_walk_probes/probes/data_conservation.sh --self-test   # mutations MUST be LOST
+
+Profiles live in `fixtures/data_conservation/expected.json`. `chain` (default)
+compares the box with itself and is valid on ANY box: it expands one row per
+(source, category) the preferences store actually holds, so a category nobody
+listed is still checked. `full` is the golden profile for a box loaded with the
+synthetic demo-life set plus the GDPR export fixtures (built by
+`gen/build_conservation_expected.py` in the walkdriver tree, counts only). Denied
+wiki rows are explained with CM044's own `preference_filter.noise_reason()`
+loaded from the install; on a build without it those rows are NOT-MEASURED, not
+assumed zero. Registered as `advisory` in `walk_promote_scope.tsv` until the
+first golden-loaded walk calibrates `full`.
 
 Each asserts **agreement or absence of a lie**, not a particular value. An
 unpaired box is fine; a box claiming to be paired over an empty table is not. A

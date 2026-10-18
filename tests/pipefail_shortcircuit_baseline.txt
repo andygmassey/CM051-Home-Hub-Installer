@@ -50,7 +50,6 @@ tests/test_ai_model_env_contract.sh	1
 tests/test_bookmarks_ingest_wired.sh	1
 tests/test_calendar_hydrate_venv.sh	5
 tests/test_colima_autostart_mechanism.sh	1
-tests/test_contact_resync_scheduled.sh	2
 tests/test_container_engine_liveness_and_recovery.sh	1
 tests/test_cut_dispatch_is_dry.sh	1
 tests/test_cut_gate_wrappers.sh	3

@@ -1,0 +1,47 @@
+# Shape sweep 2026-10-12: one synthetic fixture holding every customer-text leak
+# shape (handle, number, address, role tag, ISO stamp, snake_case, placeholder),
+# rendered offline through the vendored Front Page compiler and cm048 sanitiser,
+# then read by scripts/box_walk_probes/lib/customer_read.py. Catches the class
+# before a walk. A test no workflow runs is not wired, so this runs it.
+name: customer-leak-shapes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm059_editor/compiler/**'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'scripts/box_walk_probes/lib/customer_read.py'
+      - 'tests/test_customer_leak_shapes.py'
+      - '.github/workflows/customer-leak-shapes.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm059_editor/compiler/**'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'scripts/box_walk_probes/lib/customer_read.py'
+      - 'tests/test_customer_leak_shapes.py'
+      - '.github/workflows/customer-leak-shapes.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  customer-leak-shapes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet pytest
+      - name: Every leak shape, rendered and judged
+        run: |
+          n="$(python -m pytest tests/test_customer_leak_shapes.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 10 ]; then
+            echo "REFUSING: expected at least 10 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_customer_leak_shapes.py -v

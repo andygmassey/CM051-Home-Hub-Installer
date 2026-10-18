@@ -39,7 +39,7 @@ run_probe() {
     [ -x "${_PY}" ] || probe_cannot_run "no Playwright python at ${_PY} (set OSTLER_SCREENS_PYTHON)"
 
     local out tokfile feed boxf selff fresh owner_src port dport fwd_pid rc n
-    out="${OSTLER_WALK_SCREENS_DIR:-$PWD/walk-screens/$(date -u +%Y%m%dT%H%M%SZ)}/customer-read"
+    out="$(walk_screens_dir)/customer-read"
     mkdir -p "${out}" || probe_cannot_run "cannot create ${out}"
     tokfile="$(mktemp)"; feed="$(mktemp)"; boxf="$(mktemp)"; selff="$(mktemp)"; fresh="$(mktemp)"
     trap 'rm -f "${tokfile}" "${feed}" "${boxf}" "${selff}" "${fresh}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT
@@ -60,7 +60,7 @@ now=dt.datetime.now(dt.timezone.utc); start=now-dt.timedelta(minutes=60)
 off=dt.datetime.now().astimezone().utcoffset(); n=0; j=0
 try:
     for l in open(os.path.expanduser('~/.ostler/logs/ollama.log'),errors='replace'):
-        m=re.match(r'\[GIN\] (\d{4}/\d\d/\d\d - \d\d:\d\d:\d\d) \| *\d+ \|.*POST +\"/api/(embed|embeddings|generate|chat)\"',l)
+        m=re.match(r'\[GIN\] (\d{4}/\d\d/\d\d - \d\d:\d\d:\d\d) \| *\d+ \|.*POST +\"/(api/(embed|embeddings|generate|chat)|v1/(embeddings|chat/completions|completions))\"',l)
         if m and dt.datetime.strptime(m.group(1),'%Y/%m/%d - %H:%M:%S').replace(tzinfo=dt.timezone(off))>=start: n+=1
 except FileNotFoundError: n=None
 for p in [os.path.expanduser('~/.ostler/assistant-config/workspace/state/costs.jsonl')]:

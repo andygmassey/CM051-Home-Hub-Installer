@@ -163,6 +163,52 @@ direction question, so it is left alone here.
 **Upstream status:** not ported. Owed upstream, and upstream has the same
 ambiguity.
 
+### Walk #16 -- an enrichment miss is not a failure (enricher.py, cli.py)
+
+Walk #16: import_data went red over a fully successful import. Three Wikidata
+look-ups found nothing ("No Wikidata entity for: ...", "Wikidata has no film or
+programme named: ..."), `enrich_batch` counted each as `failed`, cli.py's
+`failed > successful` exited 1, and ostler-import's `|| rc=$?` carried that into
+install.sh's warn branch.
+
+`is_enrichment_miss()` (enricher.py) classifies a result as a MISS only when it
+carries `MatchType.NONE` AND an error text on a fixed list of "answered, no
+confident match" phrasings. Fail-closed: `MatchType.NONE` is also the dataclass
+default, so a caught exception (`result.error = str(e)`) would carry it too; an
+unrecognised message stays a failure, and `MatchType.UNAVAILABLE` is never a
+miss. Misses go to `EnrichmentStats.no_match` / `misses`, count toward
+`attempted()` (they were dispatched), are merged across categories, are logged
+at INFO, and print under "--- No enrichment match (N, not errors) ---". They
+never set the exit code. Test: tests/test_an_enrichment_miss_is_not_an_import_error.py.
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph
+services/enrich), same shape.
+
+### Walk #28 -- public look-ups only on a recorded yes (cli.py)
+
+Setup asks consent_enrichment (default no) and writes the answer to
+`~/.ostler/config/.env` as `OSTLER_CONSENT_ENRICHMENT_DECISION`. The enrich CLI
+had no consent reference at all, so any caller that forgot to check sent
+preference subjects to Wikidata, MusicBrainz and Open Library regardless.
+`require_public_lookup_consent()` (cli.py) now runs before `enrich` (not
+`--dry-run`, which calls no external API) and before `parallel`. It reads the
+FILE, never the inherited environment; "accepted" proceeds, "declined" exits 0
+with a plain sentence, and a missing file, missing key or any other value exits
+3 having sent nothing. `stats`, `normalize` and `test-connections` touch only
+the local stores and are not gated. This is the backstop: install.sh's
+ostler-import and enrich tick check the same value first. Test:
+tests/test_enrichment_honours_a_decline.sh (arm C, socket-guarded).
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph
+services/enrich), same shape: upstream has no consent gate either.
+
+### v1.0.108 -- local-store clients ignore HTTP(S)_PROXY (enricher.py, hierarchy.py, cli.py)
+
+`trust_env=False` on the 13 httpx clients that talk to the local Qdrant and
+Oxigraph. UPSTREAM since 4e023299 (personal-world-graph #409); this tree is
+pinned there, so this is no longer a divergence. Detail and proof:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-17 v1.0.108".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

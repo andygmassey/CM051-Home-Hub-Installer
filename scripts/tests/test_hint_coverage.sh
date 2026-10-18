@@ -75,5 +75,34 @@ mkroot "$TMP/f" \
 rm -f "$TMP/f/gui/OstlerInstaller/Resources/HintCopy.json"
 [[ "$(rc "$TMP/f")" == 2 ]] && ok "absent HintCopy.json -> rc=2" || no "absent file not rc=2"
 
+# F2: a step announced by a literal `gui_step_begin "<id>"` (the health_check
+# shape, not counted in TOTAL_STEPS) is a real announcement: its copy is live.
+mkroot "$TMP/g" \
+'    progress "Doing a thing" "step_one"
+    gui_step_begin "late_step" "$MSG_LATE" 3 "$CURRENT_STEP" "$TOTAL_STEPS"' \
+'{"step_one":{"id":"step_one"},"late_step":{"id":"late_step"}}'
+[[ "$(rc "$TMP/g")" == 0 ]] && ok "a literal gui_step_begin id counts as announced -> rc=0" || no "gui_step_begin-announced step read as dead copy"
+
+# ...but a commented-out call, or progress()'s own variable-id call, is not.
+mkroot "$TMP/h2" \
+'    progress "Doing a thing" "step_one"
+    # gui_step_begin "late_step" "$MSG_LATE"
+    gui_step_begin "$id" "$title" 3 "$CURRENT_STEP" "$TOTAL_STEPS"' \
+'{"step_one":{"id":"step_one"},"late_step":{"id":"late_step"}}'
+if [[ "$(rc "$TMP/h2")" == 1 ]]; then
+    ok "a commented or variable-id gui_step_begin is NOT an announcement -> rc=1"
+    grep -q '"late_step"' "$TMP/o" && ok "  and it names the dead entry" || no "  did not name the dead entry"
+else
+    no "a commented-out gui_step_begin was read as an announcement"
+fi
+
+# ...and a gui_step_begin-announced step with NO copy is still a gap.
+mkroot "$TMP/i" \
+'    progress "Doing a thing" "step_one"
+    gui_step_begin "late_step" "$MSG_LATE"' \
+'{"step_one":{"id":"step_one"}}'
+[[ "$(rc "$TMP/i")" == 1 ]] && grep -q 'late_step' "$TMP/o" \
+    && ok "a gui_step_begin step with no copy -> rc=1, named" || no "uncovered gui_step_begin step NOT caught"
+
 echo; echo "  $PASS passed, $FAIL failed"; [[ $FAIL == 0 ]] || exit 1
 echo "ALL HINT-COVERAGE CONTROLS PASSED"

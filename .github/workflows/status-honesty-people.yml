@@ -1,0 +1,37 @@
+# E1/E2/V3: People ingest reports failure instead of ok.
+name: status-honesty-people
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_people_status_honesty.py'
+      - '.github/workflows/status-honesty-people.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_people_status_honesty.py'
+      - '.github/workflows/status-honesty-people.yml'
+
+jobs:
+  people-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+      - name: People ingest status honesty
+        run: |
+          set -eu
+          n="$(python -m pytest tests/test_people_status_honesty.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n}"
+          [ "${n:-0}" -ge 7 ] || { echo "REFUSING: expected at least 7 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest tests/test_people_status_honesty.py -v

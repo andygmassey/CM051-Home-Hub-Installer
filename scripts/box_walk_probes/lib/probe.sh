@@ -412,3 +412,18 @@ probe_main() {
             ;;
     esac
 }
+
+# walk_screens_dir -- where a probe's screenshots and facts go. NEVER inside the
+# repo checkout: they can carry real people's names and CM051 is PUBLIC.
+# Order: OSTLER_WALK_SCREENS_DIR, else <OSTLER_BOX_WALK_EVIDENCE_DIR>/screens,
+# else <walk store>/<stamp>.evidence/screens (store = OSTLER_WALK_STORE or
+# ~/.ostler/walks). Under a test (OSTLER_UNDER_TEST=1) with no store named, a
+# fresh temp dir, so a test can never write the operator's real store.
+walk_screens_dir() {
+    if [ -n "${OSTLER_WALK_SCREENS_DIR:-}" ]; then printf '%s' "${OSTLER_WALK_SCREENS_DIR}"; return; fi
+    if [ -n "${OSTLER_BOX_WALK_EVIDENCE_DIR:-}" ]; then printf '%s/screens' "${OSTLER_BOX_WALK_EVIDENCE_DIR}"; return; fi
+    if [ "${OSTLER_UNDER_TEST:-}" = "1" ] && [ -z "${OSTLER_WALK_STORE:-}" ]; then
+        printf '%s/screens' "$(mktemp -d)"; return
+    fi
+    printf '%s/%s.evidence/screens' "${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}" "$(date -u +%Y%m%dT%H%M%SZ)"
+}

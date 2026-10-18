@@ -52,7 +52,7 @@ pattern_kind() {
 known_kind() {
     pattern_kind "$1" && return 0
     case "$1" in
-        daemon_tag|vendor_file) return 0 ;;
+        daemon_tag|vendor_file|assistant_tag_absent) return 0 ;;  # target is a path; pattern unused
         *) return 1 ;;
     esac
 }

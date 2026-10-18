@@ -100,11 +100,44 @@ PROBES=""
 for f in "$PROBE_DIR"/*.sh; do
     b="$(basename "$f" .sh)"
     if [ -n "$ONLY" ]; then
-        case "$b" in *"$ONLY"*) ;; *) continue ;; esac
+        # --only takes ONE substring or a COMMA-SEPARATED LIST of them; a probe
+        # is selected when ANY item is a substring of its name. One item (no
+        # comma) takes exactly the old path.
+        _only_hit=0
+        _only_rest="$ONLY,"
+        while [ -n "$_only_rest" ]; do
+            _only_item="${_only_rest%%,*}"
+            _only_rest="${_only_rest#*,}"
+            [ -n "$_only_item" ] || continue
+            case "$b" in *"$_only_item"*) _only_hit=1; break ;; esac
+        done
+        [ "$_only_hit" -eq 1 ] || continue
     fi
     PROBES="$PROBES $f"
 done
 shopt -u nullglob
+
+# A LIST IS AN EXPLICIT CLAIM THAT EACH ITEM EXISTS. An item that matches no
+# probe is refused by name, never dropped: a dropped item reads as "that probe
+# passed" to anyone who asked for it. (Single-item behaviour is unchanged: it
+# already ends in the 0-probes FATAL below.)
+if [ -n "$ONLY" ] && [ -n "${PROBES// /}" ]; then
+    _only_rest="$ONLY,"
+    while [ -n "$_only_rest" ]; do
+        _only_item="${_only_rest%%,*}"
+        _only_rest="${_only_rest#*,}"
+        [ -n "$_only_item" ] || continue
+        _only_found=0
+        for f in $PROBES; do
+            case "$(basename "$f" .sh)" in *"$_only_item"*) _only_found=1; break ;; esac
+        done
+        if [ "$_only_found" -eq 0 ]; then
+            printf 'FATAL: --only item "%s" matches no probe.\n' "$_only_item"
+            printf 'Refusing to run the rest and report a list that quietly lost an entry.\n'
+            exit 2
+        fi
+    done
+fi
 
 # DETERMINISTIC ORDER, PINNED TO C. A glob sorts by LC_COLLATE, so the order this
 # suite executes in has been whatever locale the operator happens to have.
@@ -242,6 +275,18 @@ if [ "$READ_ONLY" -eq 0 ] && [ "$ALLOW_WRITES" -ne 1 ]; then
     fi
 fi
 
+# WRITE MODE FOR hub_screens_render_for_a_customer IS THE RUNNER'S DECISION.
+# Nothing exported OSTLER_SCREENS_ALLOW_WRITE, so the probe's chat person-link
+# check (which needs write mode to seed its own person) was NOT MEASURED unless
+# the operator happened to export it. A run that may write hands it 1; a
+# read-only run hands 0 and never trusts an inherited 1.
+if [ "$READ_ONLY" -eq 0 ]; then
+    OSTLER_SCREENS_ALLOW_WRITE=1
+else
+    OSTLER_SCREENS_ALLOW_WRITE=0
+fi
+export OSTLER_SCREENS_ALLOW_WRITE
+
 # -------------------------------------------------------------------------
 # PHASE 1 -- negative controls. Try to make every probe fail.
 # -------------------------------------------------------------------------
@@ -329,6 +374,38 @@ fi
 # WRONG on origin/main before this branch existed: the skip is at :249 there. It
 # is prose in both places, nothing executes a line lookup into this file, so it
 # is left for its owners rather than fixed under a freeze.
+# ── EVERY FORGET RUNS FROM A TRAP (walk #27 shape sweep S7c) ──
+# The forgets used to run only at the end of a walk that reached the end, so an
+# aborted walk (Ctrl-C, a dropped ssh, a crash) kept everything it had seeded.
+# walk_cleanup runs once, from the normal path below or from this trap on EXIT,
+# INT or TERM; each forget is gated on its own seed state, and nothing writes in
+# a read-only run.
+WALK_CLEANUP_DONE=0
+WALK_TEMP_FILES=""
+walk_cleanup() {
+    [ "$WALK_CLEANUP_DONE" -eq 0 ] || return 0
+    WALK_CLEANUP_DONE=1
+    if [ "$READ_ONLY" -eq 0 ]; then
+        declare -F grounding_seed_forget >/dev/null && { grounding_seed_forget || true; }
+        declare -F preference_seed_forget >/dev/null && { preference_seed_forget || true; }
+        declare -F conversation_seed_forget >/dev/null && { conversation_seed_forget || true; }
+        declare -F usage_seed_forget >/dev/null && { usage_seed_forget || true; }
+        declare -F owner_employer_seed_forget >/dev/null && { owner_employer_seed_forget || true; }
+        declare -F conversation_capture_seed_forget >/dev/null && { conversation_capture_seed_forget || true; }
+        declare -F scale_fixture_forget >/dev/null && { scale_fixture_forget || true; }
+        declare -F companion_walk_unpair >/dev/null && { companion_walk_unpair || true; }
+    fi
+}
+_walk_exit_trap() {
+    local rc=$?
+    walk_cleanup
+    # shellcheck disable=SC2086
+    [ -z "$WALK_TEMP_FILES" ] || rm -f $WALK_TEMP_FILES
+    return $rc
+}
+trap _walk_exit_trap EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 . "$HERE/lib/grounding_seed.sh"
 
 # 🔴 THE SEED STATE REACHED NOTHING, AND THAT IS WHY 17 OF 21 COMMITTED WALKS
@@ -423,6 +500,13 @@ fi
 # this seed had put a conversation through the device-facing door. Gated on
 # READ_ONLY like every writer: it mints a device bearer and POSTs two
 # synthetic transcripts.
+# Walk #27 item 5a: record the walk start and whether a passkey existed
+# BEFORE anything pairs, so the cleanup after the probes revokes only the
+# walk's own synthetic companion (lib/companion_unpair.sh).
+. "$HERE/lib/companion_unpair.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+companion_walk_baseline || true
+fi
 . "$HERE/lib/conversation_capture_seed.sh"
 if [ "$READ_ONLY" -eq 0 ]; then
     # Flush left: see the grounding seed's comment above this same shape.
@@ -498,6 +582,18 @@ else
     printf '  SKIPPED (read-only): usage seed not applied (install.sh ingest sweep not run by hand).\n\n'
 fi
 
+# ── AND THE SCALE FIXTURE, the volume that exhausted Qdrant on the #16 walk ──
+# lib/scale_fixture_seed.sh: thousands of synthetic reminders and notes through
+# the INSTALLED hydrate path, so qdrant_has_fd_headroom_and_writes_land reads a
+# box that has carried real volume. Long by design; OSTLER_WALK_SCALE=0 skips it
+# and the skip is recorded. Gated on READ_ONLY like every writer.
+. "$HERE/lib/scale_fixture_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+scale_fixture_apply || true
+else
+    printf '  SKIPPED (read-only): scale fixture not replayed.\n\n'
+fi
+
 # ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
 #
 # The four seeds above give the box a person, a preference, a conversation and
@@ -534,6 +630,9 @@ fi
 # on is a named CANNOT-RUN or a named FINDING. No forget: the compile is the
 # product's own.
 . "$HERE/lib/wiki_summaries_wait.sh"
+# The real person for hub_screens_render_for_a_customer is the runner's choice
+# (DMG #23); sourced here, called late, right before that probe.
+. "$HERE/lib/real_person_choose.sh"
 if [ "$READ_ONLY" -eq 0 ]; then
 wiki_summaries_wait || true
 else
@@ -621,7 +720,9 @@ CANNOT_REASONS="$(mktemp)"
 # grounded cost across walks 9 and 10, red both times and undiagnosed both
 # times.
 FAIL_REASONS="$(mktemp)"
-trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
+# Removed by _walk_exit_trap (one EXIT trap: a second `trap ... EXIT` here
+# would replace the cleanup trap above).
+WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
 
 # OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
 # appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>,
@@ -654,6 +755,50 @@ _record_verdict() {
         "$(printf '%s' "${3:-}" | tr '\n\t' '  ')" "$fixture" >> "$OSTLER_PHASE1_VERDICTS"
 }
 
+# ── PREVIOUS FAILS FIRST, in a full walk, after the seeds ──────────────────
+# So a repeat failure shows early in the probe run. ORDER ONLY: no probe is
+# added, dropped or re-run, and the verdicts are unchanged. Names come from the
+# same source as the early pass (the operator walk store, via
+# scripts/early_repeat_fail_pass.sh --names-only). If they cannot be read this
+# says CANNOT-RUN and leaves the C-sorted order alone. A writer is
+# never promoted: a probe that declares "# WALK_WRITES:" keeps its place, because
+# moving a writer changes what later probes read. OSTLER_PROMOTE_PREV_FAILS=0
+# turns this off.
+. "$HERE/lib/promote_order.sh"
+if [ -z "$ONLY" ] && [ "${OSTLER_PROMOTE_PREV_FAILS:-1}" = "1" ]; then
+    _pf_rc=0
+    _pf_names="$(bash "$HERE/../early_repeat_fail_pass.sh" --names-only --host "${OSTLER_BOX_HOST:-local}" \
+        ${OSTLER_CURRENT_WALK_LOG:+--exclude-log "$OSTLER_CURRENT_WALK_LOG"})" || _pf_rc=$?
+    if [ "$_pf_rc" -ne 0 ]; then
+        printf '  PROMOTION: CANNOT-RUN (rc=%s), probe order left as C-sorted.\n\n' "$_pf_rc"
+    elif [ -z "$_pf_names" ]; then
+        printf '  PROMOTION: the previous walk named no failed probe; probe order left as C-sorted.\n\n'
+    else
+        _pf_new="$(promote_order "$_pf_names")"
+        for _pf_w in $(promote_writers_named "$_pf_names"); do
+            printf '  PROMOTION: %s not moved (writes)\n' "$_pf_w"
+        done
+        printf '  PROMOTION: previous FAILs moved to the front (order only): %s\n' \
+            "$(printf '%s' "$_pf_names" | tr '\n' ' ')"
+        PROBES="$_pf_new"
+        printf '  probe order now:'
+        for _pf_p in $PROBES; do printf ' %s' "$(basename "$_pf_p" .sh)"; done
+        printf '\n\n'
+    fi
+fi
+
+# THE OWNER-KNOWLEDGE SCORE RUNS LAST. It seeds a synthetic persona into the
+# graph and the conversation store (and purges it before it returns), so any
+# probe that counts or reads people after it would be measuring the seed.
+# Applied after promotion on purpose: the probe declares WALK_WRITES, so
+# promotion never moves it, and this puts it behind the p..z probes that the C
+# sort would otherwise run after it. tests/test_owner_score_instrument_is_valid.sh
+# asserts the order.
+PROBES="$(pin_last owner_knowledge_score)"
+# The probe seeds only on a walk that may write: --only implies --read-only, and
+# the probe reads this to leave the graph alone.
+export OSTLER_WALK_READ_ONLY="$READ_ONLY"
+
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
 
@@ -683,6 +828,12 @@ for p in $PROBES; do
     # which is why the arms added in test_the_walk_waits_for_converge.sh drive
     # THIS block rather than converge_wait().
     #
+    # The screens probe's "a real person's compiled page renders" assertion needs a
+    # real person WITH a compiled page, and pages exist only once the wiki has
+    # compiled, so the choice is made here, late, with a wait. Env only; the name
+    # is never printed (real_person_choose.sh logs sha256(name)[:8] and depth).
+    case "$b" in hub_screens_render_for_a_customer*) real_person_choose ;; esac
+
     # ── THE WIKI PRODUCER GETS A SECOND WAIT, RIGHT BEFORE THE PROBE THAT NEEDS IT ──
     #
     # usage_journal_producers requires cm044_wiki_compiler to have written, and
@@ -798,13 +949,26 @@ conversation_seed_forget || true
 usage_seed_forget || true
 owner_employer_seed_forget || true
 conversation_capture_seed_forget || true
+if [ "$READ_ONLY" -eq 0 ]; then
+scale_fixture_forget || true
+companion_walk_unpair || true
+fi
+# Done on the normal path: the EXIT trap (walk_cleanup, above) only acts on an
+# abort. tests/test_walk_cleanup_runs_on_abort.sh pins that the two lists match.
+WALK_CLEANUP_DONE=1
 
 # But post_walk_qa.sh replays probes against this box AFTER this script exits
 # (the cut manifest's runtime proofs), and the compiled wiki still counts the
 # rows just removed. v1.0.87: graph 1838, vectors 1838, tile 1839, two FAIL
 # rows on a box with no defect. Recompile so the replay reads the box the
 # probes read. Never fails the walk; see lib/wiki_summaries_wait.sh.
+if [ "$READ_ONLY" -eq 0 ]; then
 wiki_baseline_resync || true
+else
+    # It kickstarts the recompile LaunchAgent and waits up to 900 s, which is a
+    # write the forgets above (all state-gated) never made in a read-only run.
+    printf -- '--- WIKI BASELINE ---\n  SKIPPED (read-only): recompile LaunchAgent not kickstarted.\n\n'
+fi
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.

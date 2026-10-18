@@ -63,6 +63,12 @@ def enrichment_prompt_name_for(type_slug: str) -> str:
         return "02_enrich_work_one-on-one"
     setting, shape, _stakes = parts[0], parts[1], parts[2]
 
+    # A single-speaker capture is a memo whatever its setting. The shape is
+    # set by the pipeline from the speaker count (capture_truth.as_memo),
+    # so no setting-specific prompt can ask the model for a second person.
+    if shape == "memo":
+        return "02_enrich_voice_memo"
+
     if setting == "service":
         return "02_enrich_service_minimal"
     if setting == "family":

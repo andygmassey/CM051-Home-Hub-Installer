@@ -58,7 +58,9 @@ def revgeo_blob(**address: str) -> bytes:
     info_cls = add({"$classname": "PLRevGeoLocationInfo", "$classes": ["PLRevGeoLocationInfo", "NSObject"]})
     addr = {"$class": addr_cls}
     for k, v in address.items():
-        addr[k] = add(v)
+        # None points the key at UID 0, the archiver's "$null" sentinel, which
+        # is how Photos archives an address field with no value.
+        addr[k] = plistlib.UID(0) if v is None else add(v)
     addr_uid = add(addr)
     root = add({"$class": info_cls, "postalAddress": addr_uid, "isHome": False,
                 "countryCode": add("ZZ")})
@@ -132,6 +134,51 @@ with tempfile.TemporaryDirectory() as td:
     places = [e.location for e in events if e.location]
     check(sum(tag in p.lower() for p in places) == 1,
           "exactly one photo lands on the Testville place page")
+
+# THE "$null" SENTINEL (v1.0.108): $objects[0] is the literal string "$null".
+# A field pointed at UID 0 has NO value; dereferencing it to the string made
+# _city read "$null", the `or` never fell through, and the place was written
+# as "$null, <country>". Through the real extractor, on its own library.
+with tempfile.TemporaryDirectory() as td:
+    db = Path(td) / "Photos.sqlite"
+    c = sqlite3.connect(db)
+    c.executescript("""
+        CREATE TABLE ZASSET (Z_PK INTEGER PRIMARY KEY, ZDATECREATED REAL,
+            ZLATITUDE REAL, ZLONGITUDE REAL, ZTRASHEDSTATE INTEGER);
+        CREATE TABLE ZADDITIONALASSETATTRIBUTES (Z_PK INTEGER PRIMARY KEY,
+            ZASSET INTEGER, ZREVERSELOCATIONDATA BLOB);
+        CREATE TABLE ZDETECTEDFACE (Z_PK INTEGER PRIMARY KEY,
+            ZASSETFORFACE INTEGER, ZPERSONFORFACE INTEGER);
+        CREATE TABLE ZPERSON (Z_PK INTEGER PRIMARY KEY, ZFULLNAME TEXT);
+    """)
+    null_rows = [
+        (11, 3.1, revgeo_blob(_city=None, _subAdministrativeArea=None,
+                              _state=None, _country="Nowhereland")),
+        (12, 3.2, revgeo_blob(_city=None, _subAdministrativeArea=None,
+                              _state="Statelandia", _country="Nowhereland")),
+        (13, 3.3, revgeo_blob(_city="Testville", _country=None)),
+        (14, 3.4, revgeo_blob(_city=None, _country=None)),
+        (15, 3.5, revgeo_blob(_city="$null", _state="Statelandia",
+                              _country="Nowhereland")),
+    ]
+    for pk, lat, blob in null_rows:
+        c.execute("INSERT INTO ZASSET VALUES (?,?,?,?,0)", (pk, 800_000_000.0 + pk, lat, 9.0))
+        c.execute("INSERT INTO ZADDITIONALASSETATTRIBUTES (ZASSET, ZREVERSELOCATIONDATA) VALUES (?,?)",
+                  (pk, blob))
+    c.commit()
+    c.close()
+    ev = pm.extract_photo_events(db_path=db, since_days=36500, with_people_only=False)
+    got = {round(e.latitude, 1): e.location for e in ev}
+    check(len(ev) == 5, f"5 sentinel photos extracted, got {len(ev)}")
+    check(got.get(3.1) == "Nowhereland", f"no city/state (UID 0) gives the country alone, got {got.get(3.1)!r}")
+    check(got.get(3.2) == "Statelandia, Nowhereland",
+          f"city at UID 0 falls through to the state, got {got.get(3.2)!r}")
+    check(got.get(3.3) == "Testville", f"country at UID 0 is dropped, got {got.get(3.3)!r}")
+    check(got.get(3.4) is None, f"every field at UID 0 gives None, got {got.get(3.4)!r}")
+    check(got.get(3.5) == "Statelandia, Nowhereland",
+          f"an inline '$null' value is no value either, got {got.get(3.5)!r}")
+    check(not any("$null" in (v or "") for v in got.values()),
+          f"no label carries the '$null' sentinel, got {sorted(map(str, got.values()))}")
 
 if FAILURES:
     print(f"\n{len(FAILURES)} FAILURE(S)", file=sys.stderr)

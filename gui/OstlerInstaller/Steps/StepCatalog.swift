@@ -214,6 +214,13 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // merge_consistency_repair: install.sh emits `progress "Reconciling
+        // merged people across both stores" "merge_consistency_repair"`
+        // between hydrate_imessage and hydrate_apple_notes, and HintCopy.json
+        // already carries its copy. The canonicalOrder row was missing, and
+        // the contract test could not see it: its extractor went blind past
+        // install.sh ~30076 until F2 moved the Tailscale sign-in block.
+        "merge_consistency_repair",
         // CM024 §7: hydrate_apple_notes fires after hydrate_imessage and
         // before hydrate_people. Reads apple_notes.json (written by
         // fda_extract) and runs the bundled ostler-knowledge convert+embed
@@ -250,6 +257,13 @@ final class StepCatalog {
         "initial_hydrate",
         "wiki_compile",
         "health_check",
+        // F2 (console walk of DMG #16): the Tailscale browser sign-in and
+        // `tailscale serve` publish moved out of tailscale_connect (which now
+        // only installs the binary + LaunchAgent) to the END of the install.
+        // install.sh opens this row with gui_step_begin "tailscale_signin"
+        // after health_check and before the final assistant-daemon start,
+        // only when remote access was chosen and the CLI installed.
+        "tailscale_signin",
     ]
 
     /// Minimal in-code fallback if HintCopy.json is missing entirely.

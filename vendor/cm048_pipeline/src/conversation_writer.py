@@ -170,6 +170,11 @@ class ConversationBundle:
     privacy_level: str = "L2"
     source_app: Optional[str] = None  # "messages" | "mail" | "whatsapp" | etc
     extra_metadata: dict = field(default_factory=dict)
+    # The counterparts' raw messaging handles (phone / email / JID), owner
+    # excluded, when the source knows them (iMessage: chat_handle_join).
+    # NOT rendered into any artefact; used only to derive the reminder
+    # ``thread_key`` the assistant daemon matches against chat.db.
+    participant_handles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

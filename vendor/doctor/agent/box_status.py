@@ -755,6 +755,9 @@ def box_status() -> dict[str, Any]:
             # Carried through so "not paused" and "cannot tell" are
             # distinguishable at the API surface, not only in the log.
             "unavailable": bool(pause.get("pause_unavailable")),
+            # A timed pause expired but the brief and wrap could not be
+            # switched back on: say why instead of "not paused".
+            "cron_resume_error": pause.get("cron_resume_error", ""),
         },
         "settling": settling,
         "running": _running(governor, settling),

@@ -12,6 +12,7 @@ on:
       - 'scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh'
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'tests/test_customer_read_exempts_marked_customer_text.py'
+      - 'tests/test_hub_screens_people_judges_every_row.py'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_walk_probes_bypass_a_local_proxy.sh'
       - 'scripts/box_walk_probes/probes/hub_screens_customer_read.sh'
@@ -24,6 +25,9 @@ on:
       - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
+      - 'tests/test_interest_card_says_what_and_where.py'
+      - 'tests/test_hub_interest_card_shows_a_handle_as_at_handle.py'
+      - 'tests/test_hub_screens_real_person_name_never_printed.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
       - 'scripts/box_walk_probes/fixtures/owner_digest/**'
       - 'scripts/box_walk_probes/lib/owner_employer_seed.sh'
@@ -31,9 +35,19 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'vendor/cm041/contact_syncer/linkedin_career.py'
       - 'tests/test_the_walk_seeds_the_owner_employer.sh'
+      - 'tests/test_the_walk_seed_person_reaches_the_digest.py'
       - 'scripts/box_walk_probes/lib/conversation_capture_e2e.py'
       - 'scripts/box_walk_probes/fixtures/conversation_capture_e2e/**'
       - 'scripts/box_walk_probes/lib/conversation_capture_seed.sh'
+      - 'scripts/box_walk_probes/lib/companion_pair.py'
+      - 'scripts/box_walk_probes/lib/companion_pair.sh'
+      - 'scripts/box_walk_probes/lib/companion_unpair.sh'
+      - 'tests/test_walk_unpairs_its_synthetic_companion.py'
+      - 'tests/test_walk_cleanup_runs_on_abort.sh'
+      - 'tests/test_scale_fixture_forget.py'
+      - 'scripts/box_walk_probes/lib/scale_fixture.py'
+      - 'scripts/box_walk_probes/lib/scale_fixture_seed.sh'
+      - 'scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh'
       - 'scripts/box_walk_probes/probes/conversation_capture_end_to_end.sh'
       - 'tests/test_the_walk_seeds_the_conversation_capture.sh'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
@@ -43,6 +57,8 @@ on:
       - 'scripts/box_walk_probes/probes/assistant_sends_over_whatsapp_and_email.sh'
       - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
       - 'scripts/box_walk_probes/lib/todo_reminders_box.py'
+      - 'tests/test_todo_reminders_cleanup_deletes_what_it_created.py'
+      - 'tests/test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py'
       - 'scripts/box_walk_probes/probes/todos_reach_reminders.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/console_only_probes.tsv'
@@ -92,6 +108,13 @@ jobs:
           /tmp/pw/bin/pip install --quiet playwright==1.63.0
           /tmp/pw/bin/python -m playwright install --with-deps chromium
           /tmp/pw/bin/python tests/test_customer_read_exempts_marked_customer_text.py
+      - name: People is judged on every row from the people API, not the 100 on screen (Ostler DMG #21)
+        # ostler-assistant #514 mounts only the first 100 People rows. The judge
+        # arm is pure; the browser arm drives collect_people() in Chromium
+        # against a local stand-in that serves 100 rows on screen and 6,700 from
+        # an authenticated /api/v1/people. Exit 2 is CANNOT-RUN and fails here.
+        if: always()
+        run: /tmp/pw/bin/python tests/test_hub_screens_people_judges_every_row.py --browser chromium
       - name: Walk probes reach loopback through a dead HTTP_PROXY
         if: always()
         run: bash tests/test_walk_probes_bypass_a_local_proxy.sh
@@ -123,6 +146,15 @@ jobs:
         # vendored copy, not upstream CM059 -- the two disagreed.
         if: always()
         run: python3 tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
+      - name: Interest cards say where the interest came from (front page copy)
+        if: always()
+        run: python3 tests/test_interest_card_says_what_and_where.py
+      - name: A real person's name never reaches the screens probe's output or record (DMG #23)
+        if: always()
+        run: python3 tests/test_hub_screens_real_person_name_never_printed.py
+      - name: The Hub interest card shows a handle as @handle, and the judge accepts only that
+        if: always()
+        run: python3 tests/test_hub_interest_card_shows_a_handle_as_at_handle.py
       - name: The owner-digest judge catches every mutant (v1.0.107 #10)
         if: always()
         run: python3 scripts/box_walk_probes/lib/owner_digest.py --self-test
@@ -138,6 +170,30 @@ jobs:
       - name: The conversation-capture judge catches every mutant, including the mandated missing-artefact one (v1.0.107 #10)
         if: always()
         run: python3 scripts/box_walk_probes/lib/conversation_capture_e2e.py --self-test
+      - name: The companion pairing helper builds what the Hub verifies (#17, real /auth/pair flow)
+        # HKDF against RFC 5869, the webauthn.create/get clientData bind the
+        # server challenge, the ES256 assertion verifies, companion_proof =
+        # HMAC(KEK(prf)). The end-to-end proof is against a gateway built from
+        # ostler-assistant #501 (recorded in the PR); this pins the offline half.
+        if: always()
+        run: |
+          python3 -m pip install --quiet cryptography
+          python3 scripts/box_walk_probes/lib/companion_pair.py --self-test
+      - name: The walk unpairs its synthetic companion (walk #27 item 5a, Doctor read Paired)
+        if: always()
+        run: python3 tests/test_walk_unpairs_its_synthetic_companion.py
+      - name: Every walk forget and the unpair run from a trap, also on abort (shape sweep S7c)
+        if: always()
+        run: bash tests/test_walk_cleanup_runs_on_abort.sh
+      - name: The scale fixture is tagged and forgotten (shape sweep S7a)
+        if: always()
+        run: python3 tests/test_scale_fixture_forget.py
+      # The two pairing tests (non-answer, reader-before-mutator) are NOT run
+      # here. They run in walk-record-gate.yml, whose checkout is fetch-depth 0:
+      # the non-answer test's negative control reads the pre-fix tree 5532772b,
+      # which this job's shallow checkout cannot see (it exited CANNOT-RUN here
+      # on #2773, run 38045813471). walk-record-gate triggers on
+      # scripts/box_walk_probes/**, so lib/companion_pair.* changes run them.
       - name: The conversation-capture probe's own self-test
         if: always()
         run: |
@@ -179,6 +235,12 @@ jobs:
           printf '%s\n' "$out"
           if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
           if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+      - name: The todo-reminders cleanup deletes what it created, or says it could not
+        if: always()
+        run: python3 tests/test_todo_reminders_cleanup_deletes_what_it_created.py
+      - name: The seeded 1:1 counterpart is new each walk, so a leftover reminder cannot dedupe it
+        if: always()
+        run: python3 tests/test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py
       - name: The todo-reminders box script at least compiles
         if: always()
         run: python3 -m py_compile scripts/box_walk_probes/lib/todo_reminders_box.py
@@ -189,8 +251,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the seed-to-digest test runs the v1.0.108 seed lib, pinned by SHA, as its RED
+          fetch-depth: 0
       - name: The walk seeds the owner's employer through the LinkedIn import
         run: bash tests/test_the_walk_seeds_the_owner_employer.sh
+      # walk #31: the seed person carries an interaction and an organisation, so
+      # People and Key organisations can be graded on a synthetic box; the importer
+      # log is per-user. Real SPARQL engine, real curl, then the shipped generator.
+      - name: The seed person reaches People and Key organisations (walk #31)
+        if: always()
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyoxigraph
+          python3 tests/test_the_walk_seed_person_reaches_the_digest.py
 
   conversation-capture-seed:
     # Pure bash + a stubbed curl on PATH; no real gateway needed, but kept

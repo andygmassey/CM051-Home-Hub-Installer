@@ -72,8 +72,72 @@ echo "PASS: 'trap composite_cleanup EXIT' registered exactly once"
 # Bootstrap traps at indented lines (inside the curl-bash if
 # block, lines ~312 / ~357) are exempt. Anything at column 0
 # that isn't the composite registration is a stray.
-STRAY_TRAPS="$(grep -nE '^trap [^ ]+ EXIT|^trap - EXIT' "$INSTALL_SCRIPT" \
-    | grep -v 'trap composite_cleanup EXIT$' || true)"
+#
+# HEREDOC BODIES ARE NOT THE MAIN BODY. install.sh writes whole scripts with
+# `cat > ... <<'EOF'` (ostler-scan-exports, the lock-holding helpers), and an
+# EXIT trap inside one of those belongs to THAT script, which composite_cleanup
+# never runs in. The old one-line grep could not tell them apart, and it was
+# also blind to any quoted multi-word handler (`trap 'rm -rf "$d"' EXIT`) at
+# column 0 in the main body. This scan skips heredoc bodies and matches every
+# column-0 `trap ... EXIT`. A heredoc that never closes is a REFUSAL.
+# read -d '' rather than $(cat <<...): bash 3.2 mis-parses the quotes in a
+# heredoc inside a command substitution.
+_STRAY_AWK=""
+read -r -d '' _STRAY_AWK <<'STRAYAWK' || true
+# Prints NR:line for every column-0 `trap ... EXIT` OUTSIDE heredoc bodies.
+# A heredoc opens on a non-comment line with <<WORD, <<'WORD', <<"WORD" or
+# <<-WORD (never <<<) and closes on the line equal to WORD (<<- also allows
+# leading tabs). Several heredocs opened on one line close in order. An
+# unterminated heredoc prints UNTERMINATED and the caller must refuse.
+BEGIN { n = 0; head = 1 }
+{
+    line = $0
+    if (n >= head) {
+        t = line; if (strip[head]) sub(/^\t+/, "", t)
+        if (t == q[head]) { head++ }
+        next
+    }
+    if ((line ~ /^trap .+ EXIT$/ || line ~ /^trap .+ EXIT[ \t]/) && line !~ /^trap composite_cleanup EXIT$/) print NR ":" line
+    if (line ~ /^[ \t]*#/) next
+    rest = line
+    while (match(rest, /<<-?[ \t]*["']?[A-Za-z_][A-Za-z0-9_]*["']?/)) {
+        tok = substr(rest, RSTART, RLENGTH)
+        pre = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : ""
+        rest = substr(rest, RSTART + RLENGTH)
+        if (pre == "<") continue          # part of <<< herestring
+        if (substr(rest, 1, 1) == "<") continue
+        dash = (tok ~ /^<<-/)
+        w = tok; sub(/^<<-?[ \t]*/, "", w); gsub(/["']/, "", w)
+        n++; q[n] = w; strip[n] = dash
+    }
+}
+END { if (n >= head) print "UNTERMINATED:" q[head] }
+STRAYAWK
+_stray_scan() { awk "$_STRAY_AWK" "$1"; }
+
+# Controls: the scan must flag a main-body trap, must not flag one inside a
+# heredoc, must flag one after a heredoc closes, and must refuse an unclosed one.
+_STRAY_CTL="$(mktemp -d)"
+printf 'echo hi\ntrap stray_ctl EXIT\n' > "$_STRAY_CTL/main"
+printf "cat > f <<'EOF'\ntrap inner_ctl EXIT\nEOF\necho done\n" > "$_STRAY_CTL/inner"
+printf "cat > f <<EOF\nx\nEOF\ntrap 'rm -rf \"\$d\"' EXIT\n" > "$_STRAY_CTL/after"
+printf "cat <<'NEVER'\ntrap foo EXIT\n" > "$_STRAY_CTL/open"
+_ctl_main="$(_stray_scan "$_STRAY_CTL/main")"
+_ctl_inner="$(_stray_scan "$_STRAY_CTL/inner")"
+_ctl_after="$(_stray_scan "$_STRAY_CTL/after")"
+_ctl_open="$(_stray_scan "$_STRAY_CTL/open")"
+rm -rf "$_STRAY_CTL"
+if [[ "$_ctl_main" != 2:* || -n "$_ctl_inner" || "$_ctl_after" != 4:* || "$_ctl_open" != UNTERMINATED:* ]]; then
+    echo "FAIL [stray-trap-controls]: main='${_ctl_main}' inner='${_ctl_inner}' after='${_ctl_after}' open='${_ctl_open}'" >&2
+    exit 1
+fi
+echo "PASS: stray-trap scan controls: main-body trap flagged, heredoc trap not, trap after a heredoc flagged, unclosed heredoc refused"
+
+STRAY_TRAPS="$(_stray_scan "$INSTALL_SCRIPT")"
+if [[ "$STRAY_TRAPS" == *UNTERMINATED:* ]]; then
+    echo "FAIL [stray-trap]: CANNOT-RUN, a heredoc in install.sh never closes: ${STRAY_TRAPS}" >&2
+    exit 1
+fi
 if [[ -n "$STRAY_TRAPS" ]]; then
     echo "FAIL [stray-trap]: stray 'trap ... EXIT' in main install body:" >&2
     echo "$STRAY_TRAPS" >&2

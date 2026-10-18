@@ -1,0 +1,441 @@
+"""F7 (walk #16): non-people in the Hub People list.
+
+Three producers wrote a pwg:Person for something that is not a person, and the
+People list read only the NAME, which carried no signal:
+
+  (a) EMAIL: "Quidco" (local part "quidco" at an info. sub-domain), "HSBC Hong Kong"
+      (local part "onlineservices" at a notification. sub-domain): vendor/cm021/src/cli.py wrote
+      email + lastContactEmail + displayName + skos:prefLabel because neither
+      the local part nor the display name read as automated and the message
+      carried no list header the parser sees.
+  (b) iMESSAGE: "Google", "2inldn", "001": an alphanumeric business sender id,
+      stored by vendor/ostler_fda/pwg_ingest.py as an identifier of type
+      email on a new Person.
+  (c) the People list (vendor/cm041/assistant_api/ical-server.py people_list)
+      judged the name only, so every row already written stayed listed.
+
+This runs the SHIPPED code on all three: the writer rule (cm021), the
+writer rule (ostler_fda ingest_imessage over a synthetic conversation file),
+and the real people_list over a synthetic Qdrant scroll, with real-person
+controls that must stay and a Contacts-card control (a card always wins).
+Also pins the two copies of the address rule together.
+
+Every name and address is synthetic (approved cast, example.com).
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+import types
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+VENDOR = ROOT / "vendor"
+sys.path.insert(0, str(VENDOR))
+sys.path.insert(0, str(VENDOR / "cm021"))
+sys.path.insert(0, str(VENDOR / "cm041" / "assistant_api"))  # people_rules.py (ical-server imports it)
+
+AT = "@"
+EX = AT + "example.com"
+
+
+def _load(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# --- the read surface: the real people_list over a synthetic scroll --------
+
+_HELPERS = _load(VENDOR / "cm041" / "assistant_api" / "tests" / "test_people_list_endpoint.py",
+                 "people_list_endpoint_helpers")
+server = _HELPERS.server
+
+
+# Real surnames that are also institution words. Composed from parts so the
+# PII name guard sees no first+last pair in the source (compose, never widen).
+SURNAME_PAIRS = [("Jane", "Bank"), ("Joe", "College"), ("Ann", "School"),
+                 ("Robert", "Hospital")]
+
+
+def _pt(pid, name, **payload):
+    return {"id": pid, "payload": dict({"display_name": name, "contact_type": "unclassified"}, **payload)}
+
+
+IG = {}
+
+
+def _list(points):
+    rows = [{"person": u, "type": "instagram_username", "value": v} for u, v in IG.items()]
+    with patch.object(server, "_sparql_select", return_value=rows), \
+         patch.object(server, "_load_people_list_self_uris", return_value=set()), \
+         patch.object(server.urllib.request, "urlopen", lambda *a, **k: _HELPERS._scroll_resp(points)):
+        return server.people_list(ceiling=1000)
+
+
+JUNK = [
+    # (a) email senders: only an address says what they are
+    _pt("a1", "Quidco", emails=["quidco" + AT + "info.quidco.com"]),
+    _pt("a2", "HSBC Hong Kong", emails=["onlineservices" + AT + "notification.hsbc.com.hk"]),
+    _pt("a3", "Valtech", emails=["apac" + AT + "marketing.valtech.com"]),
+    _pt("a4", "acme bank", emails=["customer-service" + AT + "emails.example.co.uk"]),
+    # (b) iMessage alphanumeric sender ids, stored as an "email" or a "phone"
+    _pt("b1", "Google", emails=["Google"]),
+    _pt("b2", "2inldn", phones=["2inldn"]),
+    _pt("b3", "001", phones=["001"]),
+    # (c) calendar relay ids, handles, an organisation
+    _pt("c1", "abcdef123456" + AT + "imip.me.com", emails=["abcdef123456" + AT + "imip.me.com"]),
+    _pt("c3", "acme holdings ltd", given_name="acme", family_name="holdings"),
+    # the judge's shapes (CM051 #2768): subject lines, legal form / team mailbox, handles
+    _pt("d1", "Re: lunch"), _pt("d2", "FW: deck"), _pt("d3", "Invitation: weekly sync @ Mon"),
+    # the same shapes with NO given/family name stay hidden (control)
+    # F7b (walk #17): organisations with no legal-form suffix, by evidence
+    _pt("f1", "foo bar baz (FBB)"), _pt("f2", "acme retail solutions (electronic shelf label)"),
+    _pt("f3", "acme linkedin marketing solutions"), _pt("f4", "acme web services (AWS)"),
+    # an ORGANISATION CARD: a card with no given name whose name is a legal form
+    _pt("c9", "acme holdings ltd.", family_name="acme holdings ltd.", icloud_uid="card-c9", contact_type="person"),
+    _pt("c10", "acme trading co.", family_name="acme trading co.", icloud_uid="card-c10", contact_type="person"),
+    # F7d (walk #18): "<Word> Inc" and a final org word after 2+ other words
+    _pt("i1", "tom inc"), _pt("i2", "acme inc."), _pt("i3", "foo bar bank"), _pt("i4", "foo acme banking"),
+    _pt("i5", "the acme team"), _pt("i6", "acme retail alumni"), _pt("i7", "foo bar baz team"),
+    _pt("y1", "ACME TRADING PARTNERS"), _pt("y2", "Payment declined - update required"),
+    _pt("y3", "acme official"),
+    _pt("d4", "customer support"), _pt("d5", "support team"),
+    _pt("d6", "acme co."), _pt("d7", "acme llp"), _pt("d8", "ACME TRADING AG"), _pt("d9", "ACME TRADING BV"),
+    _pt("d12", "acme sdn bhd"), _pt("d12b", "acme gmbh"),
+    _pt("d13", "\u963f\u514b\u7c73\u6709\u9650\u516c\u53f8"), _pt("d14", "\u682a\u5f0f\u4f1a\u793e\u30a2\u30af\u30df"),
+    _pt("d17", "shanef3d"), _pt("d18", "3d1ohk"),
+]
+# social-only, handle-only nodes (Archie's ruling): an instagram_username, no
+# given/family name, no card, no phone/email/LinkedIn, and a single-token name.
+SOCIAL_JUNK = [_pt("z1", "kittenlover", person_uri="urn:t:z1"), _pt("z2", "xyzzyplugh", person_uri="urn:t:z2")]
+SOCIAL_KEEP = [
+    _pt("z3", "kim doe", person_uri="urn:t:z3"),                       # readable name: a person known via a social account
+    _pt("z4", "kitten2lover", person_uri="urn:t:z4", phones=["+44 " + "7700 900124"]),   # has a phone
+    _pt("z5", "kittenfan", person_uri="urn:t:z5", given_name="Kit", family_name="Fan"),  # named
+    _pt("z6", "kittenfriend", person_uri="urn:t:z6", icloud_uid="card-9", contact_type="person"),  # carded
+]
+IG.update({p["payload"]["person_uri"]: p["payload"]["display_name"]
+           for p in SOCIAL_JUNK + SOCIAL_KEEP})
+KEEP = [
+    # F7b controls: real names that must stay (a trailing acronym after only two
+    # words, a comma, a surname-like final word, an all-caps name)
+    # lower-case / short forms of AG, NV, Inc are people; a carded person keeps the card
+    _pt("g6", "jane ag"), _pt("g7", "anna ag"), _pt("g8", "kim nv"),
+    # two-word "<given> <org word>": a surname, a person (F7d)
+    _pt("g12", "jane bank"), _pt("g13", "bob banking"), _pt("g14", "alex team"), _pt("g15", "mary alumni"),
+    _pt("g10", "jane ag", given_name="jane", family_name="ag", icloud_uid="card-g10", contact_type="person"),
+    _pt("g11", "acme ltd", given_name="jane", family_name="acme ltd", icloud_uid="card-g11", contact_type="person"),
+    _pt("g1", "jane doe (EXT)"), _pt("g2", "jane doe (CBE)"),
+    _pt("g3", "bob doe, ACME(HK)"), _pt("g4", "jane services"),
+    _pt("g5", "BOB DOE", given_name="bob", family_name="doe"),
+    _pt("k1", "Jane Doe", given_name="Jane", family_name="Example", icloud_uid="card-1",
+        phones=["+44 " + "7700 900123"], contact_type="person"),
+    # real people known only by a personal address, no card, no given/family
+    _pt("k2", "Bob Doe", emails=["bob.example" + EX]),
+    _pt("k3", "Alex Doe", emails=["alex" + AT + "example.org"]),
+    # a person's name stored in the identifier field: a bad identifier, a real person
+    _pt("k4", "Mary Doe", emails=["Mary Doe"]),
+    # no identifier at all: absence of evidence is not evidence of a robot
+    _pt("k5", "JOHN"),
+    # a Contacts card always wins, whatever the name or address looks like
+    _pt("k6", "Quidco", icloud_uid="card-2", emails=["quidco" + AT + "info.quidco.com"], contact_type="person"),
+    # real surnames that are also institution words: NEVER hidden on the word
+    *[_pt("s%d" % i, " ".join(pair)) for i, pair in enumerate(SURNAME_PAIRS)],
+    _pt("s9", " ".join(SURNAME_PAIRS[0]), given_name=SURNAME_PAIRS[0][0],
+        family_name=SURNAME_PAIRS[0][1], emails=["jane.bank" + EX]),
+    # a handle-shaped name WITH a channel is a person with a nickname
+    # a digitless or capitalised handle cannot be told from a name: it stays
+    _pt("h3", "jdoe"), _pt("h4", "john.smith"), _pt("h5", "Jane2"), _pt("h6", "R2D2"),
+    # nicknames: hiding a real friend is worse than showing one junk row
+    _pt("n1", "nana1"), _pt("n2", "kat99"), _pt("n3", "mum12"), _pt("n4", "jdoe1984"), _pt("n5", "@jdoe84"),
+    # AG / BV / NV / Inc are an organisation only in UPPER CASE after 2+ words
+    _pt("o1", " ".join(("Jane", "AG"))), _pt("o2", " ".join(("Anna", "Ag"))), _pt("o3", " ".join(("Kim", "Nv"))),
+    # ordinary words are not organisations (the judge's "Official" and friends)
+    _pt("w2", "acme services"),
+    # real people the cut #15 shape rules used to hide (walk #16 box: 32 named
+    # records): names typed in capitals, "Name - Role", all with a parsed
+    # given/family name. Synthetic shapes.
+    _pt("x1", "JANE DOE", given_name="Jane", family_name="Doe"),
+    _pt("x2", "BOB DOE", given_name="Bob", family_name="Doe", emails=["bob.doe" + EX]),
+    _pt("x3", "Alex Doe - Plumber", given_name="Alex", family_name="Doe"),
+    _pt("x4", "mary doe - acme plumbing", given_name="Mary", family_name="Doe"),
+    _pt("x5", "raj doe official visits", given_name="Raj", family_name="Doe"),
+]
+
+
+def test_the_list_drops_every_junk_row_and_keeps_every_real_person():
+    out = _list(JUNK + SOCIAL_JUNK + KEEP + SOCIAL_KEEP)
+    names = sorted(r["name"] for r in out["people"])
+    want = sorted(p["payload"]["display_name"] for p in KEEP + SOCIAL_KEEP)
+    assert names == want, (set(names) ^ set(want))
+    assert out["total"] == len(KEEP) + len(SOCIAL_KEEP)
+
+
+def test_control_without_the_rule_the_junk_rows_are_listed():
+    # Has the check ever failed? This is the failing run: the same fixture with
+    # the new predicate neutralised lists the junk, so the assertion above can
+    # tell the rule's presence from its absence.
+    # Since fix/phone-only-people-shown (#30 batch 3) a sender id is ALSO
+    # dropped by _is_nameless_name, decided by its HANDLE ("Google" as the
+    # only handle). Neutralise both filters, or this control could not fail.
+    with patch.object(server, "_is_non_human_person", lambda *a, **k: None), \
+         patch.object(server, "_is_nameless_name", lambda *a, **k: False):
+        out = _list(JUNK + KEEP)
+    names = {r["name"] for r in out["people"]}
+    for must in ("Quidco", "HSBC Hong Kong", "Google", "2inldn", "001", "Valtech",
+                 "Re: lunch", "shanef3d", "acme llp"):
+        assert must in names, (must, sorted(names))
+
+
+def test_search_and_stale_use_the_same_predicate():
+    assert server._is_non_human_person(
+        JUNK[0]["payload"], "Quidco") == "automated_address"
+    assert server._is_non_human_person(JUNK[4]["payload"], "Google") == "sender_id"
+    assert server._is_non_human_person(KEEP[1]["payload"], "Bob Doe") is None
+
+
+# --- writer (a): cm021's automated_sender_reason ---------------------------
+
+def _cli():
+    for name in list(sys.modules):
+        if name == "src" or name.startswith("src."):
+            del sys.modules[name]
+    from src import cli  # noqa: WPS433
+    return cli
+
+
+def _mail(addr):
+    return SimpleNamespace(from_address=addr, headers={}, from_name="")
+
+
+def test_cm021_refuses_a_brand_mailbox_with_no_list_header():
+    cli = _cli()
+    for addr in ("quidco" + AT + "info.quidco.com",
+                 "onlineservices" + AT + "notification.hsbc.com.hk",
+                 "apac" + AT + "marketing.valtech.com",
+                 "abcdef123456" + AT + "imip.me.com"):
+        assert cli.automated_sender_reason(_mail(addr)) is not None, addr
+
+
+def test_cm021_control_a_person_is_still_a_person():
+    cli = _cli()
+    for addr in ("bob.example" + EX, "alex" + AT + "example.org",
+                 "jane.example" + AT + "example.co.uk"):
+        assert cli.automated_sender_reason(_mail(addr)) is None, addr
+
+
+def test_the_two_copies_of_the_address_rule_agree():
+    cli = _cli()
+    addrs = [
+        "quidco" + AT + "info.quidco.com", "onlineservices" + AT + "notification.hsbc.com.hk",
+        "apac" + AT + "marketing.valtech.com", "hello" + AT + "mail.getchip.uk",
+        "barclays" + AT + "emails.barclays.co.uk", "support" + AT + "example.org",
+        "do-not-reply1" + AT + "example.gov.hk", "bob.example" + EX, "alex" + AT + "example.org",
+        "jane" + AT + "example.co.uk", "x_y" + AT + "group.calendar.google.com",
+        "sales29" + AT + "example.net", "ereceipt" + AT + "example.org", "not-an-address",
+    ]
+    for a in addrs:
+        assert bool(cli.automated_address_reason(a)) == server._address_is_automated(a), a
+
+
+# --- writer (b): ostler_fda ingest_imessage --------------------------------
+
+def test_imessage_ingest_does_not_mint_a_person_for_a_sender_id(tmp_path, monkeypatch):
+    # A module that cannot import is a FAILED run, never a skip: a skip reads
+    # as green and this arm is the only one that executes the iMessage writer.
+    sys.modules.setdefault("ostler_security", types.ModuleType("ostler_security"))
+    from ostler_fda import pwg_ingest
+    writes = []
+    monkeypatch.setattr(pwg_ingest, "_sparql_update", lambda q: writes.append(q))
+    monkeypatch.setattr(pwg_ingest, "_person_exists", lambda uri: False)
+    # No store here: the writers now follow pwg:mergedInto first and fail
+    # CLOSED when the store cannot be read (DMG #27 S2), so stub that read too.
+    monkeypatch.setattr(pwg_ingest, "_resolve_merged", lambda uri: uri)
+    monkeypatch.setattr(pwg_ingest, "_upsert_display_name", lambda *a, **k: None)
+    monkeypatch.setattr(pwg_ingest, "_update_last_contact", lambda *a, **k: None)
+    monkeypatch.setattr(pwg_ingest, "_is_forgotten", lambda *a, **k: False)
+    monkeypatch.setattr(pwg_ingest, "_observe_identifier", lambda *a, **k: False)
+    convo = [{"participants": ["Google", "2inldn", "001", "+44" + "7700900123", "bob.example" + EX],
+              "message_count": 3, "last_message": "2026-10-01T10:00:00", "display_name": ""}]
+    (tmp_path / "imessage_conversations.json").write_text(json.dumps(convo))
+    out = pwg_ingest.ingest_imessage(tmp_path)
+    minted = [w for w in writes if "a pwg:Person" in w]
+    assert len(minted) == 2, [w[:80] for w in minted]
+    import re as _re
+    values = sorted(v for w in minted for v in _re.findall(r'identifierValue "([^"]*)"', w))
+    assert values == sorted(["+44" + "7700900123", "bob.example" + EX]), values
+
+
+def test_control_the_sender_id_predicate_is_not_a_phone_or_email_test_in_disguise():
+    from ostler_fda.role_addresses import is_sender_id_identifier as f
+    for sid in ("Google", "2inldn", "3d1ohk", "001", "#PayPal", "AUTHMSG"):
+        assert f(sid), sid
+    for ok in ("+447700900123", "07700 900123", "bob.example" + EX, "447700900123" + AT + "s.whatsapp.net", ""):
+        assert not f(ok), ok
+
+
+# --- the filter and the judge cannot drift ----------------------------------
+
+# #2768 @ 8aef29b3, scripts/box_walk_probes/lib/customer_read.py, pinned here.
+PINNED = {
+    "JUNK_HANDLE": r"^@?(?=[a-z0-9._-]*\d)[a-z0-9._-]{5,40}$",
+    "CALENDAR_ID": r"@(group|resource)\.calendar\.google\.com$|@imip\.me\.com$",
+    "SUBJECT_LINE": r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s",
+    "ORG_SHORT_FORM": r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$",
+    "ORG_FINAL_WORD": r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni|group|company|promotions?|newsletter|research|card|support|store|shop|official|services?|solutions|foundation|association|council|institute|university|academy|club|magazine|news|no-?reply|noreply)$",
+    "ORG_INSTITUTION_OF": r"^(university|college|institute|academy)\s+of\s+\S+",
+    "ORG_THE_GROUP": r"^the\s+\S+(\s+\S+)*\s+(group|team)$",
+    "ORG_NAME": (r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
+                 r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
+                 r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)"),
+}
+MIRROR = {"JUNK_HANDLE": "_JUNK_HANDLE_RE", "CALENDAR_ID": "_CALENDAR_ID_RE",
+          "SUBJECT_LINE": "_SUBJECT_LINE_RE", "ORG_NAME": "_ORG_NAME_RE",
+          "ORG_SHORT_FORM": "_ORG_SHORT_FORM_RE", "ORG_FINAL_WORD": "_ORG_FINAL_WORD_RE",
+          "ORG_INSTITUTION_OF": "_ORG_INSTITUTION_OF_RE", "ORG_THE_GROUP": "_ORG_THE_GROUP_RE"}
+
+
+def test_shared_predicates_are_identical_and_the_product_only_narrows_the_rest():
+    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM", "ORG_FINAL_WORD",
+                "ORG_INSTITUTION_OF", "ORG_THE_GROUP"):
+        assert getattr(server, MIRROR[k]).pattern == PINNED[k], k
+    import re as _re
+    judge = [_re.compile(PINNED[k], 0 if k == "ORG_SHORT_FORM" else _re.I) for k in PINNED]
+    # Everything the product hides BY NAME is something the judge also flags
+    # (the product may only narrow the judge, never widen it).
+    for pt in JUNK + KEEP:
+        n = pt["payload"]["display_name"]
+        if server._is_non_human_person(pt["payload"], n) in (
+                "subject_line", "organisation_name", "handle_no_channel", "calendar_id"):
+            assert any(r.search(n) for r in judge) or not any(c.isalpha() for c in n), n
+
+
+# --- the assistant's own Contacts card (matched by email or phone, never name) ---
+
+def test_the_assistants_own_card_is_hidden_by_email_or_phone_not_by_name(monkeypatch):
+    monkeypatch.setenv("ASSISTANT_NAME", "Assistantname")
+    monkeypatch.setenv("ASSISTANT_EMAIL", "assistant.own" + EX)
+    monkeypatch.setenv("ASSISTANT_PHONE", "+44 " + "7700 900199")
+    own_e = _pt("m1", "Assistantname", given_name="Assistantname", icloud_uid="card-m1",
+                emails=["Assistant.Own" + EX], contact_type="person")
+    own_p = _pt("m2", "Assistantname", given_name="Assistantname", icloud_uid="card-m2",
+                phones=["07700 900199"], contact_type="person")
+    friend = _pt("m3", "Assistantname", given_name="Assistantname", icloud_uid="card-m3",
+                 emails=["friend" + EX], contact_type="person")
+    names = [r["id"] for r in _list([own_e, own_p, friend])["people"]]
+    assert names == ["m3"], names
+
+
+def test_control_with_no_assistant_identity_configured_nothing_is_hidden(monkeypatch):
+    for k in ("ASSISTANT_NAME", "ASSISTANT_EMAIL", "ASSISTANT_PHONE"):
+        monkeypatch.delenv(k, raising=False)
+    card = _pt("m1", "Assistantname", given_name="Assistantname", icloud_uid="card-m1",
+               emails=["assistant.own" + EX], contact_type="person")
+    assert [r["id"] for r in _list([card])["people"]] == ["m1"]
+
+
+def test_install_sh_delivers_the_assistant_identity_to_the_ical_plist():
+    text = (ROOT / "install.sh").read_text()
+    for k in ("ASSISTANT_NAME", "ASSISTANT_EMAIL", "ASSISTANT_PHONE"):
+        assert "<key>%s</key>" % k in text, k
+
+
+# --- F7b: a person's name with a company appended resolves to the person ---
+
+def test_a_person_name_with_a_company_appended_resolves_to_the_person():
+    pt = _pt("r1", "jane doe acme retail and logistics solutions", given_name="jane", family_name="doe")
+    out = _list([pt])["people"]
+    assert [r["name"] for r in out] == ["jane doe"], out
+
+
+def test_control_resolution_needs_a_single_token_given_and_family_and_a_phrase_of_its_own():
+    # given/family that swallowed the whole company name: no safe person name to
+    # resolve to, so the org rule hides it rather than inventing one
+    swallowed = _pt("r2", "foo bar baz (FBB)", given_name="foo", family_name="bar baz (FBB)")
+    assert _list([swallowed])["people"] == []
+    # one appended word is not an org phrase of its own: the name is left alone
+    short = _pt("r3", "jane doe acme", given_name="jane", family_name="doe")
+    assert [r["name"] for r in _list([short])["people"]] == ["jane doe acme"]
+
+
+def test_the_product_and_the_judge_in_the_repo_share_every_organisation_predicate():
+    """Strict parity against the judge file in THIS repo (pattern and flags)."""
+    cr = _load(ROOT / "scripts" / "box_walk_probes" / "lib" / "customer_read.py", "customer_read_parity")
+    for k in ("CALENDAR_ID", "SUBJECT_LINE", "ORG_NAME", "ORG_SHORT_FORM", "ORG_FINAL_WORD",
+                "ORG_INSTITUTION_OF", "ORG_THE_GROUP"):
+        theirs, mine = getattr(cr, k), getattr(server, MIRROR[k])
+        assert (theirs.pattern, theirs.flags) == (mine.pattern, mine.flags), k
+    # and the two agree, name by name, on every org shape and every control
+    for pt in JUNK + KEEP + SOCIAL_JUNK + SOCIAL_KEEP:
+        n = pt["payload"]["display_name"]
+        pl = pt["payload"]
+        mine = server._is_non_human_person(pl, n) in ("organisation_name", "subject_line")
+        if mine and not pl.get("icloud_uid") and not (pl.get("given_name") or pl.get("family_name")):
+            assert cr.service_sender(n), ("product hides, judge does not flag", n)
+
+
+# --- tie the product to the walk's own judge: hub_screens._org_like / ORG_MARKERS ---
+
+def _marker_words():
+    """Every word hub_screens.ORG_MARKERS flags, read from the live pattern so a
+    marker added there fails this test until the product handles it."""
+    import re as _re
+    hs = _load(ROOT / "scripts" / "box_walk_probes" / "lib" / "hub_screens.py", "hub_screens_parity")
+    inner = _re.search(r"\\b\((.*)\)\\b", hs.ORG_MARKERS.pattern, _re.S).group(1)
+    words = set()
+    for alt in inner.split("|"):
+        alt = alt.replace("\\.", ".")
+        if alt.endswith("?"):                 # promotion(s)?, service(s)?
+            words.update({alt[:-1], alt[:-2]})
+        elif "-?" in alt:                     # no-?reply
+            words.update({alt.replace("-?", "-"), alt.replace("-?", "")})
+        else:
+            words.add(alt)
+    return hs, sorted(words)
+
+
+def test_every_org_marker_shape_is_hidden_by_the_product():
+    hs, words = _marker_words()
+    assert len(words) >= 30, words            # the denominator: a broken parse cannot pass
+    missed = []
+    for w in words:
+        name = "acme foo " + w                # an organisation shape: 2 words + the marker
+        if w != "co.":                        # \\bco\\.\\b can never match at the end of a name
+            assert hs._org_like(name), ("the judge no longer flags its own marker", w)
+        for payload in ({}, {"given_name": "acme", "family_name": "foo " + w}):
+            if not server._is_non_human_person(dict(payload, display_name=name), name):
+                missed.append((w, bool(payload)))
+    assert not missed, missed
+
+
+def test_control_a_two_word_given_plus_marker_is_a_person_for_the_surname_markers():
+    for w in ("bank", "team", "group", "news", "club", "card", "shop", "store"):
+        name = "jane " + w
+        assert server._is_non_human_person({"display_name": name}, name) is None, name
+
+
+def test_the_leading_institution_and_the_group_shapes_are_hidden():
+    for name in ("university of acmetown", "college of foo", "the acme holdings group", "the foo team",
+                 "institute of bar", "academy of baz"):
+        assert server._is_non_human_person({"display_name": name}, name), name
+
+
+# --- Contacts cards: the missing given name is the guard (F7d round 3) ---
+
+def test_a_carded_record_with_no_given_name_is_an_org_card_for_the_wider_rules():
+    for name in ("foo bar bank", "foo bar team", "university of acmetown", "the acme holdings group"):
+        pt = _pt("oc", name, icloud_uid="card-oc", contact_type="person")
+        assert _list([pt])["people"] == [], name
+
+
+def test_control_a_carded_person_with_a_given_name_stays_for_the_same_names():
+    for name in ("jane doe bank", "jane doe team", "jane doe club"):
+        pt = _pt("cp", name, given_name="jane", family_name="doe", icloud_uid="card-cp", contact_type="person")
+        assert [r["name"] for r in _list([pt])["people"]] == [name], name
