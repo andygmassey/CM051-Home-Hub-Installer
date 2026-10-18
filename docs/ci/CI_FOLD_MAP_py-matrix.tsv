@@ -26,6 +26,7 @@ catchup-photos-ai.yml	catchup-photos-ai	unchanged	catchup-photos-ai.yml	catchup-
 catchup-takeout.yml	catchup-takeout	unchanged	catchup-takeout.yml	catchup-takeout
 ci-maskless.yml	ci-maskless	unchanged	ci-maskless.yml	ci-maskless
 ci-required-gate.yml	gate	unchanged	ci-required-gate.yml	gate
+cm048-multilingual-output.yml	cm048-multilingual-output	unchanged	cm048-multilingual-output.yml	cm048-multilingual-output
 cm048-participants-as-strings.yml	cm048-participants-as-strings	folded	fold-py-matrix.yml	py-matrix
 cm048-whatsapp-lid-not-phone.yml	cm048-whatsapp-lid-not-phone	folded	fold-py-matrix.yml	py-matrix
 cold-box-source-truth.yml	cold-box-truth	unchanged	cold-box-source-truth.yml	cold-box-truth
@@ -182,6 +183,7 @@ pr-branch-staleness.yml	pr-staleness	unchanged	pr-branch-staleness.yml	pr-stalen
 pr-collisions-selftest.yml	selftest	unchanged	pr-collisions-selftest.yml	selftest
 privacy-spine.yml	privacy-spine	unchanged	privacy-spine.yml	privacy-spine
 py311-syntax-gate.yml	py311	unchanged	py311-syntax-gate.yml	py311
+reader-schema-fails-loud.yml	reader-schema	unchanged	reader-schema-fails-loud.yml	reader-schema
 reclassify-subject-names-wired.yml	reclassify-subject-names-wired	unchanged	reclassify-subject-names-wired.yml	reclassify-subject-names-wired
 red-main-opens-an-issue.yml	report	unchanged	red-main-opens-an-issue.yml	report
 red-merge-audit.yml	predicate	unchanged	red-merge-audit.yml	predicate
@@ -227,6 +229,7 @@ tests-unwired-sweep-mz.yml	shell-macos	unchanged	tests-unwired-sweep-mz.yml	shel
 the-trial-must-actually-end.yml	subscription-spine	unchanged	the-trial-must-actually-end.yml	subscription-spine
 timeline-dates-with-offset.yml	timeline-dates-with-offset	unchanged	timeline-dates-with-offset.yml	timeline-dates-with-offset
 total-steps-denominator-ratchet.yml	ratchet	unchanged	total-steps-denominator-ratchet.yml	ratchet
+uninstall-removal-honesty.yml	uninstall-leaves-no-ostler-behind	unchanged	uninstall-removal-honesty.yml	uninstall-leaves-no-ostler-behind
 uninstall-removal-honesty.yml	uninstall-removal-honesty	unchanged	uninstall-removal-honesty.yml	uninstall-removal-honesty
 unreachable-not-absence.yml	denied-read	unchanged	unreachable-not-absence.yml	denied-read
 unreachable-not-absence.yml	driver-not-box	unchanged	unreachable-not-absence.yml	driver-not-box

@@ -192,6 +192,7 @@ test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/fold-macos-14.yml
 test_cm048_exit_75_when_the_sink_is_unreachable.py	WIRED	.github/workflows/catchup-machinery.yml
 test_cm048_gateway_extracts_owner_turns_only.py	WIRED	.github/workflows/fold-py-matrix.yml
 test_cm048_handle_resolver.py	WIRED	.github/workflows/fold-py-matrix.yml
+test_cm048_multilingual_vendored.py	WIRED	.github/workflows/cm048-multilingual-output.yml
 test_cm048_participants_as_strings.py	WIRED	.github/workflows/fold-py-matrix.yml
 test_cm048_participants_line_display_names_only.py	WIRED	.github/workflows/fold-py-matrix.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -451,6 +452,7 @@ test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
 test_interest_card_says_what_and_where.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_interval_agents_are_quiesced_before_their_programs_move.sh	WIRED	.github/workflows/fold-macos-14.yml
 test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
+test_junk_names_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_kinship_label_write_guard_vendored.py	WIRED	.github/workflows/fold-py-matrix.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -590,6 +592,7 @@ test_port_preflight_recognises_own_colima_567.sh	WIRED	.github/workflows/fold-ma
 test_port_preflight_survives_a_held_port.sh	WIRED	.github/workflows/fold-macos-14.yml
 test_post_walk_qa_measures_the_artefact.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/fold-macos-latest.yml
+test_pr_age_review_by_ignores_an_inline_comment.sh	WIRED	.github/workflows/fold-macos-latest.yml
 test_pr_gate_aggregate.sh	WIRED	.github/workflows/ci-required-gate.yml
 test_precondition_one_settles_like_every_later_opening.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_pref_noise_source_cap.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -618,6 +621,7 @@ test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-p
 test_qdrant_membership_not_cardinality.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_quick_note_reaches_knowledge_store.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
+test_reader_schema_mismatch_fails_loud.py	WIRED	.github/workflows/reader-schema-fails-loud.yml
 test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/fold-macos-latest.yml
 test_real_person_link_miss_classified.py	WIRED	.github/workflows/walk-record-gate.yml
@@ -816,9 +820,12 @@ test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/fold-macos-14.yml
 test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
+test_uninstall_colima_and_data_choices.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
+test_uninstall_leaves_no_ostler_behind.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/fold-macos-latest.yml
 test_uninstall_stops_what_it_deletes.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstall_writes_deliberate_stop_marker.sh	WIRED	.github/workflows/fold-macos-latest.yml
+test_uninstaller_app_decoder_and_flags.sh	WIRED	.github/workflows/swift-tests.yml
 test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstaller_keep_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_universal_import_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -860,6 +867,7 @@ test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
 test_vendor_pair_drift.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
+test_vendored_cm059_frontpage_holds_back_consent_cards.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_cm059_renders_a_birthday_card_with_no_body.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/fold-py-matrix.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/fold-macos-14.yml

@@ -60,7 +60,7 @@ index b33f69cb..a75ce107 100644
                  return 200 <= resp.status < 300
          except Exception:
 diff --git a/frontpage.py b/frontpage.py
-index 91a7d057..38911dba 100644
+index 91a7d057..adf2db98 100644
 --- a/frontpage.py
 +++ b/frontpage.py
 @@ -357,6 +357,134 @@ def pro_locked_card(now: datetime) -> dict:
@@ -361,6 +361,19 @@ index 91a7d057..38911dba 100644
      now = now or datetime.now(timezone.utc)
      phase = decide_phase(profile, settling)
      cards: list[dict] = []
+@@ -874,6 +1096,12 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
+     cards = drop_resting(cards)
+     cards = privacy_gate(cards)
+     cards = entitlement_gate(cards, entitled, now)
++    # A card must never appear without a working action. The app routes only
++    # open_interest_profile; the consent_grant:<key> verb a consent card
++    # carries has no route from the app to the writer (the Doctor feedback
++    # route rejects it), so the card would show with no button. Held back
++    # until the consent writer is reachable (owed). Walk #27, 2026-10-14.
++    cards = [c for c in cards if c.get("kind") != "consent"]
+     cards.sort(key=lambda c: c.get("priority", 0.0), reverse=True)
+     cards = dedup_by_id(cards)
+     cards = _apply_feed_caps(cards)
 diff --git a/interest_profile.py b/interest_profile.py
 index 5eaf7c1e..b0e6f204 100644
 --- a/interest_profile.py

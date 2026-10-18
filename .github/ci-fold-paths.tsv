@@ -120,6 +120,8 @@ py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	vendor/cm
 py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	vendor/cm041/contact_syncer/syncer.py
 py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	vendor/cm041/identity_resolver/resolver.py
 py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	tests/test_kinship_label_write_guard_vendored.py
+py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	contact_syncer/instagram_social.py
+py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	contact_syncer/tests/test_instagram_handle_is_not_a_name.py
 py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	scripts/ci_fold.py
 py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	.github/ci-fold-paths.tsv
 py-matrix	b11	kinship-label-write-guard.yml::kinship-label-write-guard	.github/workflows/fold-py-matrix.yml
@@ -225,6 +227,7 @@ py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant
 py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant	vendor/cm041/assistant_api/ical-server.py
 py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant	tests/test_canonicalise_syncs_qdrant.py
 py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant	vendor/cm041/assistant_api/tests/test_people_list_endpoint.py
+py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant	vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py
 py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant	vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py
 py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant	vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py
 py-matrix	b25	walk6-people-list-correctness-guard.yml::canonicalise-syncs-qdrant	vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
@@ -238,6 +241,7 @@ py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	v
 py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	vendor/cm041/assistant_api/ical-server.py
 py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	tests/test_canonicalise_syncs_qdrant.py
 py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	vendor/cm041/assistant_api/tests/test_people_list_endpoint.py
+py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py
 py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py
 py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py
 py-matrix	b26	walk6-people-list-correctness-guard.yml::people-list-correctness	vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
@@ -251,6 +255,7 @@ py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-
 py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-list-filters	vendor/cm041/assistant_api/ical-server.py
 py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-list-filters	tests/test_canonicalise_syncs_qdrant.py
 py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-list-filters	vendor/cm041/assistant_api/tests/test_people_list_endpoint.py
+py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-list-filters	vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py
 py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-list-filters	vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py
 py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-list-filters	vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py
 py-matrix	b27	walk6-people-list-correctness-guard.yml::suggestions-apply-people-list-filters	vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
@@ -264,6 +269,7 @@ py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merg
 py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merged-names	vendor/cm041/assistant_api/ical-server.py
 py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merged-names	tests/test_canonicalise_syncs_qdrant.py
 py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merged-names	vendor/cm041/assistant_api/tests/test_people_list_endpoint.py
+py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merged-names	vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py
 py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merged-names	vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py
 py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merged-names	vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py
 py-matrix	b28	walk6-people-list-correctness-guard.yml::person-context-finds-merged-names	vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
@@ -277,6 +283,7 @@ py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-pr
 py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-proactive-surfaces	vendor/cm041/assistant_api/ical-server.py
 py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-proactive-surfaces	tests/test_canonicalise_syncs_qdrant.py
 py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-proactive-surfaces	vendor/cm041/assistant_api/tests/test_people_list_endpoint.py
+py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-proactive-surfaces	vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py
 py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-proactive-surfaces	vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py
 py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-proactive-surfaces	vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py
 py-matrix	b29	walk6-people-list-correctness-guard.yml::deceased-excluded-from-proactive-surfaces	vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py
@@ -555,6 +562,7 @@ macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_editor_fee
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_the_front_page_cards_only_real_interests.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_interest_card_says_what_and_where.py
+macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_hub_interest_card_shows_a_handle_as_at_handle.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	tests/test_hub_screens_real_person_name_never_printed.py
 macos-14	b17	hub-screens-and-106c.yml::owner-employer-seed	scripts/box_walk_probes/lib/owner_digest.py
@@ -612,6 +620,7 @@ macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_edit
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_the_front_page_cards_only_real_interests.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_interest_card_says_what_and_where.py
+macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_hub_interest_card_shows_a_handle_as_at_handle.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	tests/test_hub_screens_real_person_name_never_printed.py
 macos-14	b18	hub-screens-and-106c.yml::conversation-capture-seed	scripts/box_walk_probes/lib/owner_digest.py
@@ -869,6 +878,7 @@ macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_a_bundle_na
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/verify_no_env_trust_anchors.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/tests/test_no_env_trust_anchors.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_pr_age_gate_declares_partial_runs.sh
+macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_pr_age_review_by_ignores_an_inline_comment.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/provenance_gate.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/verify_stapling.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/verify_commit_parity.sh
