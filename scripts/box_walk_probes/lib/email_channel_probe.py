@@ -55,7 +55,31 @@ import time
 OWNER = "owner@example.test"
 STRANGER = "stranger@example.test"
 ASSISTANT = "assistant@example.test"
-PASSWORD = "loopback-only-password"  # synthetic; the mock accepts it
+PASSWORD = "loopback-only-password"  # synthetic; the mock accepts ONLY this
+
+
+def _imap_login_args(args: str) -> list[str]:
+    """LOGIN's two arguments, quoted strings or atoms (RFC 3501)."""
+    out, i = [], 0
+    while i < len(args):
+        if args[i] == " ":
+            i += 1
+            continue
+        if args[i] == '"':
+            j, buf = i + 1, []
+            while j < len(args) and args[j] != '"':
+                if args[j] == "\\" and j + 1 < len(args):
+                    j += 1
+                buf.append(args[j])
+                j += 1
+            out.append("".join(buf))
+            i = j + 1
+        else:
+            j = args.find(" ", i)
+            j = len(args) if j < 0 else j
+            out.append(args[i:j])
+            i = j
+    return out
 N_PRE = 5
 UIDVALIDITY = 4242
 
@@ -66,6 +90,7 @@ class Mailbox:
         self.msgs: list[dict] = []  # {uid, raw, seen}
         self.next_uid = 1
         self.logins = 0
+        self.auth_failures = 0
         self.searches = 0
 
     def add(self, raw: bytes, seen: bool = False) -> int:
@@ -128,8 +153,14 @@ class ImapServer:
                     send("* CAPABILITY IMAP4rev1")
                     send(f"{tag} OK CAPABILITY completed")
                 elif cmd == "LOGIN":
-                    self.box.logins += 1
-                    send(f"{tag} OK LOGIN completed")
+                    # #1976: the credential is CHECKED, so a daemon that never
+                    # found the password cannot pass by sending an empty one.
+                    if _imap_login_args(args) == [ASSISTANT, PASSWORD]:
+                        self.box.logins += 1
+                        send(f"{tag} OK LOGIN completed")
+                    else:
+                        self.box.auth_failures += 1
+                        send(f"{tag} NO [AUTHENTICATIONFAILED] bad credentials")
                 elif cmd in ("SELECT", "EXAMINE"):
                     n = len(self.box.msgs)
                     send(f"* {n} EXISTS")
@@ -218,6 +249,7 @@ class ImapServer:
 class SmtpSink:
     def __init__(self) -> None:
         self.sent: list[dict] = []  # {rcpt, msg}
+        self.auth_failures = 0
         self.phase = "start"
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -239,15 +271,32 @@ class SmtpSink:
                     send("250-AUTH PLAIN LOGIN")
                     send("250 8BITMIME")
                 elif up.startswith("AUTH PLAIN"):
-                    send("235 2.7.0 ok")
+                    b64 = t.split(" ", 2)[2] if len(t.split(" ")) > 2 else ""
+                    if not b64:
+                        send("334 ")
+                        await writer.drain()
+                        b64 = (await reader.readline()).decode(errors="replace").strip()
+                    try:
+                        parts = base64.b64decode(b64).split(b"\0")
+                    except Exception:
+                        parts = []
+                    good = parts[-2:] == [ASSISTANT.encode(), PASSWORD.encode()]
+                    self.auth_failures += 0 if good else 1
+                    send("235 2.7.0 ok" if good else "535 5.7.8 bad credentials")
                 elif up.startswith("AUTH LOGIN"):
                     send("334 VXNlcm5hbWU6")
                     await writer.drain()
-                    await reader.readline()
+                    u = (await reader.readline()).strip()
                     send("334 UGFzc3dvcmQ6")
                     await writer.drain()
-                    await reader.readline()
-                    send("235 2.7.0 ok")
+                    pw = (await reader.readline()).strip()
+                    try:
+                        good = (base64.b64decode(u), base64.b64decode(pw)) == (
+                            ASSISTANT.encode(), PASSWORD.encode())
+                    except Exception:
+                        good = False
+                    self.auth_failures += 0 if good else 1
+                    send("235 2.7.0 ok" if good else "535 5.7.8 bad credentials")
                 elif up.startswith("MAIL FROM"):
                     rcpts = []
                     send("250 ok")
@@ -348,7 +397,7 @@ smtp_host = "127.0.0.1"
 smtp_port = {smtp}
 smtp_tls = false
 username = "{ASSISTANT}"
-password = "{PASSWORD}"
+password = ""
 from_address = "{ASSISTANT}"
 poll_interval_secs = 1
 allowed_senders = [{allowed_toml}]
@@ -357,6 +406,19 @@ allowed_senders = [{allowed_toml}]
     with open(p, "w") as f:
         f.write(text)
     os.chmod(p, 0o600)
+
+
+def write_password_secret(home: str) -> str:
+    """What CM051 install.sh ships since #1976: config.toml says password = ""
+    and the value is in ~/.ostler/secrets/email_password, mode 0600, no
+    trailing newline. The daemon must find it there or every login fails."""
+    d = os.path.join(home, ".ostler", "secrets")
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    p = os.path.join(d, "email_password")
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(PASSWORD)
+    return p
 
 
 class Daemon:
@@ -418,6 +480,7 @@ async def drive(binary: str, keep: str | None) -> dict:
     imap_srv = await asyncio.start_server(ImapServer(box).handle, "127.0.0.1", imap_port)
     smtp_srv = await asyncio.start_server(sink.handle, "127.0.0.1", smtp_port)
     write_config(os.path.join(root, "cfg"), imap_port, smtp_port, llm_port, [OWNER])
+    write_password_secret(os.path.join(root, "home"))
     d = Daemon(binary, root, "daemon.log")
     facts: dict = {"pre_existing": N_PRE, "daemon_started": False}
     try:
@@ -469,6 +532,10 @@ async def drive(binary: str, keep: str | None) -> dict:
         await asyncio.sleep(5)
         facts["logins_after_restart"] = box.logins
         facts["searches"] = box.searches
+        # #1976: a daemon that did not find ~/.ostler/secrets/email_password
+        # shows up here, not as a silent "no reply".
+        facts["imap_auth_failures"] = box.auth_failures
+        facts["smtp_auth_failures"] = sink.auth_failures
         facts["replies"] = [{
             "phase": s["phase"],
             "to": ",".join(s["rcpt"]),
@@ -683,6 +750,23 @@ def server_test() -> int:
             typ, d = c.uid("SEARCH", None, "UID 1:* UNSEEN")
             out.append("after_fetch:" + d[0].decode())
             c.logout()
+            # Negative control: the mocks REFUSE a wrong or empty password,
+            # so a daemon that never found its secret cannot pass the walk.
+            for wrong in ("", "not-the-password"):
+                c2 = imaplib.IMAP4("127.0.0.1", ip)
+                try:
+                    c2.login(ASSISTANT, wrong or '""')
+                    out.append("imap_wrong:ACCEPTED")
+                except imaplib.IMAP4.error:
+                    out.append("imap_wrong:refused")
+                c2.shutdown()
+                s2 = smtplib.SMTP("127.0.0.1", sp)
+                try:
+                    s2.login(ASSISTANT, wrong)
+                    out.append("smtp_wrong:ACCEPTED")
+                except smtplib.SMTPAuthenticationError:
+                    out.append("smtp_wrong:refused")
+                s2.close()
             s = smtplib.SMTP("127.0.0.1", sp)
             s.login(ASSISTANT, PASSWORD)
             s.sendmail(ASSISTANT, [OWNER], "Subject: Re: x\r\nIn-Reply-To: <a@b>\r\n\r\nbody\r\n")
@@ -692,7 +776,8 @@ def server_test() -> int:
         res = await loop.run_in_executor(None, client)
         isrv.close()
         ssrv.close()
-        want = ["login:OK", "select:OK", "search:2 3", "high:3", "fetch:m1", "after_fetch:1 3"]
+        want = ["login:OK", "select:OK", "search:2 3", "high:3", "fetch:m1", "after_fetch:1 3",
+                "imap_wrong:refused", "smtp_wrong:refused", "imap_wrong:refused", "smtp_wrong:refused"]
         ok = res == want and len(sink.sent) == 1 and sink.sent[0]["rcpt"] == [OWNER] \
             and sink.sent[0]["msg"]["In-Reply-To"] == "<a@b>"
         print("server-test", "PASS" if ok else f"FAIL got={res} sent={len(sink.sent)}")
