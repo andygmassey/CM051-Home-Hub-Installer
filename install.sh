@@ -16534,9 +16534,9 @@ umask 0077
 # below tells the assistant to read it from there.
 #
 # To change it, re-run the installer, or replace the contents of
-# that file. Giving Ostler an app-specific password rather than
-# your main one is still the better choice: Apple, Google and
-# Fastmail all issue them and they can be revoked on their own.
+# that file. An app-specific password is still a better choice
+# than your main one: Apple, Google and Fastmail all issue them,
+# and they can be revoked on their own.
 
 # Schema version this file was written against. Matches
 # CURRENT_SCHEMA_VERSION in crates/zeroclaw-config/src/migration.rs

@@ -54,10 +54,10 @@ fi
 # run_region <case-dir> [env...]: one install of the region in its own HOME.
 run_region() {
     local d="$1"; shift
-    mkdir -p "${d}/home/.ostler/secrets" "${d}/home/.ostler/assistant-config"
-    env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="${d}/home" \
-        OSTLER_DIR="${d}/home/.ostler" SECRETS_DIR="${d}/home/.ostler/secrets" \
-        ASSISTANT_CONFIG="${d}/home/.ostler/assistant-config/config.toml" \
+    mkdir -p "${d}/hm/.ostler/secrets" "${d}/hm/.ostler/assistant-config"
+    env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="${d}/hm" \
+        OSTLER_DIR="${d}/hm/.ostler" SECRETS_DIR="${d}/hm/.ostler/secrets" \
+        ASSISTANT_CONFIG="${d}/hm/.ostler/assistant-config/config.toml" \
         CHANNEL_IMESSAGE_ENABLED=false CHANNEL_WHATSAPP_ENABLED=false \
         CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false CHANNEL_EMAIL_USERNAME=assistant@example.invalid \
         CHANNEL_EMAIL_FROM=assistant@example.invalid CHANNEL_EMAIL_IMAP_HOST=imap.example.invalid \
@@ -77,10 +77,12 @@ run_region() {
         ' _ "$HELPERS" "$REGION" > "${d}/install.log" 2>&1
     echo $? > "${d}/rc"
 }
-cfg_of() { printf '%s' "$1/home/.ostler/assistant-config/config.toml"; }
-sec_of() { printf '%s' "$1/home/.ostler/secrets/email_password"; }
+cfg_of() { printf '%s' "$1/hm/.ostler/assistant-config/config.toml"; }
+sec_of() { printf '%s' "$1/hm/.ostler/secrets/email_password"; }
 has() { /usr/bin/grep -qF -- "$2" "$1" 2>/dev/null; }
-mode_of() { /usr/bin/stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+# GNU first: on Linux `stat -f` means FILESYSTEM status and succeeds, so the
+# BSD form cannot be tried first. BSD stat has no -c and falls through.
+mode_of() { stat -c '%a' "$1" 2>/dev/null || /usr/bin/stat -f '%Lp' "$1"; }
 
 MARK="synthetic-pw-$$-$RANDOM"
 
@@ -96,7 +98,7 @@ if [ "$(mode_of "$(sec_of "$A")" 2>/dev/null)" = 600 ]; then ok "A: secrets file
 if has "$A/install.log" "$MARK"; then bad "A: the install output contains the password"; else ok "A: the install output does not contain the password ($(wc -l < "$A/install.log" | tr -d ' ') lines read)"; fi
 
 echo "-- B. upgrade over an old config holding the password in plain text --"
-B="${WORK}/B"; mkdir -p "$B/home/.ostler/assistant-config"
+B="${WORK}/B"; mkdir -p "$B/hm/.ostler/assistant-config"
 cat > "$(cfg_of "$B")" <<EOF
 schema_version = 2
 
@@ -125,14 +127,14 @@ if has "$B/install.log" 'Moved the email password out of config.toml'; then ok "
 if has "$B/install.log" "$MARK"; then bad "B: the install output contains the password"; else ok "B: the install output does not contain the password"; fi
 
 echo "-- C. an enc2: value is left alone --"
-C="${WORK}/C"; mkdir -p "$C/home/.ostler/assistant-config"
+C="${WORK}/C"; mkdir -p "$C/hm/.ostler/assistant-config"
 printf '[channels.email]\nenabled = true\npassword = "enc2:00aa11bb"\nallowed_senders = []\n' > "$(cfg_of "$C")"
 run_region "$C" OLD_CONFIG=1 CHANNEL_EMAIL_ENABLED=false CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
 if has "$(cfg_of "$C")" 'password = "enc2:00aa11bb"'; then ok "C: enc2 ciphertext kept in config.toml"; else bad "C: enc2 ciphertext was rewritten"; fi
 if [ -e "$(sec_of "$C")" ]; then bad "C: a secrets file was invented from ciphertext"; else ok "C: no secrets file written for ciphertext"; fi
 
 echo "-- D. no email channel: a stale secrets file is removed --"
-D="${WORK}/D"; mkdir -p "$D/home/.ostler/secrets"; printf 'stale' > "$(sec_of "$D")"
+D="${WORK}/D"; mkdir -p "$D/hm/.ostler/secrets"; printf 'stale' > "$(sec_of "$D")"
 run_region "$D" CHANNEL_EMAIL_ENABLED=false CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
 if [ -e "$(sec_of "$D")" ]; then bad "D: a stale mailbox credential survived the channel being removed"; else ok "D: stale secrets file removed"; fi
 
