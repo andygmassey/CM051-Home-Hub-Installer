@@ -87,13 +87,18 @@ awk '/^OSTLER_LANG="\$\{OSTLER_LANG:-en-GB\}"/{on=1} on{print} /^unset _STRINGS_
 probe() {  # $1 = OSTLER_LANG value -> prints MSG_STEP_CHECKING_PREREQUISITES
     env -i OSTLER_LANG="$1" SCRIPT_DIR="$scratch" /bin/bash -c 'source "$1"; printf "%s" "$MSG_STEP_CHECKING_PREREQUISITES"' _ "$loader"
 }
-en_val="$(probe en-GB)"
-[ "$en_val" = "Checking prerequisites" ] || bad "loader control: en-GB gave '$en_val'"
+# Expected value per file, read straight from that file (not "differs from
+# English": a key whose English changed falls back to English legitimately).
+want() { env -i /bin/bash -c 'source "$1"; printf "%s" "$MSG_STEP_CHECKING_PREREQUISITES"' _ "$scratch/install.sh.strings.$1.sh"; }
+# A marker only the selected file carries proves WHICH file the loader sourced.
+for l in en-GB $LANGS; do printf '\nMSG_L10N_PROBE_MARK="%s"\n' "$l" >> "$scratch/install.sh.strings.$l.sh"; done
+mark() { env -i OSTLER_LANG="$1" SCRIPT_DIR="$scratch" /bin/bash -c 'source "$1"; printf "%s" "$MSG_L10N_PROBE_MARK"' _ "$loader"; }
+[ "$(mark en-GB)" = "en-GB" ] || bad "loader control: en-GB sourced '$(mark en-GB)'"
 for l in $LANGS; do
-    v="$(probe "$l")"
-    [ -n "$v" ] && [ "$v" != "$en_val" ] || bad "loader: OSTLER_LANG=$l still printed '$v'"
+    [ "$(mark "$l")" = "$l" ] || bad "loader: OSTLER_LANG=$l sourced '$(mark "$l")'"
+    [ "$(probe "$l")" = "$(want "$l")" ] || bad "loader: OSTLER_LANG=$l value differs from its file"
 done
-[ "$(probe xx)" = "$en_val" ] || bad "loader: unknown OSTLER_LANG did not fall back to en-GB"
+[ "$(mark xx)" = "en-GB" ] || bad "loader: unknown OSTLER_LANG did not fall back to en-GB"
 
 # 5. GUI JSON catalogues.
 /usr/bin/python3 -I - $LANGS <<'PY' || fail=1
