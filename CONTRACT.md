@@ -37,13 +37,13 @@ Example (synthetic):
 ```toml
 [email_assistant]
 enabled = true
-address = "tess.assistant@icloud.com"
+address = "tess.assistant@icloud.example"
 provider = "icloud"
 imap_host = "imap.mail.me.com"
 imap_port = 993
 smtp_host = "smtp.mail.me.com"
 smtp_port = 587
-secret_ref = "keychain:Ostler Assistant Mailbox:tess.assistant@icloud.com"
+secret_ref = "keychain:Ostler Assistant Mailbox:tess.assistant@icloud.example"
 owner_addresses_verified = []
 hello_message_id = "<hello1@icloud.example>"
 ```

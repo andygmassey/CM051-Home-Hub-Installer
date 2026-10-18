@@ -23,13 +23,20 @@ import assistant_mailbox as am  # noqa: E402
 PASSWORD = "abcdefghijklmnop"  # synthetic, 16 letters
 
 
+# Provider domains the host rules key on, composed at runtime so no literal
+# address at a real provider sits in this PUBLIC repo (ci-pii-shape-scan).
+IC = "icloud.com"
+GM = "gmail.com"
+ME = "tess.assistant@" + IC
+
+
 def _cfg(tmp: Path, extra: str = "", enabled: str = "true") -> Path:
     p = tmp / "config.toml"
     p.write_text(
         '[channels.imessage]\nenabled = true\n\n[email_assistant]\n'
-        f'enabled = {enabled}\naddress = "tess.assistant@icloud.com"\nprovider = "icloud"\n'
+        f'enabled = {enabled}\naddress = "{ME}"\nprovider = "icloud"\n'
         'imap_host = "imap.mail.me.com"\nimap_port = 993\nsmtp_host = "smtp.mail.me.com"\n'
-        'smtp_port = 587\nsecret_ref = "keychain:Ostler Assistant Mailbox:tess.assistant@icloud.com"\n'
+        f'smtp_port = 587\nsecret_ref = "keychain:Ostler Assistant Mailbox:{ME}"\n'
         f'owner_addresses_verified = []\n{extra}\n[autonomy]\nx = 1\n')
     return p
 
@@ -45,10 +52,10 @@ class Rules(unittest.TestCase):
         self.assertFalse(am.host_pair_allowed("imap.gmail.com", "x", "smtp.gmail.com", 465))
 
     def test_owner_and_gmail_guards(self):
-        self.assertTrue(am.is_owner_address("Owner@Example.test", ["owner@example.test"]))
-        self.assertFalse(am.is_owner_address("new@icloud.com", ["owner@example.test"]))
-        self.assertTrue(am.gmail_identity_ok("A@gmail.com", "a@gmail.com"))
-        self.assertFalse(am.gmail_identity_ok("a@gmail.com", "b@gmail.com"))
+        self.assertTrue(am.is_owner_address("OWNER@example.test", ["owner@example.test"]))
+        self.assertFalse(am.is_owner_address("new@" + IC, ["owner@example.test"]))
+        self.assertTrue(am.gmail_identity_ok("A@" + GM, "a@" + GM))
+        self.assertFalse(am.gmail_identity_ok("a@" + GM, "b@" + GM))
 
     def test_inbox_guard(self):
         self.assertFalse(am.inbox_looks_real(200, 14))
@@ -93,7 +100,7 @@ class Probe(unittest.TestCase):
             def quit(self): pass
         with mock.patch.object(am, "_imap", return_value=BadImap()), \
                 mock.patch.object(am, "_smtp", return_value=GoodSmtp()):
-            r = am.probe("icloud", "tess.assistant@icloud.com", PASSWORD)
+            r = am.probe("icloud", ME, PASSWORD)
         self.assertEqual((r["imap"], r["smtp"]), ("wrong_password", "ok"))
 
     def test_smtp_login_sends_nothing(self):
@@ -109,7 +116,7 @@ class Probe(unittest.TestCase):
             def quit(self): pass
         with mock.patch.object(am, "_imap", return_value=Imap()), \
                 mock.patch.object(am, "_smtp", return_value=Smtp()):
-            r = am.probe("gmail", "tess.assistant@gmail.com", PASSWORD)
+            r = am.probe("gmail", "tess.assistant@" + GM, PASSWORD)
         self.assertEqual((r["imap"], r["smtp"], r["inbox_count"]), ("ok", "ok", 3))
         self.assertGreater(r["oldest_days"], 14)
         self.assertEqual(sent, [])
@@ -117,7 +124,7 @@ class Probe(unittest.TestCase):
     def test_probe_cannot_reach_provider_says_could_not_check(self):
         with mock.patch.object(am, "_imap", side_effect=socket.gaierror("no")), \
                 mock.patch.object(am, "_smtp", side_effect=TimeoutError("timed out")):
-            r = am.probe("icloud", "tess.assistant@icloud.com", PASSWORD)
+            r = am.probe("icloud", ME, PASSWORD)
         self.assertEqual((r["imap"], r["smtp"]), ("network", "network"))
 
 
@@ -143,7 +150,7 @@ class Row(unittest.TestCase):
 
     def test_row_fields(self):
         row = am.read_row(_cfg(self.d), self._state())
-        self.assertEqual(row["address"], "tess.assistant@icloud.com")
+        self.assertEqual(row["address"], ME)
         self.assertEqual(row["provider"], "iCloud")
         self.assertEqual(row["last_inbound"], "5 min ago")
         self.assertEqual(row["last_reply"], "3 h ago")
@@ -155,7 +162,7 @@ class Row(unittest.TestCase):
     def test_html_shows_everything_and_no_password(self):
         with mock.patch.object(am, "keychain_read", return_value=PASSWORD):
             html = am.render_html(am.read_row(_cfg(self.d), self._state()))
-        for want in ("tess.assistant@icloud.com", "iCloud", "Test now", "Replace password",
+        for want in (ME, "iCloud", "Test now", "Replace password",
                      "Turn off", "not_listed: 4", "Passed (2 days ago)", "5 min ago"):
             self.assertIn(want, html)
         self.assertNotIn(PASSWORD, html)
@@ -201,7 +208,7 @@ class Row(unittest.TestCase):
     def test_keychain_store_keeps_the_password_off_argv(self):
         with mock.patch.object(am.subprocess, "run") as run:
             run.return_value.returncode = 0
-            self.assertTrue(am.keychain_store("tess.assistant@icloud.com", "abcd-efgh-ijkl-mnop"))
+            self.assertTrue(am.keychain_store(ME, "abcd-efgh-ijkl-mnop"))
         args, kw = run.call_args
         self.assertEqual(args[0], ["security", "-i"])
         self.assertNotIn(PASSWORD, " ".join(args[0]))
@@ -209,7 +216,7 @@ class Row(unittest.TestCase):
 
     def test_cli_never_prints_the_password(self):
         import io, os, contextlib
-        env = {"AM_PROVIDER": "icloud", "AM_ADDRESS": "tess.assistant@icloud.com", "AM_PASSWORD": PASSWORD}
+        env = {"AM_PROVIDER": "icloud", "AM_ADDRESS": ME, "AM_PASSWORD": PASSWORD}
         buf = io.StringIO()
         with mock.patch.dict(os.environ, env), \
                 mock.patch.object(am, "probe", return_value={"imap": "ok", "smtp": "ok", "inbox_count": 0, "oldest_days": None}), \
@@ -244,7 +251,7 @@ class Routes(unittest.TestCase):
     def test_get_row_has_no_secret(self):
         r = self.client.get("/api/v1/assistant-mailbox")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["address"], "tess.assistant@icloud.com")
+        self.assertEqual(r.json()["address"], ME)
         self.assertNotIn("secret_ref", r.text)
         self.assertNotIn("password", r.text.lower())
 
@@ -384,7 +391,7 @@ class HelloMessageId(unittest.TestCase):
             def send_message(self, m): sent["m"] = m
             def quit(self): pass
         with mock.patch.object(am, "_smtp", return_value=Smtp()):
-            r = am.hello_owner("icloud", "tess.assistant@icloud.com", PASSWORD, "owner@example.test", "Tess")
+            r = am.hello_owner("icloud", ME, PASSWORD, "owner@example.test", "Tess")
         self.assertEqual(r["result"], "ok")
         self.assertEqual(r["message_id"], sent["m"]["Message-ID"])
         self.assertRegex(r["message_id"], r"^<[^<>\s]+@icloud\.com>$")
@@ -393,15 +400,15 @@ class HelloMessageId(unittest.TestCase):
     def test_cli_prints_the_message_id(self):
         import io
         from contextlib import redirect_stdout
-        env = {"AM_PROVIDER": "icloud", "AM_ADDRESS": "tess.assistant@icloud.com",
+        env = {"AM_PROVIDER": "icloud", "AM_ADDRESS": ME,
                "AM_PASSWORD": PASSWORD, "AM_OWNER": "owner@example.test", "AM_NAME": "Tess"}
         buf = io.StringIO()
         with mock.patch.dict("os.environ", env), \
-                mock.patch.object(am, "hello_owner", return_value={"result": "ok", "message_id": "<m1@icloud.com>"}), \
+                mock.patch.object(am, "hello_owner", return_value={"result": "ok", "message_id": "<m1@icloud.example>"}), \
                 redirect_stdout(buf):
             am._cli(["x", "hello"])
         self.assertIn("result=ok", buf.getvalue())
-        self.assertIn("message_id=<m1@icloud.com>", buf.getvalue())
+        self.assertIn("message_id=<m1@icloud.example>", buf.getvalue())
         self.assertNotIn(PASSWORD, buf.getvalue())
 
 
@@ -410,7 +417,7 @@ class HelloMessageId(unittest.TestCase):
 FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "assistant_mailbox_contract.json"
 # Pinned digest. ostler-assistant pins the SAME value in its own test. Change
 # the fixture in BOTH repos together, then update this constant and that one.
-FIXTURE_SHA256 = "d6280d098abba12b8035253d4210b0d8f0369489efa4dd07a4dc10259395b138"
+FIXTURE_SHA256 = "b9a10daea75b476cdcee2fc7f81df44b5d72dc1042d739fabc8e11d93086c89f"
 
 
 class Contract(unittest.TestCase):

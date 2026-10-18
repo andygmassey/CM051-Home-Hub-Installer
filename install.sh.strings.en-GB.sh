@@ -1904,11 +1904,11 @@ This must not be your own email. Use a brand-new account.
 
 Suggested address: %s
 
-Choose Continue when the account exists."
+When the account exists, continue."
 MSG_PROMPT_AM_TWOSTEP_TITLE="Turn on two-step verification"
 MSG_PROMPT_AM_TWOSTEP_HELP="Sign in to the NEW account at %s and turn on two-step verification. App passwords only exist once it is on.
 
-Choose Continue when it is on."
+When it is on, continue."
 MSG_PROMPT_AM_APPPW_TITLE="Make an app password"
 MSG_PROMPT_AM_APPPW_ICLOUD_HELP="Sign in to the new account at https://account.apple.com/account/manage, then open Sign-In and Security, then App-Specific Passwords. Make one and name it Ostler. Apple shows it once, in four groups of four letters.
 

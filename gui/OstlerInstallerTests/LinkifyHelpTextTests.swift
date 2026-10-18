@@ -245,21 +245,21 @@ final class AssistantMailboxTests: XCTestCase {
     private let createHelp = """
     Open https://account.apple.com/account and create a NEW account.
 
-    Suggested address: tess.assistant@icloud.com
+    Suggested address: tess.assistant@icloud.example
 
-    Choose Continue when the account exists.
+    When the account exists, continue.
     """
 
     func testCreateScreenOffersThePageAndACopyReadyAddress() {
         let actions = AssistantMailbox.actions(promptId: "am_create", help: createHelp)
         XCTAssertEqual(actions, [
             .openURL(URL(string: "https://account.apple.com/account")!),
-            .copy("tess.assistant@icloud.com"),
+            .copy("tess.assistant@icloud.example"),
         ])
     }
 
     func testOnlyTheCreateScreenOffersCopy() {
-        let help = "Sign in at https://myaccount.google.com/apppasswords\nSuggested address: x@gmail.com"
+        let help = "Sign in at https://myaccount.google.com/apppasswords\nSuggested address: x@gmail.example"
         XCTAssertEqual(AssistantMailbox.actions(promptId: "am_app_password", help: help),
                        [.openURL(URL(string: "https://myaccount.google.com/apppasswords")!)])
     }

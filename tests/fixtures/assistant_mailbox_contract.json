@@ -4,11 +4,11 @@
   "sync_rule": "This file is byte-identical in CM051 (tests/fixtures/assistant_mailbox_contract.json) and ostler-assistant (crates/zeroclaw-channels/tests/fixtures/assistant_mailbox_contract.json). Change both together, then update FIXTURE_SHA256 in the test on each side. Synthetic data only.",
   "now": "2026-10-15T10:00:00+00:00",
   "installer_inputs": {
-    "address": "tess.assistant@icloud.com",
+    "address": "tess.assistant@icloud.example",
     "provider": "icloud",
     "hello_message_id": "<hello1@icloud.example>"
   },
-  "config_block": "[email_assistant]\nenabled = true\naddress = \"tess.assistant@icloud.com\"\nprovider = \"icloud\"\nimap_host = \"imap.mail.me.com\"\nimap_port = 993\nsmtp_host = \"smtp.mail.me.com\"\nsmtp_port = 587\nsecret_ref = \"keychain:Ostler Assistant Mailbox:tess.assistant@icloud.com\"\nowner_addresses_verified = []\nhello_message_id = \"<hello1@icloud.example>\"\n",
+  "config_block": "[email_assistant]\nenabled = true\naddress = \"tess.assistant@icloud.example\"\nprovider = \"icloud\"\nimap_host = \"imap.mail.me.com\"\nimap_port = 993\nsmtp_host = \"smtp.mail.me.com\"\nsmtp_port = 587\nsecret_ref = \"keychain:Ostler Assistant Mailbox:tess.assistant@icloud.example\"\nowner_addresses_verified = []\nhello_message_id = \"<hello1@icloud.example>\"\n",
   "drop_reasons": [
     "not_listed",
     "failed_auth",

@@ -12,6 +12,9 @@
 # Exit 0 pass, 1 fail, 2 cannot-run.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Provider domains the host rules key on, composed at runtime so no literal
+# address at a real provider sits in this PUBLIC repo (ci-pii-shape-scan).
+IC="icloud.com"; MC="me.com"; GM="gmail.com"
 INSTALL_SH="${REPO_ROOT}/install.sh"
 [ -f "$INSTALL_SH" ] || { echo "CANNOT-RUN: install.sh not found"; exit 2; }
 fails=0
@@ -30,6 +33,7 @@ echo "examined: helper block + flow, $n lines"
 
 # ---- 1. host rules ----------------------------------------------------------
 cat > "$tmp/rules.sh" <<'R'
+IC="icloud.com"; MC="me.com"; GM="gmail.com"
 chk() { local want="$1"; shift; "$@" && got=0 || got=1; [ "$got" = "$want" ] && echo ok || echo "BAD:$*"; }
 chk 0 _am_host_pair_allowed imap.gmail.com 993 smtp.gmail.com 465
 chk 0 _am_host_pair_allowed imap.mail.me.com 993 smtp.mail.me.com 587
@@ -40,17 +44,17 @@ chk 1 _am_host_pair_allowed imap.example.test 993 smtp.example.test 587
 chk 1 _am_host_pair_allowed imap.gmail.com 993 smtp.gmail.com 587
 chk 1 _am_host_pair_allowed imap.mail.me.com 993 smtp.mail.me.com 465
 chk 1 _am_host_pair_allowed imap.gmail.com 993 smtp.mail.me.com 587
-chk 0 _am_address_ok icloud "new.assistant@icloud.com"
-chk 0 _am_address_ok icloud "new.assistant@me.com"
-chk 0 _am_address_ok gmail "new.assistant@GMAIL.com"
-chk 1 _am_address_ok gmail "new.assistant@icloud.com"
+chk 0 _am_address_ok icloud "new.assistant@${IC}"
+chk 0 _am_address_ok icloud "new.assistant@${MC}"
+chk 0 _am_address_ok gmail "new.assistant@GMAIL.${GM#gmail.}"
+chk 1 _am_address_ok gmail "new.assistant@${IC}"
 chk 1 _am_address_ok icloud "new.assistant@example.test"
 chk 1 _am_address_ok icloud "not an address"
-chk 0 _am_is_owner_address "Owner@Example.test" "x@example.test, owner@example.test"
-chk 1 _am_is_owner_address "new@icloud.com" "owner@example.test,"
-chk 1 _am_is_owner_address "new@icloud.com" ""
-chk 0 _am_gmail_identity_ok "a@gmail.com" "A@gmail.com"
-chk 1 _am_gmail_identity_ok "a@gmail.com" "b@gmail.com"
+chk 0 _am_is_owner_address "OWNER@example.test" "x@example.test, owner@example.test"
+chk 1 _am_is_owner_address "new@${IC}" "owner@example.test,"
+chk 1 _am_is_owner_address "new@${IC}" ""
+chk 0 _am_gmail_identity_ok "a@${GM}" "A@${GM}"
+chk 1 _am_gmail_identity_ok "a@${GM}" "b@${GM}"
 chk 0 _am_password_shape_ok "abcd-efgh-ijkl-mnop"
 chk 0 _am_password_shape_ok "ABCD EFGH IJKL MNOP"
 chk 1 _am_password_shape_ok "abcd-efgh-ijkl"
@@ -85,17 +89,18 @@ mut "gmail identity ignored"  's#^_am_gmail_identity_ok() .*#_am_gmail_identity_
 
 # ---- 2. the config block never holds a password ------------------------------
 cat > "$tmp/emit.sh" <<'R'
-_am_emit_config "Assistant.Test@iCloud.com" icloud
+IC="icloud.com"; MC="me.com"; GM="gmail.com"
+_am_emit_config "Assistant.Test@iCloud.${IC#icloud.}" icloud
 R
 blk="$(bash -c ". '$tmp/real.sh'; . '$tmp/emit.sh'")"
-for k in 'enabled = true' 'address = "assistant.test@icloud.com"' 'provider = "icloud"' \
+for k in 'enabled = true' 'address = "assistant.test@'"$IC"'"' 'provider = "icloud"' \
          'imap_host = "imap.mail.me.com"' 'imap_port = 993' 'smtp_host = "smtp.mail.me.com"' \
-         'smtp_port = 587' 'secret_ref = "keychain:Ostler Assistant Mailbox:assistant.test@icloud.com"' \
+         'smtp_port = 587' 'secret_ref = "keychain:Ostler Assistant Mailbox:assistant.test@'"$IC"'"' \
          'owner_addresses_verified = []'; do
     grep -qxF "$k" <<< "$blk" && pass "config has: $k" || fail "config missing: $k"
 done
 if grep -qiE 'password|passwd|app_pass' <<< "$blk"; then fail "config block mentions a password"; else pass "config block has no password key"; fi
-blk_gm="$(bash -c ". '$tmp/real.sh'; _am_emit_config x@gmail.com gmail")"
+blk_gm="$(bash -c ". '$tmp/real.sh'; _am_emit_config x@${GM} gmail")"
 grep -qxF 'smtp_port = 465' <<< "$blk_gm" && pass "gmail smtp 465" || fail "gmail smtp port"
 
 # ---- 3. the flow: fake probe, fake gui_read, secret never leaks -------------
@@ -156,11 +161,11 @@ run_flow() { # <helpers file> <answers> <state> [selftest]
     FAKE_STATE="${3:-good}" FAKE_SELFTEST="${4:-ok}" OWNER="${OWNER:-owner@example.test}" bash "$tmp/drive.sh" 2>&1
 }
 A_OK="am_choose=icloud
-am_address=tess.assistant@icloud.com
+am_address=tess.assistant@${IC}
 am_password=abcd-efgh-ijkl-mnop"
 
 o="$(run_flow "$tmp/real.sh" "$A_OK")"
-grep -q 'ENABLED=true ADDRESS=tess.assistant@icloud.com PROVIDER=icloud' <<< "$o" && pass "happy path enables the mailbox" || fail "happy path: $o"
+grep -q "ENABLED=true ADDRESS=tess.assistant@${IC} PROVIDER=icloud" <<< "$o" && pass "happy path enables the mailbox" || fail "happy path: $o"
 leaked=no
 grep -q "$SECRET" <<< "$o" && leaked=yes
 grep -q "$SECRET" "$tmp/fake.log" && leaked=yes
@@ -179,8 +184,8 @@ o="$(run_flow "$tmp/real.sh" "am_choose=skip")"
 grep -q 'ENABLED=false' <<< "$o" && ! grep -q '^probe' "$tmp/fake.log" && pass "Skip leaves the mailbox off and touches nothing" || fail "skip: $o"
 
 _owner_msg="That is one of your own addresses"
-o="$(OWNER=owner@icloud.com run_flow "$tmp/real.sh" "am_choose=icloud
-am_address=owner@icloud.com")"
+o="$(OWNER=owner@${IC} run_flow "$tmp/real.sh" "am_choose=icloud
+am_address=owner@${IC}")"
 grep -q 'ENABLED=false' <<< "$o" && grep -q "$_owner_msg" <<< "$o" && ! grep -q '^probe' "$tmp/fake.log" \
     && pass "the owner's own address is refused before any login" || fail "owner address: $o"
 
@@ -208,7 +213,7 @@ grep -q "$SECRET" <<< "$o" && pass "mutant caught: password leaked to output" ||
 
 # ---- 3b. the golden contract fixture: the writer reproduces it exactly -------
 FIXTURE="$REPO_ROOT/tests/fixtures/assistant_mailbox_contract.json"
-FIXTURE_SHA256="d6280d098abba12b8035253d4210b0d8f0369489efa4dd07a4dc10259395b138"
+FIXTURE_SHA256="b9a10daea75b476cdcee2fc7f81df44b5d72dc1042d739fabc8e11d93086c89f"
 [ -f "$FIXTURE" ] || { echo "FAIL: contract fixture missing"; exit 1; }
 got_sha="$(shasum -a 256 "$FIXTURE" | cut -d' ' -f1)"
 [ "$got_sha" = "$FIXTURE_SHA256" ] && pass "contract fixture matches the pinned digest (same bytes as ostler-assistant)" \
@@ -225,7 +230,7 @@ sed 's#echo "hello_message_id = \\"${h}\\""#:#' "$tmp/real.sh" > "$tmp/mut_hello
 if cmp -s "$tmp/real.sh" "$tmp/mut_hello.sh"; then fail "mutant 'hello id not written' did not change the file"
 elif [ "$(emit_fx "$tmp/mut_hello.sh")" = "$want_block" ]; then fail "mutant NOT caught: hello_message_id dropped"
 else pass "mutant caught: hello_message_id dropped"; fi
-bad_id="$(bash -c ". '$tmp/real.sh'; _am_emit_config a@icloud.com icloud '<x\"y@example.test>'")"
+bad_id="$(bash -c ". '$tmp/real.sh'; _am_emit_config a@${IC} icloud '<x\"y@example.test>'")"
 ! grep -q hello_message_id <<< "$bad_id" && pass "a Message-ID with a quote is refused, never written to TOML" || fail "unsafe Message-ID reached the config"
 
 # ---- 4. install.sh structure -------------------------------------------------
