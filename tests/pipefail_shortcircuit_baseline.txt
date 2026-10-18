@@ -59,7 +59,6 @@ tests/test_dmg_contains_bundled_python.sh	1
 tests/test_email_folder_prompt.sh	1
 tests/test_email_ingest_bootstrap_guard.sh	2
 tests/test_email_ingest_loud_guard.sh	2
-tests/test_every_launchagent_is_torn_down.sh	1
 tests/test_fda_dialog_tells_the_truth.sh	1
 tests/test_fda_prewarm_no_early_messages_popup.sh	4
 tests/test_fda_rerun_ingests.sh	1

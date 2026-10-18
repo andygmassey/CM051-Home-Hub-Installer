@@ -31,6 +31,56 @@ from .settling_progress import report_settling_progress
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# A chat.db SCHEMA MISMATCH must fail LOUD, never return an empty list.
+#
+# chat.db is a system file whose schema macOS can change between releases. When
+# a SELECT names a column the installed schema no longer has, sqlite raises
+# OperationalError("no such column: ..."). This reader used to log that and
+# `return []`, which is INDISTINGUISHABLE at the consumer from "you have not
+# messaged anyone". Walk #30 ingested 0 of 1075 iMessages exactly this way (a
+# chat.db without `account_login`) and the whole owner-knowledge run scored
+# 0/80 while every source still reported "ok". A benign empty store raises
+# nothing and returns zero rows, so the OperationalError arm is ONLY ever a
+# reader/schema fault: it is re-raised as ChatDbSchemaError so the consumer
+# (extract_all) records the source as "error" (Doctor-visible) instead of a
+# green zero. The one OperationalError that is NOT a schema fault, a transient
+# "database is locked" while Messages writes, is left as a degrade-to-empty for
+# that one tick (an outage, not a broken reader).
+#
+# Kept in step with vendor/imessage_source/reader.py; recorded in
+# vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md.
+# ---------------------------------------------------------------------------
+class ChatDbSchemaError(RuntimeError):
+    """A chat.db query failed because the on-disk schema did not match what
+    this reader SELECTs. Raised LOUD, never swallowed into an empty list."""
+
+
+_SCHEMA_ERROR_MARKERS = (
+    "no such column",
+    "no such table",
+    "no such function",
+    "has no column named",
+    "malformed database schema",
+)
+
+
+def _raise_if_schema_mismatch(exc: sqlite3.OperationalError, what: str) -> None:
+    """Re-raise a schema-shaped OperationalError as ChatDbSchemaError.
+
+    A no-op for any other OperationalError (e.g. a transient lock), so the
+    caller keeps its existing degrade-to-empty for that narrow case.
+    """
+    if any(marker in str(exc).lower() for marker in _SCHEMA_ERROR_MARKERS):
+        raise ChatDbSchemaError(
+            f"iMessage chat.db {what} failed on a schema mismatch ({exc}). "
+            "This is a reader/schema fault (a macOS update likely changed the "
+            "chat.db columns), not an empty history, so it is refused rather "
+            "than reported as 0 messages."
+        ) from exc
+
+
 # Settling-progress cadence: emit a shard update whenever more than this many
 # seconds have passed since the last emit, or at the end of the loop. Per the
 # writer helper's docstring the cost story is disk I/O, not compute; ~30s
@@ -215,8 +265,9 @@ def extract_conversations(
             ORDER BY last_msg DESC
         """, (min_messages,)).fetchall()
     except sqlite3.OperationalError as e:
-        logger.error("Failed to query iMessage: %s", e)
         conn.close()
+        _raise_if_schema_mismatch(e, "conversation query")
+        logger.error("Failed to query iMessage: %s", e)
         return []
 
     conn.close()
@@ -352,8 +403,9 @@ def extract_messages(
             LIMIT ?
         """, (chat_id, limit)).fetchall()
     except sqlite3.OperationalError as e:
-        logger.error("Failed to query messages: %s", e)
         conn.close()
+        _raise_if_schema_mismatch(e, "message query")
+        logger.error("Failed to query messages: %s", e)
         return []
 
     conn.close()
