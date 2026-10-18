@@ -157,6 +157,8 @@ on:
       - 'tests/test_walk_driver_requires_a_completion_marker.sh'
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
       - 'tests/test_walk_driver_takes_owner_from_a_local_file.sh'
+      - 'tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh'
+      - 'scripts/lib_walk_owner.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
@@ -567,6 +569,14 @@ jobs:
       - name: The walk owner comes from a driver-local file, is withheld, and synthetic is declared
         if: always()
         run: bash tests/test_walk_driver_takes_owner_from_a_local_file.sh
+
+      # WALK #31, 2026-10-18: a non-owner test account was installed with the
+      # operator's real identity because the owner file was staged whenever it
+      # existed. The owner identity now goes ONLY to a declared owner target,
+      # an unevaluable predicate refuses, and the record is scanned for it.
+      - name: The owner identity goes only to a declared owner target, and the record is scanned for it
+        if: always()
+        run: bash tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh
 
       # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
       # ABOUT. Measured on ttywalk run 3: the marker read

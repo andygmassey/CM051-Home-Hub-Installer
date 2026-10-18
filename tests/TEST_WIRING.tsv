@@ -384,6 +384,7 @@ test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_triggers_wiki_recompile_on_change.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_gateway_conversations_reach_the_store.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_gateway_never_serves_a_stored_secret.sh	WIRED	.github/workflows/gateway-secret-probe.yml
 test_gateway_pairing_is_explicit.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_gdpr_folder_access_denied.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -890,6 +891,7 @@ test_walk_driver_does_not_inherit_a_stale_result.sh	WIRED	.github/workflows/walk
 test_walk_driver_requires_a_completion_marker.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_driver_takes_owner_from_a_local_file.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_driver_takes_ports_from_the_declared_field.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_walk_owner_identity_only_on_a_declared_owner_target.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_pass_requires_zero_failed_steps.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_port_probe_matches_install_sh.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_probes_bypass_a_local_proxy.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
