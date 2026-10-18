@@ -29,6 +29,7 @@ from pathlib import Path
 
 from . import attribution
 from . import capture_truth as _capture_truth
+from . import language as _language
 from . import prompts
 from . import enrichment_validation
 from . import bulk_classifier as _bulk_classifier
@@ -1251,6 +1252,7 @@ User name: {settings.user_display_name}
 Other name: {other_name}
 Locale: {settings.locale}
 
+{_language_block(settings, metadata, chunks_body)}
 --- CONVENTIONS ---
 {conventions}
 
@@ -1309,6 +1311,7 @@ User name: {settings.user_display_name}
 Other name: {other_name}
 Locale: {settings.locale}
 
+{_language_block(settings, metadata, chunks_body)}
 --- CONVENTIONS ---
 {conventions}
 
@@ -1402,6 +1405,13 @@ def _fix_speaker_subjects(facts: list[dict], metadata: dict) -> list[dict]:
     return facts
 
 
+def _language_block(settings, metadata: dict, text: str) -> str:
+    """Output-language instruction (see src/language.py)."""
+    return _language.language_instruction(
+        _language.resolve_output_language(settings, metadata, text)
+    )
+
+
 def _build_enrichment_input(
     transcript_chunk: str,
     metadata: dict,
@@ -1452,6 +1462,7 @@ Redaction policy: financial={settings.redaction.financial} medical={settings.red
 """
     if chunk_note:
         body += f"Note: {chunk_note}\n"
+    body += "\n" + _language_block(settings, metadata, transcript_chunk)
     body += f"""
 --- CONVENTIONS ---
 {conventions}
@@ -2389,6 +2400,9 @@ def _step_bundle(
             channel=str(metadata.get("channel") or "spoken"),
             model=settings.ollama_enrich_model,
             locale=settings.locale,
+            output_language=_language.resolve_output_language(
+                settings, metadata, transcript
+            ),
             timeout=600.0,
         )
         write_json(bundle_json_path, extraction.to_dict())

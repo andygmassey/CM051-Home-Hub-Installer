@@ -39,18 +39,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install pytest
-        run: python -m pip install --quiet pytest
+      - name: Install pytest and pyoxigraph
+        # pyoxigraph is the SPARQL engine for TestRoundTripOnARealSparqlEngine;
+        # without it that class would skip, and the step below refuses a skip.
+        run: python -m pip install --quiet pytest pyoxigraph
       - name: Commitments extension and detector write routes
         if: always()
         run: |
           n="$(python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 19 ]; then
-            echo "REFUSING: expected at least 19 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 23 ]; then
+            echo "REFUSING: expected at least 23 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py -v
+          set -o pipefail
+          python -m pytest vendor/cm041/assistant_api/tests/test_commitments_detected.py -v -rs | tee "$RUNNER_TEMP/commitments.out"
+          skipped="$(grep -c 'SKIPPED' "$RUNNER_TEMP/commitments.out")" || skipped=0
+          if [ "${skipped}" -ne 0 ]; then
+            echo "REFUSING: ${skipped} test(s) skipped; the real-engine round trip did not run." >&2
+            exit 1
+          fi
       - name: Handle resolution
         if: always()
         run: |

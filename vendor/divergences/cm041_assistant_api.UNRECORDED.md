@@ -1343,12 +1343,36 @@ token. The new route is recorded against the `doctor` tree in
 `WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
 Regenerate the contract after any sync.
 
+## Decisions tool reads the wiki Decisions store (CM051 v1.0.108, wow gate item 2)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #211, pre-merge head
+`8bb544210dcb4857da304326bb75c0affa945c07` (acked in `hold_ack_shas`; swap for
+the squash sha on merge). The ical-server.py hunks applied unchanged.
+
+`decisions_list` (GET /api/v1/decisions, what the assistant's `pwg_decisions`
+tool calls) read only Oxigraph `pwg:Decision` nodes, while the wiki Decisions
+page reads the Qdrant `conversations` collection (`type == "decision"`). Added
+`_decision_facts_from_conversations` and a merge into `decisions_list`:
+conversations rows are listed, graph rows kept, duplicates collapsed on summary,
+L3 withheld, an unreadable store reported as `conversations_unreadable`, and a
+down graph no longer blanks the answer when conversations can speak.
+
+### What a future sync must preserve
+
+`_decision_facts_from_conversations` and the two edits in `decisions_list`.
+Guarded by `vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py`
+(3 of 6 arms fail against main's ical-server). Retire by re-pinning.
+
 ## Twelfth graft: commitments extension and handle resolution for the Follow-Up Detector (Lane 8)
 
 Tree `cm041/assistant_api`, same file: `commitments_list` (new optional
 fields and `min_confidence`), new `api_commitments_detected`,
 `api_commitment_set_status`, `people_resolve` and their helpers, plus the
-three routes. Matches CM041 PR #199 (upstream, open at time of writing).
+three routes. Matches CM041 PR #199 at head `365f15d2a605cf27ed7682eaea8f3daf1a244d80`
+(upstream, open at time of writing). Re-grafted onto CM051 main 2026-10-18:
+the #199-head commit `365f15d2` (scope the commitments readers across graphs)
+is carried here as `SELECT DISTINCT` on the two status lookups; its
+`read_across_graphs` wrapping is NOT carried, for the reason below.
 
 The assistant daemon's Follow-Up Detector finds promises in iMessage,
 WhatsApp and email and must land them in the SAME `OutstandingTodo` wing
@@ -1368,16 +1392,27 @@ the DEFAULT graph, which the scoper unions with the user's CM048 graphs.
 `test_commitments_detected.py::TestNewQueriesSurviveTheVendoredGraphScoper`
 executes the real rewriter over each new SELECT rather than assuming it.
 
-NOT MEASURED: against a real Oxigraph with the shipped compartment set-up.
-Writes to the default graph and the scoper's union are reasoned from the code
-and tested against a stub, not walked on a box.
+`SELECT DISTINCT` on the two status lookups (from #199 head `365f15d2`):
+the central scoper UNIONs the default graph with the user's graphs, so a node
+present in both returned twice without it.
 
-Guarded by `vendor/cm041/assistant_api/tests/test_commitments_detected.py` and
-`test_people_resolve.py`, 26 tests, wired in
-`.github/workflows/walk8-followups-guard.yml`. RED confirmed against the
-unmodified vendored `ical-server.py` via `git stash` (37 of 38 fail), GREEN
-after. Full vendored `assistant_api` suite: 163 passed, the same 5
-pre-existing unrelated `test_ical_server_wire_shape.py` failures before and
-after.
+Measured on a real SPARQL engine (pyoxigraph, in
+`test_commitments_detected.py::TestRoundTripOnARealSparqlEngine`): detector
+rows written by the route and a CM048 meeting todo in its NAMED graph both
+reach `/api/v1/commitments` through `_graph_scoped`; with no user graphs the
+meeting todo is unreachable (control); a dismissal survives re-detection; a
+status in both graphs is read once. Mutants: dropping DISTINCT fails the last,
+making dismissal non-sticky fails the third.
+
+NOT MEASURED: the shipped Oxigraph server process and its compartment set-up
+on a box. Only the HTTP hop to Oxigraph is replaced in the test above.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_commitments_detected.py`
+(23 tests) and `test_people_resolve.py` (7), wired in
+`.github/workflows/walk8-followups-guard.yml`, which installs pyoxigraph and
+refuses a skip. RED against main's unmodified vendored `ical-server.py`:
+40 of 42 fail; GREEN after: 30 passed. Full vendored `assistant_api` suite
+(local Python 3.14): the same 41 failures on main and on this head, none new;
+this head adds 30 passes.
 
 Retire by landing CM041 PR #199 and re-pinning.

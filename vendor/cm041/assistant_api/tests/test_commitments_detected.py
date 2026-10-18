@@ -422,5 +422,113 @@ class TestNewQueriesSurviveTheVendoredGraphScoper(unittest.TestCase):
             self.assertEqual(out.count("pwg:identifierValue ?value"), 2)
 
 
+
+try:
+    import pyoxigraph as _pyox
+except ImportError:  # pragma: no cover - the workflow installs it
+    _pyox = None
+
+
+@unittest.skipIf(_pyox is None, "pyoxigraph not installed (CI installs it; locally: pip install pyoxigraph)")
+class TestRoundTripOnARealSparqlEngine(unittest.TestCase):
+    """Every other class here stubs ``_sparql_select``. This one runs the real
+    routes against a real SPARQL engine (pyoxigraph, the library Oxigraph's
+    server is built on), with this tree's central ``_graph_scoped`` rewriter
+    still in the read path and CM048's meeting todo in its NAMED graph, where
+    CM048 writes it. Only the HTTP hop to the Oxigraph server is replaced.
+
+    NOT covered here: the shipped Oxigraph server process and its compartment
+    set-up on a box."""
+
+    USER_GRAPH = "urn:ostler:user/primary"
+    MEETING = "urn:ostler:todo/meeting-1"
+
+    def setUp(self):
+        self.store = _pyox.Store()
+        self.store.update(
+            f"INSERT DATA {{ GRAPH <{self.USER_GRAPH}> {{\n"
+            f"  <{self.MEETING}> a <urn:ostler:OutstandingTodo> ;\n"
+            '    <urn:ostler:todoText> "Review the proposal" ;\n'
+            '    <urn:ostler:owner> "other" ;\n'
+            '    <urn:ostler:status> "open" .\n'
+            "} }"
+        )
+        self.graphs = [self.USER_GRAPH]
+
+    def _select(self, q):
+        scoped = server._graph_scoped_select(q, self.graphs)
+        res = self.store.query(scoped)
+        names = [v.value for v in res.variables]
+        rows = []
+        for sol in res:
+            row = {}
+            for n in names:
+                term = sol[n]
+                if term is not None:
+                    row[n] = term.value
+            rows.append(row)
+        return rows
+
+    def _run(self, fn):
+        with patch.object(server, "_sparql_select", side_effect=self._select), \
+                patch.object(server, "_sparql_update", side_effect=self.store.update):
+            with _ServerHarness() as h:
+                return fn(h)
+
+    def test_detected_rows_and_the_cm048_meeting_todo_both_reach_the_reader(self):
+        def go(h):
+            w = h.post("/api/v1/commitments/detected", {"items": [
+                _item(), _item(id=ID_B, what="maybe reply", confidence=0.3)]})
+            return w, h.get("/api/v1/commitments")
+        (ws, wbody), (rs, rbody) = self._run(go)
+        self.assertEqual((ws, wbody), (200, {"written": 2, "skipped_dismissed": 0}))
+        self.assertEqual(rs, 200)
+        by_id = {c["id"]: c for c in rbody["commitments"]}
+        self.assertIn(self.MEETING, by_id)  # named graph, via the scoper
+        self.assertEqual(by_id[PREFIX + ID_A]["person"], "Jane Doe")
+        self.assertAlmostEqual(by_id[PREFIX + ID_A]["confidence"], 0.9)
+        self.assertNotIn(PREFIX + ID_B, by_id)
+        self.assertEqual(rbody["hidden_low_confidence"], 1)
+
+    def test_control_without_the_scoper_graphs_the_meeting_todo_is_unreachable(self):
+        self.graphs = []  # what a reader that skips the scoper would see
+        def go(h):
+            return h.get("/api/v1/commitments")
+        _, body = self._run(go)
+        self.assertNotIn(self.MEETING, {c["id"] for c in body["commitments"]})
+
+    def test_dismissal_survives_a_redetection_on_the_real_engine(self):
+        def go(h):
+            h.post("/api/v1/commitments/detected", {"items": [_item()]})
+            d = h.post(f"/api/v1/commitments/{ID_A}/status", {"status": "dismissed"})
+            again = h.post("/api/v1/commitments/detected", {"items": [_item()]})
+            return d, again, h.get("/api/v1/commitments")
+        (ds, _), (as_, abody), (_, rbody) = self._run(go)
+        self.assertEqual(ds, 200)
+        self.assertEqual((as_, abody), (200, {"written": 0, "skipped_dismissed": 1}))
+        self.assertNotIn(PREFIX + ID_A, {c["id"] for c in rbody["commitments"]})
+        statuses = [r["s"] for r in self._select(
+            f"SELECT ?s WHERE {{ <{PREFIX}{ID_A}> <urn:ostler:status> ?s }}")]
+        self.assertEqual(statuses, ["dismissed"])
+
+    def test_status_lookup_counts_a_node_in_both_graphs_once(self):
+        # CM041 #199 head (365f15d2): the scoper UNIONs default and named
+        # graphs, so a status present in both comes back twice without DISTINCT.
+        iri = PREFIX + ID_A
+        self.store.update(
+            f'INSERT DATA {{ <{iri}> <urn:ostler:status> "open" . '
+            f'GRAPH <{self.USER_GRAPH}> {{ <{iri}> <urn:ostler:status> "open" }} }}')
+        seen = []
+        with patch.object(server, "_sparql_select",
+                          side_effect=lambda q: (seen.append(q), self._select(q))[1]), \
+                patch.object(server, "_sparql_update", side_effect=lambda q: None):
+            server.api_commitment_set_status(ID_A, {"status": "done"})
+            server.api_commitments_detected({"items": [_item()]})
+        lookups = [q for q in seen if "<urn:ostler:status> ?status" in q]
+        self.assertEqual(len(lookups), 2)
+        for q in lookups:
+            self.assertEqual(len(self._select(q)), 1, q)
+
+
 if __name__ == "__main__":
     unittest.main()

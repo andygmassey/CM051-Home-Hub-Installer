@@ -26,6 +26,7 @@ on:
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
       - 'tests/test_interest_card_says_what_and_where.py'
+      - 'tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py'
       - 'tests/test_hub_interest_card_shows_a_handle_as_at_handle.py'
       - 'tests/test_hub_screens_real_person_name_never_printed.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
@@ -35,6 +36,7 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'vendor/cm041/contact_syncer/linkedin_career.py'
       - 'tests/test_the_walk_seeds_the_owner_employer.sh'
+      - 'tests/test_the_walk_seed_person_reaches_the_digest.py'
       - 'scripts/box_walk_probes/lib/conversation_capture_e2e.py'
       - 'scripts/box_walk_probes/fixtures/conversation_capture_e2e/**'
       - 'scripts/box_walk_probes/lib/conversation_capture_seed.sh'
@@ -148,6 +150,9 @@ jobs:
       - name: Interest cards say where the interest came from (front page copy)
         if: always()
         run: python3 tests/test_interest_card_says_what_and_where.py
+      - name: The vendored Front Page holds back consent cards (no card without a working action)
+        if: always()
+        run: python3 tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py
       - name: A real person's name never reaches the screens probe's output or record (DMG #23)
         if: always()
         run: python3 tests/test_hub_screens_real_person_name_never_printed.py
@@ -250,8 +255,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the seed-to-digest test runs the v1.0.108 seed lib, pinned by SHA, as its RED
+          fetch-depth: 0
       - name: The walk seeds the owner's employer through the LinkedIn import
         run: bash tests/test_the_walk_seeds_the_owner_employer.sh
+      # walk #31: the seed person carries an interaction and an organisation, so
+      # People and Key organisations can be graded on a synthetic box; the importer
+      # log is per-user. Real SPARQL engine, real curl, then the shipped generator.
+      - name: The seed person reaches People and Key organisations (walk #31)
+        if: always()
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyoxigraph
+          python3 tests/test_the_walk_seed_person_reaches_the_digest.py
 
   conversation-capture-seed:
     # Pure bash + a stubbed curl on PATH; no real gateway needed, but kept
