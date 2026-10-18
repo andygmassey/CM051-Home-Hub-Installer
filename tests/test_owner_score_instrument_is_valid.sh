@@ -15,6 +15,8 @@ fail=0
 
 python3 -I "$HERE/scripts/owner_score/test_owner_score.py" || fail=1
 python3 -I -W ignore "$HERE/scripts/owner_score/test_context_swap.py" || fail=1
+# the Claude grader (llm_grader.py): offline, stubbed client, no key, no network
+python3 -I "$HERE/scripts/owner_score/test_llm_grader.py" || fail=1
 
 # the persona seed and its exact purge, against the REAL Oxigraph engine (pyoxigraph).
 # Exit 77 is CANNOT-RUN, and CANNOT-RUN is not a pass: it fails here.
