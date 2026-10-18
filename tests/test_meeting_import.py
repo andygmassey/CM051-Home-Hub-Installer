@@ -34,8 +34,7 @@ Alex Example: First synthetic line.
 00:00:05,000 --> 00:00:08,000
 Sam Sample: Second synthetic line.
 """
-OTTER_TXT = """Synthetic planning call
-Alex Example  0:03
+OTTER_TXT = """Alex Example  0:03
 Welcome to the synthetic call.
 Sam Sample  0:09
 Thanks, I will draft the notes.
@@ -110,7 +109,7 @@ def test_docx_header_style_and_label_style(tmp_path):
 def test_otter_txt_and_srt(tmp_path):
     p = tmp_path / "2026-03-06 call.txt"; p.write_text(OTTER_TXT)
     m = parse_file("otter", p)[0]
-    assert m.title == "Synthetic planning call" and m.source_label == "Otter" and len(m.utterances) == 2
+    assert m.title == "2026-03-06 call" and m.source_label == "Otter" and len(m.utterances) == 2
     s = tmp_path / "o.srt"; s.write_text(SRT)
     assert parse_file("otter", s)[0].source == "otter"
 
@@ -284,3 +283,52 @@ def test_granola_csv_without_a_transcript_column_is_refused_loudly(tmp_path):
     p = tmp_path / "other.csv"; p.write_text("Foo,Bar\n1,2\n")
     with pytest.raises(ValueError):
         parse_file("granola", p)
+
+
+# ---- Otter, layouts from Otter's own "Export conversations" article
+# (help.otter.ai/hc/en-us/articles/360047733634, updated 2026-10-10, "Export
+# Examples" image read 2026-10-18). Filenames are "<Title>_otter_ai.<ext>";
+# TXT has no title line, "Name  m:ss" headers, a footer. Values synthetic.
+OTTER_TXT_REAL = """Alex Example  0:00
+Thanks for joining the synthetic sync, the roadmap is the first item and we have a lot to cover today.
+
+Speaker 1  0:40
+Agreed. I will send the draft on Friday.
+
+Sam Sample  1:05
+Sounds good.
+
+Transcribed by https://otter.ai
+"""
+
+def test_otter_txt_documented_layout(tmp_path):
+    p = tmp_path / "Synthetic Weekly Call_otter_ai.txt"; p.write_text(OTTER_TXT_REAL)
+    m = parse_file("otter", p)[0]
+    assert m.title == "Synthetic Weekly Call"
+    assert [u.speaker for u in m.utterances] == ["Alex Example", "Speaker 1", "Sam Sample"]
+    assert [u.start_s for u in m.utterances] == [0, 40, 65]
+    assert all("otter.ai" not in u.text for u in m.utterances)      # footer is not speech
+    assert {a.name for a in m.attendees} == {"Alex Example", "Sam Sample"}  # "Speaker 1" is not a person
+
+def test_otter_docx_documented_layout(tmp_path):
+    p = docx(tmp_path / "Synthetic Weekly Call_otter_ai.docx", [
+        "Synthetic Weekly Call", "Fri, Feb 20, 2026 3:34PM • 1:38",
+        "SUMMARY KEYWORDS", "roadmap, drafts, synthetic data",
+        "SPEAKERS", "Speaker 1, Alex Example",
+        "Alex Example  00:00", "Thanks for joining.",
+        "Speaker 1  00:40", "I will send the draft.",
+        "Transcribed by https://otter.ai"])
+    m = parse_file("otter", p)[0]
+    assert m.title == "Synthetic Weekly Call"
+    assert m.started_at == "2026-02-20T15:34:00" and m.ended_at == "2026-02-20T15:35:38"
+    assert [u.speaker for u in m.utterances] == ["Alex Example", "Speaker 1"]
+    assert [a.name for a in m.attendees] == ["Alex Example"]
+    assert m.utterances[-1].text == "I will send the draft."
+
+def test_otter_srt_name_prefix_and_title(tmp_path):
+    p = tmp_path / "Synthetic Weekly Call_otter_ai.srt"
+    p.write_text("1\n00:00:00,096 --> 00:00:03,036\nAlex Example: And earlier, I\nhave a synthetic point,\n\n"
+                 "2\n00:00:03,096 --> 00:00:06,576\nand it continues here\n")
+    m = parse_file("otter", p)[0]
+    assert m.title == "Synthetic Weekly Call"
+    assert [u.speaker for u in m.utterances] == ["Alex Example", "Alex Example"]
