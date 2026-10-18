@@ -23,7 +23,8 @@ name: pr-branch-staleness
 # NO `paths:` FILTER, DELIBERATELY. Staleness is a property of the BRANCH, not
 # of the files it touches, so a path filter would skip the gate on exactly the
 # PRs it exists to catch -- and a skipped job renders as a grey tick that reads
-# like a pass. Same reasoning as test-wiring.yml. The job is seconds long.
+# like a pass. Same reasoning as the test-wiring job (now a block of
+# fold-macos-always.yml). The job is seconds long.
 #
 # Note on `pull_request`: the run happens against the merge ref, but the
 # primitive asks the API for the PR's own head.sha (its actual current
