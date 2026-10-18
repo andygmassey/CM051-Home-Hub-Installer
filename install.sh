@@ -1957,6 +1957,144 @@ ollama_pull_with_retry() {
     return 1
 }
 
+# ── Model weight pins (OS003 #233) ─────────────────────────────────
+#
+# `ollama pull <name:tag>` pulls a MUTABLE tag. Ollama verifies each blob's
+# sha256 in transit, so CONTENT integrity already held; what nothing held was
+# PROVENANCE. If a tag is repointed upstream, two customers installing a week
+# apart get different weights for the model that reads all of their data, and
+# nothing notices. This table says WHICH weights we ship, and every pull is
+# checked against it before the install moves on.
+#
+# THE ONE PLACE. Every model the installer can pull has exactly one row here:
+# the RAM-tier chat models in lib/ostler-model-fit.sh OSTLER_MODEL_TAGS, the
+# stripped-bundle ladder further down, and the embedding model. OS003
+# release.toml [models] mirrors this table and names it as the source.
+# tests/test_model_digest_pins.sh goes RED if any pulled model has no row.
+#
+# WHAT THE DIGEST IS. The manifest CONFIG digest. The config blob lists every
+# layer digest (weights, template, params, licence) in rootfs.diff_ids, so the
+# config digest commits to the whole model, and it is a value INSIDE the
+# manifest rather than a hash of the manifest bytes, which Ollama re-serialises
+# on write and so would not match the registry's own digest.
+#
+# TO UPDATE A ROW (e.g. a tier model is replaced): resolve the new tag's
+# config digest from registry.ollama.ai, direct AND via the default route
+# (a local proxy can answer for every host), with a tag that cannot exist as a
+# 404 control. tests/test_model_digest_pins.sh prints the recipe.
+#
+# Resolved 2026-10-18T04:30Z, direct remote_ip 104.18.16.170/104.18.17.170,
+# proxy path agreed byte for byte, control 404 on both paths. Two tags had
+# moved since OS003 recorded them on 2026-09-06: qwen3.5:9b and gemma4:e2b.
+OSTLER_MODEL_PINS=(
+    "qwen3.6:35b-a3b         sha256:99afa5bbf1e7038bda7d028e100ee76b7337c943468d52590de3282db7b52adb"
+    "qwen3.5:9b              sha256:08f9698c1116d2ba3d2c1751f6e98919823e13bb28ff5eb7451c7bc9b40907c5"
+    "gemma4:e2b              sha256:3ff8a734c316b74964b7c7f7318e56ad85077da655a985aaa73f466c450d993a"
+    "nomic-embed-text:latest sha256:31df23ea7daa448f9ccdbbcecce6c14689c8552222b80defd3830707c0139d4f"
+)
+
+# A name with no tag is `:latest`, exactly as `ollama pull` reads it.
+ostler_model_canonical() {
+    case "$1" in
+        *:*) printf '%s' "$1" ;;
+        *)   printf '%s:latest' "$1" ;;
+    esac
+}
+
+# Echo the pinned digest for <model>; return 1 (echo nothing) when unpinned.
+ostler_model_pinned_digest() {
+    local want row tag dig
+    want="$(ostler_model_canonical "$1")"
+    for row in "${OSTLER_MODEL_PINS[@]}"; do
+        read -r tag dig <<<"$row"
+        if [[ "$tag" == "$want" ]]; then
+            printf '%s' "$dig"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ostler_verify_model_digest <model>
+#   Reads the INSTALLED model from Ollama's own store and compares it with the
+#   pin. Sets OSTLER_MODEL_DIGEST_WANT / _GOT / _DETAIL. Returns:
+#     0  installed config digest == pin, the config blob on disk hashes to it,
+#        and its diff_ids are exactly the manifest's layers
+#     1  MISMATCH: a different model is installed under this tag
+#     2  CANNOT VERIFY: manifest or blob missing/unreadable (never a pass)
+#     3  UNPINNED: this model has no row in OSTLER_MODEL_PINS
+#   No command in here may exit non-zero: install.sh runs `set -Eeuo pipefail`
+#   with an ERR trap, which a failing substitution would fire.
+ostler_verify_model_digest() {
+    local model name tag models_dir manifest out status
+    model="$(ostler_model_canonical "$1")"
+    name="${model%%:*}"; tag="${model#*:}"
+    OSTLER_MODEL_DIGEST_WANT=""; OSTLER_MODEL_DIGEST_GOT=""; OSTLER_MODEL_DIGEST_DETAIL=""
+    if ! OSTLER_MODEL_DIGEST_WANT="$(ostler_model_pinned_digest "$model")"; then
+        OSTLER_MODEL_DIGEST_DETAIL="no row in OSTLER_MODEL_PINS"
+        return 3
+    fi
+    models_dir="${OLLAMA_MODELS:-${HOME}/.ollama/models}"
+    manifest="${models_dir}/manifests/registry.ollama.ai/library/${name}/${tag}"
+    out="$(python3 -I - "$manifest" "${models_dir}/blobs" "$OSTLER_MODEL_DIGEST_WANT" <<'PY' || printf 'UNREADABLE\t-\tpython3 could not run (exit %s)\n' "$?"
+import hashlib, json, os, sys
+manifest, blobs, want = sys.argv[1], sys.argv[2], sys.argv[3]
+def out(status, got, detail):
+    print("%s\t%s\t%s" % (status, got or "-", detail)); sys.exit(0)
+try:
+    with open(manifest, "rb") as f:
+        m = json.load(f)
+    got = m["config"]["digest"]
+    layers = [l["digest"] for l in m["layers"]]
+except Exception as e:
+    out("UNREADABLE", "", "manifest %s: %s" % (manifest, type(e).__name__))
+if got != want:
+    out("MISMATCH", got, "installed config digest differs from the pin")
+blob = os.path.join(blobs, got.replace(":", "-", 1))
+try:
+    h = hashlib.sha256()
+    with open(blob, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+        f.seek(0)
+        cfg = json.loads(f.read())
+    diff_ids = cfg["rootfs"]["diff_ids"]
+except Exception as e:
+    out("UNREADABLE", got, "config blob %s: %s" % (blob, type(e).__name__))
+if "sha256:" + h.hexdigest() != want:
+    out("MISMATCH", "sha256:" + h.hexdigest(), "config blob on disk does not hash to the pin")
+if diff_ids != layers:
+    out("MISMATCH", got, "manifest layers are not the layers the pinned config names")
+out("OK", got, "config digest, config blob and layer list all match the pin")
+PY
+)"
+    IFS=$'\t' read -r status OSTLER_MODEL_DIGEST_GOT OSTLER_MODEL_DIGEST_DETAIL <<<"$out"
+    case "$status" in
+        OK)       return 0 ;;
+        MISMATCH) return 1 ;;
+        *)        [[ -n "$OSTLER_MODEL_DIGEST_DETAIL" ]] || OSTLER_MODEL_DIGEST_DETAIL="verifier printed nothing"
+                  return 2 ;;
+    esac
+}
+
+# ostler_require_model_digest <model>
+#   The step gate. Pass: one ok line naming the digest. Anything else: fail the
+#   install with a code that says which of the three things went wrong. There
+#   is no warn-and-continue branch on purpose.
+ostler_require_model_digest() {
+    local model="$1" rc=0
+    ostler_verify_model_digest "$model" || rc=$?
+    case "$rc" in
+        0) ok "$(printf "$MSG_OK_MODEL_DIGEST_VERIFIED" "${model}" "${OSTLER_MODEL_DIGEST_GOT}")" ;;
+        1) fail_with_code "ERR-13-MODEL-DIGEST-MISMATCH" \
+               "$(printf "$MSG_FAIL_MODEL_DIGEST_MISMATCH" "${model}" "${OSTLER_MODEL_DIGEST_GOT}" "${OSTLER_MODEL_DIGEST_WANT}" "${OSTLER_MODEL_DIGEST_DETAIL}")" ;;
+        3) fail_with_code "ERR-13-MODEL-UNPINNED" \
+               "$(printf "$MSG_FAIL_MODEL_UNPINNED" "${model}")" ;;
+        *) fail_with_code "ERR-13-MODEL-DIGEST-UNREADABLE" \
+               "$(printf "$MSG_FAIL_MODEL_DIGEST_UNREADABLE" "${model}" "${OSTLER_MODEL_DIGEST_DETAIL}")" ;;
+    esac
+}
+
 # ── --allow-plaintext loud warning ─────────────────────────────────
 # If the operator passed --allow-plaintext, repeat a yellow warning
 # three times so it cannot be missed in CI logs or terminal scrollback.
@@ -22503,7 +22641,10 @@ fi
 
 progress "Downloading AI models (this is the big one)" "ai_models"
 
-if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
+# OS003 #233: an "already available" model is verified against its pin too,
+# and a mismatch there is re-pulled once before it is allowed to fail: a copy
+# left by an older install or by hand is not the model this installer ships.
+if ollama list 2>/dev/null | grep -q "nomic-embed-text" && ostler_verify_model_digest nomic-embed-text; then
     ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
 else
     info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
@@ -22512,6 +22653,7 @@ else
     fi
     ok "$MSG_OK_EMBEDDING_MODEL_READY"
 fi
+ostler_require_model_digest nomic-embed-text
 
 # CX-43 / #177 -- prove the embedding engine actually returns vectors
 # before anything relies on it. A running Ollama with a broken runner
@@ -22563,7 +22705,7 @@ rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
 
 if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
-    if ollama list 2>/dev/null | grep -q "${AI_MODEL}"; then
+    if ollama list 2>/dev/null | grep -q "${AI_MODEL}" && ostler_verify_model_digest "${AI_MODEL}"; then
         ok "$(printf "$MSG_OK_ALREADY_AVAILABLE" "${AI_MODEL}")"
     else
         # Show the licence summary before the pull so the user knows
@@ -22588,6 +22730,7 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
         fi
         ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
     fi
+    ostler_require_model_digest "${AI_MODEL}"
 else
     info "$(printf "$MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA" "${AI_MODEL}")"
 fi
