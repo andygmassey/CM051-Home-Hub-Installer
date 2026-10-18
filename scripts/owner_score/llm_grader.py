@@ -485,10 +485,46 @@ def cmd_report(a):
     print("\n".join(L[:60]))
 
 
+def cmd_report_conv(a):
+    items = [i for i in load_items(a.items) if i.get("kind") == "conversation"]
+    res = load_results(a.out, a.phase)
+    L = ["## Conversation post-processing\n",
+         "| item | instructions found | captured by a todo | todos | wrong owner | invented urgency | 'the Other' | summary faithful | vs expected |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    agree = total = 0
+    for it in items:
+        g = (res.get(it["item_id"]) or {}).get("grade")
+        if not g:
+            L.append(f"| {it['item_id']} | ungraded | | | | | | | |")
+            continue
+        ins = g["instructions"]
+        cap = sum(1 for x in ins if x["captured_by_todo"])
+        e = it.get("expected") or {}
+        chk = []
+        if "the_other" in e:
+            chk.append(("the_other", g["the_other"] == e["the_other"]))
+        if "invented_urgency" in e:
+            chk.append(("invented_urgency", g["invented_urgency"] == e["invented_urgency"]))
+        if "all_captured" in e:
+            chk.append(("all_captured", (cap == len(ins)) == e["all_captured"]))
+        if "todos_captured_max" in e:
+            chk.append(("todos_captured<=%d" % e["todos_captured_max"], cap <= e["todos_captured_max"]))
+        if "instructions_min" in e:
+            chk.append(("instructions>=%d" % e["instructions_min"], len(ins) >= e["instructions_min"]))
+        if "wrong_owner_min" in e:
+            chk.append(("wrong_owner>=%d" % e["wrong_owner_min"], g["todos_with_wrong_owner"] >= e["wrong_owner_min"]))
+        agree += sum(1 for _, ok in chk if ok); total += len(chk)
+        vs = ", ".join(f"{k} {'ok' if ok else 'MISMATCH'}" for k, ok in chk) or "no expected label"
+        L.append(f"| {it['item_id']} | {len(ins)} | {cap}/{len(ins)} | {g['todos_total']} | {g['todos_with_wrong_owner']} | {g['invented_urgency']} | {g['the_other']} | {g['summary_faithful']} | {vs} |")
+    L.append(f"\n**Agreement with expected labels: {pct(agree, total)}.**\n")
+    open(os.path.join(a.out, "report_B.md"), "w").write("\n".join(L) + "\n")
+    print("\n".join(L))
+
+
 def main():
     p = argparse.ArgumentParser()
     s = p.add_subparsers(dest="cmd", required=True)
-    for name in ("estimate", "submit", "adjudicate", "report"):
+    for name in ("estimate", "submit", "adjudicate", "report", "report-conv"):
         q = s.add_parser(name)
         q.add_argument("items")
         q.add_argument("--context")
@@ -504,7 +540,7 @@ def main():
     q.add_argument("--out", required=True)
     q.add_argument("--model")
     a = p.parse_args()
-    {"estimate": cmd_estimate, "submit": cmd_submit, "poll": cmd_poll, "adjudicate": cmd_adjudicate, "report": cmd_report}[a.cmd](a)
+    {"estimate": cmd_estimate, "submit": cmd_submit, "poll": cmd_poll, "adjudicate": cmd_adjudicate, "report": cmd_report, "report-conv": cmd_report_conv}[a.cmd](a)
 
 
 if __name__ == "__main__":
