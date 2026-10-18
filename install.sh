@@ -26012,7 +26012,7 @@ log() { echo "$(date -u +%FT%TZ) $*" >> "${LOG_FILE}"; }
 
 cannot_deliver() {
     # $1 exit code, $2 reason: the log AND stderr (the .err log the Doctor card
-    # points at), then the non-zero exit launchd records.
+    # points at), then the non-zero exit launchd records. Never 75: the Doctor reads 75 as a Full Disk Access refusal (G1, #2908).
     log "CANNOT-DELIVER: $2"
     echo "$(date -u +%FT%TZ) CANNOT-DELIVER: $2" >&2
     exit "$1"
@@ -26103,17 +26103,17 @@ if [ "${_rc}" -eq 2 ] && grep -qiE "unrecognized subcommand|unexpected argument|
     exit 0
 fi
 if [ "${_rc}" -ne 0 ] || [ -z "${MESSAGE}" ]; then
-    cannot_deliver 75 "the composer failed (rc=${_rc}): $(tr '\n' ' ' < "${ERR_FILE}" | tail -c 200)"
+    cannot_deliver 69 "the composer failed (rc=${_rc}): $(tr '\n' ' ' < "${ERR_FILE}" | tail -c 200)"
 fi
 
 BODY="$(printf '%s' "${MESSAGE}" | "${PYTHON_BIN}" -c '
 import json, sys
 print(json.dumps({"channel": sys.argv[1], "kind": "reconnect_nudge", "message": sys.stdin.read()}))
-' "${BRIEF_CHANNEL}")" || cannot_deliver 75 "could not build the announce body"
+' "${BRIEF_CHANNEL}")" || cannot_deliver 69 "could not build the announce body"
 
 if ! curl -sS -f -m 8 -X POST -H "Content-Type: application/json" \
         --data-binary "${BODY}" "${ANNOUNCE_URL}/announce" >/dev/null 2>>"${LOG_FILE}"; then
-    cannot_deliver 75 "/announce refused the nudge on ${BRIEF_CHANNEL}; nothing was recorded, so it retries next run"
+    cannot_deliver 69 "/announce refused the nudge on ${BRIEF_CHANNEL}; nothing was recorded, so it retries next run"
 fi
 
 # Delivered: only now does the week's budget get spent.

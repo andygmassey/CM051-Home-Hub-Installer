@@ -10,7 +10,8 @@
 # with kind=reconnect_nudge; it records who went out ONLY after a successful
 # delivery (a refused /announce must not spend the week); "nothing due", an old
 # daemon without the command, Ostler Pro paused and quiet hours are quiet exits;
-# a composer failure and a refused announce are exit 75; no channel is 78.
+# a composer failure and a refused announce are exit 69 (never 75, which the
+# Doctor reads as a Full Disk Access refusal); no channel is 78.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -86,7 +87,7 @@ grep -q "^ws=$WORK/fakehome/.ostler/assistant-config$" "$WORK/stub/composer.env"
 
 echo "== a refused announce must not spend the week =="
 run_sender message CURL_RC=22; rc=$?
-[ "$rc" -eq 75 ] && ok "announce refused: exit 75 (CANNOT-DELIVER)" || bad "refused announce exit $rc, wanted 75"
+[ "$rc" -eq 69 ] && ok "announce refused: exit 69 (CANNOT-DELIVER)" || bad "refused announce exit $rc, wanted 69"
 [ ! -e "$WORK/stub/marked.keys" ] && ok "nothing was recorded after a refused announce" || bad "recorded despite a failed delivery"
 
 echo "== quiet steady states =="
@@ -96,7 +97,7 @@ run_sender message OSTLER_BRIEF_QUIET_START=0 OSTLER_BRIEF_QUIET_END=0; rc=$?
 [ "$rc" -eq 0 ] && [ ! -e "$WORK/stub/composer.log" ] && ok "quiet hours: exit 0, composer not even run" || bad "quiet-hours case: rc=$rc"
 
 echo "== failures are loud =="
-run_sender broken; rc=$?; [ "$rc" -eq 75 ] && [ ! -e "$WORK/stub/curl.log" ] && ok "composer failure: exit 75, nothing announced" || bad "composer-failure case: rc=$rc"
+run_sender broken; rc=$?; [ "$rc" -eq 69 ] && [ ! -e "$WORK/stub/curl.log" ] && ok "composer failure: exit 69, nothing announced" || bad "composer-failure case: rc=$rc"
 rm -rf "$WORK/fakehome"; mkdir -p "$WORK/fakehome/.ostler/assistant-config" "$WORK/stub"; : > "$WORK/fakehome/.ostler/assistant-config/config.toml"
 env -i PATH="$WORK/bin:$PYDIR:/usr/bin:/bin" HOME="$WORK/fakehome" STUB_DIR="$WORK/stub" COMPOSER_MODE=message \
     OSTLER_BRIEF_COMPOSER="$WORK/composer" OSTLER_BRIEF_QUIET_START=25 OSTLER_BRIEF_QUIET_END=0 bash "$SENDER" >/dev/null 2>&1; rc=$?
