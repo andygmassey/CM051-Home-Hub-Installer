@@ -742,7 +742,7 @@ MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="Could not obtain wiki-recompil
 MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="Could not open Chrome Web Store URL automatically: %s"
 MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="Could not persist region.json (continuing - Doctor will surface)"
 MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Could not record that the recovery key was delivered. This run's summary is still correct, but a later run may not be able to tell and could warn again – that is the safe direction for this to fail in."
-MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Could not save to Keychain. Please write it down."
+MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Your recovery key was not saved to Keychain. Write it down and keep it somewhere safe, away from this Mac."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Could not start Ollama automatically."
 MSG_FAIL_OLLAMA_PORT_IN_USE="Another program is already using port 11434, which Ostler needs for its local AI. Ostler could not start its own copy, so the install stopped here rather than half-finishing.
 
@@ -1259,7 +1259,7 @@ MSG_PROMPT_EMAIL_ALLOWED_TITLE="Who may email your assistant?"
 MSG_PROMPT_EMAIL_ALLOWED_HELP="Your own email addresses, comma-separated. %s only answers email from addresses on this list; mail from anyone else is ignored. At least one address is required. Your own address is filled in for you: change it, or add another."
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="Password (hidden)"
-MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/, never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
+MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally in ~/.ostler/secrets/, not in your settings file, and never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirm Password"
 
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Which folder should the assistant watch?"
@@ -1379,7 +1379,7 @@ MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
 MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
 MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
-MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it."
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."

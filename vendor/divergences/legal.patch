@@ -1,8 +1,6 @@
-diff --git a/__init__.py b/__init__.py
-index 35e00dd6..efc3886b 100644
 --- a/__init__.py
 +++ b/__init__.py
-@@ -21,6 +21,7 @@ Bumping wording text:
+@@ -21,6 +21,7 @@
  from .consent_strings import (
      ARTICLE_9_EU_CONSENT,
      EU_VOICE_SPEAKER_ID_CONSENT,
@@ -10,7 +8,7 @@ index 35e00dd6..efc3886b 100644
      SPOKEN_CAPTURE_RECORDING_CONSENT,
      THIRD_PARTY_DATA_NOTICE,
      WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-@@ -30,6 +31,7 @@ from .consent_strings import (
+@@ -30,6 +31,7 @@
  __all__ = [
      "ARTICLE_9_EU_CONSENT",
      "EU_VOICE_SPEAKER_ID_CONSENT",
@@ -18,11 +16,9 @@ index 35e00dd6..efc3886b 100644
      "SPOKEN_CAPTURE_RECORDING_CONSENT",
      "THIRD_PARTY_DATA_NOTICE",
      "WHATSAPP_UNOFFICIAL_RISK_CONSENT",
-diff --git a/consent_strings.py b/consent_strings.py
-index 39a2ebeb..49652618 100644
 --- a/consent_strings.py
 +++ b/consent_strings.py
-@@ -91,7 +91,7 @@ You can change your mind any time. You can:
+@@ -91,7 +91,7 @@
  
  - turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source
  - delete everything Ostler has stored using "Reset Ostler" in the menu
@@ -31,10 +27,12 @@ index 39a2ebeb..49652618 100644
  
  Withdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.
  
-@@ -247,3 +247,55 @@ What we ask of you:
+@@ -245,5 +245,57 @@
+ [ ] Not now – keep spoken transcription off. (You can turn it on later in Settings.)
+ 
  Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.
- """,
- )
++""",
++)
 +
 +
 +# Personal-use-only terms, shown to every user in the Phase-2 consent batch.
@@ -85,5 +83,5 @@ index 39a2ebeb..49652618 100644
 +[ ] I understand. I am using Ostler for myself, personally.
 +
 +Legal note: Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction.
-+""",
-+)
+ """,
+ )

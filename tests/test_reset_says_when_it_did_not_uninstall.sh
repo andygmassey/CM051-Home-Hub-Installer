@@ -59,9 +59,9 @@ chk "ttywalk.sh still parses" "$r"
 # BEHAVIOUR: no uninstaller anywhere -> the skip is announced.
 rm -rf "${WORK}/h"; mkdir -p "${WORK}/h"
 out_none="$(HOME="${WORK}/h" bash "${WORK}/blk" 2>&1)"
-printf '%s' "$out_none" | grep -q 'This reset did NOT uninstall' && r=0 || r=1
+grep -q 'This reset did NOT uninstall' <<< "$out_none" && r=0 || r=1
 chk "no uninstaller found -> the run says it did NOT uninstall" "$r"
-printf '%s' "$out_none" | grep -q 'CARRIED OVER' && r=0 || r=1
+grep -q 'CARRIED OVER' <<< "$out_none" && r=0 || r=1
 chk "no uninstaller found -> it names the consequence for the stores" "$r"
 
 # BEHAVIOUR: an uninstaller present -> it runs, and the warning does NOT fire.
@@ -69,9 +69,9 @@ rm -rf "${WORK}/h"; mkdir -p "${WORK}/h/.ostler"
 printf '#!/bin/bash\necho FAKE_UNINSTALLER_RAN\n' > "${WORK}/h/.ostler/uninstall.sh"
 chmod +x "${WORK}/h/.ostler/uninstall.sh"
 out_some="$(HOME="${WORK}/h" bash "${WORK}/blk" 2>&1)"
-printf '%s' "$out_some" | grep -q 'FAKE_UNINSTALLER_RAN' && r=0 || r=1
+grep -q 'FAKE_UNINSTALLER_RAN' <<< "$out_some" && r=0 || r=1
 chk "an uninstaller present -> it is executed" "$r"
-printf '%s' "$out_some" | grep -q 'did NOT uninstall' && r=1 || r=0
+grep -q 'did NOT uninstall' <<< "$out_some" && r=1 || r=0
 chk "an uninstaller present -> the warning does NOT fire" "$r"
 
 # ── #1828: config-only teardown clears setup-gating config + poison, and

@@ -191,6 +191,7 @@ test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-produ
 test_cm048_exit_75_when_the_sink_is_unreachable.py	WIRED	.github/workflows/catchup-machinery.yml
 test_cm048_gateway_extracts_owner_turns_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_handle_resolver.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_ios_unnamed_speaker_reaches_naming.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_multilingual_vendored.py	WIRED	.github/workflows/cm048-multilingual-output.yml
 test_cm048_participants_as_strings.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_participants_line_display_names_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
@@ -266,6 +267,7 @@ test_cx98_channel_vars_unbound.sh	WIRED	.github/workflows/tests-unwired-sweep-al
 test_cx98_previous_install_detection.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
+test_daemon_warmup_loads_at_chat_num_ctx.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_decline_does_not_wipe_an_existing_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_declined_remote_access_is_not_promised.sh	WIRED	.github/workflows/background-copy-honesty.yml
@@ -317,6 +319,7 @@ test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep
 test_email_ingest_loud_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_venv_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_only_people_get_a_provisional_name.py	WIRED	.github/workflows/privacy-spine.yml
+test_email_password_never_in_config.sh	WIRED	.github/workflows/email-channel.yml
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_end_of_install_confirmation.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
@@ -686,6 +689,7 @@ test_source_status_canonical_matches_recorders.sh	WIRED	.github/workflows/hydrat
 test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_spoken_capture_consent_does_not_claim_audio_is_kept.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_spool_sweep_quarantines_a_bad_row.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_stage_payload_strips_ambient_pyc.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
