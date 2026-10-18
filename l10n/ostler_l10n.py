@@ -446,8 +446,43 @@ class XcstringsCatalogue:
             locs[lang] = {"stringUnit": {"state": "needs_review" if k in flags else "translated", "value": v}}
             e["localizations"] = dict(sorted(locs.items()))
         for k in drop:
-            if k in d["strings"]:
-                d["strings"][k].get("localizations", {}).pop(lang, None)
+            # never pop a language: a key-based entry would then render as its raw key
+            e = d["strings"].get(k)
+            if e:
+                en = e.get("localizations", {}).get(self.src_lang, {}).get("stringUnit", {}).get("value", k)
+                e.setdefault("localizations", {})[lang] = {"stringUnit": {"state": "new", "value": en}}
+        self._dump(d, raw)
+
+    def missing_fallbacks(self, languages):
+        """Key-based entries (key != English) with no unit for a language.
+        Apple does NOT fall back per key: once <lang>.lproj exists, a key it
+        lacks renders as the RAW KEY (measured 2026-10-18, de simulator:
+        'avatar.assistant.label O'). So every such entry needs a value in
+        every shipped language, English if nothing better (state "new")."""
+        out = []
+        for k, v in self._load()["strings"].items():
+            locs = v.get("localizations", {})
+            en = locs.get(self.src_lang, {}).get("stringUnit", {}).get("value")
+            if en is None or en == k:
+                continue
+            out += [(k, l) for l in languages if "stringUnit" not in locs.get(l, {}) and "variations" not in locs.get(l, {})]
+        return out
+
+    def fill_fallbacks(self, languages):
+        miss = self.missing_fallbacks(languages)
+        if not miss:
+            return 0
+        raw = open(self.path(), encoding="utf-8").read()
+        d = json.loads(raw)
+        for k, l in miss:
+            e = d["strings"][k]
+            en = e["localizations"][self.src_lang]["stringUnit"]["value"]
+            e["localizations"][l] = {"stringUnit": {"state": "new", "value": en}}
+            e["localizations"] = dict(sorted(e["localizations"].items()))
+        self._dump(d, raw)
+        return len(miss)
+
+    def _dump(self, d, raw):
         s = json.dumps(d, indent=2, separators=(",", " : "), ensure_ascii=False)
         s = re.sub(r'^(\s*)("(?:[^"\\]|\\.)*" : )\{\}(,?)$', lambda m: f"{m.group(1)}{m.group(2)}{{\n\n{m.group(1)}}}{m.group(3)}", s, flags=re.M)
         open(self.path(), "w", encoding="utf-8").write(s + ("\n" if raw.endswith("\n") else ""))
@@ -457,7 +492,9 @@ class XcstringsCatalogue:
             self._load()
         except Exception as e:
             return [f"{self.spec['source']}: invalid JSON: {e}"]
-        return []
+        return [f"{self.spec['source']} {lang} {k!r}: no {lang} value, so the app shows the RAW KEY; "
+                "run `python3 l10n/ostler_l10n.py stale` (offline) to give it the English"
+                for k, l in self.missing_fallbacks([lang])]
 
 
 ADAPTERS = {"shell": ShellCatalogue, "json-tree": JsonTreeCatalogue, "xcstrings": XcstringsCatalogue}
@@ -614,8 +651,9 @@ def cmd_stale(cfg):
             for k in ks:
                 st["made_from"].get(lang, {}).pop(f"{c.id}::{k}", None)
             n += len(ks)
+    filled = sum(c.fill_fallbacks(cfg["languages"]) for c in catalogues(cfg) if c.spec["type"] == "xcstrings")
     save_state(st)
-    print(f"stale: {n} translation(s) fell back to English")
+    print(f"stale: {n} translation(s) fell back to English; {filled} missing key-based value(s) given the English")
     return 0
 
 
@@ -874,6 +912,9 @@ def apply_results(cfg, results):
                 c.write(lang, vals, fl)
             else:
                 c.write(lang, merged, flags)
+    for c in catalogues(cfg):
+        if c.spec["type"] == "xcstrings":
+            c.fill_fallbacks(cfg["languages"])
     save_state(st)
 
 # --------------------------------------------------------------------------
@@ -921,8 +962,16 @@ def cmd_self_test(cfg):
         results["stale blocks check"] = quiet(cmd_check, c2) == 1
         quiet(cmd_stale, c2)
         after = json.load(open(os.path.join(tmp, "L.xcstrings")))
-        results["stale falls back to English"] = "de" not in after["strings"]["home.title"]["localizations"]
         results["check passes after stale"] = quiet(cmd_check, c2) == 0
+        results["stale keeps a value (no raw key)"] = after["strings"]["home.title"]["localizations"].get("de", {}).get("stringUnit", {}).get("value") == "Your day"
+        # mutant 4: a key-based entry with no translation at all -> raw key on screen
+        d = json.load(open(os.path.join(tmp, "L.xcstrings")))
+        d["strings"]["brand.name"] = {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Ostler"}}}}
+        json.dump(d, open(os.path.join(tmp, "L.xcstrings"), "w"))
+        results["missing key-based value fails"] = quiet(cmd_check, c2) == 1
+        quiet(cmd_stale, c2)
+        results["stale gives it the English"] = json.load(open(os.path.join(tmp, "L.xcstrings")))["strings"]["brand.name"]["localizations"]["de"]["stringUnit"]["value"] == "Ostler"
+        results["check passes after fill"] = quiet(cmd_check, c2) == 0
         # yaml subset round-trip of the real config
         results["real config parses"] = bool(_REAL_CFG.get("catalogues"))
     finally:
