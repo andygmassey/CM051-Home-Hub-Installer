@@ -53,6 +53,9 @@ from status_collector import (
     EXPECTED_OSTLER_SERVICES,
 )
 from diagnostic_rules import run_all_rules
+# Telegram channel tile (CM051 graft, public launch): connected, last owner
+# message, messages from other people ignored. Empty when never switched on.
+from telegram_status import render_telegram_status
 from first_run import is_first_run, get_wizard_steps, render_wizard, mark_setup_complete
 from dashboard_components import (
     all_observability_postures,
@@ -1614,6 +1617,7 @@ def render_dashboard(
     # the same defect one layer along, which is why this tile is part of the
     # fix and not a decoration on it.
     whatsapp_keepalive_section = render_whatsapp_keepalive()
+    telegram_section = render_telegram_status()
 
     source_status_section = render_source_status()
 
@@ -2180,6 +2184,7 @@ def render_dashboard(
         {reminders_runtime_section}
 
         {whatsapp_keepalive_section}
+        {telegram_section}
         {source_status_section}
 
         <div class="section">

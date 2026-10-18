@@ -1,0 +1,9 @@
+{
+  "status": "connected",
+  "bot_username": "synthetic_test_bot",
+  "last_owner_message_at": "2026-10-18T06:00:00Z",
+  "non_owner_dropped": 3,
+  "last_dropped_at": "2026-10-18T05:59:00Z",
+  "last_error": null,
+  "updated_at": "2026-10-18T06:00:00Z"
+}

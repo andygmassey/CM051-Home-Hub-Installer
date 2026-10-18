@@ -33,7 +33,7 @@ except Exception as exc:
     # that install did not happen and the page is UNMEASURED, not fine.
     print(f"CANNOT-RUN: module would not load ({type(exc).__name__}: {exc})")
     sys.exit(2)
-TILES = ("render_source_status", "render_whatsapp_keepalive")
+TILES = ("render_source_status", "render_whatsapp_keepalive", "render_telegram_status")
 
 failures = 0
 for name in TILES:
