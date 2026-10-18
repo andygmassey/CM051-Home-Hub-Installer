@@ -91,11 +91,13 @@ what its own machine used to give it:
   every later step with `CI_FOLD_BLOCK=<tag>` (via `GITHUB_ENV`). A process
   inherits the marker even once orphaned, so the next isolate step kills
   exactly the processes that carry it, and nothing else on the machine does.
-  It reads `/proc/<pid>/environ` on Linux and `ps eww` on macOS. This was
-  found while measuring: `test_ingest_slot_fairness.sh` leaks a `sleep 300`
-  that outlives it. The self-test runs this for real: a block leaks a
-  process, and the next block must not see it. A control with the kill
-  removed must fail.
+  It reads every process's environment in one pass: one `grep -z` over
+  `/proc/*/environ` on Linux, one `ps eww -A` on macOS. (A `ps` per process
+  cost 2 to 5 s per block on GitHub's macOS runners, measured on #2962.) This
+  was found while measuring: `test_ingest_slot_fairness.sh` leaks a
+  `sleep 300` that outlives it. The self-test runs both arms for real: a
+  block leaks a process, and the next block must not see it. A control with
+  the kill removed must fail.
 
 **Step conditions are scoped to the block.** A step with no `if:` used to run
 only when every earlier step in its job had succeeded. It now runs when every

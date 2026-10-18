@@ -281,6 +281,24 @@ leak_run "$T/fold-lk-nokill.yml"; rc=$?
 [ "$rc" -ne 0 ] && pass "CONTROL: without the kill, block 2 DOES see the leak (the case discriminates)" \
     || bad "CONTROL: block 2 passed with the kill removed -- the leak case tests nothing"
 pkill -f '^sleep 3171$' 2>/dev/null
+# The macOS arm (one `ps eww`, no /proc) is the one CI's macOS legs take, and
+# procps reads the same flags, so run it here too with the /proc arm disabled.
+python3 - "$T/fold-lk.yml" "$T/fold-lk-ps.yml" "$T/fold-lk-ps-nokill.yml" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+n = s.count("if [ -d /proc/self ]; then")
+s = s.replace("if [ -d /proc/self ]; then", "if false; then")
+open(sys.argv[2], "w").write(s if n else "")
+open(sys.argv[3], "w").write(s.replace('kill -KILL "$pid" 2>/dev/null || true', 'true  # kill removed') if n else "")
+PY
+leak_run "$T/fold-lk-ps.yml"; rc=$?
+[ "$rc" -eq 0 ] && pass "the ps arm (macOS) also kills block 1's leak before block 2 runs" \
+    || bad "the ps arm left block 1's leaked process for block 2 (run-local rc=$rc)"
+pkill -f '^sleep 3171$' 2>/dev/null
+leak_run "$T/fold-lk-ps-nokill.yml"; rc=$?
+[ "$rc" -ne 0 ] && pass "CONTROL: the ps arm without the kill DOES leave the leak" \
+    || bad "CONTROL: the ps arm passed with the kill removed -- its case tests nothing"
+pkill -f '^sleep 3171$' 2>/dev/null
 python3 - "$T/after/wf/fold-fx.yml" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
