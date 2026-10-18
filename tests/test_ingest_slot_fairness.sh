@@ -96,6 +96,17 @@ export OSTLER_SLOT_WAIT_SECS=3
 
 fresh_ws() { mktemp -d; }
 
+# until_dir <dir> -- wait for a holder to take the slot, instead of a fixed
+# `sleep 2`. Polls every 0.1 s for up to 10 s, then returns either way. In
+# sections 2 and 3 the next line is a control that FAILS if the directory
+# never appeared, exactly as it did after the fixed sleep; in section 4 it is
+# the precondition the fixed sleep only hoped for (the holder owns the slot
+# before any waiter enrols). Speed only (CM051 CI lane, 2026-10-17).
+until_dir() {
+    local n=0
+    while [ ! -d "$1" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+}
+
 # The lib resolves its paths ONCE, at source time. A participant that
 # sets OSTLER_STATE_DIR as a command prefix on the acquire call rather
 # than in the environment before sourcing therefore lands on the REAL
@@ -136,7 +147,7 @@ WS="$(fresh_ws)"
 # patience: the unbounded-queue drain, in miniature.
 slot_sh "$WS" '. "$1"; ostler_slot_acquire "email-bundle" >/dev/null 2>&1 || exit 1; ostler_slot_run sleep 300 >/dev/null 2>&1' _ "$LIB" &
 HOLDER_SHELL=$!
-sleep 2
+until_dir "$WS/ingest-ollama.lock.d"
 
 # Control: the holder must genuinely own the lock in THIS workspace
 # before the waiter starts. Without it a misconfigured harness produces
@@ -180,7 +191,7 @@ echo "== Section 3: an idle box does not preempt a long holder =="
 WS="$(fresh_ws)"
 slot_sh "$WS" '. "$1"; ostler_slot_acquire "wiki-recompile" >/dev/null 2>&1 || exit 1; ostler_slot_run sleep 300 >/dev/null 2>&1' _ "$LIB" &
 IDLE_HOLDER=$!
-sleep 2
+until_dir "$WS/ingest-ollama.lock.d"
 if [ -d "$WS/ingest-ollama.lock.d" ]; then
     pass "control: the idle holder owns the slot in the test workspace"
 else
@@ -211,7 +222,7 @@ echo "== Section 4: the longest-waiting feed is served first =="
 WS="$(fresh_ws)"
 slot_sh "$WS" '. "$1"; ostler_slot_acquire "email-bundle" >/dev/null 2>&1 || exit 1; ostler_slot_run sleep 300 >/dev/null 2>&1' _ "$LIB" &
 FIFO_HOLDER=$!
-sleep 2
+until_dir "$WS/ingest-ollama.lock.d"
 # "first" enrols two poll intervals before "second". The names are chosen
 # so lexicographic order would pick the WRONG winner if enrolment time
 # were ignored, which is what makes this a test of FIFO rather than of
