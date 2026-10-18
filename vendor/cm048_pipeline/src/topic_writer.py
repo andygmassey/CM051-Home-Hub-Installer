@@ -93,6 +93,7 @@ from __future__ import annotations
 
 import logging
 import re
+import hashlib
 import unicodedata
 import urllib.parse
 
@@ -183,9 +184,28 @@ def slugify_topic(name: object) -> str:
     mint a node with a blank ``topicSlug`` -- the reader would list it
     as an unnamed, unresolvable row.
     """
-    s = unicodedata.normalize("NFKD", str(name or ""))
-    s = s.encode("ascii", "ignore").decode("ascii").lower()
+    raw = str(name or "")
+    nfkd = unicodedata.normalize("NFKD", raw)
+    s = nfkd.encode("ascii", "ignore").decode("ascii").lower()
     s = re.sub(r"[^a-z0-9]+", "-", s)
+    # Letters that ASCII folding cannot represent (CJK, Cyrillic, Greek,
+    # Arabic, ``ß`` ...). Accents are NOT counted: they decompose to a
+    # base letter plus a combining mark, so ``Café`` still folds to
+    # ``cafe``. Without this the topic of a Japanese or Chinese
+    # conversation slugged to "" and was silently skipped, and a mixed
+    # name such as "東京 trip" collided with every other "trip" topic.
+    lost = any(
+        ch.isalnum() and ord(ch) > 127 and not unicodedata.combining(ch)
+        for ch in nfkd
+    )
+    if lost:
+        # Stable, ASCII, reader-grammar-safe. The human label is kept
+        # verbatim in the topic's label property; only the slug is hashed.
+        digest = hashlib.sha1(
+            unicodedata.normalize("NFC", raw).strip().lower().encode("utf-8")
+        ).hexdigest()[:8]
+        base = s.strip("-")[: _MAX_SLUG_LEN - 9].rstrip("-")
+        s = f"{base}-{digest}" if base else f"t-{digest}"
     s = s.strip("-")[:_MAX_SLUG_LEN].rstrip("-")
     if not s or not s[0].isalnum():
         # Leading run was stripped above; anything still non-alnum at
