@@ -3455,7 +3455,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:8661, :16154) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19106 / :19284 / :19441 / :19886 path. There the
+    # :19107 / :19285 / :19442 / :19887 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
