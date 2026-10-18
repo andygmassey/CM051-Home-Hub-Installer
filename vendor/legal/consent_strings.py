@@ -225,7 +225,7 @@ Legal note: Voice fingerprints stored on your iPhone by the Ostler Companion app
 # acknowledgement of responsibility, not a scare screen.
 SPOKEN_CAPTURE_RECORDING_CONSENT = ConsentString(
     tickbox_id="spoken_capture_recording_consent",
-    version="v1.0-2026-07-20",
+    version="v1.1-2026-10-18",
     scope="spoken_capture_recording_consent",
     text="""Recording spoken conversations
 
@@ -233,7 +233,7 @@ Ostler can turn spoken conversations you record – calls and meetings – into 
 
 The law on recording people speaking is different from the law on written messages, and it varies by country. In some places – for example Germany and France – everyone taking part has to agree before a spoken conversation is recorded. Because you are the person doing the recording, meeting that obligation is your responsibility, not ours.
 
-Keeping everything on your own Mac does not change this. Ostler never sends your recordings anywhere, but storing them locally does not remove your duty to obtain consent where your local law requires it.
+Ostler transcribes captured audio on this Mac and deletes the audio straight away. It is never kept and never sent anywhere. That does not remove your duty to obtain consent where your local law requires it.
 
 What we ask of you:
 
