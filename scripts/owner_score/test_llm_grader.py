@@ -148,6 +148,17 @@ def main():
     rep2 = open(os.path.join(out, "report_A.md")).read()
     check("mutation: a flipped grade moves the agreement rate", "| S | correct | 3/4 (75%)" in rep2)
 
+    # adjudicate: only disagreeing items go; --blind hides both labels and the rationale
+    n0 = len(stub.created)
+    run(["adjudicate", ip, "--context", ctx, "--from", "P1", "--phase", "ADJ", "--out", out])
+    adj_reqs = stub.created[n0] if len(stub.created) > n0 else []
+    u0 = adj_reqs[0]["params"]["messages"][0]["content"] if adj_reqs else ""
+    check("adjudicate sends only the disagreeing items, with both labels", len(adj_reqs) == 2 and "HEURISTIC LABELS" in u0)
+    run(["adjudicate", ip, "--context", ctx, "--from", "P1", "--phase", "ADJB", "--blind", "--out", out])
+    b_reqs = stub.created[-1] if len(stub.created) > n0 + 1 else []
+    ub = " ".join(r["params"]["messages"][0]["content"] for r in b_reqs)
+    check("blind adjudication shows no labels and no rationale", len(b_reqs) == 2 and "HEURISTIC LABELS" not in ub and "RATIONALE" not in ub and "BLIND" in ub)
+
     print(f"{len(FAIL)} failed")
     sys.exit(1 if FAIL else 0)
 
