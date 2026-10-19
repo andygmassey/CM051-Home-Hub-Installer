@@ -54,7 +54,7 @@ from qdrant_client.models import PointStruct
 # v1.0.111 contact photos from the local AddressBook store.
 #
 # Before this, _read_abcddb_as_vcards selected no image column, so on every
-# customer install (ostler-contact-resync forces this path) no Apple Contacts
+# customer install (ostler-contact-resync forces this path) no address-book
 # photo ever reached write_photo: the walk box had no PHOTO_DIR at all.
 #
 # Where macOS keeps a contact's image is NOT measured on a real store by this
@@ -62,7 +62,7 @@ from qdrant_client.models import PointStruct
 # every known shape is tried and the per-store counter line logged by the
 # reader is the instrument: a walk reads it from contact-resync.log.
 #   1. a blob that already starts with image magic (plain inline storage);
-#   2. Core Data external-storage framing: 0x01 + bytes (inline) or
+#   2. CoreData external-storage framing: 0x01 + bytes (inline) or
 #      0x02 + UUID (bytes in .<store>_SUPPORT/_EXTERNAL_DATA/<UUID>);
 #   3. the legacy per-store Images/<uid without ':ABPerson'> file.
 # Full image first, thumbnail second. Anything that is not an image is
