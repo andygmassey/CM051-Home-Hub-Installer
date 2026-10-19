@@ -94,7 +94,8 @@ jobs:
           # key classification, real two-pass pwg-convo CLI, API 429).
           # 779 -> 783: +4 Hub-API writer (ical-server rewrites the state dir
           # before pwg-convo) update tests.
-          FLOOR=783
+          # 783 -> 789: +6 manual channel (AI conversations) is gist-only.
+          FLOOR=789
 
           # rc captured BEFORE any pipe. `$?` after a pipeline is the LAST
           # command's rc -- it would be grep's, and grep almost always

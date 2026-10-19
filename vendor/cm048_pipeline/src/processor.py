@@ -152,6 +152,17 @@ def process(
 
     client = OllamaClient(base_url=settings.ollama_url)
 
+    # Gist-only channel declared L3 by its producer: nothing CM048 makes for
+    # it can land (no gist for L3, no bundle for a gist-only channel), so
+    # stop BEFORE the first model call. See GIST_ONLY_CHANNELS.
+    if _is_gist_only(metadata) and _privacy.normalise(
+        metadata.get("privacy_level") or ""
+    ) == "L3" and metadata.get("privacy_level") is not None:
+        return _stop_gist_only_l3(
+            state_dir, conversation_id, state, settings,
+            ingest_sinks=ingest_sinks, dry_run=dry_run,
+        )
+
     # Step 01  –  classify
     if _should_run("01_classify", state.completed_steps, resume_from_step):
         _run_step(
@@ -241,6 +252,13 @@ def process(
         resolved_privacy_level,
         conversation_id,
     )
+    # Same rule when L3 came from the classifier (a sensitive AI chat):
+    # the one classify call was needed to decide; nothing after it is.
+    if _is_gist_only(metadata) and resolved_privacy_level == "L3":
+        return _stop_gist_only_l3(
+            state_dir, conversation_id, state, settings,
+            ingest_sinks=ingest_sinks, dry_run=dry_run,
+        )
 
     # Andy's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
     # phone/email handle to their NAME so the extraction LLM writes "Jane
@@ -2921,6 +2939,18 @@ def _step_bundle(
         )
 
     # ── Sub-step B: bundle assembly + atomic write ─────────────────
+    if _is_gist_only(metadata):
+        # Declared, not an unimplemented adapter: an AI conversation's
+        # durable readable copy is CM052's own artefact under
+        # ~/Documents/Ostler/AI Conversations/, so a CM048 bundle under
+        # Conversations/ would put the same chat in two folders (and on two
+        # wiki pages). The extraction above still feeds the topic bridge.
+        logger.info(
+            "channel=%r is gist-only: no Conversations/ bundle for %s",
+            metadata.get("channel"), metadata.get("conversation_id"),
+        )
+        return
+
     if not ingest_sinks:
         logger.info(
             "ingest_sinks=False; skipping disk bundle write for %s",
@@ -3003,6 +3033,57 @@ def _step_bundle(
             "lastContact update failed for %s: %s",
             bundle.conversation_id, type(exc).__name__,
         )
+
+
+# Channels whose conversations get the GIST arm only (facts, summary point,
+# topics) and never a Conversations/ bundle. "manual" is CM052's channel for
+# AI conversations (chatgpt_export, claude_code_watcher, zeroclaw_sessions):
+# their readable copy is CM052's episodic markdown, written by CM052 itself.
+# Before this was declared, make_bundle raised NotImplementedError for
+# "manual" and step 09 logged it as a missing adapter on every AI chat.
+GIST_ONLY_CHANNELS: frozenset = frozenset({"manual"})
+
+
+def _is_gist_only(metadata: dict) -> bool:
+    return str(metadata.get("channel") or "").strip().lower() in GIST_ONLY_CHANNELS
+
+
+def _stop_gist_only_l3(
+    state_dir: Path,
+    conversation_id: str,
+    state: PipelineState,
+    settings: Settings,
+    *,
+    ingest_sinks: bool,
+    dry_run: bool,
+) -> PipelineState:
+    """L3 on a gist-only channel: no gist (L3) and no bundle (gist-only),
+    so every later model call would produce nothing. Stop, after removing
+    an earlier non-L3 version's gist if this is an update (a DELETE, the
+    only store traffic, and only when that version was written)."""
+    logger.info(
+        "L3 on gist-only channel for %s: nothing to write, no model calls",
+        conversation_id,
+    )
+    if ingest_sinks:
+        try:
+            _retract_previous_gist_if_pending(
+                state_dir, conversation_id, settings, dry_run
+            )
+        except Exception as exc:
+            state.fail(
+                "07_sinks_written",
+                f"retraction of the earlier non-L3 version failed: "
+                f"{type(exc).__name__}: {exc}",
+            )
+            _save_state(state_dir, state)
+            raise RuntimeError(
+                "Step 07_sinks_written failed (L3 update retraction). "
+                "See state.json."
+            ) from exc
+    _clear_update_marker_if_settled(state_dir, state)
+    _record_processed_state(state_dir, state)
+    return state
 
 
 _BUNDLE_ARTEFACTS = ("summary.md", "transcript.md", "todos.md")
