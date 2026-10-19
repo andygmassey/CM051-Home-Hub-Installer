@@ -83,6 +83,7 @@ CM051_SOURCES=(
     "install.sh.strings.nl.sh"
     "install.sh.strings.pt-BR.sh"
     "install.sh.strings.pt-PT.sh"
+    "install.sh.strings.en-US.sh"
     "install.sh.strings.ja.sh"
     "install.sh.strings.ko.sh"
     "install.sh.strings.zh-Hans.sh"

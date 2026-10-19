@@ -50,6 +50,18 @@ final class InstallerLanguageTests: XCTestCase {
         XCTAssertNil(InstallerLanguage.map("sv-SE"))
     }
 
+    func testUSEnglishIsAVariantAndOtherEnglishStaysBritish() {
+        XCTAssertEqual(InstallerLanguage.map("en-US"), "en-US")
+        XCTAssertEqual(InstallerLanguage.map("en_US"), "en-US")
+        XCTAssertEqual(InstallerLanguage.map("en", region: "US"), "en-US")
+        XCTAssertEqual(InstallerLanguage.map("en"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.map("en-GB", region: "US"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.map("en-AU"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.map("en", region: "GB"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-US", "de-DE"], override: nil), "en-US")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-GB"], override: "en-US"), "en-US")
+    }
+
     func testOverrideOnlyAcceptsShippedValues() {
         XCTAssertEqual(InstallerLanguage.resolve(preferred: ["de-DE"], override: "ko"), "ko")
         XCTAssertEqual(InstallerLanguage.resolve(preferred: ["de-DE"], override: "en-GB"), "en-GB")

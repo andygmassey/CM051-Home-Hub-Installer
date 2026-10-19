@@ -11,7 +11,9 @@
 // to both, so the GUI and the log cannot end up in two different languages.
 //
 // Resolution: walk the Mac's preferred languages in order and take the
-// first one we ship. English (any region) stops the walk and means en-GB,
+// first one we ship. English stops the walk and means en-GB, except US
+// English (en-US, or a bare "en" on a Mac whose region is US): en-US, a
+// differences-only variant layered on en-GB,
 // so a customer who put English above German gets English. Nothing
 // matching means en-GB. OSTLER_LANG in the installer's own environment
 // overrides the lot (support / QA), but only with a value we ship.
@@ -25,20 +27,21 @@ enum InstallerLanguage {
 
     /// Languages with a shipped translation of all three catalogues.
     static let translated: [String] = [
-        "de", "fr", "es", "it", "nl", "pt-BR", "pt-PT", "ja", "ko", "zh-Hans", "zh-Hant", "zh-HK", "ar",
+        "en-US", "de", "fr", "es", "it", "nl", "pt-BR", "pt-PT", "ja", "ko", "zh-Hans", "zh-Hant", "zh-HK", "ar",
     ]
 
     static let current: String = resolve(
         preferred: Locale.preferredLanguages,
-        override: ProcessInfo.processInfo.environment["OSTLER_LANG"]
+        override: ProcessInfo.processInfo.environment["OSTLER_LANG"],
+        region: Locale.current.region?.identifier
     )
 
-    static func resolve(preferred: [String], override: String?) -> String {
+    static func resolve(preferred: [String], override: String?, region: String? = nil) -> String {
         if let o = override, o == base || translated.contains(o) {
             return o
         }
         for tag in preferred {
-            if let lang = map(tag) {
+            if let lang = map(tag, region: region) {
                 return lang
             }
         }
@@ -47,12 +50,15 @@ enum InstallerLanguage {
 
     /// Map one BCP-47 tag from Locale.preferredLanguages to a shipped
     /// language, or nil if we do not ship it.
-    static func map(_ tag: String) -> String? {
+    static func map(_ tag: String, region: String? = nil) -> String? {
         let parts = tag.replacingOccurrences(of: "_", with: "-").split(separator: "-").map(String.init)
         guard let primary = parts.first?.lowercased() else { return nil }
         let rest = parts.dropFirst().map { $0.lowercased() }
         switch primary {
         case "en":
+            // US English is a variant; every other English stays British.
+            if rest.contains("us") { return "en-US" }
+            if rest.isEmpty && region?.uppercased() == "US" { return "en-US" }
             return base
         case "zh":
             // Script wins over region; with no script, region decides.
