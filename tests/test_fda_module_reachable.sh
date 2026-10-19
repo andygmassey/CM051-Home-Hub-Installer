@@ -271,10 +271,13 @@ fi
 # dormant deliberately -- it repairs 30 of 128 over-merged nodes and leaves
 # 98 by design, so auto-running it on every customer graph is a product call
 # nobody has made yet.
-if grep -qE "^DORMANT \(acknowledged, unwired\)   3" <<< "$out"; then
-    ok "this repo reports 3 dormant modules, visible as three"
+# Bumped 3 -> 4 for subscription_gate (2026-10-19): the shared G7 helper for
+# Pro-gated ostler_fda sources, vendored before its first caller (#3022 or the
+# HR015 Notion/Linear/GitHub entry points) so they all depend on ONE copy.
+if grep -qE "^DORMANT \(acknowledged, unwired\)   4" <<< "$out"; then
+    ok "this repo reports 4 dormant modules, visible as four"
 else
-    bad "the three dormant modules were absorbed into another count"
+    bad "the four dormant modules were absorbed into another count"
 fi
 # The whole point of the row is that the next person to ship the household
 # split finds it. If that string ever drops out, the handoff is gone.
