@@ -1,9 +1,10 @@
 """Ostler Pro sources in the Doctor's "Where your data came from" table.
 
 Andy, 2026-10-19: "Need to make sure it's obvious to the user that there are
-other things if they upgrade to Pro." Pro connectors (Jira, Confluence, Slack,
-Google Chat, Linear, GitHub, Notion) are always LISTED, never hidden, with a
-small Pro badge, and say what they do. Spec:
+other things if they upgrade to Pro." All new-data ingestion is Pro (Andy's
+locked model, reaffirmed 19 Oct), so every connector is Pro, Instagram and
+Telegram included. Connectors are always LISTED, never hidden, with a small
+Pro badge, and say what they do. Spec:
 ~/walkdriver/PRO_DISCOVERABILITY_SPEC_2026-10-19.md
 
 ONLY SHIPPED CONNECTORS GET A ROW. ``SHIPPED_PRO_CONNECTORS`` is the
@@ -38,6 +39,10 @@ from typing import Callable, Optional
 
 # (id, display name, one concrete example). Order is the table order.
 PRO_CONNECTORS: tuple = (
+    ("instagram", "Instagram",
+     "Find what a friend sent you last spring: Ostler reads your Instagram messages."),
+    ("telegram", "Telegram",
+     "Pick up where a group chat left off: Ostler reads your Telegram chats."),
     ("jira", "Jira", "Ask why a feature was parked: Ostler reads your Jira history."),
     ("confluence", "Confluence",
      "Find the page where a decision was written down: Ostler reads your Confluence spaces."),
@@ -127,8 +132,8 @@ def paused_row(name: str) -> dict:
 
 
 _BADGE = ('<span class="pro-badge" style="display:inline-block;margin-left:6px;'
-          'padding:0 5px;border:1px solid #7A1F1F;border-radius:4px;'
-          'font-size:11px;line-height:16px;color:#7A1F1F">Pro</span>')
+          'padding:0 5px;border:1px solid var(--ostler-accent, #7A1F1F);border-radius:4px;'
+          'font-size:11px;line-height:16px;color:var(--ostler-accent, #7A1F1F)">Pro</span>')
 
 
 def render_pro_rows_html(rows: list, columns: int = 6) -> str:
