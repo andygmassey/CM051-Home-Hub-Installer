@@ -238,6 +238,7 @@ jobs:
       # related, history) but no owner view shows last contact, recency,
       # birthday or warmth, and reply debt / open commitments drop them.
       - name: A deceased person reads as remembered, not as someone to contact
+        if: always()
         env:
           OSTLER_DB_KEY: fixture-not-a-key
         run: |

@@ -152,11 +152,11 @@ class Store:
             ]
         if "OutstandingTodo" in q:
             return [
-                {"todo": "urn:ostler:todo/t-dead", "action": "Send Margaret the photos",
+                {"todo": "urn:ostler:todo/t-dead", "action": "share the photo album",
                  "owner": "user", "status": "open", "deadline": _days_ago(-2)},
-                {"todo": "urn:ostler:todo/t-mixed", "action": "Book the family lunch",
+                {"todo": "urn:ostler:todo/t-mixed", "action": "book the family lunch",
                  "owner": "user", "status": "open", "deadline": _days_ago(-3)},
-                {"todo": "urn:ostler:todo/t-live", "action": "Return John's drill",
+                {"todo": "urn:ostler:todo/t-live", "action": "return the borrowed drill",
                  "owner": "user", "status": "open", "deadline": _days_ago(-4)},
             ]
         if "FILTER(CONTAINS(LCASE(?name)" in q or "FILTER(CONTAINS(LCASE(?matched)" in q:
@@ -362,9 +362,9 @@ class TestDeceasedOnActPrompts(unittest.TestCase):
     def test_commitments(self):
         cm = self.o["commitments"]
         actions = [c["action"] for c in cm["commitments"]]
-        self.assertNotIn("Send Margaret the photos", actions)
-        self.assertIn("Book the family lunch", actions, "a todo with a living person stays")
-        self.assertIn("Return John's drill", actions, "control")
+        self.assertNotIn("share the photo album", actions)
+        self.assertIn("book the family lunch", actions, "a todo with a living person stays")
+        self.assertIn("return the borrowed drill", actions, "control")
 
 
 class TestFailClosed(unittest.TestCase):
