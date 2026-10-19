@@ -2239,7 +2239,15 @@ def people_search(query, limit=10, timeout=30):
         if facts:
             entry["facts"] = facts
         results.append(entry)
-    return {"query": query, "results": results, "count": len(results)}
+    # Deceased / do-not-suggest marker (see _apply_person_suppression).
+    sup, sup_err = _try_load_person_suppression()
+    for entry in results:
+        _apply_person_suppression(entry, sup, uri=entry.get("person_uri"))
+    out = {"query": query, "results": results, "count": len(results)}
+    if sup_err:
+        out["degraded"] = True
+        out["reason"] = sup_err
+    return out
 
 
 # ── Coach observations (CM048 tier 3) ────────────────────────────────
@@ -6161,6 +6169,11 @@ def person_context(name):
 
         results.append(entry)
 
+    # Deceased / do-not-suggest marker (see _apply_person_suppression).
+    _ctx_sup, _ctx_sup_err = _try_load_person_suppression()
+    for _e in results:
+        _apply_person_suppression(_e, _ctx_sup, uri=_e.get("person_uri"))
+
     if len(results) == 1:
         # CM031 PWG Companion's PersonContextResponse decodes a flat shape
         # ({name, slug, organisation, title, last_contact, ...}). Marvin /
@@ -6175,9 +6188,15 @@ def person_context(name):
                 out[k] = v
         if operator_employer and operator_employer.get("found"):
             out["current_employer"] = operator_employer
+        if _ctx_sup_err:
+            out["degraded"] = True
+            out["reason"] = _ctx_sup_err
         return out
     out = {"query": name, "found": True, "matches": results,
            "count": len(results)}
+    if _ctx_sup_err:
+        out["degraded"] = True
+        out["reason"] = _ctx_sup_err
     # F2: when the operator's own name multi-matches, hand the brief LLM the
     # resolved current employer at the top level instead of N candidate orgs.
     if operator_employer and operator_employer.get("found"):
@@ -6555,7 +6574,13 @@ def person_enrichment(slug):
         # response over an optional top-up.
         pass
 
+    # Deceased / do-not-suggest marker (see _apply_person_suppression).
+    _en_sup, _en_sup_err = _try_load_person_suppression()
+    _apply_person_suppression(entry, _en_sup, uri=person_uri, name=pname)
     out = {"slug": slug, "found": True, "person": entry}
+    if _en_sup_err:
+        out["degraded"] = True
+        out["reason"] = _en_sup_err
     # Flatten the person fields to the envelope top-level too, matching
     # person_context's dual-shape contract so a client decoding either
     # the nested or flat form works.
@@ -6813,6 +6838,17 @@ def person_timeline(slug, limit=50, days=None):
             pass
 
     # Newest first. Then cap at the limit (default 50).
+    # Deceased: the per-channel "Last email contact" markers read as an
+    # ongoing relationship, so they go; meetings and conversations stay.
+    # Fail closed: no index, no markers.
+    _tl_sup, _tl_sup_err = _try_load_person_suppression()
+    _tl_state = _apply_person_suppression(
+        person if isinstance(person, dict) else {}, _tl_sup,
+        uri=person_uri, name=pname)
+    if _tl_state in ("deceased", "unavailable"):
+        events = [e for e in events if not e.get("marker")]
+    if _tl_sup_err:
+        degraded_sources.append(_tl_sup_err)
     events.sort(key=lambda e: e.get("when_iso") or "", reverse=True)
     try:
         cap = max(1, int(limit))
@@ -7352,8 +7388,67 @@ def commitments_list(owner=None, due_before=None, status="open",
     owner_norm = (owner or "").strip().lower()
     due_norm = (due_before or "").strip()
 
+    # Do-not-suggest (deceased / stop-suggesting): an open promise to or
+    # about someone who has died must not be shown as due. A todo is
+    # withheld when its owner is that person, or when EVERY participant it
+    # is about is suppressed; a todo that also involves a living person
+    # stays. Fail closed.
+    _cm_sup, _cm_sup_err = _try_load_person_suppression()
+    if _cm_sup is None:
+        return {
+            "commitments": [],
+            "count": 0,
+            "degraded": True,
+            "reason": _cm_sup_err,
+        }, 503
+    _cm_hidden = set()
+    if _cm_sup.slugs and rows:
+        _todo_vals = " ".join(
+            "<{}>".format(r["todo"]) for r in rows
+            if r.get("todo") and ">" not in r["todo"] and " " not in r["todo"])
+        about = {}
+        owner_disp = {}
+        if _todo_vals:
+            try:
+                arows = _sparql_select(
+                    'SELECT DISTINCT ?todo ?about ?ownerDisplay WHERE {\n'
+                    + (
+                        '  VALUES ?todo { ' + _todo_vals + ' }\n'
+                        '  OPTIONAL { ?todo <urn:ostler:aboutPerson> ?about }\n'
+                        '  OPTIONAL { ?todo <urn:ostler:ownerDisplay> ?ownerDisplay }\n'
+                    )
+                    + '\n}'
+                )
+            except Exception as exc:
+                return {
+                    "commitments": [],
+                    "count": 0,
+                    "degraded": True,
+                    "reason": f"suppression_join_failed: {exc}",
+                }, 503
+            for a in arows:
+                t = a.get("todo")
+                if a.get("about"):
+                    about.setdefault(t, set()).add(_suppressed_slug_tail(a["about"]))
+                if a.get("ownerDisplay"):
+                    owner_disp[t] = a["ownerDisplay"]
+        for r in rows:
+            t = r.get("todo")
+            own = (r.get("owner", "") or "").strip().lower()
+            if own.startswith("other:") and _suppressed_slug_tail(own) in _cm_sup.slugs:
+                _cm_hidden.add(t)
+                continue
+            if owner_disp.get(t) and _cm_sup.state(name=owner_disp[t]):
+                _cm_hidden.add(t)
+                continue
+            subj = about.get(t) or set()
+            if subj and all(x in _cm_sup.slugs for x in subj):
+                _cm_hidden.add(t)
+
     commitments = []
     for r in rows:
+        if r.get("todo") in _cm_hidden:
+            continue
         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
             continue
         deadline = r.get("deadline", "")
@@ -7509,6 +7604,22 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
 
     try:
         debts = service.compute_reply_debts(**kwargs)
+        # Do-not-suggest (deceased / stop-suggesting): "X is waiting on
+        # you" about someone who has died is the harm. Fail closed.
+        _rd_sup, _rd_sup_err = _try_load_person_suppression()
+        if _rd_sup is None:
+            return {
+                "count": 0,
+                "brief_line": "",
+                "debts": [],
+                "degraded": True,
+                "reason": _rd_sup_err,
+            }, 200
+        debts = [
+            d for d in debts
+            if not _rd_sup.state(uri=getattr(d, "person_uri", None),
+                                 name=getattr(d, "person_name", None))
+        ]
         if limit is not None and limit >= 0:
             debts = debts[:limit]
         payload = service.reply_debt_payload(debts)
@@ -7753,6 +7864,8 @@ def people_list(sort=None, ceiling=10000):
             if _e_norm:
                 human_named_emails.add(_e_norm)
 
+    # Deceased / do-not-suggest marker (see _apply_person_suppression).
+    _pl_sup, _pl_sup_err = _try_load_person_suppression()
     people = []
     for pt in points:
         p = pt.get("payload", {}) or {}
@@ -7943,6 +8056,18 @@ def people_list(sort=None, ceiling=10000):
         recency = _recency_label(lc_ts)
         if recency:
             row["recency"] = recency
+        if _pl_sup is None:
+            # fail closed: no recency for anyone this call
+            row.pop("recency", None)
+            lc_ts = 0
+        else:
+            _pl_state = _pl_sup.state(uri=uri, name=name)
+            if _pl_state:
+                row["suggestions_suppressed"] = True
+            if _pl_state == "deceased":
+                row["deceased"] = True
+                row.pop("recency", None)
+                lc_ts = 0  # never sorts to the top of "recent"
         row["_lc_ts"] = lc_ts
         row["_first"] = given.casefold()
         row["_last"] = (family or given).casefold()
@@ -7988,7 +8113,12 @@ def people_list(sort=None, ceiling=10000):
         row.pop("_lc_ts", None)
         row.pop("_first", None)
         row.pop("_last", None)
-    return {"people": people, "total": len(people)}
+    _pl_out = {"people": people, "total": len(people)}
+    if _pl_sup_err:
+        _pl_out["degraded"] = True
+        _pl_out["reason"] = _pl_sup_err
+        _pl_out["suppression_check"] = "unavailable"
+    return _pl_out
 
 
 def _suppressed_identity_index():
@@ -8073,6 +8203,155 @@ def _suppressed_identity_index():
 
 # Runaway guard for the stale-people scan (pages of 1000). Not a sample.
 _STALE_SCAN_MAX_PAGES = 50
+
+
+# ── Deceased / do-not-suggest on NON-proactive person outputs ────────
+#
+# The proactive producers below (people_stale / people_recent /
+# people_birthdays, hence api_suggestions) DROP a suppressed person. The
+# owner's own views of that person (People list, search, person card,
+# person timeline) must keep them: their name, how they are related, and
+# their history stay readable. But for a person the owner marked as
+# DECEASED those views must not read as an ongoing relationship either:
+# no "last contact", no "3MO AGO" recency, no birthday that a client turns
+# into an "upcoming" countdown or a "turning N", no warmth / strength score.
+#
+# Contract (consumed by CM031 iOS and the ostler-assistant chat context;
+# shared fixture: tests/fixtures/deceased_person_contract.json):
+#   "suggestions_suppressed": true  -- either reason; never suggest them
+#   "deceased": true                -- reason "deceased" (case-insensitive)
+# and, for deceased only, every key in _DECEASED_OMIT_KEYS is absent.
+# A do-not-suggest person keeps their factual fields: only the proactive
+# surfaces change for them.
+#
+# FAIL CLOSED: if the suppression record cannot be read we cannot tell a
+# deceased person from a living one, so the act-prompt keys are withheld
+# for everyone in that response and it says so
+# ("suppression_check": "unavailable"). The same store answers both
+# queries, so this costs a living person nothing they would otherwise see.
+
+_DECEASED_REASON = "deceased"
+
+_DECEASED_OMIT_KEYS = (
+    "last_contact", "last_contact_by_source", "last_contact_ts",
+    "months_since_contact", "days_since_contact", "days_since",
+    "recency", "birthday", "next_birthday", "days_until", "age",
+    "turning", "relationship_signal", "relationship_strength",
+    "strength", "warmth", "fading",
+)
+
+
+class _PersonSuppression:
+    """The do-not-suggest index plus each record's reason, for one request."""
+
+    def __init__(self, slugs=(), uris=(), reasons=None, uri_slugs=None):
+        self.slugs = set(slugs or ())
+        self.uris = set(uris or ())
+        # slug -> lower-cased reason ("" when the record carries none)
+        self.reasons = dict(reasons or {})
+        # suppressed uri -> the suppressed slug that caught it
+        self.uri_slugs = dict(uri_slugs or {})
+
+    def state(self, uri=None, name=None):
+        """None (not suppressed), "deceased" or "do_not_suggest"."""
+        slug = _wiki_slug(name) if name else None
+        hit = None
+        if slug and slug in self.slugs:
+            hit = slug
+        elif uri and uri in self.uris:
+            hit = self.uri_slugs.get(uri, "")
+        if hit is None:
+            return None
+        if self.reasons.get(hit, "") == _DECEASED_REASON:
+            return "deceased"
+        return "do_not_suggest"
+
+
+def _load_person_suppression():
+    """Build a :class:`_PersonSuppression`. RAISES on any store failure, so
+    a caller can never mistake "could not look" for "nobody suppressed"."""
+    slugs, uris = _suppressed_identity_index()
+    reasons = {}
+    if slugs:
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?slug ?reason WHERE {{\n'
+            '  ?s a pwg:SuggestionSuppression ; pwg:suppressedSlug ?slug .\n'
+            '  OPTIONAL {{ ?s pwg:suppressReason ?reason }}\n'
+            '}}'.format(ns=PWG_NS)
+        )
+        for r in rows:
+            s = r.get("slug")
+            if not s:
+                continue
+            reason = (r.get("reason") or "").strip().lower()
+            # Two records on one slug: deceased wins (the gentler output).
+            if reasons.get(s) != _DECEASED_REASON:
+                reasons[s] = reason
+    uri_slugs = {}
+    if uris:
+        values = " ".join("<{}>".format(u) for u in sorted(uris)
+                          if u and ">" not in u and " " not in u)
+        if values:
+            rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?p ?name WHERE {{\n'
+                '  VALUES ?p {{ {values} }}\n'
+                '  ?p pwg:displayName ?name .\n'
+                '}}'.format(ns=PWG_NS, values=values)
+            )
+            for r in rows:
+                s = _wiki_slug(r.get("name", ""))
+                if s in slugs:
+                    uri_slugs[r.get("p")] = s
+    return _PersonSuppression(slugs, uris, reasons, uri_slugs)
+
+
+def _try_load_person_suppression():
+    """``(index, None)`` or ``(None, reason)``. Never raises."""
+    try:
+        return _load_person_suppression(), None
+    except Exception as exc:
+        return None, f"suppression_index_failed: {exc}"
+
+
+def _apply_person_suppression(entry, sup, uri=None, name=None):
+    """Mark ``entry`` (a person dict on a NON-proactive output) and, for a
+    deceased person, strip every key that implies an ongoing relationship
+    or a prompt to act. ``sup`` None means the index could not be read:
+    fail closed. Returns the state ("deceased", "do_not_suggest", None, or
+    "unavailable")."""
+    if sup is None:
+        for k in _DECEASED_OMIT_KEYS:
+            entry.pop(k, None)
+        entry["suppression_check"] = "unavailable"
+        return "unavailable"
+    state = sup.state(uri=uri, name=name if name is not None else entry.get("name"))
+    if state is None:
+        return None
+    entry["suggestions_suppressed"] = True
+    if state == "deceased":
+        entry["deceased"] = True
+        for k in _DECEASED_OMIT_KEYS:
+            entry.pop(k, None)
+    return state
+
+
+def _suppressed_slug_tail(value):
+    """The slug at the end of a CM048 person id or URN ("other:alex-rivers",
+    "urn:ostler:other/alex-rivers") or "" when there is none."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    for sep in ("/", ":"):
+        if sep in v:
+            v = v.rsplit(sep, 1)[-1]
+    try:
+        from urllib.parse import unquote
+        v = unquote(v)
+    except Exception:
+        pass
+    return v.strip().lower()
 
 
 def people_stale(months=3, limit=5):
@@ -8855,15 +9134,24 @@ def api_suggestions():
     """
     out = {"birthdays": [], "stale_contacts": [], "recent_meetings": []}
     try:
-        out["birthdays"] = people_birthdays(days=14).get("people", [])[:5]
+        _r = people_birthdays(days=14)
+        if isinstance(_r, dict) and _r.get("degraded"):
+            out["birthdays_error"] = str(_r.get("reason") or "degraded")[:200]
+        out["birthdays"] = _r.get("people", [])[:5]
     except Exception as exc:
         out["birthdays_error"] = str(exc)
     try:
-        out["stale_contacts"] = people_stale(months=3, limit=5).get("contacts", [])
+        _r = people_stale(months=3, limit=5)
+        if isinstance(_r, dict) and _r.get("degraded"):
+            out["stale_error"] = str(_r.get("reason") or "degraded")[:200]
+        out["stale_contacts"] = _r.get("contacts", [])
     except Exception as exc:
         out["stale_error"] = str(exc)
     try:
-        out["recent_meetings"] = people_recent(days=14, limit=5).get("contacts", [])
+        _r = people_recent(days=14, limit=5)
+        if isinstance(_r, dict) and _r.get("degraded"):
+            out["recent_error"] = str(_r.get("reason") or "degraded")[:200]
+        out["recent_meetings"] = _r.get("contacts", [])
     except Exception as exc:
         out["recent_error"] = str(exc)
     # CM031 PWG Companion's SuggestionsResponse keys on `reconnect` and
@@ -8872,6 +9160,11 @@ def api_suggestions():
     # change. Aliases share the same list reference – cheap, no copy.
     out["reconnect"] = out["stale_contacts"]
     out["follow_up"] = out["recent_meetings"]
+    _deg = [k for k in ("birthdays_error", "stale_error", "recent_error")
+            if out.get(k)]
+    if _deg:
+        out["degraded"] = True
+        out.setdefault("reason", "; ".join(out[k] for k in _deg)[:200])
     # 🔴 THE FRONT PAGE'S "NEEDS YOU NOW" BAND WAS EMPTY BECAUSE THIS PAYLOAD
     # NEVER SAID WHAT IT WAS. CM059's signals.py resolves an item's privacy
     # level fail-closed: the item's own tag wins, else the enclosing payload's,
