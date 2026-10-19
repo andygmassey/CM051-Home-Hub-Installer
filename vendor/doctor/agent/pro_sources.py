@@ -177,7 +177,7 @@ def render_pro_rows_html(rows: list, columns: int = 6) -> str:
             detail += '<div style="font-size:0.85em"><a href="">Try again</a></div>'
         out.append(
             "<tr>"
-            f'<td>{html.escape(r["name"])}{_BADGE}</td>'
+            f'<td style="white-space:nowrap">{html.escape(r["name"])}{_BADGE}</td>'
             f'<td colspan="{columns - 1}"><span class="muted">{html.escape(r["line"])}</span>{detail}</td>'
             "</tr>"
         )
