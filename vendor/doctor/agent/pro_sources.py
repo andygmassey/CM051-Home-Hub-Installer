@@ -59,11 +59,31 @@ PRO_CONNECTORS: tuple = (
 # THE AVAILABILITY FLAG. Empty until a connector is wired and walked.
 SHIPPED_PRO_CONNECTORS: frozenset = frozenset()
 
+# Sources with an export FILE import. Andy, 19 Oct: the first import of each
+# is free, with or without Pro; later imports and all ongoing sync are Pro.
+# Confluence, Linear and GitHub are token sync only, so nothing is free there.
+EXPORT_IMPORT_SOURCES: frozenset = frozenset(
+    {"instagram", "telegram", "jira", "slack", "google_chat", "notion"})
+
+# ── SHARED COPY, VERBATIM (Andy, 19 Oct; CONNECTORS_BUILD_BRIEF bottom) ──
+# The same words in the Doctor, installer, CLI and iOS. Do not reword here.
+PRE_IMPORT_NOTE = ("Your first import from each app is free. To bring in newer history "
+                   "later, or keep {source} up to date automatically, you'll need Ostler Pro.")
+SECOND_IMPORT_REFUSAL = ("You've already imported your {source} history once, free. Bringing "
+                         "in newer exports, and keeping {source} up to date automatically, is "
+                         "part of Ostler Pro.")
+STAYS_SEARCHABLE = "Everything you've already imported stays here, and you can still search it."
+# Token-only sources have no free import, so the refusal's first clause would
+# be false there. This is its second clause on its own; Archie to confirm.
+SYNC_IS_PRO = "Keeping {source} up to date automatically is part of Ostler Pro."
+
 ENT_ACTIVE = "active"     # Pro, or inside the post-lapse grace window
 ENT_PAUSED = "paused"     # gate says paused: lapsed past grace, or never had Pro
 ENT_UNKNOWN = "unknown"   # could not ask
 
-UPGRADE_LINE = "Upgrade in the Ostler app on your iPhone."
+# The Mac cannot sell Pro (App Store subscription, bought in the iOS app), so
+# the [Upgrade to Pro] button becomes this line on the Mac.
+UPGRADE_LINE = "Upgrade to Pro in the Ostler app on your iPhone."
 
 # install.sh stages ostler_fda into ${OSTLER_DIR}/fda-module (install.sh:9085).
 _DEFAULT_GATE = Path.home() / ".ostler" / "fda-module" / "ostler_fda" / "subscription_gate.py"
@@ -90,7 +110,10 @@ def resolve_entitlement(gate_path: Optional[Path] = None,
             value = {0: ENT_ACTIVE, 3: ENT_PAUSED}.get(rc, ENT_UNKNOWN)
         except Exception:  # noqa: BLE001  timeout, exec failure: not an answer
             value = ENT_UNKNOWN
-    _cache["at"], _cache["value"] = now, value
+    if value != ENT_UNKNOWN:
+        # Only a real answer is cached; "could not ask" is asked again on
+        # the next load, so Try again means it.
+        _cache["at"], _cache["value"] = now, value
     return value
 
 
@@ -98,37 +121,43 @@ def pro_source_rows(entitlement: str, shipped: frozenset = SHIPPED_PRO_CONNECTOR
                     connected: frozenset = frozenset()) -> list:
     """One row per SHIPPED Pro connector that is not already in the ordinary
     table. ``connected``: ids that already have their own sentinel row, which
-    then wins (a connected source is just a source).
+    then wins (a connected source is just a source; see ``lapsed_row``).
 
-    Row: {source, name, state, line, detail}. States:
-      locked       no Pro: what it does, and where to upgrade
+    Row: {source, name, state, line, detail, retry}. States:
+      try_free       no Pro, export source: what it does + the pre-import note
+      locked         no Pro, token-only source: what it does + sync is Pro
       not_connected  Pro, nothing set up yet
-      paused       had it, Pro ended: data stays, renew to keep syncing
-      unknown      could not ask the gate
+      unknown        could not ask the gate: never shown as refused; Try again
     """
     rows = []
     for cid, name, example in PRO_CONNECTORS:
         if cid not in shipped or cid in connected:
             continue
+        retry = False
         if entitlement == ENT_ACTIVE:
             state, line, detail = "not_connected", "Not connected yet", ""
         elif entitlement == ENT_PAUSED:
-            # The gate cannot tell "never had Pro" from "Pro ended" by exit
-            # code alone, so the row says both halves plainly and stays true
-            # for either: nothing is deleted, and Pro is what syncs it.
-            state, line, detail = "locked", "Part of Ostler Pro", f"{example} {UPGRADE_LINE}"
+            if cid in EXPORT_IMPORT_SOURCES:
+                state, line, detail = "try_free", example, PRE_IMPORT_NOTE.format(source=name)
+            else:
+                state, line = "locked", example
+                detail = f"{SYNC_IS_PRO.format(source=name)} {UPGRADE_LINE}"
         else:
-            state, line, detail = "unknown", "Could not check your Pro status", ""
+            state, line, detail, retry = "unknown", "Could not check your Pro status", "", True
         rows.append({"source": cid, "name": name, "state": state,
-                     "line": line, "detail": detail})
+                     "line": line, "detail": detail, "retry": retry})
     return rows
 
 
-def paused_row(name: str) -> dict:
-    """A CONNECTED Pro source after Pro ends. Used by the wiring PR, where the
-    sentinel row exists and the gate reports paused."""
-    return {"name": name, "state": "paused", "line": "Paused",
-            "detail": "What Ostler already read stays readable. Renew to keep syncing."}
+def lapsed_row(source: str, name: str) -> dict:
+    """A source that HAS imported, seen without Pro (lapsed, or a second
+    import refused). Used by the wiring PR on the source's own row."""
+    if source in EXPORT_IMPORT_SOURCES:
+        line = SECOND_IMPORT_REFUSAL.format(source=name)
+    else:
+        line = SYNC_IS_PRO.format(source=name)
+    return {"source": source, "name": name, "state": "paused", "line": line,
+            "detail": f"{STAYS_SEARCHABLE} {UPGRADE_LINE}", "retry": False}
 
 
 _BADGE = ('<span class="pro-badge" style="display:inline-block;margin-left:6px;'
@@ -142,6 +171,10 @@ def render_pro_rows_html(rows: list, columns: int = 6) -> str:
     for r in rows:
         detail = (f'<div class="muted" style="font-size:0.85em">{html.escape(r["detail"])}</div>'
                   if r.get("detail") else "")
+        if r.get("retry"):
+            # An empty href reloads the page, which asks the gate again
+            # (unknown answers are not cached).
+            detail += '<div style="font-size:0.85em"><a href="">Try again</a></div>'
         out.append(
             "<tr>"
             f'<td>{html.escape(r["name"])}{_BADGE}</td>'

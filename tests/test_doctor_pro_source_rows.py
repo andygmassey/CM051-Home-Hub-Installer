@@ -52,17 +52,40 @@ def test_every_connector_is_pro_none_labelled_free():
     names = [n for _, n, _ in ps.PRO_CONNECTORS]
     assert names == ["Instagram", "Telegram", "Jira", "Confluence", "Slack", "Google Chat",
                      "Linear", "GitHub", "Notion"]
-    src = (_REPO / "vendor" / "doctor" / "agent" / "pro_sources.py").read_text().lower()
-    assert "free" not in src
+    # No connector is labelled a free tier: "free" appears only in the shared
+    # first-import copy.
+    assert not [n for _, n, e in ps.PRO_CONNECTORS if "free" in e.lower()]
 
 
-def test_no_pro_shows_what_it_does_and_where_to_upgrade():
-    rows = ps.pro_source_rows(ps.ENT_PAUSED, shipped=frozenset({"jira"}))
+VERBATIM_PRE = ("Your first import from each app is free. To bring in newer history later, "
+                "or keep Telegram up to date automatically, you'll need Ostler Pro.")
+VERBATIM_REFUSAL = ("You've already imported your Telegram history once, free. Bringing in newer "
+                    "exports, and keeping Telegram up to date automatically, is part of Ostler Pro.")
+VERBATIM_STAYS = "Everything you've already imported stays here, and you can still search it."
+
+
+def test_shared_copy_is_verbatim():
+    # Andy's words from the connectors brief, filled in for Telegram.
+    assert ps.PRE_IMPORT_NOTE.format(source="Telegram") == VERBATIM_PRE
+    assert ps.SECOND_IMPORT_REFUSAL.format(source="Telegram") == VERBATIM_REFUSAL
+    assert ps.STAYS_SEARCHABLE == VERBATIM_STAYS
+
+
+def test_no_pro_export_source_says_the_first_import_is_free():
+    rows = ps.pro_source_rows(ps.ENT_PAUSED, shipped=frozenset({"telegram"}))
     assert rows == [{
-        "source": "jira", "name": "Jira", "state": "locked", "line": "Part of Ostler Pro",
-        "detail": "Ask why a feature was parked: Ostler reads your Jira history. "
-                  "Upgrade in the Ostler app on your iPhone.",
+        "source": "telegram", "name": "Telegram", "state": "try_free",
+        "line": "Pick up where a group chat left off: Ostler reads your Telegram chats.",
+        "detail": VERBATIM_PRE, "retry": False,
     }]
+
+
+def test_no_pro_token_source_never_promises_a_free_import():
+    rows = ps.pro_source_rows(ps.ENT_PAUSED, shipped=frozenset({"linear"}))
+    assert rows[0]["state"] == "locked"
+    assert "free" not in (rows[0]["line"] + rows[0]["detail"]).lower()
+    assert rows[0]["detail"] == ("Keeping Linear up to date automatically is part of Ostler Pro. "
+                                 "Upgrade to Pro in the Ostler app on your iPhone.")
 
 
 def test_pro_not_yet_connected():
@@ -70,9 +93,12 @@ def test_pro_not_yet_connected():
     assert [(r["state"], r["line"]) for r in rows] == [("not_connected", "Not connected yet")]
 
 
-def test_unknown_is_never_locked_or_paused():
+def test_unknown_is_never_refused_and_offers_try_again():
     rows = ps.pro_source_rows(ps.ENT_UNKNOWN, shipped=frozenset({"slack"}))
-    assert [(r["state"], r["line"]) for r in rows] == [("unknown", "Could not check your Pro status")]
+    assert [(r["state"], r["line"], r["retry"]) for r in rows] == [
+        ("unknown", "Could not check your Pro status", True)]
+    out = ps.render_pro_rows_html(rows)
+    assert ">Try again</a>" in out and "part of Ostler Pro" not in out
     rows = ps.pro_source_rows("something-new", shipped=frozenset({"slack"}))
     assert rows[0]["state"] == "unknown"
 
@@ -88,10 +114,16 @@ def test_rows_follow_table_order_and_only_shipped():
     assert [r["source"] for r in rows] == ["jira", "notion"]
 
 
-def test_paused_row_keeps_data_readable():
-    r = ps.paused_row("Slack")
-    assert r["line"] == "Paused"
-    assert r["detail"] == "What Ostler already read stays readable. Renew to keep syncing."
+def test_a_second_import_without_pro_is_refused_with_the_reason():
+    r = ps.lapsed_row("telegram", "Telegram")
+    assert r["line"] == VERBATIM_REFUSAL
+    assert r["detail"] == VERBATIM_STAYS + " Upgrade to Pro in the Ostler app on your iPhone."
+
+
+def test_a_lapsed_token_source_does_not_claim_a_free_import():
+    r = ps.lapsed_row("github", "GitHub")
+    assert "free" not in r["line"].lower()
+    assert r["detail"].startswith(VERBATIM_STAYS)
 
 
 def test_gate_exit_codes_map_to_entitlement():
@@ -121,6 +153,15 @@ def test_a_gate_that_cannot_run_is_unknown():
         assert called == [], "a missing gate must not be executed"
 
 
+def test_could_not_ask_is_not_cached():
+    with tempfile.TemporaryDirectory() as tmp:
+        gate = _gate_file(tmp)
+        rcs = [1, 0]
+        _fresh()
+        assert ps.resolve_entitlement(gate, runner=lambda c, **k: _Done(rcs.pop(0))) == ps.ENT_UNKNOWN
+        assert ps.resolve_entitlement(gate, runner=lambda c, **k: _Done(rcs.pop(0))) == ps.ENT_ACTIVE
+
+
 def test_entitlement_is_cached_for_a_minute():
     with tempfile.TemporaryDirectory() as tmp:
         gate = _gate_file(tmp)
@@ -144,13 +185,14 @@ def test_entitlement_is_cached_for_a_minute():
 def test_html_row_has_badge_and_escapes():
     rows = ps.pro_source_rows(ps.ENT_PAUSED, shipped=frozenset({"jira"}))
     out = ps.render_pro_rows_html(rows)
-    assert ">Pro</span>" in out and "Jira" in out and "Part of Ostler Pro" in out
+    assert ">Pro</span>" in out and "Jira" in out and "first import from each app is free" in out
     assert ps.render_pro_rows_html([{"name": "<b>", "line": "x", "detail": ""}]).count("&lt;b&gt;") == 1
     assert ps.render_pro_rows_html([]) == ""
 
 
 def test_copy_rules():
-    text = " ".join(e for _, _, e in ps.PRO_CONNECTORS) + ps.UPGRADE_LINE + ps.paused_row("x")["detail"]
+    text = " ".join(e for _, _, e in ps.PRO_CONNECTORS) + ps.UPGRADE_LINE + ps.STAYS_SEARCHABLE \
+        + ps.PRE_IMPORT_NOTE + ps.SECOND_IMPORT_REFUSAL + ps.SYNC_IS_PRO
     assert "—" not in text
     assert "recording" not in text.lower() and "companion" not in text.lower()
 
