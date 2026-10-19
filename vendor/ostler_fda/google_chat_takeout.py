@@ -894,9 +894,10 @@ def default_state_path() -> Path:
 # one) or ``wire.post`` for CM052. No local bundle writer. EVERY level,
 # including L3, reaches processor.process: CM048's writer still writes an L3
 # conversation's four artefacts and is the one that skips its gist arm. So
-# nothing here filters on privacy_level before the hand-off. Ungated, like
-# Messenger, until Andy decides which connectors are Pro (G7 lives at an entry
-# point, never inside processor.process).
+# nothing here filters on privacy_level before the hand-off. Google Chat is
+# PRO (Andy, 2026-10-19): the G7 gate below runs at the entry point, before the
+# export is read (``main``) and again before any hand-off (``persist``), never
+# inside processor.process.
 
 
 # ---------------------------------------------------------------------------
@@ -1066,6 +1067,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _emit() -> None:
         if args.json:
             print(json.dumps(result))
+
+    # G7 FIRST: a customer without Ostler Pro has nothing of this export read,
+    # staged or sent, and nothing already in the Hub is touched.
+    gate = default_gate()
+    result["gate"] = gate
+    if gate in ("inactive", "absent"):
+        result["status"] = "paused"
+        result["paused_reason"] = "not_pro" if gate == "inactive" else "gate_helper_absent"
+        print("google-chat-takeout: Google Chat import needs Ostler Pro; nothing was "
+              "read. Everything already in your Hub stays available.", file=sys.stderr)
+        _emit()
+        return 0
 
     try:
         export = parse_export(args.export_path, owner_email=args.owner_email)

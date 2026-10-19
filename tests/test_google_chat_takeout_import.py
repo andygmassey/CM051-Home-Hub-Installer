@@ -530,3 +530,28 @@ def test_g7_default_resolves_the_shared_helper(tmp_path, monkeypatch):
 
     fake.entry_gate = boom
     assert gc.default_gate() == "unknown"
+
+
+def test_g7_cli_not_entitled_reads_nothing_writes_nothing(tmp_path, monkeypatch, capsys):
+    root = build_export(tmp_path / "export")
+    out = tmp_path / "out"
+    monkeypatch.setattr(gc, "default_gate", lambda: "inactive")
+
+    def must_not_read(*a, **k):
+        raise AssertionError("the export was read without Ostler Pro")
+
+    monkeypatch.setattr(gc, "parse_export", must_not_read)
+    assert gc.main(["--export-path", str(root), "--output-dir", str(out), "--persist", "--json"]) == 0
+    res = json.loads(capsys.readouterr().out)
+    assert (res["status"], res["paused_reason"]) == ("paused", "not_pro")
+    assert not out.exists()
+
+
+def test_g7_cli_entitled_reads_and_stages(tmp_path, monkeypatch, capsys):
+    root = build_export(tmp_path / "export")
+    out = tmp_path / "out"
+    monkeypatch.setattr(gc, "default_gate", lambda: "active")
+    assert gc.main(["--export-path", str(root), "--output-dir", str(out), "--json"]) == 0
+    res = json.loads(capsys.readouterr().out)
+    assert res["status"] == "ok" and res["conversations"] == 3
+    assert len(json.loads((out / "google_chat_conversations.json").read_text())) == 3
