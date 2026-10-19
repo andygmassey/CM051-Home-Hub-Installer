@@ -101,13 +101,13 @@ def test_usage_error_is_neither_0_nor_3(tmp_path):
 
 # -- first_import.py: the free-first-export-import rule, ONE contract ---------
 #
-# Reference: CM052 src/cm052/first_import.py (CM052 #17 at 5508a54). HR015
+# Reference: CM052 src/cm052/first_import.py (CM052 #17 at f5e29cc). HR015
 # ostler_fda/tests/test_first_import_parity.py pins the same digest. Its
 # ``from .subscription_gate import is_active_or_grace`` must resolve to the
 # vendored ostler_fda gate above, so the two files travel together.
 
 FIRST_IMPORT = REPO / "vendor" / "ostler_fda" / "first_import.py"
-FIRST_IMPORT_SHA256 = "0c02785fcb0a82790ab81ebfcf091c6f9a64066edaee669cf9bbbd8534689ed9"
+FIRST_IMPORT_SHA256 = "c3c425ccb4c8b9a15bcf5030c8b56a29ff7ac98ae77d7baa9505ab7cc83c56bc"
 
 
 def test_first_import_is_byte_identical_and_pinned():
