@@ -289,6 +289,7 @@ jobs:
             fi
             CUT_VERSION_SOURCE="tag"
             echo "source: cut branch ${CUT_BRANCH_REF} (tag-time preflight enforced; a candidate is built, nothing is published)"
+            echo "::notice::NOT A FULL TAG RUN. One tag-time check cannot run without a tag: 'The artefact's content IS the tag being cut' (push only). Publishing steps are push only by design."
           else
             VER="$(python3 -c 'import plistlib; print(plistlib.load(open("gui/OstlerInstaller/Info.plist","rb"))["CFBundleShortVersionString"])')"
             [ -n "$VER" ] || { echo "::error::could not read CFBundleShortVersionString from gui/OstlerInstaller/Info.plist" >&2; exit 1; }
