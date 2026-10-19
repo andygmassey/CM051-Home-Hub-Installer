@@ -47,9 +47,13 @@ def test_nothing_ships_in_this_build():
         assert ps.pro_source_rows(ent) == []
 
 
-def test_the_pro_set_is_andys_seven():
+def test_every_connector_is_pro_none_labelled_free():
+    # Andy, 19 Oct: all new-data ingestion is Pro, so every connector is.
     names = [n for _, n, _ in ps.PRO_CONNECTORS]
-    assert names == ["Jira", "Confluence", "Slack", "Google Chat", "Linear", "GitHub", "Notion"]
+    assert names == ["Instagram", "Telegram", "Jira", "Confluence", "Slack", "Google Chat",
+                     "Linear", "GitHub", "Notion"]
+    src = (_REPO / "vendor" / "doctor" / "agent" / "pro_sources.py").read_text().lower()
+    assert "free" not in src
 
 
 def test_no_pro_shows_what_it_does_and_where_to_upgrade():
