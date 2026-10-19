@@ -35,8 +35,8 @@ name: ci-required-gate
 # HANDOVER: the exact steps to require this check are in the pull request that
 # introduced this file.
 #
-# NO paths: FILTER, deliberately, same reasoning as test-wiring.yml and
-# declared-gates-reachable.yml: a whole-PR aggregate that only watches its own
+# NO paths: FILTER, deliberately, same reasoning as the test-wiring job (now a
+# block of fold-macos-always.yml) and declared-gates-reachable.yml: a whole-PR aggregate that only watches its own
 # few files would stay green on exactly the PR that adds a new unreachable or
 # always-red workflow elsewhere in the tree.
 

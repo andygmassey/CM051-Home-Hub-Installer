@@ -224,8 +224,9 @@ jobs:
       # importable, so the rules cannot be read", exit 2, on Python 3.11.16.
       # That is the test behaving correctly and the job being red for a reason
       # that is not the subject, so the dependency is installed here instead of
-      # the check being softened. Copied from the estate's existing step at
-      # .github/workflows/appcast-ship-wiring.yml:81, fallbacks and all.
+      # the check being softened. Copied from the estate's existing step in the
+      # appcast-ship-wiring job (now a block of
+      # .github/workflows/fold-macos-always.yml), fallbacks and all.
       - name: PyYAML must be present, or the rules cannot be read
         run: |
           set -uo pipefail

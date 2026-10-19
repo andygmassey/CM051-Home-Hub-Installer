@@ -26,7 +26,7 @@ name: tests-unwired-sweep-mz
 #
 # ALWAYS RUNS -- no `paths:` filter, so a change anywhere that regresses one of
 # these contracts is caught, not skipped behind a grey tick. Same reasoning as
-# test-wiring.yml.
+# the test-wiring job (now a block of fold-macos-always.yml).
 
 on:
   pull_request:
