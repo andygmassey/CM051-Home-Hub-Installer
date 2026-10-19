@@ -37,6 +37,11 @@ pr_exemptions:
   # 39041651077 named 16 CM051 PRs open >48h. 15 are below, each with its own
   # reason; #1818's existing row is re-dated in place.
   # -------------------------------------------------------------------------
+  # v1.0.111 PR-AGE EXEMPTION, ruled 2026-10-19 by Archie (option c). Cut
+  # candidate run 39220981137 named #2939 open 50h at check-pr-age.
+  - ref: "CM051-Home-Hub-Installer#2939"
+    reason: "Archie 2026-10-19: licence-model change, NOT in v1.0.111's scope. It predates Andy's locked 19 Oct model (all ongoing ingestion is Pro, the first export import is a free taster, the G7 check sits at each connector's entry point), is DIRTY against main (28 files, +1762/-83) and has no review. It needs a rework against that model and its own review before any cut takes it."
+    review_by: 2026-10-26
   - ref: "CM051-Home-Hub-Installer#2879"
     reason: "Not in v1.0.108: cut/v1.0.108 is frozen at main 120a756a (launch directive item 4), so an open PR cannot change that DMG. Instagram bare handle shown as @handle rather than a name (S9). Data-display polish, not an install, data-loss, privacy or core-flow break under the F&F ship rule. Next train. Added 2026-10-17 by Archie. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-10-24
