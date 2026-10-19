@@ -315,7 +315,8 @@
     "local_store_age_seconds",
     "not_connected",
     "period_days",
-    "sources"
+    "sources",
+    "stale"
    ],
    "source": "install.sh"
   },
@@ -607,9 +608,11 @@
     "detail",
     "emails",
     "error",
+    "errors",
     "hours",
     "local_store_age_seconds",
     "source",
+    "stale",
     "unread_total"
    ],
    "source": "install.sh"
@@ -3116,7 +3119,8 @@
     "local_store_age_seconds",
     "not_connected",
     "period_days",
-    "sources"
+    "sources",
+    "stale"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -4852,7 +4856,8 @@
     "local_store_age_seconds",
     "not_connected",
     "period_days",
-    "sources"
+    "sources",
+    "stale"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5138,9 +5143,11 @@
     "detail",
     "emails",
     "error",
+    "errors",
     "hours",
     "local_store_age_seconds",
     "source",
+    "stale",
     "unread_total"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5994,7 +6001,8 @@
     "local_store_age_seconds",
     "not_connected",
     "period_days",
-    "sources"
+    "sources",
+    "stale"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6043,7 +6051,8 @@
     "local_store_age_seconds",
     "not_connected",
     "period_days",
-    "sources"
+    "sources",
+    "stale"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

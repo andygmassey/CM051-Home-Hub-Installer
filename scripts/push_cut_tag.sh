@@ -47,6 +47,33 @@ rehearse() {
     gh api "repos/$REPO_SLUG/actions/runs/$id" -q '"\(.conclusion // "none") \(.head_sha) \(.html_url)"'
 }
 
+# A GREEN CANDIDATE BUILD AT THIS SHA, OR NO TAG (v1.0.109, v1.0.110).
+# The rehearsal below is the tag run's PREFLIGHT only. check-manifest reads the
+# BUILT .app, so no preflight, dry run or rehearsal can reach it: only the `cut`
+# job of a cut/<version> dispatch builds a candidate and runs it. v1.0.110 passed
+# its rehearsal and died at check-manifest after the tag was pushed. So: the
+# newest workflow_dispatch run of cut.yml on cut/<version> at EXACTLY this SHA
+# must have concluded success with its `cut` job success. Read from the API,
+# never a log grep. Tests: OSTLER_PRETAG_CANDIDATE=<cmd> prints
+# "<cut_job_conclusion> <headSha> <run_url>".
+candidate() {
+    local br="cut/$ver" id c
+    id="$(gh api "repos/$REPO_SLUG/actions/workflows/cut.yml/runs?event=workflow_dispatch&branch=$br&head_sha=$full&per_page=20" \
+          -q '[.workflow_runs[] | select(.status=="completed")] | sort_by(.created_at) | last | .id // empty')"
+    [ -n "$id" ] || { echo "none - no-completed-candidate-build"; return 0; }
+    c="$(gh api "repos/$REPO_SLUG/actions/runs/$id/jobs" -q '[.jobs[] | select(.name=="cut") | .conclusion] | first // "none"')"
+    echo "$c $(gh api "repos/$REPO_SLUG/actions/runs/$id" -q '"\(.head_sha) \(.html_url)"')"
+}
+echo "push_cut_tag: looking for a green cut/$ver candidate build at ${full:0:8}"
+if [ -n "${OSTLER_PRETAG_CANDIDATE:-}" ]; then cout="$(bash -c "$OSTLER_PRETAG_CANDIDATE")"; else cout="$(candidate)"; fi
+read -r cand_conclusion cand_sha cand_url <<<"$cout"
+echo "push_cut_tag: candidate cut job=$cand_conclusion sha=${cand_sha:0:8} $cand_url"
+if [ "$cand_sha" != "$full" ]; then
+    echo "push_cut_tag: REFUSED. No candidate build of cut/$ver at ${full:0:8} (found ${cand_sha:-nothing}). Dispatch cut.yml on cut/$ver at this SHA and let its cut job finish; $ver was NOT pushed." >&2; exit 1
+fi
+if [ "$cand_conclusion" != "success" ]; then
+    echo "push_cut_tag: REFUSED. The candidate build's cut job concluded '$cand_conclusion' at ${full:0:8} (check-manifest runs there); $ver was NOT pushed." >&2; exit 1
+fi
 echo "push_cut_tag: rehearsing the tag run for $ver at ${full:0:8}"
 if [ -n "${OSTLER_PRETAG_REHEARSE:-}" ]; then out="$(bash -c "$OSTLER_PRETAG_REHEARSE")"; else out="$(rehearse)"; fi
 read -r conclusion run_sha run_url <<<"$out"

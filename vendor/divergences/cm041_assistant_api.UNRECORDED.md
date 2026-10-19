@@ -1383,3 +1383,11 @@ path-drift it was written for stays held by `test_reader_path_equals_writer_path
 - Proof: `tests/test_install_creates_the_coach_db_keyed.py` drives the real
   ical-server; 3 of its reader cases fail on the pre-graft file with 500.
 - Owed upstream to CM041 so the two converge. Retire on a re-pin that carries it.
+
+## A stale local store says so, and one event is one row (CM051, 2026-10-19, the Mini16 morning brief)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour in `ical-server.py`; CM041 main has no local-store calendar path to carry it. `build_calendar_response` and `fetch_recent_emails` already reported `local_store_age_seconds` and nothing acted on it: on 2026-10-19 the Hub served a 45-hour-old calendar (163617s) as a 200 with `degraded` unset, and the brief presented it as today's. Both now mark the body `degraded: true` and `stale: true`, with a one-line reason in `errors`, once the store is older than three writer intervals (`local_store_stale_after_s()`, three times `OSTLER_FDA_RERUN_INTERVAL_S`, default 3 hours). The events are still served; the reader decides. Dedup moved from the `(summary, start)` set to `collapse_duplicate_events`, which also folds two rows with the same start, end and calendar whose titles are two spellings of one event (a shared 4+ character token carrying a digit, or the shorter title's significant words all in the longer), keeping the longer title: one flight with two titles reached the brief as "a related event at the same time".
+
+### What a future sync must preserve
+
+`_writer_interval_s`, `local_store_stale_after_s`, `_stale_detail`, `_same_calendar_event`, `collapse_duplicate_events`, their use in `build_calendar_response` and `fetch_recent_emails`. Guarded by `vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py` (five tests under "Staleness" and "Duplicates"; four fail against the pre-change server, the fresh-store one is the negative control). Retire by landing the local-store path in CM041 (`CM041 #220` covers the dedup) and re-pinning.
