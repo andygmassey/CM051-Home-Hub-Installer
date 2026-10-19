@@ -123,6 +123,21 @@ def handle_conversation_process(handler: BaseHTTPRequestHandler) -> None:
             transcript_file, metadata_file, metadata,
             dry_run=dry_run, no_sinks=no_sinks,
         )
+    except _UpdateDeferredType() as exc:
+        # 429 + Retry-After, not 2xx: an HTTP connector that treated a
+        # deferral as success would advance its cursor and lose the update.
+        body = json.dumps({
+            "conversation_id": metadata["conversation_id"],
+            "status": "deferred",
+            "retry_after_seconds": exc.retry_after_seconds,
+        }).encode("utf-8")
+        handler.send_response(429)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Retry-After", str(exc.retry_after_seconds))
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+        return
     except ImportError as exc:
         logger.error(
             "CM048 library not importable; install CM048 in this Python "
@@ -143,6 +158,18 @@ def handle_conversation_process(handler: BaseHTTPRequestHandler) -> None:
         _send_json(handler, 500, result)
     else:
         _send_json(handler, 200, result)
+
+
+def _UpdateDeferredType():
+    """The deferral exception class, or a never-raised stand-in when the
+    library is not importable (the ImportError branch then reports it)."""
+    try:
+        from src.processor import UpdateDeferred
+    except ImportError:
+        class _Never(Exception):
+            retry_after_seconds = 0
+        return _Never
+    return UpdateDeferred
 
 
 def _process_via_library(
