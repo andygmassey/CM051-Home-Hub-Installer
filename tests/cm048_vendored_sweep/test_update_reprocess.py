@@ -316,11 +316,14 @@ def test_update_that_moves_the_folder_removes_the_stale_copy(fakes, settings):
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "CM051 VENDORED DIFFERENCE, pre-existing (fails identically on the v1.0.111 "
-    "vendored tree, pin 5b5ea44c): the vendor-only thread_key duplicate_thread "
-    "gate in reminders_push.py marks the other conversation's todos "
-    "skipped/duplicate_thread where upstream (no thread gate) leaves them "
-    "pending. Strict, so a change in that behaviour reds this file."))
+    "CM051 VENDORED DIVERGENCE, confirmed by Archie 2026-10-20: the thread_key "
+    "duplicate_thread gate in vendor/cm048_pipeline/src/reminders_push.py "
+    "(recorded in vendor/divergences/cm048_pipeline.patch) marks the other "
+    "conversation's todos skipped/duplicate_thread where upstream, which has no "
+    "thread gate, leaves them pending. Pre-existing: fails identically on the "
+    "v1.0.111 vendored tree (pin 5b5ea44c). Strict, so any change in that "
+    "behaviour reds this file. The ordering guarantee itself is a hard pass in "
+    "tests/test_cm048_reminder_supersede_before_duplicate_thread.py."))
 def test_update_never_supersedes_another_conversations_pending_todo(fakes, settings, tmp_path):
     """A chat's session id spans many conversations (one per day window,
     say). Updating one of them must not cancel the other's pending todo."""
