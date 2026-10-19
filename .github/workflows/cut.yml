@@ -249,6 +249,7 @@ jobs:
       - name: Resolve which cut this run is about
         env:
           REHEARSE_REF: ${{ startsWith(github.ref, 'refs/heads/rehearse/v1.0.') && github.ref_name || '' }}
+          CUT_BRANCH_REF: ${{ startsWith(github.ref, 'refs/heads/cut/v1.0.') && github.ref_name || '' }}
         run: |
           set -euo pipefail
           # 🔴 THE SOURCE IS NOW EXPORTED, NOT JUST PRINTED (#171).
@@ -275,6 +276,20 @@ jobs:
             CUT_VERSION="${REHEARSE_REF#rehearse/}"
             CUT_VERSION_SOURCE="tag"
             echo "source: tag rehearsal on ${REHEARSE_REF} (no tag exists, nothing is built)"
+          elif [ -n "${CUT_BRANCH_REF:-}" ]; then
+            # A cut/ dispatch builds a real candidate, so it gets the TAG RUN'S
+            # preflight (OSTLER_CUT_IN_PROGRESS=1, every tag-only step). The
+            # version is the one the BRANCH names, never the plist the
+            # installer-version gate compares against (#171). v1.0.109 spent its
+            # one tag on a checklist refusal this dispatch printed as a [note].
+            if [[ "${CUT_BRANCH_REF}" =~ ^cut/(v1\.0\.[0-9]+) ]]; then
+              CUT_VERSION="${BASH_REMATCH[1]}"
+            else
+              echo "::error::cut/ branch ${CUT_BRANCH_REF} does not name a v1.0.NN version" >&2; exit 1
+            fi
+            CUT_VERSION_SOURCE="tag"
+            echo "source: cut branch ${CUT_BRANCH_REF} (tag-time preflight enforced; a candidate is built, nothing is published)"
+            echo "::notice::NOT A FULL TAG RUN. One tag-time check cannot run without a tag: 'The artefact's content IS the tag being cut' (push only). Publishing steps are push only by design."
           else
             VER="$(python3 -c 'import plistlib; print(plistlib.load(open("gui/OstlerInstaller/Info.plist","rb"))["CFBundleShortVersionString"])')"
             [ -n "$VER" ] || { echo "::error::could not read CFBundleShortVersionString from gui/OstlerInstaller/Info.plist" >&2; exit 1; }
@@ -405,7 +420,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
 
@@ -443,7 +458,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
         run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
 
       # 🔴 THE DOCTOR PAGE IS THE ONE A CUSTOMER IS SENT TO WHEN SOMETHING IS
@@ -486,7 +501,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
         run: |
           python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
           python3 tests/test_the_doctor_page_is_on_brand.py
@@ -536,7 +551,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
         run: |
           python3 -m pip install --quiet rdflib pyoxigraph
           python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
@@ -567,10 +582,10 @@ jobs:
       # adds nothing; and unlike the freshness self-tests it needs the checkout
       # to be the tag.
       - name: BOM rows must be in the pinned tree
-        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')
+        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')
         run: |
           set -euo pipefail
-          VER="${GITHUB_REF_NAME#rehearse/}"
+          VER="${CUT_VERSION}"
           echo "tag: ${VER}"
           bash scripts/verify_bom_rows_are_in_the_pin.sh "$VER"
 
@@ -996,7 +1011,7 @@ jobs:
       # undoing the unmaskability the header above argues for. Keep both:
       # unmaskable where it can answer, silent where it cannot.
       - name: The installer's own version IS the version being cut
-        if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.'))
+        if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.'))
         run: bash tests/test_installer_version_matches_the_cut.sh "${CUT_VERSION}"
 
   cut:
