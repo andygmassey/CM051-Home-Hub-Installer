@@ -1383,3 +1383,26 @@ path-drift it was written for stays held by `test_reader_path_equals_writer_path
 - Proof: `tests/test_install_creates_the_coach_db_keyed.py` drives the real
   ical-server; 3 of its reader cases fail on the pre-graft file with 500.
 - Owed upstream to CM041 so the two converge. Retire on a re-pin that carries it.
+
+## A deceased person keeps their page but loses every act prompt (CM051, 2026-10-19, CM041 #222)
+
+Tree `cm041/assistant_api`. Files: `vendor/cm041/assistant_api/ical-server.py`
+(new helpers `_PersonSuppression`, `_load_person_suppression`,
+`_try_load_person_suppression`, `_apply_person_suppression`,
+`_suppressed_slug_tail`, `_DECEASED_OMIT_KEYS`; edits in `people_search`,
+`person_context`, `person_enrichment`, `person_timeline`, `people_list`,
+`api_reply_debt`, `api_suggestions`, `commitments_list`) and the new contract
+fixture `vendor/cm041/assistant_api/tests/fixtures/deceased_person_contract.json`.
+
+A SuggestionSuppression with reason "deceased" now marks the person
+`deceased: true` + `suggestions_suppressed: true` on owner views and strips
+last contact, recency, birthday and warmth; per-channel last-contact timeline
+markers go, meetings and conversations stay. Reply debt and open commitments
+drop suppressed counterparties. Fail closed when the record cannot be read.
+The commitments join is unscoped `(...)` here, matching this tree's own
+commitments query, never `read_across_graphs` (held, board row 2213).
+
+- Proof: `tests/test_cm041_deceased_person_surfaces.py` drives the real
+  vendored handlers; 10 of 11 fail on the pre-graft file, 10 of 10 mutants red.
+- Same change upstream as CM041 #222. Retire on a re-pin that carries it; add
+  #222's squash sha to this tree's hold_ack_shas when it merges.

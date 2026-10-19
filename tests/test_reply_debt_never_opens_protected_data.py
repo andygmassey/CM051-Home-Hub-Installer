@@ -211,6 +211,10 @@ _CHILD = textwrap.dedent(
     mod = importlib.util.module_from_spec(spec)
     sys.path.insert(0, server.rsplit("/", 1)[0])
     spec.loader.exec_module(mod)
+    # A readable, empty People Graph: the endpoint now drops do-not-suggest
+    # counterparties and fails closed without one (CM041 #222). This test is
+    # about which FILES the detector opens, so the store holds no record.
+    mod._sparql_select = lambda _q: []
     payload, status = mod.api_reply_debt(lookback_days=90, limit=50)
     print(json.dumps({"payload": payload, "status": status, "opened": seen}))
     """
