@@ -593,15 +593,19 @@ def test_g7_cli_pro_required_exits_5_reads_nothing(tmp_path, monkeypatch, capsys
     out = tmp_path / "out"
     rc, res, err = _cli(build_export(tmp_path / "export"), out, "pro_required",
                         monkeypatch, capsys, read_ok=False)
-    assert (rc, res["status"]) == (5, "paused_not_pro")
+    from ostler_fda import first_import as fi
+
+    assert (rc, res["status"]) == (fi.EXIT_PAUSED_NOT_PRO, "paused_not_pro") and rc == 5
     assert "TEXT[pro_required]" in err and not out.exists()
 
 
-def test_g7_cli_could_not_check_exits_3_reads_nothing(tmp_path, monkeypatch, capsys):
+def test_g7_cli_could_not_check_exits_6_reads_nothing(tmp_path, monkeypatch, capsys):
     out = tmp_path / "out"
     rc, res, err = _cli(build_export(tmp_path / "export"), out, "could_not_check",
                         monkeypatch, capsys, read_ok=False)
-    assert (rc, res["status"]) == (3, "cannot_run")
+    from ostler_fda import first_import as fi
+
+    assert (rc, res["status"]) == (fi.EXIT_COULD_NOT_CHECK, "cannot_run") and rc == 6
     assert "TEXT[could_not_check]" in err and not out.exists()
 
 

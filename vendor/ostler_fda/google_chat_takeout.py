@@ -1049,8 +1049,9 @@ def default_state_path() -> Path:
 #                       payload was accepted, so a failed first try does not
 #                       burn the taster.
 #   "pro_required"      nothing is read, staged or sent; ledger untouched;
-#                       Andy's refusal copy; exit 5 (EXIT_PAUSED_NOT_PRO).
-#   "could_not_check"   CANNOT-RUN, never a refusal: "Try again"; exit 3.
+#                       Andy's refusal copy; exit EXIT_PAUSED_NOT_PRO (5).
+#   "could_not_check"   CANNOT-RUN, never a refusal: "Try again"; exit
+#                       EXIT_COULD_NOT_CHECK (6).
 #   "unknown"           the helper raised or answered off-contract: fail OPEN,
 #                       logged. A customer is never paused because we could
 #                       not ask.
@@ -1059,8 +1060,17 @@ def default_state_path() -> Path:
 #                       build defect, not a runtime outage.
 SHARED_GATE_MODULE = "ostler_fda.first_import"
 SOURCE_LABEL = "Google Chat"
-EXIT_PAUSED_NOT_PRO = 5     # the shared contract (first_import.EXIT_PAUSED_NOT_PRO)
-EXIT_COULD_NOT_CHECK = 3    # the shared contract (first_import.EXIT_COULD_NOT_CHECK)
+# Exit codes are the helper's own (first_import.EXIT_PAUSED_NOT_PRO /
+# EXIT_COULD_NOT_CHECK), read at run time so the two can never drift; these
+# are only the fallbacks for a build without the helper.
+EXIT_PAUSED_NOT_PRO = 5
+EXIT_COULD_NOT_CHECK = 6
+
+
+def _exit_code(name: str, fallback: int) -> int:
+    mod = _gate_module()
+    value = getattr(mod, name, None) if mod is not None else None
+    return value if isinstance(value, int) else fallback
 GATE_ALLOWED = ("pro", "first_import_free", "unknown")
 _GATE_REASONS = ("pro", "first_import_free", "pro_required", "could_not_check")
 
@@ -1259,7 +1269,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         if text:
             print(text, file=sys.stderr)
         _emit()
-        return EXIT_COULD_NOT_CHECK if gate == "could_not_check" else EXIT_PAUSED_NOT_PRO
+        if gate == "could_not_check":
+            return _exit_code("EXIT_COULD_NOT_CHECK", EXIT_COULD_NOT_CHECK)
+        return _exit_code("EXIT_PAUSED_NOT_PRO", EXIT_PAUSED_NOT_PRO)
     if text:
         print(text, file=sys.stderr)   # the first-import notice
 
