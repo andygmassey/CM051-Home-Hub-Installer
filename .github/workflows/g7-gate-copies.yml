@@ -3,7 +3,8 @@ name: g7-gate-copies
 # The G7 subscription gate ships as three byte-identical copies
 # (vendor/cm041/assistant_api, vendor/cm052_ai_conversations, vendor/ostler_fda).
 # They are ONE gate: tests/test_g7_gate_copies_are_one.py fails if any copy
-# drifts from the pinned digest, and proves the --check contract the Pro-gated
+# drifts from the pinned digest (and pins vendor/ostler_fda/first_import.py,
+# the free-first-import rule, to CM052's), and proves the --check contract the Pro-gated
 # ostler_fda sources rely on (0 active, 3 paused, anything else fail open).
 # Python 3.11 (the Hub's). No em dashes.
 
@@ -13,6 +14,7 @@ on:
       - 'vendor/cm041/assistant_api/subscription_gate.py'
       - 'vendor/cm052_ai_conversations/src/cm052/subscription_gate.py'
       - 'vendor/ostler_fda/subscription_gate.py'
+      - 'vendor/ostler_fda/first_import.py'
       - 'tests/test_g7_gate_copies_are_one.py'
       - '.github/workflows/g7-gate-copies.yml'
   push:
@@ -41,8 +43,8 @@ jobs:
         run: |
           n="$(python -m pytest tests/test_g7_gate_copies_are_one.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 6 ]; then
-            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 8 ]; then
+            echo "REFUSING: expected at least 8 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_g7_gate_copies_are_one.py -v -rs

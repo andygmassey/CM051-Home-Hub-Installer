@@ -97,3 +97,43 @@ def test_check_exits_3_when_the_free_month_lapsed(tmp_path):
 def test_usage_error_is_neither_0_nor_3(tmp_path):
     # The caller's fail-open branch: a broken call must never read as paused.
     assert _check(tmp_path / "s.json", "--no-such-flag").returncode not in (0, 3)
+
+
+# -- first_import.py: the free-first-export-import rule, ONE contract ---------
+#
+# Reference: CM052 src/cm052/first_import.py (CM052 #17 at 5508a54). HR015
+# ostler_fda/tests/test_first_import_parity.py pins the same digest. Its
+# ``from .subscription_gate import is_active_or_grace`` must resolve to the
+# vendored ostler_fda gate above, so the two files travel together.
+
+FIRST_IMPORT = REPO / "vendor" / "ostler_fda" / "first_import.py"
+FIRST_IMPORT_SHA256 = "0c02785fcb0a82790ab81ebfcf091c6f9a64066edaee669cf9bbbd8534689ed9"
+
+
+def test_first_import_is_byte_identical_and_pinned():
+    assert hashlib.sha256(FIRST_IMPORT.read_bytes()).hexdigest() == FIRST_IMPORT_SHA256
+
+
+def _run_first_import(state: Path, ledger: Path, code: str) -> subprocess.CompletedProcess:
+    env = _env(state)
+    env["OSTLER_FIRST_IMPORT_LEDGER"] = str(ledger)
+    env["PYTHONPATH"] = str(REPO / "vendor")
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                          env=env, timeout=60)
+
+
+def test_first_import_resolves_the_vendored_gate_and_enforces_the_rule(tmp_path):
+    state = tmp_path / "s.json"
+    state.write_text(json.dumps({"status": "inactive", "source": "default"}))
+    code = (
+        "from ostler_fda import first_import as fi, subscription_gate as g\n"
+        "assert fi.is_active_or_grace is g.is_active_or_grace\n"
+        "d1 = fi.entry_gate('google_chat', export_import=True)\n"
+        "fi.mark_first_import('google_chat')\n"
+        "d2 = fi.entry_gate('google_chat', export_import=True)\n"
+        "d3 = fi.entry_gate('google_chat', export_import=False)\n"
+        "print(d1.reason, d2.reason, d3.reason, fi.EXIT_PAUSED_NOT_PRO)\n"
+    )
+    r = _run_first_import(state, tmp_path / "ledger.json", code)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["first_import_free", "pro_required", "pro_required", "5"]
