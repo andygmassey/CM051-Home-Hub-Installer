@@ -888,6 +888,15 @@ def default_state_path() -> Path:
 # ---------------------------------------------------------------------------
 # Persistence: reuse the existing sinks, own no writes
 # ---------------------------------------------------------------------------
+#
+# Archie's binding connector rulings (2026-10-19): one architecture, CM048
+# ``processor.process``, reached by ``pwg-convo`` for ostler_fda sources (this
+# one) or ``wire.post`` for CM052. No local bundle writer. EVERY level,
+# including L3, reaches processor.process: CM048's writer still writes an L3
+# conversation's four artefacts and is the one that skips its gist arm. So
+# nothing here filters on privacy_level before the hand-off. Ungated, like
+# Messenger, until Andy decides which connectors are Pro (G7 lives at an entry
+# point, never inside processor.process).
 
 
 def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,

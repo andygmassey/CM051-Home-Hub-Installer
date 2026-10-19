@@ -371,6 +371,34 @@ def test_through_the_real_pwg_convo_call_path(tmp_path, monkeypatch):
     assert r2["conversations_sent"] == 0 and len(log.read_text().splitlines()) == 3
 
 
+def test_l3_reaches_pwg_convo(tmp_path, monkeypatch):
+    """Archie ruling 1: every level, L3 included, reaches processor.process.
+    CM048's writer, not the importer, decides what L3 skips."""
+    seen = tmp_path / "levels.log"
+    stub = tmp_path / "pwg-convo"
+    stub.write_text(
+        "#!/bin/sh\n"
+        f"/usr/bin/grep -o '\"privacy_level\": \"L[0-3]\"' \"$3\" >> '{seen}'\n"
+        "exit 0\n"
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("OSTLER_PWG_CONVO_CMD", str(stub))
+    ex = gc.parse_export(build_export(tmp_path / "export"))
+    real = gc.export_payloads
+
+    def l3_payloads(export):
+        out = real(export)
+        for p in out:
+            p["metadata"]["privacy_level"] = "L3"
+        return out
+
+    monkeypatch.setattr(gc, "export_payloads", l3_payloads)
+    r = gc.persist(ex, ledger=gc.ImportLedger(tmp_path / "ledger.json"),
+                   people_fn=lambda c, *, source: {"persist_status": "no_graph", "people_created": 0})
+    assert r["conversations_sent"] == 3
+    assert seen.read_text().splitlines() == ['"privacy_level": "L3"'] * 3
+
+
 def test_no_pipeline_is_reported_not_recorded(tmp_path, monkeypatch):
     monkeypatch.setenv("OSTLER_PWG_CONVO_CMD", str(tmp_path / "absent-binary"))
     monkeypatch.setattr("shutil.which", lambda *_a, **_k: None)

@@ -56,8 +56,8 @@ jobs:
           n="$(python -m pytest tests/test_google_chat_takeout_import.py tests/test_google_keep_takeout_import.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 31 ]; then
-            echo "REFUSING: expected at least 31 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 32 ]; then
+            echo "REFUSING: expected at least 32 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_google_chat_takeout_import.py tests/test_google_keep_takeout_import.py -v -rs > pytest.log 2>&1 || { cat pytest.log; exit 1; }
