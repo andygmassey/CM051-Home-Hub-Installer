@@ -302,8 +302,8 @@ c2() { grep -q 'ingest_all(' "${WORK}/wrapper.stripped"; }
 # (3) THE DEFECT ITSELF, measured by running the thing. Both halves must have
 #     been called. Before #784 the log held run_all and nothing else.
 c3() {
-    printf '%s\n' "$LOG_OK" | grep -q '^run_all ' && \
-    printf '%s\n' "$LOG_OK" | grep -q '^ingest_all '
+    grep -q '^run_all ' <<< "$LOG_OK" && \
+    grep -q '^ingest_all ' <<< "$LOG_OK"
 }
 
 # (4) ORDER. Extract must precede ingest, or the tick loads the PREVIOUS tick's
@@ -360,8 +360,8 @@ c7() { [[ -f "${WORK}/shipped-raise/.ostler/imports/fda/safari_history.json" ]];
 #     written by the fixture itself -- would otherwise pass (3) while measuring
 #     nothing at all.
 c8() {
-    printf '%s\n' "$LOG_NEG" | grep -q '^run_all ' && \
-    ! printf '%s\n' "$LOG_NEG" | grep -q '^ingest_all '
+    grep -q '^run_all ' <<< "$LOG_NEG" && \
+    ! grep -q '^ingest_all ' <<< "$LOG_NEG"
 }
 
 # (9) UPGRADE LIMB. The wrapper must be rewritten on every install, not only
@@ -394,7 +394,7 @@ c9() {
     [ -n "$write_at" ] || return 1          # cannot find the write: not a pass
     start=$(( write_at > 40 ? write_at - 40 : 1 ))
     body="$(sed -n "${start},${write_at}p" "$INSTALL_SH")"
-    ! printf '%s\n' "$body" | grep -qE '\[\[[^]]*-[fex][[:space:]]+"?\$\{?OSTLER_DIR\}?/bin/ostler-fda'
+    ! grep -qE '\[\[[^]]*-[fex][[:space:]]+"?\$\{?OSTLER_DIR\}?/bin/ostler-fda' <<< "$body"
 }
 
 # (10) The wrapper is a SHIPPED TICK and must parse on the customer's shell.
@@ -457,7 +457,7 @@ if [[ "$SELF_TEST" == "1" ]]; then
             SELF_FAIL=$((SELF_FAIL + 1))
             return
         fi
-        if printf '%s\n' "$out" | grep -q "\[FAIL\] ${expect_fail}"; then
+        if grep -q "\[FAIL\] ${expect_fail}" <<< "$out"; then
             printf '  [pass] %s -> %s went RED as required\n' "$label" "$expect_fail"
         else
             printf '  [FAIL] %s -> %s stayed GREEN with the defect present\n' "$label" "$expect_fail"

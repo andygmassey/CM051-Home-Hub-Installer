@@ -124,8 +124,9 @@ c3() {
 c4() {
     local probe
     probe='MSG_HYDRATE_FAKE_BACKGROUND_CONTINUES="Email is still loading in the background – your wiki will fill in over the next hour."'
-    printf '%s\n' "$probe" | grep -qiE \
-        'next hour|an hour|in [0-9]+ (minute|hour|day)|within (an?|[0-9]+) |a few (minutes|hours)|shortly|any (minute|moment)|momentarily'
+    grep -qiE \
+        'next hour|an hour|in [0-9]+ (minute|hour|day)|within (an?|[0-9]+) |a few (minutes|hours)|shortly|any (minute|moment)|momentarily' \
+        <<< "$probe"
 }
 
 if c1; then pass "no message states a completion time"

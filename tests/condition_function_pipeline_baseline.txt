@@ -22,5 +22,4 @@
 # an added row is the regression, written down.
 #
 install.sh	_ostler_launchagent_keeps_alive
-tests/test_background_copy_promises_no_deadline.sh	c4
 tests/test_timeout_is_not_a_successful_hydrate.sh	c4

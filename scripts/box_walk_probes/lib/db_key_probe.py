@@ -310,8 +310,31 @@ def box_forget(argv):
             print(json.dumps({"deleted": False, "error": "no key"}))
             return 0
         db_path = coach_db_path()
+        # Never connect to a path that holds no database: connecting CREATES
+        # the file, and on walk #31 that left a 0-byte stray at the writer's
+        # path which then turned GET /api/v1/coach/recent into a 500. An
+        # absent or empty db holds no synthetic row, so there is nothing to
+        # forget: say so, cleanly.
+        try:
+            size = db_path.stat().st_size
+        except FileNotFoundError:
+            size = None
+        if size is None or size == 0:
+            print(json.dumps({"deleted": False, "before": 0, "after": 0,
+                              "db_state": "absent" if size is None else "empty",
+                              "note": "no coach database to forget from"}))
+            return 0
         conn = get_db_connection(str(db_path), resolved.key)
-        before = conn.execute("SELECT COUNT(*) FROM observations WHERE conversation_id = ?", (token,)).fetchone()[0]
+        try:
+            before = conn.execute("SELECT COUNT(*) FROM observations WHERE conversation_id = ?", (token,)).fetchone()[0]
+        except Exception as exc:
+            conn.close()
+            if "no such table: observations" in str(exc):
+                print(json.dumps({"deleted": False, "before": 0, "after": 0,
+                                  "db_state": "no_table",
+                                  "note": "coach database has no observations table"}))
+                return 0
+            raise
         conn.execute("DELETE FROM observations WHERE conversation_id = ?", (token,))
         conn.commit()
         after = conn.execute("SELECT COUNT(*) FROM observations WHERE conversation_id = ?", (token,)).fetchone()[0]

@@ -148,29 +148,35 @@ cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-outpu
 cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-output	ubuntu-latest	3	pull_request,push	4 paths	py-matrix	1	uses:actions/setup-python@v5	-
 cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-output	ubuntu-latest	3	pull_request,push	4 paths	py-matrix	2	run	-
 cm048-multilingual-output.yml	cm048-multilingual-output	cm048-multilingual-output	ubuntu-latest	3	pull_request,push	4 paths	py-matrix	3	run	tests/test_cm048_multilingual_vendored.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	0	uses:actions/checkout@v4	-
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	1	uses:actions/setup-python@v5	-
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	2	run	-
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	3	run	tests/test_cm048_participants_as_strings.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	4	run	tests/test_cm048_participants_line_display_names_only.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	5	run	tests/test_cm048_reminders_sidecar_never_reaches_the_body.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	6	run	tests/test_cm048_reminder_title_has_no_iso_date.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	7	run	tests/test_cm048_reminder_title_has_no_handle.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	8	run	tests/test_cm048_reminder_push_thread_and_sender.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	9	run	tests/test_cm048_thread_key_matches_the_daemon.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	10	run	tests/test_cm048_reminder_push_person_parity.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	11	run	tests/test_doctor_reminders_list_removed.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	12	run	tests/test_cm048_reminder_push_people_rules_installed_layout.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	13	run	tests/test_people_rules_is_stdlib_only.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	14	run	tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	15	run	tests/test_cm048_gateway_extracts_owner_turns_only.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	16	run	tests/test_cm048_third_party_facts_keep_their_subject.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	17	run	tests/test_cm048_single_speaker_capture_is_a_memo.py
-cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	43 paths	py-matrix	18	run	tests/test_cm048_handle_resolver.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	0	uses:actions/checkout@v4	-
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	1	uses:actions/setup-python@v5	-
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	2	run	-
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	3	run	tests/test_cm048_participants_as_strings.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	4	run	tests/test_cm048_participants_line_display_names_only.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	5	run	tests/test_cm048_reminders_sidecar_never_reaches_the_body.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	6	run	tests/test_cm048_reminder_title_has_no_iso_date.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	7	run	tests/test_cm048_reminder_title_has_no_handle.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	8	run	tests/test_cm048_reminder_push_thread_and_sender.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	9	run	tests/test_cm048_thread_key_matches_the_daemon.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	10	run	tests/test_cm048_reminder_push_person_parity.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	11	run	tests/test_doctor_reminders_list_removed.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	12	run	tests/test_cm048_reminder_push_people_rules_installed_layout.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	13	run	tests/test_people_rules_is_stdlib_only.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	14	run	tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	15	run	tests/test_cm048_gateway_extracts_owner_turns_only.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	16	run	tests/test_cm048_third_party_facts_keep_their_subject.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	17	run	tests/test_cm048_single_speaker_capture_is_a_memo.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	18	run	tests/test_cm048_handle_resolver.py
+cm048-participants-as-strings.yml	cm048-participants-as-strings	cm048-participants-as-strings	ubuntu-latest	3	pull_request,push	44 paths	py-matrix	19	run	tests/test_cm048_ios_unnamed_speaker_reaches_naming.py
 cm048-whatsapp-lid-not-phone.yml	cm048-whatsapp-lid-not-phone	cm048-whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	0	uses:actions/checkout@v4	-
 cm048-whatsapp-lid-not-phone.yml	cm048-whatsapp-lid-not-phone	cm048-whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	1	uses:actions/setup-python@v5	-
 cm048-whatsapp-lid-not-phone.yml	cm048-whatsapp-lid-not-phone	cm048-whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	2	run	-
 cm048-whatsapp-lid-not-phone.yml	cm048-whatsapp-lid-not-phone	cm048-whatsapp-lid-not-phone	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	3	run	tests/test_cm048_whatsapp_lid_not_phone.py
+coach-db-created-keyed-at-install.yml	coach-db-created-keyed-at-install	coach-db-created-keyed-at-install	macos-latest	1	pull_request,push	9 paths	macos-latest	0	uses:actions/checkout@v4	-
+coach-db-created-keyed-at-install.yml	coach-db-created-keyed-at-install	coach-db-created-keyed-at-install	macos-latest	1	pull_request,push	9 paths	macos-latest	1	uses:actions/setup-python@v5	-
+coach-db-created-keyed-at-install.yml	coach-db-created-keyed-at-install	coach-db-created-keyed-at-install	macos-latest	1	pull_request,push	9 paths	macos-latest	2	run	-
+coach-db-created-keyed-at-install.yml	coach-db-created-keyed-at-install	coach-db-created-keyed-at-install	macos-latest	1	pull_request,push	9 paths	macos-latest	3	run	tests/test_install_creates_the_coach_db_keyed.py
+coach-db-created-keyed-at-install.yml	coach-db-created-keyed-at-install	coach-db-created-keyed-at-install	macos-latest	1	pull_request,push	9 paths	macos-latest	4	run	vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py
 cold-box-source-truth.yml	cold-box-truth	cold-box-truth	macos-14	1	pull_request,push	78 paths	macos-14	0	uses:actions/checkout@v4	-
 cold-box-source-truth.yml	cold-box-truth	cold-box-truth	macos-14	1	pull_request,push	78 paths	macos-14	1	run	tests/test_aiconv_agent_not_registered_without_owner_email.sh
 cold-box-source-truth.yml	cold-box-truth	cold-box-truth	macos-14	1	pull_request,push	78 paths	macos-14	2	run	tests/test_no_program_dodges_the_promote.sh
@@ -255,32 +261,34 @@ consent-contract.yml	autologin-consent-opt-in	autologin-consent-opt-in	macos-lat
 consent-contract.yml	autologin-consent-opt-in	autologin-consent-opt-in	macos-latest	1	pull_request,push	12 paths	macos-latest	3	run	install.sh tests/test_recording_consent_gates_the_capture_companion.sh
 consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	0	uses:actions/checkout@v4	-
 consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	1	run	tests/test_cx18_q19_consent_third_party_legal_note_separation.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	2	run	tests/test_cx18_q20_consent_install_body_shape.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	3	run	tests/test_the_install_panel_says_it_is_reading_the_transcript.py
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	4	run	tests/test_fda_assist_ordering.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	5	run	tests/test_runtime_ready_invariant.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	6	run	tests/test_runtime_ready_does_not_require_optional_imports.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	7	run	tests/test_osascript_dialogs_activate_system_events.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	8	run	tests/test_fda_prewarm_no_early_messages_popup.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	9	run	tests/test_gdpr_folder_access_denied.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	10	run	tests/test_gdpr_scan_prewarn.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	11	run	tests/test_imessage_fda_probe.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	12	run	tests/test_assistant_fda_is_asked_on_every_mac.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	13	run	tests/test_imessage_tcc_posture.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	14	run	tests/test_documents_tcc_pre_explain_before_first_write.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	15	run	tests/test_documents_access_doctor_denied_row.py
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	16	run	tests/test_vendored_register_pii.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	17	run	tests/test_no_literal_backslash_n_in_strings.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	18	run	tests/test_daemon_fda_app_bundle_path.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	19	run	scripts/tests/test_daemon_fda_case6_controls.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	20	run	tests/test_every_launchagent_is_torn_down.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	21	run	tests/test_voice_consent_matches_catalogue.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	22	run	tests/test_bookmarks_ingest_wired.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	23	run	tests/test_social_ingest_wired.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	24	run	tests/test_ollama_install_path_contract.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	25	run	scripts/tests/test_ollama_contract_controls.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	26	run	scripts/tests/test_hydrate_contacts_timeout_arm.sh
-consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	27	run	tests/test_a_stored_secret_says_so_where_it_is_typed.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	2	run	tests/test_spoken_capture_consent_does_not_claim_audio_is_kept.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	3	run	tests/test_cx18_q20_consent_install_body_shape.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	4	run	tests/test_the_install_panel_says_it_is_reading_the_transcript.py
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	5	run	tests/test_fda_assist_ordering.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	6	run	tests/test_runtime_ready_invariant.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	7	run	tests/test_runtime_ready_does_not_require_optional_imports.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	8	run	tests/test_osascript_dialogs_activate_system_events.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	9	run	tests/test_fda_prewarm_no_early_messages_popup.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	10	run	tests/test_gdpr_folder_access_denied.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	11	run	tests/test_gdpr_scan_prewarn.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	12	run	tests/test_imessage_fda_probe.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	13	run	tests/test_assistant_fda_is_asked_on_every_mac.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	14	run	tests/test_imessage_tcc_posture.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	15	run	tests/test_documents_tcc_pre_explain_before_first_write.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	16	run	tests/test_documents_access_doctor_denied_row.py
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	17	run	tests/test_vendored_register_pii.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	18	run	tests/test_no_literal_backslash_n_in_strings.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	19	run	tests/test_daemon_fda_app_bundle_path.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	20	run	scripts/tests/test_daemon_fda_case6_controls.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	21	run	tests/test_every_launchagent_is_torn_down.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	22	run	tests/test_voice_consent_matches_catalogue.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	23	run	tests/test_bookmarks_ingest_wired.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	24	run	tests/test_social_ingest_wired.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	25	run	tests/test_ollama_install_path_contract.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	26	run	scripts/tests/test_ollama_contract_controls.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	27	run	tests/test_ollama_pin_install_verifies_sha256.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	28	run	scripts/tests/test_hydrate_contacts_timeout_arm.sh
+consent-data-handling.yml	consent-data-handling	consent-data-handling	ubuntu-latest	1	pull_request,push	unfiltered	always	29	run	tests/test_a_stored_secret_says_so_where_it_is_typed.sh
 consent-registry.yml	consent-registry	consent-registry	ubuntu-latest	1	pull_request,push	15 paths	installer	0	uses:actions/checkout@v4	-
 consent-registry.yml	consent-registry	consent-registry	ubuntu-latest	1	pull_request,push	15 paths	installer	1	run	tests/test_consent_tickbox_registry.sh
 consent-registry.yml	consent-registry	consent-registry	ubuntu-latest	1	pull_request,push	15 paths	installer	2	run	tests/test_every_consent_decision_is_recorded.sh
@@ -499,16 +507,17 @@ data-conservation-probe-tests.yml	probe-tests	probe-tests	macos-latest	1	pull_re
 data-conservation-probe-tests.yml	probe-tests	probe-tests	macos-latest	1	pull_request,push	6 paths	macos-latest	1	run	scripts/box_walk_probes/lib/data_conservation.py
 data-conservation-probe-tests.yml	probe-tests	probe-tests	macos-latest	1	pull_request,push	6 paths	macos-latest	2	run	scripts/tests/test_data_conservation_probe.sh
 data-conservation-probe-tests.yml	probe-tests	probe-tests	macos-latest	1	pull_request,push	6 paths	macos-latest	3	run	scripts/box_walk_probes/probes/data_conservation.sh
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	0	uses:actions/checkout@v4	-
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	1	uses:actions/setup-python@v5	-
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	2	run	-
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	3	run	-
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	4	run	tests/test_the_recovery_key_can_be_redeemed_end_to_end.py
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	5	run	tests/test_the_recovery_cli_does_not_print_the_key_by_default.py
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	6	run	tests/test_the_db_key_reaches_the_services_and_the_disk.py
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	7	run	tests/test_audit_log_row_factory.py vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	8	run	make:.:impossible scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh
-db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	22 paths	macos-latest	9	run	scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	0	uses:actions/checkout@v4	-
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	1	uses:actions/setup-python@v5	-
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	2	run	-
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	3	run	-
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	4	run	tests/test_the_recovery_key_can_be_redeemed_end_to_end.py
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	5	run	tests/test_the_recovery_cli_does_not_print_the_key_by_default.py
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	6	run	tests/test_the_db_key_reaches_the_services_and_the_disk.py
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	7	run	tests/test_audit_log_row_factory.py vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	8	run	make:.:impossible scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	9	run	scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh
+db-key-delivery-and-recovery.yml	db-key-delivery-and-recovery	db-key-delivery-and-recovery	macos-latest	1	pull_request,push	23 paths	macos-latest	10	run	tests/test_the_recovery_key_never_reaches_install_log.sh
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	0	uses:actions/checkout@v4	-
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	1	run	scripts/verify_declared_gates_reachable.sh
 declared-gates-reachable.yml	declared-gates-self-test	declared-gates-self-test	ubuntu-latest	1	pull_request,push	unfiltered	always	2	run	scripts/verify_declared_gates_reachable.sh
@@ -557,11 +566,12 @@ dry-run-ledger.yml	dry-run-ledger	dry-run-ledger	macos-latest	1	pull_request,pus
 dry-run-ledger.yml	dry-run-ledger	dry-run-ledger	macos-latest	1	pull_request,push	unfiltered	macos-latest	4	run	scripts/dry_run_cut_checks.sh
 editor-feed-gate.yml	editor-feed-gate	editor-feed-gate	ubuntu-latest	1	pull_request,push	3 paths	installer	0	uses:actions/checkout@v4	-
 editor-feed-gate.yml	editor-feed-gate	editor-feed-gate	ubuntu-latest	1	pull_request,push	3 paths	installer	1	run	tests/test_the_shipped_compose_mounts_the_editor_feed.sh
-email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	8 paths	installer	0	uses:actions/checkout@v4	-
-email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	8 paths	installer	1	run	tests/test_email_allowlist_installer.sh
-email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	8 paths	installer	2	run	scripts/box_walk_probes/lib/email_channel_probe.py
-email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	8 paths	installer	3	run	scripts/box_walk_probes/lib/email_channel_probe.py
-email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	8 paths	installer	4	run	scripts/box_walk_probes/probes/email_channel_round_trip.sh
+email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	9 paths	installer	0	uses:actions/checkout@v4	-
+email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	9 paths	installer	1	run	tests/test_email_allowlist_installer.sh
+email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	9 paths	installer	2	run	tests/test_email_password_never_in_config.sh
+email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	9 paths	installer	3	run	scripts/box_walk_probes/lib/email_channel_probe.py
+email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	9 paths	installer	4	run	scripts/box_walk_probes/lib/email_channel_probe.py
+email-channel.yml	email-channel	email-channel	ubuntu-latest	1	pull_request,push	9 paths	installer	5	run	scripts/box_walk_probes/probes/email_channel_round_trip.sh
 enforce-ledger-write.yml	ledger-pr	ledger-pr	ubuntu-latest	1	pull_request	unfiltered	always	0	uses:actions/checkout@v4	-
 enforce-ledger-write.yml	ledger-pr	ledger-pr	ubuntu-latest	1	pull_request	unfiltered	always	1	run	-
 enforce-ledger-write.yml	ledger-pr	ledger-pr	ubuntu-latest	1	pull_request	unfiltered	always	2	run	scripts/enforce_ledger_write.sh
@@ -665,6 +675,8 @@ forget-tombstone.yml	forget-reports-only-what-it-erased	forget-reports-only-what
 forget-tombstone.yml	forget-reports-only-what-it-erased	forget-reports-only-what-it-erased	ubuntu-latest	1	pull_request,push	11 paths	installer	1	uses:actions/setup-python@v5	-
 forget-tombstone.yml	forget-reports-only-what-it-erased	forget-reports-only-what-it-erased	ubuntu-latest	1	pull_request,push	11 paths	installer	2	run	-
 forget-tombstone.yml	forget-reports-only-what-it-erased	forget-reports-only-what-it-erased	ubuntu-latest	1	pull_request,push	11 paths	installer	3	run	vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py
+gateway-secret-probe.yml	gateway-secret-probe	gateway-secret-probe	ubuntu-latest	1	pull_request,push	8 paths	vendor	0	uses:actions/checkout@v4	-
+gateway-secret-probe.yml	gateway-secret-probe	gateway-secret-probe	ubuntu-latest	1	pull_request,push	8 paths	vendor	1	run	tests/test_gateway_never_serves_a_stored_secret.sh
 gdpr-export-detect.yml	gdpr-export-detect	gdpr-export-detect	ubuntu-latest	1	pull_request,push	6 paths	installer	0	uses:actions/checkout@v4	-
 gdpr-export-detect.yml	gdpr-export-detect	gdpr-export-detect	ubuntu-latest	1	pull_request,push	6 paths	installer	1	run	tests/test_gdpr_export_detect.sh
 gdpr-export-detect.yml	gdpr-export-detect	gdpr-export-detect	ubuntu-latest	1	pull_request,push	6 paths	installer	2	run	tests/test_unzip_every_archive_is_opened_or_reported.sh
@@ -687,8 +699,9 @@ hub-contract.yml	generator-tests	generator-tests	ubuntu-latest	1	pull_request,pu
 hub-contract.yml	generator-tests	generator-tests	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	2	run	tests/test_hub_contract_generator.py
 hub-contract.yml	generator-tests	generator-tests	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	3	run	tests/test_lane11_client_calls_pass_the_contract.py
 hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	0	uses:actions/checkout@v4	-
-hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	1	uses:actions/checkout@v4	-
-hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	2	run	scripts/gen_hub_contract.py
+hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	1	run	-
+hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	2	uses:actions/checkout@v4	-
+hub-contract.yml	contract-is-current	contract-is-current	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	3	run	scripts/gen_hub_contract.py
 hub-contract.yml	client-pin-drift	client-pin-drift	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	0	uses:actions/checkout@v4	-
 hub-contract.yml	client-pin-drift	client-pin-drift	ubuntu-latest	1	pull_request,push,schedule,workflow_dispatch	12 paths	standalone	1	run	scripts/hub_contract_drift.py
 hub-screens-and-106c.yml	hub-screens	hub-screens	ubuntu-latest	1	pull_request,push	56 paths	vendor	0	uses:actions/checkout@v4	-
@@ -996,6 +1009,7 @@ misclassified-things.yml	misclassified-things	misclassified-things	ubuntu-latest
 misclassified-things.yml	misclassified-things	misclassified-things	ubuntu-latest	1	pull_request,push	8 paths	vendor	6	run	tests/test_preference_projection_does_not_duplicate_the_pipeline.py
 model-download-honesty.yml	model-download-honesty	model-download-honesty	macos-latest	1	pull_request,push	unfiltered	macos-latest	0	uses:actions/checkout@v4	-
 model-download-honesty.yml	model-download-honesty	model-download-honesty	macos-latest	1	pull_request,push	unfiltered	macos-latest	1	run	tests/test_model_download_size_honesty.sh
+model-download-honesty.yml	model-download-honesty	model-download-honesty	macos-latest	1	pull_request,push	unfiltered	macos-latest	2	run	tests/test_daemon_warmup_loads_at_chat_num_ctx.sh
 music-scoring-one-scale.yml	music-scoring-one-scale	music-scoring-one-scale	ubuntu-latest	1	pull_request,push	4 paths	vendor	0	uses:actions/checkout@v4	-
 music-scoring-one-scale.yml	music-scoring-one-scale	music-scoring-one-scale	ubuntu-latest	1	pull_request,push	4 paths	vendor	1	uses:actions/setup-python@v5	-
 music-scoring-one-scale.yml	music-scoring-one-scale	music-scoring-one-scale	ubuntu-latest	1	pull_request,push	4 paths	vendor	2	run	-
@@ -1468,58 +1482,59 @@ vendor-divergence-described.yml	described	described	ubuntu-latest	1	pull_request
 vendor-divergence-described.yml	described-macos	described-macos	macos-14	1	pull_request,push	6 paths	macos-14	0	uses:actions/checkout@v4	-
 vendor-divergence-described.yml	described-macos	described-macos	macos-14	1	pull_request,push	6 paths	macos-14	1	run	-
 vendor-divergence-described.yml	described-macos	described-macos	macos-14	1	pull_request,push	6 paths	macos-14	2	run	tests/test_an_undescribed_vendor_divergence_is_red.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	0	uses:actions/checkout@v4	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	1	uses:actions/setup-python@v5	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	2	run	tests/test_vendor_manifest_is_valid_toml.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	3	run	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	4	run	tests/test_the_shipped_vendor_manifest_names_no_operator.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	5	run	tests/test_the_pii_scan_reads_every_file_in_the_tree.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	6	run	tests/test_an_identifier_is_not_a_taste.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	7	run	scripts/verify_loopback_clients_authenticate.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	8	run	tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	9	run	tests/test_no_divergent_vendor_twin.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	10	run	tests/test_context_refresh_vendor_sha.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	11	run	scripts/tests/test_regenerate_divergence_patch.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	12	run	tests/test_vendor_fresh_gate.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	13	run	scripts/verify_vendor_fresh.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	14	run	tests/test_conversation_process_metadata_conversation_id.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	15	run	tests/test_vendor_import_resolution.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	16	run	tests/test_vendor_entrypoint_resolution.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	17	run	tests/test_every_conversation_produces_all_four_artefacts.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	18	run	tests/test_the_doctor_status_poll_has_a_fork_budget.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	19	run	tests/test_doctor_routines_are_measured_live.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	20	run	tests/test_remote_access_reads_the_installers_tailscale.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	21	run	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	22	run	tests/test_vendor_only_survives_sync.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	23	run	tests/test_canonical_keys_must_not_merge.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	24	run	tests/test_frontpage_tick_emits_interest_profile.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	25	run	tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	26	run	tests/test_digest_refreshes_when_the_interest_profile_lands.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	27	run	tests/test_vendor_symbol_resolution.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	28	run	tests/test_vendor_pair_drift.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	29	run	tests/test_doctor_governor_routes_vendored.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	30	run	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	31	run	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	32	run	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	33	run	tests/test_doctor_credential_routes_refuse_cross_site.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	34	run	tests/test_time_machine_exclusion_is_measured.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	35	run	tests/test_the_hub_reads_the_doctor_like_the_app.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	36	run	tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	37	run	tests/test_editor_feedback_accepts_the_add_verb.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	38	run	tests/test_the_doctor_dashboard_actually_renders.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	39	run	tests/test_the_doctor_page_is_on_brand.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	40	run	tests/test_whatsapp_keepalive_repairs_and_reports.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	41	run	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	42	run	tests/test_container_engine_liveness_and_recovery.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	43	run	tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	44	run	tests/test_listener_watchdog_restarts_a_dead_listener.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	45	run	tests/test_listener_watchdog_walk_probe.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	46	run	scripts/verify_no_defs_after_main_guard.py
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	47	run	vendor/ostler_fda/test_vendor_browser_history.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	48	run	tests/test_doctor_proxy_paths_predicate.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	49	run	-
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	50	run	tests/test_ical_server_vendor_wired.sh
-vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	82 paths	installer	51	run	tests/test_the_governor_revendor_guard_is_actually_run.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	0	uses:actions/checkout@v4	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	1	uses:actions/setup-python@v5	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	2	run	tests/test_vendor_manifest_is_valid_toml.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	3	run	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	4	run	tests/test_the_shipped_vendor_manifest_names_no_operator.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	5	run	tests/test_the_pii_scan_reads_every_file_in_the_tree.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	6	run	tests/test_an_identifier_is_not_a_taste.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	7	run	scripts/verify_loopback_clients_authenticate.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	8	run	tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	9	run	tests/test_no_divergent_vendor_twin.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	10	run	tests/test_context_refresh_vendor_sha.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	11	run	scripts/tests/test_regenerate_divergence_patch.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	12	run	tests/test_vendor_fresh_gate.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	13	run	scripts/verify_vendor_fresh.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	14	run	tests/test_conversation_process_metadata_conversation_id.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	15	run	tests/test_vendor_import_resolution.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	16	run	tests/test_vendor_entrypoint_resolution.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	17	run	tests/test_every_conversation_produces_all_four_artefacts.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	18	run	tests/test_the_doctor_status_poll_has_a_fork_budget.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	19	run	tests/test_doctor_routines_are_measured_live.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	20	run	tests/test_remote_access_reads_the_installers_tailscale.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	21	run	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	22	run	tests/test_vendor_only_survives_sync.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	23	run	tests/test_canonical_keys_must_not_merge.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	24	run	tests/test_frontpage_tick_emits_interest_profile.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	25	run	tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	26	run	tests/test_digest_refreshes_when_the_interest_profile_lands.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	27	run	tests/test_vendor_symbol_resolution.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	28	run	tests/test_vendor_pair_drift.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	29	run	tests/test_doctor_governor_routes_vendored.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	30	run	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	31	run	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	32	run	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	33	run	tests/test_doctor_credential_routes_refuse_cross_site.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	34	run	tests/test_time_machine_exclusion_is_measured.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	35	run	tests/test_the_hub_reads_the_doctor_like_the_app.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	36	run	tests/test_doctor_says_when_ollama_is_not_pinned.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	37	run	tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	38	run	tests/test_editor_feedback_accepts_the_add_verb.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	39	run	tests/test_the_doctor_dashboard_actually_renders.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	40	run	tests/test_the_doctor_page_is_on_brand.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	41	run	tests/test_whatsapp_keepalive_repairs_and_reports.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	42	run	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	43	run	tests/test_container_engine_liveness_and_recovery.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	44	run	tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	45	run	tests/test_listener_watchdog_restarts_a_dead_listener.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	46	run	tests/test_listener_watchdog_walk_probe.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	47	run	scripts/verify_no_defs_after_main_guard.py
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	48	run	vendor/ostler_fda/test_vendor_browser_history.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	49	run	tests/test_doctor_proxy_paths_predicate.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	50	run	-
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	51	run	tests/test_ical_server_vendor_wired.sh
+vendor-integrity.yml	vendor-integrity	vendor-integrity	ubuntu-latest	1	pull_request,push	86 paths	installer	52	run	tests/test_the_governor_revendor_guard_is_actually_run.sh
 venv-store-shim.yml	venv-store-shim	venv-store-shim	ubuntu-latest	1	pull_request,push	8 paths	installer	0	uses:actions/checkout@v4	-
 venv-store-shim.yml	venv-store-shim	venv-store-shim	ubuntu-latest	1	pull_request,push	8 paths	installer	1	run	tests/test_venvs_install_store_shim.sh
 venv-store-shim.yml	venv-store-shim	venv-store-shim	ubuntu-latest	1	pull_request,push	8 paths	installer	2	run	tests/test_venvs_install_store_shim.sh
@@ -1557,75 +1572,76 @@ walk-meeting-id-collision-guard.yml	conversation-id-prefers-meeting-id	conversat
 walk-meeting-id-collision-guard.yml	conversation-id-prefers-meeting-id	conversation-id-prefers-meeting-id	ubuntu-latest	3	pull_request,push	6 paths	py-matrix	4	run	vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py
 walk-meeting-id-collision-guard.yml	conversation-id-prefers-meeting-id	conversation-id-prefers-meeting-id	ubuntu-latest	3	pull_request,push	6 paths	py-matrix	5	run	vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py
 walk-meeting-id-collision-guard.yml	conversation-id-prefers-meeting-id	conversation-id-prefers-meeting-id	ubuntu-latest	3	pull_request,push	6 paths	py-matrix	6	run	vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	0	uses:actions/checkout@v4	-
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	1	run	tests/test_a_remote_url_is_quoted_against_zsh_globbing.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	2	run	tests/test_the_walk_record_says_whether_the_stores_are_history.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	3	run	tests/test_walk_record_gates_customer_download.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	4	run	tests/test_probe_absence_is_not_an_answer.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	5	run	tests/test_probe_pgrep_is_scoped_to_this_account.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	6	run	tests/test_probe_memory_purge_counts_only_real_deletions.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	7	run	tests/test_a_pairing_non_answer_is_not_a_rejection.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	8	run	scripts/walk_regression_triage.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	9	run	scripts/payload_delta.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	10	run	tests/test_a_walk_failure_is_classified.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	11	run	scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh tests/test_pipefail_shortcircuit_inversion.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	12	run	tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	13	run	scripts/box_walk_probes/probes/pair_state_agreement.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	14	run	tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	15	run	tests/test_reconcile_splits_our_fixtures_from_the_products.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	16	run	tests/test_promote_scope_refuses_on_the_artefact.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	17	run	tests/test_a_broken_probe_blocks_the_promote.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	18	run	tests/test_promote_scope_only_ever_grows.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	19	run	tests/test_no_probe_lives_outside_the_walk_glob.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	20	run	scripts/post_walk_qa.sh tests/test_post_walk_qa_measures_the_artefact.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	21	run	scripts/record_walk.sh tests/test_a_completed_walk_records_itself.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	22	run	tests/test_walk_driver_does_not_inherit_a_stale_result.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	23	run	tests/test_walk_driver_requires_a_completion_marker.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	24	run	tests/test_walk_driver_takes_ports_from_the_declared_field.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	25	run	tests/test_walk_driver_takes_owner_from_a_local_file.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	26	run	tests/test_walk_pass_requires_zero_failed_steps.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	27	run	tests/test_a_security_note_cannot_claim_a_flag_is_off.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	28	run	tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	29	run	install.sh tests/test_walk_port_probe_matches_install_sh.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	30	run	scripts/tests/test_no_store_port_probe_reads_the_credential.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	31	run	tests/test_a_self_test_denominator_counts_itself.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	32	run	scripts/tests/test_grounded_probe_asserts_the_fact.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	33	run	scripts/tests/test_grounded_probe_grades_the_answer.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	34	run	scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	35	run	scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	36	run	scripts/tests/test_read_only_walk_never_writes.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	37	run	scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	38	run	scripts/tests/test_full_walk_chooses_the_real_person.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	39	run	tests/test_real_person_pick_richest.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	40	run	tests/test_real_person_slug_from_api.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	41	run	tests/test_merge_survivor_takes_highest_name_tier.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	42	run	tests/test_chat_wait_is_sized_from_measured_turns.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	43	run	tests/test_real_person_miss_inputs_are_printed.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	44	run	tests/test_real_person_link_miss_classified.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	45	run	tests/test_owner_digest_hydration_retries_5xx.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	46	run	tests/test_owner_digest_counts_only_meetings_that_happened.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	47	run	scripts/tests/test_walk_screens_never_land_in_the_repo.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	48	run	tests/test_console_only_register_names_real_probes.py
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	49	run	scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	50	run	tests/test_a_writing_probe_declares_it_and_is_never_promoted.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	51	run	tests/test_a_test_cannot_reach_the_real_walk_store.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	52	run	scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	53	run	-
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	54	run	tests/test_the_walk_seeds_the_grounded_probe.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	55	run	tests/test_every_opening_starts_from_clean_memory.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	56	run	tests/test_precondition_one_settles_like_every_later_opening.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	57	run	tests/test_every_walk_ssh_gives_up_on_a_dead_link.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	58	run	tests/test_the_seed_forgets_what_the_walk_taught.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	59	run	tests/test_the_walk_seeds_the_preference_pair.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	60	run	tests/test_cm019_bundle_accepts_the_payload_root.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	61	run	tests/test_the_walk_seeds_the_conversation.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	62	run	tests/test_the_walk_seeds_the_usage_producer.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	63	run	tests/test_the_walk_waits_for_wiki_summaries.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	64	run	tests/test_the_walk_waits_for_converge.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	65	run	tests/test_the_converge_wait_resolves_the_credential_path.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	66	run	scripts/verify_walk_record.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	67	run	tests/test_bom_verdict_gate_is_wired_into_the_promote.sh
-walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	107 paths	vendor	68	run	tests/test_bom_ref_is_not_the_cut_pin.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	0	uses:actions/checkout@v4	-
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	1	run	tests/test_a_remote_url_is_quoted_against_zsh_globbing.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	2	run	tests/test_the_walk_record_says_whether_the_stores_are_history.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	3	run	tests/test_walk_record_gates_customer_download.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	4	run	tests/test_probe_absence_is_not_an_answer.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	5	run	tests/test_probe_pgrep_is_scoped_to_this_account.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	6	run	tests/test_probe_memory_purge_counts_only_real_deletions.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	7	run	tests/test_a_pairing_non_answer_is_not_a_rejection.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	8	run	scripts/walk_regression_triage.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	9	run	scripts/payload_delta.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	10	run	tests/test_a_walk_failure_is_classified.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	11	run	scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh tests/test_pipefail_shortcircuit_inversion.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	12	run	tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	13	run	scripts/box_walk_probes/probes/pair_state_agreement.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	14	run	tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	15	run	tests/test_reconcile_splits_our_fixtures_from_the_products.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	16	run	tests/test_promote_scope_refuses_on_the_artefact.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	17	run	tests/test_a_broken_probe_blocks_the_promote.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	18	run	tests/test_promote_scope_only_ever_grows.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	19	run	tests/test_no_probe_lives_outside_the_walk_glob.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	20	run	scripts/post_walk_qa.sh tests/test_post_walk_qa_measures_the_artefact.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	21	run	scripts/record_walk.sh tests/test_a_completed_walk_records_itself.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	22	run	tests/test_walk_driver_does_not_inherit_a_stale_result.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	23	run	tests/test_walk_driver_requires_a_completion_marker.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	24	run	tests/test_walk_driver_takes_ports_from_the_declared_field.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	25	run	tests/test_walk_driver_takes_owner_from_a_local_file.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	26	run	tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	27	run	tests/test_walk_pass_requires_zero_failed_steps.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	28	run	tests/test_a_security_note_cannot_claim_a_flag_is_off.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	29	run	tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	30	run	install.sh tests/test_walk_port_probe_matches_install_sh.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	31	run	scripts/tests/test_no_store_port_probe_reads_the_credential.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	32	run	tests/test_a_self_test_denominator_counts_itself.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	33	run	scripts/tests/test_grounded_probe_asserts_the_fact.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	34	run	scripts/tests/test_grounded_probe_grades_the_answer.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	35	run	scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	36	run	scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	37	run	scripts/tests/test_read_only_walk_never_writes.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	38	run	scripts/tests/test_full_walk_hands_screens_probe_write_mode.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	39	run	scripts/tests/test_full_walk_chooses_the_real_person.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	40	run	tests/test_real_person_pick_richest.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	41	run	tests/test_real_person_slug_from_api.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	42	run	tests/test_merge_survivor_takes_highest_name_tier.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	43	run	tests/test_chat_wait_is_sized_from_measured_turns.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	44	run	tests/test_real_person_miss_inputs_are_printed.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	45	run	tests/test_real_person_link_miss_classified.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	46	run	tests/test_owner_digest_hydration_retries_5xx.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	47	run	tests/test_owner_digest_counts_only_meetings_that_happened.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	48	run	scripts/tests/test_walk_screens_never_land_in_the_repo.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	49	run	tests/test_console_only_register_names_real_probes.py
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	50	run	scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	51	run	tests/test_a_writing_probe_declares_it_and_is_never_promoted.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	52	run	tests/test_a_test_cannot_reach_the_real_walk_store.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	53	run	scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	54	run	-
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	55	run	tests/test_the_walk_seeds_the_grounded_probe.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	56	run	tests/test_every_opening_starts_from_clean_memory.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	57	run	tests/test_precondition_one_settles_like_every_later_opening.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	58	run	tests/test_every_walk_ssh_gives_up_on_a_dead_link.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	59	run	tests/test_the_seed_forgets_what_the_walk_taught.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	60	run	tests/test_the_walk_seeds_the_preference_pair.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	61	run	tests/test_cm019_bundle_accepts_the_payload_root.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	62	run	tests/test_the_walk_seeds_the_conversation.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	63	run	tests/test_the_walk_seeds_the_usage_producer.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	64	run	tests/test_the_walk_waits_for_wiki_summaries.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	65	run	tests/test_the_walk_waits_for_converge.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	66	run	tests/test_the_converge_wait_resolves_the_credential_path.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	67	run	scripts/verify_walk_record.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	68	run	tests/test_bom_verdict_gate_is_wired_into_the_promote.sh
+walk-record-gate.yml	walk-record-gate	walk-record-gate	ubuntu-latest	1	pull_request,push	109 paths	vendor	69	run	tests/test_bom_ref_is_not_the_cut_pin.sh
 walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-guard	walk5-conversation-failure-reason-guard	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	0	uses:actions/checkout@v4	-
 walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-guard	walk5-conversation-failure-reason-guard	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	1	uses:actions/setup-python@v5	-
 walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-guard	walk5-conversation-failure-reason-guard	ubuntu-latest	3	pull_request,push	3 paths	py-matrix	2	run	-

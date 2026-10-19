@@ -78,6 +78,7 @@ on:
       - 'vendor/ostler_security/audit_log.py'
       - 'vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py'
       - 'tests/test_audit_log_row_factory.py'
+      - 'tests/test_the_recovery_key_never_reaches_install_log.sh'
       # A suite this workflow RUNS but does not WATCH is dark on self-edit:
       # it could be narrowed, or gutted, in the very PR that narrows it.
       - 'scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh'
@@ -239,3 +240,12 @@ jobs:
       - name: A mutation to the probe's decision must break its self-test
         if: always()
         run: bash scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh
+
+      - name: The recovery key never reaches install.log, old logs are scrubbed, no key on argv
+        if: always()
+        # v1.0.109 BLOCKER. install.sh tees stdout into install.log and the
+        # reveal echoed the key to stdout; the keychain fallback put it on
+        # `security` argv. Runs the REAL install.sh blocks under /bin/bash 3.2
+        # and BSD awk (macOS runner, the shipping host) with a synthetic key,
+        # stubbed `security`/`swift`. Exit 2 is CANNOT-RUN and fails the step.
+        run: /bin/bash tests/test_the_recovery_key_never_reaches_install_log.sh
