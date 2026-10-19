@@ -274,13 +274,15 @@ fi
 # Bumped 3 -> 4 for subscription_gate (2026-10-19): the shared G7 helper for
 # Pro-gated ostler_fda sources, vendored before its first caller (#3022 or the
 # HR015 Notion/Linear/GitHub entry points) so they all depend on ONE copy.
-# Bumped 4 -> 6 for google_chat_takeout and google_keep_takeout (CM051 #3022):
+# Bumped 4 -> 5 for first_import (2026-10-19): the free-first-export-import
+# rule, vendored with the gate before its first caller, same reason.
+# Bumped 5 -> 7 for google_chat_takeout and google_keep_takeout (CM051 #3022):
 # new Takeout importers that ship UNWIRED by the connectors brief until the
 # wiring PR gives them a caller in universal_import.
-if grep -qE "^DORMANT \(acknowledged, unwired\)   6" <<< "$out"; then
-    ok "this repo reports 6 dormant modules, visible as six"
+if grep -qE "^DORMANT \(acknowledged, unwired\)   7" <<< "$out"; then
+    ok "this repo reports 7 dormant modules, visible as seven"
 else
-    bad "the six dormant modules were absorbed into another count"
+    bad "the seven dormant modules were absorbed into another count"
 fi
 # The whole point of the row is that the next person to ship the household
 # split finds it. If that string ever drops out, the handoff is gone.

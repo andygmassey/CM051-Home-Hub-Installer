@@ -186,6 +186,7 @@ phrase	natural language	Apple's built-in Siri suggestion calendar title 'Found i
 phrase	scheduled reminders	Apple's built-in reminders calendar title, a system calendar the installer sets aside, not a person
 phrase	human name	domain noun
 phrase	given name	domain noun
+phrase	google chat	product noun (the Google Chat app; appears in the byte-identical CM052 first_import.py copy, which cannot be reworded)
 phrase	display name	domain noun
 phrase	alternate name	domain noun
 phrase	personal world	product noun
