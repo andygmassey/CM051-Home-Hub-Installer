@@ -41,6 +41,7 @@ on:
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
@@ -87,6 +88,7 @@ on:
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
@@ -189,6 +191,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py -v
+      - name: An updated conversation keeps its reminder (supersede before the duplicate_thread gate)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_supersede_before_duplicate_thread.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_supersede_before_duplicate_thread.py -v
       - name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
         if: always()
         run: |
