@@ -100,6 +100,7 @@ test_a_walk_record_names_the_instrument_that_graded_it.sh	WIRED	.github/workflow
 test_a_writing_probe_declares_it_and_is_never_promoted.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ab_results_gate.sh	WIRED	.github/workflows/ab-results-gate.yml
 test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_address_book_photos_reach_photo_dir.py	WIRED	.github/workflows/address-book-source-guard.yml
 test_ai_conversations_default_to_the_locked_privacy_level.py	WIRED	.github/workflows/privacy-spine.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
