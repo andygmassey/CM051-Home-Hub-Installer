@@ -431,6 +431,7 @@ def run(args: argparse.Namespace) -> int:
     posted = 0
     l3_skipped = 0
     errors = 0
+    paused = 0
 
     for conv in pending:
         if args.dry_run:
@@ -457,6 +458,14 @@ def run(args: argparse.Namespace) -> int:
             )
             continue
 
+        if outcome == "paused":
+            # The wire's G7 said no (subscription inactive). Nothing was
+            # staged: this is NOT handled, so the watermark must not move.
+            # It used to, which marked every conversation done for ever while
+            # paused (CM052 781e5643 #18, watermark half backported for
+            # v1.0.111; the rest of #18 is the held G7 feature).
+            paused += 1
+            continue
         if outcome == "l3_skipped":
             l3_skipped += 1
         else:
@@ -475,10 +484,11 @@ def run(args: argparse.Namespace) -> int:
             return 1
 
     log.info(
-        "Done. discovered=%d posted=%d l3_skipped=%d errors=%d",
+        "Done. discovered=%d posted=%d l3_skipped=%d paused=%d errors=%d",
         discovered,
         posted,
         l3_skipped,
+        paused,
         errors,
     )
     _emit_json(
@@ -489,6 +499,7 @@ def run(args: argparse.Namespace) -> int:
             "ingested": posted + l3_skipped,
             "written": posted,
             "l3_skipped": l3_skipped,
+            "paused": paused,
             "failed": errors,
         },
         enabled=args.json,
