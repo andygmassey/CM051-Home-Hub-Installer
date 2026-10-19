@@ -37,6 +37,25 @@ pr_exemptions:
   # 39041651077 named 16 CM051 PRs open >48h. 15 are below, each with its own
   # reason; #1818's existing row is re-dated in place.
   # -------------------------------------------------------------------------
+  # v1.0.111 PR-AGE EXEMPTIONS, ruled 2026-10-19 by the coordinator.
+  - ref: "CM051-Home-Hub-Installer#2954"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2955"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2956"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2957"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2958"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2959"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
   # v1.0.111 PR-AGE EXEMPTION, ruled 2026-10-19 by Archie (option c). Cut
   # candidate run 39220981137 named #2939 open 50h at check-pr-age.
   - ref: "CM051-Home-Hub-Installer#2939"
