@@ -2026,6 +2026,8 @@ OSTLER_MODEL_WEIGHT_MEDIATYPES=(
 OSTLER_MODEL_PINS=(
     # gemma4_e2b.json  b37049369adf  pull log pin034_mbp/pull_gemma4_e2b.log
     "gemma4:e2b              3 sha256:c0029bf0e7a304c3adfbbd6e24e3587171a0a001fbeb85f274afa940a3c9c929"
+    # qwen3.5_4b.json  d8b0f5e9760c  pull log pin034_mbp4b/pull.log (MBP, empty scratch store)
+    "qwen3.5:4b              2 sha256:4708b8a66d01c8d22a388fbb45bb171cbb46a2d661e46b901b32088cea1a0598"
     # qwen3.5_9b.json  56671c2ab938  pull log pin034_mbp/pull_qwen3.5_9b.log
     "qwen3.5:9b              2 sha256:8a63dc8cfeec694afc23b1829fc16818e24c9f5d91ea0b02b64f0127fb19e5c3"
     # nomic-embed-text_latest.json  0a109f422b47  pull log pin034_mini16/pull_nomic-embed-text.log
@@ -3631,14 +3633,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8920) captures the path BY
+    # _ostler_write_store_curl_config (defined :8922) captures the path BY
     # VALUE and never re-reads it:
-    #     :8921   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8966   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8975 and :16633, both of which run
+    #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8977 and :16635, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3617 above has just deleted
-    # that tree and :3621 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
+    # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3653,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17428, where the note reads
+    # WhatsApp Web session path did it again at :17430, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17445 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17447 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3668,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6249 against a definition at :8920. Top-level
+    # writer's own definition: :6251 against a definition at :8922. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8975, :16633) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8977, :16635) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19593 / :19771 / :19928 / :20373 path. There the
+    # :19595 / :19773 / :19930 / :20375 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
