@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import timezone
 import stat
 import sys
 from pathlib import Path
@@ -108,6 +109,9 @@ def _entitled(monkeypatch, request):
     itself. The real default (the shared helper) is exercised by name below."""
     if "g7" not in request.node.name:
         monkeypatch.setattr(gc, "default_gate", lambda: "pro")
+    # Day boundaries follow the owner's zone; pin it so the fixtures' dates
+    # are the same on every runner. The zone tests below set their own.
+    monkeypatch.setenv("OSTLER_OWNER_TZ", "UTC")
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +147,7 @@ def test_unparseable_date_keeps_the_message_and_counts_it(tmp_path):
     root = build_export(tmp_path)
     p = root / "Takeout/Google Chat/Groups/DM aaaa1111/messages.json"
     data = json.loads(p.read_text())
-    data["messages"].append(_msg(JANE, "mercredi 1 fevrier 2023 15:10", "Parfait", "t9"))
+    data["messages"].append(_msg(JANE, "1 Shvat 5783 15:10", "Parfait", "t9"))
     p.write_text(json.dumps(data))
     ex = gc.parse_export(root)
     assert ex.undated_messages == 1
@@ -631,3 +635,88 @@ def test_g7_real_shared_helper_free_once_then_pro(tmp_path, monkeypatch):
     assert gc.default_gate() == "pro_required"
     sg.activate_first_month_free(datetime.now(timezone.utc).isoformat())
     assert gc.default_gate() == "pro"
+
+
+# ---------------------------------------------------------------------------
+# Edge-case red team (EDGE_CASE_MATRIX_2026-10-19): locale dates, unplaceable
+# zones, and the owner's local day.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw,iso", [
+    ("Mittwoch, 1. Februar 2023 um 15:04:05 UTC", "2023-02-01T15:04:05+00:00"),
+    ("mercredi 1 février 2023 à 15:04:05 UTC", "2023-02-01T15:04:05+00:00"),
+    ("miércoles, 1 de febrero de 2023, 15:04:05 UTC", "2023-02-01T15:04:05+00:00"),
+    ("1 febbraio 2023 alle 15:04:05 UTC", "2023-02-01T15:04:05+00:00"),
+    ("1 februari 2023 om 15:04:05 UTC", "2023-02-01T15:04:05+00:00"),
+    ("February 1, 2023 at 11:04:05 PM GMT+8", "2023-02-01T15:04:05+00:00"),
+    ("1 February 2023 at 20:34:05 UTC+05:30", "2023-02-01T15:04:05+00:00"),
+])
+def test_locale_and_offset_dates(raw, iso):
+    dt, note = gc.parse_timestamp(raw)
+    assert dt is not None and dt.isoformat() == iso and note == gc.TS_OK
+
+
+def test_an_unplaceable_zone_is_never_guessed():
+    dt, note = gc.parse_timestamp("February 1, 2023 at 3:04:05 PM HKT")
+    assert dt is None and note == gc.TS_UNPLACED_ZONE
+
+
+def test_a_zoneless_time_is_read_in_the_owners_zone():
+    from zoneinfo import ZoneInfo
+
+    dt, note = gc.parse_timestamp("1 February 2023 at 23:04:05", ZoneInfo("Asia/Hong_Kong"))
+    assert dt.isoformat() == "2023-02-01T15:04:05+00:00" and note == gc.TS_ASSUMED_LOCAL
+
+
+def _one_dm(root, dates):
+    g = root / "Google Chat" / "Groups" / "DM zzzz9999"
+    _write(g / "group_info.json", {"members": [OWNER, MARY]})
+    _write(g / "messages.json", {"messages": [
+        _msg(MARY if i % 2 else OWNER, d, f"line {i}", f"t{i}") for i, d in enumerate(dates)]})
+    return root
+
+
+def test_a_mostly_unparsed_file_fails_loud_not_one_undated_pile(tmp_path):
+    root = _one_dm(tmp_path, ["1 Shvat 5783 15:00"] * 4 + ["2023-02-01T10:00:00Z"])
+    ex = gc.parse_export(root, owner_email=OWNER["email"])
+    errs = [(e.path, e.reason, e.detail) for e in ex.errors]
+    assert errs == [("Groups/DM zzzz9999/messages.json", "unparsed_dates", "4_of_5")]
+    assert gc.export_payloads(ex) == []
+    assert not any(p["conversation_id"].startswith("gchat_00000000") for p in gc.export_payloads(ex))
+
+
+def test_a_file_of_unplaceable_zones_is_reported_as_such(tmp_path):
+    root = _one_dm(tmp_path, ["February 1, 2023 at 3:04:05 PM HKT"] * 3)
+    ex = gc.parse_export(root, owner_email=OWNER["email"])
+    assert [(e.reason, e.detail) for e in ex.errors] == [("unplaced_zone", "3_of_3")]
+    assert ex.tz_unplaced == 3 and gc.export_payloads(ex) == []
+
+
+def test_a_minority_undated_never_makes_a_00000000_conversation(tmp_path):
+    root = _one_dm(tmp_path, ["no date here", "2023-02-01T10:00:00Z", "2023-02-01T11:00:00Z"])
+    ex = gc.parse_export(root, owner_email=OWNER["email"])
+    ids = [p["conversation_id"] for p in gc.export_payloads(ex)]
+    assert ids == ["gchat_20230201_zzzz9999"]
+    assert ex.errors == [] and ex.undated_messages == 1
+
+
+def test_days_and_times_are_the_owners_local_zone(tmp_path):
+    """A UTC+8 owner's working day is ONE conversation, under its local date,
+    with local clock times; in UTC the same messages would split at 08:00."""
+    from zoneinfo import ZoneInfo
+
+    root = _one_dm(tmp_path, ["2023-02-01T23:30:00Z",    # 07:30 on 2 Feb in Hong Kong
+                              "2023-02-02T01:00:00Z"])   # 09:00 on 2 Feb in Hong Kong
+    hk = gc.parse_export(root, owner_email=OWNER["email"], tz=ZoneInfo("Asia/Hong_Kong"))
+    ps = gc.export_payloads(hk)
+    assert [p["conversation_id"] for p in ps] == ["gchat_20230202_zzzz9999"]
+    assert "(2023-02-02 07:30)" in ps[0]["transcript"] and "(2023-02-02 09:00)" in ps[0]["transcript"]
+    assert ps[0]["metadata"]["date"] == "2023-02-02" and ps[0]["metadata"]["timezone"] == "Asia/Hong_Kong"
+    utc = gc.parse_export(root, owner_email=OWNER["email"], tz=timezone.utc)
+    assert len(gc.export_payloads(utc)) == 2      # control: UTC splits the same day
+
+
+def test_owner_zone_comes_from_the_environment(monkeypatch):
+    monkeypatch.setenv("OSTLER_OWNER_TZ", "Europe/London")
+    assert str(gc.local_zone()) == "Europe/London"

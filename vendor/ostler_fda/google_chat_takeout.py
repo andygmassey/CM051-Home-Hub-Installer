@@ -70,9 +70,17 @@ first is a GUESS at a rename and is UNVERIFIED):
 community sample (UNVERIFIED). We parse the English long forms, with and
 without the weekday, 12- and 24-hour, with the narrow no-break space newer
 Google surfaces put before AM/PM, plus ISO 8601 and epoch seconds /
-milliseconds / microseconds. A string we cannot parse keeps its message
-(never dropped) and is counted as ``undated_messages``; it is filed under
-the day of the previous dated message in file order.
+milliseconds / microseconds, and the long forms of German, French, Spanish,
+Italian, Portuguese and Dutch (month names and joining words mapped to
+English; UNVERIFIED shapes). Zones: UTC/GMT, numeric offsets and "GMT+8"
+style are honoured; a string with no zone is read in the owner's zone and
+counted ``tz_assumed_local``; a zone ABBREVIATION we cannot place ("HKT",
+"PST") is never guessed: that timestamp is undated and counted
+``tz_unplaced``. An undated message is kept (never dropped) and filed under
+the previous dated message's day. A messages.json where more than half the
+messages are undated is reported LOUDLY per file (``unparsed_dates`` /
+``unplaced_zone``) and produces no conversations, rather than collapsing a
+whole non-English export into one undated pile.
 
 Fidelity limits (from the research, not measured): edit history is absent
 (final text only), deleted messages are absent, and the org's Chat retention
@@ -81,11 +89,12 @@ policy may already have deleted old history before any export runs.
 Conversation unit
 =================
 
-One conversation per (group, UTC calendar day). A multi-year DM in a single
+One conversation per (group, calendar day in the OWNER'S local zone:
+``OSTLER_OWNER_TZ`` / ``TZ`` / the Mac's /etc/localtime, or ``--tz``). A multi-year DM in a single
 transcript would be too large for the CM048 pipeline and useless as a page.
 Thread replies (``topic_id`` shared by more than one message) are tagged in
 the transcript so a reader can follow a thread inside a day. A thread that
-crosses midnight UTC is split across two days' conversations (documented,
+crosses the owner's local midnight is split across two days' conversations (documented,
 deliberate: the day boundary is the stable id).
 
 ``conversation_id = gchat_<YYYYMMDD>_<slug of the group folder id>``: a
@@ -174,6 +183,10 @@ ENGAGEMENT_FLOOR_RELATIVE = 0.02
 
 PLACEHOLDER_ATTACHMENT = "[attachment]"
 
+# More than this share of a file's messages undated: the file is reported and
+# skipped (loud), never bucketed as one undated conversation.
+UNPARSED_DATE_RATIO = 0.5
+
 # Field aliases. The FIRST entry is the community-documented name; every
 # later entry is a guess at a rename and is UNVERIFIED.
 _AUTHOR_KEYS = ("creator", "sender", "author")
@@ -238,6 +251,7 @@ class ChatGroup:
     members: List[ChatAuthor]
     messages: List[ChatMessage] = field(default_factory=list)
     tier: str = TIER_T1_DM
+    dates_unparsed: bool = False
 
     @property
     def is_group(self) -> bool:
@@ -254,7 +268,9 @@ class ChatExport:
     groups: List[ChatGroup] = field(default_factory=list)
     errors: List[FileError] = field(default_factory=list)
     undated_messages: int = 0
-    tz_assumed_utc: int = 0
+    tz_assumed_local: int = 0
+    tz_unplaced: int = 0
+    tz: Any = timezone.utc
 
 
 # ---------------------------------------------------------------------------
@@ -334,8 +350,10 @@ def _load_json(path: Path, root: Path, errors: List[FileError]) -> Any:
 # Timestamps
 # ---------------------------------------------------------------------------
 
-_TZ_TAIL = re.compile(r"\s+([A-Za-z]{2,5}|[+-]\d{2}:?\d{2})$")
-_WEEKDAY_HEAD = re.compile(r"^[A-Za-z]+,\s+")
+# A trailing zone: a bare abbreviation, a numeric offset, or "GMT+8" /
+# "UTC+05:30" style.
+_TZ_TAIL = re.compile(r"\s+((?:UTC|GMT)[+-]\d{1,2}(?::?\d{2})?|[A-Za-z]{2,5}|[+-]\d{2}:?\d{2})$")
+_WEEKDAY_HEAD = re.compile(r"^[^\W\d_]+\.?,\s+")
 _LONG_FORMATS = (
     "%B %d, %Y at %I:%M:%S %p",   # February 1, 2023 at 3:04:05 PM
     "%d %B %Y at %H:%M:%S",       # 1 February 2023 at 15:04:05
@@ -347,20 +365,79 @@ _LONG_FORMATS = (
     "%d %b %Y at %H:%M:%S",
     "%B %d, %Y at %I:%M %p",
     "%d %B %Y at %H:%M",
+    "%d %B %Y %H:%M:%S",
+    "%d %B %Y %H:%M",
 )
 
+# Non-English Takeout exports (UNVERIFIED: the shapes below are the long-date
+# conventions of each language, not samples from a real export). Month names
+# are mapped to English and the joining word to "at" before the English
+# formats above are tried. A date in a language not listed here stays
+# unparsed, and a file that is mostly unparsed is reported LOUDLY (see
+# UNPARSED_DATE_RATIO) instead of collapsing into one undated conversation.
+_MONTHS = {
+    "January": ("januar", "janvier", "enero", "gennaio", "janeiro", "januari", "jänner"),
+    "February": ("februar", "février", "fevrier", "febrero", "febbraio", "fevereiro", "februari"),
+    "March": ("märz", "maerz", "mars", "marzo", "março", "marco", "maart"),
+    "April": ("april", "avril", "abril", "aprile"),
+    "May": ("mai", "mayo", "maggio", "maio", "mei"),
+    "June": ("juni", "juin", "junio", "giugno", "junho"),
+    "July": ("juli", "juillet", "julio", "luglio", "julho"),
+    "August": ("august", "août", "aout", "agosto", "augustus"),
+    "September": ("september", "septembre", "septiembre", "setiembre", "settembre", "setembro"),
+    "October": ("oktober", "octobre", "octubre", "ottobre", "outubro"),
+    "November": ("november", "novembre", "noviembre", "novembro"),
+    "December": ("dezember", "décembre", "decembre", "diciembre", "dicembre", "dezembro"),
+}
+_MONTH_WORD = {w: en for en, words in _MONTHS.items() for w in words}
+_JOIN_WORD = re.compile(r"\s+(?:um|à|a las|às|alle|om|a les|kl\.)\s+", re.I)
+_DE_ORDINAL = re.compile(r"(\d)\.\s")
+_BARE_WEEKDAY = re.compile(r"^([^\W\d_]+)\s+(?=\d)")
+_EN_MONTH_WORDS = {m.lower() for m in _MONTHS} | {m[:3].lower() for m in _MONTHS} | {"sept"}
+_ES_DE = re.compile(r"(\d)\s+de\s+([^\W\d_]+)\s+de\s+(\d{4})", re.I)
 
-def parse_timestamp(value: Any) -> Tuple[Optional[datetime], bool]:
-    """Parse a Takeout Chat timestamp. Returns ``(datetime_utc, tz_assumed)``.
 
-    ``tz_assumed`` is True when the string carried no zone we recognise and
-    UTC was assumed. Returns ``(None, False)`` for anything unparseable.
+def _englishise(s: str) -> str:
+    s = _ES_DE.sub(r"\1 \2 \3", s)
+    s = _DE_ORDINAL.sub(r"\1 ", s)
+    s = _JOIN_WORD.sub(" at ", s)
+
+    def month(m):
+        return _MONTH_WORD.get(m.group(0).lower(), m.group(0))
+
+    return re.sub(r"[^\W\d_]+", month, s)
+
+
+# Notes parse_timestamp attaches to a value.
+TS_OK = ""
+TS_ASSUMED_LOCAL = "assumed_local"   # no zone at all: read in the owner's zone
+TS_UNPLACED_ZONE = "unplaced_zone"   # a zone word we cannot place: NOT guessed
+
+
+def _offset_minutes(tok: str) -> int:
+    body = tok.upper().replace("UTC", "").replace("GMT", "")
+    sign = -1 if body.startswith("-") else 1
+    digits = body[1:].replace(":", "")
+    if len(digits) <= 2:
+        return sign * int(digits) * 60
+    return sign * (int(digits[:-2]) * 60 + int(digits[-2:]))
+
+
+def parse_timestamp(value: Any, local_tz=None) -> Tuple[Optional[datetime], str]:
+    """Parse a Takeout Chat timestamp. Returns ``(datetime_utc, note)``.
+
+    ``note`` is ``TS_OK``, ``TS_ASSUMED_LOCAL`` (the string carried no zone,
+    so it was read in ``local_tz``, the owner's zone, default UTC) or
+    ``TS_UNPLACED_ZONE`` (a zone abbreviation such as "HKT" that this parser
+    cannot place: the timestamp is NOT guessed, it is ``None``). Returns
+    ``(None, TS_OK)`` for anything else unparseable.
     """
+    local = local_tz or timezone.utc
     if value is None or isinstance(value, bool):
-        return None, False
+        return None, TS_OK
     if isinstance(value, (int, float)):
         n = float(value)
-        # Epoch seconds, milliseconds or microseconds, by magnitude.
+        # Epoch seconds, milliseconds, microseconds or nanoseconds, by magnitude.
         if n > 1e17:
             n /= 1e9
         elif n > 1e14:
@@ -368,9 +445,9 @@ def parse_timestamp(value: Any) -> Tuple[Optional[datetime], bool]:
         elif n > 1e11:
             n /= 1e3
         try:
-            return datetime.fromtimestamp(n, tz=timezone.utc), False
+            return datetime.fromtimestamp(n, tz=timezone.utc), TS_OK
         except (OverflowError, OSError, ValueError):
-            return None, False
+            return None, TS_OK
     if isinstance(value, dict):
         # A protobuf-style {"seconds": ..., "nanos": ...} (UNVERIFIED shape).
         secs = value.get("seconds")
@@ -378,13 +455,13 @@ def parse_timestamp(value: Any) -> Tuple[Optional[datetime], bool]:
             try:
                 return parse_timestamp(int(secs))
             except ValueError:
-                return None, False
-        return None, False
+                return None, TS_OK
+        return None, TS_OK
     if not isinstance(value, str):
-        return None, False
+        return None, TS_OK
     s = value.replace(" ", " ").replace(" ", " ").strip()
     if not s:
-        return None, False
+        return None, TS_OK
     if s.isdigit():
         return parse_timestamp(int(s))
     # ISO 8601.
@@ -392,36 +469,61 @@ def parse_timestamp(value: Any) -> Tuple[Optional[datetime], bool]:
     try:
         dt = datetime.fromisoformat(iso)
         if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc), True
-        return dt.astimezone(timezone.utc), False
+            return dt.replace(tzinfo=local).astimezone(timezone.utc), TS_ASSUMED_LOCAL
+        return dt.astimezone(timezone.utc), TS_OK
     except ValueError:
         pass
-    assumed = True
-    offset_minutes = 0
+    note = TS_ASSUMED_LOCAL
+    fixed: Optional[timezone] = None
     m = _TZ_TAIL.search(s)
     if m:
         tok = m.group(1)
-        if tok.upper() in ("UTC", "GMT"):
-            assumed = False
+        up = tok.upper()
+        if up in ("UTC", "GMT", "Z"):
+            fixed, note = timezone.utc, TS_OK
             s = s[: m.start()]
-        elif tok[0] in "+-":
-            digits = tok[1:].replace(":", "")
-            offset_minutes = int(digits[:2]) * 60 + int(digits[2:])
-            if tok[0] == "-":
-                offset_minutes = -offset_minutes
-            assumed = False
+        elif tok[0] in "+-" or up.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
+            fixed, note = timezone(timedelta(minutes=_offset_minutes(tok))), TS_OK
             s = s[: m.start()]
-        elif tok.upper() not in ("AM", "PM"):
-            s = s[: m.start()]  # an abbreviation we cannot place: assume UTC
-    s = _WEEKDAY_HEAD.sub("", s).strip()
+        elif up not in ("AM", "PM"):
+            return None, TS_UNPLACED_ZONE   # never guess a zone we cannot place
+    s = _englishise(_WEEKDAY_HEAD.sub("", s).strip())
+    # A weekday with no comma ("mercredi 1 February ..."): drop a leading word
+    # before a digit unless that word is itself the month.
+    head = _BARE_WEEKDAY.match(s)
+    if head and head.group(1).lower() not in _EN_MONTH_WORDS:
+        s = s[head.end():]
     for fmt in _LONG_FORMATS:
         try:
             dt = datetime.strptime(s, fmt)
         except ValueError:
             continue
-        dt = dt.replace(tzinfo=timezone.utc) - timedelta(minutes=offset_minutes)
-        return dt, assumed
-    return None, False
+        return dt.replace(tzinfo=fixed or local).astimezone(timezone.utc), note
+    return None, TS_OK
+
+
+def local_zone():
+    """The owner's zone: ``OSTLER_OWNER_TZ`` or ``TZ`` (an IANA name), else the
+    Mac's own /etc/localtime, else the process's fixed local offset."""
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:  # pragma: no cover -- 3.9+ always has it
+        ZoneInfo = None
+    for name in (os.environ.get("OSTLER_OWNER_TZ"), os.environ.get("TZ")):
+        if name and ZoneInfo is not None:
+            try:
+                return ZoneInfo(name.lstrip(":"))
+            except Exception:  # noqa: BLE001 -- an unknown name falls through
+                pass
+    try:
+        target = os.readlink("/etc/localtime")
+        if "zoneinfo/" in target and ZoneInfo is not None:
+            return ZoneInfo(target.split("zoneinfo/", 1)[1])
+    except (OSError, ValueError):
+        pass
+    except Exception:  # noqa: BLE001
+        pass
+    return datetime.now().astimezone().tzinfo or timezone.utc
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +643,8 @@ def _load_group(chat_root: Path, group_dir: Path, errors: List[FileError], expor
         raw_messages = []
 
     bad_rows = 0
+    group_undated = 0
+    group_unplaced = 0
     for i, raw in enumerate(raw_messages):
         if not isinstance(raw, dict):
             bad_rows += 1
@@ -566,11 +670,15 @@ def _load_group(chat_root: Path, group_dir: Path, errors: List[FileError], expor
                     })
         if not text and not attachments:
             continue  # annotation-only / system row: nothing to transcribe
-        ts, assumed = parse_timestamp(_first(raw, _TIME_KEYS))
+        ts, note = parse_timestamp(_first(raw, _TIME_KEYS), export.tz)
         if ts is None:
             export.undated_messages += 1
-        elif assumed:
-            export.tz_assumed_utc += 1
+            group_undated += 1
+            if note == TS_UNPLACED_ZONE:
+                export.tz_unplaced += 1
+                group_unplaced += 1
+        elif note == TS_ASSUMED_LOCAL:
+            export.tz_assumed_local += 1
         topic = _first(raw, _TOPIC_KEYS)
         mid = _first(raw, _ID_KEYS)
         group.messages.append(ChatMessage(
@@ -582,6 +690,14 @@ def _load_group(chat_root: Path, group_dir: Path, errors: List[FileError], expor
     if bad_rows:
         errors.append(FileError(_rel(chat_root, msg_path), "unexpected_shape",
                                 f"{bad_rows}_non_object_rows"))
+    # LOUD, per file: a messages.json whose dates are mostly unreadable (a
+    # language or zone this parser does not know) is reported and NOT turned
+    # into conversations, rather than collapsing into one undated pile.
+    if group.messages and group_undated / len(group.messages) > UNPARSED_DATE_RATIO:
+        group.dates_unparsed = True
+        reason = "unplaced_zone" if group_unplaced * 2 > group_undated else "unparsed_dates"
+        errors.append(FileError(_rel(chat_root, msg_path), reason,
+                                f"{group_undated}_of_{len(group.messages)}"))
     # Members missing from group_info are still authors of messages.
     known = {m.key for m in group.members}
     for m in group.messages:
@@ -615,7 +731,7 @@ def classify_group(group: ChatGroup, owner_email: Optional[str]) -> str:
     return TIER_T3_SKIP
 
 
-def parse_export(export_root: Path, owner_email: Optional[str] = None) -> ChatExport:
+def parse_export(export_root: Path, owner_email: Optional[str] = None, tz=None) -> ChatExport:
     """Parse a Takeout Chat export. Raises FileNotFoundError when no
     ``Groups/`` directory can be found under ``export_root``; every other
     problem is a per-file entry in ``ChatExport.errors``."""
@@ -625,7 +741,8 @@ def parse_export(export_root: Path, owner_email: Optional[str] = None) -> ChatEx
         raise FileNotFoundError("no Google Chat Groups/ directory under the export")
     errors: List[FileError] = []
     export = ChatExport(root=chat_root, owner_email=None, owner_name=None,
-                        owner_source="none", errors=errors)
+                        owner_source="none", errors=errors,
+                        tz=tz if tz is not None else local_zone())
 
     info_email, info_name = _read_owner(chat_root, errors)
     for gdir in sorted((chat_root / "Groups").iterdir()):
@@ -673,16 +790,24 @@ def _slugify(value: str) -> str:
     return v or "group"
 
 
-def _day_buckets(group: ChatGroup) -> List[Tuple[str, List[ChatMessage]]]:
-    """Messages bucketed by UTC day, in time order. Undated messages follow
-    the previous dated message in file order; leading undated ones go to
-    ``00000000``."""
+def _day_buckets(group: ChatGroup, tz) -> List[Tuple[str, List[ChatMessage]]]:
+    """Messages bucketed by the OWNER'S local calendar day (``tz``), in time
+    order. An undated message follows the previous dated message in file
+    order; undated messages before the first dated one join the first dated
+    day. (A file that is mostly undated never gets here: it is reported.)"""
     buckets: Dict[str, List[ChatMessage]] = {}
-    current = "00000000"
+    current: Optional[str] = None
+    pending: List[ChatMessage] = []
     for m in sorted(group.messages, key=lambda x: x.index):
         if m.timestamp is not None:
-            current = m.timestamp.strftime("%Y%m%d")
-        buckets.setdefault(current, []).append(m)
+            current = m.timestamp.astimezone(tz).strftime("%Y%m%d")
+            if pending:
+                buckets.setdefault(current, []).extend(pending)
+                pending = []
+        if current is None:
+            pending.append(m)
+        else:
+            buckets.setdefault(current, []).append(m)
     out = []
     for day in sorted(buckets):
         msgs = buckets[day]
@@ -699,13 +824,14 @@ def _speaker(author: ChatAuthor, owner_email: Optional[str], owner_name: Optiona
 
 
 def render_transcript(messages: List[ChatMessage], owner_email: Optional[str],
-                      owner_name: Optional[str], thread_sizes: Dict[str, int]) -> str:
+                      owner_name: Optional[str], thread_sizes: Dict[str, int],
+                      tz=timezone.utc) -> str:
     """``**Speaker** (YYYY-MM-DD HH:MM): text`` per message, the speaker
     shape CM048's seed pass reads. A message in a thread of more than one
     message is tagged ``[thread <short id>]``."""
     lines: List[str] = []
     for m in messages:
-        when = m.timestamp.strftime("%Y-%m-%d %H:%M") if m.timestamp else "undated"
+        when = m.timestamp.astimezone(tz).strftime("%Y-%m-%d %H:%M") if m.timestamp else "undated"
         body = m.text
         if m.attachments:
             names = ", ".join(a["original_name"] for a in m.attachments if a["original_name"])
@@ -720,7 +846,7 @@ def render_transcript(messages: List[ChatMessage], owner_email: Optional[str],
 
 def group_payloads(group: ChatGroup, export: ChatExport) -> List[dict]:
     """CM048 ``process()`` payloads for one group, one per UTC day."""
-    if group.tier == TIER_T3_SKIP:
+    if group.tier == TIER_T3_SKIP or group.dates_unparsed:
         return []
     owner = export.owner_email
     thread_sizes: Dict[str, int] = {}
@@ -728,7 +854,7 @@ def group_payloads(group: ChatGroup, export: ChatExport) -> List[dict]:
         if m.topic_id:
             thread_sizes[m.topic_id] = thread_sizes.get(m.topic_id, 0) + 1
     payloads: List[dict] = []
-    for day, msgs in _day_buckets(group):
+    for day, msgs in _day_buckets(group, export.tz):
         conversation_id = f"gchat_{day}_{_slugify(group.group_key)}"
         dated = [m.timestamp for m in msgs if m.timestamp]
         started = min(dated) if dated else None
@@ -774,10 +900,12 @@ def group_payloads(group: ChatGroup, export: ChatExport) -> List[dict]:
             "message_count": len(msgs),
             "thread_count": len(topics),
             "attachment_count": sum(len(m.attachments) for m in msgs),
+            # The day and the transcript times are the owner's local zone.
+            "timezone": str(export.tz),
         }
         payloads.append({
             "conversation_id": conversation_id,
-            "transcript": render_transcript(msgs, owner, export.owner_name, thread_sizes),
+            "transcript": render_transcript(msgs, owner, export.owner_name, thread_sizes, export.tz),
             "metadata": metadata,
         })
     return payloads
@@ -829,7 +957,9 @@ def stats(export: ChatExport) -> dict:
         "skipped_groups": sum(1 for t in tiers if t == TIER_T3_SKIP),
         "messages": sum(len(g.messages) for g in ingestible),
         "undated_messages": export.undated_messages,
-        "tz_assumed_utc": export.tz_assumed_utc,
+        "tz_assumed_local": export.tz_assumed_local,
+        "tz_unplaced": export.tz_unplaced,
+        "unparsed_date_groups": sum(1 for g in export.groups if g.dates_unparsed),
         "file_errors": len(export.errors),
         "owner_source": export.owner_source,
     }
@@ -1102,6 +1232,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--export-path", type=Path, required=True)
     ap.add_argument("--owner-email", default=None,
                     help="The exporting account's address (overrides user_info.json).")
+    ap.add_argument("--tz", default=None,
+                    help="The owner's IANA zone for day boundaries and times (default: this Mac's).")
     ap.add_argument("--output-dir", type=Path, default=None,
                     help="Where to stage google_chat_conversations.json (default ~/.ostler/imports/fda).")
     ap.add_argument("--state", type=Path, default=None, help="Idempotency ledger path.")
@@ -1132,7 +1264,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(text, file=sys.stderr)   # the first-import notice
 
     try:
-        export = parse_export(args.export_path, owner_email=args.owner_email)
+        tz = None
+        if args.tz:
+            from zoneinfo import ZoneInfo
+
+            tz = ZoneInfo(args.tz)
+        export = parse_export(args.export_path, owner_email=args.owner_email, tz=tz)
     except FileNotFoundError:
         print("google-chat-takeout: no Google Chat export found at that path", file=sys.stderr)
         result["status"] = "not_found"
