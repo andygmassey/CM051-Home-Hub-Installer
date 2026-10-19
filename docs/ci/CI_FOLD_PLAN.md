@@ -184,8 +184,12 @@ far, and it is why the generated isolate step uses `set -eu` without
    for jobs without `setup-python`. Some blocks install with `pip --user`,
    which the per-block `HOME` isolates, or with `--break-system-packages`,
    which it does not, so those blocks need a venv or stay separate.
-   macos-latest has 11 unfiltered jobs (`test-wiring.yml` among them), which
-   select as "always".
+   macos-latest has 11 unfiltered jobs (`test-wiring.yml` among them). Once
+   #2960 landed they became their own family, `macos-always`: it runs on
+   every pull request, each block selects on `**` so none can be skipped,
+   `check` refuses a block that loses that row, and the CI Required Gate
+   requires its two legs by name. A family mixing unfiltered and
+   path-filtered members is refused, so every family's trigger stays exact.
 3. **vendor, release-walk, misc** (54 jobs, Ubuntu, filtered). These are
    mechanical once 1 has merged.
 4. **installer** (70 jobs). This is the largest group. 36 test files name a
