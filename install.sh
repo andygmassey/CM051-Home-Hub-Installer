@@ -8059,6 +8059,17 @@ _am_existing_block() {
         in_s { print }
     ' "$cfg"
 }
+# Opens a System Settings pane for the owner. Never fatal: if `open` fails the
+# owner is told the menu path in words, and the flow carries on (ERR-trap safe:
+# the failure is consumed by `if`, not left as a bare non-zero exit).
+_AM_PANE_INTERNET_ACCOUNTS="x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension"
+_am_open_pane() { # <url> <menu path in words>
+    if ! open "${1:-}" >/dev/null 2>&1; then
+        warn "$(printf "$MSG_WARN_AM_OPEN_PANE_FAILED" "${2:-System Settings}")"
+        return 1
+    fi
+    return 0
+}
 # END assistant-mailbox-helpers
 
 # ── Email sources ──────────────────────────────────────────────────
@@ -8465,8 +8476,15 @@ _assistant_mailbox_flow() {
         _am_ack "$MSG_PROMPT_AM_APPPW_TITLE" "$(printf "$MSG_PROMPT_AM_APPPW_GMAIL_HELP" "https://myaccount.google.com/apppasswords")" "am_app_password" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
     else
         _sugg="${_sugg}@icloud.com"
-        _am_ack "$MSG_PROMPT_AM_CREATE_ICLOUD_TITLE" "$(printf "$MSG_PROMPT_AM_CREATE_HELP" "https://account.apple.com/account" "$_sugg")" "am_create" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
-        _am_ack "$MSG_PROMPT_AM_TWOSTEP_TITLE" "$(printf "$MSG_PROMPT_AM_TWOSTEP_HELP" "https://account.apple.com/account/manage")" "am_two_step" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+        # iCloud, as measured by the founder on 2026-10-19: the Apple Account
+        # starts from any email the owner can read; the @icloud.com address is
+        # made by switching on iCloud Mail for that account in Internet
+        # Accounts. New Apple Accounts already have two-factor on, so there is
+        # no separate two-step screen. Spec:
+        # ~/walkdriver/ASSISTANT_IDENTITY_SETUP_SPEC_2026-10-19.md section 4.
+        _am_ack "$MSG_PROMPT_AM_CREATE_ICLOUD_TITLE" "$(printf "$MSG_PROMPT_AM_CREATE_ICLOUD_HELP" "https://account.apple.com/account")" "am_create" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
+        _am_open_pane "$_AM_PANE_INTERNET_ACCOUNTS" "System Settings > Internet Accounts" || true
+        _am_ack "$MSG_PROMPT_AM_ICLOUD_MAIL_TITLE" "$MSG_PROMPT_AM_ICLOUD_MAIL_HELP" "am_icloud_mail" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
         _am_ack "$MSG_PROMPT_AM_APPPW_TITLE" "$MSG_PROMPT_AM_APPPW_ICLOUD_HELP" "am_app_password" || { warn "$MSG_WARN_AM_SKIPPED"; return 0; }
     fi
 

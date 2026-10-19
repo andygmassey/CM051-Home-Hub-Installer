@@ -1905,6 +1905,22 @@ This must not be your own email. Use a brand-new account.
 Suggested address: %s
 
 When the account exists, continue."
+MSG_PROMPT_AM_CREATE_ICLOUD_HELP="Open %s and choose Create Your Apple Account. This account is just for your assistant, so do not use your own Apple Account.
+
+Apple asks for an email address you can read, to start with, and a mobile number. Your own number is fine.
+
+If Apple says the number has been used too many times, try another number you can get texts on.
+
+When the account exists, continue."
+MSG_PROMPT_AM_ICLOUD_MAIL_TITLE="Make your assistant's iCloud address"
+MSG_PROMPT_AM_ICLOUD_MAIL_HELP="Ostler has opened Internet Accounts in System Settings.
+
+Choose Add Account, then iCloud, and sign in with your assistant's new Apple Account. Apple texts a code to the number you gave it.
+
+Then open that account, switch on iCloud Mail, and pick an address ending in @icloud.com. You do not need to open Mail.
+
+When you have the address, you can remove the account from Internet Accounts. The address stays. Then continue."
+MSG_WARN_AM_OPEN_PANE_FAILED="Could not open System Settings. Open it yourself and go to %s"
 MSG_PROMPT_AM_TWOSTEP_TITLE="Turn on two-step verification"
 MSG_PROMPT_AM_TWOSTEP_HELP="Sign in to the NEW account at %s and turn on two-step verification. App passwords only exist once it is on.
 
@@ -1912,7 +1928,7 @@ When it is on, continue."
 MSG_PROMPT_AM_APPPW_TITLE="Make an app password"
 MSG_PROMPT_AM_APPPW_ICLOUD_HELP="Sign in to the new account at https://account.apple.com/account/manage, then open Sign-In and Security, then App-Specific Passwords. Make one and name it Ostler. Apple shows it once, in four groups of four letters.
 
-If you cannot find the setting, two-step verification is probably still off. Go back one step."
+New Apple Accounts already have two-factor authentication, so the setting is there. If it is not, sign out of account.apple.com and sign in again as your assistant, not as you."
 MSG_PROMPT_AM_APPPW_GMAIL_HELP="Open %s while signed in to the new account and make an app password. Name it Ostler. Google shows it once, as 16 letters.
 
 If the page says the setting is unavailable, two-step verification is off on this account (or the account is a work or school account). Go back one step and turn it on."
