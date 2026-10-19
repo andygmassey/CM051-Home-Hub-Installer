@@ -21278,6 +21278,15 @@ services:
       # it, so a writable mount onto the Hub's own editor state is a
       # foothold the wiki compiler has no reason to hold.
       - ${HOME}/.ostler/editor:/editor:ro
+      # v1.0.111 contact photos. CM041's contact syncer runs on the HOST and
+      # writes each contact's photo to PHOTO_DIR (default ~/.pwg/people/photos)
+      # and records that HOST path as foaf:img / profile_photo_path. /Users
+      # does not exist in this container, so without this mount every People
+      # page draws initials whatever the graph holds (#979 shape, sixth time).
+      # CM044 compiler/person_photo.py reads only producer-shaped basenames
+      # from WIKI_PEOPLE_PHOTOS_DIR and copies them into People/_photos.
+      # READ-ONLY: the compiler never writes a photo.
+      - ${OSTLER_PEOPLE_PHOTOS_DIR:-${HOME}/.pwg/people/photos}:/people-photos:ro
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -21423,6 +21432,7 @@ services:
       # the mount would be present and unread, which is the same defect one
       # layer up: a thing that is there and that nothing looks at.
       - OSTLER_FRONT_PAGE_JSON=/editor/front_page.json
+      - WIKI_PEOPLE_PHOTOS_DIR=/people-photos
     extra_hosts:
       # macOS / Colima-friendly way to surface the host gateway so the
       # OLLAMA_URL above resolves to the host's Ollama.
@@ -39049,6 +39059,11 @@ mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
 # the same class of defect #979 already hit four times. Idempotent and
 # explicit, same as the Wiki tree above.
 mkdir -p "${HOME}/.ostler/editor"
+# v1.0.111: the contact photo directory, bind-mounted read-only into the
+# wiki-compiler. The contact syncer creates it on its first photo; a box with
+# no photos yet still needs a real directory, or Docker root-owns it and the
+# syncer (running as the customer) can never write there afterwards.
+mkdir -p "${OSTLER_PEOPLE_PHOTOS_DIR:-${HOME}/.pwg/people/photos}"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"

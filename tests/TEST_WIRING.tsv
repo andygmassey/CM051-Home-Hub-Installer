@@ -786,6 +786,7 @@ test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows
 test_the_shipped_compose_mounts_ai_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_compose_mounts_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_compose_mounts_the_editor_feed.sh	WIRED	.github/workflows/editor-feed-gate.yml
+test_the_shipped_compose_mounts_the_people_photos.sh	WIRED	.github/workflows/editor-feed-gate.yml
 test_the_shipped_stores_have_fd_headroom.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
