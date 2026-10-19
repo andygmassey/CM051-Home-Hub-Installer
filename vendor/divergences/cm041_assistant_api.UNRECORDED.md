@@ -1406,3 +1406,18 @@ commitments query, never `read_across_graphs` (held, board row 2213).
   vendored handlers; 10 of 11 fail on the pre-graft file, 10 of 10 mutants red.
 - Same change upstream as CM041 #222. Retire on a re-pin that carries it; add
   #222's squash sha to this tree's hold_ack_shas when it merges.
+
+### Same graft, round 2: keyed on the person, not the name slug (CM041 #222 red-team)
+
+Functions `api_people_suppress_suggestions` (rewritten) and
+`_suppressed_identity_index` (now a view of the new `_suppression_detail`),
+plus helpers `_suppression_name_key`, `_suppression_safe_uri`,
+`_identifiers_held_outside`. The slug folds accents, so a slug-keyed record
+marked a living namesake deceased. Records now carry `pwg:suppressedPerson`
+and `pwg:suppressedName`; a slug naming two people is a 409; a legacy
+slug-only record counts only while its slug names one person.
+`tests/test_cm041_deceased_excluded_from_proactive_surfaces.py`'s sharing
+probe rows now carry the holder node (sharing is judged by node).
+
+- Proof: `tests/test_cm041_suppression_keys_on_the_person_not_the_name.py`,
+  13 of 14 fail on the round-1 file; 6 of 6 mutants red.

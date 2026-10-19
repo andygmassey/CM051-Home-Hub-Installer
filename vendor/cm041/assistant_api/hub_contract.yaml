@@ -5441,15 +5441,23 @@
    ],
    "query_params": [],
    "request_optional": [
+    "contact_uid",
+    "person_uri",
     "reason",
     "suppressed"
    ],
    "request_required": [],
    "response_fields": [
+    "ambiguous",
+    "candidates",
+    "contact_uid",
     "degraded",
     "error",
+    "found",
     "identifiers_recorded",
+    "keyed_on",
     "nodes_matched",
+    "person_uri",
     "person_uris",
     "reason",
     "record_cleared",

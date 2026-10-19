@@ -3263,51 +3263,88 @@ def _is_fixed_line(value):
         return False
 
 
+def _suppression_name_key(name):
+    """A display name's exact identity, for telling namesakes apart.
+
+    NFC + casefold + collapsed whitespace: "Jane  Doe" and "jane doe" are
+    the same key, "Jane Döe" and "Jane Doe" are NOT (the slug folds
+    them together, which is the namesake bug this separates)."""
+    import unicodedata
+    n = unicodedata.normalize("NFC", name or "")
+    return " ".join(n.casefold().split())
+
+
+def _suppression_safe_uri(value):
+    """True when ``value`` can be written inside <...> in SPARQL."""
+    return (isinstance(value, str) and 0 < len(value) <= 300
+            and not any(c in value for c in '<>"{}|\\^` \n\r\t'))
+
+
+def _identifiers_held_outside(values, cluster):
+    """Of ``values``, the subset held by at least one Person NOT in
+    ``cluster`` (a namesake, a relative on the family line, a recycled
+    number). Unsafe to key a suppression on. One batched query."""
+    values = sorted({v for v in values if v})
+    if not values:
+        return set()
+    vlist = " ".join('"{}"'.format(_sparql_escape_literal(v)) for v in values)
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?v ?person WHERE {{\n'
+        '  VALUES ?v {{ {vlist} }}\n'
+        '  ?person a pwg:Person ; pwg:hasIdentifier ?id .\n'
+        '  ?id pwg:identifierValue ?v .\n'
+        '}}'.format(ns=PWG_NS, vlist=vlist)
+    )
+    out = {r.get("v", "") for r in rows if r.get("person") not in cluster}
+    out.discard("")
+    return out
+
+
 def api_people_suppress_suggestions(slug, payload):
     """Handle POST /api/v1/people/{slug}/suppress-suggestions.
 
     Owner-settable do-not-suggest status (the gentle counterpart to
     /forget): the contact is excluded from every proactive surface --
     reconnect (people_stale), follow-up (people_recent), birthdays
-    (people_birthdays) and the composite /api/v1/suggestions the iOS cards
-    and the daily brief read -- without ever being deleted. They stay
-    viewable in People and search.
+    (people_birthdays), the composite /api/v1/suggestions, reply debt and
+    open commitments -- without ever being deleted. They stay viewable in
+    People and search; reason "deceased" also softens those views
+    (``_apply_person_suppression``).
 
-    WHY THIS EXISTS. Ostler surfaced a "Reconnect -- 73 months since last
-    contact" card for the owner's deceased mother, and her birthday would
-    have surfaced on the Birthdays strip. Suggesting someone reconnect with,
-    or wish a happy birthday to, a person who has died is a dignity harm,
-    and it is not unique to one owner. The owner sets this from the person's
-    card ("mark as deceased" / "stop suggesting"); we do NOT infer death
-    from message signals, because a false positive (implying a living person
-    is dead) is just as harmful.
+    WHY THIS EXISTS. Suggesting someone reconnect with, or wish a happy
+    birthday to, a person who has died is a dignity harm. The owner sets
+    this from the person's card ("mark as deceased" / "stop suggesting"); we
+    do NOT infer death from message signals, because a false positive
+    (implying a living person is dead) is just as harmful.
 
-    DURABLE + IDENTITY-KEYED (Archie review #216). A per-node flag leaks: a
-    merge retires the node it was on and a re-sync mints a fresh unflagged
-    node. So this writes a standalone ``pwg:SuggestionSuppression`` record
-    keyed on the person's display-name SLUG and their PERSONAL identifiers.
-    The readers resolve it at read time (``_suppressed_identity_index``), so
-    ANY node for the identity is excluded: new, re-derived, or the survivor
-    of a merge that inherited the identifiers. Nothing on the merge path has
-    to carry the flag.
+    KEYED ON THE PERSON, NOT THE NAME (CM041 #222, red-team). The slug folds
+    "Jane Döe" and "Jane Doe" into one key, so a slug-keyed record
+    marked a living namesake as deceased. The record now stores
+    ``pwg:suppressedPerson <uri>`` for the person's OWN identity cluster (the
+    chosen node plus the nodes merged into it) and their exact display
+    name(s). The readers suppress on those URIs, and on personal
+    identifiers held by nobody outside the cluster (the re-sync / merge
+    backstop). The slug is stored for display only.
 
-    PERSONAL IDENTIFIERS ONLY (round 2). The record stores the contact-card
-    UID (unique to this person) plus phones/emails held by NO differently
-    named person, and NEVER a fixed landline. A family line or shared
-    household email must not key a suppression, or marking the deceased would
-    silence a LIVING relative (the owner's father on the home line). The
-    reader re-checks sharing too, so an identifier that becomes shared later
-    still hides nobody.
-
-    Body: {"suppressed": true|false, "reason": "deceased"|"user_request"|...}
-          (suppressed defaults to true). Idempotent; suppressed=false clears
-          the record.
+    Body: {"suppressed": true|false,
+           "reason": "deceased"|"user_request"|...,
+           "person_uri": "<pwg Person URI>",      (preferred)
+           "contact_uid": "<contact-card uid>"}   (alternative)
+    With neither, the slug is resolved; when it names more than one distinct
+    person (different exact display names, or different contact cards) the
+    answer is 409 {"ambiguous": true, "candidates": [{uri, name, org}]} and
+    nothing is written, so the client asks the owner which one.
+    Idempotent; suppressed=false clears that person's record.
     """
+    import hashlib
     if not _SLUG_PATTERN.match(slug or ""):
         return {
             "error": "Invalid slug. Expected lowercase ASCII letters, "
                      "digits, hyphens (max 80 chars)."
         }, 400
+    if not isinstance(payload, dict):
+        return {"error": "body must be a JSON object"}, 400
 
     suppressed = payload.get("suppressed", True)
     if not isinstance(suppressed, bool):
@@ -3317,33 +3354,130 @@ def api_people_suppress_suggestions(slug, payload):
         reason = "deceased" if suppressed else ""
     if not isinstance(reason, str) or len(reason) > 200:
         return {"error": "`reason` must be a string (max 200 chars)"}, 400
+    person_uri = payload.get("person_uri")
+    contact_uid = payload.get("contact_uid")
+    if person_uri is not None and not _suppression_safe_uri(person_uri):
+        return {"error": "`person_uri` must be a Person URI"}, 400
+    if contact_uid is not None and (not isinstance(contact_uid, str)
+                                    or not contact_uid.strip()
+                                    or len(contact_uid) > 300):
+        return {"error": "`contact_uid` must be a non-empty string"}, 400
 
-    # Deterministic record URI from the slug, so re-suppressing replaces
-    # rather than duplicating and un-suppressing deletes exactly one record.
-    record_uri = PWG_NS + "suppression_" + slug
-
-    # Resolve the person's nodes and fold up their PERSONAL identifiers only.
-    # Best-effort: a record keyed on the slug alone still suppresses (the
-    # readers match on slug too), so an identifier lookup failure narrows
-    # coverage rather than refusing the owner's request.
-    person_uris = []
-    identifiers = []
+    # Every Person node with its name and merge pointer: one query.
     try:
-        candidates = _sparql_select(
+        prow = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?person ?name WHERE {{\n'
+            'SELECT ?person ?name ?merged WHERE {{\n'
             '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+            '  OPTIONAL {{ ?person pwg:mergedInto ?merged }}\n'
             '}}'.format(ns=PWG_NS)
         )
-        person_uris = [c["person"] for c in candidates
-                       if c.get("person") and _wiki_slug(c.get("name", "")) == slug]
+    except Exception as exc:
+        return {"suppressed": suppressed, "degraded": True,
+                "reason": f"oxigraph_lookup_failed: {exc}"}, 503
+    name_of = {}
+    merged_into = {}
+    for r in prow:
+        u = r.get("person")
+        if not u:
+            continue
+        name_of.setdefault(u, r.get("name", ""))
+        if r.get("merged"):
+            merged_into[u] = r["merged"]
+    slug_nodes = sorted(u for u, n in name_of.items() if _wiki_slug(n) == slug)
+
+    def _uids_of(uris):
+        if not uris:
+            return {}
+        vals = " ".join("<{}>".format(u) for u in sorted(uris)
+                        if _suppression_safe_uri(u))
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person ?v WHERE {{\n'
+            '  VALUES ?person {{ {vals} }}\n'
+            '  ?person pwg:hasIdentifier ?id .\n'
+            '  ?id pwg:identifierType "icloud_contact_uid" ; '
+            'pwg:identifierValue ?v .\n'
+            '}}'.format(ns=PWG_NS, vals=vals)
+        )
+        out = {}
+        for r in rows:
+            if r.get("person") and r.get("v"):
+                out.setdefault(r["person"], set()).add(r["v"])
+        return out
+
+    try:
+        if person_uri is not None:
+            if person_uri not in name_of:
+                return {"found": False, "person_uri": person_uri,
+                        "error": "No person with that URI."}, 404
+            anchor = {person_uri}
+        elif contact_uid is not None:
+            urows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?person WHERE {{\n'
+                '  ?person a pwg:Person ; pwg:hasIdentifier ?id .\n'
+                '  ?id pwg:identifierType "icloud_contact_uid" ; '
+                'pwg:identifierValue "{v}" .\n'
+                '}}'.format(ns=PWG_NS, v=_sparql_escape_literal(contact_uid))
+            )
+            anchor = {r["person"] for r in urows if r.get("person")}
+            if not anchor:
+                return {"found": False, "contact_uid": contact_uid,
+                        "error": "No person holds that contact card."}, 404
+        else:
+            groups = {}
+            for u in slug_nodes:
+                groups.setdefault(_suppression_name_key(name_of[u]), []).append(u)
+            uid_sets = {frozenset(s) for s in _uids_of(slug_nodes).values()}
+            if len(groups) > 1 or len(uid_sets) > 1:
+                org_of = {}
+                try:
+                    vals = " ".join("<{}>".format(u) for u in slug_nodes
+                                    if _suppression_safe_uri(u))
+                    for r in _sparql_select(
+                            'PREFIX pwg: <{ns}>\n'
+                            'SELECT ?person ?org WHERE {{\n'
+                            '  VALUES ?person {{ {vals} }}\n'
+                            '  ?person pwg:organization ?org .\n'
+                            '}}'.format(ns=PWG_NS, vals=vals)):
+                        org_of.setdefault(r.get("person"), r.get("org", ""))
+                except Exception:
+                    pass
+                return {
+                    "ambiguous": True,
+                    "slug": slug,
+                    "error": "More than one person has this name. Send "
+                             "person_uri to choose.",
+                    "candidates": [
+                        {"uri": u, "name": name_of[u], "org": org_of.get(u, "")}
+                        for u in slug_nodes
+                    ],
+                }, 409
+            anchor = set(slug_nodes)
     except Exception as exc:
         return {"suppressed": suppressed, "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}"}, 503
 
-    if person_uris and suppressed:
+    # The identity cluster: the chosen node(s) and every node merged into
+    # one of them. NOT every node that shares the slug.
+    cluster = set(anchor)
+    changed = True
+    while changed:
+        changed = False
+        for u, m in merged_into.items():
+            if m in cluster and u not in cluster:
+                cluster.add(u)
+                changed = True
+    names = sorted({name_of[u] for u in cluster if name_of.get(u)})
+    single_person_slug = len({_suppression_name_key(name_of[u])
+                              for u in slug_nodes}) <= 1
+
+    identifiers = []
+    if cluster and suppressed:
         try:
-            values = " ".join(f"<{u}>" for u in sorted(set(person_uris)))
+            values = " ".join("<{}>".format(u) for u in sorted(cluster)
+                              if _suppression_safe_uri(u))
             id_rows = _sparql_select(
                 'PREFIX pwg: <{ns}>\n'
                 'SELECT DISTINCT ?t ?v WHERE {{\n'
@@ -3353,31 +3487,50 @@ def api_people_suppress_suggestions(slug, payload):
                 '}}'.format(ns=PWG_NS, values=values)
             )
             typed = [(r.get("t", ""), r["v"]) for r in id_rows if r.get("v")]
-            # STORE PERSONAL IDENTIFIERS ONLY (Archie review #216, round 2).
-            # The contact-card UID is unique to this person and always kept.
-            # A phone/email is kept only when NO differently-named person holds
-            # it; a fixed landline is never kept. This stops the record from
-            # ever excluding a living relative on a shared line / family email.
-            cand_values = sorted({v for (_t, v) in typed})
-            shared_values = _identifiers_shared_with_other_than(cand_values, slug)
+            # PERSONAL IDENTIFIERS ONLY: the card UID always; a phone/email
+            # only when NO node outside this cluster holds it (a namesake,
+            # the family line, a shared household email); never a landline.
+            outside = _identifiers_held_outside(
+                sorted({v for (_t, v) in typed}), cluster)
             for t, v in typed:
                 if t == "icloud_contact_uid":
-                    identifiers.append(v)            # the card: always personal
+                    if v not in outside:
+                        identifiers.append(v)
                     continue
-                if v in shared_values:
-                    continue                          # held by someone else: skip
+                if v in outside:
+                    continue
                 if t == "phone" and _is_fixed_line(v):
-                    continue                          # never a landline
+                    continue
                 identifiers.append(v)
             identifiers = sorted(set(identifiers))
         except Exception:
-            identifiers = []  # slug-only record still suppresses
+            identifiers = []  # the URIs still suppress
+
+    if cluster:
+        primary = sorted(anchor)[0]
+        record_uri = (PWG_NS + "suppression_p_"
+                      + hashlib.sha1(primary.encode("utf-8")).hexdigest()[:16])
+    else:
+        record_uri = PWG_NS + "suppression_" + slug   # nobody resolvable yet
+    legacy_uri = PWG_NS + "suppression_" + slug
 
     try:
-        # Always clear any prior record first (clean replace / un-suppress).
-        _sparql_update(
-            'PREFIX pwg: <{ns}>\n'
-            'DELETE WHERE {{ <{r}> ?p ?o }}'.format(ns=PWG_NS, r=record_uri))
+        # Clear this person's prior records first (clean replace /
+        # un-suppress): any record naming a cluster node, and the legacy
+        # slug record when the slug can only mean this one person.
+        if cluster:
+            vals = " ".join("<{}>".format(u) for u in sorted(cluster)
+                            if _suppression_safe_uri(u))
+            _sparql_update(
+                'PREFIX pwg: <{ns}>\n'
+                'DELETE {{ ?r ?p ?o }} WHERE {{\n'
+                '  VALUES ?u {{ {vals} }}\n'
+                '  ?r a pwg:SuggestionSuppression ; pwg:suppressedPerson ?u ; ?p ?o .\n'
+                '}}'.format(ns=PWG_NS, vals=vals))
+        if not cluster or single_person_slug:
+            _sparql_update(
+                'PREFIX pwg: <{ns}>\n'
+                'DELETE WHERE {{ <{r}> ?p ?o }}'.format(ns=PWG_NS, r=legacy_uri))
         if suppressed:
             at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
             triples = [
@@ -3388,6 +3541,13 @@ def api_people_suppress_suggestions(slug, payload):
                     r=record_uri, s=_sparql_escape_literal(reason)),
                 '<{r}> pwg:suppressedAt "{s}"'.format(r=record_uri, s=at),
             ]
+            for u in sorted(cluster):
+                if _suppression_safe_uri(u):
+                    triples.append('<{r}> pwg:suppressedPerson <{u}>'.format(
+                        r=record_uri, u=u))
+            for n in names:
+                triples.append('<{r}> pwg:suppressedName "{s}"'.format(
+                    r=record_uri, s=_sparql_escape_literal(n)))
             for v in identifiers:
                 triples.append('<{r}> pwg:suppressedIdentifier "{s}"'.format(
                     r=record_uri, s=_sparql_escape_literal(v)))
@@ -3405,10 +3565,12 @@ def api_people_suppress_suggestions(slug, payload):
         "record_uri": record_uri,
         "record_written": bool(suppressed),
         "record_cleared": not suppressed,
-        "person_uris": person_uris,
-        "nodes_matched": len(person_uris),
+        "keyed_on": "person" if cluster else "slug",
+        "person_uris": sorted(cluster),
+        "nodes_matched": len(cluster),
         "identifiers_recorded": len(identifiers),
     }, 200
+
 
 
 def api_people_forget(slug):
@@ -7402,7 +7564,7 @@ def commitments_list(owner=None, due_before=None, status="open",
             "reason": _cm_sup_err,
         }, 503
     _cm_hidden = set()
-    if _cm_sup.slugs and rows:
+    if (_cm_sup.tail_slugs or _cm_sup.names) and rows:
         _todo_vals = " ".join(
             "<{}>".format(r["todo"]) for r in rows
             if r.get("todo") and ">" not in r["todo"] and " " not in r["todo"])
@@ -7435,14 +7597,14 @@ def commitments_list(owner=None, due_before=None, status="open",
         for r in rows:
             t = r.get("todo")
             own = (r.get("owner", "") or "").strip().lower()
-            if own.startswith("other:") and _suppressed_slug_tail(own) in _cm_sup.slugs:
+            if own.startswith("other:") and _cm_sup.tail_state(_suppressed_slug_tail(own)):
                 _cm_hidden.add(t)
                 continue
             if owner_disp.get(t) and _cm_sup.state(name=owner_disp[t]):
                 _cm_hidden.add(t)
                 continue
             subj = about.get(t) or set()
-            if subj and all(x in _cm_sup.slugs for x in subj):
+            if subj and all(_cm_sup.tail_state(x) for x in subj):
                 _cm_hidden.add(t)
 
     commitments = []
@@ -8121,51 +8283,121 @@ def people_list(sort=None, ceiling=10000):
     return _pl_out
 
 
-def _suppressed_identity_index():
-    """The durable, identity-keyed do-not-suggest index. Returns
-    ``(suppressed_slugs: set[str], suppressed_uris: set[str])``.
+def _suppression_detail():
+    """The do-not-suggest index, resolved at READ time. RAISES on any store
+    failure (every caller fails closed).
 
-    WHY A RECORD, NOT A NODE FLAG. A flag on the Person node (the first cut
-    of this fix, Archie review #216) leaks twice over:
+    Returns a dict:
+      uris        every CURRENT Person node to suppress, with
+      reason_by_uri
+      slugs       legacy slug-only records whose slug names exactly one
+                  person in the graph (a slug never stands in for a
+                  URI-keyed record, and never for an ambiguous name)
+      reason_by_slug
+      names / reason_by_name   exact name keys of suppressed people, used
+                  ONLY for an item that carries no URI (a reply debt, a
+                  card from another component)
+      tail_slugs / reason_by_tail  slugs safe for a slug-only reference
+                  (CM048's "other:<slug>" todo subjects): the slug names
+                  exactly one person and that person is suppressed
 
-      * a MERGE retires the discard node (``_merge_oxigraph`` moves its
-        identifiers to the survivor and REPLACES its type -- step 7 -- so a
-        flag on the discard is gone and never copied to the survivor), and
-      * a re-sync / new message mints a FRESH node for the same person, which
-        comes in UNFLAGGED.
-
-    Either way a surface reading the un-flagged node nudges a suppressed
-    person again -- which is exactly why the live box needed its
-    re-derivation agents paused. The source of truth is instead a standalone
-    ``pwg:SuggestionSuppression`` record keyed on the person's IDENTIFIERS
-    (emails / phones / contact-uid) and display-name SLUG, checked here at
-    READ time:
-
-      * ``suppressed_uris`` -- every CURRENT Person URI carrying a suppressed
-        identifier, joined in SPARQL. A merge survivor inherits the discard's
-        identifiers (``_merge_oxigraph`` step 1) and a re-derived node carries
-        the same email/phone, so BOTH are caught with no per-node flag and no
-        change to the merge path.
-      * ``suppressed_slugs`` -- the stored slugs, so a same-named node that
-        happens to carry none of the recorded identifiers is caught too.
-
-    Raises on query failure: every READ caller fails closed (suggest nobody)
-    rather than risk resurfacing a suppressed person.
+    URI-keyed records (``pwg:suppressedPerson``) suppress those nodes plus
+    any node holding a recorded personal identifier, provided EVERY holder
+    is a recorded node or carries a recorded exact name (a re-synced node, a
+    merge survivor). A namesake with a different exact name, or a relative
+    sharing the identifier, makes that identifier hide nobody.
     """
     rows = _sparql_select(
         'PREFIX pwg: <{ns}>\n'
-        'SELECT ?slug ?idv WHERE {{\n'
+        'SELECT ?s ?slug ?idv ?person ?name ?reason WHERE {{\n'
         '  ?s a pwg:SuggestionSuppression .\n'
         '  OPTIONAL {{ ?s pwg:suppressedSlug ?slug }}\n'
         '  OPTIONAL {{ ?s pwg:suppressedIdentifier ?idv }}\n'
+        '  OPTIONAL {{ ?s pwg:suppressedPerson ?person }}\n'
+        '  OPTIONAL {{ ?s pwg:suppressedName ?name }}\n'
+        '  OPTIONAL {{ ?s pwg:suppressReason ?reason }}\n'
         '}}'.format(ns=PWG_NS)
     )
-    suppressed_slugs = {r["slug"] for r in rows if r.get("slug")}
-    identifiers = {r["idv"] for r in rows if r.get("idv")}
-    suppressed_uris = set()
-    if identifiers:
-        values = " ".join(
-            '"{}"'.format(_sparql_escape_literal(v)) for v in sorted(identifiers))
+    recs = {}
+    for r in rows:
+        key = r.get("s") or ("slug:" + (r.get("slug") or ""))
+        rec = recs.setdefault(key, {"slug": "", "reason": "", "persons": set(),
+                                    "names": set(), "idvs": set()})
+        if r.get("slug"):
+            rec["slug"] = r["slug"]
+        if r.get("reason"):
+            rec["reason"] = r["reason"].strip().lower()
+        if r.get("person"):
+            rec["persons"].add(r["person"])
+        if r.get("name"):
+            rec["names"].add(_suppression_name_key(r["name"]))
+        if r.get("idv"):
+            rec["idvs"].add(r["idv"])
+
+    d = {"uris": set(), "reason_by_uri": {}, "slugs": set(),
+         "reason_by_slug": {}, "names": set(), "reason_by_name": {},
+         "tail_slugs": set(), "reason_by_tail": {}}
+    if not recs:
+        return d
+
+    def _put(kind, rkind, key, reason):
+        d[kind].add(key)
+        # Two records on one key: deceased wins (the gentler output).
+        if d[rkind].get(key) != "deceased":
+            d[rkind][key] = reason
+
+    # Every Person's name, to tell whether a slug means one person or more.
+    prow = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?person ?name WHERE {{\n'
+        '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+        '}}'.format(ns=PWG_NS)
+    )
+    groups_by_slug = {}
+    nodes_by_slug = {}
+    for r in prow:
+        if not r.get("person"):
+            continue
+        s = _wiki_slug(r.get("name", ""))
+        groups_by_slug.setdefault(s, set()).add(_suppression_name_key(r.get("name", "")))
+        nodes_by_slug.setdefault(s, set()).add(r["person"])
+
+    for rec in recs.values():
+        slug, reason = rec["slug"], rec["reason"]
+        groups = groups_by_slug.get(slug, set())
+        if rec["persons"]:
+            for u in rec["persons"]:
+                _put("uris", "reason_by_uri", u, reason)
+            for n in rec["names"]:
+                _put("names", "reason_by_name", n, reason)
+            if slug and len(groups) == 1 and groups <= rec["names"]:
+                _put("tail_slugs", "reason_by_tail", slug, reason)
+        elif slug:
+            # LEGACY slug-only record: honoured only while the slug names at
+            # most one person; a namesake makes it suppress nobody.
+            if len(groups) <= 1:
+                _put("slugs", "reason_by_slug", slug, reason)
+                _put("tail_slugs", "reason_by_tail", slug, reason)
+                for u in nodes_by_slug.get(slug, set()):
+                    _put("uris", "reason_by_uri", u, reason)
+                for n in groups:
+                    _put("names", "reason_by_name", n, reason)
+                rec["names"] = set(groups)
+            else:
+                print("[suppression] legacy record for an ambiguous name "
+                      "suppresses nobody; re-mark with person_uri",
+                      file=sys.stderr, flush=True)
+                rec["idvs"] = set()
+
+    # Identifier backstop (re-sync / merge survivor), with the sharing
+    # re-check: a holder must be a recorded node or carry a recorded name.
+    by_idv = {}
+    for rec in recs.values():
+        for v in rec["idvs"]:
+            by_idv.setdefault(v, []).append(rec)
+    if by_idv:
+        values = " ".join('"{}"'.format(_sparql_escape_literal(v))
+                          for v in sorted(by_idv))
         urows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?person ?idv ?name WHERE {{\n'
@@ -8175,30 +8407,85 @@ def _suppressed_identity_index():
             '  OPTIONAL {{ ?person pwg:displayName ?name }}\n'
             '}}'.format(ns=PWG_NS, values=values)
         )
-        # READ-TIME SHARING RE-CHECK (Archie review #216, round 2). An
-        # identifier is only safe to exclude on if EVERY current holder is the
-        # suppressed person (same display-name slug). The moment a DIFFERENTLY
-        # named person also holds it -- a family landline, a shared household
-        # email, or a number recycled to someone new -- that identifier must
-        # hide NOBODY, or we would silence a LIVING relative (e.g. the owner's
-        # father on the family line). The write path already stores
-        # personal-only identifiers; this is the backstop for an identifier
-        # that becomes shared AFTER the record was written.
         holders_by_idv = {}
         for r in urows:
-            person = r.get("person")
-            if not person:
-                continue
-            holders_by_idv.setdefault(r.get("idv", ""), []).append(
-                (person, _wiki_slug(r.get("name", "")))
-            )
-        for _idv, holders in holders_by_idv.items():
-            if any(slug not in suppressed_slugs for (_p, slug) in holders):
-                # Shared with a differently-named person -> suppresses nobody.
-                continue
-            for person, _slug in holders:
-                suppressed_uris.add(person)
-    return suppressed_slugs, suppressed_uris
+            if r.get("person"):
+                holders_by_idv.setdefault(r.get("idv", ""), []).append(
+                    (r["person"], _suppression_name_key(r.get("name", "")),
+                     _wiki_slug(r.get("name", ""))))
+
+        def _holder_is_them(rec, p, nk, hs):
+            if rec["persons"]:
+                return p in rec["persons"] or nk in rec["names"]
+            # legacy, unambiguous slug: the slug is the identity
+            return bool(rec["slug"]) and hs == rec["slug"]
+
+        for v, holders in holders_by_idv.items():
+            for rec in by_idv.get(v, []):
+                if all(_holder_is_them(rec, p, nk, hs) for (p, nk, hs) in holders):
+                    for p, _nk, _hs in holders:
+                        _put("uris", "reason_by_uri", p, rec["reason"])
+                    break
+    return d
+
+
+def _suppressed_identity_index():
+    """``(suppressed_slugs, suppressed_uris)`` for the proactive producers.
+    See :func:`_suppression_detail`. Raises on store failure: every caller
+    fails closed (suggest nobody)."""
+    d = _suppression_detail()
+    return d["slugs"], d["uris"]
+
+
+class _PersonSuppression:
+    """The do-not-suggest index for one request (see _suppression_detail)."""
+
+    def __init__(self, detail=None):
+        d = detail or {}
+        self.uris = set(d.get("uris") or ())
+        self.slugs = set(d.get("slugs") or ())
+        self.names = set(d.get("names") or ())
+        self.tail_slugs = set(d.get("tail_slugs") or ())
+        self._r_uri = dict(d.get("reason_by_uri") or {})
+        self._r_slug = dict(d.get("reason_by_slug") or {})
+        self._r_name = dict(d.get("reason_by_name") or {})
+        self._r_tail = dict(d.get("reason_by_tail") or {})
+
+    @staticmethod
+    def _label(reason):
+        return "deceased" if reason == _DECEASED_REASON else "do_not_suggest"
+
+    def state(self, uri=None, name=None):
+        """None (not suppressed), "deceased" or "do_not_suggest".
+
+        An item WITH a URI is judged on the URI alone (plus a legacy
+        slug-only record for an unambiguous name): a namesake's node never
+        inherits someone else's record by name. An item with NO URI falls
+        back to the exact name."""
+        if uri:
+            if uri in self.uris:
+                return self._label(self._r_uri.get(uri, ""))
+            slug = _wiki_slug(name) if name else None
+            if slug and slug in self.slugs:
+                return self._label(self._r_slug.get(slug, ""))
+            return None
+        if name:
+            nk = _suppression_name_key(name)
+            if nk in self.names:
+                return self._label(self._r_name.get(nk, ""))
+        return None
+
+    def tail_state(self, tail_slug):
+        """For a slug-only reference (CM048 todo subject)."""
+        if tail_slug and tail_slug in self.tail_slugs:
+            return self._label(self._r_tail.get(tail_slug, ""))
+        return None
+
+
+def _load_person_suppression():
+    """Build a :class:`_PersonSuppression`. RAISES on any store failure, so
+    a caller can never mistake "could not look" for "nobody suppressed"."""
+    return _PersonSuppression(_suppression_detail())
 
 
 # Runaway guard for the stale-people scan (pages of 1000). Not a sample.
@@ -8239,72 +8526,6 @@ _DECEASED_OMIT_KEYS = (
     "turning", "relationship_signal", "relationship_strength",
     "strength", "warmth", "fading",
 )
-
-
-class _PersonSuppression:
-    """The do-not-suggest index plus each record's reason, for one request."""
-
-    def __init__(self, slugs=(), uris=(), reasons=None, uri_slugs=None):
-        self.slugs = set(slugs or ())
-        self.uris = set(uris or ())
-        # slug -> lower-cased reason ("" when the record carries none)
-        self.reasons = dict(reasons or {})
-        # suppressed uri -> the suppressed slug that caught it
-        self.uri_slugs = dict(uri_slugs or {})
-
-    def state(self, uri=None, name=None):
-        """None (not suppressed), "deceased" or "do_not_suggest"."""
-        slug = _wiki_slug(name) if name else None
-        hit = None
-        if slug and slug in self.slugs:
-            hit = slug
-        elif uri and uri in self.uris:
-            hit = self.uri_slugs.get(uri, "")
-        if hit is None:
-            return None
-        if self.reasons.get(hit, "") == _DECEASED_REASON:
-            return "deceased"
-        return "do_not_suggest"
-
-
-def _load_person_suppression():
-    """Build a :class:`_PersonSuppression`. RAISES on any store failure, so
-    a caller can never mistake "could not look" for "nobody suppressed"."""
-    slugs, uris = _suppressed_identity_index()
-    reasons = {}
-    if slugs:
-        rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?slug ?reason WHERE {{\n'
-            '  ?s a pwg:SuggestionSuppression ; pwg:suppressedSlug ?slug .\n'
-            '  OPTIONAL {{ ?s pwg:suppressReason ?reason }}\n'
-            '}}'.format(ns=PWG_NS)
-        )
-        for r in rows:
-            s = r.get("slug")
-            if not s:
-                continue
-            reason = (r.get("reason") or "").strip().lower()
-            # Two records on one slug: deceased wins (the gentler output).
-            if reasons.get(s) != _DECEASED_REASON:
-                reasons[s] = reason
-    uri_slugs = {}
-    if uris:
-        values = " ".join("<{}>".format(u) for u in sorted(uris)
-                          if u and ">" not in u and " " not in u)
-        if values:
-            rows = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?p ?name WHERE {{\n'
-                '  VALUES ?p {{ {values} }}\n'
-                '  ?p pwg:displayName ?name .\n'
-                '}}'.format(ns=PWG_NS, values=values)
-            )
-            for r in rows:
-                s = _wiki_slug(r.get("name", ""))
-                if s in slugs:
-                    uri_slugs[r.get("p")] = s
-    return _PersonSuppression(slugs, uris, reasons, uri_slugs)
 
 
 def _try_load_person_suppression():

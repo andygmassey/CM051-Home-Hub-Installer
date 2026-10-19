@@ -33,6 +33,7 @@ on:
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
       - 'tests/test_cm041_deceased_person_surfaces.py'
+      - 'tests/test_cm041_suppression_keys_on_the_person_not_the_name.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
     paths:
@@ -48,6 +49,7 @@ on:
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
       - 'tests/test_cm041_deceased_person_surfaces.py'
+      - 'tests/test_cm041_suppression_keys_on_the_person_not_the_name.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
 concurrency:
@@ -250,3 +252,18 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm041_deceased_person_surfaces.py -v
+      # CM041 #222 red-team: marking one person deceased never silences a
+      # living namesake (the slug folds accents). Keyed on the person's URI.
+      - name: Marking one person deceased leaves a living namesake untouched
+        if: always()
+        env:
+          OSTLER_DB_KEY: fixture-not-a-key
+        run: |
+          n="$(python -m pytest tests/test_cm041_suppression_keys_on_the_person_not_the_name.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 14 ]; then
+            echo "REFUSING: expected at least 14 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm041_suppression_keys_on_the_person_not_the_name.py -v

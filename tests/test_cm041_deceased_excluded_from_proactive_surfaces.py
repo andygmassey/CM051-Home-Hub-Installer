@@ -383,15 +383,17 @@ class TestSuppressEndpoint(unittest.TestCase):
                 ]
             if "VALUES ?v" in sparql and "identifierValue ?v" in sparql:
                 # Sharing probe: the family line + email are also held by a
+                # node outside her cluster (CM041 #222 judges sharing by node,
+                # so a namesake counts as "someone else" too). Before: by name.
                 # differently-named (living) person; the rest only by her.
-                rows = [{"v": CARD_UID, "name": SUP_NAME},
-                        {"v": LANDLINE, "name": SUP_NAME},
-                        {"v": LANDLINE2, "name": SUP_NAME},
-                        {"v": MOBILE, "name": SUP_NAME},
-                        {"v": SUP_EMAIL, "name": SUP_NAME},
-                        {"v": FAMILY_EMAIL, "name": SUP_NAME},
-                        {"v": LANDLINE, "name": LIVING_NAME},
-                        {"v": FAMILY_EMAIL, "name": LIVING_NAME}]
+                rows = [{"v": CARD_UID, "name": SUP_NAME, "person": SUP_URI},
+                        {"v": LANDLINE, "name": SUP_NAME, "person": SUP_URI},
+                        {"v": LANDLINE2, "name": SUP_NAME, "person": SUP_URI},
+                        {"v": MOBILE, "name": SUP_NAME, "person": SUP_URI},
+                        {"v": SUP_EMAIL, "name": SUP_NAME, "person": SUP_URI},
+                        {"v": FAMILY_EMAIL, "name": SUP_NAME, "person": SUP_URI},
+                        {"v": LANDLINE, "name": LIVING_NAME, "person": LIVING_URI},
+                        {"v": FAMILY_EMAIL, "name": LIVING_NAME, "person": LIVING_URI}]
                 return rows
             return []
         return fake_sparql_select
