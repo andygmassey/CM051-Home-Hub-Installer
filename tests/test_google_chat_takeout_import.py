@@ -107,7 +107,7 @@ def _entitled(monkeypatch, request):
     """Every test runs ENTITLED unless it is a G7 test, which drives the gate
     itself. The real default (the shared helper) is exercised by name below."""
     if "g7" not in request.node.name:
-        monkeypatch.setattr(gc, "default_gate", lambda: "active")
+        monkeypatch.setattr(gc, "default_gate", lambda: "pro")
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +464,8 @@ def test_people_land_once_matched_and_named(tmp_path, oxigraph):
 
 
 # ---------------------------------------------------------------------------
-# G7: Google Chat is Pro (Andy, 2026-10-19). Gate at the entry point.
+# G7: Google Chat is Pro; the FIRST export import is free (Andy, 2026-10-19).
+# The gate is the shared ostler_fda.first_import helper, at the entry point.
 # ---------------------------------------------------------------------------
 
 
@@ -477,33 +478,52 @@ class _CountingPeople:
         return {"persist_status": "ok", "people_created": 0}
 
 
-def _g7_run(root, state, gate):
-    sink, people = _Sink(), _CountingPeople()
+def _g7_run(root, state, gate, sink=None, marks=None):
+    sink = sink or _Sink()
+    people = _CountingPeople()
+    marks = marks if marks is not None else []
     r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(state),
                    conversations_fn=sink.conversations, people_fn=people,
-                   name_fn=lambda n: 0, gate_fn=lambda: gate)
-    return r, sink, people
+                   name_fn=lambda n: 0, gate_fn=lambda: gate,
+                   mark_fn=lambda: marks.append(1))
+    return r, sink, people, marks
 
 
-def test_g7_not_entitled_sends_nothing_then_entitled_sends_all(tmp_path):
+def test_g7_pro_required_sends_nothing_then_pro_sends_all(tmp_path):
     root = build_export(tmp_path / "export")
     state = tmp_path / "ledger.json"
-    r, sink, people = _g7_run(root, state, "inactive")
-    assert (r["conversations_status"], r["paused_reason"]) == ("paused", "not_pro")
-    assert sink.sent == [] and people.calls == 0
+    r, sink, people, marks = _g7_run(root, state, "pro_required")
+    assert (r["conversations_status"], r["paused_reason"]) == ("paused", "pro_required")
+    assert sink.sent == [] and people.calls == 0 and marks == []
     assert gc.ImportLedger(state).entries == {}
-    r, sink, people = _g7_run(root, state, "active")
-    assert r["conversations_sent"] == 3 and len(sink.sent) == 3 and people.calls == 1
+    r, sink, people, marks = _g7_run(root, state, "pro")
+    assert r["conversations_sent"] == 3 and people.calls == 1
+    assert marks == []          # Pro imports never spend the free taster
+
+
+def test_g7_first_import_free_is_marked_only_after_every_payload_lands(tmp_path):
+    root = build_export(tmp_path / "export")
+    state = tmp_path / "ledger.json"
+    r, _, _, marks = _g7_run(root, state, "first_import_free",
+                             sink=_Sink(fail_ids={"gchat_20230203_bbbb2222"}))
+    assert r["conversations_failed"] == 1 and marks == [] and r["first_import_marked"] is False
+    r, sink, _, marks = _g7_run(root, state, "first_import_free")
+    assert sink.sent == ["gchat_20230203_bbbb2222"] and marks == [1] and r["first_import_marked"]
+
+
+def test_g7_could_not_check_is_cannot_run_not_a_refusal(tmp_path):
+    r, sink, _, marks = _g7_run(build_export(tmp_path / "export"), tmp_path / "l.json", "could_not_check")
+    assert r["conversations_status"] == "cannot_run" and sink.sent == [] and marks == []
 
 
 def test_g7_could_not_ask_fails_open(tmp_path):
-    r, sink, _ = _g7_run(build_export(tmp_path / "export"), tmp_path / "l.json", "unknown")
+    r, sink, _, _ = _g7_run(build_export(tmp_path / "export"), tmp_path / "l.json", "unknown")
     assert r["conversations_sent"] == 3 and r["gate"] == "unknown"
 
 
 def test_g7_default_refuses_when_the_shared_helper_is_absent(tmp_path, monkeypatch):
     monkeypatch.setattr(gc, "SHARED_GATE_MODULE", "ostler_fda._no_such_g7_helper_for_tests")
-    assert gc.default_gate() == "absent"
+    assert gc.default_gate() == "gate_helper_absent"
     sink = _Sink()
     r = gc.persist(gc.parse_export(build_export(tmp_path / "export")),
                    ledger=gc.ImportLedger(tmp_path / "l.json"),
@@ -513,70 +533,101 @@ def test_g7_default_refuses_when_the_shared_helper_is_absent(tmp_path, monkeypat
     assert sink.sent == []
 
 
-def test_g7_default_maps_the_helper_answer(tmp_path, monkeypatch):
+def test_g7_default_maps_the_helper_answer(monkeypatch):
     import types
+    from dataclasses import dataclass
 
+    @dataclass(frozen=True)
+    class D:
+        allowed: object
+        reason: object
+
+    asked = []
     fake = types.ModuleType("ostler_fda_g7_fake_helper")
     monkeypatch.setitem(sys.modules, "ostler_fda_g7_fake_helper", fake)
     monkeypatch.setattr(gc, "SHARED_GATE_MODULE", "ostler_fda_g7_fake_helper")
-    fake.is_active_or_grace = lambda: False
-    assert gc.default_gate() == "inactive"
-    fake.is_active_or_grace = lambda: True
-    assert gc.default_gate() == "active"
-    fake.is_active_or_grace = lambda: "yes"     # not a bool is not a yes
-    assert gc.default_gate() == "unknown"
 
-    def boom():
+    def answer(d):
+        def entry_gate(source, *, export_import):
+            asked.append((source, export_import))
+            return d
+        fake.entry_gate = entry_gate
+
+    for d, want in [
+        (D(True, "pro"), "pro"),
+        (D(True, "first_import_free"), "first_import_free"),
+        (D(False, "pro_required"), "pro_required"),
+        (D(False, "could_not_check"), "could_not_check"),
+        (D(True, "pro_required"), "unknown"),        # self-contradictory
+        (D("yes", "pro"), "unknown"),                # not a bool
+        (D(True, "free_forever"), "unknown"),        # off-contract reason
+    ]:
+        answer(d)
+        assert gc.default_gate() == want, d
+    assert set(asked) == {("google_chat", True)}
+
+    def boom(source, *, export_import):
         raise RuntimeError("state unreadable")
 
-    fake.is_active_or_grace = boom
+    fake.entry_gate = boom
     assert gc.default_gate() == "unknown"
 
 
-def test_g7_real_shared_helper_gated_then_entitled(tmp_path, monkeypatch):
-    """The REAL vendored helper (CM051 #3024), not a fake: no state is
-    inactive; after the install-time first month it is active."""
+def _cli(root, out, gate, monkeypatch, capsys, read_ok=True):
+    monkeypatch.setattr(gc, "default_gate", lambda: gate)
+    monkeypatch.setattr(gc, "gate_text", lambda reason: f"TEXT[{reason}]")
+    if not read_ok:
+        def must_not_read(*a, **k):
+            raise AssertionError("the export was read without entitlement")
+        monkeypatch.setattr(gc, "parse_export", must_not_read)
+    rc = gc.main(["--export-path", str(root), "--output-dir", str(out), "--json"])
+    cap = capsys.readouterr()
+    return rc, json.loads(cap.out), cap.err
+
+
+def test_g7_cli_pro_required_exits_5_reads_nothing(tmp_path, monkeypatch, capsys):
+    out = tmp_path / "out"
+    rc, res, err = _cli(build_export(tmp_path / "export"), out, "pro_required",
+                        monkeypatch, capsys, read_ok=False)
+    assert (rc, res["status"]) == (5, "paused_not_pro")
+    assert "TEXT[pro_required]" in err and not out.exists()
+
+
+def test_g7_cli_could_not_check_exits_3_reads_nothing(tmp_path, monkeypatch, capsys):
+    out = tmp_path / "out"
+    rc, res, err = _cli(build_export(tmp_path / "export"), out, "could_not_check",
+                        monkeypatch, capsys, read_ok=False)
+    assert (rc, res["status"]) == (3, "cannot_run")
+    assert "TEXT[could_not_check]" in err and not out.exists()
+
+
+def test_g7_cli_first_import_free_shows_the_notice_and_stages(tmp_path, monkeypatch, capsys):
+    out = tmp_path / "out"
+    rc, res, err = _cli(build_export(tmp_path / "export"), out, "first_import_free",
+                        monkeypatch, capsys)
+    assert (rc, res["status"], res["conversations"]) == (0, "ok", 3)
+    assert "TEXT[first_import_free]" in err
+    assert len(json.loads((out / "google_chat_conversations.json").read_text())) == 3
+
+
+def test_g7_real_shared_helper_free_once_then_pro(tmp_path, monkeypatch):
+    """The REAL vendored helpers (subscription_gate #3024 + first_import),
+    not fakes: no Pro, first import free and marked; the second needs Pro."""
     from datetime import datetime, timezone
 
+    pytest.importorskip("ostler_fda.first_import")
     from ostler_fda import subscription_gate as sg
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("OSTLER_SUBSCRIPTION_STATE", str(tmp_path / "state" / "subscription_state.json"))
-    assert gc.default_gate() == "inactive"
+    monkeypatch.setenv("OSTLER_FIRST_IMPORT_LEDGER", str(tmp_path / "state" / "first_imports.json"))
     root = build_export(tmp_path / "export")
+    assert gc.default_gate() == "first_import_free"
     sink = _Sink()
     r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(tmp_path / "l.json"),
                    conversations_fn=sink.conversations, people_fn=_CountingPeople(),
                    name_fn=lambda n: 0)
-    assert r["conversations_status"] == "paused" and sink.sent == []
+    assert r["conversations_sent"] == 3 and r["first_import_marked"]
+    assert gc.default_gate() == "pro_required"
     sg.activate_first_month_free(datetime.now(timezone.utc).isoformat())
-    assert gc.default_gate() == "active"
-    r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(tmp_path / "l.json"),
-                   conversations_fn=sink.conversations, people_fn=_CountingPeople(),
-                   name_fn=lambda n: 0)
-    assert r["conversations_sent"] == 3
-
-
-def test_g7_cli_not_entitled_reads_nothing_writes_nothing(tmp_path, monkeypatch, capsys):
-    root = build_export(tmp_path / "export")
-    out = tmp_path / "out"
-    monkeypatch.setattr(gc, "default_gate", lambda: "inactive")
-
-    def must_not_read(*a, **k):
-        raise AssertionError("the export was read without Ostler Pro")
-
-    monkeypatch.setattr(gc, "parse_export", must_not_read)
-    assert gc.main(["--export-path", str(root), "--output-dir", str(out), "--persist", "--json"]) == 0
-    res = json.loads(capsys.readouterr().out)
-    assert (res["status"], res["paused_reason"]) == ("paused", "not_pro")
-    assert not out.exists()
-
-
-def test_g7_cli_entitled_reads_and_stages(tmp_path, monkeypatch, capsys):
-    root = build_export(tmp_path / "export")
-    out = tmp_path / "out"
-    monkeypatch.setattr(gc, "default_gate", lambda: "active")
-    assert gc.main(["--export-path", str(root), "--output-dir", str(out), "--json"]) == 0
-    res = json.loads(capsys.readouterr().out)
-    assert res["status"] == "ok" and res["conversations"] == 3
-    assert len(json.loads((out / "google_chat_conversations.json").read_text())) == 3
+    assert gc.default_gate() == "pro"

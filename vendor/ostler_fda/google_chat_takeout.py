@@ -901,79 +901,115 @@ def default_state_path() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# G7: Google Chat is an Ostler Pro source (Andy, 2026-10-19)
+# G7: Google Chat is an Ostler Pro source (Andy, 2026-10-19), and the FIRST
+# export import of each source is free (Andy's refinement, same day)
 # ---------------------------------------------------------------------------
 #
-# ONE shared ostler_fda G7 helper exists (CM051 #3024, built by the
-# small-sources agent). Building a second one here is exactly what Archie
-# ruled out, so this module only RESOLVES it. The gate runs at the ENTRY POINT, before
-# any hand-off to pwg-convo, never inside processor.process.
+# Both rules live in ONE shared helper, ``ostler_fda/first_import.py`` (a
+# byte-identical copy of CM052 ``src/cm052/first_import.py``, vendored by the
+# small-sources agent next to ``subscription_gate.py`` from CM051 #3024).
+# Building a second one here is what Archie ruled out, so this module only
+# RESOLVES it. The gate runs at the ENTRY POINT, before the export is read
+# (``main``) and again before any hand-off (``persist``); never inside
+# processor.process.
 #
-# Contract (the same as imessage-bundle-tick.sh's `subscription_gate.py
-# --check`: exit 0 active, exit 3 inactive, anything else fail-open):
-#   "active"   -> import proceeds.
-#   "inactive" -> nothing is sent, the ledger is untouched (a later run after
-#                 subscribing sends everything), status "paused".
-#   "unknown"  -> the gate could not ask; fail OPEN, logged. A customer is
-#                 never paused because we could not ask.
-# A build where the shared helper is ABSENT refuses to send
-# ("gate_helper_absent"): that is a missing enforcement surface on a Pro
-# source, a build defect, not a runtime outage.
-#
-# The shared helper is ``vendor/ostler_fda/subscription_gate.py``
-# (CM051 #3024), ``is_active_or_grace() -> bool``, which walks the stored
-# state forward itself (the Apple receipt is the single source of Pro).
-SHARED_GATE_MODULE = "ostler_fda.subscription_gate"
-SHARED_GATE_FUNC = "is_active_or_grace"
-GATE_STATES = ("active", "inactive", "unknown")
+# ``entry_gate("google_chat", export_import=True)`` answers, and this maps it:
+#   "pro"               allowed.
+#   "first_import_free" allowed; ``mark_first_import`` runs ONLY after every
+#                       payload was accepted, so a failed first try does not
+#                       burn the taster.
+#   "pro_required"      nothing is read, staged or sent; ledger untouched;
+#                       Andy's refusal copy; exit 5 (EXIT_PAUSED_NOT_PRO).
+#   "could_not_check"   CANNOT-RUN, never a refusal: "Try again"; exit 3.
+#   "unknown"           the helper raised or answered off-contract: fail OPEN,
+#                       logged. A customer is never paused because we could
+#                       not ask.
+#   "gate_helper_absent" a build without the helper refuses (exit 5): a
+#                       missing enforcement surface on a Pro source is a
+#                       build defect, not a runtime outage.
+SHARED_GATE_MODULE = "ostler_fda.first_import"
+SOURCE_LABEL = "Google Chat"
+EXIT_PAUSED_NOT_PRO = 5     # the shared contract (first_import.EXIT_PAUSED_NOT_PRO)
+EXIT_COULD_NOT_CHECK = 3    # the shared contract (first_import.EXIT_COULD_NOT_CHECK)
+GATE_ALLOWED = ("pro", "first_import_free", "unknown")
+_GATE_REASONS = ("pro", "first_import_free", "pro_required", "could_not_check")
 
 
-def default_gate() -> str:
-    """Resolve the shared G7 helper and ask it about this source. Returns one
-    of ``GATE_STATES`` or ``"absent"``."""
+def _gate_module():
     import importlib
 
     try:
-        mod = importlib.import_module(SHARED_GATE_MODULE)
-        fn = getattr(mod, SHARED_GATE_FUNC)
-    except (ImportError, AttributeError):
-        return "absent"
+        return importlib.import_module(SHARED_GATE_MODULE)
+    except ImportError:
+        return None
+
+
+def default_gate() -> str:
+    """Ask the shared helper about this source. Returns one of
+    ``_GATE_REASONS``, ``"unknown"`` or ``"gate_helper_absent"``."""
+    mod = _gate_module()
+    fn = getattr(mod, "entry_gate", None) if mod is not None else None
+    if fn is None:
+        return "gate_helper_absent"
     try:
-        verdict = fn()
+        decision = fn(SOURCE, export_import=True)
     except Exception as exc:  # noqa: BLE001 -- could not ask: fail open
         logger.info("google_chat: G7 gate raised (%s); failing open", type(exc).__name__)
         return "unknown"
-    if verdict is True:
-        return "active"
-    if verdict is False:
-        return "inactive"
-    return "unknown"   # not a bool: the helper did not answer the question
+    reason = getattr(decision, "reason", None)
+    allowed = getattr(decision, "allowed", None)
+    if reason not in _GATE_REASONS or not isinstance(allowed, bool):
+        return "unknown"
+    if allowed != (reason in ("pro", "first_import_free")):
+        return "unknown"   # self-contradictory answer: not an answer
+    return reason
+
+
+def default_mark() -> None:
+    mod = _gate_module()
+    if mod is not None:
+        mod.mark_first_import(SOURCE)
+
+
+def gate_text(reason: str) -> str:
+    """The owner-facing line for a gate outcome (Andy's copy, from the helper)."""
+    mod = _gate_module()
+    if reason == "pro_required" and mod is not None:
+        return mod.refusal_text(SOURCE_LABEL)
+    if reason == "could_not_check" and mod is not None:
+        return mod.COULD_NOT_CHECK_TEXT
+    if reason == "first_import_free" and mod is not None:
+        return mod.pre_import_notice(SOURCE_LABEL)
+    if reason == "gate_helper_absent":
+        return ("Ostler couldn't check your Ostler Pro status on this build, "
+                "so nothing was imported.")
+    return ""
 
 
 def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,
-            people_fn=None, name_fn=None, gate_fn=None) -> dict:
+            people_fn=None, name_fn=None, gate_fn=None, mark_fn=None) -> dict:
     """Send new or changed conversations to the CM048 sink and correspondents
     to the people sink, if the G7 gate allows. The ``*_fn`` hooks default to
-    the real sinks and gate and exist so a test can drive the same code path
-    against fakes.
+    the real sinks and helper and exist so a test can drive the same code
+    path against fakes.
 
     Returns counts only.
     """
     from . import universal_import as ui
 
     gate = (gate_fn or default_gate)()
-    if gate in ("inactive", "absent"):
-        reason = "not_pro" if gate == "inactive" else "gate_helper_absent"
-        logger.info("google_chat: import paused (%s); nothing sent", reason)
+    if gate not in GATE_ALLOWED:
+        logger.info("google_chat: import not run (%s); nothing sent", gate)
         return {
             "conversations_total": len(export_payloads(export)),
             "conversations_unchanged": 0, "conversations_sent": 0,
             "conversations_failed": 0, "conversations_unavailable": 0,
-            "conversations_status": "paused", "paused_reason": reason,
+            "conversations_status": "cannot_run" if gate == "could_not_check" else "paused",
+            "paused_reason": gate,
             "people_status": "paused", "people_created": 0, "names_offered": 0,
-            "gate": gate,
+            "gate": gate, "first_import_marked": False,
         }
-    if gate != "active":
+    if gate == "unknown":
         logger.info("google_chat: G7 gate could not answer; failing open")
 
     conversations_fn = conversations_fn or ui._persist_conversations
@@ -1003,6 +1039,13 @@ def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,
         conv_status = "partial" if sent else "error"
     ledger.save()
 
+    # The free taster is spent only by a COMPLETE first import: every payload
+    # accepted, at least one handed over.
+    marked = False
+    if gate == "first_import_free" and sent > 0 and failed == 0:
+        (mark_fn or default_mark)()
+        marked = True
+
     people = people_fn(correspondents(export), source=SOURCE)
     names_upgraded = 0
     if people.get("persist_status") == "ok":
@@ -1018,6 +1061,7 @@ def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,
         "people_created": int(people.get("people_created", 0)),
         "names_offered": names_upgraded,
         "gate": gate,
+        "first_import_marked": marked,
     }
 
 
@@ -1072,17 +1116,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.json:
             print(json.dumps(result))
 
-    # G7 FIRST: a customer without Ostler Pro has nothing of this export read,
-    # staged or sent, and nothing already in the Hub is touched.
+    # G7 FIRST: a customer without Ostler Pro (and with the free first import
+    # already used) has nothing of this export read, staged or sent, and
+    # nothing already in the Hub is touched.
     gate = default_gate()
     result["gate"] = gate
-    if gate in ("inactive", "absent"):
-        result["status"] = "paused"
-        result["paused_reason"] = "not_pro" if gate == "inactive" else "gate_helper_absent"
-        print("google-chat-takeout: Google Chat import needs Ostler Pro; nothing was "
-              "read. Everything already in your Hub stays available.", file=sys.stderr)
+    text = gate_text(gate)
+    if gate not in GATE_ALLOWED:
+        result["status"] = "cannot_run" if gate == "could_not_check" else "paused_not_pro"
+        if text:
+            print(text, file=sys.stderr)
         _emit()
-        return 0
+        return EXIT_COULD_NOT_CHECK if gate == "could_not_check" else EXIT_PAUSED_NOT_PRO
+    if text:
+        print(text, file=sys.stderr)   # the first-import notice
 
     try:
         export = parse_export(args.export_path, owner_email=args.owner_email)
