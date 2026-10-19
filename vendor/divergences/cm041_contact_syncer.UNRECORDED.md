@@ -297,7 +297,7 @@ upstream commit to graft from.
 - New module-level helpers `_is_image`, `_abcddb_blob_image` and
   `_abcddb_photo_bytes` try every known storage shape:
   - a raw image blob;
-  - Core Data framing, `0x01` inline or `0x02` + UUID into
+  - CoreData framing, `0x01` inline or `0x02` + UUID into
     `.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/`;
   - the per-store `Images/<uid>` file.
 
