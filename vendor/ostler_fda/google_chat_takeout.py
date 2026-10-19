@@ -369,7 +369,7 @@ _LONG_FORMATS = (
     "%d %B %Y %H:%M",
 )
 
-# Non-English Takeout exports (UNVERIFIED: the shapes below are the long-date
+# Exports in other languages (UNVERIFIED: the shapes below are the long-date
 # conventions of each language, not samples from a real export). Month names
 # are mapped to English and the joining word to "at" before the English
 # formats above are tried. A date in a language not listed here stays
