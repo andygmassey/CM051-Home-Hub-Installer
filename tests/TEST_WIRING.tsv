@@ -266,6 +266,7 @@ test_cx95_venv_shebang_promote.sh	WIRED	.github/workflows/tests-unwired-sweep-al
 test_cx98_channel_vars_unbound.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cx98_previous_install_detection.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_daemon_hold_registers_agree.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_daemon_warmup_loads_at_chat_num_ctx.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
@@ -499,6 +500,7 @@ test_merge_survivor_takes_highest_name_tier.py	WIRED	.github/workflows/walk-reco
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_merged_people_are_not_recreated.py	WIRED	.github/workflows/forget-tombstone.yml
 test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_model_digest_pins.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
