@@ -10,6 +10,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_the_shipped_compose_mounts_the_editor_feed.sh'
+      - 'tests/test_the_shipped_compose_mounts_the_people_photos.sh'
       - '.github/workflows/editor-feed-gate.yml'
   push:
     branches: [main]
@@ -31,3 +32,6 @@ jobs:
 
       - name: the shipped compose mounts the Hub editor feed into the wiki-compiler
         run: bash tests/test_the_shipped_compose_mounts_the_editor_feed.sh
+
+      - name: the shipped compose mounts the contact photo directory into the wiki-compiler
+        run: bash tests/test_the_shipped_compose_mounts_the_people_photos.sh
