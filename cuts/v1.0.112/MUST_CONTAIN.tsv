@@ -367,9 +367,9 @@ pin(daemon): 0.5.10 catch-up reads the compact calendar start [carried in #19 by
 People list drops organisations without a legal-form suffix	CM051	d13f9d9f	no	people_org_without_legal_suffix_leaves_list	TBD	CM051 #2785
 Tidy contacts-diff answers at once, built in the background	CM051	fa53b4d8	no	doctor_tidy_contacts_diff_cached	TBD	CM051 #2786
 Walk freshness reader knows every CM044 state	CM051	9d4efb53	no	probe_freshness_reads_every_cm044_state	TBD	CM051 #2784
-Walk probe: the morning brief catches me up	CM051	c18e0ac5	no	probe_morning_brief_catches_me_up	TBD	CM051 #2760
-Walk probe: reply debt is answered	CM051	c18e0ac5	no	probe_reply_debt_is_answered	TBD	CM051 #2760
-Walk probe library for the wow moments	CM051	c18e0ac5	no	probe_wow_moments_lib	TBD	CM051 #2760
+Walk probe: the morning brief catches me up (re-cited to 5ddc33d3: CM051 #3021 rewrote the morning-prompt install.sh line #2760 added, so the line now in the pin is #3021's)	CM051	5ddc33d3	no	probe_morning_brief_catches_me_up	TBD	CM051 #2760
+Walk probe: reply debt is answered (re-cited to 5ddc33d3: CM051 #3021 rewrote the morning-prompt install.sh line #2760 added, so the line now in the pin is #3021's)	CM051	5ddc33d3	no	probe_reply_debt_is_answered	TBD	CM051 #2760
+Walk probe library for the wow moments (re-cited to 5ddc33d3: CM051 #3021 rewrote the morning-prompt install.sh line #2760 added, so the line now in the pin is #3021's)	CM051	5ddc33d3	no	probe_wow_moments_lib	TBD	CM051 #2760
 # 2026-10-11 (ORM, candidate #19): CM051 #2795 (36d3a468) re-pins hub-v0.5.12 (oa fa8f8132, #506 #507). hub-v0.5.11 superseded, never pinned. Wiki stays v0.1.51.
 # SUPERSEDED (#20, ORM 2026-10-11): hub-v0.5.13 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.12 daemon tarball da063e8d (oa fa8f8132) | CM051 | 36d3a468 | no | daemon_pinned_at_hub_v0512 | TBD | oa #506 #507 (CM051 #2795)
 # SUPERSEDED (#20, ORM 2026-10-11): hub-v0.5.13 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.12 hub app 8000cdcb | CM051 | 36d3a468 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2795
