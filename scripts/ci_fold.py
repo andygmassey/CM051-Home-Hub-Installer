@@ -469,20 +469,49 @@ TOKEN_RE = re.compile(r"secrets\.|GITHUB_TOKEN|GH_TOKEN|\bgh |api\.github")
 HOIST_PYTHON = "actions/setup-python@v5"
 
 
-def hoistable(job):
+# A member's checkout may be shallow (the default) or full. The family's is
+# full if any member's was: deeper history is a superset, and nothing in this
+# estate asserts a shallow clone.
+CHECKOUT_WITH_OK = (None, {"fetch-depth": 0})
+
+
+def hoist_shape(job):
+    """How a job's leading steps hoist into a family, or None if they do not.
+
+    "matrix": checkout + setup-python on ${{ matrix.python }}. Each block's
+              venv is built from that interpreter.
+    "plain":  checkout, and NO other action anywhere in the job. Each block's
+              venv is built from the runner's own python3, with its
+              system site-packages, so a block starts from exactly the base
+              interpreter and its installs land in its own venv -- including
+              `pip install --break-system-packages`, which on a shared
+              machine would otherwise leak into every later block.
+    A job that uses any other action (setup-python on a fixed version,
+    upload-artifact, a local action) is not foldable here: an action's
+    side effects on PATH and the environment cannot be undone per block."""
     steps = job.get("steps") or []
-    if len(steps) < 2:
+    if not steps:
         return None
-    c, p = steps[0], steps[1]
-    if c.get("uses") != HOIST_CHECKOUT or set(c) - {"uses", "name"}:
+    c = steps[0]
+    if c.get("uses") != HOIST_CHECKOUT or set(c) - {"uses", "name", "with"}:
         return None
-    if c.get("with") not in (None,):
+    if c.get("with") not in CHECKOUT_WITH_OK:
         return None
-    if p.get("uses") != HOIST_PYTHON or set(p) - {"uses", "with", "name"}:
+    if len(steps) > 1 and steps[1].get("uses") == HOIST_PYTHON:
+        pstep = steps[1]
+        if set(pstep) - {"uses", "with", "name"} or \
+                pstep.get("with") != {"python-version": "${{ matrix.python }}"}:
+            return None
+        shape, rest = "matrix", steps[2:]
+    else:
+        shape, rest = "plain", steps[1:]
+    if any("uses" in st for st in rest):
         return None
-    if p.get("with") != {"python-version": "${{ matrix.python }}"}:
-        return None
-    return 2
+    return shape
+
+
+def hoist_len(shape):
+    return 2 if shape == "matrix" else 1
 
 
 def cmd_generate(args):
@@ -494,10 +523,30 @@ def cmd_generate(args):
     wfs = load_dir(wf_dir)
     fam_file = f"{FAMILY_PREFIX}{args.family}.yml"
 
-    runs_on = matrix = None
+    runs_on = matrix = shape = None
+    deep = False
     pr_paths, push_paths, push_branches = [], [], None
+    push_unfiltered = False
     blocks, total_timeout = [], 0
     removals = {}
+    # SHARDS: a plain family can run as N parallel legs of one matrix, each
+    # block in exactly one leg. Assigned longest-first to the least-loaded
+    # leg (LPT) by measured seconds from --weights (default 60 each), so one
+    # slow block does not serialise the rest behind it.
+    shards = int(args.shards or 1)
+    weights = {}
+    if args.weights:
+        for line in open(args.weights, encoding="utf-8"):
+            if line.strip() and not line.startswith("#"):
+                k, v = line.rstrip("\n").split("\t")[:2]
+                weights[k] = float(v)
+    assign, loads = {}, [0.0] * shards
+    for n, (wf, jid) in sorted(enumerate(members, 1),
+                               key=lambda t: (-weights.get(f"{t[1][0]}::{t[1][1]}", 60.0), t[0])):
+        k = min(range(shards), key=lambda i: (loads[i], i))
+        assign[n] = k + 1
+        loads[k] += weights.get(f"{wf}::{jid}", 60.0)
+    shard_timeout = [0] * shards
     for n, (wf, jid) in enumerate(members, 1):
         if wf not in wfs:
             raise CannotRun(f"ci_fold: {wf} does not exist")
@@ -543,9 +592,20 @@ def cmd_generate(args):
         elif ro != runs_on or strat != matrix:
             raise CannotRun(f"ci_fold: {wf}:{jid} runner/matrix differs from "
                              f"the family's ({ro} {strat})")
-        if hoistable(job) is None:
-            raise CannotRun(f"ci_fold: {wf}:{jid} does not start with the "
-                             f"hoistable checkout + setup-python pair")
+        js = hoist_shape(job)
+        if js is None:
+            raise CannotRun(f"ci_fold: {wf}:{jid} does not start with a "
+                            f"hoistable checkout (+ matrix setup-python), or "
+                            f"uses another action")
+        if shape is None:
+            shape = js
+        elif js != shape:
+            raise CannotRun(f"ci_fold: {wf}:{jid} is a {js} job in a {shape} "
+                            f"family")
+        if js == "plain" and job.get("strategy"):
+            raise CannotRun(f"ci_fold: {wf}:{jid} has a matrix but no "
+                            f"matrix setup-python; not modelled")
+        deep = deep or job["steps"][0].get("with") == {"fetch-depth": 0}
         self_watch = f"{WF_REL}/{wf}"
         own = [p for p in event_paths(doc, "pull_request") or []
                if p != self_watch]
@@ -558,7 +618,10 @@ def cmd_generate(args):
         pp = event_paths(doc, "push")
         if pp is not None:
             if not pp:
-                raise CannotRun(f"ci_fold: {wf} is unfiltered on push")
+                # A member that runs on EVERY push makes the family do so:
+                # the union of "every push" and anything is every push. On a
+                # push the selector runs every block anyway.
+                push_unfiltered = True
             for p in pp:
                 if p != self_watch and p not in push_paths:
                     push_paths.append(p)
@@ -575,7 +638,14 @@ def cmd_generate(args):
                              f"{len(items)} != parsed {len(job['steps'])}")
         tag = f"b{n:02d}"
         gate = f"steps.select.outputs.{tag} != 'false'"
-        rest = list(zip(items[2:], job["steps"][2:]))
+        if shards > 1:
+            if js != "plain":
+                raise CannotRun("ci_fold: --shards is modelled for plain "
+                                "families only (members with no matrix)")
+            gate += f" && matrix.shard == {assign[n]}"
+            shard_timeout[assign[n] - 1] += jt
+        hl = hoist_len(js)
+        rest = list(zip(items[hl:], job["steps"][hl:]))
         id_map = {st["id"]: f"{tag}_{st['id']}" for _, st in rest if "id" in st}
         pre_id = f"{tag}_isolate"
         out_steps, prior = [], [pre_id]
@@ -592,6 +662,7 @@ def cmd_generate(args):
                        "jobcomments": [l for l in lines[s:k] if l.strip()],
                        "steps": reindent(out_steps, delta),
                        "name": job.get("name", jid), "gate": gate,
+                       "shard": assign.get(n) if shards > 1 else None,
                        "own": own})
         removals.setdefault(wf, []).append(jid)
 
@@ -601,6 +672,9 @@ def cmd_generate(args):
             pr_paths.append(p)
     if push_branches is not None:
         push_paths.append(f"{WF_REL}/{fam_file}")
+    if shards > 1:
+        matrix = {"fail-fast": False, "matrix": {"shard": list(range(1, shards + 1))}}
+        total_timeout = max(shard_timeout)
     job_timeout = min(total_timeout, 70)
 
     o = []
@@ -617,8 +691,9 @@ def cmd_generate(args):
           "workflow, keeping its",
           "# isolate step first and its step conditions block-scoped.",
           "#",
-          "# One job per matrix leg instead of one per source job. Each block "
-          "below was a",
+          ("# One job per matrix leg instead of one per source job. Each block "
+           "below was a" if shape == "matrix" else
+           "# One job instead of one per source job. Each block below was a"),
           "# separate job; it gets back what a fresh machine gave it (pristine "
           "checkout,",
           "# fresh venv, fresh HOME and TMPDIR) and its step conditions are "
@@ -629,12 +704,20 @@ def cmd_generate(args):
           "block.",
           "#",
           f"# Folded jobs ({len(blocks)}):"]
+    if shards > 1:
+        o.append(f"#   (shards, measured seconds per leg: "
+                 f"{', '.join(f'{x:.0f}' for x in loads)})")
     for b in blocks:
-        o.append(f"#   {b['tag']}  {b['wf']} :: {b['jid']}")
+        sh = f"  shard {b['shard']}" if b["shard"] else ""
+        o.append(f"#   {b['tag']}  {b['wf']} :: {b['jid']}{sh}")
     o += [f"name: {FAMILY_PREFIX}{args.family}", "", "on:"]
     if push_branches is not None:
-        o += ["  push:", f"    branches: {flow(push_branches)}", "    paths:"]
-        o += [f"      - {q(p)}" for p in push_paths]
+        o += ["  push:", f"    branches: {flow(push_branches)}"]
+        if push_unfiltered:
+            o += ["    # Unfiltered: at least one member ran on every push."]
+        else:
+            o += ["    paths:"]
+            o += [f"      - {q(p)}" for p in push_paths]
     o += ["  pull_request:", "    paths:"]
     o += [f"      - {q(p)}" for p in pr_paths]
     o += ["",
@@ -666,16 +749,34 @@ def cmd_generate(args):
               yaml.safe_dump(matrix, default_flow_style=None,
                              sort_keys=False).rstrip().split("\n")]
     o += ["    steps:",
-          "      - uses: actions/checkout@v4",
-          "      - id: python",
-          "        uses: actions/setup-python@v5",
-          "        with:",
-          "          python-version: ${{ matrix.python }}",
-          "          # Speed only: a warm wheel cache. Each block still "
-          "installs exactly",
-          "          # what its own steps name, into its own fresh venv.",
-          "          cache: pip",
-          f"          cache-dependency-path: {WF_REL}/{fam_file}",
+          "      - uses: actions/checkout@v4"]
+    if deep:
+        o += ["        with:",
+              "          # A member checked out full history; the family "
+              "does for all.",
+              "          fetch-depth: 0"]
+    if shape == "matrix":
+        o += ["      - id: python",
+              "        uses: actions/setup-python@v5",
+              "        with:",
+              "          python-version: ${{ matrix.python }}",
+              "          # Speed only: a warm wheel cache. Each block still "
+              "installs exactly",
+              "          # what its own steps name, into its own fresh venv.",
+              "          cache: pip",
+              f"          cache-dependency-path: {WF_REL}/{fam_file}"]
+    else:
+        o += ["      # The runner's own python3, which each block's venv is "
+              "built from (with",
+              "      # its system site-packages), so every block starts from "
+              "what a fresh",
+              "      # machine gave it and installs into its own venv.",
+              "      - id: python",
+              "        name: The runner's python3, the base of every block's "
+              "venv",
+              "        run: echo \"python-path=$(command -v python3)\" >> "
+              "\"$GITHUB_OUTPUT\""]
+    o += [
           "      - name: Pin the pip cache to the real HOME before blocks "
           "move it",
           "        run: echo \"PIP_CACHE_DIR=$HOME/.cache/pip\" >> "
@@ -760,7 +861,9 @@ def cmd_generate(args):
               "          git -C \"$GITHUB_WORKSPACE\" clean -ffdxq",
               "          rm -rf \"$BLOCK\"",
               "          mkdir -p \"$BLOCK/home\" \"$BLOCK/tmp\"",
-              "          \"$PY\" -m venv \"$BLOCK/venv\"",
+              "          \"$PY\" -m venv " +
+              ("" if shape == "matrix" else "--system-site-packages ") +
+              "\"$BLOCK/venv\"",
               "          echo \"$BLOCK/venv/bin\" >> \"$GITHUB_PATH\"",
               "          {",
               "            echo \"HOME=$BLOCK/home\"",
@@ -974,7 +1077,15 @@ def cmd_check(args):
                     problems.append(f"{wf}: its unfolded jobs changed")
             if fjob.get("runs-on") != bjob.get("runs-on"):
                 problems.append(f"{wf}::{jid} runs-on changed")
-            if (fjob.get("strategy") or {}) != (bjob.get("strategy") or {}):
+            fstrat, bstrat = fjob.get("strategy") or {}, bjob.get("strategy") or {}
+            fshards = []
+            if not bstrat and set(fstrat) == {"fail-fast", "matrix"} and \
+                    fstrat.get("fail-fast") is False and \
+                    list((fstrat.get("matrix") or {})) == ["shard"]:
+                fshards = list(fstrat["matrix"]["shard"])
+                if fshards != list(range(1, len(fshards) + 1)):
+                    problems.append(f"{fam_file}: shards must be 1..N")
+            elif fstrat != bstrat:
                 problems.append(f"{wf}::{jid} strategy/matrix changed")
             # triggers
             old_self = f"{WF_REL}/{wf}"
@@ -999,21 +1110,31 @@ def cmd_check(args):
             apb = (triggers(adoc).get("push") or {}).get("branches")
             if bpb != apb:
                 problems.append(f"{wf}: push branches {bpb} -> {apb}")
-            # hoisted pair
-            if [s.get("uses") for s in fsteps[:2]] != [HOIST_CHECKOUT,
-                                                       HOIST_PYTHON] \
-                    or fsteps[0].get("with") or \
-                    (fsteps[1].get("with") or {}).get("python-version") != \
-                    "${{ matrix.python }}":
-                problems.append(f"{fam_file}: hoisted checkout/setup-python "
-                                f"are not the members' pair")
-            if [s.get("uses") for s in bjob["steps"][:2]] != \
-                    [HOIST_CHECKOUT, HOIST_PYTHON] or \
-                    bjob["steps"][0].get("with") or \
-                    bjob["steps"][1].get("with") != \
-                    {"python-version": "${{ matrix.python }}"}:
-                problems.append(f"{wf}::{jid} did not start with the "
-                                f"hoisted pair")
+            # the hoisted steps: the member's must be ones the family runs
+            # once for all, and no deeper or different than the family's
+            js = hoist_shape(bjob)
+            if js is None:
+                problems.append(f"{wf}::{jid} did not start with a hoistable "
+                                f"checkout, or used another action")
+                continue
+            fco = fsteps[0] if fsteps else {}
+            mwith = bjob["steps"][0].get("with") or {}
+            if fco.get("uses") != HOIST_CHECKOUT or \
+                    any((fco.get("with") or {}).get(k) != v
+                        for k, v in mwith.items()):
+                problems.append(f"{fam_file}: its checkout does not cover "
+                                f"{wf}::{jid}'s ({mwith or 'default'})")
+            if js == "matrix":
+                if len(fsteps) < 2 or fsteps[1].get("uses") != HOIST_PYTHON or \
+                        (fsteps[1].get("with") or {}).get("python-version") \
+                        != "${{ matrix.python }}":
+                    problems.append(f"{fam_file}: no hoisted matrix "
+                                    f"setup-python for {wf}::{jid}")
+            else:
+                py = [st for st in fsteps if st.get("id") == "python"]
+                if not py or "command -v python3" not in str(py[0].get("run")):
+                    problems.append(f"{fam_file}: no runner-python step for "
+                                    f"the plain block of {wf}::{jid}")
             # verbatim steps, in order, in this block
             block = [s for s in fsteps
                      if str(s.get("id", "")).startswith(tag + "_")]
@@ -1030,6 +1151,15 @@ def cmd_check(args):
                 problems.append(f"{tag}_isolate does not mark its block's "
                                 f"processes and stop an earlier block's")
             gate = f"steps.select.outputs.{tag} != 'false'"
+            if fshards:
+                ks = {m for st in block for m in
+                      re.findall(r"matrix\.shard == (\d+)", str(st.get("if", "")))}
+                every = all(re.search(r"matrix\.shard == \d+", str(st.get("if", "")))
+                            for st in block)
+                if len(ks) != 1 or not every or int(next(iter(ks))) not in fshards:
+                    problems.append(f"{wf}::{jid}: block {tag} is not in "
+                                    f"exactly one shard of {fshards} "
+                                    f"(found {sorted(ks) or 'none'})")
             for st in block:
                 if gate not in str(st.get("if", "")):
                     problems.append(f"{wf}::{jid}: step {st.get('id')} is "
@@ -1047,7 +1177,7 @@ def cmd_check(args):
             if lost:
                 problems.append(f"{wf}::{jid}: block {tag} no longer selects "
                                 f"on {lost}")
-            bsteps = bjob["steps"][2:]
+            bsteps = bjob["steps"][hoist_len(js):]
             if len(body) != len(bsteps):
                 problems.append(f"{wf}::{jid}: {len(bsteps)} step(s) at base, "
                                 f"{len(body)} in block {tag}")
@@ -1313,7 +1443,7 @@ def subst(text, ctx):
             return ctx["runner_temp"]
         if x == "github.workspace":
             return ctx["workspace"]
-        if x == "steps.python.outputs.python-path":
+        if x == "steps.python.outputs.python-path" and ctx["matrix_shape"]:
             return ctx["python"]
         if x == "matrix.python":
             return ctx["python_version"]
@@ -1361,11 +1491,13 @@ def cmd_run_local(args):
     doc = yaml.safe_load(open(path, encoding="utf-8"))
     (jid, job), = doc["jobs"].items()
     steps = job["steps"]
-    if [s.get("uses") for s in steps[:2]] != [HOIST_CHECKOUT, HOIST_PYTHON]:
-        print("run-local: only family jobs with the hoisted pair are "
+    if not steps or steps[0].get("uses") != HOIST_CHECKOUT:
+        print("run-local: only family jobs (hoisted checkout first) are "
               "modelled", file=sys.stderr)
         return 2
-    python = shutil.which(f"python{args.python}")
+    matrix_shape = len(steps) > 1 and steps[1].get("uses") == HOIST_PYTHON
+    first = 2 if matrix_shape else 1
+    python = shutil.which(f"python{args.python}" if args.python else "python3")
     if not python:
         print(f"run-local: CANNOT RUN -- no python{args.python} on PATH",
               file=sys.stderr)
@@ -1378,6 +1510,7 @@ def cmd_run_local(args):
         subprocess.run(["git", "-C", REPO, "worktree", "add", "-q",
                         "--detach", ws, args.ref], check=True)
     ctx = {"steps": {}, "failed": False, "python": python,
+           "matrix_shape": matrix_shape,
            "python_version": args.python, "runner_temp": os.path.join(work, "t"),
            "workspace": ws}
     os.makedirs(ctx["runner_temp"])
@@ -1394,7 +1527,7 @@ def cmd_run_local(args):
     only = set(args.block or [])
     t_job = time.time()
     try:
-        for idx, st in enumerate(steps[2:], 3):
+        for idx, st in enumerate(steps[first:], first + 1):
             sid = st.get("id", f"_{idx}")
             blk = sid.split("_")[0] if re.match(r"b\d\d_", sid) else ""
             if only and blk and blk not in only:
@@ -1515,6 +1648,10 @@ def main(argv):
     g = sub.add_parser("generate")
     g.add_argument("family")
     g.add_argument("--spec")
+    g.add_argument("--shards", type=int, default=1, help="plain families: "
+                   "run as N parallel matrix legs, each block in one")
+    g.add_argument("--weights", help="TSV of workflow::job<TAB>seconds, "
+                   "measured, for balancing the shards")
     g.add_argument("--dir", help="workflows dir to fold in place (self-test "
                    "seam; default: this checkout's)")
     c = sub.add_parser("check")
@@ -1534,7 +1671,8 @@ def main(argv):
                     "checkout's)")
     r = sub.add_parser("run-local")
     r.add_argument("workflow")
-    r.add_argument("--python", required=True)
+    r.add_argument("--python", help="matrix families: the leg to run "
+                   "(python3.N must be on PATH); plain families use python3")
     r.add_argument("--ref", default="HEAD",
                    help="committed tree to run in a disposable worktree")
     r.add_argument("--block", action="append")

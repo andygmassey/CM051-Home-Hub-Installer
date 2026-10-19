@@ -163,34 +163,3 @@ jobs:
           python3 -m py_compile scripts/verify_vendor_divergence_described.py
           bash -n tests/test_an_undescribed_vendor_divergence_is_red.sh
           echo "gate compiles, suite parses"
-
-  # ==========================================================================
-  # macOS. The re-vendor happens on a Mac, where /bin/bash is 3.2.57 and the
-  # userland is BSD. The suite leans on `sed -i.bak`, `grep -c`, `mktemp -d`
-  # and heredocs, all of which behave differently enough between GNU and BSD
-  # that an ubuntu-only green says nothing about the machine an operator runs
-  # sync_vendor.sh on.
-  # ==========================================================================
-  described-macos:
-    runs-on: macos-14
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Record the shell this job actually has
-        run: |
-          set -u
-          echo "/bin/bash -> $(/bin/bash --version | head -1)"
-          maj="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')"
-          if [ "${maj}" != "3" ]; then
-            echo "CANNOT-RUN: /bin/bash here is not 3.x, so this job would measure"
-            echo "            the same shell the ubuntu job does and report a"
-            echo "            second green for the first job's reason."
-            exit 1
-          fi
-
-      - name: The same twenty arms, on bash 3.2 and BSD userland
-        run: /bin/bash tests/test_an_undescribed_vendor_divergence_is_red.sh
