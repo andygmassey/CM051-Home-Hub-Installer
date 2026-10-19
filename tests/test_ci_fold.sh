@@ -302,6 +302,27 @@ PY
         || bad "generate did not refuse ($rc): $shape"
 done
 
+# The token rule: only a member that EXECUTES a token call on the repo's
+# DEFAULT permissions is refused (the family's read-only token could narrow
+# it). A comment is not a call; an explicit `contents: read` is never narrowed.
+tok() {  # tok <want-rc> <label> <permissions-yaml-or-empty> <run-line>
+    rm -rf "$T/tk"; cp -R "$T/pbase" "$T/tk"
+    python3 - "$T/tk/wf/plain-b.yml" "$3" "$4" <<'PY'
+import sys
+p, perms, run = sys.argv[1:4]
+s = open(p).read()
+if perms:
+    s = s.replace("name: plain-b\n", "name: plain-b\n\npermissions:\n  " + perms + "\n")
+s = s.replace("      - run: bash tests/test_pb.sh", "      - run: " + run + "\n      - run: bash tests/test_pb.sh")
+open(p, "w").write(s)
+PY
+    python3 "$TOOL" generate px --dir "$T/tk/wf" --spec "$T/pspec.tsv" >/dev/null 2>&1
+    rc=$?
+    [ "$rc" -eq "$1" ] && pass "token rule: $2" || bad "token rule: $2 (rc=$rc, want $1)"
+}
+tok 2 "an executed gh call on DEFAULT permissions is refused" "" "gh api repos/o/r/pulls"
+tok 0 "the same call under an explicit contents: read is folded" "contents: read" "gh api repos/o/r/pulls"
+tok 0 "a comment mentioning gh on default permissions is not a call" "" "true  # gh pr list fails when the token expires"
 # SHARDS: a plain family as N parallel legs, every block in exactly one.
 printf 'plain-a.yml::pa\t200\nplain-b.yml::pb\t10\n' > "$T/weights.tsv"
 rm -rf "$T/ps"; cp -R "$T/pbase" "$T/ps"
