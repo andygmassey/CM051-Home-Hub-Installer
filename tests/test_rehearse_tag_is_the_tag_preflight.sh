@@ -7,6 +7,11 @@
 #   2. NO SIDE EFFECTS: every other job's `if:` excludes rehearse refs.
 #   3. Mutants: dropping the exclusion from `cut`, or the rehearse arm from the
 #      BOM step, must each turn this test red.
+#   4. A cut/v1.0.NN dispatch builds a real candidate, so it gets the same tag
+#      preflight (every switch above also fires for refs/heads/cut/v1.0.), and
+#      the resolver names the version from the branch. v1.0.109 spent its one
+#      tag on a checklist refusal that the cut/ dispatch printed as a [note].
+#      Mutant 3: dropping the cut/ arm from the checklist step turns this red.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 check() {
@@ -18,6 +23,7 @@ try:
 except Exception as e:
     print("  CANNOT-RUN cannot read the workflow: %s: %s" % (type(e).__name__, e)); sys.exit(2)
 R = "startsWith(github.ref, 'refs/heads/rehearse/v1.0.')"
+C = "startsWith(github.ref, 'refs/heads/cut/v1.0.')"
 bad = []
 if "preflight" not in jobs: bad.append("no preflight job")
 steps = jobs["preflight"]["steps"]
@@ -25,6 +31,7 @@ envs = [str(s.get("env", {}).get("OSTLER_CUT_IN_PROGRESS")) for s in steps if "O
 if not envs: bad.append("preflight sets OSTLER_CUT_IN_PROGRESS nowhere")
 for e in envs:
     if R not in e: bad.append("an OSTLER_CUT_IN_PROGRESS in preflight ignores rehearse refs")
+    if C not in e: bad.append("an OSTLER_CUT_IN_PROGRESS in preflight ignores cut/ dispatches")
 def step(name):
     m = [s for s in steps if s.get("name") == name]
     return m[0] if m else None
@@ -32,9 +39,12 @@ for nm in ("BOM rows must be in the pinned tree", "The installer's own version I
     s = step(nm)
     if s is None: bad.append("preflight lost step: " + nm)
     elif R not in str(s.get("if", "")): bad.append("tag-only step skips rehearsal: " + nm)
+    elif C not in str(s.get("if", "")): bad.append("tag-only step skips a cut/ dispatch: " + nm)
 res = step("Resolve which cut this run is about")
 if res is None or "REHEARSE_REF" not in str(res.get("env", {})) or "REHEARSE_REF" not in res.get("run", ""):
     bad.append("version resolver does not read the rehearse ref")
+if res is None or "CUT_BRANCH_REF" not in str(res.get("env", {})) or "CUT_BRANCH_REF" not in res.get("run", ""):
+    bad.append("version resolver does not read the cut/ branch ref")
 for n, j in jobs.items():
     if n == "preflight": continue
     cond = str(j.get("if", ""))
@@ -65,11 +75,24 @@ else mutant "cut job reachable on a rehearsal" "$m" "job \`cut\` can run on a re
 python3 - "$m" <<'PY'
 import sys
 p='.github/workflows/cut.yml'; s=open(p).read()
-a="        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')\n        run: |\n          set -euo pipefail\n          VER="
+a="        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')\n        run: |\n          set -euo pipefail\n          VER="
 s=s.replace(a,"        if: startsWith(github.ref, 'refs/tags/v1.0.')\n        run: |\n          set -euo pipefail\n          VER=",1)
 open(sys.argv[1],'w').write(s)
 PY
 if cmp -s "$m" .github/workflows/cut.yml; then echo "  FAIL mutant 2 did not apply"; fail=$((fail+1));
 else mutant "BOM-in-pin step skips the rehearsal" "$m" "tag-only step skips rehearsal: BOM rows must be in the pinned tree"; fi
 rm -f "$m"
+m3=$(mktemp)
+python3 - "$m3" <<'PY'
+import sys
+p='.github/workflows/cut.yml'; s=open(p).read()
+i=s.index("- name: The cut checklist is complete and has no ungated rows")
+j=s.index("OSTLER_CUT_IN_PROGRESS:", i)
+k=s.index("\n", j)
+s=s[:j]+s[j:k].replace(" || startsWith(github.ref, 'refs/heads/cut/v1.0.')","",1)+s[k:]
+open(sys.argv[1],'w').write(s)
+PY
+if cmp -s "$m3" .github/workflows/cut.yml; then echo "  FAIL mutant 3 did not apply"; fail=$((fail+1));
+else mutant "the checklist step ignores a cut/ dispatch" "$m3" "an OSTLER_CUT_IN_PROGRESS in preflight ignores cut/ dispatches"; fi
+rm -f "$m3"
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

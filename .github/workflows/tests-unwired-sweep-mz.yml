@@ -63,6 +63,12 @@ jobs:
         if: always()
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
 
+      # INDIVIDUAL STEP (OS003 #233): every pulled Ollama model is pinned to a
+      # config digest and verified after the pull; a moved tag stops the install.
+      - name: Every pulled AI model has a pinned digest and a mismatch stops the install
+        if: always()
+        run: bash tests/test_model_digest_pins.sh
+
       - name: install.sh structural + helper regression tests (m..z batch)
         if: always()
         run: |
