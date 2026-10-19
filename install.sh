@@ -1997,22 +1997,31 @@ ollama_pull_with_retry() {
 # Layer mediaTypes that carry model WEIGHTS. Any other layer (template,
 # params, licence, tokenizer, config json) is not weights and is not pinned.
 # Read from the on-disk manifests the PINNED Ollama 0.34.0 wrote on clean
-# pulls (evidence: walkdriver/evidence/pins_0340_2026-10-19.md). 0.34.0
-# pulls GGUF builds: one image.model weight layer per model.
+# pulls (docs/model-pins/ollama-0.34.0/). 0.34.0 pulls GGUF builds, whose
+# weights are the model layer plus, for some models, a vision projector and a
+# speculative-decoding draft. Template, params and licence are not weights.
 OSTLER_MODEL_WEIGHT_MEDIATYPES=(
     "application/vnd.ollama.image.model"
+    "application/vnd.ollama.image.projector"
+    "application/vnd.ollama.image.draft"
 )
 
-# PENDING: every value below comes from a clean pull by the PINNED Ollama
-# 0.34.0 into an empty store (walkdriver/evidence/pins_0340_2026-10-19.md),
-# pull log cited per row. Until then each row is PENDING, which arm A of
-# tests/test_model_digest_pins.sh reports as RED, never as a pass.
-# No qwen3.5:4b row for v1.0.109: the 16 GB tier stays gemma4:e2b.
+# EVERY PINNED VALUE is computed from the byte-for-byte on-disk manifest the
+# pinned Ollama 0.34.0 wrote on a clean pull into an EMPTY store, committed in
+# docs/model-pins/ollama-0.34.0/ with its sha256 and pull log in
+# PROVENANCE.tsv. Re-derive with
+#     scripts/model_pins_from_evidence.py --rows docs/model-pins/ollama-0.34.0 install.sh
+# and tests/test_model_digest_pins.sh arm E fails if this table and that
+# evidence ever disagree.
 OSTLER_MODEL_PINS=(
-    "qwen3.6:35b-a3b         PENDING PENDING"
-    "qwen3.5:9b              PENDING PENDING"
-    "gemma4:e2b              PENDING PENDING"
-    "nomic-embed-text:latest PENDING PENDING"
+    # gemma4_e2b.json  b37049369adf  pull log pin034_mbp/pull_gemma4_e2b.log
+    "gemma4:e2b              3 sha256:c0029bf0e7a304c3adfbbd6e24e3587171a0a001fbeb85f274afa940a3c9c929"
+    # qwen3.5_9b.json  56671c2ab938  pull log pin034_mbp/pull_qwen3.5_9b.log
+    "qwen3.5:9b              2 sha256:8a63dc8cfeec694afc23b1829fc16818e24c9f5d91ea0b02b64f0127fb19e5c3"
+    # nomic-embed-text_latest.json  0a109f422b47  pull log pin034_mini16/pull_nomic-embed-text.log
+    "nomic-embed-text:latest 1 sha256:8473858267ef2320f4bc7aa871cf56fca45fb59134c7775060b6a19a70e38a23"
+    # qwen3.6_35b-a3b.json  a7eb95c53bcf  pull log pin034_studio35b/pull_qwen3.6_35b-a3b.log (Studio)
+    "qwen3.6:35b-a3b         2 sha256:a94aafcaf8be832c435bdefceb0d79796c658097c3ad685f7d1511a63d3f1dd2"
 )
 
 # A name with no tag is `:latest`, exactly as `ollama pull` reads it.

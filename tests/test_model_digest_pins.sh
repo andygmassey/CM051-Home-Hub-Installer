@@ -251,6 +251,33 @@ real="$(OLLAMA_MODELS="$W/empty" FNS="$W/fns.sh" bash -c '. "$FNS"; ostler_model
 [[ "$real" =~ ^sha256:[0-9a-f]{64}$ ]] && pass "B bare 'nomic-embed-text' resolves to its :latest pin" \
     || bad "B bare 'nomic-embed-text' has no pin via :latest (got '$real')"
 
+# ── E: the shipped table equals the committed clean-pull evidence ─────
+EV="${ROOT}/docs/model-pins/ollama-0.34.0"
+CHK="${ROOT}/scripts/model_pins_from_evidence.py"
+if [ ! -f "$EV/PROVENANCE.tsv" ] || [ ! -f "$CHK" ]; then
+    bad "E evidence: missing $EV/PROVENANCE.tsv or $CHK"
+else
+    eo="$(python3 -I "$CHK" --check "$EV" "$INSTALL" 2>&1)"; erc=$?
+    if [ "$erc" = 0 ] && grep -q '^examined [0-9]* evidence manifest(s) against [0-9]* install.sh row(s): PASS$' <<<"$eo" \
+       && [ "$(grep -c '^ok ' <<<"$eo")" -ge 4 ]; then
+        pass "E every pinned row equals the committed clean-pull manifest ($(tail -1 <<<"$eo"))"
+    else bad "E table vs evidence (rc $erc): $(tr '\n' ';' <<<"$eo")"; fi
+    # Mutant 1: a row edited in install.sh must fail.
+    sed 's/^    "qwen3.5:9b              2 sha256:8a/    "qwen3.5:9b              2 sha256:9a/' "$INSTALL" > "$W/inst_mut1.sh"
+    if cmp -s "$INSTALL" "$W/inst_mut1.sh"; then bad "E mutant 1 did not apply"
+    elif python3 -I "$CHK" --check "$EV" "$W/inst_mut1.sh" >/dev/null 2>&1; then bad "E mutant 1: an edited 9b row was NOT caught"
+    else pass "E mutant 1: an edited 9b row in install.sh is caught"; fi
+    # Mutant 2: one byte of an evidence manifest changed must fail.
+    cp -R "$EV" "$W/ev_mut2"; printf ' ' >> "$W/ev_mut2/qwen3.5_9b.json"
+    if python3 -I "$CHK" --check "$W/ev_mut2" "$INSTALL" >/dev/null 2>&1; then bad "E mutant 2: a changed evidence file was NOT caught"
+    else pass "E mutant 2: an evidence manifest that no longer hashes to its PROVENANCE sha is caught"; fi
+    # Mutant 3: drop the projector mediaType; the 9b and e2b rows must stop matching.
+    grep -v '^    "application/vnd.ollama.image.projector"$' "$INSTALL" > "$W/inst_mut3.sh"
+    if cmp -s "$INSTALL" "$W/inst_mut3.sh"; then bad "E mutant 3 did not apply"
+    elif python3 -I "$CHK" --check "$EV" "$W/inst_mut3.sh" >/dev/null 2>&1; then bad "E mutant 3: dropping the projector weight type was NOT caught"
+    else pass "E mutant 3: dropping the projector weight type from install.sh is caught"; fi
+fi
+
 # ── C: the real 3.9 section, end to end ──────────────────────────────
 awk '/^progress "Downloading AI models/{f=1} /^# ── 3\.10 /{f=0} f{print}' "$INSTALL" > "$W/section.sh"
 nsec="$(wc -l < "$W/section.sh" | tr -d ' ')"
