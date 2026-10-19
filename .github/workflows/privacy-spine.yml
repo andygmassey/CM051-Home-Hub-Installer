@@ -82,6 +82,11 @@ jobs:
       - name: The owner's own addresses do not become People
         if: always()
         run: python3 tests/test_owner_addresses_are_not_people.py
+      # People join fix 3: a non-mail caller of the shared correspondent sink
+      # (Google Chat Takeout) records its TRUE source, never apple_mail_fda.
+      - name: People record their true source, not Apple Mail
+        if: always()
+        run: python3 tests/test_people_source_label_is_the_true_source.py
       # DMG #27: machine senders (no-reply, calendar system, notification
       # domain, all-list mail) create no Person; a human who replied does.
       - name: Machine senders do not become People; a human who replied does
