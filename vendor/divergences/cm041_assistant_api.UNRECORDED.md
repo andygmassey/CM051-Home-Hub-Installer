@@ -1391,3 +1391,11 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour in `ical-server.py`; CM041 
 ### What a future sync must preserve
 
 `_writer_interval_s`, `local_store_stale_after_s`, `_stale_detail`, `_same_calendar_event`, `collapse_duplicate_events`, their use in `build_calendar_response` and `fetch_recent_emails`. Guarded by `vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py` (five tests under "Staleness" and "Duplicates"; four fail against the pre-change server, the fresh-store one is the negative control). Retire by landing the local-store path in CM041 (`CM041 #220` covers the dedup) and re-pinning.
+
+## An empty-but-present calendar store is no data, and one shared word is not one event (CM051, 2026-10-19, edge-case matrix)
+
+Tree `cm041/assistant_api`. Extends the section above. `read_local_calendar_events` raises `LocalStoreError` when `calendar_events.json` is present but holds no rows at all: an extractor that wrote nothing (no Full Disk Access, an empty Calendar database) read as a free day, which is a claim on no data; the brief now hears "could not be checked" (503 degraded with the reason) and a populated store with nothing today is still a 200 free day. `_same_calendar_event`'s containment rule needs two or more significant words of the shorter title inside the longer ("Budget review" in "Budget review with finance"); one shared word ("Lunch" and "Lunch with Sam") keeps both rows.
+
+### What a future sync must preserve
+
+The empty-store `LocalStoreError` in `read_local_calendar_events` and the `len(sig) >= 2` rule in `_same_calendar_event`. Guarded by `test_an_empty_but_present_store_is_no_data_not_a_free_day`, `test_a_free_day_in_a_populated_store_is_a_200_zero` and `test_a_one_word_subset_title_is_not_the_same_event` in `tests/test_brief_reads_local_stores.py`.
