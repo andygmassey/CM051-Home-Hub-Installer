@@ -73,6 +73,7 @@ on:
       # makes the workflow trigger, and a run with no path entry is a gate that
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_doctor_pro_source_rows.py'
       - 'tests/test_every_conversation_produces_all_four_artefacts.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
@@ -591,6 +592,11 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # Ostler Pro rows in the Doctor sources table: listed with a Pro badge
+      # only once shipped, entitlement from the G7 gate's --check exit code.
+      - name: Doctor lists shipped Pro sources, and only shipped ones
+        if: always()
+        run: python3 tests/test_doctor_pro_source_rows.py
       # Status-honesty sweep I1 (walk #28, privacy). The installer said three
       # folders were excluded from Time Machine after `tmutil addexclusion ...
       # 2>/dev/null || true`. Runs the real install.sh helper and call site
