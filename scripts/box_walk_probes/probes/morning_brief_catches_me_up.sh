@@ -19,10 +19,10 @@ _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 self_test() {
     if python3 "${_HERE}/lib/wow_moments.py" --self-test; then
-        probe_examined 6 "mutated captures"
+        probe_examined 8 "mutated captures"
         probe_fail "negative control behaved: every known-bad capture went red by its own assertion"
     fi
-    probe_examined 6 "mutated captures"
+    probe_examined 8 "mutated captures"
     probe_pass "SELF-TEST BROKEN: the judge let a known-bad capture through"
 }
 
