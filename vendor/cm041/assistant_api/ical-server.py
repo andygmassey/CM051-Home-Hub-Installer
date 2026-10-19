@@ -8650,9 +8650,9 @@ def _same_calendar_event(a, b):
     """Two rows for one event: same start, end and calendar, and the titles
     are two spellings of it (they share a 4+ character token with a digit,
     such as a flight number, or every significant word of the shorter title
-    is in the longer). Mini16, 2026-10-19: "<name>'s flight to London
-    Heathrow Airport XY 123" and "<name>. XY 123" reached the brief as two
-    events "with a related event at the same time"."""
+    is in the longer). Mini16, 2026-10-19: "<name>'s flight to <airport>
+    XY 123" and "<name>. XY 123" reached the brief as two events "with a
+    related event at the same time"."""
     if not a.get("start") or a.get("start") != b.get("start"):
         return False
     if (a.get("end") or "") != (b.get("end") or ""):
