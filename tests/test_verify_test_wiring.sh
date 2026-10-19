@@ -51,7 +51,7 @@ echo 'echo hi' > "$T/test_alpha.sh"
 printf 'jobs:\n  x:\n    steps:\n      - run: bash tests/test_alpha.sh\n' > "$W/ci.yml"
 run_gate --regenerate
 run_gate
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "WIRED   : 1"; then
+if [ "$RC" -eq 0 ] && grep -q "WIRED   : 1" <<< "$OUT"; then
     ok "a test named in a workflow is WIRED -> exit 0"
 else
     bad "wired test: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -64,8 +64,8 @@ fi
 echo 'echo orphan' > "$T/test_beta.sh"
 run_gate
 if [ "$RC" -eq 1 ] \
-   && printf '%s' "$OUT" | grep -q "THE UNWIRED SET GREW" \
-   && printf '%s' "$OUT" | grep -q "test_beta.sh"; then
+   && grep -q "THE UNWIRED SET GREW" <<< "$OUT" \
+   && grep -q "test_beta.sh" <<< "$OUT"; then
     ok "a NEW unwired test -> exit 1, named"
 else
     bad "new unwired test: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -76,7 +76,7 @@ fi
 # is how the PR-age rule was nearly lost.
 run_gate --regenerate
 run_gate
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "UNWIRED : 1"; then
+if [ "$RC" -eq 0 ] && grep -q "UNWIRED : 1" <<< "$OUT"; then
     ok "a RECORDED unwired test -> exit 0, but the count is printed"
 else
     bad "recorded backlog: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -89,7 +89,7 @@ echo 'echo child' > "$T/test_helper_child.sh"
 printf 'jobs:\n  x:\n    steps:\n      - run: bash tests/test_parent.sh\n' > "$W/ci.yml"
 run_gate --regenerate
 run_gate
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "WIRED   : 2"; then
+if [ "$RC" -eq 0 ] && grep -q "WIRED   : 2" <<< "$OUT"; then
     ok "a test invoked by a wired test is WIRED (transitive)"
 else
     bad "transitive: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -116,7 +116,7 @@ echo 'x' > "$T/test_delta.sh"
 printf 'jobs: {}\n' > "$W/ci.yml"
 T_SAVED="$T"; T="$WORK/cannotrun/does-not-exist"
 run_gate
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "CANNOT RUN"; then
+if [ "$RC" -eq 2 ] && grep -q "CANNOT RUN" <<< "$OUT"; then
     ok "missing tests directory -> exit 2 CANNOT RUN"
 else
     bad "missing tests dir: rc=$RC (expected 2)"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -126,7 +126,7 @@ T="$T_SAVED"
 fixture emptyscan
 printf 'jobs: {}\n' > "$W/ci.yml"
 run_gate
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "found NO test files"; then
+if [ "$RC" -eq 2 ] && grep -q "found NO test files" <<< "$OUT"; then
     ok "no test files at all (empty scan) -> exit 2, NOT a clean report"
 else
     bad "empty scan: rc=$RC (expected 2)"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -136,7 +136,7 @@ fixture nomanifest
 echo 'x' > "$T/test_eps.sh"
 printf 'jobs:\n  x:\n    steps:\n      - run: bash tests/test_eps.sh\n' > "$W/ci.yml"
 run_gate    # no --regenerate, so no manifest exists
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "no manifest"; then
+if [ "$RC" -eq 2 ] && grep -q "no manifest" <<< "$OUT"; then
     ok "manifest absent -> exit 2 CANNOT RUN (not a silent pass)"
 else
     bad "no manifest: rc=$RC (expected 2)"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -147,7 +147,7 @@ echo 'x' > "$T/test_zeta.sh"
 printf 'jobs:\n  x:\n    steps:\n      - run: bash tests/test_zeta.sh\n' > "$W/ci.yml"
 printf 'this row has no tab at all\n' > "$M"
 run_gate
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "malformed manifest row"; then
+if [ "$RC" -eq 2 ] && grep -q "malformed manifest row" <<< "$OUT"; then
     ok "malformed manifest row -> exit 2, not a guessed verdict"
 else
     bad "malformed manifest: rc=$RC (expected 2)"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -162,7 +162,7 @@ printf 'jobs:\n  x:\n    steps:\n      - run: bash tests/test_one.sh tests/test_
 run_gate --regenerate
 echo 'x' > "$T/test_two.sh"
 run_gate
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "no row in the manifest"; then
+if [ "$RC" -eq 1 ] && grep -q "no row in the manifest" <<< "$OUT"; then
     ok "a WIRED file missing from the manifest -> exit 1 (drift caught)"
 else
     bad "manifest drift: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -190,7 +190,7 @@ run_gate --regenerate          # backlog becomes 1 (test_dark_one has no starter
 
 # 8. no ceiling declared -> the skip is ANNOUNCED, not silent
 run_gate
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "not evaluated (fixture run declares no ceiling)"; then
+if [ "$RC" -eq 0 ] && grep -q "not evaluated (fixture run declares no ceiling)" <<< "$OUT"; then
     ok "a fixture with no ceiling SAYS the ratchet was not evaluated"
 else
     bad "fixture skip is silent: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -201,7 +201,7 @@ fi
 #    4 more to appear with the gate still green.
 printf '5\n' > "$T/TEST_WIRING_CEILING"
 run_gate
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "THE BACKLOG SHRANK TO 1 BUT THE CEILING STILL SAYS 5"; then
+if [ "$RC" -eq 1 ] && grep -q "THE BACKLOG SHRANK TO 1 BUT THE CEILING STILL SAYS 5" <<< "$OUT"; then
     ok "a fixture ceiling ABOVE the backlog -> exit 1, re-pin demanded"
 else
     bad "fixture ceiling too high: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
@@ -211,7 +211,7 @@ fi
 #     would both pass on a gate that simply refuses every fixture.
 printf '1\n' > "$T/TEST_WIRING_CEILING"
 run_gate
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "UNWIRED backlog: 1  (ceiling 1"; then
+if [ "$RC" -eq 0 ] && grep -q "UNWIRED backlog: 1  (ceiling 1" <<< "$OUT"; then
     ok "a fixture ceiling MATCHING the backlog -> exit 0 (the gate can say yes)"
 else
     bad "fixture ceiling match: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'

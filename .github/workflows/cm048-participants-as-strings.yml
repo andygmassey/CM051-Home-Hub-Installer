@@ -16,6 +16,7 @@ on:
       - 'vendor/cm048_pipeline/src/seed.py'
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
+      - 'tests/test_cm048_ios_unnamed_speaker_reaches_naming.py'
       - 'tests/test_cm048_gateway_extracts_owner_turns_only.py'
       - 'tests/test_cm048_third_party_facts_keep_their_subject.py'
       - 'vendor/cm048_pipeline/src/attribution.py'
@@ -61,6 +62,7 @@ on:
       - 'vendor/cm048_pipeline/src/seed.py'
       - 'vendor/cm048_pipeline/src/outstanding_todos.py'
       - 'tests/test_cm048_participants_as_strings.py'
+      - 'tests/test_cm048_ios_unnamed_speaker_reaches_naming.py'
       - 'tests/test_cm048_gateway_extracts_owner_turns_only.py'
       - 'tests/test_cm048_third_party_facts_keep_their_subject.py'
       - 'vendor/cm048_pipeline/src/attribution.py'
@@ -280,3 +282,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_handle_resolver.py -v
+      - name: An iPhone capture's unnamed speaker ("Speaker 1") reaches speaker naming; "S1" does not (CM031 #303)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_ios_unnamed_speaker_reaches_naming.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_ios_unnamed_speaker_reaches_naming.py -v
