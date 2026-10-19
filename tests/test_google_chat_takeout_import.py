@@ -46,7 +46,8 @@ OWNER = {"name": "Alex Doe", "email": "alex.doe@example.com", "user_type": "Huma
 JANE = {"name": "Jane Smith", "email": "jane.smith@example.com", "user_type": "Human"}
 JOHN = {"name": "John Jones", "email": "john.jones@example.com", "user_type": "Human"}
 MARY = {"name": "Mary Patel", "email": "mary.patel@example.com", "user_type": "Human"}
-BOT = {"name": "Acme Helper", "email": "", "user_type": "Bot"}
+# A bot WITH an address, so only the user_type guard keeps it out of People.
+BOT = {"name": "Acme Helper", "email": "helper-bot@example.com", "user_type": "Bot"}
 
 
 def _msg(creator, when, text, topic="t-solo", files=None, **extra):
