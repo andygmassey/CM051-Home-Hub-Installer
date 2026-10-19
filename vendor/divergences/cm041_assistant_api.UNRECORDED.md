@@ -1401,3 +1401,13 @@ Tree: `cm041/assistant_api`. Pin HELD; 2615d915 added to `hold_ack_shas` (grafte
 - Recorded HERE, not in the patch: `regenerate_divergence_patch.sh --write` refuses this tree because upstream still carries a phone-shaped value the vendored copy has scrubbed (minus side). Recording the patch would publish it.
 - Proof: `tests/test_cm041_conversation_process_privacy_passthrough_vendored.py` (6), ported from #221's own test with three named vendored differences (the subscription gate, the `pwg-convo --help` probe, the `PWG_CONVO_BIN` argv) and the CM051 synthetic cast. 6 pass on the graft; 5 of 6 fail on the pre-graft vendor.
 - Retire: re-pin `cm041/assistant_api` past 2615d915.
+
+## 2026-10-19 v1.0.112: conversation routes refuse path traversal (CM041 #225, e2dffc09)
+
+Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: all eight upstream hunks of e2dffc09 for this file: `_id_token`, `_SAFE_CONVERSATION_ID_RE`, `_valid_conversation_id`, the stricter `_safe_conversation_dir` (single segment, no symlink, not the root), its use in `_conversation_process_background`, `_resolve_fallback_conversation_id` and `api_conversation_status`, and the 400 on an invalid id in `api_conversation_process`.
+- Method: patch(1) at fuzz 0 failed 2 of 8 hunks on layout (the vendored file orders these functions differently), so all were applied by exact string replacement, each asserted to occur once. Diffstat +54/-14, equal to upstream's for this file.
+- Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
+- Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
+- Retire: re-pin `cm041/assistant_api` past e2dffc09.
