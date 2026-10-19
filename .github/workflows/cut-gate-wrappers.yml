@@ -60,6 +60,8 @@ on:
       - 'scripts/push_cut_tag.sh'
       - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
       - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
+      - 'scripts/verify_daemon_hold_registers_agree.py'
+      - 'tests/test_daemon_hold_registers_agree.sh'
       # Wired 2026-09-19. Row 1519 asks whether the dry run is reachable at
       # all, and said the decisive proof was to FIRE a dispatch. Arm 3 answers
       # it structurally, for free, on every PR: it walks the dry-run job's

@@ -868,6 +868,8 @@ macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_cut_dispatc
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/push_cut_tag.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_push_cut_tag_refuses_a_red_checklist.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_rehearse_tag_is_the_tag_preflight.sh
+macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/verify_daemon_hold_registers_agree.py
+macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_daemon_hold_registers_agree.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	tests/test_the_dry_run_is_reachable_on_a_dispatch.py
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/verify_cut_provenance.sh
 macos-latest	b03	cut-gate-wrappers.yml::cut-gate-wrappers	scripts/verify_no_orphaned_fixes.sh

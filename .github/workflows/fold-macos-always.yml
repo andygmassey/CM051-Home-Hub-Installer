@@ -1020,7 +1020,14 @@ jobs:
         timeout-minutes: 30
         name: ostler-import hands the owner name to the people graph; unknown format is not a failure
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
+      # INDIVIDUAL STEP (OS003 #233): every pulled Ollama model is pinned to a
+      # config digest and verified after the pull; a moved tag stops the install.
       - id: b07_s03
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: Every pulled AI model has a pinned digest and a mismatch stops the install
+        run: bash tests/test_model_digest_pins.sh
+      - id: b07_s04
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: install.sh structural + helper regression tests (m..z batch)
@@ -1091,7 +1098,7 @@ jobs:
       # below carries no verb on its own line, so a test wired only there is
       # scored DARK. Measured: adding it to that list left the gate reporting
       # DARK, and this step is what makes it WIRED.
-      - id: b07_s04
+      - id: b07_s05
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The meeting brief guard can tell its own failure from a clean result
@@ -1101,7 +1108,7 @@ jobs:
         # lifts the real block from install.sh by marker and drives all three
         # outcomes, with the pre-fix block as a mutant that must SEND.
         run: /bin/bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
-      - id: b07_s05
+      - id: b07_s06
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: B2 -- a removed Transcripts folder is reported as removed
@@ -1111,14 +1118,14 @@ jobs:
         # exactly the masking scripts/verify_ci_steps_are_maskless.py exists to
         # forbid. It caught this: 1 maskable step of 359, and it was mine.
         run: bash tests/test_spoken_transcripts_absence_discriminated.sh
-      - id: b07_s06
+      - id: b07_s07
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: v1061-D001 -- the region step must not leak a raw traceback (#622)
         # if: always() -- shares the job with the loop above; without it a red in an
         # earlier m..z test would skip this one and mask it (verify_ci_steps_are_maskless).
         run: bash tests/test_region_persist_does_not_leak_a_traceback.sh
-      - id: b07_s07
+      - id: b07_s08
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The installer downloads from the repo we publish to (#1625)
@@ -1138,20 +1145,20 @@ jobs:
       # belongs here rather than in the colima job that owns the runtime arms.
       #
       # if: always() -- same reason as the step above it.
-      - id: b07_s08
+      - id: b07_s09
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the success screen names the wiki credential
         run: bash tests/test_the_success_screen_names_the_wiki_credential.sh
       # The other half of the same credential: the customer is handed it, and
       # install.log is NOT. Its own step with an execution verb.
-      - id: b07_s09
+      - id: b07_s10
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the wiki password never reaches install.log
         run: bash tests/test_wiki_password_never_reaches_install_log.sh
       # #2364: Photos events are read on a default install; faces never are.
-      - id: b07_s10
+      - id: b07_s11
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Photos events are in the default preset
@@ -1161,7 +1168,7 @@ jobs:
       # also carries one, and an entry in the batch list above carries none.
       # Placed last so it can mask nothing; it carries `if: always()` so
       # nothing masks it.
-      - id: b07_s11
+      - id: b07_s12
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The forward calendar window survives the hourly re-run
