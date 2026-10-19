@@ -175,7 +175,7 @@ entries:
       # customer behaviour. v1.0.14 will cut from a fresh main so this
       # hold_ack becomes harmless (diverging set empty).
       hold_ack:
-        reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission."
+        reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission. (N) 2026-10-19 v1.0.110 (Archie, confirmed via the coordinator): pin hub-v0.5.22 = oa 21d5d5ad; the 15 crates/** commits after it on oa main are HELD to v1.0.111, NONE grafted: 11 Telegram WIP, 3 i18n reply-language (9ad38575 fixes that unshipped feature), d0dd918e invites API, and 884cd82a (the fallback brief words an all-day event at <date> not (all day), cosmetic, held under the F&F rule). Same adjudication as scripts/daemon_hold_ack.tsv row 21d5d5ad. Re-pin to hub >= 0.5.23 at v1.0.111 retires these 15."
         shas:
           - cf82dab8ef  # fix(doctor): clippy field_reassign_with_default in probe-path tests (#173)
           - ab20c46333  # style: cargo fmt (wrap long closure in doctor no-routes test)
@@ -200,6 +200,21 @@ entries:
           - aa6f34890d  # fix(ci): correct doc list-item indentation
           - 2943840b04  # fix(ci): apply cargo fmt to clear Quality Gate lint failures
           - 66975b1472  # feat(settings): user-configurable daily-brief schedule (morning + evening)
+          - 884cd82af1  # v1.0.110 hold: fix(brief): an all-day event reads "(all day)", not "at 2026-10-18"
+          - d223bec03e  # v1.0.110 hold: feat(i18n): reply in the language the owner writes in, on every channe
+          - 9ad3857564  # v1.0.110 hold: fix(i18n): a name particle no longer switches the reply language
+          - 2fec84f391  # v1.0.110 hold: wip(telegram): owner-only validation, token secret file, status file
+          - ec090e78ed  # v1.0.110 hold: wip(telegram): wire owner-only into orchestrator, reactions via add_re
+          - 809983e380  # v1.0.110 hold: test(telegram): owner-only unit tests + fake Bot API e2e
+          - 88248cd02f  # v1.0.110 hold: test(telegram): Doctor contract fixture
+          - 471efec9a0  # v1.0.110 hold: test(telegram): e2e fake API answers GET getMe; strip dev proxy
+          - f5134209a3  # v1.0.110 hold: style(telegram): rustfmt
+          - ec74bdf29f  # v1.0.110 hold: style(telegram): rustfmt telegram.rs
+          - 8aa22d33a4  # v1.0.110 hold: test(telegram): clippy, tokio Mutex for the env lock, drop unused impo
+          - c027dabffb  # v1.0.110 hold: test(telegram): RED tests for userinfo host, off status, daemon pid (A
+          - 68dddfcc59  # v1.0.110 hold: fix(telegram): URL-parsed loopback check refuses userinfo; status carr
+          - 4a919f8015  # v1.0.110 hold: style(telegram): rustfmt
+          - d0dd918e4e  # v1.0.110 hold: feat(gateway): POST /api/v1/invites/{mint,rewards}, the Hub adds the l
           # ---- v1.0.49 addition (2026-08-28, Archie). TWO crates/ commits
           # landed on oa/main DURING the v1.0.49 cut and staled the pin. The
           # first was 3464215b at 03:26:02Z.
