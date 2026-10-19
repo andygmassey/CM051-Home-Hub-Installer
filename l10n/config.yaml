@@ -2,7 +2,7 @@
 # English is the source of truth; every catalogue here falls back to English
 # at run time, so a missing translation never blocks a PR or a cut.
 
-languages: [de, fr, es, it, nl, pt-BR, ja, ko, zh-Hans, zh-Hant, zh-HK, ar]
+languages: [de, fr, es, it, nl, pt-BR, pt-PT, ja, ko, zh-Hans, zh-Hant, zh-HK, ar]
 
 # Chinese in traditional script for Taiwan (zh-Hant) is ADAPTED from the reviewed zh-HK set, not
 # translated from scratch; a missing or stale HK string is translated fresh.

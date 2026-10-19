@@ -485,8 +485,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "Transcripties van gesprekken en vergaderingen instellen",
-    "subtitle": "Jij bepaalt altijd of er getranscribeerd wordt",
-    "why": "Dit installeert de app die je gesprekken en vergaderingen op deze Mac kan transcriberen. Er wordt niets getranscribeerd totdat je het zelf start, en de transcriptie gebeurt lokaal.",
+    "subtitle": "Opnemen is altijd jouw keuze",
+    "why": "Dit installeert de app die je gesprekken en vergaderingen op deze Mac kan opnemen en transcriberen. Er wordt niets opgenomen totdat je het zelf start, en de transcriptie gebeurt lokaal.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,

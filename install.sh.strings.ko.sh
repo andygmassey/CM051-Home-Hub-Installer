@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  %s에 복제했습니다."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture는 Apple 실리콘 전용입니다. 이 Mac에서는 설치를 건너뜁니다."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture 로그: %s/ostler-remotecapture.log (및 .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="이전 설치에서 Ostler RemoteCapture가 로그인 시 시작되도록 설정되어 있었습니다. 이를 중지했으며 다시 시작되지 않습니다."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture가 설치되지 않았습니다. 음성 받아쓰기를 끈 상태로 두기로 선택하셨습니다. 마음이 바뀌면 설정에서 켠 다음 설치 프로그램을 다시 실행하세요."
+MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture가 설치되지 않았습니다. 음성 텍스트 변환을 끈 상태로 두기로 선택하셨습니다. 마음이 바뀌면 설정에서 켠 다음 설치 프로그램을 다시 실행하세요."
 MSG_INFO_CM042_TCC_PRE_PROMPT="처음 실행하면 Ostler RemoteCapture가 macOS에 화면 기록 및 마이크 권한을 요청합니다. 통화와 회의를 이 Mac에서 텍스트로 변환할 수 있도록 두 가지 모두 허용하세요. 메뉴 막대에 보라색 기록 표시는 나타나지 않습니다. 오디오 캡처는 의도적으로 조용히 이루어집니다."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="처음 실행하면 Ostler RemoteCapture가 macOS
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler는 개인 위키와 대화 기록을 이 Mac의 Documents/Ostler에 저장합니다. 이 파일은 사용자의 것이며 이 기기에만 보관됩니다. 파일을 쓰려면 Ostler가 문서 폴더에 접근해야 하므로 설정 중에, 그리고 오늘 나중에 Ostler가 위키를 처음 정리할 때 macOS가 다시 허용을 요청할 수 있습니다. 요청은 Ostler가 파일을 쓰는 데 사용하는 번들 도우미인 python3.11에서 온 것으로 표시될 수 있습니다. 요청이 나타나면 항상 허용을 클릭해 주세요. 놓치거나 허용하지 않은 경우에도 시스템 설정의 개인정보 보호 및 보안, 파일 및 폴더에서 언제든 켤 수 있으며, 그 후부터 위키와 대화 기록이 저장됩니다."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler는 개인 위키와 대화 기록을 이 Mac의 Documents/Ostler에 저장합니다. 이 파일은 사용자의 것이며 이 기기에만 보관됩니다. 파일을 쓰려면 Ostler가 문서 폴더에 접근해야 하므로 설정 중에 macOS가 허용을 요청할 수 있으며, 오늘 나중에 Ostler가 위키를 처음 정리할 때 다시 요청할 수 있습니다. 요청은 Ostler가 파일을 쓰는 데 사용하는 번들 도우미인 python3.11에서 온 것으로 표시될 수 있습니다. 요청이 나타나면 항상 허용을 클릭해 주세요. 놓치거나 허용하지 않은 경우에도 시스템 설정의 개인정보 보호 및 보안, 파일 및 폴더에서 언제든 켤 수 있으며, 그 후부터 위키와 대화 기록이 저장됩니다."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  대화 메모리 엔진이 venv에 설치되었습니다."
 MSG_INFO_HUB_APP_VERIFYING="%s의 Ostler.app 확인 중"
 MSG_INFO_HUB_APP_STAGING="%s에서 Ostler.app을 /Applications로 준비하는 중"
@@ -268,7 +268,7 @@ MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP="다운로드, 데스크탑 또
 MSG_WARN_FOLDER_ACCESS_DENIED_SCAN="데이터 내보내기 파일을 찾기 위해 %s을(를) 읽을 수 없습니다. macOS에서 해당 폴더에 대한 접근을 차단하고 있습니다."
 MSG_INFO_FOLDER_ACCESS_DENIED_GUIDANCE="시스템 설정 > 개인정보 보호 및 보안 > 파일 및 폴더(또는 전체 디스크 접근 권한)에서 접근을 허용한 후 다시 실행하거나, 아래에서 내보내기 폴더를 Ostler에 직접 지정하세요."
 MSG_INFO_GDPR_SCAN_BLOCKED_BY_PERMISSIONS="macOS에서 접근을 차단하여 데이터 내보내기 파일을 찾기 위한 폴더를 하나 이상 검색하지 못했습니다. 접근을 허용한 후 다시 실행하거나, 내보내기 폴더를 직접 지정해 주세요."
-MSG_INFO_OPENING_CHROME_WEB_STORE="Chrome 웹 스토어 열기: %s"
+MSG_INFO_OPENING_CHROME_WEB_STORE="Chrome 웹 스토어 여는 중: %s"
 MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING="ostler-assistant 바이너리가 설치되지 않아 doctor 점검을 건너뜁니다"
 MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY="ostler-assistant doctor: 보류됨 (데몬이 아직"
 MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="이 DMG에 포함된 ostler-assistant 바이너리를 사용합니다 (오프라인 설치 경로)."
@@ -282,7 +282,7 @@ MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB="  소스 저장소를 변경하려�
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  소스 저장소를 변경하려면: PWG_KNOWLEDGE_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE="  소스 저장소를 변경하려면: PWG_PIPELINE_REPO=<url> ./install.sh"
 MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and region..."
-MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="3단계 배터리 감시기가 작동 중입니다 (PID %s)"
+MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="3단계: 배터리 감시기가 활성화되었습니다 (PID %s)"
 MSG_INFO_PLEASE_WAIT_READING_CONTACTS="주소록을 읽는 중입니다 (라이브러리가 크면 몇 분 걸릴 수 있습니다 – 설치 프로그램을 닫지 마세요)..."
 MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="정책 변경: ~/.ostler/power.conf를 편집하세요 (normal / aggressive / eco)"
 MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY="iMessage 자동화 권한을 확인하는 중 (읽기 전용)..."
@@ -427,7 +427,7 @@ MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="이전 버전이 남긴 오래된 Colim
 MSG_OK_CONFIG_SAVED_ENV="설정을 %s/.env에 저장했습니다"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
 MSG_OK_AT_REST_EXCLUDED="Spotlight와 Time Machine에서 제외됨(확인 완료): %s"
-MSG_WARN_AT_REST_NOT_EXCLUDED="%s은(는) Time Machine 또는 Spotlight에서 제외되지 않았습니다: %s. Ostler의 비밀 정보를 포함한 내용이 백업 디스크에 복사될 수 있습니다. 문제가 해결될 때까지 Doctor에 계속 표시됩니다."
+MSG_WARN_AT_REST_NOT_EXCLUDED="%s은(는) Time Machine 또는 Spotlight에서 제외되지 '않았습니다': %s. Ostler의 비밀 정보를 포함한 내용이 백업 디스크에 복사될 수 있습니다. 문제가 해결될 때까지 Doctor에 계속 표시됩니다."
 MSG_INFO_AT_REST_FOLDER_ABSENT="%s이(가) 아직 없으므로 백업에서 제외할 항목이 없습니다."
 MSG_WARN_DB_KEY_NOT_EXCLUDED="데이터베이스 키 파일 %s이(가) Time Machine에서 제외되지 않아 백업 디스크에 복사될 수 있습니다."
 MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="백그라운드 보강 선택을 ~/.ostler/posture/에 저장하지 못했습니다. 선택 사항은 이 설치에 계속 적용되며, 지원 보고서에만 표시되지 않습니다."
@@ -641,7 +641,7 @@ MSG_INFO_WIKI_PASSWORD_ON_DISK="비밀번호는 %s에도 보관되어 있으므�
 MSG_INFO_WIKI_STILL_BUILDING="아직 빌드 중입니다. 페이지 %s개가 이미 디스크에 있으며, 위키 주소의 마지막 응답은 HTTP %s였습니다. 완료되면 Ostler 앱에 자동으로 나타납니다. 따로 하실 일은 없습니다."
 MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="첫 빌드에서 아직 생성된 페이지가 없습니다(위의 경고 참조). 빌드가 끝나면 위키는 Ostler 앱에서 열리며, 위의 로그인 정보는 그대로 사용하실 수 있습니다."
 MSG_INFO_WIKI_READINESS_NOT_MEASURED="이번 실행에서는 위키가 아직 서비스 중인지 확인하지 않았으므로 어느 쪽으로도 단정하지 않습니다. 위키는 어떤 경우에도 Ostler 앱에서 열리며, 위의 로그인 정보는 그대로 사용하실 수 있습니다."
-MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="이 Mac을 소유한 Tailscale 계정을 확인할 수 없어 위키를 tailnet에 공개하지 않았습니다. 위키는 이 Mac의 Ostler 앱 > 위키에서 계속 사용하실 수 있습니다."
+MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="이 Mac을 소유한 Tailscale 계정을 확인할 수 없어 위키를 tailnet에 공개하지 **않았습니다**. 위키는 이 Mac의 Ostler 앱 > 위키에서 계속 사용하실 수 있습니다."
 MSG_WARN_WIKI_TAILNET_SERVE_FAILED="위키를 tailnet에 게시할 수 없었습니다. 위키는 이 Mac의 Ostler 앱 > 위키에서 계속 사용하실 수 있습니다."
 MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="위키 접근 게이트를 다시 불러올 수 없어 위키를 tailnet에 공개하지 않았습니다."
 MSG_WARN_WIKI_TAILNET_FUNNEL_ON="%s에서 Tailscale Funnel이 켜져 있습니다. Funnel은 공개 인터넷에 게시합니다. Ostler는 Funnel을 켜지 않으며 위키도 Funnel 트래픽을 거부하므로 Ostler의 어떤 것도 공개되지 않습니다. 다만 의도하지 않으셨다면 이 기기의 Tailscale 관리 콘솔에서 끄세요."
@@ -682,7 +682,7 @@ MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED="위키를 둘러볼 준비가 되었
 MSG_OK_YOUR_ASSISTANT_CALLED="어시스턴트 이름은 %s입니다"
 
 # ── Personal-context digest refresh (#608) ──
-MSG_OK_CONTEXT_REFRESH_SCRIPTS_BUNDLED="설치 프로그램에 포함된 개인 컨텍스트 요약 스크립트"
+MSG_OK_CONTEXT_REFRESH_SCRIPTS_BUNDLED="개인 컨텍스트 요약 스크립트가 설치 프로그램에 포함되어 있습니다"
 MSG_OK_CONTEXT_REFRESH_LAUNCHAGENT_LOADED="개인 컨텍스트 요약 LaunchAgent를 불러왔습니다(레이블 com.creativemachines.ostler.context-refresh)"
 MSG_INFO_CONTEXT_REFRESH_LOGS="  로그: %s/context-refresh.log + .err"
 MSG_INFO_REUSING_EXISTING_CONTEXT_REFRESH="%s에 있는 기존 context-refresh 설치를 재사용합니다"
@@ -705,8 +705,8 @@ MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  대화 보강 기
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="대화 메모리 엔진 설치에 실패했습니다(clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  확인한 경로: %s/cm048_pipeline/pyproject.toml"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE="  설치 프로그램 .app이 다음 항목 없이 빌드되었을 수 있습니다:"
-MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2="  Contents/Resources/에 포함되어야 하는"
-MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3="  vendored cm048_pipeline 패키지입니다. 설치 프로그램을 다시 다운로드하거나"
+MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2="  번들에 포함된 vendored cm048_pipeline 패키지 없이 빌드되었음을 의미합니다(위치:"
+MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/). 설치 프로그램을 다시 다운로드하거나"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_4="  개발/CI 설치라면 --allow-plaintext로 다시 실행하세요."
 MSG_WARN_CM048_PIPELINE_NOT_FOUND="대화 메모리 엔진을 찾을 수 없습니다. 이 엔진 없이는 대화 보강을 실행할 수 없습니다."
 MSG_WARN_CM048_PIPELINE_SKIPPED_ALLOW_PLAINTEXT="대화 메모리 엔진 설정을 건너뛰었습니다(--allow-plaintext)."
@@ -772,7 +772,7 @@ MSG_WARN_EARLY_MARKERS_CHANNELS_STILL_CONNECTING_APPLE="  초기 표시 (채널�
 MSG_WARN_EMAIL_INGEST_LAUNCHAGENT_INSTALL_FAILED_SEE="이메일 수집 LaunchAgent 설치에 실패했습니다. 위의 출력을 확인하세요."
 MSG_WARN_IMESSAGE_BRIDGE_FAILED="iMessage 브리지 LaunchAgent 설치에 실패했습니다. 설치 프로그램을 다시 실행하거나 INSTALL_SNIPPET.sh를 직접 실행하기 전까지 어시스턴트 사용자의 iMessage 답장이 작동하지 않습니다."
 MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="iMessage 브리지 스크립트가 포함되지 않았고 --allow-plaintext가 지정되어 LaunchAgent 설치를 건너뜁니다. 어시스턴트 사용자의 iMessage 답장이 작동하지 않습니다."
-MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="암호화가 작동하지 않습니다."
+MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="암호화가 작동하지 않게 됩니다."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="암호화가 작동하지 않으며,"
 MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="고정된 PWG_KNOWLEDGE_REPO 태그에 포함되어 있는지 확인하세요."
 MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  메시지 앱의 이벤트 권한)."
@@ -783,7 +783,7 @@ MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3="가장 가능성이 높은 원인: 빌�
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="FDA 추출 모듈이 포함되어 있지 않습니다. --allow-plaintext가 지정되어 계속 진행하며, 즉시 데이터 추출은 건너뜁니다."
 MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="데이터 추출 모듈은 디스크에 있지만 종속 항목이 설치되지 않아 불러올 수 없습니다:"
 MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="--allow-plaintext가 지정되어 계속 진행하지만, 예약된 데이터 새로고침은 실행할 때마다 실패합니다."
-MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault가 켜져 있지 않습니다."
+MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault가 켜져 있지 *않습니다*."
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="지금은 첫 달 무료를 활성화할 수 없습니다. 설치는 계속됩니다. 페어링한 후 iPhone의 Ostler 앱을 열어 해결하세요."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="터미널에 전체 디스크 접근 권한이 부여되지 않았습니다."
 MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="RAM %s GB가 감지되었습니다. 컴팩트 어시스턴트(gemma4:e2b)를 사용하게 됩니다. 안정적이고 정확하며, 짧은 질문에는 1초 이내로 답하고, 도구 호출을 지원하며, 모를 때는 솔직하게 '모르겠습니다'라고 말합니다. 긴 질문에 더 풍부한 답변을 원하면 24 GB 이상에서 표준 어시스턴트(qwen3.5:9b)를 사용할 수 있습니다. 나중에 다시 설치하여 Mac을 바꿀 수 있습니다."
@@ -821,7 +821,7 @@ MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="가져오기 파이프�
 MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="가져오기 파이프라인이 설치 프로그램에 포함되어 있지 않습니다. 이는 제품용 설치 경로이며, contact_syncer Python 패키지가 .app 번들 안에 포함되어야 합니다."
 MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY="INBOX를 선택하면 수신하는 모든 이메일을 어시스턴트가 읽게 됩니다."
 MSG_WARN_INSUFFICIENT_DISK_WIKI_OUTPUT_VOLUME="  - 위키 출력 볼륨에 필요한 디스크 공간이 부족합니다"
-MSG_WARN_INTEL_MAC_DETECTED_PERFORMANCE_WILL_LIMITED="Intel Mac이 감지되었습니다. 성능이 제한됩니다. Apple Silicon을 권장합니다."
+MSG_WARN_INTEL_MAC_DETECTED_PERFORMANCE_WILL_LIMITED="Intel Mac이 감지되었습니다. 성능이 제한될 수 있으며, Apple Silicon을 권장합니다."
 MSG_WARN_IS_CLOUD_PROVIDER_HOST="%s은(는) 클라우드 제공업체 호스트입니다."
 MSG_WARN_JWT_SECRET_BANLIST_REGENERATING_KEEP_CM019="%s의 JWT_SECRET이 금지 목록에 있습니다. 지식 그래프 서비스를 불러올 수 있도록 다시 생성합니다"
 MSG_WARN_JWT_SECRET_TOO_SHORT_CHARS_REGENERATING="%s의 JWT_SECRET이 너무 짧습니다(%s < %s자). 다시 생성합니다"
@@ -837,7 +837,7 @@ MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP="  수동 재시도: cd %s && docker 
 MSG_WARN_MANUAL_RETRY_ONCE_CAUSE_RESOLVED="  원인을 해결한 후 수동으로 재시도:"
 MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP="Apple Mail과 사용자 지정 IMAP 모두 선택되지 않아 Apple Mail을 기본값으로 사용합니다."
 MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="패스키가 설정되지 않았습니다. 데이터베이스가 암호화되지 않습니다."
-MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1="이전 설치에서 복구 키를 생성했지만 설치가 완료되지 않아 키가 표시되지 않았습니다. 복구 키는 어디에도 저장되지 않으므로, 여기서도 다시 확인할 수 없습니다."
+MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1="이전 설치에서 복구 키를 생성했지만 설치가 완료되지 않아 키가 표시되지 않았습니다. 복구 키는 여기를 포함해 어디에도 저장되지 않으므로 다시 가져올 수 없습니다."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_2="암호는 계속 사용할 수 있으며 현재 잠긴 항목은 없습니다. 하지만 암호를 잊어버리면 다시 접근할 방법이 없습니다."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="보안을 새로 설정하려면 지원팀에 문의하세요. 새 설정 시 보관할 새 복구 키가 표시됩니다."
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="암호가 일치하지 않습니다. 다시 시도하세요."
@@ -851,8 +851,7 @@ MSG_WARN_OLLAMA_PULL_FAILED_ATTEMPT_3_RETRYING="ollama pull %s 실패 (시도 %s
 MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST="여유 공간이 %s GB뿐입니다. 최소 35 GB를 권장합니다 (Docker 이미지 + AI 모델 + 데이터)."
 MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP="배터리 사용 중에는 Hub 전원 LaunchAgent(3.14단계)가 일시 중지될 수 있습니다"
 MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="또는 설치 프로그램을 다시 실행하여 다른 채널을 선택하세요."
-# NEEDS REVIEW: Source is a fragment continuing on the next line ("once the ..."); Korean word order cannot follow the split. A human should check how it joins with the followi
-MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="또는 Phase B의 릴리스 파이프라인보다 앞서 실행 중입니다. 다음이 준비되면 설치 프로그램을 다시 실행하세요."
+MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="또는 Phase B의 릴리스 파이프라인보다 앞서 실행 중입니다. 다음 릴리스가 제공되면 설치 프로그램을 다시 실행하세요."
 MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor에서 오류 %s개를 보고했습니다."
 
 # The whole-run closing verdict (#270, step-failure line added #616).
@@ -1096,7 +1095,7 @@ MSG_CONFIRM_CALENDARS_REVIEW_INTRO="브리핑에서 누구의 여행인지 헷�
 MSG_CONFIRM_CALENDARS_SET_ASIDE_HEADING="자동으로 제외되어 브리핑에 사용되지 않음:"
 MSG_CONFIRM_CALENDAR_ROW="%s: %s, %s (%s)"
 MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW="%s: %s (%s)"
-MSG_CONFIRM_CALENDAR_OWNER_YOU="내 캘린더"
+MSG_CONFIRM_CALENDAR_OWNER_YOU="나"
 MSG_CONFIRM_CALENDAR_EVENTS_ONE="일정 %s개"
 MSG_CONFIRM_CALENDAR_EVENTS_MANY="일정 %s개"
 MSG_CONFIRM_CALENDAR_KIND_HOLIDAY="공휴일"
@@ -1133,7 +1132,7 @@ MSG_PROMPT_TZ_CONFIRM_TITLE="이 시간대를 사용할까요?"
 MSG_PROMPT_TZ_CONFIRM_HELP="감지된 시간대: %s"
 MSG_PROMPT_USER_TZ_TITLE="시간대를 입력하세요(예: Europe/London, Asia/Hong_Kong)"
 
-MSG_PROMPT_ASSISTANT_NAME_TITLE="어시스턴트를 뭐라고 부르시겠어요?"
+MSG_PROMPT_ASSISTANT_NAME_TITLE="어시스턴트의 이름을 무엇으로 하시겠습니까?"
 MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="입력란의 이름은 무작위 추천입니다. 원하는 이름으로 자유롭게 바꿔 입력하세요. Marvin, Samantha, Joshua, Friday, Athena, Sage, Rosie가 인기 있는 이름입니다." # assistant-name-exempt: F6.1 suggestion-pool exemplar
 MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="원하는 이름을 자유롭게 입력하세요. 추천 이름은 시작점일 뿐입니다."
 
@@ -1275,10 +1274,10 @@ MSG_PROMPT_EXPORTS_ACK_HELP="Ostler는 약 20개 플랫폼에서 가져올 수 �
 
 사용하지 않는 항목은 건너뛰세요. 나중에 언제든 더 가져올 수 있습니다."
 
-MSG_PROMPT_FILEVAULT_SKIP_TITLE="디스크를 암호화하지 않은 상태로 계속하시겠습니까?"
-MSG_PROMPT_FILEVAULT_SKIP_HELP="이 Mac에서는 FileVault가 꺼져 있어 디스크가 암호화되어 있지 않습니다.
+MSG_PROMPT_FILEVAULT_SKIP_TITLE="저장된 디스크를 암호화하지 않은 상태로 계속하시겠습니까?"
+MSG_PROMPT_FILEVAULT_SKIP_HELP="이 Mac에서는 FileVault가 꺼져 있어 저장된 디스크가 암호화되어 있지 않습니다.
 
-계속할 경우: Ostler가 저장하는 모든 것, 즉 ~/Documents/Ostler 아래의 개인 그래프 전체(위키, 대화, 지식 노트)와 ~/.ostler 아래의 서비스 비밀 정보 및 데이터베이스가 암호화되지 않은 상태로 디스크에 기록됩니다. 이 드라이브로 부팅하거나, 드라이브를 분리하거나, 잠금 해제된 세션에 접근할 수 있는 사람은 누구나 모든 내용을 읽을 수 있습니다. Ostler는 가장 민감한 데이터베이스를 항상 암호문으로 암호화하지만, 나머지 데이터는 디스크 자체만큼만 보호됩니다.
+계속할 경우: Ostler가 저장하는 모든 것, 즉 ~/Documents/Ostler 아래의 개인 그래프 전체(위키, 대화, 지식 노트)와 ~/.ostler 아래의 서비스 비밀 정보 및 데이터베이스가 암호화되지 않은 상태로 디스크에 기록됩니다. 이 드라이브로 부팅하거나, 드라이브를 분리하거나, 잠금 해제된 세션에 접근할 수 있는 사람은 누구나 모든 내용을 읽을 수 있습니다. Ostler는 가장 민감한 데이터베이스를 어떤 경우에도 암호문(패스프레이즈)으로 암호화하지만, 나머지 데이터는 디스크 자체만큼만 보호됩니다.
 
 FileVault 사용을 강력히 권장합니다. 시스템 설정 > 개인정보 보호 및 보안 > FileVault에서 언제든지 켤 수 있으며, 다시 설치하지 않아도 백그라운드에서 암호화됩니다.
 
@@ -1653,9 +1652,9 @@ MSG_HYDRATE_PREFERENCES_ENRICHED="그중 %s개를 공개 참조 데이터로 보
 # when preferences landed but none carry a headline category, or when a
 # large share carry no category at all -- so the operator sees it at
 # install time rather than discovering empty wiki pages later. Counts only.
-MSG_WARN_PREFS_NO_HEADLINE_CATEGORIES="환경설정 %s개를 가져왔지만 음식, 음악, 직업 분류에 들어간 항목이 없습니다. 음식 및 음악 위키 페이지가 비어 있게 됩니다."
+MSG_WARN_PREFS_NO_HEADLINE_CATEGORIES="환경설정 %s개를 가져왔지만 음식, 음악, 업무 분류에 들어간 항목이 없습니다. 음식 및 음악 위키 페이지가 비어 있게 됩니다."
 MSG_WARN_PREFS_HEADLINE_HINT="음악/음식 내보내기 파일(Spotify, Apple Music, Uber Eats, Google Takeout)이 없었거나 데이터가 분류되지 않았을 가능성이 큽니다. 해당 내보내기 파일을 추가하고 설정에서 다시 실행한 다음 위키를 다시 빌드하세요."
-MSG_WARN_PREFS_UNCATEGORISED="환경설정 %s개(전체 %s개 중 %s%%)에 카테고리가 없어 어떤 주제 페이지에도 표시되지 않습니다. 원본 내보내기 형식을 확인하세요."
+MSG_WARN_PREFS_UNCATEGORISED="환경설정 %s개(전체 %s개 중)에 카테고리가 없어(%s%%) 어떤 주제 페이지에도 표시되지 않습니다. 원본 내보내기 형식을 확인하세요."
 
 # Preference enrichment pipeline setup (CM019, own venv at
 # ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.

@@ -34,7 +34,7 @@
 # ── Step (top-level phase) banners ──
 
 MSG_STEP_CHECKING_PREREQUISITES="Voraussetzungen werden geprüft"
-MSG_STEP_RUNNING_HEALTH_CHECK="Integritätsprüfung läuft"
+MSG_STEP_RUNNING_HEALTH_CHECK="Systemprüfung läuft"
 # F2: the end-of-install step that holds the Tailscale browser sign-in.
 MSG_STEP_TAILSCALE_SIGNIN="iPhone und Watch verbinden"
 # NEEDS REVIEW: en-GB header asks for human translation of this key
@@ -146,11 +146,11 @@ MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS fragt möglicherweise um Erlaubnis, 
 MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS fragt um Erlaubnis für Downloads. Klicke auf „OK“."
 MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS fragt um Erlaubnis für den Schreibtisch. Klicke auf „OK“."
 MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS fragt um Erlaubnis für Dokumente. Klicke auf „OK“."
-MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Festplattenvollzugriff erteilt. Die nächste macOS-Abfrage (Automation für Nachrichten) wird vorbereitet..."
+MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Festplattenvollzugriff erteilt. Die nächste macOS-Abfrage (Automatisierung für Nachrichten) wird vorbereitet..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
 # and Ostler asks again later, so this is a "not yet", not a failure.
-MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="Die Abfrage zur Nachrichten-Berechtigung wurde nicht beantwortet, deshalb haben wir weitergemacht. Deine Nachrichten werden erst gelesen, wenn sie erlaubt ist. Ostler fragt später erneut, oder du erteilst sie in Systemeinstellungen > Datenschutz & Sicherheit > Automation."
+MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="Die Abfrage zur Nachrichten-Berechtigung wurde nicht beantwortet, deshalb haben wir weitergemacht. Deine Nachrichten werden erst gelesen, wenn sie erlaubt ist. Ostler fragt später erneut, oder du erteilst sie in Systemeinstellungen > Datenschutz & Sicherheit > Automatisierung."
 MSG_INFO_GIT_CLONE="  git clone %s %s"
 MSG_INFO_GIT_CLONE_2="  git clone %s %s"
 MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"
@@ -355,7 +355,7 @@ MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE="Vane antwortet nicht (optional;
 MSG_INFO_VIEW_ANY_TIME_WITH_BASH_INSTALL="Jederzeit anzeigen mit: bash install.sh --licenses"
 MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU="Die Spracherkennung bleibt ausgeschaltet. Du kannst sie später in den Einstellungen aktivieren."
 MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3="Warte darauf, dass du dich bei Tailscale anmeldest (bis zu 3 Minuten)..."
-MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Der Tailscale-Fernzugriff wurde nicht eingerichtet. Die Ostler app auf deinem iPhone funktioniert in deinem WLAN zu Hause; den Fernzugriff kannst du später in den Einstellungen einrichten."
+MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Der Tailscale-Fernzugriff wurde nicht eingerichtet. Die Ostler-App auf deinem iPhone funktioniert in deinem WLAN zu Hause; den Fernzugriff kannst du später in den Einstellungen einrichten."
 MSG_INFO_TAILSCALE_ALREADY_CONFIGURED="Dieser Mac ist bereits mit deinem Tailscale-Netzwerk verbunden, also gibt es nichts einzurichten. Deine bestehende Verbindung bleibt erhalten."
 MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP="Fernzugriff: Deine Antwort vom letzten Mal (überspringen) wird beibehalten. Deine iOS-App funktioniert in deinem WLAN zu Hause, und den Fernzugriff kannst du später in den Einstellungen einrichten."
 MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP="Fernzugriff: Deine Antwort vom letzten Mal (einrichten) wird beibehalten."
@@ -546,7 +546,7 @@ MSG_INFO_CM048_SETTINGS_KEPT="  Deine bestehenden Unterhaltungseinstellungen (%s
 MSG_OK_KNOWLEDGE_SERVICE_READY="Wissensdienst bereit: %s"
 MSG_OK_LICENCE_TEXTS_INSTALLED_SOURCE="Lizenztexte installiert unter %s/ (Quelle: %s)"
 MSG_OK_MACOS_DETECTED="macOS %s erkannt"
-MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS="Systemeinstellungen > Internetaccounts wird geöffnet, damit du ein E-Mail-Konto hinzufügen kannst. Kehre zu diesem Fenster zurück, sobald du dich bei deinem ersten Konto angemeldet hast."
+MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS="„Systemeinstellungen“ > „Internetaccounts“ wird geöffnet, damit du ein E-Mail-Konto hinzufügen kannst. Kehre zu diesem Fenster zurück, sobald du dich bei deinem ersten Konto angemeldet hast."
 MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS="Der Schritt „Internetaccounts“ wird übersprungen. Du kannst später in den Systemeinstellungen ein E-Mail-Konto hinzufügen. Doctor weist dich darauf hin, falls innerhalb von 24 Stunden keine E-Mails eintreffen."
 MSG_OK_MAIL_EXTENDING_FULL_HISTORY="Dein gesamter Apple Mail-Verlauf wird jetzt abgerufen. Bei einem großen Postfach kann das etwas länger dauern."
 MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY="Das übliche E-Mail-Zeitfenster von fünf Jahren bleibt bestehen. Mehr kannst du später über Doctor abrufen."
@@ -748,7 +748,7 @@ MSG_WARN_COULD_NOT_OBTAIN_HUB_POWER_SCRIPTS="Die hub-power-Skripte konnten nicht
 MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="Die wiki-recompile-Skripte konnten nicht bereitgestellt werden (gebündelt und geklont fehlgeschlagen)."
 MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="Die URL des Chrome Web Store konnte nicht automatisch geöffnet werden: %s"
 MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="region.json konnte nicht gespeichert werden (wird fortgesetzt, Doctor weist darauf hin)"
-MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Es konnte nicht vermerkt werden, dass der Wiederherstellungsschlüssel übergeben wurde. Die Zusammenfassung dieses Durchlaufs ist weiterhin korrekt, aber ein späterer Durchlauf kann das eventuell nicht erkennen und erneut warnen – in diesem Fehlerfall ist das die sichere Variante."
+MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Es konnte nicht vermerkt werden, dass der Wiederherstellungsschlüssel zugestellt wurde. Die Zusammenfassung dieses Durchlaufs ist weiterhin korrekt, aber ein späterer Durchlauf kann das eventuell nicht erkennen und erneut warnen – in diesem Fehlerfall ist das die sichere Variante."
 MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Im Schlüsselbund konnte nicht gespeichert werden. Bitte schreibe ihn auf."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Ollama konnte nicht automatisch gestartet werden."
 MSG_FAIL_OLLAMA_PORT_IN_USE="Ein anderes Programm verwendet bereits Port 11434, den Ostler für seine lokale KI braucht. Ostler konnte seine eigene Kopie nicht starten, daher wurde die Installation hier angehalten, statt nur halb abgeschlossen zu werden.
@@ -779,7 +779,7 @@ MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Die iMessage-Bridge-Skri
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="Die Verschlüsselung funktioniert nicht."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="Die Verschlüsselung funktioniert nicht, und"
 MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="Stelle sicher, dass das festgelegte Tag von PWG_KNOWLEDGE_REPO ihn enthält."
-MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Automation-Berechtigung für die App „Nachrichten“)."
+MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Apple Events-Berechtigung für die App „Nachrichten“)."
 MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="Der FDA-Extraktor wurde mit einem Wert ungleich null beendet (%s). Letzte 20 Zeilen der Ausgabe:"
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="Das FDA-Extraktionsmodul ist nicht in diesem Installer enthalten."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="Erwartet unter: Contents/Resources/ostler_fda/ (innerhalb der .app)."
@@ -788,7 +788,7 @@ MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="Das FDA-Extraktionsmodul ist nicht en
 MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="Das Datenextraktionsmodul liegt auf dem Datenträger, aber seine Abhängigkeiten wurden nicht installiert, daher kann es nicht geladen werden:"
 MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Es geht weiter, weil --allow-plaintext übergeben wurde – die geplante Datenaktualisierung schlägt bei jedem Durchlauf fehl."
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault ist NICHT aktiviert."
-MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Der erste kostenlose Monat konnte gerade nicht aktiviert werden. Die Installation wird fortgesetzt. Öffne nach dem Koppeln die Ostler app auf deinem iPhone, um das zu beheben."
+MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Der erste kostenlose Monat konnte gerade nicht aktiviert werden. Die Installation wird fortgesetzt. Öffne nach dem Koppeln die Ostler-App auf deinem iPhone, um das zu beheben."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Dem Terminal wurde kein Festplattenvollzugriff gewährt."
 MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM erkannt. Du erhältst den kompakten Assistenten (gemma4:e2b) – zuverlässig, genau, bei kurzen Fragen in unter einer Sekunde, mit Tool-Aufrufen und einem ehrlichen „Ich weiß es nicht“, wenn er etwas nicht weiß. Für ausführlichere Antworten auf längere Fragen schaltet ein Mac mit 24 GB oder mehr den Standard-Assistenten (qwen3.5:9b) frei. Du kannst später den Mac wechseln, indem du neu installierst."
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="Beim DSGVO-Import sind Fehler aufgetreten. Du kannst ihn erneut ausführen mit:"
@@ -809,7 +809,7 @@ MSG_WARN_HUB_POWER_LAUNCHAGENT_INSTALL_FAILED_SEE="Die Installation des Hub-Powe
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE="Die Hub-Power-Skripte wurden unter dem erwarteten Bundle-Pfad nicht gefunden."
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_2="  In der Installer-.app fehlt anscheinend vendor/hub_power/"
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_3="  in Contents/Resources/hub-power/. Die akkuabhängige Drosselung wird nicht installiert; der Rest der Installation wird fortgesetzt."
-MSG_WARN_ICAL_SERVER_FAILED="Die Assistant API konnte nicht gestartet werden. Die Ostler app auf deinem iPhone hat bis zum nächsten Installationslauf eingeschränkten Zugriff."
+MSG_WARN_ICAL_SERVER_FAILED="Die Assistant API konnte nicht gestartet werden. Die Ostler-App auf deinem iPhone hat bis zum nächsten Installationslauf eingeschränkten Zugriff."
 MSG_WARN_IMAGE_PULL_FAILED_NETWORK_DISK_SPACE="  - Abrufen des Images fehlgeschlagen (Netzwerk, Speicherplatz oder Registry-Zeitüberschreitung)"
 MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="Das iMessage-FDA-Signal konnte nicht in pipeline_signals.json geschrieben werden. Möglicherweise zeigt das Doctor-Dashboard die Karte für den Festplattenvollzugriff nicht automatisch an."
 MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="Der IMAP-Host ist leer – versuche es erneut."
@@ -833,7 +833,7 @@ MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML="Wissens-Repository geklont, a
 MSG_WARN_KNOWLEDGE_SERVICE_INSTALL_FAILED_CLONE="Installation des Wissensdienstes fehlgeschlagen (Klonen)."
 MSG_WARN_LICENCE_SHIPS_UNDER_GOOGLE_S_GEMMA="Lizenz: %s wird unter den Gemma-Nutzungsbedingungen von Google ausgeliefert, nicht unter Apache 2.0."
 MSG_WARN_MACBOOK_DEPLOYMENTS_NEED_THIS_BATTERY_SLEEP="MacBook-Installationen benötigen dies für die Akku- und Ruhezustandsverwaltung."
-MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT="Der Zugriff auf Kontakte unter macOS wurde abgelehnt oder noch nicht erteilt."
+MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT="Die macOS-Berechtigung für Kontakte wurde abgelehnt oder noch nicht erteilt."
 MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM="macOS fragt per Skript NICHT danach – du musst die Berechtigung manuell erteilen."
 MSG_WARN_MAC_MINI_DEPLOYMENTS_ARE_UNAFFECTED_MACBOOK="Mac-mini-Installationen sind nicht betroffen; MacBook-Nutzer sollten es erneut versuchen."
 MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="Mail-Daten können weiterhin manuell eingelesen werden:"
@@ -853,7 +853,7 @@ MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Das ist keine internationale Nummer. 
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama antwortet nicht"
 MSG_WARN_OLLAMA_PULL_FAILED_ATTEMPT_3_RETRYING="ollama pull %s fehlgeschlagen (Versuch %s/3). Neuer Versuch in %s s …"
 MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST="Nur %s GB frei. Wir empfehlen mindestens 35 GB (Docker-Images + KI-Modell + Daten)."
-MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP="Im Batteriebetrieb wird der LaunchAgent für die Hub-Energieverwaltung (Schritt 3.14) möglicherweise pausiert"
+MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP="Im Akkubetrieb kann der LaunchAgent für die Hub-Energieverwaltung (Schritt 3.14) pausieren"
 MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="oder führe das Installationsprogramm erneut aus und wähle einen anderen Kanal."
 MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="oder läuft der Release-Pipeline von Phase B voraus. Führe das Installationsprogramm erneut aus, sobald die"
 MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor hat %s Fehler gemeldet."
@@ -925,7 +925,7 @@ MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_4="  führe es für eine Dev/CI
 MSG_WARN_SECURITY_SETUP_FAILED_CONTINUING_WITHOUT_DATABASE="Sicherheitseinrichtung fehlgeschlagen. Es geht ohne Datenbankverschlüsselung weiter."
 MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT="Sicherheitseinrichtung fehlgeschlagen. Ausgabe:"
 MSG_WARN_SEE_STDERR_FRAGMENT="  Das stderr-Fragment findest du in %s."
-MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG="Die Installation der Binärdatei wird übersprungen. Die vom Assistenten geschriebene config.toml bleibt erhalten."
+MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG="Die Installation der Binärdatei wird übersprungen. Die vom Einrichtungsassistenten geschriebene config.toml bleibt erhalten."
 MSG_WARN_SKIPPING_DOCTOR_LAUNCHAGENT_INSTALL="Die Installation des Doctor-LaunchAgents wird übersprungen."
 MSG_WARN_SKIPPING_EMAIL_INGEST_LAUNCHAGENT_INSTALL="Die Installation des E-Mail-Import-LaunchAgents wird übersprungen."
 MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_MAC_MINI_DEPLOYMENTS="Die Installation des LaunchAgents wird übersprungen. Mac-mini-Installationen sind nicht betroffen."
@@ -947,7 +947,7 @@ MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT="Ostler konnte nicht bestätigen, dass d
 MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Ein veraltetes Colima-Startobjekt konnte nicht entfernt werden. Dein Wiki lädt nach einem Neustart eventuell nicht; wende dich an den Support."
 MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Beende die in Konflikt stehenden Dienste oder ändere die Ports in docker-compose.yml"
 MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Die Anmeldung bei Tailscale wurde nicht innerhalb von 3 Minuten abgeschlossen. Du kannst das später in den Einstellungen nachholen."
-MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Die Tailscale-IP wurde in .env geschrieben, konnte aber beim anschließenden Lesen nicht gefunden werden. Die Ostler app auf deinem iPhone übernimmt sie möglicherweise nicht – führe in diesem Fall install.sh --repair erneut aus."
+MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Die Tailscale-IP wurde in .env geschrieben, konnte aber beim anschließenden Lesen nicht gefunden werden. Die Ostler-App auf deinem iPhone übernimmt sie möglicherweise nicht – führe in diesem Fall install.sh --repair erneut aus."
 MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED="Deine Antwort zum Fernzugriff konnte nicht gespeichert werden, deshalb wirst du bei der nächsten Neuinstallation erneut gefragt. Alles andere bleibt unberührt."
 MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL="Die Installation von Tailscale ist fehlgeschlagen – du kannst sie später über tailscale.com nachholen"
 MSG_WARN_TAILSCALE_STATE_UNREADABLE="Auf diesem Mac gibt es bestehende Tailscale-Einstellungen, die nicht gelesen werden konnten. Deshalb lässt sich nicht feststellen, ob er noch mit deinem Netzwerk verbunden ist. Bitte wähle unten aus – wenn er bereits verbunden ist, schadet eine erneute Einrichtung nicht."
@@ -1315,7 +1315,7 @@ MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Gmail-Nachrichten aus diesem Takeout importier
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Liest Gmail-Inhalte direkt aus der Takeout-Datei. Google bekommt Ostler nie zu sehen."
 
 MSG_PROMPT_FDA_PRESET_TITLE="Aus welchen Mac-Quellen soll Ostler lernen?"
-MSG_PROMPT_FDA_PRESET_HELP="Drei Voreinstellungen, oder wähle jede Quelle selbst. Sensible Quellen (Gesichtserkennung) sind in jeder Voreinstellung standardmäßig ausgeschaltet – wähle sie nur bewusst aus."
+MSG_PROMPT_FDA_PRESET_HELP="Drei Voreinstellungen, oder wähle jede Quelle selbst. Sensible Quellen (Gesichtserkennung) sind in jeder Voreinstellung standardmäßig ausgeschaltet – wähle sie bewusst aus, wenn du sie möchtest."
 MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Empfohlen. Enthält Apple Mail, Kontakte, Kalender, Notizen, Nachrichten, Erinnerungen, Safari-Verlauf, Safari-Lesezeichen und Fotos-Ereignisse (Datumsangaben und Orte, keine Gesichtserkennung). WhatsApp-Desktop-Verlauf und Chrome-Verlauf werden automatisch hinzugefügt, wenn die App installiert ist. Ausgenommen sind Gesichtserkennungsdaten aus Fotos und alle Exportarchive von Drittanbietern."
 MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Alles. Jede Quelle, die Ostler auf diesem Mac lesen kann. Die Gesichtserkennung in Fotos bleibt ausgeschaltet, bis du sie bewusst auswählst."
 MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Anpassen. Wähle jede Quelle auf dem nächsten Bildschirm aus. Sensible Quellen bleiben ausgeschaltet, bis du sie auswählst."
@@ -1429,7 +1429,7 @@ MSG_HYDRATE_CONTACTS_DONE="%s Kontakte importiert"
 # %s = the cap in seconds, %s = contacts imported before the cap was hit.
 # Says WHAT WAS MEASURED and what happens next, rather than blaming the step:
 # a partial import is a real result and the retry is what completes it.
-MSG_HYDRATE_CONTACTS_TIMED_OUT="Die Kontakte haben länger als %s s gedauert, daher haben wir nicht länger gewartet und sind weitergegangen. Bisher sind %s Kontakte importiert, den Rest erledigt Ostler im Hintergrund."
+MSG_HYDRATE_CONTACTS_TIMED_OUT="Die Kontakte haben länger als %ss gedauert, daher haben wir nicht länger gewartet und sind weitergegangen. Bisher sind %s Kontakte importiert, den Rest erledigt Ostler im Hintergrund."
 # CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
 # days to 5 years -- customer copy updated to match the new behaviour.
 MSG_HYDRATE_CALENDAR_STARTED="Dein Kalenderverlauf wird geladen (fünf Jahre zurück, ein Jahr voraus)"
@@ -1688,7 +1688,7 @@ MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED="Es konnte nicht geprüft werden, 
 # converted to markdown + embedded locally; only note-count totals are
 # shown to the customer -- no note titles or bodies leave the process.
 # Copy is dash-clean (plain hyphens only) per the hydrate-phase convention.
-MSG_HYDRATE_APPLE_NOTES_STARTED="Deine Apple Notizen werden gelesen - sie bleiben auf diesem Mac"
+MSG_HYDRATE_APPLE_NOTES_STARTED="Deine Notizen aus der App „Notizen“ werden gelesen – sie bleiben auf diesem Mac"
 MSG_HYDRATE_APPLE_NOTES_DONE="%s Notizen zu deiner Wissensdatenbank hinzugefügt"
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="Keine Apple Notizen zum Lesen vorhanden. Du kannst den Vorgang später in den Einstellungen erneut ausführen."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED="Deine Apple Notizen sind bereits in deiner Wissensdatenbank. Wird übersprungen."
@@ -1850,7 +1850,7 @@ MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler schreibt dieses Passwort in eine Datei 
 
 FileVault würde das verhindern, weil die Festplatte ohne das Startpasswort gar nicht gelesen werden kann. Aus demselben Grund verhindert FileVault auch die automatische Anmeldung. Deshalb bietet Ostler dies nur an, wenn FileVault ausgeschaltet ist.
 
-Was der Installer selbst kontrolliert: Er zeigt das Passwort beim Tippen nicht an und schreibt es nicht in das Installationsprotokoll. Die verschleierte Datei ist die einzige Kopie, die der Installer erstellt.
+Worauf der Installer selbst Einfluss hat: Er zeigt das Passwort beim Tippen nicht an und schreibt es nicht in das Installationsprotokoll. Die verschleierte Datei ist die einzige Kopie, die der Installer erstellt.
 
 Lass das Feld leer, um die automatische Anmeldung zu überspringen."
 MSG_PROMPT_AUTOLOGIN_PASSWORD="Anmeldepasswort für %s"

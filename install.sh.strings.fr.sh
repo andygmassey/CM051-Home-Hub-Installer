@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Au premier lancement, Ostler RemoteCapture demand
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler enregistre votre wiki personnel et vos transcriptions de conversations dans Documents/Ostler, sur ce Mac. Ils vous appartiennent et restent sur cette machine. Pour les écrire, Ostler a besoin d’accéder à votre dossier Documents : macOS peut donc vous le demander pendant la configuration, puis de nouveau plus tard dans la journée, lorsque Ostler organisera votre wiki pour la première fois. La demande peut sembler provenir de python3.11, l’outil intégré qu’Ostler utilise pour écrire vos fichiers. Cliquez sur Autoriser chaque fois qu’elle apparaît. Si vous la manquez ou la refusez, vous pouvez l’activer à tout moment dans Réglages Système, sous Confidentialité et sécurité, puis Fichiers et dossiers ; votre wiki et vos transcriptions de conversations seront alors écrits à partir de là."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler enregistre votre wiki personnel et vos comptes rendus de conversations dans Documents/Ostler, sur ce Mac. Ils vous appartiennent et restent sur cette machine. Pour les écrire, Ostler a besoin d’accéder à votre dossier Documents : macOS peut donc vous le demander pendant la configuration, puis de nouveau plus tard dans la journée, lorsque Ostler organisera votre wiki pour la première fois. La demande peut sembler provenir de python3.11, l’outil intégré qu’Ostler utilise pour écrire vos fichiers. Cliquez sur Autoriser chaque fois qu’elle apparaît. Si vous la manquez ou la refusez, vous pouvez l’activer à tout moment dans Réglages Système, sous Confidentialité et sécurité, puis Fichiers et dossiers ; votre wiki et vos comptes rendus de conversations seront alors écrits à partir de ce moment."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Moteur de mémoire des conversations installé dans venv."
 MSG_INFO_HUB_APP_VERIFYING="Vérification d’Ostler.app dans %s"
 MSG_INFO_HUB_APP_STAGING="Copie d’Ostler.app dans /Applications depuis %s"
@@ -239,7 +239,7 @@ MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE="Service Knowledge non in
 # sees these lines.
 MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS="Ce Mac est un portable. Utilisé comme Hub, il continue de fonctionner tant que l'écran est ouvert et que le Mac est branché sur secteur."
 MSG_INFO_LAPTOP_HUB_SLEEP_COST="Si vous fermez l'écran, ou laissez le Mac inactif sur batterie, macOS le met en veille. L'assistant ne reçoit rien pendant la veille, et les messages arrivés entre-temps ne sont pas récupérés au réveil."
-MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY="L'écran peut rester fermé en mode écran fermé, qui nécessite une alimentation secteur ainsi qu'un écran externe, un clavier et une souris."
+MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY="L'écran peut rester fermé en mode clapet, qui nécessite une alimentation secteur ainsi qu'un écran externe, un clavier et une souris."
 MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="Un Hub sur Mac mini ou Mac Studio reste éveillé de lui-même, si vous préférez installer Ostler sur l'un de ces Mac."
 MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="plus tard dans Réglages Système > Confidentialité et sécurité > Accès complet au disque"
 MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC="  lancement pour vérifier la livraison cron et la configuration imessage-tcc)."
@@ -348,7 +348,7 @@ MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO="Les bases de données macOS son
 MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT="Astuce : pour inclure votre compte Gmail, ajoutez-le d'abord à Mail sur votre Mac"
 MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE="Pour l'installer plus tard, une fois que vous aurez l'accès :"
 MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN="Déclenchement de la synchronisation iCloud pour %s (silencieuse, au premier lancement uniquement)..."
-MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      (RGPD du Royaume-Uni, article 9 - requis pour les catégories particulières de données)."
+MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      (RGPD du Royaume-Uni, article 9 : requis pour les catégories particulières de données)."
 MSG_INFO_UPDATING_EXISTING_PIPELINE="Mise à jour du pipeline existant..."
 MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL="Arborescence destinée à l'utilisateur déjà annoncée (sentinelle présente) ; étape ignorée"
 MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS="Téléchargement du moteur de recherche web local (environ 3,5 Go). Lors d'une première installation, c'est l'étape la plus longue et elle peut durer jusqu'à une heure. Elle n'affiche pas de barre de progression : un long silence est donc normal et ne signifie pas que l'installation est bloquée."
@@ -570,7 +570,7 @@ MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL="Commandes ostler-import, ostle
 MSG_OK_OXIGRAPH_HEALTHY="Oxigraph healthy"
 MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Phrase secrète enregistrée. Elle chiffrera vos bases de données pendant la phase 3."
 MSG_OK_RECOVERY_PASSPHRASE_CONFIGURED="Phrase secrète de récupération configurée."
-MSG_OK_PASSPHRASE_BRIEFING_ACKNOWLEDGED="Informations sur la phrase secrète confirmées."
+MSG_OK_PASSPHRASE_BRIEFING_ACKNOWLEDGED="Explications sur la phrase secrète lues et acceptées."
 MSG_OK_DISNEY_XLSX_PASSWORD_CAPTURED="Mot de passe de l'export Disney+ enregistré. Il sera utilisé pendant l'import."
 MSG_INFO_DISNEY_XLSX_PASSWORD_SKIPPED="Export Disney+ ignoré : aucun mot de passe n'a été fourni. Rien d'autre n'est affecté."
 MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO="Source d'alimentation : secteur (Mac de bureau, sans batterie)"
@@ -631,8 +631,8 @@ MSG_INFO_WIKI_TAILNET_BANNER="%s  (depuis vos propres appareils, via Tailscale. 
 # what it is rather than offered as a destination.
 MSG_INFO_WIKI_IN_THE_APP="dans l'app Ostler. Ouvrez Ostler et choisissez Wiki dans la barre latérale ; vos pages s'y trouvent, et vous êtes déjà connecté."
 MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler récupère ces pages depuis http://localhost:8044 sur ce Mac. Cette adresse est interne et n'offre rien à quoi vous connecter."
-MSG_INFO_WIKI_SIGN_IN="Votre identifiant de connexion au wiki est %s avec le mot de passe %s. Ostler le présente à votre place, donc il n'y a rien à saisir sur ce Mac ; vous n'en avez besoin que lorsque vous ouvrez le wiki depuis un autre de vos appareils via Tailscale."
-MSG_INFO_WIKI_SIGN_IN_WITHHELD="Votre identifiant de connexion au wiki est %s. Le mot de passe n'est pas écrit dans ce journal : il se trouve dans votre presse-papiers et dans le fichier indiqué ci-dessous. Ostler le saisit pour vous, il n'y a donc rien à taper sur ce Mac."
+MSG_INFO_WIKI_SIGN_IN="Votre identifiant de connexion au wiki est %s avec le mot de passe %s. Ostler le présente à votre place, donc il n'y a rien à saisir sur ce Mac ; vous n'avez besoin de l'avoir sous la main que lorsque vous ouvrez le wiki depuis un autre de vos appareils via Tailscale."
+MSG_INFO_WIKI_SIGN_IN_WITHHELD="Votre identifiant de connexion au wiki est %s. Le mot de passe n'est pas écrit dans ce journal : il se trouve dans votre presse-papiers et dans le fichier indiqué ci-dessous. Ostler le présente à votre place, il n'y a donc rien à saisir sur ce Mac."
 MSG_INFO_WIKI_PORT_LAST_STATUS="Dernier statut HTTP du port du wiki : %s (000 signifie qu'aucune réponse n'est arrivée ; 403 signifie que le wiki a répondu et refusé l'identifiant)."
 # HR015 #943. The four lines below are the readiness half of the wiki handover.
 # They exist because the credential half is no longer gated on them: a customer
@@ -778,7 +778,7 @@ MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Les scripts du pont iMes
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="Le chiffrement ne fonctionnera pas."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="Le chiffrement ne fonctionnera pas, et"
 MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="vérifiez que la balise PWG_KNOWLEDGE_REPO épinglée l'inclut."
-MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Events : autorisation pour Messages.app)."
+MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Events pour Messages.app)."
 MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="L'extracteur FDA s'est terminé avec un code non nul (%s). 20 dernières lignes de la sortie :"
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="Le module d'extraction FDA n'est pas inclus dans cet installateur."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="Emplacement attendu : Contents/Resources/ostler_fda/ (dans le .app)."
@@ -814,7 +814,7 @@ MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="Impossible d'écrire le signal 
 MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="L'hôte IMAP est vide. Réessayez."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="Autorisation d'automatisation iMessage : non accordée (-1743)."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE="Autorisation d'automatisation iMessage : test non concluant."
-MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="L'historique iMessage (chat.db) n'est pas lisible : l'accès complet au disque n'a pas encore été accordé au démon Ostler. La lecture de l'historique iMessage reste désactivée tant que vous ne l'accordez pas dans Réglages Système > Confidentialité et sécurité > Accès complet au disque."
+MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="L'historique iMessage (chat.db) n'est pas lisible : l'Accès complet au disque n'a pas encore été accordé au démon Ostler. La lecture de l'historique iMessage reste désactivée tant que vous ne l'accordez pas dans Réglages Système > Confidentialité et sécurité > Accès complet au disque."
 MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED="Ouverture de Réglages Système > Confidentialité et sécurité > Automatisation. Cochez la ligne Messages pour OstlerInstaller (ou Terminal) afin d'activer l'envoi iMessage."
 MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED="Adresse e-mail incomplète, ignorée : %s"
 MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS="Saisissez au moins une adresse e-mail complète (par exemple you@example.com)."
@@ -900,7 +900,7 @@ MSG_WARN_PWG_EMAIL_INGEST_MBOX_TMP_MANUAL="  pwg-email-ingest mbox /tmp/manual.m
 MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED="Échec de l'installation de sqlcipher3."
 MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED_DATABASES_WILL_NOT="Échec de l'installation de sqlcipher3. Les bases de données ne seront pas chiffrées."
 MSG_WARN_PYTHON3_M_OSTLER_FDA_APPLE_MAIL="  python3 -m ostler_fda.apple_mail_mbox --emit-mbox /tmp/manual.mbox.txt"
-MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON="Python 3 introuvable. Installation de Python 3.12..."
+MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON="Python 3 introuvable. Installation de Python 3.12…"
 MSG_WARN_PYTHON_TOO_OLD_NEED_3_10="Python %s est trop ancien (3.10 ou version ultérieure requise). Installation de Python 3.12…"
 MSG_WARN_QDRANT_NOT_RESPONDING="Qdrant ne répond pas"
 MSG_WARN_READ_HTTPS_AI_GOOGLE_DEV_GEMMA="         Lisez https://ai.google.dev/gemma/terms avant tout usage commercial."
@@ -945,7 +945,7 @@ MSG_WARN_PORT_BIND_PROBE_UNAVAILABLE="Impossible d'exécuter la vérification de
 MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT="Ostler n'a pas pu confirmer que ces ports sont libres et ne démarrera pas ses bases de données sur un port qu'il n'a pas vérifié. Veuillez contacter l'assistance avec votre journal d'installation."
 MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Impossible de supprimer un ancien élément de démarrage de Colima. Votre wiki pourrait ne pas se charger après un redémarrage ; contactez l'assistance."
 MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Arrêtez les services en conflit ou modifiez les ports dans docker-compose.yml"
-MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale ne s'est pas connecté dans les 3 minutes. Vous pourrez y revenir plus tard depuis les Réglages."
+MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale ne s'est pas connecté dans les 3 minutes. Vous pourrez y revenir plus tard depuis les paramètres."
 MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="L'adresse IP Tailscale a été écrite dans .env, mais une relecture ultérieure ne l'a pas retrouvée. L'app Ostler sur votre iPhone risque de ne pas la prendre en compte. Si c'est le cas, relancez install.sh --repair."
 MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED="Votre réponse sur l'accès à distance n'a pas pu être enregistrée : la prochaine réinstallation vous la redemandera. Rien d'autre n'est affecté."
 MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL="L'installation de Tailscale a échoué. Vous pourrez l'installer plus tard depuis tailscale.com"
@@ -1074,7 +1074,7 @@ MSG_PROMPT_REUSE_SETTINGS_HELP="Nous avons détecté une tentative d'installatio
 MSG_PROMPT_REUSE_SETTINGS_SUMMARY_FORMAT="Réponses précédentes retrouvées : nom = %s, assistant = %s, fuseau horaire = %s."
 
 MSG_PROMPT_PERMS_OK_TITLE="Prêt à continuer ?"
-MSG_PROMPT_PERMS_OK_HELP="macOS demandera l'accès à Contacts et à Fichiers et dossiers. L'Accès complet au disque, facultatif, pourra être accordé plus tard."
+MSG_PROMPT_PERMS_OK_HELP="macOS demandera l'accès aux Contacts et à Fichiers et dossiers. L'accès complet au disque, facultatif, pourra être accordé plus tard."
 
 MSG_PROMPT_USER_NAME_DETECTED_TITLE="Nom complet (tel qu'il apparaît dans vos contacts)"
 MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Nom complet (p. ex. Tom Harrison)"
@@ -1190,7 +1190,7 @@ MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="Vous pouvez cliquer sur Terminé avant
 MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="Autoriser Ostler à lire les données de votre Mac"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="Les Réglages Système sont ouverts sur Accès complet au disque."
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2="Trouvez « OstlerInstaller » dans la liste et activez-le."
-MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3="Cliquez sur Terminé une fois fini et Ostler lira votre historique Safari, vos Notes, vos iMessages et vos e-mails."
+MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3="Cliquez sur Terminé une fois fini et Ostler lira votre historique Safari, vos Notes, vos iMessages et Mail."
 MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON="Terminé"
 
 # CX-87 (DMG #48g, 2026-05-29): pre-warn before the FDA grant flow.
@@ -1244,7 +1244,7 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="Lire le courrier via Apple Mail ?"
 MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Lit tous les comptes e-mail ajoutés à Apple Mail (iCloud, Gmail, Outlook, etc.) grâce à l’accès complet au disque. Aucun mot de passe n’est stocké. Recommandé pour presque tout le monde."
 
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Ajouter un compte de messagerie à Apple Mail ?"
-MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Aucun compte n’est encore connecté à Apple Mail sur ce Mac, donc Ostler n’aura aucun e-mail à lire. Choisissez Oui pour ouvrir maintenant Réglages Système > Comptes Internet (vous pourrez y ajouter iCloud, Gmail ou Outlook). Choisissez Non pour passer ; vous pourrez ajouter un compte plus tard et Doctor vous le signalera si aucun e-mail n’arrive dans les 24 heures."
+MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Aucun compte n’est encore connecté à Apple Mail sur ce Mac, donc Ostler n’aura aucun e-mail à lire. Choisissez Oui pour ouvrir maintenant Réglages Système > Comptes internet (vous pourrez y ajouter iCloud, Gmail ou Outlook). Choisissez Non pour passer ; vous pourrez ajouter un compte plus tard et Doctor vous le signalera si aucun e-mail n’arrive dans les 24 heures."
 
 MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Récupérer tout l’historique d’Apple Mail ?"
 MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Par défaut, Ostler lit les cinq dernières années de votre Apple Mail. Si vous conservez plus sur ce Mac et souhaitez tout intégrer à votre graphe de connaissances, choisissez Oui pour récupérer maintenant tout l’historique local (cela peut prendre un peu plus de temps pour une grande boîte). Choisissez Non pour garder la fenêtre de cinq ans ; vous pourrez toujours l’étendre plus tard depuis Doctor."
@@ -1419,7 +1419,7 @@ MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Connecter votre iPhone et votre Watch"
 MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale donne à ce Mac une adresse privée stable que votre iPhone et votre Watch peuvent joindre de n'importe où, chiffrée et sans exposition publique."
 
 MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Enregistrer la clé de récupération dans le Trousseau ?"
-MSG_PROMPT_SAVE_KEYCHAIN_HELP="Conserve votre clé de récupération du chiffrement dans le Trousseau d'accès de macOS, en lieu sûr."
+MSG_PROMPT_SAVE_KEYCHAIN_HELP="Conserve votre clé de récupération du chiffrement en lieu sûr dans le trousseau de macOS."
 
 # Hydration phase strings (CX-81 B1)
 # Used by install.sh's hydrate_graph sub-phase (immediately before
@@ -1481,7 +1481,7 @@ MSG_HYDRATE_DONE="Votre graphe est prêt : %s personnes, %s événements"
 # hydrate-time re-export came back empty (no iCloud + empty local AB).
 MSG_HYDRATE_CONTACTS_REEXPORT="iCloud est peut-être encore en train de synchroniser vos contacts – nouvelle exportation en cours pour récupérer ce qui vient d'arriver."
 MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD="Aucun contact trouvé dans votre app Contacts (en local ou sur iCloud). Ajoutez-en dans Contacts, puis relancez depuis les Réglages."
-MSG_HYDRATE_SKIPPED_NO_CONTACTS="Aucun contact iCloud à importer. Vous pourrez l'ajouter plus tard depuis les Réglages."
+MSG_HYDRATE_SKIPPED_NO_CONTACTS="Aucun contact iCloud à importer. Vous pourrez les ajouter plus tard depuis les Réglages."
 MSG_HYDRATE_SKIPPED_NO_EVENTS="Aucun événement de calendrier au cours des 5 dernières années. Vous pourrez récupérer l'historique plus tard depuis les Réglages."
 
 # Email hydration strings (CX-81 B2 + CX-83)
@@ -1661,7 +1661,7 @@ MSG_HYDRATE_PREFERENCES_ENRICHED="%s d’entre elles enrichies avec des données
 # install time rather than discovering empty wiki pages later. Counts only.
 MSG_WARN_PREFS_NO_HEADLINE_CATEGORIES="%s préférences importées, mais aucune n’a été classée dans Cuisine, Musique ou Professionnel. Vos pages wiki Cuisine et Musique seront vides."
 MSG_WARN_PREFS_HEADLINE_HINT="Cela signifie généralement qu’aucun export de musique ou de cuisine (Spotify, Apple Music, Uber Eats, Google Takeout) n’était présent, ou que les données n’ont pas été catégorisées. Ajoutez ces exports et relancez depuis les Réglages, puis reconstruisez le wiki."
-MSG_WARN_PREFS_UNCATEGORISED="%s préférences sur %s (%s %%) n’ont pas de catégorie et n’apparaîtront sur aucune page thématique. Vérifiez le format de l’export source."
+MSG_WARN_PREFS_UNCATEGORISED="%s préférences sur %s (%s%%) n’ont pas de catégorie et n’apparaîtront sur aucune page thématique. Vérifiez le format de l’export source."
 
 # Preference enrichment pipeline setup (CM019, own venv at
 # ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.
@@ -1707,7 +1707,7 @@ MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_UNVERIFIED="Impossible de vérifier si vos
 # Apple Notes above). Reminders are converted to markdown + embedded
 # locally; only reminder-count totals are shown to the customer -- no
 # reminder titles or notes leave the process.
-MSG_HYDRATE_REMINDERS_STARTED="Lecture de vos Rappels - ils restent sur ce Mac"
+MSG_HYDRATE_REMINDERS_STARTED="Lecture de vos Rappels – ils restent sur ce Mac"
 MSG_HYDRATE_REMINDERS_DONE="%s rappels ajoutés à votre base de connaissances"
 MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA="Aucun rappel à lire. Vous pourrez relancer plus tard depuis les Réglages."
 # THREE CAUSES NEEDED THREE STRINGS (#775). Until v1.0.101 the line above was
@@ -1723,7 +1723,7 @@ MSG_HYDRATE_REMINDERS_HEARTBEAT="  Lecture de vos Rappels en cours (%s s écoul�
 
 MSG_HYDRATE_REMINDERS_ALREADY_IMPORTED="Vos Rappels sont déjà dans votre base de connaissances (%s éléments). Rien à relire."
 MSG_WARN_HYDRATE_REMINDERS_REIMPORT_STORE_EMPTY="Vos Rappels ont déjà été ajoutés, mais votre base de connaissances ne les contient plus. Nouvel ajout en cours."
-MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED="Impossible de vérifier si vos Rappels figurent toujours dans votre base de connaissances. Nouvel ajout plutôt que de supposer qu'ils y sont."
+MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED="Impossible de vérifier si vos Rappels figurent toujours dans votre base de connaissances. Nouvel ajout plutôt que de supposer qu’ils y sont."
 
 # People search index (#600)
 MSG_HYDRATE_PEOPLE_STARTED="Indexation de vos contacts pour la recherche"

@@ -66,4 +66,3 @@ gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_r
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Consent statement: the source refers to 'recordings' while the translation deliberately avoids that word. A human or lawyer should confirm the consent wording.

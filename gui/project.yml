@@ -292,7 +292,7 @@ targets:
           chmod 644 "${DEST}/lib/ostler_catchup.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           # Translated install.sh catalogues, one per language InstallerLanguage
-          # ships (de fr es it nl pt-BR ja ko zh-Hans zh-Hant zh-HK ar). OSTLER_LANG picks
+          # ships (de fr es it nl pt-BR pt-PT ja ko zh-Hans zh-Hant zh-HK ar). OSTLER_LANG picks
           # one at run time; a missing file falls back to en-GB. One explicit cp
           # per file, so tests/test_bundle_phase_declares_every_copy.sh can
           # match each against its inputFiles/outputFiles entry.
@@ -302,13 +302,14 @@ targets:
           cp "${SRCROOT}/../install.sh.strings.it.sh" "${DEST}/install.sh.strings.it.sh"
           cp "${SRCROOT}/../install.sh.strings.nl.sh" "${DEST}/install.sh.strings.nl.sh"
           cp "${SRCROOT}/../install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.pt-BR.sh"
+          cp "${SRCROOT}/../install.sh.strings.pt-PT.sh" "${DEST}/install.sh.strings.pt-PT.sh"
           cp "${SRCROOT}/../install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ja.sh"
           cp "${SRCROOT}/../install.sh.strings.ko.sh" "${DEST}/install.sh.strings.ko.sh"
           cp "${SRCROOT}/../install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-Hans.sh"
           cp "${SRCROOT}/../install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.zh-HK.sh"
           cp "${SRCROOT}/../install.sh.strings.ar.sh" "${DEST}/install.sh.strings.ar.sh"
           cp "${SRCROOT}/../install.sh.strings.zh-Hant.sh" "${DEST}/install.sh.strings.zh-Hant.sh"
-          chmod 644 "${DEST}/install.sh.strings.de.sh" "${DEST}/install.sh.strings.fr.sh" "${DEST}/install.sh.strings.es.sh" "${DEST}/install.sh.strings.it.sh" "${DEST}/install.sh.strings.nl.sh" "${DEST}/install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ko.sh" "${DEST}/install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.ar.sh" "${DEST}/install.sh.strings.zh-Hant.sh"
+          chmod 644 "${DEST}/install.sh.strings.de.sh" "${DEST}/install.sh.strings.fr.sh" "${DEST}/install.sh.strings.es.sh" "${DEST}/install.sh.strings.it.sh" "${DEST}/install.sh.strings.nl.sh" "${DEST}/install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.pt-PT.sh" "${DEST}/install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ko.sh" "${DEST}/install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.ar.sh" "${DEST}/install.sh.strings.zh-Hant.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Second chmod rather than a continuation of the line above, purely so
@@ -408,6 +409,7 @@ targets:
           - $(SRCROOT)/../install.sh.strings.it.sh
           - $(SRCROOT)/../install.sh.strings.nl.sh
           - $(SRCROOT)/../install.sh.strings.pt-BR.sh
+          - $(SRCROOT)/../install.sh.strings.pt-PT.sh
           - $(SRCROOT)/../install.sh.strings.ja.sh
           - $(SRCROOT)/../install.sh.strings.ko.sh
           - $(SRCROOT)/../install.sh.strings.zh-Hans.sh
@@ -433,6 +435,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.it.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.nl.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.pt-BR.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.pt-PT.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ja.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ko.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.zh-Hans.sh

@@ -25,7 +25,7 @@ enum InstallerLanguage {
 
     /// Languages with a shipped translation of all three catalogues.
     static let translated: [String] = [
-        "de", "fr", "es", "it", "nl", "pt-BR", "ja", "ko", "zh-Hans", "zh-Hant", "zh-HK", "ar",
+        "de", "fr", "es", "it", "nl", "pt-BR", "pt-PT", "ja", "ko", "zh-Hans", "zh-Hant", "zh-HK", "ar",
     ]
 
     static let current: String = resolve(
@@ -65,7 +65,11 @@ enum InstallerLanguage {
             if rest.contains("tw") { return "zh-Hant" }
             return "zh-Hans"
         case "pt":
-            return "pt-BR"
+            // Brazil, or no region (Apple's bare "pt" is Brazilian): pt-BR.
+            // Portugal and every other region (Angola, Mozambique...) write
+            // European Portuguese: pt-PT.
+            if rest.isEmpty || rest.contains("br") { return "pt-BR" }
+            return "pt-PT"
         default:
             return translated.contains(primary) ? primary : nil
         }

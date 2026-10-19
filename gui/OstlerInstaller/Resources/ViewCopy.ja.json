@@ -8,7 +8,7 @@
   },
   "permissions_prewarm": {
     "_meta": "CX-14 Section E1 (2026-05-23) + CX-17 (2026-05-23): log-line strings emitted by PermissionsPrewarmer + customer-facing intro screen copy shown BEFORE the pre-warm fires. The intro screen names each of the four macOS TCC dialogs the customer is about to see, explains WHY each is needed, and offers Grant / Skip primary + secondary actions. The pre-warm then runs the four requests SERIALLY with an 800ms gap between each (CX-17 fix: the original concurrent burst fired all four popups in the same second and the customer missed two of them on Studio retest 2026-05-23). The log lines surface in the LogDrawer + lifecycle OSLog stream. Customer-facing copy in the macOS TCC dialog itself ('Ostler needs access to ...') lives in Info.plist's NS*UsageDescription strings, which macOS controls.",
-    "starting": "許可の確認を事前に表示しています：連絡先、カレンダー、リマインダー、写真、Apple Musicへのアクセスを先にリクエストします。",
+    "starting": "許可のダイアログを事前に準備しています。連絡先、カレンダー、リマインダー、写真、Apple Musicへのアクセスを先にリクエストします。",
     "contacts_granted": "連絡先へのアクセスが許可されました。",
     "contacts_denied": "連絡先へのアクセスは許可されていません。あとから「システム設定」>「プライバシーとセキュリティ」>「連絡先」で変更できます。",
     "calendar_granted": "カレンダーへのアクセスが許可されました。",
@@ -123,7 +123,7 @@
     "fallback_count": "最大台数の",
     "fallback_max": "ライセンスで許可された台数の",
     "mailto_subject": "ライセンス{license_id}の空き枠の解放について",
-    "mailto_body": "Ostlerチーム御中\n\nライセンスのデバイス数の上限に達しました。このMacにインストールできるよう、枠を1つ空けていただけますでしょうか。\n\nライセンスID: {license_id}\n\nよろしくお願いいたします。"
+    "mailto_body": "Ostlerチーム御中\n\nライセンスのデバイス数の上限に達しました。このMacにOstlerをインストールできるよう、枠を1つ空けていただけますでしょうか。\n\nライセンスID: {license_id}\n\nよろしくお願いいたします。"
   },
   "fda_sheet": {
     "heading": "フルディスクアクセスが必要です",
@@ -287,7 +287,7 @@
     "_meta": "CX-56 (DMG ship, 2026-05-24): iOS Companion pairing QR section rendered between the service tick list and the CTA buttons on InstallCompleteView. The Hub gateway exposes POST http://localhost:8000/admin/paircode (no auth needed on localhost) which returns a §3.3 envelope JSON; we render that JSON string as a 256x256 QR with an oxblood border. CM031 iOS app scans the QR + decodes the envelope.",
     "title": "アプリをインストール済みですか？",
     "help": "iPhoneにOstlerアプリをすでにインストールしている場合は、このコードをスキャンして、このMacとペアリングしてください。ペアリングは、あとでアプリ内から行うこともできます。",
-    "fetching": "ペアリングコードを生成中...",
+    "fetching": "ペアリングコードを生成中…",
     "refresh_button": "コードを更新",
     "fetch_failed": "Ostlerゲートウェイにまだ接続できませんでした。起動中の可能性があります。「更新」をクリックして、もう一度お試しください。",
     "fetch_refused": "Ostlerゲートウェイがペアリングリクエストを拒否したため、「更新」では解決しません。Ostlerはインストールされています。代わりにアプリを開いて、アプリ内からペアリングしてください。(ゲートウェイの応答: {code})",
@@ -329,7 +329,7 @@
     "strap": "おすすめ",
     "body": "Tailscaleを使うと、このMacに固定のプライベートアドレスが割り当てられ、iPhoneやApple Watchからどこからでもアクセスできます。通信は暗号化され、公開されることはなく、個人利用は無料です。\n\nTailscaleを使わない場合、iPhoneのOstlerアプリがこのMacに接続できるのは、自宅のWi-Fiに接続しているときだけです。",
     "setup_button": "Tailscaleを設定（おすすめ）",
-    "setup_button_sub": "所要時間は約1分です。Tailscaleを開き、サインインが完了するまで待ちます。",
+    "setup_button_sub": "所要時間は約1分です。こちらでTailscaleを開き、サインインが完了するまでお待ちします。",
     "skip_button": "スキップして後で設定",
     "skip_button_sub": "あとからいつでも「設定」で行えます。",
     "faq_heading": "Tailscaleについての質問",
@@ -337,7 +337,7 @@
     "faq_what_a": "Tailscaleは、お使いのデバイス同士をつなぐ小さなプライベートネットワークを作成する無料のサービスです。iPhone、Apple Watch、このMacには、それらだけが使えるプライベートアドレスが割り当てられます。インターネット上に公開されるものはありません。",
     "faq_secure_q": "安全ですか？",
     "faq_secure_a": "はい。デバイス間の通信はすべて WireGuard でエンドツーエンド暗号化されます。Tailscale 自体があなたのデータを読み取ることはできません。Tailscale は、デバイス同士がお互いを見つけるのを手伝うだけです。",
-    "faq_later_q": "あとから追加できますか?",
+    "faq_later_q": "あとから追加できますか？",
     "faq_later_a": "はい。インストーラを --repair を付けてもう一度実行するか、Ostler の設定を開いて Tailscale をオンにしてください。"
   },
   "whatsapp_link": {

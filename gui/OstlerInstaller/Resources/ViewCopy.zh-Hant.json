@@ -73,7 +73,7 @@
     "copy_redacted_log_button_copied": "已拷貝遮蔽記錄",
     "email_support_button": "以電子郵件聯絡支援",
     "email_body_intro": "Ostler 支援團隊你好：",
-    "email_body_clipboard_instruction": "我的安裝程式失敗了。已遮蔽個人資料的記錄已拷貝到我的剪貼簿。請貼在這條線下方：",
+    "email_body_clipboard_instruction": "我的安裝程式失敗了。已遮蔽個人資料的記錄已拷貝到我的剪貼簿。請將記錄貼在這條線下方：",
     "email_body_separator": "---",
     "email_subject": "安裝失敗（OstlerInstaller）",
     "email_copied_hint": "記錄已拷貝到剪貼簿 – 請貼到電子郵件中",
@@ -126,9 +126,9 @@
     "mailto_body": "Ostler 團隊你好：\n\n我的授權已達裝置數量上限，希望釋出一個名額，以便在這部 Mac 上安裝。\n\n授權 ID：{license_id}\n\n謝謝。"
   },
   "fda_sheet": {
-    "heading": "需要「完整磁碟取用權限」",
+    "heading": "需要「完整取用磁碟」權限",
     "reason_default": "Ostler 會從 macOS 本機資料庫讀取 Safari、iMessage、備忘錄、郵件、行事曆、照片和提醒事項。",
-    "instructions": "打開「系統設定」，在「隱私權與安全性」部分找到「完整磁碟取用權限」，並勾選 OstlerInstaller。然後回到這裡，點一下「繼續」。",
+    "instructions": "打開「系統設定」，在「隱私權與安全性」部分找到「完整取用磁碟」，並勾選 OstlerInstaller。然後回到這裡，點一下「繼續」。",
     "open_settings_button": "打開「系統設定」",
     "continue_button": "我已授權，繼續"
   },
@@ -144,7 +144,7 @@
     "data_photos": "照片",
     "privacy_line": "以隱私為本。所有內容都保留在這部 Mac 上，絕不會上傳。",
     "permissions_note": "在接下來的幾分鐘，macOS 會要求你核准這些權限，以及 Ostler 運作所需的一些系統權限。每次出現時，只需選擇允許。",
-    "upnext_label": "首先：完整磁碟取用權限",
+    "upnext_label": "首先：完整取用磁碟",
     "step_1": "點一下下方的「打開系統設定」。",
     "step_2": "在清單中開啟 OstlerInstaller。",
     "step_3": "macOS 會要求你結束。結束後重新打開，設定便會自動繼續。",
@@ -152,7 +152,7 @@
     "recheck_button": "我已開啟，繼續"
   },
   "log_drawer": {
-    "header_label": "記錄"
+    "header_label": "日誌"
   },
   "onboarding_question": {
     "header_with_total": "第 {current} 題，共 {total} 題",
@@ -170,7 +170,7 @@
     "yes_label_per_prompt": {
       "reuse_settings": "使用我先前的答案",
       "calendar_review": "是，這些都正確",
-      "calendar_set_aside_include": "用於我的摘要"
+      "calendar_set_aside_include": "將它用於我的摘要"
     },
     "no_label_per_prompt": {
       "reuse_settings": "從第一題重新開始",
@@ -273,7 +273,7 @@
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",
     "heading": "你的復原金鑰",
-    "body": "請現在抄下或列印出來。如果你忘記密碼短語，而且無法存取「鑰匙圈」，這是唯一能重新進入的方法。Ostler 無法為你找回金鑰 – 金鑰只會保留在這台 Mac 上，不會儲存在任何伺服器。",
+    "body": "請現在抄下或列印出來。如果你忘記密碼短語，「而且」無法存取「鑰匙圈」，這是唯一能重新進入的方法。Ostler 無法為你找回金鑰 – 金鑰絕不會離開這台 Mac，也不會儲存在任何伺服器。",
     "confirm_label": "我已將它存放在安全的地方",
     "copy_button": "拷貝到剪貼簿",
     "save_pdf_button": "儲存為 PDF…",

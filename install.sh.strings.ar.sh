@@ -34,7 +34,7 @@
 # ── Step (top-level phase) banners ──
 
 MSG_STEP_CHECKING_PREREQUISITES="جارٍ التحقق من المتطلبات الأساسية"
-MSG_STEP_RUNNING_HEALTH_CHECK="جارٍ إجراء فحص السلامة"
+MSG_STEP_RUNNING_HEALTH_CHECK="جارٍ إجراء فحص الحالة"
 # F2: the end-of-install step that holds the Tailscale browser sign-in.
 MSG_STEP_TAILSCALE_SIGNIN="اربط iPhone وApple Watch"
 # NEEDS REVIEW: source asks for human translation of this key
@@ -85,8 +85,8 @@ MSG_INFO_CLONED="  تم الاستنساخ إلى %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture يعمل على Apple Silicon فقط. سيتم تخطي التثبيت على هذا الجهاز."
 MSG_INFO_CM042_LOGS_AT="سجلات RemoteCapture: %s/ostler-remotecapture.log (و.err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="كان تثبيت سابق قد ضبط Ostler RemoteCapture ليبدأ عند تسجيل الدخول. تم إيقافه ولن يبدأ مرة أخرى."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="لم يتم تثبيت Ostler RemoteCapture: اخترت إبقاء النسخ الصوتي للكلام متوقفًا. فعّله في الإعدادات وشغّل المثبّت مرة أخرى إذا غيّرت رأيك."
-MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler RemoteCapture من macOS إذن تسجيل الشاشة والميكروفون. امنح الإذنين ليمكن نسخ المكالمات والاجتماعات محليًا. لا يظهر مؤشر تسجيل أرجواني في شريط القوائم – فالتقاط الصوت صامت بحسب التصميم."
+MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="لم يتم تثبيت Ostler RemoteCapture: اخترت إبقاء تفريغ الكلام نصيًا متوقفًا. فعّله في الإعدادات وشغّل المثبّت مرة أخرى إذا غيّرت رأيك."
+MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler RemoteCapture من macOS إذن تسجيل الشاشة والميكروفون. امنح الإذنين ليمكن تفريغ المكالمات والاجتماعات نصيًا محليًا. لا يظهر مؤشر تسجيل أرجواني في شريط القوائم – فالتقاط الصوت صامت بحسب التصميم."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
@@ -118,7 +118,7 @@ MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL="Colima مثبّت لكنه لا 
 MSG_INFO_COLIMA_START_ATTEMPT="جارٍ تشغيل Colima (المحاولة %s من %s)..."
 MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN="تعذّر تصدير جهات الاتصال. يمكنك استيرادها يدويًا لاحقًا."
 MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO="تعذّرت قراءة بطاقة جهة الاتصال. لا بأس – سنسألك بدلًا من ذلك."
-MSG_INFO_CONTACT_CARD_WILL_ASK="سنسألك عن اسمك وبلدك بعد قليل. تُقرأ جهات اتصالك لاحقًا عبر صلاحية الوصول إلى القرص بالكامل التي تمنحها، ولا يغادر أي شيء هذا الـ Mac."
+MSG_INFO_CONTACT_CARD_WILL_ASK="سنسألك عن اسمك وبلدك بعد قليل. تُقرأ جهات اتصالك لاحقًا عبر صلاحية الوصول الكامل إلى القرص التي تمنحها، ولا يغادر أي شيء هذا الـ Mac."
 MSG_INFO_CP_R_TMP_DOCTOR_SRC_DOCTOR="  cp -R /tmp/doctor-src/doctor/agent/* %s/"
 MSG_INFO_CREATING_PYTHON_VENV="  جارٍ إنشاء بيئة Python الافتراضية في %s..."
 MSG_INFO_CREATING_USER_FACING_CONTENT_TREE="جارٍ إنشاء شجرة المحتوى الموجّهة للمستخدم في %s/"
@@ -138,7 +138,7 @@ MSG_INFO_FIRST_MONTH_FREE_ACTIVATING="جارٍ تفعيل أول 30 يومًا �
 MSG_INFO_SUBSCRIPTION_PRICING_HINT="يبلغ سعر Ostler Pro \$9.99 USD شهريًا بعد الفترة التجريبية. اشترك من تطبيق Ostler على iPhone."
 MSG_INFO_FOUND_GMAIL_MBOX_MB="تم العثور على mbox الخاص بـ Gmail في %s (%s MB)"
 MSG_INFO_FOUND_GOOGLE_TAKEOUT_ZIP_MB="تم العثور على ملف Google Takeout المضغوط في %s (%s MB)"
-MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION="تم اكتشاف صلاحية الوصول إلى القرص بالكامل – الاستخراج الكامل متاح."
+MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION="تم اكتشاف صلاحية الوصول الكامل إلى القرص – الاستخراج الكامل متاح."
 MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="تم اكتشاف صادرات GDPR لكن مسار الاستيراد غير متاح بعد."
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="سيتوفر استيراد صادرات GDPR عند إطلاق المسار."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="سنفحص الآن مجلدات التنزيلات وسطح المكتب والمستندات بحثًا عن صادرات الذكاء الاصطناعي (Google Takeout وتنزيلات Meta وLinkedIn وغيرها) التي ربما حفظتها. سيعرض macOS ثلاث رسائل للوصول إلى المجلدات – يُرجى السماح بكل واحدة منها. يستغرق ذلك نحو 5-10 ثوانٍ في المجموع. لا يتم نقل أو نسخ أي شيء أثناء الفحص، نكتفي بالتحقق مما هو موجود."
@@ -146,7 +146,7 @@ MSG_INFO_CALENDAR_PERMISSION_PREWARM="قد يطلب macOS إذنًا لقراء�
 MSG_INFO_FOLDER_PREWARM_DOWNLOADS="يطلب macOS إذنًا للوصول إلى التنزيلات. انقر على موافق."
 MSG_INFO_FOLDER_PREWARM_DESKTOP="يطلب macOS إذنًا للوصول إلى سطح المكتب. انقر على موافق."
 MSG_INFO_FOLDER_PREWARM_DOCUMENTS="يطلب macOS إذنًا للوصول إلى المستندات. انقر على موافق."
-MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="تم منح صلاحية الوصول إلى القرص بالكامل. جارٍ تجهيز رسالة macOS التالية (أتمتة الرسائل)..."
+MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="تم منح صلاحية الوصول الكامل إلى القرص. جارٍ تجهيز رسالة macOS التالية (أتمتة الرسائل)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
 # and Ostler asks again later, so this is a "not yet", not a failure.
@@ -189,7 +189,7 @@ MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="جارٍ فتح Tailscale لتتمكن م
 # 13:04:20 and 13:04:51). Optional-but-blocking is the worst of both. It also
 # named only that step, while Full Disk Access and the developer-tools dialog
 # were the two that actually surprised him.
-MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="حسنًا – يتولى Ostler معظم التثبيت بنفسه من هنا. قرب النهاية سيحتاج إليك لمدة دقيقتين تقريبًا: لتفعيل الوصول الكامل إلى القرص، ثم تسجيل الدخول إلى Tailscale كي يصل iPhone وWatch إلى هذا الـ Mac من أي مكان. سنفتح المتصفح لتسجيل الدخول."
+MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="تمّ – يتولى Ostler معظم التثبيت بنفسه من هنا. قرب النهاية سيحتاج إليك لمدة دقيقتين تقريبًا: لتفعيل الوصول الكامل إلى القرص، ثم تسجيل الدخول إلى Tailscale كي يصل iPhone وWatch الخاصان بك إلى هذا الـ Mac من أي مكان. سنفتح متصفحك لتسجيل الدخول."
 MSG_INFO_TAILSCALE_SKIPPED="تم تخطي Tailscale – سيعمل تطبيق Ostler على iPhone على شبكة Wi-Fi المنزلية فقط. يمكنك إعداد ذلك لاحقًا من الإعدادات."
 MSG_INFO_TAILSCALE_STILL_WAITING="لا يزال تسجيل الدخول إلى Tailscale قيد الانتظار (انقضت %ss) – يُرجى إكمال تسجيل الدخول في نافذة Tailscale."
 MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="تم منح الوصول الكامل إلى القرص؛ جارٍ إعادة تشغيل المساعد لتفعيل الإذن الجديد."
@@ -238,7 +238,7 @@ MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE="لم يتم تثبيت �
 # (task #339). Fires on every laptop, on mains power or not; a desktop Mac never
 # sees these lines.
 MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS="هذا الـ Mac هو حاسوب محمول. وبصفته الـ Hub الخاص بك، يواصل العمل ما دام الغطاء مفتوحًا وجهاز Mac موصولًا بالتيار الكهربائي."
-MSG_INFO_LAPTOP_HUB_SLEEP_COST="إذا أغلقت الغطاء، أو تركته دون استخدام على البطارية، يضعه macOS في وضع السكون. لا يتلقى المساعد أي شيء أثناء السكون، ولا تُلتقط الرسائل التي تصل خلال ذلك عند الاستيقاظ."
+MSG_INFO_LAPTOP_HUB_SLEEP_COST="إذا أغلقت الغطاء، أو تركته دون استخدام على البطارية، يضعه macOS في وضع السكون. لا يتلقى المساعد أي شيء أثناء السكون، ولا تُستلم الرسائل التي تصل خلال ذلك عند الاستيقاظ."
 MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY="يمكن أن يبقى الغطاء مغلقًا في وضع الشاشة المغلقة، الذي يتطلب التيار الكهربائي مع شاشة خارجية ولوحة مفاتيح وفأرة."
 MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="يبقى Hub على Mac Mini أو Mac Studio مستيقظًا من تلقاء نفسه، إن كنت تفضّل التثبيت على أحدهما."
 MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="لاحقًا في إعدادات النظام > الخصوصية والأمن > الوصول الكامل إلى القرص"
@@ -299,7 +299,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="المنطقة: الولايات المت�
 MSG_INFO_REPO_URL="عنوان URL للمستودع: %s"
 MSG_INFO_REPO_URL_2="عنوان URL للمستودع: %s"
 MSG_INFO_REPO_URL_3="عنوان URL للمستودع: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="اختر الآن عبارة المرور التي ستفتح Hub. ستكتبها في كل مرة تشغّل فيها واجهة Hub."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="اختر الآن عبارة المرور التي ستفتح Hub الخاص بك. ستكتبها في كل مرة تشغّل فيها واجهة Hub."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="تم تخطي عبارة مرور الاسترداد. (مُهمَل: يتطلب الإصدار v1.0 عبارة مرور دائمًا.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="إعادة استخدام تثبيت وكيل Doctor الموجود في %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="إعادة استخدام تثبيت email-ingest الموجود في %s"
@@ -310,7 +310,7 @@ MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because yo
 MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="محادثات البريد الإلكتروني: لم يتم إعدادها، لأن Apple Mail غير مُعدّ على هذا الـ Mac."
 MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
 MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="محادثات الرسائل: لم يتم إعدادها، لأنه لا يوجد سجل رسائل على هذا الـ Mac."
-MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  فرّغ مكالمة نصيًا باستخدام Ostler وسيعمل هذا تلقائيًا."
+MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  فرّغ مكالمة نصيًا باستخدام Ostler وسيتم تفعيل هذا تلقائيًا."
 MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="المحادثات المنطوقة: لم يتم إعدادها بعد، لأنه لا توجد نصوص مفرّغة لقراءتها."
 MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED="المحادثات المنطوقة: متوقفة، لأن مجلد Transcripts أُزيل منذ تثبيت Ostler."
 MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW="  أعد إنشاء %s لإعادة تشغيلها. لن يعيد Ostler إنشاءه نيابةً عنك."
@@ -337,8 +337,7 @@ MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT="لم يعمل Ollama عبر خدمة 
 # NEEDS REVIEW: Source is a line cut mid-sentence ('after first' continues on the next line). 'بعد ذلك أولاً' distorted the meaning. A human should check the next line so the f
 MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER="  جارٍ البدء؛ شغّل \`ostler-assistant doctor\` بعد أول"
 MSG_INFO_SYMLINKING="  إنشاء رابط رمزي %s -> %s"
-# NEEDS REVIEW: Continuation fragment: 'Mail's' is completed by the next line. Check that the join reads naturally in Arabic.
-MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(إعدادات النظام > حسابات الإنترنت). يقرأ Ostler من بريد"
+MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(إعدادات النظام > حسابات الإنترنت). يقرأ Ostler من تطبيق Mail"
 MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C="  tar xzf /tmp/ostler.tgz -C %s/bin"
 MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR="(يعمل باقي Ostler دون لوحة Doctor.)"
 MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL="هذا متوقع في الوقت الحالي. سيتوفر استيراد GDPR في تحديث قادم."
@@ -349,7 +348,7 @@ MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT="نصيحة: لتضمين حساب Gmail 
 MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE="للتثبيت لاحقاً بعد حصولك على الوصول:"
 MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN="جارٍ تشغيل مزامنة iCloud لـ %s (بصمت، عند التشغيل الأول فقط)..."
 MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      (المادة 9 من UK GDPR - مطلوبة للبيانات ذات الفئة الخاصة)."
-MSG_INFO_UPDATING_EXISTING_PIPELINE="جارٍ تحديث المسار الحالي..."
+MSG_INFO_UPDATING_EXISTING_PIPELINE="جارٍ تحديث خط المعالجة الحالي..."
 MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL="الشجرة الموجهة للمستخدم أُعلن عنها مسبقاً (العلامة موجودة)؛ سيتم التخطي"
 MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS="جارٍ تنزيل محرك البحث المحلي على الويب (نحو 3.5 GB). هذه أطول خطوة عند التثبيت الأول وقد تستغرق حتى ساعة. لا يوجد شريط تقدم لها، لذا فالصمت الطويل هنا متوقع ولا يعني أن التثبيت توقف."
 MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE="Vane لا يستجيب (اختياري؛ راجع تحذيرات المرحلة 3.8b)"
@@ -359,7 +358,7 @@ MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3="في انتظار تسجيل دخول�
 MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="لم يتم إعداد الوصول عن بُعد عبر Tailscale. سيعمل تطبيق Ostler على iPhone عبر شبكة Wi-Fi المنزلية؛ ويمكنك إعداد الوصول عن بُعد لاحقاً من الإعدادات."
 MSG_INFO_TAILSCALE_ALREADY_CONFIGURED="جهاز Mac هذا متصل بالفعل بشبكة Tailscale الخاصة بك، فلا حاجة إلى أي إعداد. سيتم الإبقاء على اتصالك الحالي."
 MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP="الوصول عن بُعد: يتم الإبقاء على إجابتك السابقة، وهي التخطي. سيعمل تطبيق iOS عبر شبكة Wi-Fi المنزلية، ويمكنك إعداد الوصول عن بُعد لاحقاً من الإعدادات."
-MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP="الوصول عن بُعد: يتم الإبقاء على إجابتك السابقة، وهي الإعداد."
+MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP="الوصول عن بُعد: يتم الإبقاء على إجابتك السابقة، وهي إعداده."
 MSG_INFO_WHATSAPP_CONNECTOR_LEFT_OFF_YOU_CAN="تم ترك موصّل WhatsApp متوقفاً. يمكنك تفعيله لاحقاً من الإعدادات."
 MSG_INFO_WHATSAPP_KEEPALIVE_SCHEDULED_08_50_17="تمت جدولة WhatsApp keepalive عند 08:50 + 17:50 (التسمية com.creativemachines.ostler.whatsapp-keepalive)"
 MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK="تخطي مزامنة الويكي لليوم الأول: مهمة إعادة تجميع الويكي غير مثبّتة. ولا تزال إعادة بناء الويكي اليومية تعمل إن كانت مثبّتة."
@@ -507,7 +506,7 @@ MSG_INFO_IMESSAGE_BUNDLE_TICK="  يقرأ محادثات iMessage الأخيرة
 MSG_INFO_IMESSAGE_BUNDLE_LOGS="  السجلات: %s/imessage-bundle.log و imessage-bundle.err"
 MSG_WARN_IMESSAGE_BUNDLE_FAILED="فشل تثبيت LaunchAgent لخلاصة محادثات iMessage. راجع المخرجات أعلاه، أما بقية التثبيت فلم تتأثر."
 MSG_OK_EMBEDDING_MODEL_READY="نموذج التضمين جاهز"
-MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY="تم تصدير %s من جهات الاتصال (سيتم استيرادها تلقائياً)"
+MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY="تم تصدير %s جهة اتصال (سيتم استيرادها تلقائياً)"
 MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY="تم تثبيت مراقب التصدير (يفحص مجلد التنزيلات كل 4 ساعات)"
 # The export watcher's refusal names the exact path it looked for, so the
 # install log does not send the reader hunting for what was missing.
@@ -590,7 +589,7 @@ MSG_OK_ICAL_SERVER_HEALTHY="واجهة برمجة المساعد تعمل بشك
 MSG_WARN_ICAL_SERVER_NOT_RESPONDING="واجهة برمجة المساعد لا تستجيب (127.0.0.1:8090) - قد تكون أقسام الأشخاص والاجتماعات والجدول الزمني فارغة إلى أن تبدأ"
 MSG_OK_READY="%s جاهز"
 MSG_OK_RECOMMENDED_SOURCES_SELECTED="تم اختيار المصادر الموصى بها"
-MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="تم حفظ مفتاح الاسترداد في سلسلة المفاتيح (ابحث عن 'Ostler' في تطبيق كلمات السر)"
+MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="تم حفظ مفتاح الاسترداد في سلسلة المفاتيح (ابحث عن 'Ostler' في تطبيق كلمات المرور)"
 MSG_OK_REDIS_HEALTHY="Redis healthy"
 MSG_OK_SAFARI_EXTENSION_INSTALLED="تم تثبيت امتداد Safari في %s"
 MSG_OK_SAFARI_EXTENSION_PAIRED="تم اقتران امتداد Safari بهذا الـ Hub"
@@ -620,7 +619,7 @@ MSG_INFO_TAILSCALE_SIGN_IN_URL="جارٍ فتح المتصفح لتسجيل ال
 MSG_INFO_TAILSCALE_SERVE_PORT="تمت إتاحة منفذ Hub %s على tailnet الخاصة بك"
 MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="تعذرت إتاحة منفذ Hub %s على tailnet الخاصة بك؛ قد يكون الوصول من خارج الشبكة المحلية محدودًا"
 # ── Wiki on the tailnet, owner-gated (v1.0.17) ──
-MSG_OK_WIKI_TAILNET_SERVED="يمكن الآن قراءة الويكي الخاص بك من أجهزتك على %s – بتسجيل الدخول باسمك أنت وحدك."
+MSG_OK_WIKI_TAILNET_SERVED="يمكن الآن قراءة الويكي الخاص بك من أجهزتك على %s – بعد تسجيل الدخول بحسابك، ولك وحدك."
 MSG_INFO_WIKI_TAILNET_OWNER="الوصول إلى الويكي مقصور على حسابك في Tailscale (%s). يحصل الآخرون على tailnet الخاصة بك على الخطأ 403."
 MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="يبقى الويكي الخاص بك على هذا الـ Mac فقط. افتح Ostler واختر الويكي في الشريط الجانبي لقراءته."
 MSG_INFO_WIKI_TAILNET_BANNER="%s  (من أجهزتك، عبر Tailscale. هذا هو المسار الوحيد الذي يطلب منك تسجيل الدخول أعلاه.)"
@@ -641,7 +640,7 @@ MSG_INFO_WIKI_PORT_LAST_STATUS="آخر حالة HTTP من منفذ الويكي:
 # non-failure paths into that branch.
 MSG_INFO_WIKI_PASSWORD_ON_DISK="كلمة السر محفوظة أيضًا في %s، فالحافظة ليست النسخة الوحيدة."
 MSG_INFO_WIKI_STILL_BUILDING="لا يزال البناء جاريًا. هناك %s صفحة على القرص بالفعل، وكان آخر رد من عنوان الويكي HTTP %s. سيظهر في تطبيق Ostler من تلقاء نفسه. لا شيء عليك فعله."
-MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="لم ينتج البناء الأول أي صفحات بعد (راجع التحذيرات أعلاه). سيُفتح الويكي الخاص بك في تطبيق Ostler بمجرد اكتمال بنائه، ويبقى تسجيل الدخول أعلاه لك."
+MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="لم ينتج البناء الأول أي صفحات بعد (راجع التحذيرات أعلاه). سيظل الويكي يُفتح في تطبيق Ostler بمجرد اكتمال بنائه، ويبقى تسجيل الدخول أعلاه لك."
 MSG_INFO_WIKI_READINESS_NOT_MEASURED="لم تقس هذه العملية ما إذا كانت الويكي تعمل حاليًا، لذلك لا تقدّم أي ادعاء في هذا الشأن. تُفتح الويكي في تطبيق Ostler في كل الأحوال، ويبقى تسجيل الدخول أعلاه خاصًا بك."
 MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="تعذّر التأكد من حساب Tailscale الذي يملك هذا الـ Mac، لذلك لم يتم إتاحة الويكي على شبكة tailnet الخاصة بك. وهي لا تزال متاحة على هذا الـ Mac، في تطبيق Ostler ضمن Wiki."
 MSG_WARN_WIKI_TAILNET_SERVE_FAILED="تعذّر نشر الويكي على شبكة tailnet الخاصة بك؛ وهي لا تزال متاحة على هذا الـ Mac، في تطبيق Ostler ضمن Wiki."
@@ -748,7 +747,7 @@ MSG_WARN_COULD_NOT_OBTAIN_HUB_POWER_SCRIPTS="تعذّر الحصول على سك
 MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="تعذّر الحصول على سكربتات wiki-recompile (فشل كل من النسخة المضمّنة والنسخ من المستودع)."
 MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="تعذّر فتح رابط Chrome Web Store تلقائيًا: %s"
 MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="تعذّر حفظ region.json (سيستمر التثبيت، وسيعرض Doctor المشكلة)"
-MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="تعذّر تسجيل أن مفتاح الاسترداد قد سُلِّم. ملخص هذه الجلسة لا يزال صحيحًا، لكن قد لا تتمكن جلسة لاحقة من معرفة ذلك وقد تعرض تحذيرًا مرة أخرى، وهذا هو الجانب الآمن إن كان لا بد من الإخفاق."
+MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="تعذّر تسجيل أن مفتاح الاسترداد قد سُلِّم. ملخص هذه الجلسة لا يزال صحيحًا، لكن قد لا تتمكن جلسة لاحقة من معرفة ذلك وقد تعرض تحذيرًا مرة أخرى – وهذا هو الجانب الآمن إن كان لا بد من الإخفاق."
 MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="تعذّر الحفظ في سلسلة المفاتيح. يرجى تدوينه."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="تعذّر تشغيل Ollama تلقائيًا."
 MSG_FAIL_OLLAMA_PORT_IN_USE="هناك برنامج آخر يستخدم المنفذ 11434 بالفعل، وهو المنفذ الذي يحتاجه Ostler لذكائه الاصطناعي المحلي. لم يتمكن Ostler من تشغيل نسخته الخاصة، لذا توقف التثبيت هنا بدلًا من إنهائه جزئيًا.
@@ -771,14 +770,14 @@ MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE="أمر Docker موجود على هذا ا
 MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC="تشخيص بيئة تشغيل الحاويات - عميل docker: %s | colima: %s | Docker Desktop: %s"
 MSG_WARN_WIKI_PORT_NOT_ANSWERING="بدأت حاوية الويكي لكن لم يستجب شيء على http://localhost:8044 خلال 60 ثانية. اعتبر الويكي غير قيد التشغيل، فرمز الخروج لأمر البدء ليس دليلًا على أن الصفحة تُحمَّل."
 MSG_WARN_WIKI_NOT_RESPONDING="الويكي لا يستجيب (127.0.0.1:8044). يعمل الويكي داخل حاوية، لذا يعني هذا عادةً أن بيئة تشغيل الحاويات توقفت. افتح Ostler Doctor على http://localhost:8089/doctor لمعرفة السبب."
-MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS="Docker / Ollama أثناء التثبيت وتعطّل فحوصات الجاهزية."
+MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS="Docker / Ollama أثناء التثبيت وتتسبب في تعليق فحوصات الجاهزية."
 MSG_WARN_EARLY_MARKERS_CHANNELS_STILL_CONNECTING_APPLE="  مؤشرات مبكرة (القنوات لا تزال قيد الاتصال + Apple"
 MSG_WARN_EMAIL_INGEST_LAUNCHAGENT_INSTALL_FAILED_SEE="فشل تثبيت LaunchAgent لاستيعاب البريد الإلكتروني. راجع المخرجات أعلاه."
 MSG_WARN_IMESSAGE_BRIDGE_FAILED="فشل تثبيت LaunchAgent لجسر iMessage. لن تعمل ردود iMessage الخاصة بمستخدم المساعد حتى تعيد تشغيل المثبّت أو تشغّل INSTALL_SNIPPET.sh يدويًا."
 MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="سكربتات جسر iMessage غير مضمّنة وتم تمرير --allow-plaintext؛ سيتم تخطي تثبيت LaunchAgent. لن تعمل ردود iMessage الخاصة بمستخدم المساعد."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="لن يعمل التشفير."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="لن يعمل التشفير، و"
-MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="تأكد من أن وسم PWG_KNOWLEDGE_REPO المثبّت يتضمنه."
+MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="تأكد من أن الوسم المحدد لـ PWG_KNOWLEDGE_REPO يتضمنه."
 MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  إذن الأحداث لتطبيق Messages.app)."
 MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="انتهى مستخرج FDA برمز غير صفري (%s). آخر 20 سطرًا من المخرجات:"
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="وحدة استخراج FDA غير مضمّنة في هذا المثبّت."
@@ -790,7 +789,7 @@ MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="سيستمر التثبيت لأ
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault غير مفعّل."
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="تعذّر تفعيل الشهر الأول المجاني في الوقت الحالي، وسيستمر التثبيت. افتح تطبيق Ostler على iPhone بعد الاقتران لحل ذلك."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="لم يتم منح «الوصول الكامل إلى القرص» لتطبيق «الطرفية»."
-MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="تم رصد %s GB من الذاكرة RAM. ستحصل على المساعد المدمج (gemma4:e2b) – موثوق ودقيق وسريع في أقل من ثانية على الأسئلة القصيرة، مع استدعاء الأدوات وقول «لا أعرف» بصدق عندما لا يعرف. للحصول على إجابات أغنى عن الأسئلة الأطول، تتيح ذاكرة بحجم 24 GB أو أكثر المساعد القياسي (qwen3.5:9b). يمكنك تغيير جهاز Mac لاحقًا بإعادة التثبيت."
+MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="تم رصد %s GB من الذاكرة RAM. ستحصل على المساعد المصغّر (gemma4:e2b) – موثوق ودقيق وسريع في أقل من ثانية على الأسئلة القصيرة، مع استدعاء الأدوات وقول «لا أعرف» بصدق عندما لا يعرف. للحصول على إجابات أغنى عن الأسئلة الأطول، تتيح ذاكرة بحجم 24 GB أو أكثر المساعد القياسي (qwen3.5:9b). يمكنك تغيير جهاز Mac لاحقًا بإعادة التثبيت."
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="حدثت أخطاء في استيراد GDPR. يمكنك إعادة التشغيل باستخدام:"
 MSG_WARN_GRAPH_DB_PULL_RETRY="لم يكتمل تنزيل قاعدة البيانات (المحاولة %s من %s). ستتم إعادة المحاولة بعد %s ثانية..."
 MSG_WARN_GRAPH_DB_UP_RETRY="لم تبدأ قواعد بيانات الرسم المعرفي (المحاولة %s من %s). ستتم إعادة المحاولة..."
@@ -819,9 +818,9 @@ MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="سجل iMessage (chat.db) غير قابل 
 MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED="جارٍ فتح إعدادات النظام > الخصوصية والأمن > الأتمتة. حدّد صف «الرسائل» الخاص بـ OstlerInstaller (أو Terminal) لإعداد التسليم عبر iMessage."
 MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED="ليس عنوان بريد إلكتروني كاملاً، لذا تم تجاهله: %s"
 MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS="يُرجى إدخال عنوان بريد إلكتروني كامل واحد على الأقل (مثل you@example.com)."
-MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT="يحتاج iMessage إلى جهة اتصال مسموح بها واحدة على الأقل. حاول مرة أخرى أو"
+MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT="يحتاج iMessage إلى جهة اتصال مسموح بها واحدة على الأقل. يُرجى المحاولة مرة أخرى أو"
 MSG_WARN_IMPORT_PIPELINE_NOT_AVAILABLE_PRIVATE_REPO="مسار الاستيراد غير متاح (مستودع خاص، لمختبِري النسخة التجريبية فقط)."
-MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="مسار الاستيراد غير مضمّن في المثبّت. تم تجاوز الإخفاق الحتمي."
+MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="مسار الاستيراد غير مضمّن في المثبّت. تم تجاوز الإيقاف الإلزامي عند الفشل."
 MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="مسار الاستيراد غير مضمّن في المثبّت. هذا هو مسار التثبيت الجاهز للمنتج؛ يجب أن تكون حزمة Python المسماة contact_syncer مضمّنة داخل حزمة .app."
 MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY="INBOX يعني أن المساعد سيقرأ كل رسالة بريد إلكتروني تتلقاها."
 MSG_WARN_INSUFFICIENT_DISK_WIKI_OUTPUT_VOLUME="  - مساحة القرص غير كافية لحجم مخرجات الويكي"
@@ -840,7 +839,7 @@ MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="لا يزال بالإمكان ا�
 MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP="  إعادة المحاولة يدوياً: cd %s && docker compose up -d vane"
 MSG_WARN_MANUAL_RETRY_ONCE_CAUSE_RESOLVED="  إعادة المحاولة يدوياً بعد حل السبب:"
 MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP="لم يتم اختيار Apple Mail ولا IMAP مخصص – سيتم اعتماد Apple Mail افتراضياً."
-MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="لم يتم تعيين مفتاح مرور؛ لن تكون قواعد البيانات مشفّرة."
+MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="لم يتم تعيين عبارة مرور؛ لن تكون قواعد البيانات مشفّرة."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1="أنشأ تثبيت سابق مفتاح الاسترداد الخاص بك لكنه لم يكتمل، لذا لم يُعرض عليك قط. لا يمكن استرجاعه – فهو لا يُخزَّن في أي مكان، بما في ذلك هنا."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_2="عبارة المرور الخاصة بك لا تزال تعمل ولا شيء مقفل اليوم. لكن لا توجد حالياً أي وسيلة للدخول مجدداً إذا نسيتها."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="تواصل مع الدعم لإعداد الأمان من جديد، وسيعرض عليك ذلك مفتاح استرداد جديداً لتحتفظ به."
@@ -856,7 +855,7 @@ MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST="المتاح %s غيغابايت فق�
 MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP="عند التشغيل على البطارية، قد يتوقف LaunchAgent الخاص بإدارة طاقة الـ Hub (الخطوة 3.14) مؤقتاً"
 MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="أو أعد تشغيل المثبّت واختر قناة مختلفة."
 MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="أو أنه يسبق مسار الإصدار في المرحلة B. أعد تشغيل المثبّت بمجرد أن"
-MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="أبلغ ostler-assistant doctor عن %s من الأخطاء."
+MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="أبلغت أداة ostler-assistant doctor عن %s من الأخطاء."
 
 # The whole-run closing verdict (#270, step-failure line added #616).
 # Deliberately NOT phrased as a doctor result: the doctor string above is scoped
@@ -893,7 +892,7 @@ MSG_WARN_PIP_INSTALL_FAILED_PWG_EMAIL_INGEST="  فشل pip install؛ محرك ا
 MSG_WARN_CM021_SOURCE_NOT_FOUND="لم يُعثر على مصدر محرك استيعاب البريد الإلكتروني في حزمة التطبيق؛ ستحفظ المهمة الساعية في الخلفية ملفات البريد دون استيعابها."
 MSG_WARN_OSTLER_FDA_SOURCE_NOT_FOUND_EMAIL_INGEST="لم يُعثر على مصدر ostler_fda في حزمة التطبيق؛ سيعود email-ingest LaunchAgent إلى استخدام Python الخاص بالنظام أثناء التشغيل."
 MSG_WARN_PIP_SAID="ردّ pip:"
-MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL="صِل الجهاز بمصدر الطاقة الكهربائية لإكمال التثبيت."
+MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL="صِل الجهاز بمصدر طاقة التيار المتردد طوال مدة التثبيت الكامل."
 MSG_WARN_PORT_1_ALREADY_USE_PID="المنفذ %s مستخدم بالفعل من قبل %s (PID %s)"
 MSG_WARN_PORT_3000_ALREADY_USE_ANOTHER_SERVICE="  - المنفذ 3000 مستخدم بالفعل من قبل خدمة أخرى"
 MSG_WARN_POWER_SOURCE="مصدر الطاقة: %s"
@@ -952,7 +951,7 @@ MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED="تعذّر حفظ إجابتك بشأ�
 MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL="فشل تثبيت Tailscale – يمكنك تثبيته لاحقًا من tailscale.com"
 MSG_WARN_TAILSCALE_STATE_UNREADABLE="يحتوي هذا الـ Mac على إعدادات Tailscale موجودة تعذّرت قراءتها، لذا لا يمكننا معرفة ما إذا كان لا يزال متصلًا بشبكتك. يرجى الاختيار أدناه – إذا كان متصلًا بالفعل، فلا ضرر من إعداده مرة أخرى."
 MSG_WARN_THE_DEPLOYED_SERVICES_REFUSE_START_WITHOUT="لن تبدأ الخدمات المنشورة بالعمل من دونها."
-MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER="  تُحل هذه المشكلة. راجع لافتة الخطوات التالية لمعرفة طريقة المعالجة."
+MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER="  حتى تُحل هذه المشكلة. راجع لافتة الخطوات التالية لمعرفة طريقة المعالجة."
 MSG_WARN_TO_INSPECT_CRON_DELIVERY_IMESSAGE_TCC="  للفحص. cron-delivery / imessage-tcc من الأسباب الشائعة"
 MSG_WARN_TRY_DOCKER_COMPOSE_F_DOCKER_COMPOSE="  جرّب: docker compose -f %s/docker-compose.yml up -d wiki-site"
 MSG_WARN_TRY_DOCKER_LOGS_OSTLER_VANE="  جرّب: docker logs ostler-vane"
@@ -968,12 +967,12 @@ MSG_WARN_WE_STRONGLY_RECOMMEND_DEDICATED_LABEL_FOLDER="نوصي بشدة باس�
 MSG_WARN_WHATSAPP_NEEDS_PHONE_NUMBER_BRIEF_DELIVERY="يحتاج WhatsApp إلى رقم هاتف لتسليم الموجز. حاول مرة أخرى،"
 MSG_WARN_WIKI_COMPILED_BUT_WIKI_SITE_CONTAINER="تم تجميع الويكي لكن تعذّر بدء حاوية wiki-site."
 MSG_WARN_WIKI_FIRST_COMPILE_FAILED_COMMON_CAUSES="فشل التجميع الأول للويكي. الأسباب الشائعة:"
-MSG_WARN_WIKI_RECOMPILE_CATCHUP_LOAD_FAILED="تعذّر تحميل LaunchAgent الخاص باللحاق بالويكي في اليوم الأول. ما زالت إعادة بناء الويكي اليومية تعمل؛ سيتم تحديث الويكي في اليوم التالي بدلًا من خلال ساعة."
+MSG_WARN_WIKI_RECOMPILE_CATCHUP_LOAD_FAILED="تعذّر تحميل LaunchAgent الخاص باللحاق بالويكي في اليوم الأول. ما زالت إعادة بناء الويكي اليومية تعمل؛ سيتم تحديث الويكي ببساطة في اليوم التالي بدلًا من تحديثه خلال الساعة القادمة."
 MSG_WARN_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL_FAILED_SEE="فشل تثبيت LaunchAgent لإعادة تجميع الويكي. راجع المخرجات أعلاه."
 MSG_WARN_WIKI_WILL_NOT_AUTO_UPDATE_MANUAL="لن يتحدّث الويكي تلقائيًا؛ تبقى إعادة البناء اليدوية متاحة:"
 MSG_WARN_WIZARD_CONFIG_STAYS_PLACE_BINARY_STAYS="تبقى إعدادات المعالج كما هي؛ ويبقى الملف التنفيذي مجهّزًا. إعادة المحاولة يدويًا:"
 MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM="يحتاج مساعدك إلى اسم. اختر من الاقتراحات أعلاه أو اكتب اسمًا من اختيارك."
-MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM="يمكنك منح الإذن مجددًا في إعدادات النظام > الخصوصية والأمن > جهات الاتصال."
+MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM="يمكنك منح الإذن مجددًا في إعدادات النظام > الخصوصية والأمان > جهات الاتصال."
 MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER="يمكنك تشغيل إعداد الأمان لاحقًا: python3 -m ostler_security.setup_wizard"
 MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL="قد تحتاج إلى التثبيت يدويًا: %s install sqlcipher3"
 
@@ -1427,8 +1426,8 @@ MSG_PROMPT_SAVE_KEYCHAIN_HELP="يخزّن مفتاح استرداد التشفي
 # Used by install.sh's hydrate_graph sub-phase (immediately before
 # wiki_compile). Customer-facing counts come from the syncers' own
 # JSON output, never from a fixed founder-instance number.
-MSG_HYDRATE_TITLE="جارٍ تهيئة الرسم البياني الخاص بك"
-MSG_HYDRATE_CONTACTS_STARTED="جارٍ استيراد جهات الاتصال إلى الرسم البياني"
+MSG_HYDRATE_TITLE="جارٍ ملء الرسم المعرفي الخاص بك بالبيانات"
+MSG_HYDRATE_CONTACTS_STARTED="جارٍ استيراد جهات الاتصال إلى الرسم المعرفي"
 MSG_HYDRATE_CONTACTS_DONE="تم استيراد %s من جهات الاتصال"
 # %s = the cap in seconds, %s = contacts imported before the cap was hit.
 # Says WHAT WAS MEASURED and what happens next, rather than blaming the step:
@@ -1441,7 +1440,7 @@ MSG_HYDRATE_CALENDAR_DONE="تم استيراد %s من الأحداث"
 MSG_HYDRATE_CALENDAR_HEARTBEAT="  لا يزال التقويم قيد التحميل (%s ثانية حتى الآن). يحتاج جهاز Mac الذي يحتوي على سنوات من الاجتماعات إلى بعض الوقت."
 # Places ingest (2026-06-19): aggregate meeting/photo location signals into
 # browsable Places for the wiki. British English, no em-dashes.
-MSG_HYDRATE_PLACES_STARTED="جارٍ إنشاء أماكنك من المواقع التي تلتقي فيها"
+MSG_HYDRATE_PLACES_STARTED="جارٍ إنشاء قسم «الأماكن» من المواقع التي تلتقي فيها"
 MSG_HYDRATE_PLACES_DONE="تم إنشاء قسم الأماكن الخاص بك"
 MSG_HYDRATE_PLACES_SKIPPED="لم يُعثر على إشارات موقع بعد، وستمتلئ الأماكن مع امتلاء التقويم"
 # Loud, VISIBLE failure surface: the places module's own guard fired (location
@@ -1731,7 +1730,7 @@ MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED="تعذّر التحقق مما �
 MSG_HYDRATE_PEOPLE_STARTED="جارٍ فهرسة الأشخاص لديك للبحث"
 MSG_HYDRATE_PEOPLE_DONE="تمت فهرسة %s شخصًا للبحث"
 MSG_HYDRATE_PEOPLE_PARTIAL="تمت فهرسة %s من %s شخصًا للبحث حتى الآن. لم يكن بالإمكان البحث عن الباقين بعد، وسيعيد Ostler المحاولة تلقائيًا."
-MSG_HYDRATE_PEOPLE_FAILED="تعذّرت فهرسة الأشخاص لديك للبحث هذه المرة (لم يستجب مخزن المخطط). سيعيد Ostler المحاولة تلقائيًا. التفاصيل: %s"
+MSG_HYDRATE_PEOPLE_FAILED="تعذّرت فهرسة الأشخاص لديك للبحث هذه المرة (لم يستجب مخزن بيانات الرسم البياني). سيعيد Ostler المحاولة تلقائيًا. التفاصيل: %s"
 MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA="لا يوجد أشخاص لفهرستهم بعد. يمكنك إعادة التشغيل لاحقًا من الإعدادات."
 MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING="فهرسة الأشخاص ليست جاهزة بعد. يمكنك إعادة تشغيلها لاحقًا من الإعدادات."
 MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES="لا تزال فهرسة الأشخاص جارية في الخلفية. تكتمل نتائج البحث تدريجيًا، ويعرض لك الويكي مدى التقدم."
@@ -1747,7 +1746,7 @@ MSG_PROMPT_GDPR_SCAN_INCOMING_TITLE="ثلاث رسائل طلب إذن للوص�
 # CX-54 (DMG #30, 2026-05-24): in-window hint surfaced after macOS's
 # Command Line Tools install dialog steals focus. Customers consistently
 # miss that the questions phase continues in the background.
-MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND="ظهر مربع حوار أدوات سطر الأوامر أمام هذه النافذة – انقر على \"تثبيت\" فيه، ثم عد إلى هنا (أو انتظر بضع ثوانٍ وسنعيد هذه النافذة إلى الأمام). تُنزَّل الأدوات في الخلفية بينما تواصل الإجابة عن الأسئلة أدناه؛ لا شيء هنا متوقف."
+MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND="ظهر مربع حوار أدوات سطر الأوامر أمام هذه النافذة – انقر على «تثبيت» فيه، ثم عد إلى هنا (أو انتظر بضع ثوانٍ وسنعيد هذه النافذة إلى الأمام). تُنزَّل الأدوات في الخلفية بينما تواصل الإجابة عن الأسئلة أدناه؛ لا شيء هنا متوقف."
 
 # CX-55 (DMG #30, 2026-05-24): pre-warn for the iMessage Automation
 # permission prompt that macOS shows when we probe Messages.app for
@@ -1806,7 +1805,7 @@ MSG_OK_GWS_ALREADY_INSTALLED_AT_VERSION="Google Workspace CLI الإصدار %s 
 MSG_WARN_GWS_UNSUPPORTED_ARCHITECTURE_GMAIL_DEGRADED="بنية المعالج غير مدعومة لـ Google Workspace CLI؛ ميزات Gmail وGoogle Calendar محدودة."
 MSG_WARN_CURL_NOT_AVAILABLE_GWS_INSTALL_SKIPPED="curl غير متاح؛ تم تخطي تثبيت Google Workspace CLI. ميزات Gmail وGoogle Calendar محدودة."
 MSG_WARN_GWS_DOWNLOAD_FAILED_URL="تعذّر تنزيل Google Workspace CLI من %s"
-MSG_WARN_GWS_SHA256_MISMATCH_EXPECTED_GOT="عدم تطابق SHA256 في Google Workspace CLI (المتوقع %s، الفعلي %s). يتم إلغاء تثبيت هذا الملف التنفيذي."
+MSG_WARN_GWS_SHA256_MISMATCH_EXPECTED_GOT="عدم تطابق SHA256 في Google Workspace CLI (المتوقع %s، الفعلي %s). يتم إيقاف تثبيت هذا الملف التنفيذي."
 MSG_WARN_GWS_ARCHIVE_EXTRACT_FAILED="تعذّر استخراج أرشيف Google Workspace CLI."
 MSG_WARN_GWS_INSTALLED_BUT_VERSION_PROBE_FAILED="تم تثبيت Google Workspace CLI في %s لكن فحص --version فشل."
 
@@ -1817,7 +1816,7 @@ MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT="جسر تقويم iCloud / CalDAV
 # F9 - deferred-register-device script missing
 MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-register-device.sh غير مضمَّن مع المثبّت. إعادة محاولة تسجيل الجهاز عند الاتصال التالي بالشبكة معطّلة."
 
-MSG_WARN_EMBED_DIMS_UNREADABLE="تعذّرت قراءة عرض التضمين من فحص الحالة. الذاكرة مهيأة على 768 بُعدًا؛ إذا بدا الاستدعاء غريبًا، فتحقق من نموذج التضمين."
+MSG_WARN_EMBED_DIMS_UNREADABLE="تعذّرت قراءة عرض التضمين من فحص الحالة. الذاكرة مهيأة على 768 بُعدًا؛ إذا بدا الاسترجاع من الذاكرة غريبًا، فتحقق من نموذج التضمين."
 MSG_FAIL_EMBED_DIMS="أعاد نموذج التضمين متجهات بأبعاد %s، بينما تم إعداد Ostler لأبعاد %s. ستخزّن الذاكرة متجهات لا يمكن مطابقتها أبدًا. تحقق من نموذج التضمين ثم أعد التشغيل."
 
 # ── Reboot self-heal: automatic login on boot (v1.0.11) ─────────────
@@ -1858,7 +1857,7 @@ MSG_INFO_AUTOLOGIN_PROMPT_REASON="يكتب Ostler كلمة المرور هذه �
 
 اترك الحقل فارغًا لتخطي تسجيل الدخول التلقائي."
 MSG_PROMPT_AUTOLOGIN_PASSWORD="كلمة مرور تسجيل الدخول لـ %s"
-MSG_OK_AUTOLOGIN_CONFIGURED="تسجيل الدخول التلقائي مفعّل لـ %s، وكلمة مرور تسجيل الدخول هذه محفوظة الآن على هذا الـ Mac في /etc/kcpassword بصيغة مشوَّشة. بعد إعادة التشغيل يسجّل هذا الـ Mac الدخول بنفسه، وتبدأ خدمات Ostler مع تلك الجلسة. للتراجع، أوقف تسجيل الدخول تلقائيًا في إعدادات النظام > المستخدمون والمجموعات."
+MSG_OK_AUTOLOGIN_CONFIGURED="تسجيل الدخول التلقائي مفعّل لـ %s، وكلمة مرور تسجيل الدخول هذه محفوظة الآن على هذا الـ Mac في /etc/kcpassword بصيغة مشوَّشة. بعد إعادة التشغيل يسجّل هذا الـ Mac الدخول بنفسه، وتبدأ خدمات Ostler مع تلك الجلسة. للتراجع، أوقف خيار تسجيل الدخول التلقائي في إعدادات النظام > المستخدمون والمجموعات."
 MSG_INFO_AUTOLOGIN_ALREADY="تسجيل الدخول التلقائي مُعدّ مسبقًا لـ %s، لذا فكلمة مرور تسجيل الدخول هذه محفوظة أصلًا على هذا الـ Mac في /etc/kcpassword. سيُترك كلاهما كما هو. للتراجع، أوقف تسجيل الدخول تلقائيًا في إعدادات النظام > المستخدمون والمجموعات."
 MSG_INFO_AUTOLOGIN_DECLINED="لم يُفعَّل تسجيل الدخول التلقائي ولم تُحفظ أي كلمة مرور. بعد إعادة التشغيل أو انقطاع الكهرباء، سجّل الدخول كالمعتاد وستبدأ خدمات Ostler مع جلستك."
 MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="يتم تخطي إعداد تسجيل الدخول التلقائي: لا توجد طريقة لطلب كلمة مرور تسجيل الدخول هنا، ولم يُحفظ شيء. يمكنك تفعيل تسجيل الدخول تلقائيًا لاحقًا في إعدادات النظام > المستخدمون والمجموعات إذا أردت أن يتعافى هذا الـ Mac من إعادة التشغيل دون تدخل. فهو يحفظ كلمة مرور تسجيل الدخول على الـ Mac بصيغة مشوَّشة قابلة للعكس، لذا من الأفضل أن تطّلع على ذلك قبل أن تفعله."
@@ -1876,7 +1875,7 @@ MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault مفعّل، لذا يطلب هذا ال
 # This is the line the modal shows when the pane could NOT be brought
 # up. It ESTABLISHES the state instead of asserting it, and it does not
 # pretend the installer did something it did not do.
-MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="تعذّر على Ostler فتح إعدادات النظام نيابةً عنك. يُرجى فتح إعدادات النظام بنفسك والانتقال إلى الخصوصية والأمن > الوصول الكامل إلى القرص."
+MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="تعذّر على Ostler فتح إعدادات النظام نيابةً عنك. يُرجى فتح إعدادات النظام بنفسك والانتقال إلى الخصوصية والأمان > الوصول الكامل إلى القرص."
 # ── Container-engine ownership disclosure ─────────────────────────────────
 # DISCLOSURE, NOT DISCLAIMER. Andy asked (2026-08-24) whether we could write
 # something to absolve us if a customer disrupts what we install. A clause

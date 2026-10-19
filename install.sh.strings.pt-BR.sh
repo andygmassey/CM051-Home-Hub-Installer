@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Na primeira abertura, o Ostler RemoteCapture pedi
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="O Ostler salva sua wiki pessoal e os registros das suas conversas em Documentos/Ostler, neste Mac. Eles são seus e ficam nesta máquina. Para gravá-los, o Ostler precisa de acesso à sua pasta Documentos, então o macOS pode pedir essa permissão durante a configuração e de novo mais tarde hoje, quando o Ostler organizar sua wiki pela primeira vez. O pedido pode aparecer como vindo de python3.11, o auxiliar incluído que o Ostler usa para gravar seus arquivos. Clique em Permitir sempre que ele aparecer. Se você perder o pedido ou recusar, pode ativar a permissão a qualquer momento em Ajustes do Sistema, em Privacidade e Segurança, depois Arquivos e Pastas, e sua wiki e os registros das conversas passarão a ser gravados a partir daí."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="O Ostler salva sua wiki pessoal e os registros das suas conversas em Documentos/Ostler, neste Mac. Eles são seus e ficam nesta máquina. Para gravá-los, o Ostler precisa de acesso à sua pasta Documentos, então o macOS pode pedir essa permissão durante a configuração e de novo mais tarde hoje, quando o Ostler organizar sua wiki pela primeira vez. O pedido pode aparecer como vindo de python3.11, o auxiliar incluído que o Ostler usa para gravar seus arquivos. Toda vez que o pedido aparecer, clique em Permitir. Se você perder o pedido ou recusar, pode ativar a permissão a qualquer momento em Ajustes do Sistema, em Privacidade e Segurança, depois Arquivos e Pastas, e sua wiki e os registros das conversas passarão a ser gravados a partir daí."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Mecanismo de memória de conversas instalado no venv."
 MSG_INFO_HUB_APP_VERIFYING="Verificando o Ostler.app em %s"
 MSG_INFO_HUB_APP_STAGING="Copiando o Ostler.app para /Applications a partir de %s"
@@ -237,7 +237,7 @@ MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE="Serviço Knowledge não 
 # Laptop-Hub posture, stated in Phase 1 while changing your mind is still cheap
 # (task #339). Fires on every laptop, on mains power or not; a desktop Mac never
 # sees these lines.
-MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS="Este Mac é um notebook. Como seu Hub, ele continua funcionando enquanto a tampa estiver aberta e o Mac estiver ligado na tomada."
+MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS="Este Mac é um notebook. Funcionando como seu Hub, ele continua ativo enquanto a tampa estiver aberta e o Mac estiver ligado na tomada."
 MSG_INFO_LAPTOP_HUB_SLEEP_COST="Se você fechar a tampa ou deixá-lo inativo na bateria, o macOS o coloca em repouso. O assistente não recebe nada enquanto ele está em repouso, e as mensagens que chegarem nesse período não são recuperadas quando ele volta a funcionar."
 MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY="A tampa pode ficar fechada no modo de tela fechada, que exige energia da tomada, além de monitor, teclado e mouse externos."
 MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="Um Hub em Mac Mini ou Mac Studio permanece ativo por conta própria, se você preferir instalar em um deles."
@@ -591,7 +591,7 @@ MSG_OK_ICAL_SERVER_HEALTHY="API do assistente saudável"
 MSG_WARN_ICAL_SERVER_NOT_RESPONDING="A API do assistente não está respondendo (127.0.0.1:8090). Pessoas, Reuniões e Linha do tempo podem ficar vazias até ela iniciar"
 MSG_OK_READY="%s pronto"
 MSG_OK_RECOMMENDED_SOURCES_SELECTED="Fontes recomendadas selecionadas"
-MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="Chave de recuperação salva nas Chaves (procure 'Ostler' no app Senhas)"
+MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="Chave de recuperação salva nas Chaves do iCloud/Acesso às Chaves (procure 'Ostler' no app Senhas)"
 MSG_OK_REDIS_HEALTHY="Redis healthy"
 MSG_OK_SAFARI_EXTENSION_INSTALLED="Extensão do Safari instalada em %s"
 MSG_OK_SAFARI_EXTENSION_PAIRED="Extensão do Safari pareada com este Hub"
@@ -606,7 +606,7 @@ MSG_INFO_QDRANT_COLLECTION_PRECREATED="  Coleção de busca preparada: %s"
 MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED="Ainda não foi possível preparar a coleção de busca %s. A importação de dados abaixo tentará novamente e vai parar, sem descartar seus dados, se ainda não conseguir."
 MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED="O índice de busca ainda não ficou pronto a tempo. A importação de dados abaixo vai esperar por ele, preparar as coleções e parar, sem descartar seus dados, se o armazenamento ainda não estiver pronto."
 MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS="Seus dados não foram importados. Não foi possível preparar o armazenamento de busca para recebê-los (ausente: %s), e importar assim mesmo os teria descartado em silêncio. Nada foi perdido. Execute o instalador novamente quando o computador estiver ocioso, ou defina OSTLER_QDRANT_READY_WAIT_S para esperar mais."
-MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING="A importação dos seus dados processou mais de %s registros, mas não armazenou nenhum: o armazenamento de busca rejeitou todos, e o resultado seria um grafo de conhecimento vazio apresentado como completo. Interrompendo em vez de mostrar isso a você. Execute o instalador novamente quando o computador estiver ocioso."
+MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING="A importação dos seus dados processou %s registros, mas não armazenou nenhum: o armazenamento de busca rejeitou todos, e o resultado seria um grafo de conhecimento vazio apresentado como completo. Interrompendo em vez de mostrar isso a você. Execute o instalador novamente quando o computador estiver ocioso."
 MSG_WARN_IMPORT_YIELD_UNMEASURABLE="Não foi possível ler o log da própria importação, então a verificação de que seus dados realmente chegaram não pôde ser feita. Isto não indica que a importação falhou, nem que foi bem-sucedida."
 MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED="Repouso desativado na tomada, repouso na bateria preservado, ativação por rede habilitada"
 MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED="Repouso desativado, ativação por rede habilitada"
@@ -724,7 +724,7 @@ MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Continuando porque --all
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Continuando a instalação. Execute \`ostler-fda\` novamente depois de diagnosticar o erro acima."
 MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL="Continuando sem o preenchimento automático pelo cartão de contato – o Ostler vai perguntar a você."
 MSG_WARN_CONVERSATIONS_SENT_IMESSAGE_WILL_SILENTLY_FAIL="  As conversas enviadas ao iMessage falharão silenciosamente até que"
-MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="Não foi possível alterar os ajustes de repouso. Ative \"Evitar repouso automático quando conectado à tomada\" em Ajustes do Sistema > Energia."
+MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="Não foi possível alterar os ajustes de repouso. Ative \"Impedir repouso automático quando conectado à tomada\" em Ajustes do Sistema > Energia."
 MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2="Não foi possível alterar os ajustes de repouso. Ative \"Impedir repouso automático\" em Ajustes do Sistema > Energia."
 MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="Não foi possível baixar o ostler-assistant v%s de %s"
 MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="Não foi possível extrair o mbox do Gmail do zip do Takeout – ignorando."
@@ -778,8 +778,7 @@ MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Os scripts da ponte do i
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="A criptografia não vai funcionar."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="A criptografia não vai funcionar, e"
 MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="confirme se a tag PWG_KNOWLEDGE_REPO fixada o inclui."
-# NEEDS REVIEW: Fragment splits the technical term 'Apple Events' across two strings (previous line ends '+ Apple'); proposed 'permissão de Eventos' broke the term. Joined line
-MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Events: permissão para o app Mensagens)."
+MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Events, permissão para o app Mensagens)."
 MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="O extrator FDA foi encerrado com código diferente de zero (%s). Últimas 20 linhas da saída:"
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="O módulo de extração FDA não está incluído neste instalador."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="Esperado em: Contents/Resources/ostler_fda/ (dentro do .app)."
@@ -791,7 +790,7 @@ MSG_WARN_FILEVAULT_NOT_ENABLED="O FileVault NÃO está ativado."
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Não foi possível ativar o primeiro mês grátis agora; a instalação vai continuar. Abra o app Ostler no seu iPhone depois de parear para resolver."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Acesso Total ao Disco não concedido ao Terminal."
 MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB de RAM detectados. Você vai receber o assistente compacto (gemma4:e2b): confiável, preciso, em menos de um segundo em perguntas curtas, com chamadas de ferramentas e um sincero “não sei” quando for o caso. Para respostas mais ricas em perguntas mais longas, 24 GB ou mais liberam o assistente padrão (qwen3.5:9b). Você pode trocar de Mac depois reinstalando."
-MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="A importação do GDPR teve erros. Você pode executar novamente com:"
+MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="A importação de dados via GDPR teve erros. Você pode executar novamente com:"
 MSG_WARN_GRAPH_DB_PULL_RETRY="O download do banco de dados não foi concluído (tentativa %s de %s). Tentando novamente em %ss..."
 MSG_WARN_GRAPH_DB_UP_RETRY="Os bancos de dados do grafo de conhecimento não iniciaram (tentativa %s de %s). Tentando novamente..."
 MSG_WARN_GDPR_IMPORT_REQUIRED_FOR_PRODUCTISED_INSTALL="A importação do GDPR faz parte da instalação padrão do produto. Sem ela, seu grafo social (LinkedIn, Facebook, Instagram, WhatsApp, Twitter, Google Calendar) não pode ser importado."
@@ -836,11 +835,11 @@ MSG_WARN_MACBOOK_DEPLOYMENTS_NEED_THIS_BATTERY_SLEEP="Instalações em MacBook p
 MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT="A permissão de Contatos do macOS foi negada ou ainda não foi concedida."
 MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM="O macOS NÃO solicitará essa permissão a partir de um script – você precisa concedê-la manualmente."
 MSG_WARN_MAC_MINI_DEPLOYMENTS_ARE_UNAFFECTED_MACBOOK="Instalações em Mac mini não são afetadas; usuários de MacBook devem tentar novamente."
-MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="Os dados do Mail ainda podem ser ingeridos manualmente:"
+MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="Os dados do Mail ainda podem ser importados manualmente:"
 MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP="  Nova tentativa manual: cd %s && docker compose up -d vane"
 MSG_WARN_MANUAL_RETRY_ONCE_CAUSE_RESOLVED="  Nova tentativa manual depois que a causa for resolvida:"
 MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP="Nem Apple Mail nem IMAP personalizado selecionado – usando Apple Mail como padrão."
-MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="Nenhuma chave de acesso definida; os bancos de dados não serão criptografados."
+MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="Nenhuma senha definida; os bancos de dados não serão criptografados."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1="Uma instalação anterior gerou sua chave de recuperação, mas não foi concluída, então ela nunca foi mostrada a você. Não é possível recuperá-la – ela nunca é armazenada em lugar nenhum, nem aqui."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_2="Sua senha ainda funciona e nada está bloqueado hoje. Mas, no momento, não há como voltar a entrar caso você a esqueça."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Entre em contato com o suporte para configurar a segurança do zero, o que mostrará uma nova chave de recuperação para você guardar."
@@ -925,7 +924,7 @@ MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_4="  execute novamente com --al
 MSG_WARN_SECURITY_SETUP_FAILED_CONTINUING_WITHOUT_DATABASE="Falha na configuração de segurança. Continuando sem criptografia do banco de dados."
 MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT="Falha na configuração de segurança. Saída:"
 MSG_WARN_SEE_STDERR_FRAGMENT="  Consulte %s para ver o trecho do stderr."
-MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG="Ignorando a instalação do binário. O config.toml gerado pelo assistente de configuração continua no lugar."
+MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG="Ignorando a instalação do binário. O config.toml gerado pelo instalador continua no lugar."
 MSG_WARN_SKIPPING_DOCTOR_LAUNCHAGENT_INSTALL="Ignorando a instalação do LaunchAgent do Doctor."
 MSG_WARN_SKIPPING_EMAIL_INGEST_LAUNCHAGENT_INSTALL="Ignorando a instalação do LaunchAgent de ingestão de e-mail."
 MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_MAC_MINI_DEPLOYMENTS="Ignorando a instalação do LaunchAgent. Implantações em Mac mini não são afetadas."
@@ -1135,13 +1134,13 @@ MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_HELP="Detectado a partir do seu núm
 
 MSG_PROMPT_TZ_CONFIRM_TITLE="Usar este fuso horário?"
 MSG_PROMPT_TZ_CONFIRM_HELP="Fuso horário detectado: %s"
-MSG_PROMPT_USER_TZ_TITLE="Digite o fuso horário (por ex., America/Sao_Paulo, Asia/Hong_Kong)"
+MSG_PROMPT_USER_TZ_TITLE="Digite o fuso horário (por ex., Europe/London, Asia/Hong_Kong)"
 
 MSG_PROMPT_ASSISTANT_NAME_TITLE="Como você gostaria de chamar seu assistente?"
 MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="O nome no campo é uma sugestão aleatória: escreva por cima o que quiser. Marvin, Samantha, Joshua, Friday, Athena, Sage e Rosie são escolhas populares." # assistant-name-exempt: F6.1 suggestion-pool exemplar
 MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Digite o nome que quiser: a sugestão é só um ponto de partida."
 
-MSG_PROMPT_CHANNEL_CHOICE_TITLE="Como seu assistente vai falar com você?"
+MSG_PROMPT_CHANNEL_CHOICE_TITLE="Como seu assistente vai entrar em contato com você?"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="Escolha os canais de mensagem que você quer que seu assistente use. Você pode mudar isso depois na seção Doctor do app."
 
 MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
@@ -1282,11 +1281,11 @@ Pule os que você não usa; você sempre pode importar mais depois."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuar com o disco SEM criptografia em repouso?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="O FileVault está DESATIVADO neste Mac, então seu disco não está criptografado em repouso.
 
-O que isso significa se você continuar: tudo o que o Ostler armazena -- todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos de serviços e bancos de dados em ~/.ostler -- é gravado no disco SEM criptografia. Qualquer pessoa que consiga iniciar o Mac a partir desse disco, removê-lo ou acessar uma sessão desbloqueada pode ler tudo isso. O Ostler criptografa seus bancos de dados mais sensíveis com uma senha de qualquer forma, mas o restante dos seus dados fica protegido apenas até onde o próprio disco estiver.
+O que isso significa se você continuar: tudo o que o Ostler armazena – todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos de serviços e bancos de dados em ~/.ostler – é gravado no disco SEM criptografia. Qualquer pessoa que consiga iniciar o Mac a partir desse disco, removê-lo ou acessar uma sessão desbloqueada pode ler tudo isso. O Ostler criptografa seus bancos de dados mais sensíveis com uma senha de qualquer forma, mas o restante dos seus dados fica protegido apenas até onde o próprio disco estiver.
 
-O FileVault é fortemente recomendado. Você pode ativá-lo a qualquer momento em Ajustes do Sistema > Privacidade e Segurança > FileVault -- ele criptografa em segundo plano, sem precisar reinstalar.
+O FileVault é fortemente recomendado. Você pode ativá-lo a qualquer momento em Ajustes do Sistema > Privacidade e Segurança > FileVault – ele criptografa em segundo plano, sem precisar reinstalar.
 
-Escolha Sim para continuar agora com o disco sem criptografia em repouso (é uma escolha deliberada e informada -- ela será registrada).
+Escolha Sim para continuar agora com o disco sem criptografia em repouso (é uma escolha deliberada e informada, e ela será registrada).
 Escolha Não para parar aqui, ativar o FileVault primeiro e depois executar o instalador novamente. Nada deu errado em nenhum dos casos."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Pronto para configurar a criptografia do disco"
@@ -1478,9 +1477,9 @@ MSG_HYDRATE_DONE="Seu grafo está pronto: %s pessoas, %s eventos"
 # is what surfaces when both the Phase-2 me-card export and the
 # hydrate-time re-export came back empty (no iCloud + empty local AB).
 MSG_HYDRATE_CONTACTS_REEXPORT="O iCloud ainda pode estar sincronizando seus contatos – exportando novamente agora para incluir o que acabou de chegar."
-MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD="Nenhum contato encontrado no app Contatos (local ou iCloud). Adicione alguns em Contatos e execute novamente em Ajustes."
-MSG_HYDRATE_SKIPPED_NO_CONTACTS="Nenhum contato do iCloud para importar. Você pode adicionar isso depois em Ajustes."
-MSG_HYDRATE_SKIPPED_NO_EVENTS="Nenhum evento de calendário nos últimos 5 anos. Você pode importar depois em Ajustes."
+MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD="Nenhum contato encontrado no app Contatos (local ou iCloud). Adicione alguns em Contatos e execute novamente em Configurações."
+MSG_HYDRATE_SKIPPED_NO_CONTACTS="Nenhum contato do iCloud para importar. Você pode adicionar isso depois em Configurações."
+MSG_HYDRATE_SKIPPED_NO_EVENTS="Nenhum evento de calendário nos últimos 5 anos. Você pode importar depois em Configurações."
 
 # Email hydration strings (CX-81 B2 + CX-83)
 # Used by install.sh's hydrate_email step, inserted inside the
@@ -1513,7 +1512,7 @@ MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP="Você tem %s conta(s) de contatos con
 MSG_INFO_WAITING_FOR_APP_TO_POPULATE="Aguardando %s iniciar a sincronização (até %s segundos)."
 MSG_INFO_WAITING_FOR_APP_HEARTBEAT="Ainda aguardando a sincronização de %s (%ss decorridos, %ss restantes). A primeira sincronização do iCloud pode levar alguns minutos em um login recente."
 MSG_OK_APP_HAS_POPULATED="%s preencheu seu armazenamento local. Continuando."
-MSG_INFO_APP_POPULATE_TIMEOUT_CONTINUING="Não detectamos a sincronização de %s dentro do tempo de espera. Continuando; você pode executar a importação novamente depois em Ajustes."
+MSG_INFO_APP_POPULATE_TIMEOUT_CONTINUING="Não detectamos a sincronização de %s dentro do tempo de espera. Continuando; você pode executar a importação novamente depois em Configurações."
 
 # Three-state-aware copy for the three sources. These replace the
 # old binary "no data" copy that conflated states 1 and 2.
@@ -1688,9 +1687,9 @@ MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED="Não foi possível verificar se s
 # converted to markdown + embedded locally; only note-count totals are
 # shown to the customer -- no note titles or bodies leave the process.
 # Copy is dash-clean (plain hyphens only) per the hydrate-phase convention.
-MSG_HYDRATE_APPLE_NOTES_STARTED="Lendo suas Notas da Apple - elas ficam neste Mac"
+MSG_HYDRATE_APPLE_NOTES_STARTED="Lendo suas notas do app Notas - elas ficam neste Mac"
 MSG_HYDRATE_APPLE_NOTES_DONE="%s notas adicionadas à sua base de conhecimento"
-MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="Nenhuma nota para ler em Notas. Você pode executar de novo depois em Ajustes."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="Nenhuma nota do app Notas para ler. Você pode executar de novo depois em Ajustes."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED="Suas notas do app Notas já estão na sua base de conhecimento. Ignorando."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_OPTED_OUT="As notas do app Notas estão desativadas na busca de conhecimento. Você pode ativá-las em Ajustes."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="O importador de conhecimento ainda não está pronto. Você pode executar de novo depois em Ajustes."
@@ -1749,7 +1748,7 @@ MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND="A caixa de diálogo das Ferramentas de L
 # permission prompt that macOS shows when we probe Messages.app for
 # the install-time TCC posture snapshot.
 MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE="Permissão necessária: Automação do iMessage"
-MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP="O Ostler vai agora pedir permissão ao macOS para se comunicar com o Messages.app. O macOS mostrará um aviso dizendo \"OstlerInstaller quer acesso para controlar o Mensagens\" – clique em Permitir para que o assistente possa enviar e receber iMessages em seu nome. Sem essa permissão, as mensagens do iMessage nunca sairão do computador, sem nenhum aviso. Essa permissão é concedida uma única vez; você pode alterá-la depois em Ajustes do Sistema > Privacidade e Segurança > Automação."
+MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP="O Ostler vai agora pedir permissão ao macOS para se comunicar com o app Mensagens. O macOS mostrará um aviso dizendo \"OstlerInstaller quer acesso para controlar o Mensagens\" – clique em Permitir para que o assistente possa enviar e receber iMessages em seu nome. Sem essa permissão, as mensagens do iMessage nunca sairão do computador, sem nenhum aviso. Essa permissão é concedida uma única vez; você pode alterá-la depois em Ajustes do Sistema > Privacidade e Segurança > Automação."
 
 # CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet shown in the
 # main GUI window after install completes. The TTY path already echoes
@@ -1761,7 +1760,7 @@ MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP="O Ostler vai agora pedir permissã
 # RecoveryKeyView renders the value in monospace with Copy / Save PDF /
 # Print buttons + a confirm checkbox + Continue.
 MSG_INFO_RECOVERY_KEY_REVEALED_TITLE="Sua chave de recuperação"
-MSG_INFO_RECOVERY_KEY_REVEALED_BODY="Anote esta chave ou imprima agora. Ela é a única forma de voltar a entrar se você perder sua senha E as suas Chaves do macOS ficarem inacessíveis. O Ostler não consegue recuperá-la para você – a chave nunca sai deste Mac e não é armazenada em nenhum servidor."
+MSG_INFO_RECOVERY_KEY_REVEALED_BODY="Anote esta chave ou imprima agora. Ela é a única forma de voltar a entrar se você perder sua frase secreta E o Acesso às Chaves ficar inacessível. O Ostler não consegue recuperá-la para você – a chave nunca sai deste Mac e não é armazenada em nenhum servidor."
 MSG_INFO_RECOVERY_KEY_REVEALED_CONFIRM="Guardei em um lugar seguro"
 MSG_INFO_RECOVERY_KEY_REVEALED_COPY="Copiar para a área de transferência"
 MSG_INFO_RECOVERY_KEY_REVEALED_SAVE_PDF="Salvar como PDF..."

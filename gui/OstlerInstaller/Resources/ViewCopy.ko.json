@@ -44,13 +44,13 @@
   },
   "admin_access_required": {
     "heading": "관리자 접근 권한 필요",
-    "prompt_reason": "Ostler가 필요한 소프트웨어를 설치하고 설정하는 동안 Mac이 잠자기 상태가 되지 않게 하려면 관리자 접근 권한이 필요합니다.",
+    "prompt_reason": "Ostler가 필요한 소프트웨어를 설치하고 설정하는 동안 Mac이 잠자기 상태가 되지 않도록 하려면 관리자 접근 권한이 필요합니다.",
     "reassurance": "암호는 이 Mac에만 남으며 어디로도 전송되지 않습니다. 다음 대화상자의 macOS 문구가 다소 이상하게 보일 수 있습니다. Ostler가 Finder를 제어하려고 한다고 표시되고 문서와 데이터도 언급됩니다. 이 문장은 저희가 쓴 것이 아니라 macOS 자체 문구입니다. macOS가 앱에 관리자 암호를 요청할 때 쓰는 방식이며, Ostler는 이를 통해 사용자의 파일을 읽지 않습니다.",
     "retry_message": "관리자 접근 권한이 필요합니다. 다시 시도를 클릭하세요.",
     "continue_button": "계속하고 암호 입력",
     "retry_button": "다시 시도",
     "quit_button": "설치 프로그램 종료",
-    "osascript_prompt": "Ostler 설치 프로그램이 필요한 소프트웨어를 설치하고 설정하는 동안 Mac이 잠자기 상태가 되지 않게 하려면 관리자 접근 권한이 필요합니다.",
+    "osascript_prompt": "Ostler 설치 프로그램이 필요한 소프트웨어를 설치하고, 설정하는 동안 Mac이 잠자기 상태가 되지 않도록 하려면 관리자 접근 권한이 필요합니다.",
     "requesting_status": "관리자 접근 권한을 요청하는 중입니다. macOS 대화상자에 Finder를 제어한다는 문구가 나오는데, 이는 암호 요청을 나타내는 macOS의 표현이며 사용자의 파일을 요청하는 것이 아닙니다."
   },
   "install_cancelled": {
@@ -135,7 +135,7 @@
   "fda_gate": {
     "heading": "Ostler에 오신 것을 환영합니다",
     "welcome": "Ostler를 구매해 주셔서 감사합니다. 설정에는 약 30분이 걸리며, 처음 실행할 때는 Ostler가 AI 모델을 내려받느라 조금 더 걸립니다. 그 후에도 한동안 사용자의 세계를 계속 채워 나갑니다. 실행 상태로 두셔도 됩니다.",
-    "reads_lead": "Ostler가 조용히 일하려면 이 Mac의 몇 가지 항목을 읽을 수 있는 권한이 필요합니다.",
+    "reads_lead": "Ostler가 조용히 일하려면 이 Mac의 몇 가지 항목을 읽을 수 있는 권한이 필요합니다:",
     "data_messages": "메시지",
     "data_mail": "메일",
     "data_calendar": "캘린더",
@@ -144,7 +144,7 @@
     "data_photos": "사진",
     "privacy_line": "처음부터 개인정보 보호를 우선합니다. 모든 데이터는 이 Mac에만 있으며 업로드되지 않습니다.",
     "permissions_note": "앞으로 몇 분 동안 macOS가 이러한 권한과 Ostler 실행에 필요한 몇 가지 시스템 권한의 승인을 요청합니다. 요청이 나타날 때마다 허용해 주세요.",
-    "upnext_label": "먼저: 전체 디스크 접근 권한",
+    "upnext_label": "먼저 전체 디스크 접근 권한 설정",
     "step_1": "아래의 시스템 설정 열기를 누르세요.",
     "step_2": "목록에서 OstlerInstaller를 켜세요.",
     "step_3": "macOS가 종료를 요청합니다. 종료 후 다시 열면 설정이 자동으로 이어집니다.",
@@ -199,7 +199,7 @@
       }
     },
     "fda_preset_recommended": "권장",
-    "fda_preset_recommended_subtitle": "대부분의 사용자가 여기서 시작합니다. 연락처, 캘린더, Apple Mail, 메시지, Safari 방문 기록과 북마크, 메모, 미리 알림, 도큐멘트 폴더가 포함됩니다. 사진 얼굴 인식처럼 민감한 소스는 꺼진 상태로 유지됩니다.",
+    "fda_preset_recommended_subtitle": "대부분의 사용자가 여기서 시작합니다. 연락처, 캘린더, Apple Mail, 메시지, Safari 방문 기록과 북마크, 메모, 미리 알림, 문서 폴더가 포함됩니다. 사진 얼굴 인식처럼 민감한 소스는 꺼진 상태로 유지됩니다.",
     "fda_preset_everything": "모두",
     "fda_preset_everything_subtitle": "Ostler가 지원하는 모든 데이터 소스입니다. 사진 보관함, 메일 첨부 파일, 음성 메모, Apple Music 청취 기록, 건강 앱 데이터, 스크린 타임 활동이 추가됩니다. 사진 얼굴 인식은 사용자화에서 직접 선택하기 전까지 꺼져 있습니다. 최대한의 개인 맞춤을 원하는 고급 사용자에게 적합합니다.",
     "fda_preset_customise": "사용자화",
@@ -329,7 +329,7 @@
     "strap": "권장",
     "body": "Tailscale은 이 Mac에 고정된 비공개 주소를 부여하여, iPhone과 Watch가 어디서든 접속할 수 있게 해 줍니다. 암호화되며 외부에 공개되지 않고, 개인 사용은 무료입니다.\n\n사용하지 않으면 iPhone의 Ostler 앱은 집 Wi-Fi에 연결되어 있을 때만 이 Mac에 접속할 수 있습니다.",
     "setup_button": "Tailscale 설정(권장)",
-    "setup_button_sub": "약 1분 걸립니다. Tailscale을 열고 로그인하실 때까지 기다립니다.",
+    "setup_button_sub": "약 1분 걸립니다. Tailscale을 열어 드리고 로그인하실 때까지 기다리겠습니다.",
     "skip_button": "건너뛰기 – 나중에 설정",
     "skip_button_sub": "설정에서 언제든지 다시 돌아올 수 있습니다.",
     "faq_heading": "Tailscale 관련 질문",
@@ -343,7 +343,7 @@
   "whatsapp_link": {
     "_meta": "v1.0.103: the Connect WhatsApp step on the install-complete screen (WhatsAppLinkSection.swift). Replaces the Terminal command as the way to link. The code is WhatsApp's 8 characters, shown as two groups of four, exactly as the phone asks for it.",
     "title": "WhatsApp 연결",
-    "intro": "WhatsApp을 연결하면 Ostler가 WhatsApp으로 메시지를 보낼 수 있습니다. 약 1분 걸리며 휴대폰이 필요합니다.",
+    "intro": "WhatsApp을 연결하면 Ostler가 WhatsApp으로 사용자에게 메시지를 보낼 수 있습니다. 약 1분 걸리며 휴대폰이 필요합니다.",
     "get_code_button": "코드 받기",
     "requesting": "WhatsApp에 코드를 요청하고 있습니다. 몇 초 정도 걸립니다.",
     "steps_heading": "휴대폰의 WhatsApp에서:",
