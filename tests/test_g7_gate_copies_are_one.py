@@ -131,7 +131,7 @@ def test_first_import_resolves_the_vendored_gate_and_enforces_the_rule(tmp_path)
         "d1 = fi.entry_gate('google_chat', export_import=True)\n"
         "fi.mark_first_import('google_chat')\n"
         "d2 = fi.entry_gate('google_chat', export_import=True)\n"
-        "d3 = fi.entry_gate('google_chat', export_import=False)\n"
+        "d3 = fi.entry_gate('never_imported_sync', export_import=False)\n"
         "print(d1.reason, d2.reason, d3.reason, fi.EXIT_PAUSED_NOT_PRO)\n"
     )
     r = _run_first_import(state, tmp_path / "ledger.json", code)
