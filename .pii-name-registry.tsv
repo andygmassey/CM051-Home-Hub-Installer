@@ -186,6 +186,7 @@ phrase	natural language	Apple's built-in Siri suggestion calendar title 'Found i
 phrase	scheduled reminders	Apple's built-in reminders calendar title, a system calendar the installer sets aside, not a person
 phrase	human name	domain noun
 phrase	given name	domain noun
+phrase	google chat	product noun (the Google Chat app; appears in the byte-identical CM052 first_import.py copy, which cannot be reworded)
 phrase	display name	domain noun
 phrase	alternate name	domain noun
 phrase	personal world	product noun
@@ -2071,6 +2072,12 @@ baseline	01be984c77a56ced	UNREVIEWED-legacy: present before the 2026-08-15 name 
 # deliberately synthetic fixtures, and public figures in the enrichment tests.
 # ---------------------------------------------------------------------------
 phrase	google chrome	browser product name; install.sh opens a URL with it
+phrase	google chat	Google's chat product name; the Takeout importer vendor/ostler_fda/google_chat_takeout.py reads its export
+phrase	google takeout	Google's data-export product name (takeout.google.com); the Chat and Keep importers read its archives
+phrase	takeout chat	the Takeout 'Google Chat' export, shortened in importer prose; a product slice, not a person
+phrase	google keep	Google's notes product name; the Takeout importer vendor/ostler_fda/google_keep_takeout.py reads its export
+phrase	british english	the house spelling convention named in workflow headers
+phrase	apple notes	Apple's notes app name, already the subject of vendor/ostler_fda/apple_notes.py
 phrase	chrome user	prose for the Chrome profile directory, not a person
 phrase	swift string	Swift standard-library type name
 phrase	little snitch	network-monitor product, named in EGRESS_INVENTORY as a comparison
