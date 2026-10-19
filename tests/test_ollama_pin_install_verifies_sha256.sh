@@ -278,15 +278,20 @@ run_embed() {  # run_embed <outcome> ; prints "pulls|reached|code|held_log"
     INSTALL_LOG="$d/install.log" STRINGS="${REPO_ROOT}/install.sh.strings.en-GB.sh" \
     bash -c 'set -Eeuo pipefail; . "$STRINGS"; ok(){ :; }; info(){ :; }; warn(){ echo "WARN $*"; }
              fail_with_code(){ echo "CODE $1"; exit 1; }; gui_emit(){ :; }; gui_log(){ :; }; sleep(){ :; }
+             ostler_require_model_digest(){ echo "$1" >> "${PULL_LOG}.digest"; }
              . "$1"; . "$2"; . "$3"; echo REACHED' _ "$FN" "$PULLFN" "$EMBED" > "$d/out" 2>&1
-    printf '%s|%s|%s|%s\n' "$(grep -c . "$d/pulls")" "$(grep -c '^REACHED$' "$d/out")" \
-        "$(sed -n 's/^CODE //p' "$d/out")" "$(grep -c '^model_pull=held model=nomic-embed-text reason=ollama_unpinned$' "$d/install.log" 2>/dev/null)"
+    printf '%s|%s|%s|%s|%s\n' "$(grep -c . "$d/pulls")" "$(grep -c '^REACHED$' "$d/out")" \
+        "$(sed -n 's/^CODE //p' "$d/out")" "$(grep -c '^model_pull=held model=nomic-embed-text reason=ollama_unpinned$' "$d/install.log" 2>/dev/null)" \
+        "$( [ -f "$d/pulls.digest" ] && grep -c . "$d/pulls.digest" || echo 0 )"
 }
 if [ -s "$PULLFN" ] && [ -s "$EMBED" ] && grep -q 'ollama_pull_with_retry nomic-embed-text' "$EMBED"; then
     n_def="$(run_embed deferred)"; n_ok="$(run_embed installed)"
-    if [ "$n_def" = "0|1||1" ] && [ "${n_ok%%|*}" = 1 ] && [ "$(cut -d'|' -f2 <<<"$n_ok")" = 1 ]; then
-        pass "N: deferred pin -> 0 model pulls, install continues, model_pull=held logged; control: pin installed -> 1 pull"
-    else bad "N: deferred=[pulls|reached|code|held]=$n_def installed=$n_ok (want 0|1||1 and 1|1|...)"; fi
+    # pulls|reached|code|held|digest-checks: a held pull downloads nothing and is
+    # never digest-checked; a real pull is digest-checked once (when the
+    # installer carries the model pins).
+    if [ "${n_def%|*}" = "0|1||1" ] && [ "${n_def##*|}" = 0 ] && [ "${n_ok%%|*}" = 1 ] && [ "$(cut -d'|' -f2 <<<"$n_ok")" = 1 ]; then
+        pass "N: deferred pin -> 0 model pulls, 0 digest checks, install continues, model_pull=held logged; control: pin installed -> 1 pull, $(cut -d'|' -f5 <<<"$n_ok") digest check(s)"
+    else bad "N: deferred=[pulls|reached|code|held|digest]=$n_def installed=$n_ok (want 0|1||1|0 and 1|1|...)"; fi
 else bad "N: could not lift the pull wrapper or the embed-model block from install.sh"; fi
 
 # R: the next run retries the pin and clears the deferral

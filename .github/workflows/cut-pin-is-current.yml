@@ -110,9 +110,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # A cut/v1.0.NN PR is a FROZEN cut branch, and the tree being cut is its
+      # HEAD, not refs/pull/N/merge (main + branch). The default checkout graded
+      # cut/v1.0.110's pin 59676f3d against a merge ref that already carried
+      # main's #2972 install.sh change, so the cut head 2bcdce08 went RED and its
+      # candidate build was refused at "The tagged commit's own checks are not
+      # red" (run 39199092021). Every other PR still checks the merge ref.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ startsWith(github.head_ref, 'cut/v1.0.') && github.event.pull_request.head.sha || '' }}
 
       - name: Which inputs did this PR touch?
         id: shape
