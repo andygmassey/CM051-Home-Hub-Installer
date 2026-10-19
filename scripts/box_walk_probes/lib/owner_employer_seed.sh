@@ -49,7 +49,16 @@ _OES_TITLE="Staff engineer"
 # contact_syncer: pwg:organization), each paired with a walkSeed marker so the
 # forget removes exactly what was added and nothing that was already there.
 # ONLY for a person the grounding seed declared synthetic.
-OSTLER_OWNER_SEED_CONTACT_ORG="${OSTLER_OWNER_SEED_CONTACT_ORG:-Acme Corp}"
+# THE ORGANISATION IS THE SEED PERSON'S OWN EMPLOYER, NOT A SECOND ONE (walk #32,
+# v1.0.111). This defaulted to "Acme Corp" while the grounding seed says the same
+# person "Works as a submarine cable engineer at example.com" (OS003
+# gates/seed/seed_fixture.json, predicate employer). pwg_people renders the
+# Organisation line first and the daemon tells the model to state it exactly,
+# so assistant_grounds_the_opening_turn went from 10/10 (walk #31) to 1/10:
+# nine replies said "at Acme Corp", faithfully, and dropped example.com. The
+# fixture contradicted itself; the model did not. Keep this equal to the seed
+# fixture's employer value.
+OSTLER_OWNER_SEED_CONTACT_ORG="${OSTLER_OWNER_SEED_CONTACT_ORG:-example.com}"
 _oes_lit() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }
 _oes_b64() { printf '%s' "$1" | /usr/bin/python3 -c 'import base64,sys; print(base64.b64encode(sys.stdin.buffer.read()).decode())'; }
 _oes_interaction_apply_sparql() { # $1 person name  $2 organisation  $3 UTC date
