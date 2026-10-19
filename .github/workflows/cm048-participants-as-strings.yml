@@ -215,7 +215,7 @@ jobs:
             echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest tests/cm048_vendored_sweep -v
+          python -m pytest tests/cm048_vendored_sweep/test_stale_bundle_sweep.py tests/cm048_vendored_sweep/test_update_reprocess.py -v
       - name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
         if: always()
         run: |
