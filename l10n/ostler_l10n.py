@@ -416,6 +416,10 @@ class XcstringsCatalogue:
         for k, v in d["strings"].items():
             if v.get("shouldTranslate") is False:
                 continue
+            # Plural/device variations are hand-authored per language and have no single
+            # source string: skip them, or a run would overwrite them with one stringUnit.
+            if "variations" in v.get("localizations", {}).get(self.src_lang, {}):
+                continue
             en = v.get("localizations", {}).get(self.src_lang, {}).get("stringUnit", {}).get("value", k)
             if not has_letters(en) or en in self.spec.get("do_not_translate", []):
                 continue
@@ -1363,6 +1367,20 @@ def cmd_self_test(cfg):
         quiet(cmd_stale, c2)
         results["stale gives it the English"] = json.load(open(os.path.join(tmp, "L.xcstrings")))["strings"]["brand.name"]["localizations"]["de"]["stringUnit"]["value"] == "Ostler"
         results["check passes after fill"] = quiet(cmd_check, c2) == 0
+        # plural variations: never a unit, never pending, never overwritten by a run
+        d = json.load(open(os.path.join(tmp, "L.xcstrings")))
+        pl = lambda one, other: {"variations": {"plural": {"one": {"stringUnit": {"state": "translated", "value": one}},
+                                                           "other": {"stringUnit": {"state": "translated", "value": other}}}}}
+        d["strings"]["people.count"] = {"localizations": {"en": pl("%lld person", "%lld people"), "de": pl("%lld Person", "%lld Personen")}}
+        json.dump(d, open(os.path.join(tmp, "L.xcstrings"), "w"))
+        results["plural key is not a unit"] = all(u.key != "people.count" for u in XcstringsCatalogue(c2["catalogues"][0]).units())
+        todo = pending(c2)
+        fake = {f"s{i}": ("ÜBERSCHRIEBEN", "") for i in range(len(todo))}
+        fake["__ids__"] = {f"s{i}": t for i, t in enumerate(todo)}
+        quiet(apply_results, c2, fake)
+        de_pl = json.load(open(os.path.join(tmp, "L.xcstrings")))["strings"]["people.count"]["localizations"]["de"]
+        results["a run leaves plural variations intact"] = "stringUnit" not in de_pl and de_pl["variations"]["plural"]["other"]["stringUnit"]["value"] == "%lld Personen"
+        results["check passes with a plural key"] = quiet(cmd_check, c2) == 0
         # yaml subset round-trip of the real config
         results["real config parses"] = bool(_REAL_CFG.get("catalogues"))
         # legal/consent: an unreviewed translation must never ship
