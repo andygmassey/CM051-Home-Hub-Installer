@@ -13,7 +13,7 @@ ok(){ echo "  ok   $1"; pass=$((pass+1)); }; no(){ echo "  FAIL $1"; fail=$((fai
 python3 -c 'import yaml' 2>/dev/null || { echo "CANNOT-RUN: PyYAML unavailable"; exit 2; }
 mk(){ # dir, tsv_shas, perm_shas, pin
   mkdir -p "$1/cuts/v1.0.99999" "$1/scripts" "$1/cut-manifests"
-  printf 'CUT_VERSION=1.0.99999\nDAEMON_COMMIT=%s\nCM051=0000000000000000000000000000000000000000\n' "$4" > "$1/cuts/v1.0.99999/cut.env"
+  printf 'CUT_VERSION=1.0.99999\nDAEMON_COMMIT=%s\nCM051=%s\n' "$4" "$(printf 'ab%.0s' $(seq 1 20))" > "$1/cuts/v1.0.99999/cut.env"
   printf '# pinned_sha_prefix\thold_ack_shas\tshipping_bugfixes_grafted\treason\n' > "$1/scripts/daemon_hold_ack.tsv"
   [ -n "$2" ] && printf 'abcdef12\t%s\ttrue\tfixture hold\n' "$2" >> "$1/scripts/daemon_hold_ack.tsv"
   { echo "entries:"; echo "  - id: permanent-daemon-freshness"; echo "    proof:"; echo "      kind: pinned_artefact_freshness"; echo "      hold_ack:"; echo "        reason: \"fixture\""; echo "        shas:"; for x in $3; do echo "          - $x  # fixture"; done; } > "$1/cut-manifests/permanent.yaml"
