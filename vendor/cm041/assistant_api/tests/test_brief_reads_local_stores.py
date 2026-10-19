@@ -152,6 +152,81 @@ class BriefLocalStores(unittest.TestCase):
         self.assertTrue(body["degraded"])
         self.assertNotIn("count", body)
 
+    # ── Staleness (Mini16, 2026-10-19: a 45-hour-old store served as today's) ──
+
+    def _age_store(self, name, hours):
+        import os, time
+        t = time.time() - hours * 3600
+        os.utime(Path(self.dir, name), (t, t))
+
+    def test_a_fresh_calendar_store_is_not_degraded(self):
+        n = _now().replace(hour=12, minute=0, second=0)
+        self._write("calendar_events.json", [
+            {"title": "Standup", "start_date": n, "end_date": n + timedelta(hours=1),
+             "attendees": ["a@example.com"], "is_all_day": False}])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 200)
+        self.assertNotIn("degraded", body)
+        self.assertNotIn("stale", body)
+        self.assertLess(body["local_store_age_seconds"], 60)
+
+    def test_a_calendar_store_three_writer_intervals_old_is_degraded_and_stale(self):
+        n = _now().replace(hour=12, minute=0, second=0)
+        self._write("calendar_events.json", [
+            {"title": "Standup", "start_date": n, "end_date": n + timedelta(hours=1),
+             "attendees": ["a@example.com"], "is_all_day": False}])
+        self._age_store("calendar_events.json", 45)
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 200)
+        # The events are still served (the reader decides what to do with
+        # them), but the answer says it is old, in a field every reader reads.
+        self.assertEqual([e["title"] for e in body["events"]], ["Standup"])
+        self.assertTrue(body.get("degraded"), body)
+        self.assertTrue(body.get("stale"), body)
+        self.assertGreaterEqual(body["local_store_age_seconds"], 45 * 3600 - 5)
+        self.assertTrue(any("calendar_events.json is 45 hours old" in e for e in body["errors"]), body)
+
+    def test_the_stale_threshold_follows_the_writer_interval(self):
+        # Three intervals, inclusive: 2h59m at the default hourly writer is
+        # fresh, 3h is stale; a 10-minute writer makes 31 minutes stale.
+        self.assertIsNone(ical_server._stale_detail("x.json", 3 * 3600 - 1))
+        self.assertIsNotNone(ical_server._stale_detail("x.json", 3 * 3600))
+        with mock.patch.dict("os.environ", {"OSTLER_FDA_RERUN_INTERVAL_S": "600"}):
+            self.assertIsNotNone(ical_server._stale_detail("x.json", 31 * 60))
+            self.assertIsNone(ical_server._stale_detail("x.json", 29 * 60))
+
+    def test_a_stale_mail_store_is_degraded_and_stale(self):
+        n = _now()
+        self._write("apple_mail.json", [
+            {"subject": "Hello", "sender": "a@example.com", "date_received": n, "is_read": False}])
+        self._age_store("apple_mail.json", 50)
+        status, body = ical_server.fetch_recent_emails(24)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["count"], 1)
+        self.assertTrue(body.get("degraded") and body.get("stale"), body)
+        self.assertTrue(any("apple_mail.json is 50 hours old" in e for e in body["errors"]), body)
+
+    # ── Duplicates (Mini16, 2026-10-19: one flight, two rows, "a related event") ──
+
+    def test_two_spellings_of_one_flight_are_one_event(self):
+        n = _now().replace(hour=13, minute=25, second=0)
+        rows = [
+            {"title": "Pat. XY 123", "start_date": n, "end_date": n + timedelta(hours=6),
+             "attendees": [], "is_all_day": False, "calendar_name": "Family"},
+            {"title": "Pat's flight to London Heathrow Airport XY 123", "start_date": n,
+             "end_date": n + timedelta(hours=6), "attendees": [], "is_all_day": False,
+             "calendar_name": "Family"},
+            # Same slot, different event: both kept.
+            {"title": "Sam's piano lesson", "start_date": n, "end_date": n + timedelta(hours=6),
+             "attendees": [], "is_all_day": False, "calendar_name": "Family"},
+        ]
+        self._write("calendar_events.json", rows)
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(e["title"] for e in body["events"]),
+                         ["Pat's flight to London Heathrow Airport XY 123", "Sam's piano lesson"])
+        self.assertEqual(body["count"], 2)
+
 
 class CalendarHandlerWritesTheBuilderReply(unittest.TestCase):
     """The /calendar handler writes what build_calendar_response returned.

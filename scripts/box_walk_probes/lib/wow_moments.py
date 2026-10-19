@@ -257,6 +257,18 @@ def judge_reply_debt(c):
 # --------------------------------------------------------------------------
 
 OWNER_PROMISE = "Post the walk-probe budget sheet to Philip Coe"
+# Shapes the 2026-10-19 Mini16 brief had and a customer must never see: a raw
+# ISO date ("(due 2026-10-16)"), and the owner's own chats with the assistant
+# retold as yesterday's news ("you greeted me with 'Hola'").
+CHAT_ECHO_PHRASES = ("you greeted me", "you asked me", "you asked why the assistant",
+                     "you asked about the assistant", "i confirmed i am", "i am always online",
+                     "showing as offline", "you said hello")
+
+
+def brief_shape(text):
+    low = (text or "").lower()
+    return {"iso_date_leak": bool(re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", text or "")),
+            "chat_echo": any(p in low for p in CHAT_ECHO_PHRASES)}
 OTHER_PROMISE = "Thomas will share the walk-probe venue list"
 SEED_NS = "urn:ostler-walk-fixture:wow7"
 
@@ -350,6 +362,7 @@ def box_morning(wait_s=600):
             out["cannot"] = "the probe's morning brief did not run within %ds" % wait_s
             return out
         out["answered"] = bool(text.strip())
+        out.update(brief_shape(text))
         out["owner_promise"] = "walk-probe budget sheet" in text.lower()
         out["other_promise"] = "walk-probe venue list" in text.lower()
         out["reply_graded"] = len(reply_names)
@@ -379,6 +392,8 @@ def judge_morning(c):
     check("the brief was written (run status %s)" % c.get("run_status"), c.get("answered", False))
     check("the brief names the owner's open promise", c.get("owner_promise", False))
     check("the brief does NOT present a promise someone else owes as the owner's", not c.get("other_promise", True))
+    check("the brief carries no raw ISO date", not c.get("iso_date_leak", True))
+    check("the brief does not retell the owner's chats with the assistant", not c.get("chat_echo", True))
     rn = c.get("reply_named") or []
     if c.get("reply_graded", 0):
         check("the brief names who is waiting on a reply (%d of %d)" % (sum(rn), len(rn)), all(rn))
@@ -408,7 +423,7 @@ def self_test():
     }
     mb_good = {"prompt_covers_today": True, "answered": True, "run_status": "ok", "owner_promise": True,
                "other_promise": False, "reply_graded": 1, "reply_named": [True], "reply_source": "ok",
-               "meetings_graded": 1, "meetings_named": [True]}
+               "meetings_graded": 1, "meetings_named": [True], "iso_date_leak": False, "chat_echo": False}
     mb_mut = {
         "prompt still only about yesterday": dict(mb_good, prompt_covers_today=False),
         "owner's promise missing": dict(mb_good, owner_promise=False),
@@ -416,7 +431,16 @@ def self_test():
         "a reply owed left out": dict(mb_good, reply_named=[False]),
         "today's meeting left out": dict(mb_good, meetings_named=[False]),
         "empty brief": dict(mb_good, answered=False),
+        "a raw ISO date reached the owner": dict(mb_good, iso_date_leak=True),
+        "the owner's chats with the assistant retold as news": dict(mb_good, chat_echo=True),
     }
+    # The shape reader itself, on the two real 2026-10-19 shapes (synthetic text).
+    shp = brief_shape("You promised to send the pack (due 2030-01-16). Yesterday you greeted me with 'Hola'.")
+    print("  %s  brief_shape reads a raw ISO date and a chat echo" % ("ok   " if shp == {"iso_date_leak": True, "chat_echo": True} else "FAIL "))
+    ok &= shp == {"iso_date_leak": True, "chat_echo": True}
+    shp = brief_shape("Pat flies at 1:25pm; the venue pack was due on the 16th and is overdue.")
+    print("  %s  brief_shape passes a clean brief" % ("ok   " if shp == {"iso_date_leak": False, "chat_echo": False} else "FAIL "))
+    ok &= shp == {"iso_date_leak": False, "chat_echo": False}
     for name, judge, good, muts in (("reply debt", judge_reply_debt, rd_good, rd_mut),
                                     ("morning brief", judge_morning, mb_good, mb_mut)):
         _, rc = judge(good)

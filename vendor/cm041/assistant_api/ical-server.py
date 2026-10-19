@@ -8619,6 +8619,76 @@ def _read_fda_json(name):
     return rows, max(0, int(time.time() - st.st_mtime))
 
 
+# The FDA extractor (com.ostler.fda-rerun) rewrites the local stores every
+# OSTLER_FDA_RERUN_INTERVAL_S seconds (install.sh default 3600). A store older
+# than three intervals is stale: three runs were missed, and a brief built on it
+# would present a two-day-old calendar as today's (Mini16, 2026-10-19: 163617s
+# old, reported as ``local_store_age_seconds`` and acted on by nobody). Past
+# this age the endpoint says ``degraded`` and ``stale`` so every reader has to
+# notice, instead of a bare number only an auditor would read.
+def _writer_interval_s():
+    try:
+        return max(60, int(os.environ.get("OSTLER_FDA_RERUN_INTERVAL_S", "3600")))
+    except ValueError:
+        return 3600
+
+
+def local_store_stale_after_s():
+    return 3 * _writer_interval_s()
+
+
+def _stale_detail(name, age):
+    """None when fresh, else the one-line reason a reader can show."""
+    if age is None or age < local_store_stale_after_s():
+        return None
+    hours = age // 3600
+    return ("%s is %d hours old (the writer runs every %d minutes); its contents "
+            "may be out of date" % (name, hours, _writer_interval_s() // 60))
+
+
+def _same_calendar_event(a, b):
+    """Two rows for one event: same start, end and calendar, and the titles
+    are two spellings of it (they share a 4+ character token with a digit,
+    such as a flight number, or every significant word of the shorter title
+    is in the longer). Mini16, 2026-10-19: "<name>'s flight to London
+    Heathrow Airport XY 123" and "<name>. XY 123" reached the brief as two
+    events "with a related event at the same time"."""
+    if not a.get("start") or a.get("start") != b.get("start"):
+        return False
+    if (a.get("end") or "") != (b.get("end") or ""):
+        return False
+    if (a.get("calendar") or "").strip().lower() != (b.get("calendar") or "").strip().lower():
+        return False
+    wa = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", a.get("summary") or "")]
+    wb = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", b.get("summary") or "")]
+    if not wa or not wb:
+        return False
+    if any(len(w) >= 4 and any(c.isdigit() for c in w) and w in wb for w in wa):
+        return True
+    short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+    sig = [w for w in short if len(w) >= 3]
+    return bool(sig) and all(w in long_ for w in sig)
+
+
+def collapse_duplicate_events(events):
+    """Drop the shorter-titled row of each duplicate pair (see
+    ``_same_calendar_event``); rows with identical (summary, start) collapse
+    as before. Order of the survivors is preserved."""
+    kept = []
+    for e in events:
+        dup_at = None
+        for i, k in enumerate(kept):
+            if (k.get("summary", ""), k.get("start", "")) == (e.get("summary", ""), e.get("start", "")) \
+                    or _same_calendar_event(k, e):
+                dup_at = i
+                break
+        if dup_at is None:
+            kept.append(e)
+        elif len(e.get("summary") or "") > len(kept[dup_at].get("summary") or ""):
+            kept[dup_at] = e
+    return kept
+
+
 def read_local_calendar_events(days=1, now=None):
     """Events from the ingested Apple Calendar store (calendar_events.json)
     overlapping [local midnight today, +days). Raises LocalStoreError."""
@@ -8700,12 +8770,7 @@ def build_calendar_response(days, now=None):
 
     all_events.sort(key=lambda e: e.get("start", ""))
     all_events = [e for e in all_events if not _is_personal_admin_event(e)]
-    seen, deduped = set(), []
-    for e in all_events:
-        key = (e.get("summary", ""), e.get("start", ""))
-        if key not in seen:
-            seen.add(key)
-            deduped.append(e)
+    deduped = collapse_duplicate_events(all_events)
     for e in deduped:
         if "summary" in e and "title" not in e:
             e["title"] = e["summary"]
@@ -8729,6 +8794,10 @@ def build_calendar_response(days, now=None):
             "sources": sources}
     if age is not None:
         body["local_store_age_seconds"] = age
+        stale = _stale_detail("calendar_events.json", age)
+        if stale:
+            body["stale"] = True
+            errors.append(stale)
     if not_connected:
         body["not_connected"] = not_connected
     if errors:
@@ -8774,9 +8843,15 @@ def fetch_recent_emails(hours=24, limit=20):
         "snippet": "",
         "unread": r.get("is_read") is False,
     } for dt, r in window[:min(limit, 50)]]
-    return 200, {"emails": emails, "count": len(window), "hours": hours,
-                 "unread_total": unread_total, "source": "apple_mail",
-                 "local_store_age_seconds": age}
+    body = {"emails": emails, "count": len(window), "hours": hours,
+            "unread_total": unread_total, "source": "apple_mail",
+            "local_store_age_seconds": age}
+    stale = _stale_detail("apple_mail.json", age)
+    if stale:
+        body["stale"] = True
+        body["degraded"] = True
+        body["errors"] = [stale]
+    return 200, body
 
 
 def _fetch_recent_emails_gws(hours=24, limit=20):
