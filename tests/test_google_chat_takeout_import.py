@@ -513,23 +513,48 @@ def test_g7_default_refuses_when_the_shared_helper_is_absent(tmp_path, monkeypat
     assert sink.sent == []
 
 
-def test_g7_default_resolves_the_shared_helper(tmp_path, monkeypatch):
+def test_g7_default_maps_the_helper_answer(tmp_path, monkeypatch):
     import types
 
-    asked = []
     fake = types.ModuleType("ostler_fda_g7_fake_helper")
-    fake.entry_gate = lambda source: (asked.append(source), "inactive")[1]
     monkeypatch.setitem(sys.modules, "ostler_fda_g7_fake_helper", fake)
     monkeypatch.setattr(gc, "SHARED_GATE_MODULE", "ostler_fda_g7_fake_helper")
-    assert gc.default_gate() == "inactive" and asked == ["google_chat"]
-    fake.entry_gate = lambda source: "entitled-ish"   # an unknown word is not a yes
+    fake.is_active_or_grace = lambda: False
+    assert gc.default_gate() == "inactive"
+    fake.is_active_or_grace = lambda: True
+    assert gc.default_gate() == "active"
+    fake.is_active_or_grace = lambda: "yes"     # not a bool is not a yes
     assert gc.default_gate() == "unknown"
 
-    def boom(source):
-        raise RuntimeError("receipt store unreadable")
+    def boom():
+        raise RuntimeError("state unreadable")
 
-    fake.entry_gate = boom
+    fake.is_active_or_grace = boom
     assert gc.default_gate() == "unknown"
+
+
+def test_g7_real_shared_helper_gated_then_entitled(tmp_path, monkeypatch):
+    """The REAL vendored helper (CM051 #3024), not a fake: no state is
+    inactive; after the install-time first month it is active."""
+    from datetime import datetime, timezone
+
+    from ostler_fda import subscription_gate as sg
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("OSTLER_SUBSCRIPTION_STATE", str(tmp_path / "state" / "subscription_state.json"))
+    assert gc.default_gate() == "inactive"
+    root = build_export(tmp_path / "export")
+    sink = _Sink()
+    r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(tmp_path / "l.json"),
+                   conversations_fn=sink.conversations, people_fn=_CountingPeople(),
+                   name_fn=lambda n: 0)
+    assert r["conversations_status"] == "paused" and sink.sent == []
+    sg.activate_first_month_free(datetime.now(timezone.utc).isoformat())
+    assert gc.default_gate() == "active"
+    r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(tmp_path / "l.json"),
+                   conversations_fn=sink.conversations, people_fn=_CountingPeople(),
+                   name_fn=lambda n: 0)
+    assert r["conversations_sent"] == 3
 
 
 def test_g7_cli_not_entitled_reads_nothing_writes_nothing(tmp_path, monkeypatch, capsys):

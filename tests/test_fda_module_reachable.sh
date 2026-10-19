@@ -271,13 +271,16 @@ fi
 # dormant deliberately -- it repairs 30 of 128 over-merged nodes and leaves
 # 98 by design, so auto-running it on every customer graph is a product call
 # nobody has made yet.
-# Bumped 3 -> 5 for google_chat_takeout and google_keep_takeout (CM051 #3022):
+# Bumped 3 -> 4 for subscription_gate (2026-10-19): the shared G7 helper for
+# Pro-gated ostler_fda sources, vendored before its first caller (#3022 or the
+# HR015 Notion/Linear/GitHub entry points) so they all depend on ONE copy.
+# Bumped 4 -> 6 for google_chat_takeout and google_keep_takeout (CM051 #3022):
 # new Takeout importers that ship UNWIRED by the connectors brief until the
 # wiring PR gives them a caller in universal_import.
-if grep -qE "^DORMANT \(acknowledged, unwired\)   5" <<< "$out"; then
-    ok "this repo reports 5 dormant modules, visible as five"
+if grep -qE "^DORMANT \(acknowledged, unwired\)   6" <<< "$out"; then
+    ok "this repo reports 6 dormant modules, visible as six"
 else
-    bad "the five dormant modules were absorbed into another count"
+    bad "the six dormant modules were absorbed into another count"
 fi
 # The whole point of the row is that the next person to ship the household
 # split finds it. If that string ever drops out, the handoff is gone.

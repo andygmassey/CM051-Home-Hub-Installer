@@ -904,10 +904,9 @@ def default_state_path() -> Path:
 # G7: Google Chat is an Ostler Pro source (Andy, 2026-10-19)
 # ---------------------------------------------------------------------------
 #
-# ONE shared ostler_fda G7 helper is being built by the small-sources agent as
-# its own PR (its path goes into ~/walkdriver/CONNECTORS_PROGRESS.md under
-# "G7 helper"). Building a second one here is exactly what Archie ruled out,
-# so this module only RESOLVES it. The gate runs at the ENTRY POINT, before
+# ONE shared ostler_fda G7 helper exists (CM051 #3024, built by the
+# small-sources agent). Building a second one here is exactly what Archie
+# ruled out, so this module only RESOLVES it. The gate runs at the ENTRY POINT, before
 # any hand-off to pwg-convo, never inside processor.process.
 #
 # Contract (the same as imessage-bundle-tick.sh's `subscription_gate.py
@@ -921,10 +920,11 @@ def default_state_path() -> Path:
 # ("gate_helper_absent"): that is a missing enforcement surface on a Pro
 # source, a build defect, not a runtime outage.
 #
-# TODO(G7 helper): point SHARED_GATE_MODULE / SHARED_GATE_FUNC at the helper
-# once its PR names them.
-SHARED_GATE_MODULE = "ostler_fda.pro_gate"
-SHARED_GATE_FUNC = "entry_gate"
+# The shared helper is ``vendor/ostler_fda/subscription_gate.py``
+# (CM051 #3024), ``is_active_or_grace() -> bool``, which walks the stored
+# state forward itself (the Apple receipt is the single source of Pro).
+SHARED_GATE_MODULE = "ostler_fda.subscription_gate"
+SHARED_GATE_FUNC = "is_active_or_grace"
 GATE_STATES = ("active", "inactive", "unknown")
 
 
@@ -939,11 +939,15 @@ def default_gate() -> str:
     except (ImportError, AttributeError):
         return "absent"
     try:
-        verdict = fn(SOURCE)
+        verdict = fn()
     except Exception as exc:  # noqa: BLE001 -- could not ask: fail open
         logger.info("google_chat: G7 gate raised (%s); failing open", type(exc).__name__)
         return "unknown"
-    return verdict if verdict in GATE_STATES else "unknown"
+    if verdict is True:
+        return "active"
+    if verdict is False:
+        return "inactive"
+    return "unknown"   # not a bool: the helper did not answer the question
 
 
 def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,
