@@ -581,6 +581,15 @@ jobs:
       # NOT `if: always()`. If an earlier step already failed the cut, this
       # adds nothing; and unlike the freshness self-tests it needs the checkout
       # to be the tag.
+      # ONE DAEMON HOLD, TWO REGISTERS (v1.0.110, cut run 39197687650). The hold
+      # in scripts/daemon_hold_ack.tsv is read by check-freshness here; the same
+      # hold must also be in cut-manifests/permanent.yaml, which check-manifest
+      # reads only inside the build. A hold in one register only passes every
+      # dry run and the rehearsal, then kills the build after the tag is spent.
+      - name: The daemon hold is in both hold registers
+        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')
+        run: python3 scripts/verify_daemon_hold_registers_agree.py "${CUT_VERSION}"
+
       - name: BOM rows must be in the pinned tree
         if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')
         run: |

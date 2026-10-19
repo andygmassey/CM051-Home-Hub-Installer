@@ -1967,6 +1967,217 @@ ollama_pull_with_retry() {
     return 1
 }
 
+# ── Model weight pins (OS003 #233) ─────────────────────────────────
+#
+# `ollama pull <name:tag>` pulls a MUTABLE tag. Ollama verifies each blob's
+# sha256 in transit, so CONTENT integrity already held; what nothing held was
+# PROVENANCE. If a tag is repointed upstream, two customers installing a week
+# apart get different weights for the model that reads all of their data, and
+# nothing notices. This table says WHICH weights we ship, and every model we
+# PULL is checked against it before the install moves on.
+#
+# THE ONE PLACE. Every model the installer can pull has exactly one row here:
+# the RAM-tier chat models in lib/ostler-model-fit.sh OSTLER_MODEL_TAGS, the
+# stripped-bundle ladder further down, and the embedding model. OS003
+# release.toml [models] mirrors this table and names it as the source.
+# tests/test_model_digest_pins.sh goes RED if any pulled model has no row.
+#
+# WHAT IS PINNED (Archie, #2972): the WEIGHT LAYERS, read from the ON-DISK
+# manifest the pinned Ollama (OLLAMA_PIN_VERSION) writes after the pull.
+# Not the config digest: on 0.40.5 MLX models share one config blob
+# (qwen3.5:4b-nvfp4 and qwen3.5:9b-mlx both carry 2dacb491...), so a config
+# pin would accept the wrong model. Not the registry manifest digest: the
+# registry serves a manifest LIST and the client picks a child per runner,
+# which is not what lands on disk to be checked.
+#
+# A row is   <tag>  <n>  sha256:<fingerprint>
+#   n            how many manifest layers have a weight mediaType
+#                (OSTLER_MODEL_WEIGHT_MEDIATYPES below)
+#   fingerprint  sha256 of those layers' digests, SORTED, one per line, each
+#                line ending "\n". It commits to the exact set of weight blobs.
+# Plus one integrity check: the LARGEST weight blob is re-hashed once and must
+# match its own filename, which catches a corrupt or truncated store.
+#
+# TO UPDATE A ROW: pull the tag through the PINNED Ollama into an EMPTY
+# OLLAMA_MODELS on a clean box, run ostler_verify_model_digest against a dummy
+# pin (it prints the n and fingerprint it computed), and cite that run's log
+# beside the row. tests/test_model_digest_pins.sh refuses two rows with the
+# same fingerprint: a pin that degenerated to a shared layer would match both.
+
+# Layer mediaTypes that carry model WEIGHTS. Any other layer (template,
+# params, licence, tokenizer, config json) is not weights and is not pinned.
+# Read from the on-disk manifests the PINNED Ollama 0.34.0 wrote on clean
+# pulls (docs/model-pins/ollama-0.34.0/). 0.34.0 pulls GGUF builds, whose
+# weights are the model layer plus, for some models, a vision projector and a
+# speculative-decoding draft. Template, params and licence are not weights.
+OSTLER_MODEL_WEIGHT_MEDIATYPES=(
+    "application/vnd.ollama.image.model"
+    "application/vnd.ollama.image.projector"
+    "application/vnd.ollama.image.draft"
+)
+
+# EVERY PINNED VALUE is computed from the byte-for-byte on-disk manifest the
+# pinned Ollama 0.34.0 wrote on a clean pull into an EMPTY store, committed in
+# docs/model-pins/ollama-0.34.0/ with its sha256 and pull log in
+# PROVENANCE.tsv. Re-derive with
+#     scripts/model_pins_from_evidence.py --rows docs/model-pins/ollama-0.34.0 install.sh
+# and tests/test_model_digest_pins.sh arm E fails if this table and that
+# evidence ever disagree.
+OSTLER_MODEL_PINS=(
+    # gemma4_e2b.json  b37049369adf  pull log pin034_mbp/pull_gemma4_e2b.log
+    "gemma4:e2b              3 sha256:c0029bf0e7a304c3adfbbd6e24e3587171a0a001fbeb85f274afa940a3c9c929"
+    # qwen3.5_4b.json  d8b0f5e9760c  pull log pin034_mbp4b/pull.log (MBP, empty scratch store)
+    "qwen3.5:4b              2 sha256:4708b8a66d01c8d22a388fbb45bb171cbb46a2d661e46b901b32088cea1a0598"
+    # qwen3.5_9b.json  56671c2ab938  pull log pin034_mbp/pull_qwen3.5_9b.log
+    "qwen3.5:9b              2 sha256:8a63dc8cfeec694afc23b1829fc16818e24c9f5d91ea0b02b64f0127fb19e5c3"
+    # nomic-embed-text_latest.json  0a109f422b47  pull log pin034_mini16/pull_nomic-embed-text.log
+    "nomic-embed-text:latest 1 sha256:8473858267ef2320f4bc7aa871cf56fca45fb59134c7775060b6a19a70e38a23"
+    # qwen3.6_35b-a3b.json  a7eb95c53bcf  pull log pin034_studio35b/pull_qwen3.6_35b-a3b.log (Studio)
+    "qwen3.6:35b-a3b         2 sha256:a94aafcaf8be832c435bdefceb0d79796c658097c3ad685f7d1511a63d3f1dd2"
+)
+
+# A name with no tag is `:latest`, exactly as `ollama pull` reads it.
+ostler_model_canonical() {
+    case "$1" in
+        *:*) printf '%s' "$1" ;;
+        *)   printf '%s:latest' "$1" ;;
+    esac
+}
+
+# Echo "<n> <fingerprint>" for <model>; return 1 (echo nothing) when unpinned.
+ostler_model_pinned_weights() {
+    local want row tag n fp
+    want="$(ostler_model_canonical "$1")"
+    for row in "${OSTLER_MODEL_PINS[@]}"; do
+        read -r tag n fp <<<"$row"
+        if [[ "$tag" == "$want" ]]; then
+            printf '%s %s' "$n" "$fp"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Echo just the pinned fingerprint (the coverage test's single value).
+ostler_model_pinned_digest() {
+    local v
+    v="$(ostler_model_pinned_weights "$1")" || return 1
+    printf '%s' "${v#* }"
+}
+
+# ostler_verify_model_digest <model>
+#   Reads the INSTALLED model's on-disk manifest from Ollama's own store and
+#   compares its weight layers with the pin. Sets OSTLER_MODEL_DIGEST_WANT /
+#   _GOT ("<n> <fingerprint>") / _DETAIL. Returns:
+#     0  the sorted weight-layer digests fingerprint to the pin, the count
+#        matches, and the largest weight blob hashes to its own name
+#     1  MISMATCH: other weights under this tag, or a corrupt largest blob
+#     2  CANNOT VERIFY: manifest or largest blob missing/unreadable, or no
+#        layer has a weight mediaType (never a pass)
+#     3  UNPINNED: this model has no row in OSTLER_MODEL_PINS
+#   No command in here may exit non-zero: install.sh runs `set -Eeuo pipefail`
+#   with an ERR trap, which a failing substitution would fire.
+ostler_verify_model_digest() {
+    local model name tag models_dir manifest out status
+    model="$(ostler_model_canonical "$1")"
+    name="${model%%:*}"; tag="${model#*:}"
+    OSTLER_MODEL_DIGEST_WANT=""; OSTLER_MODEL_DIGEST_GOT=""; OSTLER_MODEL_DIGEST_DETAIL=""
+    if ! OSTLER_MODEL_DIGEST_WANT="$(ostler_model_pinned_weights "$model")"; then
+        OSTLER_MODEL_DIGEST_DETAIL="no row in OSTLER_MODEL_PINS"
+        return 3
+    fi
+    models_dir="${OLLAMA_MODELS:-${HOME}/.ollama/models}"
+    manifest="${models_dir}/manifests/registry.ollama.ai/library/${name}/${tag}"
+    out="$(python3 -I - "$manifest" "${models_dir}/blobs" "$OSTLER_MODEL_DIGEST_WANT" "${OSTLER_MODEL_WEIGHT_MEDIATYPES[@]}" <<'PY' || printf 'UNREADABLE\t-\tpython3 could not run (exit %s)\n' "$?"
+import hashlib, json, os, sys
+manifest, blobs, want = sys.argv[1], sys.argv[2], sys.argv[3]
+types = set(sys.argv[4:])
+def out(status, got, detail):
+    print("%s\t%s\t%s" % (status, got or "-", detail)); sys.exit(0)
+try:
+    with open(manifest, "rb") as f:
+        m = json.load(f)
+    layers = [(l["mediaType"], l["digest"], int(l.get("size", 0))) for l in m["layers"]]
+except Exception as e:
+    out("UNREADABLE", "", "manifest %s: %s" % (manifest, type(e).__name__))
+weights = [l for l in layers if l[0] in types]
+if not weights:
+    out("UNREADABLE", "", "no layer has a weight mediaType (%d layers; types %s)"
+        % (len(layers), ",".join(sorted({l[0] for l in layers})) or "none"))
+digests = sorted(l[1] for l in weights)
+fp = "sha256:" + hashlib.sha256("".join(d + "\n" for d in digests).encode()).hexdigest()
+got = "%d %s" % (len(digests), fp)
+if got != want:
+    out("MISMATCH", got, "weight layers differ from the pin")
+big = max(weights, key=lambda l: l[2])
+blob = os.path.join(blobs, big[1].replace(":", "-", 1))
+try:
+    h = hashlib.sha256()
+    with open(blob, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 22), b""):
+            h.update(chunk)
+except Exception as e:
+    out("UNREADABLE", got, "largest weight blob %s: %s" % (blob, type(e).__name__))
+if "sha256:" + h.hexdigest() != big[1]:
+    out("MISMATCH", got, "largest weight blob does not hash to its own name (corrupt store)")
+out("OK", got, "weight layers match the pin and the largest weight blob is intact")
+PY
+)"
+    IFS=$'\t' read -r status OSTLER_MODEL_DIGEST_GOT OSTLER_MODEL_DIGEST_DETAIL <<<"$out"
+    case "$status" in
+        OK)       return 0 ;;
+        MISMATCH) return 1 ;;
+        *)        [[ -n "$OSTLER_MODEL_DIGEST_DETAIL" ]] || OSTLER_MODEL_DIGEST_DETAIL="verifier printed nothing"
+                  return 2 ;;
+    esac
+}
+
+# ostler_require_model_digest <model>
+#   The step gate. Pass: one ok line naming the digest. Anything else: fail the
+#   install with a code that says which of the three things went wrong. There
+#   is no warn-and-continue branch on purpose.
+ostler_require_model_digest() {
+    local model="$1" rc=0
+    ostler_verify_model_digest "$model" || rc=$?
+    case "$rc" in
+        0) ok "$(printf "$MSG_OK_MODEL_DIGEST_VERIFIED" "${model}" "${OSTLER_MODEL_DIGEST_GOT}")" ;;
+        1) fail_with_code "ERR-13-MODEL-DIGEST-MISMATCH" \
+               "$(printf "$MSG_FAIL_MODEL_DIGEST_MISMATCH" "${model}" "${OSTLER_MODEL_DIGEST_GOT}" "${OSTLER_MODEL_DIGEST_WANT}" "${OSTLER_MODEL_DIGEST_DETAIL}")" ;;
+        3) fail_with_code "ERR-13-MODEL-UNPINNED" \
+               "$(printf "$MSG_FAIL_MODEL_UNPINNED" "${model}")" ;;
+        *) fail_with_code "ERR-13-MODEL-DIGEST-UNREADABLE" \
+               "$(printf "$MSG_FAIL_MODEL_DIGEST_UNREADABLE" "${model}" "${OSTLER_MODEL_DIGEST_DETAIL}")" ;;
+    esac
+}
+
+# ostler_note_existing_model <model>
+#   A model ALREADY on disk and serving (an existing customer's, e.g. a 0.34
+#   GGUF copy) is NOT pin-checked and NOT re-pulled: the pin is a promise
+#   about what we PULL, and stopping a working Hub because the copy it already
+#   serves predates the pin would break it for nothing (Archie, #2972). The
+#   verifier still runs, for the record only, and the result is written to
+#   the install log and ~/.ostler/state/model-pins for the walk. Never fails
+#   the install; never fires the ERR trap.
+ostler_note_existing_model() {
+    local model rc=0 verdict f
+    model="$(ostler_model_canonical "$1")"
+    ostler_verify_model_digest "$model" || rc=$?
+    case "$rc" in
+        0) verdict="match" ;;
+        1) verdict="differs" ;;
+        3) verdict="unpinned" ;;
+        *) verdict="unreadable" ;;
+    esac
+    f="${OSTLER_MODEL_PIN_STATE_FILE:-${HOME}/.ostler/state/model-pins}"
+    mkdir -p "$(dirname "$f")" 2>/dev/null || true
+    printf 'model_pin=%s existing=kept pin_check=skipped on_disk=%s got=%s\n' \
+        "$model" "$verdict" "${OSTLER_MODEL_DIGEST_GOT:--}" >> "$f" 2>/dev/null || true
+    printf 'model_pin=%s existing=kept pin_check=skipped on_disk=%s got=%s want=%s\n' \
+        "$model" "$verdict" "${OSTLER_MODEL_DIGEST_GOT:--}" "${OSTLER_MODEL_DIGEST_WANT:--}" \
+        >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null || true
+    return 0
+}
+
 # ── --allow-plaintext loud warning ─────────────────────────────────
 # If the operator passed --allow-plaintext, repeat a yellow warning
 # three times so it cannot be missed in CI logs or terminal scrollback.
@@ -3422,14 +3633,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8711) captures the path BY
+    # _ostler_write_store_curl_config (defined :8922) captures the path BY
     # VALUE and never re-reads it:
-    #     :8712   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8757   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8766 and :16424, both of which run
+    #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8977 and :16635, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3408 above has just deleted
-    # that tree and :3412 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
+    # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3444,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17219, where the note reads
+    # WhatsApp Web session path did it again at :17430, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17236 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17447 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3459,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6040 against a definition at :8711. Top-level
+    # writer's own definition: :6251 against a definition at :8922. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8766, :16424) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8977, :16635) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19384 / :19562 / :19719 / :20164 path. There the
+    # :19595 / :19773 / :19930 / :20375 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -21067,6 +21278,15 @@ services:
       # it, so a writable mount onto the Hub's own editor state is a
       # foothold the wiki compiler has no reason to hold.
       - ${HOME}/.ostler/editor:/editor:ro
+      # v1.0.111 contact photos. CM041's contact syncer runs on the HOST and
+      # writes each contact's photo to PHOTO_DIR (default ~/.pwg/people/photos)
+      # and records that HOST path as foaf:img / profile_photo_path. /Users
+      # does not exist in this container, so without this mount every People
+      # page draws initials whatever the graph holds (#979 shape, sixth time).
+      # CM044 compiler/person_photo.py reads only producer-shaped basenames
+      # from WIKI_PEOPLE_PHOTOS_DIR and copies them into People/_photos.
+      # READ-ONLY: the compiler never writes a photo.
+      - ${OSTLER_PEOPLE_PHOTOS_DIR:-${HOME}/.pwg/people/photos}:/people-photos:ro
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -21212,6 +21432,7 @@ services:
       # the mount would be present and unread, which is the same defect one
       # layer up: a thing that is there and that nothing looks at.
       - OSTLER_FRONT_PAGE_JSON=/editor/front_page.json
+      - WIKI_PEOPLE_PHOTOS_DIR=/people-photos
     extra_hosts:
       # macOS / Colima-friendly way to surface the host gateway so the
       # OLLAMA_URL above resolves to the host's Ollama.
@@ -22840,13 +23061,19 @@ fi
 
 progress "Downloading AI models (this is the big one)" "ai_models"
 
+# OS003 #233, as amended on #2972: the pin is checked on what we PULL. A model
+# already on disk and serving is kept as it is (ostler_note_existing_model
+# records how it compares, for the walk); a model we pull now must match its
+# pin or the install stops.
 if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
+    ostler_note_existing_model nomic-embed-text
 else
     info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
     _pull_rc=0; ollama_pull_with_retry nomic-embed-text || _pull_rc=$?
     case "$_pull_rc" in
-        0) ok "$MSG_OK_EMBEDDING_MODEL_READY" ;;
+        0) ok "$MSG_OK_EMBEDDING_MODEL_READY"
+           ostler_require_model_digest nomic-embed-text ;;
         3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
         *) fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT" ;;
     esac
@@ -22904,6 +23131,7 @@ ok "$MSG_OK_EMBEDDINGS_VERIFIED"
 if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
     if ollama list 2>/dev/null | grep -q "${AI_MODEL}"; then
         ok "$(printf "$MSG_OK_ALREADY_AVAILABLE" "${AI_MODEL}")"
+        ostler_note_existing_model "${AI_MODEL}"
     else
         # Show the licence summary before the pull so the user knows
         # what they are accepting. Default Ostler models (Qwen family)
@@ -22924,7 +23152,8 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
         info "$(printf "$MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES" "${AI_MODEL}" "${AI_MODEL_SIZE}")"
         _pull_rc=0; ollama_pull_with_retry "$AI_MODEL" || _pull_rc=$?
         case "$_pull_rc" in
-            0) ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")" ;;
+            0) ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
+               ostler_require_model_digest "${AI_MODEL}" ;;
             3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
             *) fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")" ;;
         esac
@@ -38830,6 +39059,11 @@ mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
 # the same class of defect #979 already hit four times. Idempotent and
 # explicit, same as the Wiki tree above.
 mkdir -p "${HOME}/.ostler/editor"
+# v1.0.111: the contact photo directory, bind-mounted read-only into the
+# wiki-compiler. The contact syncer creates it on its first photo; a box with
+# no photos yet still needs a real directory, or Docker root-owns it and the
+# syncer (running as the customer) can never write there afterwards.
+mkdir -p "${OSTLER_PEOPLE_PHOTOS_DIR:-${HOME}/.pwg/people/photos}"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"
