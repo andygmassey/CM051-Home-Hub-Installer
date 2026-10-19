@@ -25,6 +25,7 @@ catchup-takeout.yml	catchup-takeout	unchanged	catchup-takeout.yml	catchup-takeou
 ci-maskless.yml	ci-maskless	unchanged	ci-maskless.yml	ci-maskless
 ci-required-gate.yml	gate	unchanged	ci-required-gate.yml	gate
 cm048-multilingual-output.yml	cm048-multilingual-output	unchanged	cm048-multilingual-output.yml	cm048-multilingual-output
+coach-db-created-keyed-at-install.yml	coach-db-created-keyed-at-install	unchanged	coach-db-created-keyed-at-install.yml	coach-db-created-keyed-at-install
 cold-box-source-truth.yml	cold-box-truth	folded	fold-macos-14.yml	macos-14
 colima-autostart.yml	autostart-mechanism	folded	fold-macos-14.yml	macos-14
 consent-contract.yml	autologin-consent-opt-in	unchanged	consent-contract.yml	autologin-consent-opt-in
@@ -90,6 +91,7 @@ forget-tombstone.yml	f6-facebook-import-once	unchanged	forget-tombstone.yml	f6-f
 forget-tombstone.yml	forget-reports-only-what-it-erased	unchanged	forget-tombstone.yml	forget-reports-only-what-it-erased
 forget-tombstone.yml	merged-people-not-recreated	unchanged	forget-tombstone.yml	merged-people-not-recreated
 forget-tombstone.yml	tombstone	unchanged	forget-tombstone.yml	tombstone
+gateway-secret-probe.yml	gateway-secret-probe	unchanged	gateway-secret-probe.yml	gateway-secret-probe
 gdpr-export-detect.yml	gdpr-export-detect	unchanged	gdpr-export-detect.yml	gdpr-export-detect
 gdpr-export-detect.yml	large-zip-detection-macos	unchanged	gdpr-export-detect.yml	large-zip-detection-macos
 generated-cli-tools-counted.yml	generated-cli-tools-counted	unchanged	generated-cli-tools-counted.yml	generated-cli-tools-counted

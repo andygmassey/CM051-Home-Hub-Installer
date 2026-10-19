@@ -62,7 +62,7 @@ known_kind() {
 # will actually meet, not the one this test would prefer.
 compiles() {
     local pat="$1"
-    printf '' | grep -qE -- "$pat" >/dev/null 2>&1
+    grep -qE -- "$pat" </dev/null >/dev/null 2>&1
     [ "$?" -lt 2 ]
 }
 
@@ -121,7 +121,7 @@ while IFS='|' read -r kind target pattern desc; do
     PATROWS=$((PATROWS+1))
     if ! compiles "$pattern"; then
         BADPAT=$((BADPAT+1))
-        msg="$(printf '' | grep -qE -- "$pattern" 2>&1 >/dev/null)"
+        msg="$(grep -qE -- "$pattern" </dev/null 2>&1 >/dev/null)"
         echo "        ${kind} :: ${target} :: ${pattern}"
         echo "            grep said: ${msg}"
     fi

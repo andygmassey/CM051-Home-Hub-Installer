@@ -7,6 +7,9 @@
 # #2963's first runs; they replace the pre-fold job medians for those jobs.
 # hub-screens-and-106c.yml::owner-employer-seed is 3 + 7 s: main added a step
 # measured at 7 s on main's own run of that job (2026-10-18).
+# fold-macos-14.yml blocks (2026-10-19): the median of three full runs on
+# #2962 (949bf2c, 37d1104, f26589f), isolate step included. This
+# replaces the first-run figure and owner-employer-seed's 3 + 7 s above.
 appcast-fail-closed.yml::fail-closed	5	8
 appcast-ship-wiring.yml::appcast-ship-wiring	48	8
 apple-music-library.yml::apple-music-library	18	2
@@ -14,9 +17,9 @@ assistant-config-required-fields.yml::assistant-config-required-fields	8	2
 assistant-name-check.yml::assistant-name-diff	9	8
 assistant-sends-not-owner-input.yml::readers-drop-assistant-sends	13	1
 background-copy-honesty.yml::no-deadline-promises	9	5
-bash32-compat.yml::bash32	5	folded
+bash32-compat.yml::bash32	6	folded
 broken-line-continuation.yml::continuations	14	2
-calendar-backfill-multiyear.yml::predicate-self-test	3	folded
+calendar-backfill-multiyear.yml::predicate-self-test	6	folded
 calendar-backfill-multiyear.yml::window-controls	3	folded
 cannot-run-branch-reachable.yml::gate	22	folded
 catchup-browser.yml::catchup-browser	26	2
@@ -28,12 +31,12 @@ catchup-takeout.yml::catchup-takeout	256	2
 ci-maskless.yml::ci-maskless	11	8
 ci-required-gate.yml::gate	822	8
 cold-box-source-truth.yml::cold-box-truth	193	folded
-colima-autostart.yml::autostart-mechanism	10	folded
+colima-autostart.yml::autostart-mechanism	17	folded
 consent-contract.yml::autologin-consent-opt-in	4	folded
 consent-contract.yml::consent-contract	6	2
 consent-data-handling.yml::consent-data-handling	14	8
 consent-registry.yml::consent-registry	11	2
-container-runtime-guard.yml::container-runtime-guard	8	folded
+container-runtime-guard.yml::container-runtime-guard	3	folded
 container-runtime-precondition.yml::container-runtime	3	folded
 context-digest-auth.yml::digest-auth	37	5
 customer-leak-shapes.yml::customer-leak-shapes	13	1
@@ -46,8 +49,8 @@ data-conservation-probe-tests.yml::probe-tests	4	folded
 db-key-delivery-and-recovery.yml::db-key-delivery-and-recovery	64	2
 declared-gates-reachable.yml::declared-gates-self-test	302	8
 default-sources-requested.yml::join	8	2
-deferred-register-cap-not-silent.yml::deferred-register-cap-not-silent	9	folded
-dmg-delivery-gate.yml::delivery-gate	62	folded
+deferred-register-cap-not-silent.yml::deferred-register-cap-not-silent	4	folded
+dmg-delivery-gate.yml::delivery-gate	70	folded
 download-urls-resolve.yml::urls	10	2
 downloads-watcher-survives-an-export.yml::downloads-watcher-survives-an-export	72	folded
 dry-run-ledger.yml::dry-run-ledger	8	8
@@ -55,17 +58,17 @@ editor-feed-gate.yml::editor-feed-gate	6	2
 email-channel.yml::email-channel	6	2
 enforce-ledger-write.yml::ledger-pr	10	9
 enforce-ledger-write.yml::no-invisible-workflows	9	9
-engine-provenance.yml::provenance	2	folded
+engine-provenance.yml::provenance	4	folded
 enrichment-invoker.yml::enrichment-invoker	6	2
 enrichment-reaches-corpus.yml::enrichment-reaches-corpus	22	3
 fda-deps-installed.yml::gate	19	folded
 fda-deps-installed.yml::self-test	21	folded
 fda-dialog-truth.yml::fda-dialog-truth	17	folded
-fda-listed.yml::fda-listed-has-one-writer	2	folded
-fda-rerun-ingests.yml::ingest-half-controls	14	folded
-fda-rerun-ingests.yml::predicate-self-test	11	folded
-fda-rerun-recurs.yml::predicate-self-test	3	folded
-fda-rerun-recurs.yml::recurrence-controls	2	folded
+fda-listed.yml::fda-listed-has-one-writer	3	folded
+fda-rerun-ingests.yml::ingest-half-controls	17	folded
+fda-rerun-ingests.yml::predicate-self-test	7	folded
+fda-rerun-recurs.yml::predicate-self-test	5	folded
+fda-rerun-recurs.yml::recurrence-controls	4	folded
 foreign-ontology-namespace.yml::foreign-ontology-namespace	7	8
 forget-reaches-every-graph.yml::forget-reaches-every-graph	14	6
 forget-tombstone.yml::f6-facebook-import-once	32	5
@@ -77,16 +80,16 @@ gdpr-export-detect.yml::large-zip-detection-macos	33	folded
 generated-cli-tools-counted.yml::generated-cli-tools-counted	5	2
 grep-c-arith-safety.yml::grep-c-arith-safety	6	2
 hint-coverage.yml::coverage	5	8
-hub-app-fetch.yml::wiring	3	folded
+hub-app-fetch.yml::wiring	5	folded
 hub-contract.yml::client-pin-drift	8	2
 hub-contract.yml::contract-is-current	10	2
 hub-contract.yml::generator-tests	8	2
-hub-screens-and-106c.yml::conversation-capture-seed	12	folded
+hub-screens-and-106c.yml::conversation-capture-seed	5	folded
 hub-screens-and-106c.yml::hub-screens	42	1
-hub-screens-and-106c.yml::owner-employer-seed	10	folded
-hydrate-sentinel.yml::sentinel-honesty	23	folded
+hub-screens-and-106c.yml::owner-employer-seed	13	folded
+hydrate-sentinel.yml::sentinel-honesty	31	folded
 hydrate-timeout-honesty.yml::timeout-must-record-failure	6	5
-imessage-ladder.yml::ladder-not-pinned	8	folded
+imessage-ladder.yml::ladder-not-pinned	4	folded
 imessage-probe-cannot-hang.yml::imessage-probe-cannot-hang	8	2
 import-path-error-honesty.yml::import-path-error-honesty	6	2
 ingest-slot.yml::shell-3-2	2	folded
@@ -97,11 +100,11 @@ install-duration-honesty.yml::duration	6	8
 install-gui-contract.yml::contract	23	1
 install-heredoc-honesty.yml::heredoc-honesty	6	2
 install-log-hygiene.yml::install-log-hygiene	6	2
-install-manifest-gate.yml::manifest-gate	4	folded
+install-manifest-gate.yml::manifest-gate	6	folded
 install-sh-cannot-wedge-the-box.yml::install-sh-behaviour	13	folded
 installer-app-pyc-seeded.yml::installer-app-pyc-seeded	5	8
 installer-copy-honesty.yml::copy	6	2
-installer-memory-bounds.yml::output-buffer-bounds	35	folded
+installer-memory-bounds.yml::output-buffer-bounds	54	folded
 invoked-tests-are-watched.yml::invoked-tests-are-watched	10	8
 keyless-store-probe-tests.yml::probe-tests	1796	folded
 killed-converge-gets-its-catchup.yml::killed-converge-gets-its-catchup	8	2
@@ -121,9 +124,9 @@ model-download-honesty.yml::model-download-honesty	8	8
 netflix-polarity-repair.yml::marker-skip	5	1
 new-tests-must-be-wired.yml::new-tests-wired	28	8
 no-binary-home-path.yml::no-binary-home-path	16	8
-no-finder-appleevent.yml::no-finder-appleevent	2	folded
+no-finder-appleevent.yml::no-finder-appleevent	4	folded
 operator-pii-scan.yml::scan	32	8
-os003-pointer.yml::pointer-macos	3	folded
+os003-pointer.yml::pointer-macos	6	folded
 osascript-deadline.yml::deadlined	6	2
 owner-data-never-capped.yml::owner-data-never-capped	32	2
 owner-node-is-minted.yml::owner-node-is-minted	18	2
@@ -132,7 +135,7 @@ patch-new-files-visible.yml::guard	5	8
 people-have-human-evidence.yml::people-have-human-evidence	16	1
 people-sweep-partial-landing.yml::partial-landing-sentinel	5	folded
 permission-briefing.yml::briefing	5	2
-pip-stage.yml::pip-stage-outside-bundle	3	folded
+pip-stage.yml::pip-stage-outside-bundle	5	folded
 pr-branch-staleness.yml::pr-staleness	10	8
 privacy-spine.yml::privacy-spine	18	8
 py311-syntax-gate.yml::py311	8	4
@@ -144,8 +147,8 @@ reset-uninstall-honesty.yml::reset-uninstall-honesty	16	2
 rule-09-strings-check.yml::rule-09	10	8
 safari-extension-paired-bearer.yml::predicate	15	1
 safari-extension-paired-bearer.yml::writer	5	folded
-scheduled-agent-failure-is-loud.yml::dying-agent-is-loud	5	folded
-scheduled-agent-failure-is-loud.yml::predicate-self-test	6	folded
+scheduled-agent-failure-is-loud.yml::dying-agent-is-loud	10	folded
+scheduled-agent-failure-is-loud.yml::predicate-self-test	11	folded
 secrets-are-documented.yml::documented	6	6
 secrets-dir-mode.yml::secrets-dir-mode	2	folded
 sensitive-artefact-exposure.yml::sensitive-artefacts-not-world-readable	20	2
@@ -154,9 +157,9 @@ slot-fairness.yml::fairness	6	8
 status-honesty-ingest.yml::ingest-honesty	8	1
 status-honesty-meetings-doctor.yml::honesty	20	1
 status-honesty-people.yml::people-status	20	2
-step-end-status-honesty.yml::step-end-honesty	10	folded
+step-end-status-honesty.yml::step-end-honesty	15	folded
 store-auth-coverage-gate.yml::store-auth-coverage-gate	5	2
-store-auth-pth-final-dir.yml::store-auth-pth-final-dir	5	folded
+store-auth-pth-final-dir.yml::store-auth-pth-final-dir	6	folded
 store-host-exposure.yml::stores-publish-no-host-port	6	2
 supply-chain-pins.yml::supply-chain-pins	12	2
 symbol-regression.yml::symbol-regression	3	folded
@@ -176,9 +179,9 @@ upgrade-payload-shape.yml::contract	6	2
 upgrade-store-auth-wiring.yml::upgrade-store-auth-wiring	4	2
 usage-journal-gate.yml::usage-journal-gate	4	2
 usage-journal-producers.yml::producer-gate	19	2
-usage-journal-producers.yml::producer-gate-macos	13	folded
+usage-journal-producers.yml::producer-gate-macos	17	folded
 vendor-divergence-described.yml::described	12	6
-vendor-divergence-described.yml::described-macos	10	folded
+vendor-divergence-described.yml::described-macos	8	folded
 vendor-integrity.yml::vendor-integrity	62	7
 venv-store-shim.yml::installer-authenticates-to-qdrant	7	2
 venv-store-shim.yml::store-callers-authenticate	6	2
