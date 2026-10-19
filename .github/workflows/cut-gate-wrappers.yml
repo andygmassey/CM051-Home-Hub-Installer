@@ -60,6 +60,8 @@ on:
       - 'scripts/push_cut_tag.sh'
       - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
       - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
+      - 'scripts/verify_daemon_hold_registers_agree.py'
+      - 'tests/test_daemon_hold_registers_agree.sh'
       # Wired 2026-09-19. Row 1519 asks whether the dry run is reachable at
       # all, and said the decisive proof was to FIRE a dispatch. Arm 3 answers
       # it structurally, for free, on every PR: it walks the dry-run job's
@@ -313,6 +315,12 @@ jobs:
       - name: A cut tag is not pushed while the tag-time checklist is red
         if: always()
         run: /bin/bash tests/test_push_cut_tag_refuses_a_red_checklist.sh
+
+      # v1.0.110 spent its tag on a daemon hold written in daemon_hold_ack.tsv only:
+      # check-manifest reads permanent.yaml, inside the build, after the tag.
+      - name: The daemon hold is in both hold registers (fixtures)
+        if: always()
+        run: /bin/bash tests/test_daemon_hold_registers_agree.sh
 
       # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
       # The suite above asks whether a dispatch can SHIP. This one asks whether
