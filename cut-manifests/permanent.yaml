@@ -1336,6 +1336,19 @@ entries:
       kind: box_walk_probe
       probe: "companion_listener_refuses_unauthenticated"
 
+  - id: box-walk-gateway-never-serves-a-stored-secret
+    title: no gateway or companion route, unauthenticated or with a paired bearer, serves a paired token or the Vane password stored in config.toml
+    incident: >-
+      v1.0.109 thin walk. config.toml holds every [gateway].paired_tokens
+      entry and the Vane password inside vane_url. Every gateway route in the
+      hub contract is requested on LAN :8443, loopback :8443 and :8000, with
+      and without a paired bearer, and each secret is counted in body and
+      headers (exact, URL-encoded, base64). A positive control on config.toml
+      must see each secret first. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "gateway_never_serves_a_stored_secret"
+
   - id: box-walk-listener-watchdog-recovers-a-wedged-listener
     title: with the daemon SIGSTOPped (process alive, 8443 silent), the listener watchdog captures sample and lsof, restarts it and 8443 answers 401 again within 300 s
     incident: >-
@@ -1368,3 +1381,14 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "data_conservation"
+
+  # v1.0.109: RemoteCapture 0.1.7 (CM042 #32). Andy's core privacy rule: call
+  # audio is transcribed on the Mac and deleted straight away. CANNOT-RUN "TCC:"
+  # on an ssh walk with no capture (console_only_probes.tsv, surface tcc); the
+  # console walk makes one capture and this must then PASS. Any audio file is a FAIL.
+  - id: box-walk-call-audio-never-retained
+    title: after one RemoteCapture capture, 0 audio files remain in the capture temp dir and the transcripts dirs
+    incident: "CM042 #32 removed every audio-retention option; builds <= 0.1.6 kept audio until the Hub confirmed, indefinitely if it never did. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "call_audio_never_retained"
