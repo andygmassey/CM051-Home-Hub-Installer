@@ -22,6 +22,7 @@
 #          customer sees the refusal words, never "could not finish" and never
 #          "now part of your world"; the export set is recorded (one mention
 #          per attempt, no 4-hourly nag); the Doctor record says why.
+#   ARM F  a refusal after a real failure keeps the failure's code (rc 1).
 #   ARM E  CONTROL: scanner, ostler-import exits 1: still "could not finish",
 #          and the hash is NOT recorded (retry stays).
 #
@@ -88,6 +89,29 @@ rc_c="$(imp_arm 0)"
 if [ "$rc_c" -eq 0 ]; then ok "ARM C (control): a clean run exits 0"
 else bad "ARM C (control): a clean run exited ${rc_c}; the harness is broken" "$(tail -n 5 "$WORK/imp_0.log")"; fi
 
+# ARM F: a refusal must never HIDE a real failure. Two export folders in one
+# run: the first one's universal_import fails (1), the second is refused (5).
+# The run must exit 1, because the failure is what needs fixing. Without the
+# dedicated 5 branch, the later 5 overwrites rc and the failure reads as paused.
+hf="$WORK/imp_home_mixed"
+rm -rf "$hf"; mkdir -p "$hf/.ostler/services/email-ingest/.venv/bin" "$WORK/mixed/a_fail/x" "$WORK/mixed/b_paused/x"
+: > "$WORK/mixed/a_fail/x/p.json"; : > "$WORK/mixed/b_paused/x/p.json"
+{
+    echo '#!/usr/bin/env bash'
+    echo 'for a in "$@"; do last="$a"; done'
+    echo 'case "$last" in'
+    echo '  *a_fail*) exit 1 ;;'
+    printf '  *b_paused*) printf "%%s\n" "%s" "%s"; exit 5 ;;
+' "$REFUSAL_1" "$REFUSAL_2"
+    echo 'esac'
+    echo 'exit 0'
+} > "$hf/.ostler/services/email-ingest/.venv/bin/python"
+chmod +x "$hf/.ostler/services/email-ingest/.venv/bin/python"
+HOME="$hf" /bin/bash "$IMP" "$WORK/mixed/a_fail" "$WORK/mixed/b_paused" >"$WORK/imp_mixed.log" 2>&1
+rc_f=$?
+if [ "$rc_f" -eq 1 ]; then ok "ARM F: a refusal after a real failure does not hide it (rc 1)"
+else bad "ARM F: a real failure followed by a refusal exited ${rc_f} (want 1); the refusal hid the failure"; fi
+
 # ── the real Downloads scanner ────────────────────────────────────────────
 SCAN="$WORK/ostler-scan-exports"
 awk "/^cat > \"\\\${OSTLER_DIR}\/bin\/ostler-scan-exports\" <<'SCANEOF'\$/{f=1;next} f&&/^SCANEOF\$/{exit} f{print}" \
@@ -143,6 +167,6 @@ else bad "ARM E (control): a real failure is no longer reported" "$notif_f"; fi
 if [ ! -s "$box_f/.ostler/state/scan_state.json" ]; then ok "ARM E (control): a real failure records no hash, so it is retried"
 else bad "ARM E (control): a real failure recorded the hash"; fi
 
-printf '\ndenominator: 3 runs of the real ostler-import, 2 runs of the real scanner\n'
+printf '\ndenominator: 4 runs of the real ostler-import, 2 runs of the real scanner\n'
 printf '== %d pass / %d fail ==\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
