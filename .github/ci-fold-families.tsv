@@ -9,3 +9,34 @@
 # CI_FOLD_INVENTORY.tsv maps every job in the estate to its proposed family.
 #
 # columns: family<TAB>source_workflow<TAB>job_id
+py-matrix	address-book-source-guard.yml	address-book-source-guard
+py-matrix	browsing-summaries-and-save.yml	hub
+py-matrix	cm048-participants-as-strings.yml	cm048-participants-as-strings
+py-matrix	cm048-whatsapp-lid-not-phone.yml	cm048-whatsapp-lid-not-phone
+py-matrix	contact-card-repair.yml	contact-card-repair
+py-matrix	creation-name-writes.yml	creation-name-writes
+py-matrix	display-name-tiers.yml	display-name-tiers
+py-matrix	enrich-budget.yml	enrich-budget
+py-matrix	failed-conversations-auto-retry-guard.yml	auto-retry
+py-matrix	fda-reachable.yml	fda-reachable
+py-matrix	kinship-label-write-guard.yml	kinship-label-write-guard
+py-matrix	lane11-hub-routes.yml	hub
+py-matrix	name-repair.yml	name-repair
+py-matrix	netflix-polarity-repair.yml	netflix-polarity-repair
+py-matrix	people-projection-prune.yml	people-projection-prune
+py-matrix	people-sweep-partial-landing.yml	partial-landing-is-an-error
+py-matrix	person-removal-audit.yml	person-removal-audit
+py-matrix	repair-lid-as-phone-vendored.yml	vendored-suite
+py-matrix	section-contract.yml	section-contract
+py-matrix	stderr-tail.yml	stderr-tail
+py-matrix	walk-defect-d-phone-identifier-guard.yml	walk-defect-d-phone-identifier-guard
+py-matrix	walk-defect-e-duplicate-evidence-guard.yml	walk-defect-e-duplicate-evidence-guard
+py-matrix	walk-meeting-id-collision-guard.yml	conversation-id-prefers-meeting-id
+py-matrix	walk5-conversation-failure-reason-guard.yml	walk5-conversation-failure-reason-guard
+py-matrix	walk6-people-list-correctness-guard.yml	canonicalise-syncs-qdrant
+py-matrix	walk6-people-list-correctness-guard.yml	people-list-correctness
+py-matrix	walk6-people-list-correctness-guard.yml	suggestions-apply-people-list-filters
+py-matrix	walk6-people-list-correctness-guard.yml	person-context-finds-merged-names
+py-matrix	walk6-people-list-correctness-guard.yml	deceased-excluded-from-proactive-surfaces
+py-matrix	whatsapp-lid-not-phone.yml	whatsapp-lid-not-phone
+py-matrix	writer-reader-vocabulary.yml	writer-reader-vocabulary
