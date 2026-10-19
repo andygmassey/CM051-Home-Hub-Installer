@@ -34,4 +34,6 @@ jobs:
         run: bash tests/test_the_shipped_compose_mounts_the_editor_feed.sh
 
       - name: the shipped compose mounts the contact photo directory into the wiki-compiler
+        # Runs even when the editor-feed step fails, so one red cannot mask this one (ci-maskless).
+        if: success() || failure()
         run: bash tests/test_the_shipped_compose_mounts_the_people_photos.sh
