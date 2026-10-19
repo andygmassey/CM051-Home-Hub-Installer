@@ -125,6 +125,26 @@ if grep -qF "$CNC_TEXT" "$WORK/imp_6.log" && ! grep -qiE 'fail|error|could not f
     ok "ARM G: says try again, and is neither a failure nor a refusal"
 else bad "ARM G: wrong words on could-not-check" "$(cat "$WORK/imp_6.log")"; fi
 
+# ARM I: a could-not-check after a real failure must not hide the failure
+# either (rc 1). Without the dedicated 6 branch, the later 6 overwrites rc.
+hi="$WORK/imp_home_mixed6"
+rm -rf "$hi"; mkdir -p "$hi/.ostler/services/email-ingest/.venv/bin" "$WORK/mixed6/a_fail/x" "$WORK/mixed6/c_cnc/x"
+: > "$WORK/mixed6/a_fail/x/p.json"; : > "$WORK/mixed6/c_cnc/x/p.json"
+{
+    echo '#!/usr/bin/env bash'
+    echo 'for a in "$@"; do last="$a"; done'
+    echo 'case "$last" in'
+    echo '  *a_fail*) exit 1 ;;'
+    printf '  *c_cnc*) printf "%%s\n" "%s"; exit 6 ;;\n' "$CNC_TEXT"
+    echo 'esac'
+    echo 'exit 0'
+} > "$hi/.ostler/services/email-ingest/.venv/bin/python"
+chmod +x "$hi/.ostler/services/email-ingest/.venv/bin/python"
+HOME="$hi" /bin/bash "$IMP" "$WORK/mixed6/a_fail" "$WORK/mixed6/c_cnc" >"$WORK/imp_mixed6.log" 2>&1
+rc_i=$?
+if [ "$rc_i" -eq 1 ]; then ok "ARM I: a could-not-check after a real failure does not hide it (rc 1)"
+else bad "ARM I: a real failure followed by could-not-check exited ${rc_i} (want 1)"; fi
+
 # ── the real Downloads scanner ────────────────────────────────────────────
 SCAN="$WORK/ostler-scan-exports"
 awk "/^cat > \"\\\${OSTLER_DIR}\/bin\/ostler-scan-exports\" <<'SCANEOF'\$/{f=1;next} f&&/^SCANEOF\$/{exit} f{print}" \
@@ -193,6 +213,6 @@ if printf '%s' "$act_c" | grep -q '^failed=0$' && printf '%s' "$act_c" | grep -q
     ok "ARM H: the Doctor record says cannot_run and counts no failure"
 else bad "ARM H: the Doctor record is wrong for could-not-check" "$act_c"; fi
 
-printf '\ndenominator: 5 runs of the real ostler-import, 3 runs of the real scanner\n'
+printf '\ndenominator: 6 runs of the real ostler-import, 3 runs of the real scanner\n'
 printf '== %d pass / %d fail ==\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
