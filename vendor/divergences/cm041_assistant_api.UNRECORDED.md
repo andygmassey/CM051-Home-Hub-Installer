@@ -1383,3 +1383,13 @@ path-drift it was written for stays held by `test_reader_path_equals_writer_path
 - Proof: `tests/test_install_creates_the_coach_db_keyed.py` drives the real
   ical-server; 3 of its reader cases fail on the pre-graft file with 500.
 - Owed upstream to CM041 so the two converge. Retire on a re-pin that carries it.
+
+## 2026-10-19 v1.0.111: conversation/process takes CM052's shape; privacy_level proven intact (CM041 #221, 2615d915)
+
+Tree: `cm041/assistant_api`. Pin HELD; 2615d915 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: both hunks of upstream 2615d915 for this file. `_participant_slug_label` (CM052 sends participants as dicts; `str.replace` on a dict was a 500, so no CM052 conversation with participants reached CM048), and `api_conversation_process` keeping a producer's stable `conversation_id` (a changed re-post updates the bundle instead of writing a second one beside it).
+- Method: patch(1) at fuzz 0 failed the second hunk on line offset only, so both were applied by exact string replacement. Measured: the sorted multiset of changed lines equals upstream #221's (31 lines).
+- Recorded HERE, not in the patch: `regenerate_divergence_patch.sh --write` refuses this tree because upstream still carries a phone-shaped value the vendored copy has scrubbed (minus side). Recording the patch would publish it.
+- Proof: `tests/test_cm041_conversation_process_privacy_passthrough_vendored.py` (6), ported from #221's own test with three named vendored differences (the subscription gate, the `pwg-convo --help` probe, the `PWG_CONVO_BIN` argv) and the CM051 synthetic cast. 6 pass on the graft; 5 of 6 fail on the pre-graft vendor.
+- Retire: re-pin `cm041/assistant_api` past 2615d915.

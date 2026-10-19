@@ -2961,6 +2961,24 @@ def api_conversation_retry_failed(payload=None):
     return {"queued": queued, "status": "accepted"}, 202
 
 
+def _participant_slug_label(participant):
+    """Slug part for one participant, whatever shape the producer sent.
+
+    iPhone / Watch send strings (sorted speaker labels). CM052's wire sends
+    dicts (``{"id", "display", "role", "handle"}``). This used to call
+    ``str.replace`` on every entry, so a dict was a 500
+    "'dict' object has no attribute 'replace'" and no CM052 conversation that
+    carried participants ever reached CM048 (measured 2026-10-19 with
+    tests/test_conversation_process_privacy_passthrough.py on b9e38dd).
+    Anything else yields "" and is skipped.
+    """
+    if isinstance(participant, dict):
+        participant = participant.get("display") or participant.get("id") or ""
+    if not isinstance(participant, str):
+        return ""
+    return participant.strip().replace(" ", "_").lower()
+
+
 def api_conversation_process(payload):
     """Handle POST /api/v1/conversation/process.
 
@@ -3013,10 +3031,21 @@ def api_conversation_process(payload):
     date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
     participants = metadata.get("participants", [])
     conv_type = metadata.get("type", "conversation")
+    producer_id = metadata.get("conversation_id")
     if meeting_id and _is_safe_meeting_id(meeting_id):
         conversation_id = meeting_id
+    elif producer_id and _is_safe_meeting_id(producer_id):
+        # A producer with its own STABLE id (CM052's wire sends one on every
+        # POST: ``sk-``/``cc-``/``og-``/``ch-`` + hash). It used to be thrown
+        # away for the date+participant scheme below, whose collision guard
+        # gives a CHANGED re-post (a Slack day that grew, an edited thread)
+        # a fresh random suffix, so CM048 wrote a second bundle beside the
+        # stale one instead of updating it. Same id rules as meeting_id.
+        conversation_id = producer_id
     elif participants:
-        slug = "_".join(p.replace(" ", "_").lower() for p in participants[:2])
+        labels = [_participant_slug_label(p) for p in participants]
+        labels = [label for label in labels if label]
+        slug = "_".join(labels[:2]) or uuid.uuid4().hex[:8]
         conversation_id = _resolve_fallback_conversation_id(
             f"{date}_{slug}_{conv_type}", transcript
         )
