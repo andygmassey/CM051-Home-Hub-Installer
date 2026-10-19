@@ -2838,6 +2838,83 @@
    "auth": [
     "device_bearer"
    ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/safari/ingest",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/safari/ingest",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/safari/ingest",
+   "query_params": [],
+   "request_optional": [
+    "device",
+    "dwell_ms",
+    "html",
+    "text",
+    "timestamp",
+    "title"
+   ],
+   "request_required": [
+    "url"
+   ],
+   "response_fields": [
+    "error",
+    "id",
+    "ok",
+    "reason",
+    "skipped_sensitive",
+    "stored",
+    "summary_status"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/safari/save",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/safari/save",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/safari/save",
+   "query_params": [],
+   "request_optional": [
+    "device",
+    "note",
+    "tags",
+    "text",
+    "timestamp",
+    "title"
+   ],
+   "request_required": [
+    "url"
+   ],
+   "response_fields": [
+    "error",
+    "id",
+    "ok",
+    "reason",
+    "skipped_sensitive",
+    "status",
+    "stored",
+    "visit_id"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
    "body_limit_bytes": null,
    "id": "gateway GET /api/sessions",
    "listener": "gateway",
@@ -3128,6 +3205,44 @@
    "request_required": [],
    "response_fields": [
     "error"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/conversation/upload-part",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/conversation/upload-part",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/conversation/upload-part",
+   "query_params": [],
+   "request_optional": [
+    "metadata"
+   ],
+   "request_required": [
+    "meeting_id",
+    "part_index",
+    "part_total",
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "job_id",
+    "meeting_id",
+    "missing",
+    "part_total",
+    "parts",
+    "received",
+    "state_url",
+    "status"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3556,6 +3671,86 @@
    "auth": [
     "device_bearer"
    ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/v1/people/{slug}/forget",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/forget",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/forget",
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "already_forgotten",
+    "audit_readable",
+    "degraded",
+    "error",
+    "forgotten",
+    "nodes_erased",
+    "not_found",
+    "reason",
+    "retry",
+    "stores_purged",
+    "stores_remaining",
+    "tombstone_written",
+    "wiki_recompile_queued"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/people/{slug}/suppress-suggestions",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/suppress-suggestions",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/suppress-suggestions",
+   "query_params": [],
+   "request_optional": [
+    "contact_uid",
+    "person_uri",
+    "reason",
+    "suppressed"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "ambiguous",
+    "candidates",
+    "contact_uid",
+    "degraded",
+    "error",
+    "found",
+    "identifiers_recorded",
+    "keyed_on",
+    "nodes_matched",
+    "person_uri",
+    "person_uris",
+    "reason",
+    "record_cleared",
+    "record_uri",
+    "record_written",
+    "slug",
+    "suppressed"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
    "body_limit_bytes": null,
    "id": "gateway GET /api/v1/preferences",
    "listener": "gateway",
@@ -3682,6 +3877,37 @@
    "response_fields": [
     "count",
     "sources"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/speakers/identify",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/speakers/identify",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/speakers/identify",
+   "query_params": [],
+   "request_optional": [
+    "attendees",
+    "duration",
+    "source",
+    "timestamp"
+   ],
+   "request_required": [
+    "transcript"
+   ],
+   "response_fields": [
+    "error",
+    "speakers"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
