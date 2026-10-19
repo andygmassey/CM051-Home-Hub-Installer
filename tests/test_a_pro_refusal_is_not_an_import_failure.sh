@@ -40,6 +40,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 REFUSAL_1="You've already imported your Instagram history once, free. Bringing in newer exports, and keeping Instagram up to date automatically, is part of Ostler Pro."
 REFUSAL_2="Everything you've already imported stays here, and you can still search it."
+CNC_TEXT="Couldn't check your Pro status. Try again."
 
 printf '\n=== A PRO REFUSAL IS NOT AN IMPORT FAILURE ===\n\n'
 
@@ -61,6 +62,9 @@ imp_arm() {
         echo '  *" -m ostler_fda.universal_import "*)'
         if [ "$rc" -eq 5 ]; then
             printf '    printf "%%s\\n" "%s" "%s"\n' "$REFUSAL_1" "$REFUSAL_2"
+        fi
+        if [ "$rc" -eq 6 ]; then
+            printf '    printf "%%s\\n" "%s"\n' "$CNC_TEXT"
         fi
         echo "    exit $rc ;;"
         echo 'esac'
@@ -112,6 +116,15 @@ rc_f=$?
 if [ "$rc_f" -eq 1 ]; then ok "ARM F: a refusal after a real failure does not hide it (rc 1)"
 else bad "ARM F: a real failure followed by a refusal exited ${rc_f} (want 1); the refusal hid the failure"; fi
 
+# ARM G: exit 6 (could_not_check, Archie ruling) is CANNOT-RUN: rc 6, the
+# "Try again" words pass through, no failure line.
+rc_g="$(imp_arm 6)"
+if [ "$rc_g" -eq 6 ]; then ok "ARM G: universal_import exit 6 makes ostler-import exit 6 (could not check)"
+else bad "ARM G: ostler-import exited ${rc_g} on could-not-check (want 6)" "$(tail -n 5 "$WORK/imp_6.log")"; fi
+if grep -qF "$CNC_TEXT" "$WORK/imp_6.log" && ! grep -qiE 'fail|error|could not finish|already imported' "$WORK/imp_6.log"; then
+    ok "ARM G: says try again, and is neither a failure nor a refusal"
+else bad "ARM G: wrong words on could-not-check" "$(cat "$WORK/imp_6.log")"; fi
+
 # ── the real Downloads scanner ────────────────────────────────────────────
 SCAN="$WORK/ostler-scan-exports"
 awk "/^cat > \"\\\${OSTLER_DIR}\/bin\/ostler-scan-exports\" <<'SCANEOF'\$/{f=1;next} f&&/^SCANEOF\$/{exit} f{print}" \
@@ -126,6 +139,7 @@ setup_box() {
     {
         echo '#!/usr/bin/env bash'
         if [ "$rc" -eq 5 ]; then printf 'printf "%%s\\n" "%s" "%s"\n' "$REFUSAL_1" "$REFUSAL_2"; fi
+        if [ "$rc" -eq 6 ]; then printf 'printf "%%s\\n" "%s"\n' "$CNC_TEXT"; fi
         echo "exit ${rc}"
     } > "$box/.ostler/bin/ostler-import"
     chmod +x "$box/.ostler/bin/ostler-import"
@@ -167,6 +181,18 @@ else bad "ARM E (control): a real failure is no longer reported" "$notif_f"; fi
 if [ ! -s "$box_f/.ostler/state/scan_state.json" ]; then ok "ARM E (control): a real failure records no hash, so it is retried"
 else bad "ARM E (control): a real failure recorded the hash"; fi
 
-printf '\ndenominator: 4 runs of the real ostler-import, 2 runs of the real scanner\n'
+box_c="$(setup_box 6)"; run_box "$box_c" >/dev/null
+notif_c="$(cat "$box_c/notifications.txt" 2>/dev/null || true)"
+act_c="$(cat "$box_c/.ostler/state/source_activity/downloads_exports.tsv" 2>/dev/null || true)"
+if printf '%s' "$notif_c" | grep -qF "$CNC_TEXT" && ! printf '%s' "$notif_c" | grep -qiE "could not finish|already imported|now part of your world"; then
+    ok "ARM H: scanner on exit 6 says try again, never a failure, refusal or done"
+else bad "ARM H: wrong notification on could-not-check" "$notif_c"; fi
+if [ ! -s "$box_c/.ostler/state/scan_state.json" ]; then ok "ARM H: could-not-check records no hash, so the next tick tries again"
+else bad "ARM H: could-not-check recorded the hash; it would never be retried"; fi
+if printf '%s' "$act_c" | grep -q '^failed=0$' && printf '%s' "$act_c" | grep -q '^last_status=cannot_run$'; then
+    ok "ARM H: the Doctor record says cannot_run and counts no failure"
+else bad "ARM H: the Doctor record is wrong for could-not-check" "$act_c"; fi
+
+printf '\ndenominator: 5 runs of the real ostler-import, 3 runs of the real scanner\n'
 printf '== %d pass / %d fail ==\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

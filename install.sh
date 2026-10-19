@@ -24322,11 +24322,22 @@ for d in "${DIRS[@]}"; do
             echo "Universal importer: no recognised format in $d (not an error)."
         elif [[ "$urc" -eq 5 ]]; then
             paused_not_pro=1
+        elif [[ "$urc" -eq 6 ]]; then
+            # Exit 6 is could_not_check (EXIT_COULD_NOT_CHECK, CM052
+            # first_import.py, Archie ruling 19 Oct): the Pro status could not
+            # be checked. CANNOT-RUN, never a refusal and never a failure; the
+            # importer printed "Try again" already. Nothing was imported.
+            could_not_check=1
         elif [[ "$urc" -ne 0 ]]; then
             rc=$urc
         fi
     fi
 done
+# A real failure wins (it needs fixing); then could-not-check (6: retry); then
+# paused (5: wait for Pro or a new export).
+if [[ "$rc" -eq 0 && "${could_not_check:-0}" -eq 1 ]]; then
+    exit 6
+fi
 if [[ "$rc" -eq 0 && "${paused_not_pro:-0}" -eq 1 ]]; then
     exit 5
 fi
@@ -24543,6 +24554,8 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
         _gdpr_import_rc="${PIPESTATUS[0]}"
         if [[ "$_gdpr_import_rc" -eq 5 ]]; then
             info "$MSG_INFO_GDPR_IMPORT_PAUSED_NOT_PRO"
+        elif [[ "$_gdpr_import_rc" -eq 6 ]]; then
+            info "$MSG_INFO_GDPR_IMPORT_COULD_NOT_CHECK"
         else
             warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
             warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
@@ -25889,6 +25902,16 @@ _es_refusal_text() {
     printf '%s' "$t"
 }
 
+# The words for exit 6 (could_not_check), from the importer's own output: the
+# line beginning "Couldn't check" (CM052 first_import.COULD_NOT_CHECK_TEXT).
+# Never a refusal, never "could not finish": it says try again.
+_es_could_not_check_text() {
+    local f="$1" t=""
+    [[ -n "$f" && -r "$f" ]] && t="$(grep -m1 "^Couldn't check" "$f")"
+    [[ -n "$t" ]] || t="Couldn't check your Pro status. Try again."
+    printf '%s' "$t"
+}
+
 # Could we LOOK at all? An unreadable Downloads globs to nothing and finds to
 # nothing, which is the same zero as an empty one. Ask once, and say which.
 if [[ ! -d "$DOWNLOADS" ]]; then
@@ -26051,6 +26074,14 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
             echo "$FOUND_HASH" >> "$SCAN_STATE"
             _es_why="$(printf '%s' "$_refusal" | tr '\n' ' ')"
             for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "paused, not Pro" "$_es_why" "${FOUND[$_i]}"; done
+        elif [[ "$_imp_rc" -eq 6 ]]; then
+            # COULD NOT CHECK (exit 6). CANNOT-RUN: nothing was imported, and
+            # it is neither a refusal nor a failure. Say "Try again" and do NOT
+            # record the hash, so the next tick tries again.
+            _cnc="$(_es_could_not_check_text "$_imp_out")"
+            _notify "$_cnc" "Ostler"
+            _es_status="cannot_run"; _es_why="$_cnc"
+            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "couldn't check" "$_cnc" "${FOUND[$_i]}"; done
         elif [[ "$_imp_rc" -eq 0 ]]; then
             _notify "Your latest export is now part of your world." "Done"
             # Record ONLY on success. The comment here used to say exactly that
@@ -26089,7 +26120,7 @@ fi
 # not imported again on every 4-hourly tick, and a file that CHANGED (a new
 # calendar export saved over the old name) is. A failed import writes no key,
 # so it is retried next tick, the same rule #1571 set for the platform path.
-_loose_new=0; _loose_fail=0; _loose_paused=0
+_loose_new=0; _loose_fail=0; _loose_paused=0; _loose_cnc=0
 _i=0
 while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
     _p="${LOOSE_PATHS[$_i]}"; _l="${LOOSE_LABELS[$_i]}"
@@ -26131,6 +26162,13 @@ while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
         printf '%s\n' "$_key" >> "$_ES_LEDGER"
         _es_why="$(printf '%s' "$_refusal" | tr '\n' ' ')"
         _es_row "$_l" "paused, not Pro" "$_es_why" "$_p"
+    elif [[ "$_imp_rc" -eq 6 ]]; then
+        # COULD NOT CHECK: no ledger key, so the next tick retries this file.
+        _cnc="$(_es_could_not_check_text "$_imp_out")"
+        [[ "$_loose_cnc" -eq 0 ]] && _notify "$_cnc" "Ostler"
+        _loose_cnc=$((_loose_cnc + 1))
+        [[ -z "$_es_status" ]] && { _es_status="cannot_run"; _es_why="$_cnc"; }
+        _es_row "$_l" "couldn't check" "$_cnc" "$_p"
     elif [[ "$_imp_rc" -eq 0 ]]; then
         printf '%s\n' "$_key" >> "$_ES_LEDGER"
         _es_imp=$((_es_imp + 1)); _loose_new=$((_loose_new + 1))
