@@ -357,58 +357,59 @@ cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	
 cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	8 paths	release-walk	1	run	tests/test_cut_freshness_gate.sh
 cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	8 paths	release-walk	2	run	tests/test_repin_wiki_images_refuses_a_typed_sha.sh
 cut-freshness.yml	cut-freshness	cut-freshness	ubuntu-latest	1	pull_request,push	8 paths	release-walk	3	run	release.sh tests/test_cut_gate_wrappers.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	0	uses:actions/checkout@v4	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	1	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	2	run	tests/test_cut_gate_wrappers.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	3	run	tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	4	run	tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	5	run	tests/test_cut_dispatch_is_dry.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	6	run	tests/test_push_cut_tag_refuses_a_red_checklist.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	7	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	8	run	tests/test_rehearse_tag_is_the_tag_preflight.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	9	run	tests/test_the_dry_run_is_reachable_on_a_dispatch.py
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	10	run	scripts/tests/test_verify_commit_parity_gate.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	11	run	scripts/tests/test_verify_stapling_gate.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	12	run	tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	13	run	scripts/tests/test_no_env_trust_anchors.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	14	run	tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	15	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	16	run	tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	17	run	tests/test_cut_gate_wrappers.sh tests/test_pr_age_gate_declares_partial_runs.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	18	run	tests/test_pr_age_gate_declares_partial_runs.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	19	run	tests/test_pr_age_review_by_ignores_an_inline_comment.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	20	run	-
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	21	run	tests/test_sign_python_bundle_reports_why.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	22	run	tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	23	run	tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	24	run	tests/test_pyc_seed_excludes_nested_ostler_app.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	25	run	tests/test_pyc_bytes_depend_on_compile_path.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	26	run	tests/test_stage_payload_strips_ambient_pyc.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	27	run	tests/test_provenance_gate_cannot_run_is_not_stale.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	28	run	tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	29	run	tests/test_provenance_gate_marker_read_is_not_piped.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	30	run	tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	31	run	tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	32	run	tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	33	run	tests/test_marker_grep_is_three_state.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	34	run	tests/test_every_marker_pattern_compiles.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	35	run	tests/test_no_gate_execs_a_pinned_image.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	36	run	tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	37	run	tests/test_mergeable_unknown_is_not_clean.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	38	run	tests/test_pinned_wiki_images_are_arm64_only.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	39	run	tests/test_new_cut_guard_scoped_is_not_started.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	40	run	tests/test_new_cut_checks_what_preflight_checks.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	41	run	tests/test_new_cut_covers_every_pretag_gate.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	42	run	tests/test_store_port_first_install_stale_store.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	43	run	tests/test_rollforward_registry_pin.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	44	run	tests/test_os003_sync_defaults_agree.sh
-cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	86 paths	macos-latest	45	run	tests/test_rollforward_pin_is_watched_on_prs.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	0	uses:actions/checkout@v4	-
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	1	run	-
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	2	run	tests/test_wiki_provenance_extracts_without_exec.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	3	run	tests/test_exemption_ref_form.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	4	run	tests/test_pinned_wiki_image_has_design_system.sh
-cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	86 paths	installer	5	run	tests/test_a_staging_copy_is_guarded_on_its_source.py
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	0	uses:actions/checkout@v4	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	1	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	2	run	tests/test_cut_gate_wrappers.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	3	run	tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	4	run	tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	5	run	tests/test_cut_dispatch_is_dry.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	6	run	tests/test_push_cut_tag_refuses_a_red_checklist.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	7	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	8	run	tests/test_rehearse_tag_is_the_tag_preflight.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	9	run	tests/test_daemon_hold_registers_agree.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	10	run	tests/test_the_dry_run_is_reachable_on_a_dispatch.py
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	11	run	scripts/tests/test_verify_commit_parity_gate.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	12	run	scripts/tests/test_verify_stapling_gate.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	13	run	tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	14	run	scripts/tests/test_no_env_trust_anchors.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	15	run	tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	16	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	17	run	tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	18	run	tests/test_cut_gate_wrappers.sh tests/test_pr_age_gate_declares_partial_runs.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	19	run	tests/test_pr_age_gate_declares_partial_runs.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	20	run	tests/test_pr_age_review_by_ignores_an_inline_comment.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	21	run	-
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	22	run	tests/test_sign_python_bundle_reports_why.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	23	run	tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	24	run	tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	25	run	tests/test_pyc_seed_excludes_nested_ostler_app.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	26	run	tests/test_pyc_bytes_depend_on_compile_path.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	27	run	tests/test_stage_payload_strips_ambient_pyc.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	28	run	tests/test_provenance_gate_cannot_run_is_not_stale.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	29	run	tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	30	run	tests/test_provenance_gate_marker_read_is_not_piped.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	31	run	tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	32	run	tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	33	run	tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	34	run	tests/test_marker_grep_is_three_state.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	35	run	tests/test_every_marker_pattern_compiles.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	36	run	tests/test_no_gate_execs_a_pinned_image.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	37	run	tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	38	run	tests/test_mergeable_unknown_is_not_clean.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	39	run	tests/test_pinned_wiki_images_are_arm64_only.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	40	run	tests/test_new_cut_guard_scoped_is_not_started.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	41	run	tests/test_new_cut_checks_what_preflight_checks.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	42	run	tests/test_new_cut_covers_every_pretag_gate.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	43	run	tests/test_store_port_first_install_stale_store.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	44	run	tests/test_rollforward_registry_pin.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	45	run	tests/test_os003_sync_defaults_agree.sh
+cut-gate-wrappers.yml	cut-gate-wrappers	cut-gate-wrappers	macos-latest	1	pull_request,push	88 paths	macos-latest	46	run	tests/test_rollforward_pin_is_watched_on_prs.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	88 paths	installer	0	uses:actions/checkout@v4	-
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	88 paths	installer	1	run	-
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	88 paths	installer	2	run	tests/test_wiki_provenance_extracts_without_exec.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	88 paths	installer	3	run	tests/test_exemption_ref_form.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	88 paths	installer	4	run	tests/test_pinned_wiki_image_has_design_system.sh
+cut-gate-wrappers.yml	wiki-provenance-extract	wiki-provenance-extract	ubuntu-latest	1	pull_request,push	88 paths	installer	5	run	tests/test_a_staging_copy_is_guarded_on_its_source.py
 cut-manifest.yml	manifest-tests	manifest-tests	ubuntu-latest	1	pull_request,push	46 paths	release-walk	0	uses:actions/checkout@v4	-
 cut-manifest.yml	manifest-tests	manifest-tests	ubuntu-latest	1	pull_request,push	46 paths	release-walk	1	run	tests/test_a_gate_that_cannot_look_says_97.sh
 cut-manifest.yml	manifest-tests	manifest-tests	ubuntu-latest	1	pull_request,push	46 paths	release-walk	2	run	tests/test_the_emergency_cut_row_tells_the_truth.sh
@@ -468,19 +469,20 @@ cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	7	run	tests/test_the_doctor_page_is_on_brand.py
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	8	run	tests/test_a_forget_erases_the_fact_not_just_the_link.py
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	9	run	-
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	10	run	scripts/verify_bom_rows_are_in_the_pin.sh
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	11	run	-
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	10	run	scripts/verify_daemon_hold_registers_agree.py
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	11	run	scripts/verify_bom_rows_are_in_the_pin.sh
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	12	run	-
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	13	run	-
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	14	run	-
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	15	run	-
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	16	run	bin/rollforward_gate.sh
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	16	run	-
 cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	17	run	bin/rollforward_gate.sh
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	18	run	scripts/verify_launchagent_pycache_guard.py
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	19	run	scripts/verify_cut_provenance.sh
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	20	run	scripts/provenance_gate.sh
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	21	run	-
-cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	22	run	tests/test_installer_version_matches_the_cut.sh
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	18	run	bin/rollforward_gate.sh
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	19	run	scripts/verify_launchagent_pycache_guard.py
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	20	run	scripts/verify_cut_provenance.sh
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	21	run	scripts/provenance_gate.sh
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	22	run	-
+cut.yml	preflight	preflight	ubuntu-latest	1	push,workflow_dispatch	-	standalone	23	run	tests/test_installer_version_matches_the_cut.sh
 cut.yml	cut	cut	macos-26	1	push,workflow_dispatch	-	standalone	0	uses:actions/checkout@v4	-
 cut.yml	cut	cut	macos-26	1	push,workflow_dispatch	-	standalone	1	uses:./.github/actions/cut-prepare	-
 cut.yml	cut	cut	macos-26	1	push,workflow_dispatch	-	standalone	2	run	-
@@ -1375,15 +1377,16 @@ tests-unwired-sweep-al.yml	sweep-macos	sweep-macos	macos-latest	1	pull_request,p
 tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	0	uses:actions/checkout@v4	-
 tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	1	run	tests/test_wiki_compile_gets_owner_tz.sh
 tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	2	run	tests/test_ostler_import_owner_name_and_exit_code.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	3	run	tests/test_mail_content_probe.sh tests/test_mail_onboarding_259_260.sh tests/test_mailbox_ingest_leg_wired.sh tests/test_meeting_brief_sender.sh tests/test_model_fit.sh tests/test_ostler_gui_sudo_gates.sh tests/test_placeholder_strip.sh tests/test_preferences_vendor_wired.sh tests/test_resource_tier_governor.sh tests/test_settling_progress_writer.sh tests/test_subscription_activation_path.sh tests/test_sync_vendor_pin_untouched_on_abort.sh tests/test_tailscale_recovery_wrapper.sh tests/test_takeout_split_zip_no_abort.sh tests/test_uninstaller_keep_prompt.sh tests/test_universal_import_leg_wired.sh tests/test_user_facing_tree.sh tests/test_usr_local_bin_symlinks_gui_safe.sh tests/test_v1010_at_rest_exclusions.sh tests/test_v1010_ingest_reroute_plists.sh tests/test_v1010_store_front_proxy.sh tests/test_v1010_wiki_not_tailscale_served.sh tests/test_vane_bundle.sh tests/test_vendor_cm052_ai_conversations.sh tests/test_vendor_doctor_knowledge_embed_wiring.sh tests/test_vendor_exclude_glob_depth.sh tests/test_whatsapp_channel_block.sh tests/test_wiki_baseline_background.sh tests/test_wiki_compile_gets_owner_tz.sh tests/test_wiki_compose_paths.sh tests/test_wiki_recompile_after_late_hydration.sh tests/test_write_pipeline_signals.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	4	run	tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	5	run	tests/test_spoken_transcripts_absence_discriminated.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	6	run	tests/test_region_persist_does_not_leak_a_traceback.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	7	run	tests/test_the_installer_downloads_from_the_repo_we_publish_to.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	8	run	tests/test_the_success_screen_names_the_wiki_credential.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	9	run	tests/test_wiki_password_never_reaches_install_log.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	10	run	tests/test_photos_events_are_in_the_default_preset.sh
-tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	11	run	tests/test_the_forward_calendar_window_survives_the_rerun.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	3	run	tests/test_model_digest_pins.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	4	run	tests/test_mail_content_probe.sh tests/test_mail_onboarding_259_260.sh tests/test_mailbox_ingest_leg_wired.sh tests/test_meeting_brief_sender.sh tests/test_model_fit.sh tests/test_ostler_gui_sudo_gates.sh tests/test_placeholder_strip.sh tests/test_preferences_vendor_wired.sh tests/test_resource_tier_governor.sh tests/test_settling_progress_writer.sh tests/test_subscription_activation_path.sh tests/test_sync_vendor_pin_untouched_on_abort.sh tests/test_tailscale_recovery_wrapper.sh tests/test_takeout_split_zip_no_abort.sh tests/test_uninstaller_keep_prompt.sh tests/test_universal_import_leg_wired.sh tests/test_user_facing_tree.sh tests/test_usr_local_bin_symlinks_gui_safe.sh tests/test_v1010_at_rest_exclusions.sh tests/test_v1010_ingest_reroute_plists.sh tests/test_v1010_store_front_proxy.sh tests/test_v1010_wiki_not_tailscale_served.sh tests/test_vane_bundle.sh tests/test_vendor_cm052_ai_conversations.sh tests/test_vendor_doctor_knowledge_embed_wiring.sh tests/test_vendor_exclude_glob_depth.sh tests/test_whatsapp_channel_block.sh tests/test_wiki_baseline_background.sh tests/test_wiki_compile_gets_owner_tz.sh tests/test_wiki_compose_paths.sh tests/test_wiki_recompile_after_late_hydration.sh tests/test_write_pipeline_signals.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	5	run	tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	6	run	tests/test_spoken_transcripts_absence_discriminated.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	7	run	tests/test_region_persist_does_not_leak_a_traceback.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	8	run	tests/test_the_installer_downloads_from_the_repo_we_publish_to.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	9	run	tests/test_the_success_screen_names_the_wiki_credential.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	10	run	tests/test_wiki_password_never_reaches_install_log.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	11	run	tests/test_photos_events_are_in_the_default_preset.sh
+tests-unwired-sweep-mz.yml	shell-macos	shell-macos	macos-latest	1	pull_request,push	unfiltered	macos-latest	12	run	tests/test_the_forward_calendar_window_survives_the_rerun.sh
 tests-unwired-sweep-mz.yml	python-ubuntu	python-ubuntu	ubuntu-latest	1	pull_request,push	unfiltered	always	0	uses:actions/checkout@v4	-
 tests-unwired-sweep-mz.yml	python-ubuntu	python-ubuntu	ubuntu-latest	1	pull_request,push	unfiltered	always	1	uses:actions/setup-python@v5	-
 tests-unwired-sweep-mz.yml	python-ubuntu	python-ubuntu	ubuntu-latest	1	pull_request,push	unfiltered	always	2	run	-
