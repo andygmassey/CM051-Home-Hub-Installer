@@ -54,8 +54,10 @@ from .subscription_gate import is_active_or_grace
 # input in universal_import, and install.sh treats an unknown non-zero code
 # as a failed step, so a Pro refusal is its own code.
 EXIT_PAUSED_NOT_PRO = 5
-# "Could not check" is never a refusal: it is CANNOT-RUN, offer "Try again".
-EXIT_COULD_NOT_CHECK = 3
+# "Could not check" is never a refusal and never success: it is CANNOT-RUN,
+# offer "Try again". 6, not 3: 3 already means unknown format in
+# universal_import (Archie ruling, 19 Oct).
+EXIT_COULD_NOT_CHECK = 6
 
 
 PRE_IMPORT_TEMPLATE = (
@@ -69,10 +71,7 @@ REFUSAL_TEMPLATE = (
     "Everything you've already imported stays here, and you can still "
     "search it."
 )
-COULD_NOT_CHECK_TEXT = (
-    "Ostler couldn't check whether your free import has been used. "
-    "Nothing was imported. Try again."
-)
+COULD_NOT_CHECK_TEXT = "Couldn't check your Pro status. Try again."
 
 
 def pre_import_notice(source_label: str) -> str:
