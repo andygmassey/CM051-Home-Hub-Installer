@@ -1455,6 +1455,20 @@ def render_source_status() -> str:
             f'<td class="muted">{html.escape(str(r.get("kind", "")))}</td>'
             '</tr>'
         )
+    # Ostler Pro sources: listed, never hidden, with a Pro badge
+    # (pro_sources.py). Only connectors in SHIPPED_PRO_CONNECTORS get a row,
+    # and with that set empty this asks nothing and adds nothing. Best-effort:
+    # a broken Pro block must never take the ingest table down with it.
+    try:
+        import pro_sources
+        if pro_sources.SHIPPED_PRO_CONNECTORS:
+            body.append(pro_sources.render_pro_rows_html(pro_sources.pro_source_rows(
+                pro_sources.resolve_entitlement(),
+                connected=frozenset(str(r.get("source")) for r in rows))))
+    except Exception as exc:  # noqa: BLE001
+        # Say so, never a silent gap: a missing row would read as "no Pro sources".
+        body.append('<tr><td colspan="6" class="muted">Could not list the Ostler Pro '
+                    f'sources: {html.escape(type(exc).__name__)}.</td></tr>')
     return (
         '<div class="section"><h2>Where your data came from</h2>'
         '<p class="muted">Every source Ostler reads, whether it has run, how '
