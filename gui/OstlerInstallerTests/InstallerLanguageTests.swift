@@ -37,8 +37,13 @@ final class InstallerLanguageTests: XCTestCase {
     }
 
     func testPortugueseAndRegionStripping() {
-        XCTAssertEqual(InstallerLanguage.map("pt-PT"), "pt-BR")
+        XCTAssertEqual(InstallerLanguage.map("pt-PT"), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.map("pt_PT"), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.map("pt-AO"), "pt-PT")
         XCTAssertEqual(InstallerLanguage.map("pt-BR"), "pt-BR")
+        XCTAssertEqual(InstallerLanguage.map("pt"), "pt-BR")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["pt-PT"], override: nil), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-GB"], override: "pt-PT"), "pt-PT")
         XCTAssertEqual(InstallerLanguage.map("nl-BE"), "nl")
         XCTAssertEqual(InstallerLanguage.map("es-419"), "es")
         XCTAssertEqual(InstallerLanguage.map("ar-SA"), "ar")

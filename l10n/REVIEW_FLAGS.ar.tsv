@@ -1,3 +1,2 @@
 file	key	state	reason
 gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Consent wording; source refers to the user's own recordings (not Ostler recording). Restored 'recorded' dropped by translator and made consent impersonal; legal review advised.
-gui/OstlerInstaller/Resources/ViewCopy.json	onboarding_question/fda_preset_everything_subtitle	needs_review	Apple's Arabic name for the Health app is believed to be "صحتي". Please verify this and the other Apple terms (Screen Time, Voice Memos) against Apple's Arabic UI.

@@ -211,7 +211,7 @@ MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE="Qui serve il tuo aiuto per cir
 MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="\"%s\" è già presente in Accesso completo al disco, quindi ti basta attivarlo. Non serve trascinare nulla dal Finder."
 MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Controllo se l'assistente Ostler ha l'Accesso completo al disco..."
 MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="L'assistente può leggere la cronologia di Messaggi: il canale iMessage funzionerà."
-MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="L'assistente di Ostler non ha ancora l'Accesso completo al disco. Gli serve per mantenere aggiornate le app del tuo Mac, che si tratti di Messaggi o meno. Se lo salti ora, la dashboard Doctor ti guiderà in Impostazioni di Sistema."
+MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="L'assistente di Ostler non ha ancora l'Accesso completo al disco. Gli serve per mantenere aggiornate le app del tuo Mac, che tu usi Messaggi o no. Se lo salti ora, la dashboard Doctor ti guiderà in Impostazioni di Sistema."
 MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON="LaunchAgent dell'assistente non caricato; salto il controllo dell'Accesso completo al disco per iMessage."
 MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE="L'interfaccia di importazione da Evernote in Doctor mostrerà «servizio non disponibile»"
 MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="Pipeline di importazione non inclusa nell'installer."
@@ -256,7 +256,7 @@ MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC="I dati lato Mac (iMessage, Safari, e
 MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI="Riavvio manuale: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
 MSG_INFO_MANUAL_RUN_BASH_BIN_EMAIL_INGEST="Esecuzione manuale: bash %s/bin/email-ingest-tick.sh"
 MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED="Installazione di com.ostler.meeting-brief-sender saltata (funzione della v1.0.1; endpoint non ancora rilasciati)."
-MSG_INFO_MEMORY_HYGIENE_SKIPPED_NOT_STAGED="Passaggio di pulizia della memoria saltato (non incluso in questo installer); finché non sarà disponibile, nulla viene ridotto di peso automaticamente."
+MSG_INFO_MEMORY_HYGIENE_SKIPPED_NOT_STAGED="Passaggio di pulizia della memoria saltato (non incluso in questo installer); finché non sarà disponibile, a nulla viene ridotta automaticamente la priorità."
 MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED="messaggio quando il flag della funzione verrà attivato in seguito."
 MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI="Serve aiuto? Scrivi a support@ostler.ai. Cerchiamo di risponderti entro 2 giorni lavorativi."
 MSG_INFO_MKDIR_P_CP_R_TMP_HUB="  mkdir -p %s && cp -R /tmp/hub-power-src/hub-power/* %s/"
@@ -337,7 +337,7 @@ MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT="Ollama non si è avviato tramite il s
 # NEEDS REVIEW: Proposed text reversed the meaning: 'after first' became 'prima' (before/first). This is a fragment split across lines, so check it against the adjacent lines.
 MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER="  avvio; esegui \`ostler-assistant doctor\` dopo il primo"
 MSG_INFO_SYMLINKING="  Creo il collegamento simbolico %s -> %s"
-MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(Impostazioni di Sistema > Account Internet). Ostler legge da Mail"
+MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(Impostazioni di Sistema > Account Internet). Ostler legge dal database di Mail"
 MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C="  tar xzf /tmp/ostler.tgz -C %s/bin"
 MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR="(Il resto di Ostler funziona anche senza la dashboard Doctor.)"
 MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL="Per ora è normale. L'importazione GDPR sarà disponibile in un prossimo aggiornamento."
@@ -450,7 +450,7 @@ MSG_WARN_DB_PLAINTEXT_COUNT="%s database su questo Mac sono al momento leggibili
 MSG_INFO_DB_MIGRATE_HINT="Poi cifra quelli già presenti: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Nuovo tentativo differito di registrazione del dispositivo installato (viene eseguito ogni ora finché la coda non si svuota)"
 MSG_OK_DOCKER_RUNNING="Docker in esecuzione"
-MSG_OK_DOCKER_RUNNING_TOOK_S="Docker in esecuzione (%ss)"
+MSG_OK_DOCKER_RUNNING_TOOK_S="Docker in esecuzione (in %ss)"
 MSG_OK_DOCTOR_AGENT_CLONED_FROM="Agente Doctor clonato da %s"
 MSG_OK_DOCTOR_AGENT_FILES_BUNDLED_WITH_INSTALLER="File dell'agente Doctor inclusi nell'installer"
 MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED="Dipendenze di Doctor installate"
@@ -468,7 +468,7 @@ MSG_WARN_WHATSAPP_SOURCE_FAILED="Installazione del lettore delle conversazioni d
 MSG_WARN_WHATSAPP_SOURCE_SRC_NOT_FOUND="Sorgente del lettore delle conversazioni di WhatsApp non trovata; il flusso delle conversazioni di WhatsApp viene saltato."
 MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING="Pacchetto del flusso delle conversazioni di WhatsApp non trovato in questo installer; viene saltato. La cronologia dei messaggi di WhatsApp (con chi hai scritto e quando) non è interessata."
 MSG_OK_WHATSAPP_BUNDLE_LOADED="LaunchAgent del flusso delle conversazioni di WhatsApp caricato (label com.creativemachines.ostler.whatsapp-bundle)"
-MSG_INFO_WHATSAPP_BUNDLE_TICK="  Il primo ciclo legge le conversazioni WhatsApp recenti sincronizzate dal tuo Mac (circa l'ultimo anno); restano sul tuo Mac."
+MSG_INFO_WHATSAPP_BUNDLE_TICK="  Il primo ciclo legge le conversazioni WhatsApp recenti sincronizzate sul tuo Mac (circa l'ultimo anno); restano sul tuo Mac."
 MSG_INFO_WHATSAPP_BUNDLE_LOGS="  Log: %s/whatsapp-bundle.log e whatsapp-bundle.err"
 MSG_WARN_WHATSAPP_BUNDLE_FAILED="Installazione del LaunchAgent del flusso delle conversazioni di WhatsApp non riuscita. Vedi l'output sopra; il resto dell'installazione non è interessato."
 # Shared by all four conversation feeds: the refusal that keeps a LaunchAgent
@@ -707,7 +707,7 @@ MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  L'arricchimento d
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Installazione del motore di memoria delle conversazioni non riuscita (clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Cercato in: %s/cm048_pipeline/pyproject.toml"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE="  Di solito significa che l'.app dell'installer è stata creata senza"
-MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2="  il pacchetto cm048_pipeline incluso in"
+MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2="  il pacchetto cm048_pipeline integrato in"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/. Scarica di nuovo l'installer oppure"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_4="  riesegui con --allow-plaintext per un'installazione dev/CI."
 MSG_WARN_CM048_PIPELINE_NOT_FOUND="Motore di memoria delle conversazioni non trovato. L'arricchimento delle conversazioni non può funzionare senza di esso."
@@ -779,7 +779,7 @@ MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Gli script del bridge iM
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="La crittografia non funzionerà."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="La crittografia non funzionerà e"
 MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="assicurati che il tag PWG_KNOWLEDGE_REPO fissato lo includa."
-MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Events, permesso per Messages.app)."
+MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Events per Messages.app)."
 MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="L'estrattore FDA è terminato con codice diverso da zero (%s). Ultime 20 righe dell'output:"
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="Il modulo di estrazione FDA non è incluso in questo installer."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="Percorso previsto: Contents/Resources/ostler_fda/ (all'interno del .app)."
@@ -867,7 +867,7 @@ MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor ha se
 # error-count line alone would print "no errors raised" over a failed step; its
 # second %s is the space-separated ids of the steps that did not complete.
 MSG_WARN_INSTALL_FINISHED_WITH_ERRORS="Ostler ha terminato, ma durante l'installazione sono stati generati %s errori."
-MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  Tutti i dettagli sono in ~/.ostler/logs/install.log. Ostler si avvierà comunque; apri Doctor per vedere cosa richiede attenzione."
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  Tutti i dettagli sono in ~/.ostler/logs/install.log. Ostler si avvierà comunque; apri il Doctor per vedere cosa richiede attenzione."
 MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS="Ostler ha terminato, ma %s passaggi dell'installazione non sono stati completati correttamente: %s"
 MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED="Ostler ha terminato senza errori durante l'installazione."
 
@@ -1103,7 +1103,7 @@ MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW="%s: %s (%s)"
 MSG_CONFIRM_CALENDAR_OWNER_YOU="tuo"
 MSG_CONFIRM_CALENDAR_EVENTS_ONE="%s evento"
 MSG_CONFIRM_CALENDAR_EVENTS_MANY="%s eventi"
-MSG_CONFIRM_CALENDAR_KIND_HOLIDAY="festività"
+MSG_CONFIRM_CALENDAR_KIND_HOLIDAY="festività pubbliche"
 MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="compleanni"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="suggerimenti di Siri"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="un calendario a cui sei iscritto"
@@ -1688,7 +1688,7 @@ MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED="Impossibile verificare se i tuoi 
 # converted to markdown + embedded locally; only note-count totals are
 # shown to the customer -- no note titles or bodies leave the process.
 # Copy is dash-clean (plain hyphens only) per the hydrate-phase convention.
-MSG_HYDRATE_APPLE_NOTES_STARTED="Lettura delle tue Note di Apple - restano su questo Mac"
+MSG_HYDRATE_APPLE_NOTES_STARTED="Lettura delle tue Note: restano su questo Mac"
 MSG_HYDRATE_APPLE_NOTES_DONE="Aggiunte %s note alla tua base di conoscenza"
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="Nessuna nota di Apple da leggere. Puoi riprovare più tardi da Impostazioni."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED="Le tue Note di Apple sono già nella tua base di conoscenza. Salto."
@@ -1705,7 +1705,7 @@ MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_UNVERIFIED="Impossibile verificare se le t
 # Apple Notes above). Reminders are converted to markdown + embedded
 # locally; only reminder-count totals are shown to the customer -- no
 # reminder titles or notes leave the process.
-MSG_HYDRATE_REMINDERS_STARTED="Lettura dei tuoi Promemoria - restano su questo Mac"
+MSG_HYDRATE_REMINDERS_STARTED="Lettura dei tuoi Promemoria: restano su questo Mac"
 MSG_HYDRATE_REMINDERS_DONE="Aggiunti %s promemoria alla tua base di conoscenza"
 MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA="Nessun promemoria da leggere. Puoi riprovare più tardi da Impostazioni."
 # THREE CAUSES NEEDED THREE STRINGS (#775). Until v1.0.101 the line above was
@@ -1849,7 +1849,7 @@ MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler scrive questa password in un file su qu
 
 FileVault lo impedirebbe, perché il disco non può essere letto affatto senza la password di avvio. Per lo stesso motivo FileVault impedisce anche l'accesso automatico, ed è per questo che Ostler lo propone solo quando FileVault è disattivato.
 
-Ciò che l'installer controlla: non mostra la password mentre la digiti e non la scrive nel log di installazione. Il file offuscato è l'unica copia creata dall'installer.
+Ciò che dipende dall'installer: non mostra la password mentre la digiti e non la scrive nel log di installazione. Il file offuscato è l'unica copia creata dall'installer.
 
 Lascia vuoto per saltare l'accesso automatico."
 MSG_PROMPT_AUTOLOGIN_PASSWORD="Password di login per %s"

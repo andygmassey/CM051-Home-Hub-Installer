@@ -104,7 +104,7 @@
     "id": "fda_extract",
     "title": "Lendo os bancos de dados do seu Mac",
     "subtitle": "A parte rápida da integração inicial",
-    "why": "O macOS não permite que nenhum app leia suas mensagens, e-mails, notas, calendários ou fotos sem a sua autorização explícita. Precisamos dessa permissão para que o Ostler reúna tudo isso no seu grafo de conhecimento. Tudo fica neste Mac, nada é enviado a lugar nenhum. Você a concede uma vez em Ajustes do Sistema e o macOS se lembra daí em diante.",
+    "why": "O macOS não permite que nenhum app leia suas mensagens, e-mails, notas, calendários ou fotos sem a sua autorização explícita. Precisamos dessa permissão para que o Ostler reúna tudo isso no seu grafo de conhecimento. Tudo fica neste Mac – nada é enviado a lugar nenhum. Você a concede uma vez em Configurações do Sistema e o macOS se lembra daí em diante.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
     "long_running_copy": "A primeira extração pode levar alguns minutos se sua biblioteca do Mail ou do Fotos for grande.",

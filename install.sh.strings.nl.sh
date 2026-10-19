@@ -118,7 +118,7 @@ MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL="Colima is geïnstalleerd maar dr
 MSG_INFO_COLIMA_START_ATTEMPT="Colima starten (poging %s van %s)..."
 MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN="Kan contacten niet exporteren. Je kunt ze later handmatig importeren."
 MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO="Kan contactkaart niet lezen. Geen probleem – we vragen het je gewoon."
-MSG_INFO_CONTACT_CARD_WILL_ASK="We vragen je zo meteen naar je naam en land. Je contacten worden later gelezen via de volledige schijftoegang die je verleent, en er verlaat niets deze Mac."
+MSG_INFO_CONTACT_CARD_WILL_ASK="We vragen je zo meteen naar je naam en land. Je contacten worden later gelezen via de Volledige schijftoegang die je verleent, en er verlaat niets deze Mac."
 MSG_INFO_CP_R_TMP_DOCTOR_SRC_DOCTOR="  cp -R /tmp/doctor-src/doctor/agent/* %s/"
 MSG_INFO_CREATING_PYTHON_VENV="  Python-venv maken in %s..."
 MSG_INFO_CREATING_USER_FACING_CONTENT_TREE="Inhoudsstructuur voor gebruikers maken in %s/"
@@ -159,7 +159,7 @@ MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="Xcode Command Line Tools zijn nodig. macOS vraagt om toestemming om ze te installeren – zoek naar een klein grijs venster (zie je het niet, druk dan op Cmd+Tab of kijk in je Dock). Klik op Installeer. De tools worden op de achtergrond gedownload terwijl je de vragen hieronder beantwoordt."
 MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  De Command Line Tools worden nog ingesteld (%ss). Als een klein grijs macOS-venster vraagt om ontwikkelaarstools te installeren, klik dan daarin op Installeer – deze stap wacht daarop. (Druk op Cmd+Tab of kijk in het Dock als je het niet ziet.)"
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Wachten tot de Command Line Tools zijn geïnstalleerd (bijna klaar)..."
-MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Elk uur een controle. De eerste keer worden de e-mails van de afgelopen 5 jaar opgehaald."
+MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Elk uur uitgevoerd. Bij de eerste keer worden de e-mails van de afgelopen 5 jaar opgehaald."
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Oude iMessage-bridge-LaunchAgent wordt uitgeschakeld (enkele machine, v1.0)"
 MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT="Hub op netstroom (geen accu gevonden), hub-power-LaunchAgent wordt overgeslagen."
 MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="Hub-powerscripts zijn niet meegeleverd met het installatieprogramma."
@@ -339,11 +339,11 @@ MSG_INFO_SYMLINKING="  Symlink maken voor %s -> %s"
 MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(Systeeminstellingen > Internetaccounts). Ostler leest uit de"
 MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C="  tar xzf /tmp/ostler.tgz -C %s/bin"
 MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR="(De rest van Ostler werkt ook zonder het Doctor-dashboard.)"
-MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL="Dit is voorlopig normaal. GDPR-import komt beschikbaar in een toekomstige update."
+MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL="Dit is voorlopig normaal. AVG-import komt beschikbaar in een toekomstige update."
 # NEEDS REVIEW: en-GB header asks for human translation of this key
 MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES="Dit duurt meestal 15 tot 45 minuten en kan langer duren als je veel geschiedenis hebt of een tragere Mac. Dat is normaal – het werkt gewoon en zit niet vast, dus je kunt het gerust laten draaien..."
 MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO="Dit leest macOS-databases rechtstreeks uit – geen export nodig."
-MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT="Tip: voeg je Gmail eerst toe aan Mail op je Mac als je die wilt gebruiken"
+MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT="Tip: voeg je Gmail eerst toe aan Mail op je Mac om die mee te nemen"
 MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE="Om later te installeren zodra je toegang hebt:"
 MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN="iCloud-synchronisatie starten voor %s (op de achtergrond, alleen bij de eerste keer)..."
 MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      (UK GDPR artikel 9 - vereist voor gegevens in bijzondere categorieën)."
@@ -589,7 +589,7 @@ MSG_OK_ICAL_SERVER_HEALTHY="Assistent-API werkt goed"
 MSG_WARN_ICAL_SERVER_NOT_RESPONDING="Assistent-API reageert niet (127.0.0.1:8090) - Mensen, Vergaderingen en Tijdlijn kunnen leeg blijven totdat de API start"
 MSG_OK_READY="%s gereed"
 MSG_OK_RECOMMENDED_SOURCES_SELECTED="Aanbevolen bronnen geselecteerd"
-MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="Herstelsleutel bewaard in Sleutelhanger (zoek 'Ostler' in de app Wachtwoorden)"
+MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="Herstelsleutel bewaard in de sleutelhanger (zoek 'Ostler' in de app Wachtwoorden)"
 MSG_OK_REDIS_HEALTHY="Redis healthy"
 MSG_OK_SAFARI_EXTENSION_INSTALLED="Safari-extensie geïnstalleerd in %s"
 MSG_OK_SAFARI_EXTENSION_PAIRED="Safari-extensie gekoppeld aan deze Hub"
@@ -722,7 +722,7 @@ MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Doorgaan omdat --allow-p
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Installatie wordt voortgezet. Voer \`ostler-fda\` opnieuw uit nadat je de bovenstaande fout hebt onderzocht."
 MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL="Doorgaan zonder automatisch invullen via contactkaarten – Ostler vraagt het je in plaats daarvan."
 MSG_WARN_CONVERSATIONS_SENT_IMESSAGE_WILL_SILENTLY_FAIL="  Gesprekken die naar iMessage worden gestuurd, mislukken stilzwijgend totdat"
-MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="Kan de sluimerstandinstellingen niet wijzigen. Schakel 'Voorkom automatische sluimerstand bij gebruik van lichtnetadapter' in bij Systeeminstellingen > Energie."
+MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="Kan de sluimerstandinstellingen niet wijzigen. Schakel 'Voorkom automatische sluimerstand op lichtnetadapter als het beeldscherm is uitgeschakeld' in bij Systeeminstellingen > Energie."
 MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2="Kan de sluimerinstellingen niet wijzigen. Schakel 'Voorkom automatische sluimerstand' in via Systeeminstellingen > Energie."
 MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="Kan ostler-assistant v%s niet downloaden van %s"
 MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="Kan de Gmail-mbox niet uitpakken uit de Takeout-zip – wordt overgeslagen."
@@ -764,7 +764,7 @@ MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM_2="    docker compose --profile c
 MSG_WARN_DOCKER_COMPOSE_UP_D_WIKI_SITE="    docker compose up -d wiki-site"
 MSG_WARN_DOCKER_DID_NOT_START_WITHIN_SECONDS="Docker is niet gestart binnen %s seconden."
 MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL="Docker is geïnstalleerd maar draait niet. Het moet nog worden gestart."
-MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE="De Docker-opdracht staat op deze Mac, maar er draait niets achter. Op macOS is de Docker-opdracht alleen een client – er is een engine nodig, zoals Colima of Docker Desktop, om iets echt uit te voeren. Het installatieprogramma stelt er een in."
+MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE="De Docker-opdracht staat op deze Mac, maar er draait niets achter. Op macOS is de Docker-opdracht alleen een client - er is een engine nodig, zoals Colima of Docker Desktop, om iets echt uit te voeren. Het installatieprogramma stelt er een in."
 MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC="Diagnose containerruntime - docker-client: %s | colima: %s | Docker Desktop: %s"
 MSG_WARN_WIKI_PORT_NOT_ANSWERING="De wiki-container is gestart, maar er reageerde niets op http://localhost:8044 binnen 60 seconden. Beschouw de wiki als NIET actief - de exitcode van de startopdracht bewijst niet dat de pagina laadt."
 MSG_WARN_WIKI_NOT_RESPONDING="Je wiki reageert niet (127.0.0.1:8044). Hij draait in een container, dus meestal betekent dit dat de containerruntime is gestopt. Open Ostler Doctor op http://localhost:8089/doctor om te zien waarom."
@@ -837,7 +837,7 @@ MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="Mailgegevens kunnen nog steeds han
 MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP="  Handmatig opnieuw proberen: cd %s && docker compose up -d vane"
 MSG_WARN_MANUAL_RETRY_ONCE_CAUSE_RESOLVED="  Handmatig opnieuw proberen zodra de oorzaak is verholpen:"
 MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP="Noch Apple Mail noch aangepaste IMAP geselecteerd – Apple Mail wordt standaard gebruikt."
-MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="Geen toegangscode ingesteld; databases worden niet versleuteld."
+MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="Geen wachtwoordzin ingesteld; databases worden niet versleuteld."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1="Een eerdere installatie heeft je herstelsleutel aangemaakt maar is niet voltooid, dus de sleutel is je nooit getoond. Hij kan niet worden opgehaald – hij wordt nergens bewaard, ook hier niet."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_2="Je wachtwoordzin werkt nog steeds en er is op dit moment niets vergrendeld. Maar als je hem ooit vergeet, is er nu geen manier om weer binnen te komen."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Neem contact op met support om de beveiliging opnieuw in te laten stellen. Je krijgt dan een nieuwe herstelsleutel om te bewaren."
@@ -1115,7 +1115,7 @@ MSG_CONFIRM_CALENDARS_FAILED="Kon agenda-eigenaren niet opslaan (niet erg; je ku
 MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE="We denken dat deze profielen allemaal van jou zijn (%s). Samenvoegen tot één?"
 MSG_CONFIRM_IDENTITY_COLLAPSE_HELP="Deze profielen delen een sterk identiteitskenmerk met jou (een e-maildomein, LinkedIn-profiel of werkgever). Door ze samen te voegen ziet je assistent je eigen geschiedenis niet als meerdere verschillende mensen. Je kunt dit later ongedaan maken."
 MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE="Iemand heeft dezelfde naam als jij, maar lijkt een ander persoon (%s). Ben jij dit, of is het iemand anders?"
-MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="Kies 'anders' om deze persoon als aparte persoon te bewaren (je assistent voegt hem of haar nooit samen met jou). Kies 'ik' alleen als jij dit echt zelf bent."
+MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="Kies 'ander' om deze persoon als aparte persoon te bewaren (je assistent voegt hem of haar nooit samen met jou). Kies 'ik' alleen als jij dit echt zelf bent."
 MSG_CONFIRM_IDENTITY_SAVED="Vastgelegd wie jij bent"
 MSG_CONFIRM_IDENTITY_FAILED="Kon de identiteitskeuzes niet opslaan (niet fataal; je kunt ze later bevestigen)"
 
@@ -1286,7 +1286,7 @@ Kies Ja om nu door te gaan met de schijf onversleuteld in rust (dit is een bewus
 Kies Nee om hier te stoppen, zodat je eerst FileVault kunt aanzetten en daarna het installatieprogramma opnieuw kunt starten. Er is in beide gevallen niets misgegaan."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Klaar om schijfversleuteling in te stellen"
-MSG_PROMPT_PASSKEY_ACK_HELP="De gevoelige databases van Ostler worden versleuteld met SQLCipher, met een wachtzin die je op het volgende scherm kiest. Je typt deze wachtzin elke keer dat je de Hub-interface start. Er wordt ook een aparte herstelsleutel gemaakt, die aan het eind van de installatie één keer wordt getoond. Laat macOS FileVault ingeschakeld voor volledige beveiliging in rust van alles op je Mac. Klik op Ga door wanneer je klaar bent."
+MSG_PROMPT_PASSKEY_ACK_HELP="De gevoelige databases van Ostler worden versleuteld met SQLCipher, met een wachtzin die je op het volgende scherm kiest. Je typt deze wachtzin elke keer dat je de Hub-interface start. Er wordt ook een aparte herstelsleutel gemaakt, die aan het eind van de installatie één keer wordt getoond. Laat macOS FileVault ingeschakeld voor volledige beveiliging in rust van alles op je Mac. Klik op Ga verder wanneer je klaar bent."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Ook een herstelwachtzin instellen? (aanbevolen)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Kies je wachtzin"
@@ -1425,7 +1425,7 @@ MSG_HYDRATE_CONTACTS_DONE="%s contacten geïmporteerd"
 # %s = the cap in seconds, %s = contacts imported before the cap was hit.
 # Says WHAT WAS MEASURED and what happens next, rather than blaming the step:
 # a partial import is a real result and the retry is what completes it.
-MSG_HYDRATE_CONTACTS_TIMED_OUT="Het importeren van contacten duurde langer dan %s s, dus zijn we gestopt met wachten en verdergegaan. Tot nu toe zijn %s contacten binnen, en Ostler maakt de rest op de achtergrond af."
+MSG_HYDRATE_CONTACTS_TIMED_OUT="Het importeren van contacten duurde langer dan %ss, dus zijn we gestopt met wachten en verdergegaan. Tot nu toe zijn %s contacten binnen, en Ostler maakt de rest op de achtergrond af."
 # CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
 # days to 5 years -- customer copy updated to match the new behaviour.
 MSG_HYDRATE_CALENDAR_STARTED="Je agendageschiedenis laden (vijf jaar terug, een jaar vooruit)"
@@ -1684,7 +1684,7 @@ MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED="Kon niet controleren of je iMessa
 # converted to markdown + embedded locally; only note-count totals are
 # shown to the customer -- no note titles or bodies leave the process.
 # Copy is dash-clean (plain hyphens only) per the hydrate-phase convention.
-MSG_HYDRATE_APPLE_NOTES_STARTED="Je Apple Notes worden gelezen - ze blijven op deze Mac"
+MSG_HYDRATE_APPLE_NOTES_STARTED="Je notities uit Notities worden gelezen – ze blijven op deze Mac"
 MSG_HYDRATE_APPLE_NOTES_DONE="%s notities toegevoegd aan je kennisbank"
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="Geen Apple Notes om te lezen. Je kunt dit later opnieuw uitvoeren via Instellingen."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED="Je Apple Notes staan al in je kennisbank. Overgeslagen."
@@ -1701,7 +1701,7 @@ MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_UNVERIFIED="Kon niet controleren of je App
 # Apple Notes above). Reminders are converted to markdown + embedded
 # locally; only reminder-count totals are shown to the customer -- no
 # reminder titles or notes leave the process.
-MSG_HYDRATE_REMINDERS_STARTED="Je Herinneringen worden gelezen - ze blijven op deze Mac"
+MSG_HYDRATE_REMINDERS_STARTED="Je Herinneringen worden gelezen – ze blijven op deze Mac"
 MSG_HYDRATE_REMINDERS_DONE="%s herinneringen toegevoegd aan je kennisbank"
 MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA="Geen Herinneringen om te lezen. Je kunt dit later opnieuw uitvoeren via Instellingen."
 # THREE CAUSES NEEDED THREE STRINGS (#775). Until v1.0.101 the line above was

@@ -73,7 +73,7 @@
     "copy_redacted_log_button_copied": "Log ocultado copiado",
     "email_support_button": "Enviar e-mail ao suporte",
     "email_body_intro": "Olá, equipe de suporte do Ostler,",
-    "email_body_clipboard_instruction": "Meu instalador falhou. O log com dados pessoais ocultados foi copiado para a minha área de transferência. Cole-o abaixo da linha:",
+    "email_body_clipboard_instruction": "Meu instalador falhou. O log com dados pessoais ocultados foi copiado para a minha área de transferência. Vou colá-lo abaixo da linha:",
     "email_body_separator": "---",
     "email_subject": "Falha na instalação (OstlerInstaller)",
     "email_copied_hint": "Log copiado para a área de transferência – cole no e-mail",

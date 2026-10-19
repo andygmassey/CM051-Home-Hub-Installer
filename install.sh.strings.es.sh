@@ -190,7 +190,7 @@ MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="Abriendo Tailscale para que puedas inicia
 # 13:04:20 and 13:04:51). Optional-but-blocking is the worst of both. It also
 # named only that step, while Full Disk Access and the developer-tools dialog
 # were the two that actually surprised him.
-MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="Entendido: a partir de aquí, Ostler se instala casi solo. Hacia el final te necesitará unos dos minutos: activar el Acceso total al disco e iniciar sesión en Tailscale para que tu iPhone y tu Watch puedan conectarse a este Mac desde cualquier lugar. Abriremos tu navegador para iniciar sesión."
+MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="Entendido: a partir de aquí, Ostler se instala casi solo. Hacia el final te necesitará unos dos minutos: activar el Acceso total al disco e iniciar sesión en Tailscale para que tu iPhone y tu Apple Watch puedan conectarse a este Mac desde cualquier lugar. Abriremos tu navegador para iniciar sesión."
 MSG_INFO_TAILSCALE_SKIPPED="Tailscale omitido: la app Ostler de tu iPhone solo funcionará con tu Wi-Fi de casa. Puedes configurarlo más tarde en Ajustes."
 MSG_INFO_TAILSCALE_STILL_WAITING="Aún esperando el inicio de sesión en Tailscale (%ss transcurridos): completa el inicio de sesión en la ventana de Tailscale."
 MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Acceso total al disco concedido; reiniciando el asistente para que aplique el nuevo permiso."
@@ -338,7 +338,7 @@ MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT="Ollama no se inició mediante el serv
 # NEEDS REVIEW: Fragment of a sentence split across lines. The proposed text changed 'after first' to 'primero'. Word order depends on the adjacent lines, so a human should che
 MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER="  arranque; ejecuta \`ostler-assistant doctor\` tras el primer"
 MSG_INFO_SYMLINKING="  Creando enlace simbólico de %s -> %s"
-MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(Ajustes del Sistema > Cuentas de Internet). Ostler lee de Mail de"
+MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(Ajustes del Sistema > Cuentas de Internet). Ostler lee de la"
 MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C="  tar xzf /tmp/ostler.tgz -C %s/bin"
 MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR="(El resto de Ostler funciona sin el panel de Doctor.)"
 MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL="Es lo esperado por ahora. La importación de datos del RGPD estará disponible en una próxima actualización."
@@ -539,8 +539,8 @@ MSG_OK_IMESSAGE_BRIDGE_INSTALLED="LaunchAgent del puente de iMessage cargado (et
 MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_BUNDLED_WITH_INSTALLER="Scripts del puente de iMessage incluidos en el instalador"
 MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_CLONED_FROM="Scripts del puente de iMessage clonados desde %s"
 MSG_OK_IMESSAGE_CHANNEL="Canal de iMessage: %s"
-MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER="Canal de importación incluido en el instalador"
-MSG_OK_IMPORT_PIPELINE_READY="Canal de importación listo"
+MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER="Sistema de importación incluido en el instalador"
+MSG_OK_IMPORT_PIPELINE_READY="Sistema de importación listo"
 MSG_OK_CM048_PIPELINE_READY="Motor de memoria de conversaciones listo."
 MSG_INFO_CM048_SETTINGS_WRITTEN="  Modelos de conversación configurados en %s (según tus %s GB de memoria)"
 MSG_INFO_CM048_SETTINGS_KEPT="  Se conservan tus ajustes de conversación actuales (%s)"
@@ -568,7 +568,7 @@ MSG_OK_OSTLER_FDA_INSTALLED_VENV="  Lector de Apple Mail instalado."
 MSG_OK_PWG_EMAIL_INGEST_INSTALLED="  Motor de ingesta de correo instalado."
 MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL="Comandos ostler-import, ostler-fda y ostler-uninstall instalados"
 MSG_OK_OXIGRAPH_HEALTHY="Oxigraph healthy"
-MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Contraseña anotada. Cifrará tus bases de datos durante la Fase 3."
+MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Frase de contraseña registrada. Cifrará tus bases de datos durante la Fase 3."
 MSG_OK_RECOVERY_PASSPHRASE_CONFIGURED="Contraseña de recuperación configurada."
 MSG_OK_PASSPHRASE_BRIEFING_ACKNOWLEDGED="Información sobre la contraseña confirmada."
 MSG_OK_DISNEY_XLSX_PASSWORD_CAPTURED="Contraseña de la exportación de Disney+ anotada. Se usará durante la importación."
@@ -724,8 +724,7 @@ MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Se continúa porque se i
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Se continúa con la instalación. Vuelve a ejecutar \`ostler-fda\` tras diagnosticar el error anterior."
 MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL="Se continúa sin el autorrelleno de la tarjeta de contacto – Ostler te preguntará en su lugar."
 MSG_WARN_CONVERSATIONS_SENT_IMESSAGE_WILL_SILENTLY_FAIL="  Las conversaciones enviadas a iMessage fallarán silenciosamente hasta que"
-# NEEDS REVIEW: Source pane is Energy (Energía), not Battery; the exact Spanish macOS label of the sleep option should be verified against Apple's localisation.
-MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="No se pudieron cambiar los ajustes de reposo. Activa «Impedir el reposo automático cuando esté conectado a la corriente» en Ajustes del Sistema > Energía."
+MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="No se pudieron cambiar los ajustes de reposo. Activa «Evitar el reposo automático cuando esté conectado» en Ajustes del Sistema > Energía."
 MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2="No se pudo cambiar la configuración de reposo. Activa «Evitar el reposo automático» en Ajustes del Sistema > Energía."
 MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="No se pudo descargar ostler-assistant v%s desde %s"
 MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="No se pudo extraer el mbox de Gmail del zip de Takeout – se omite."
@@ -779,11 +778,11 @@ MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Los scripts del puente d
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="El cifrado no funcionará."
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="El cifrado no funcionará, y"
 MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="asegúrate de que la etiqueta fijada de PWG_KNOWLEDGE_REPO lo incluya."
-MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  permiso de Eventos para Messages.app)."
+MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  permiso de Apple Events para Messages.app)."
 MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="El extractor de FDA terminó con un código distinto de cero (%s). Últimas 20 líneas de la salida:"
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="El módulo de extracción de FDA no está incluido en este instalador."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="Se esperaba en: Contents/Resources/ostler_fda/ (dentro de la .app)."
-MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3="Causa más probable: una regresión de compilación omitió la copia del proveedor. Vuelve a descargar la .app desde ostler.ai/install."
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3="Causa más probable: una regresión de compilación omitió la copia incluida (vendor). Vuelve a descargar la .app desde ostler.ai/install."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="El módulo de extracción de FDA no está incluido. Se continúa porque se pasó --allow-plaintext – se omitirá la extracción instantánea de datos."
 MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="El módulo de extracción de datos está en el disco, pero sus dependencias no se instalaron, por lo que no se puede cargar:"
 MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Se continúa porque se pasó --allow-plaintext – la actualización programada de datos fallará en cada ejecución."
@@ -821,7 +820,7 @@ MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED="No es una dirección de correo completa, s
 MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS="Introduce al menos una dirección de correo completa (por ejemplo, you@example.com)."
 MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT="iMessage necesita al menos un contacto permitido. Inténtalo de nuevo o"
 MSG_WARN_IMPORT_PIPELINE_NOT_AVAILABLE_PRIVATE_REPO="El pipeline de importación no está disponible (repositorio privado, solo para probadores beta)."
-MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="El pipeline de importación no está incluido en el instalador. Fallo grave omitido."
+MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="El pipeline de importación no está incluido en el instalador. Se omitió la detención obligatoria."
 MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="El pipeline de importación no está incluido en el instalador. Esta es la ruta de instalación del producto; el paquete de Python contact_syncer debería venir dentro del paquete .app."
 MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY="INBOX significa que el asistente leerá todos los correos que recibas."
 MSG_WARN_INSUFFICIENT_DISK_WIKI_OUTPUT_VOLUME="  - Espacio en disco insuficiente para el volumen de salida de la wiki"
@@ -840,7 +839,7 @@ MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="Los datos de Mail aún se pueden i
 MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP="  Reintento manual: cd %s && docker compose up -d vane"
 MSG_WARN_MANUAL_RETRY_ONCE_CAUSE_RESOLVED="  Reintento manual una vez resuelta la causa:"
 MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP="No se seleccionó Apple Mail ni IMAP personalizado: se usará Apple Mail por defecto."
-MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="No hay clave de acceso definida; las bases de datos no se cifrarán."
+MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="No hay frase de contraseña definida; las bases de datos no se cifrarán."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1="Una instalación anterior generó tu clave de recuperación pero no terminó, así que nunca se te mostró. No se puede recuperar: no se guarda en ningún sitio, tampoco aquí."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_2="Tu frase de contraseña sigue funcionando y hoy no hay nada bloqueado. Pero ahora mismo no hay forma de volver a entrar si la olvidas."
 MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contacta con el soporte para configurar la seguridad desde cero; así se te mostrará una nueva clave de recuperación para que la guardes."
@@ -867,7 +866,7 @@ MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor notif
 # error-count line alone would print "no errors raised" over a failed step; its
 # second %s is the space-separated ids of the steps that did not complete.
 MSG_WARN_INSTALL_FINISHED_WITH_ERRORS="Ostler ha terminado, pero se produjeron %s error(es) durante la instalación."
-MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  Encontrarás todos los detalles en ~/.ostler/logs/install.log. Ostler se iniciará de todos modos; abre Doctor para ver qué necesita atención."
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  Encontrarás todos los detalles en ~/.ostler/logs/install.log. Ostler se iniciará de todos modos; abre el Doctor para ver qué necesita atención."
 MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS="Ostler ha terminado, pero %s paso(s) de la instalación no se completaron correctamente: %s"
 MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED="Ostler ha terminado sin errores durante la instalación."
 
@@ -908,7 +907,7 @@ MSG_WARN_READ_HTTPS_AI_GOOGLE_DEV_GEMMA="         Lee https://ai.google.dev/gemm
 MSG_WARN_READ_PUBLIC_VERSION_HTTPS_OSTLER_AI="Lee la versión pública en https://ostler.ai/licenses.html"
 MSG_WARN_REDIS_NOT_RESPONDING="Redis no responde"
 MSG_WARN_RELEASE_LANDS_STAGE_BINARY_MANUALLY="se publique la versión, o prepara el binario manualmente:"
-MSG_WARN_RE_RUNNING_TYPE_SELF_HOSTED_HOST="Reintentando – escribe un host autoalojado, o pulsa Ctrl-C y vuelve a abrir el instalador eligiendo Apple Mail."
+MSG_WARN_RE_RUNNING_TYPE_SELF_HOSTED_HOST="Repitiendo – escribe un host autoalojado, o pulsa Ctrl-C y vuelve a iniciar eligiendo Apple Mail."
 MSG_WARN_RE_RUN_INSTALLER_WITH_IMESSAGE_UNTICKED="vuelve a ejecutar el instalador con iMessage desmarcado para omitirlo."
 MSG_WARN_RUNNING_WITH_ALLOW_PLAINTEXT_ENCRYPTION_DISABLED="EJECUTANDO CON --allow-plaintext: cifrado desactivado. NO APTO PARA PRODUCCIÓN."
 MSG_WARN_RUN_DOCTOR_AFTER_FIRST_LAUNCH="  Ejecuta \`%s doctor\` tras el primer arranque"
@@ -919,7 +918,7 @@ MSG_WARN_SAFARI_EXTENSION_PAIR_FAILED="No se pudo vincular la extensión de Safa
 MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSKEY_SETUP="No se encontró el módulo de seguridad. Se omitirá la configuración de la llave de acceso."
 MSG_WARN_SECURITY_MODULE_LOOKED_FOR_PATH="  Se buscó en: %s/ostler_security/pyproject.toml"
 MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE="  Esto suele significar que el instalador .app se creó sin"
-MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_2="  el paquete ostler_security incluido en"
+MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_2="  el paquete ostler_security integrado (vendored) empaquetado en"
 MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/. Vuelve a descargar el instalador o"
 MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_4="  vuelve a ejecutarlo con --allow-plaintext para una instalación de desarrollo o CI."
 MSG_WARN_SECURITY_SETUP_FAILED_CONTINUING_WITHOUT_DATABASE="Falló la configuración de seguridad. Se continuará sin cifrado de la base de datos."
@@ -1016,7 +1015,7 @@ MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="No se pudo descargar %s después de 3 
 MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT="No se pudo descargar nomic-embed-text después de 3 intentos. Revisa tu conexión de red y vuelve a ejecutar el instalador."
 MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER="Docker no está disponible. Vuelve a ejecutar el instalador para instalar Colima."
 MSG_FAIL_CONTAINER_CLIENT_MISSING="El comando docker no está en este Mac, así que Ostler no puede iniciar los servicios que necesita. Vuelve a ejecutar el instalador; si falla de nuevo, envíanos el registro en %s."
-MSG_FAIL_CONTAINER_ENGINE_ABSENT="Ostler necesita un entorno de ejecución de contenedores y ninguno responde en este Mac. Tu wiki, tu grafo de conocimiento y tu índice de búsqueda se ejecutan dentro de contenedores, así que la instalación se ha detenido aquí en lugar de terminar y dejarlos sin funcionar. Para solucionarlo: abre Terminal y ejecuta 'colima start', y luego vuelve a ejecutar este instalador. Si usas Docker Desktop, ábrelo, espera a que el icono de la ballena se estabilice y vuelve a ejecutarlo. El registro completo está en %s."
+MSG_FAIL_CONTAINER_ENGINE_ABSENT="Ostler necesita un entorno de ejecución de contenedores y ninguno responde en este Mac. Tu wiki, tu grafo de conocimiento y tu índice de búsqueda se ejecutan dentro de contenedores, así que la instalación se ha detenido aquí en lugar de terminar y dejarlos sin instalar. Para solucionarlo: abre Terminal y ejecuta 'colima start', y luego vuelve a ejecutar este instalador. Si usas Docker Desktop, ábrelo, espera a que el icono de la ballena se estabilice y vuelve a ejecutar el instalador. El registro completo está en %s."
 MSG_FAIL_GRAPH_DB_DOCKER_NOT_READY="Docker no estuvo listo a tiempo para iniciar las bases de datos del grafo de conocimiento. Asegúrate de que Colima o Docker se esté ejecutando y vuelve a ejecutar el instalador."
 MSG_FAIL_GRAPH_DB_PULL_FAILED="No se pudieron descargar las imágenes de las bases de datos del grafo de conocimiento tras varios intentos. Suele ser un problema de red. Revisa tu conexión a internet y vuelve a ejecutar el instalador."
 MSG_FAIL_GRAPH_DB_UP_FAILED="Las bases de datos del grafo de conocimiento se descargaron, pero no se pudieron iniciar. Vuelve a ejecutar el instalador; si sigue ocurriendo, abre Terminal y ejecuta: cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
@@ -1132,7 +1131,7 @@ MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE="Introduce el prefijo de país (p. ej., 44 p
 MSG_PROMPT_COUNTRY_CODE_DEFAULT_TITLE="Prefijo de país predeterminado"
 MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP="Se usa para normalizar los números de teléfono al importar contactos y para establecer tu región (Reino Unido / UE / EE. UU. / otra) en los valores predeterminados de cumplimiento legal."
 MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE="Detectamos +%s. ¿Quieres usarlo para tu Hub?"
-MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_HELP="Detectado a partir de tu número de teléfono anterior. Elige Sí para usarlo o No para introducir otro prefijo de país."
+MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_HELP="Detectado a partir del número de teléfono que has indicado arriba. Elige Sí para usarlo o No para introducir otro prefijo de país."
 
 MSG_PROMPT_TZ_CONFIRM_TITLE="¿Usar esta zona horaria?"
 MSG_PROMPT_TZ_CONFIRM_HELP="Zona horaria detectada: %s"
@@ -1158,7 +1157,7 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="Número internacional con prefijo de país, 
 MSG_INFO_WHATSAPP_NUMBER_NORMALISED="Guardado como %s. WhatsApp necesita el número sin espacios ni paréntesis."
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Activa el Acceso total al disco para el asistente de Ostler"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="Ajustes del Sistema está abierto en Acceso total al disco."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="Configuración del Sistema está abierta en Acceso total al disco."
 # Both branches rewrote these three lines and they made DIFFERENT claims
 # about what happens after Done. Resolved against the CODE, not by
 # preferring a side: after the modal is dismissed install.sh polls
@@ -1725,7 +1724,7 @@ MSG_WARN_HYDRATE_REMINDERS_REIMPORT_STORE_EMPTY="Tus recordatorios se añadieron
 MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED="No se pudo comprobar si tus recordatorios siguen en tu base de conocimiento. Se añadirán de nuevo en lugar de dar por hecho que están."
 
 # People search index (#600)
-MSG_HYDRATE_PEOPLE_STARTED="Indexando a tus contactos para la búsqueda"
+MSG_HYDRATE_PEOPLE_STARTED="Indexando a tus personas para la búsqueda"
 MSG_HYDRATE_PEOPLE_DONE="Se indexaron %s personas para la búsqueda"
 MSG_HYDRATE_PEOPLE_PARTIAL="Hasta ahora se han indexado %s de %s personas para la búsqueda. El resto aún no se podía buscar; Ostler lo reintentará automáticamente."
 MSG_HYDRATE_PEOPLE_FAILED="Esta vez no se pudo indexar a tus contactos para la búsqueda (el almacén de grafos no respondió). Ostler lo reintentará automáticamente. Detalles: %s"
@@ -1882,6 +1881,6 @@ MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler no pudo abrir Ajustes del Sistema 
 # Deliberately says "will tell you and try to restart it" because both halves
 # are now true (periodic liveness + a real restart path); do not weaken either
 # sentence without removing the corresponding capability.
-MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler ejecuta tu wiki y la búsqueda en contenedores, así que instala y gestiona un motor de contenedores (Colima) en este Mac. Si ese motor se elimina o se reconfigura, tu wiki y la búsqueda dejarán de funcionar. Ostler te avisará e intentará reiniciarlo."
+MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler ejecuta tu wiki y la búsqueda en contenedores, así que instala y gestiona un motor de contenedores (Colima) en este Mac. Si ese motor se elimina o se reconfigura, tu wiki y la búsqueda dejarán de funcionar – Ostler te avisará e intentará reiniciarlo."
 MSG_INFO_ENGINE_ALREADY_PRESENT="Ya hay un motor de contenedores instalado en este Mac. Ostler lo usará en lugar de instalar el suyo, y no lo gestionará ni lo modificará."
 

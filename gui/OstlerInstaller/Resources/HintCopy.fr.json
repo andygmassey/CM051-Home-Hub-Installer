@@ -103,7 +103,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "Lecture des bases de données de votre Mac",
-    "subtitle": "L'étape d'intégration instantanée",
+    "subtitle": "L'étape de prise en main instantanée",
     "why": "macOS n'autorise aucune app à lire vos messages, e-mails, notes, calendriers ou photos sans votre accord explicite. Nous avons besoin de cette unique autorisation pour qu'Ostler puisse tout rassembler dans votre graphe de connaissances. Tout reste sur ce Mac – rien n'est envoyé ailleurs. Vous l'accorderez une seule fois dans Réglages Système, et macOS s'en souviendra ensuite.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -352,9 +352,9 @@
   },
   "hydrate_apple_notes": {
     "id": "hydrate_apple_notes",
-    "title": "Lecture de vos notes Apple Notes",
+    "title": "Lecture de vos notes (app Notes)",
     "subtitle": "Vos propres notes écrites",
-    "why": "Apple Notes contient souvent ce que rien d’autre ne conserve : listes, brouillons, idées inachevées. Ostler les lit localement pour qu’elles soient consultables avec tout le reste.",
+    "why": "L’app Notes contient souvent ce que rien d’autre ne conserve : listes, brouillons, idées inachevées. Ostler les lit localement pour qu’elles soient consultables avec tout le reste.",
     "duration_estimate_s": 90,
     "long_running_threshold_s": 60,
     "long_running_copy": null,

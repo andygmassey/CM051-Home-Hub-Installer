@@ -336,7 +336,7 @@
     "faq_what_q": "Che cos'è Tailscale?",
     "faq_what_a": "Tailscale è un servizio gratuito che crea una piccola rete privata tra i tuoi dispositivi. Il tuo iPhone, il Watch e questo Mac ricevono indirizzi privati che solo loro possono usare. Nulla è esposto su internet pubblica.",
     "faq_secure_q": "È sicuro?",
-    "faq_secure_a": "Sì. Tutto il traffico tra i tuoi dispositivi è cifrato end-to-end con WireGuard. Tailscale non può mai leggere i tuoi dati – aiuta solo i tuoi dispositivi a trovarsi a vicenda.",
+    "faq_secure_a": "Sì. Tutto il traffico tra i tuoi dispositivi è cifrato end-to-end con WireGuard. Tailscale non può mai leggere i tuoi dati: aiuta solo i tuoi dispositivi a trovarsi a vicenda.",
     "faq_later_q": "Posso aggiungerlo più tardi?",
     "faq_later_a": "Sì. Puoi eseguire di nuovo l'installer con --repair, oppure aprire Impostazioni in Ostler e attivare Tailscale da lì."
   },
@@ -348,7 +348,7 @@
     "requesting": "Richiesta del codice a WhatsApp in corso. Ci vorranno alcuni secondi.",
     "steps_heading": "Sul telefono, in WhatsApp:",
     "step1": "Apri Impostazioni, poi scegli Dispositivi collegati.",
-    "step2": "Scegli \"Collega un dispositivo\", poi \"Collega con numero di telefono\".",
+    "step2": "Scegli \"Collega un dispositivo\", poi \"Collega con il numero di telefono\".",
     "step3": "Inserisci questo codice:",
     "expires_in": "Questo codice è valido per altri {seconds} secondi.",
     "waiting": "In attesa del telefono. Questa schermata si aggiorna da sola non appena il collegamento è completato.",
