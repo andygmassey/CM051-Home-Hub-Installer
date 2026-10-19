@@ -42,6 +42,8 @@ on:
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
+      - 'tests/cm048_vendored_sweep/**'
+      - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
@@ -89,6 +91,8 @@ on:
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
       - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
+      - 'tests/cm048_vendored_sweep/**'
+      - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
@@ -201,6 +205,17 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_supersede_before_duplicate_thread.py -v
+      - name: The stale-bundle sweep cannot hang pwg-convo (CM048 #99 re-pin, v1.0.112)
+        if: always()
+        run: |
+          python -m pip install --quiet pyoxigraph
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_stale_bundle_sweep.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep -v
       - name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
         if: always()
         run: |

@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict
@@ -480,6 +481,9 @@ def process(
             ),
         )
 
+    # Read BEFORE the marker is cleared: the earlier version's bundle
+    # location lives in it.
+    stale_folders = _pending_stale_bundle_folders(state_dir, state)
     _clear_update_marker_if_settled(state_dir, state)
     _record_processed_state(state_dir, state)
     logger.info(
@@ -487,6 +491,17 @@ def process(
         conversation_id,
         state.completed_steps,
     )
+    # After completion is recorded, never before: the sweep is cleanup,
+    # and nothing it does (or fails to do) may change the outcome.
+    if ingest_sinks and stale_folders is not None:
+        keep = _read_bundle_location(state_dir)
+        if keep is not None:
+            _sweep_stale_bundles_bounded(
+                settings.output_conversations_dir,
+                conversation_id,
+                stale_folders,
+                keep=keep,
+            )
     return state
 
 
@@ -770,6 +785,12 @@ CONTENT_HASH_FILE = "content_hash.json"
 # completes. No step-number prefix, so `cli reprocess --from-step` never
 # archives it.
 UPDATE_MARKER_FILE = "update_pending.json"
+# Where step 09 wrote this version's bundle. Moved to _superseded/ by an
+# update like any step output; its value is first copied into the update
+# marker, so the re-run knows the exact folder to clean up without
+# listing ~/Documents/Ostler/Conversations (an opendir there can block
+# forever under launchd, see _remove_stale_bundle_folders).
+BUNDLE_LOCATION_FILE = "bundle_location.json"
 SUPERSEDED_DIR = "_superseded"
 # Files that belong to the conversation, not to a step's cached output.
 _KEEP_ON_SUPERSEDE = {
@@ -1086,6 +1107,15 @@ def _supersede_if_changed(
         or (not hash_record and _legacy_gist_probably_written(state_dir))
     )
 
+    # Every earlier bundle folder not yet cleaned up: one from an earlier
+    # update whose re-run never reached the sweep, plus this version's.
+    previous_bundle_folders = [
+        str(f) for f in (earlier_marker.get("previous_bundle_folders") or [])
+    ]
+    location = _read_bundle_location(state_dir)
+    if location is not None and str(location) not in previous_bundle_folders:
+        previous_bundle_folders.append(str(location))
+
     import shutil
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -1109,6 +1139,7 @@ def _supersede_if_changed(
         "metadata_changed": stored["metadata_sha256"] != incoming["metadata_sha256"],
         "previous_completed_steps": list(previous.completed_steps),
         "previous_gist_written": gist_written,
+        "previous_bundle_folders": previous_bundle_folders,
     })
 
     fresh = PipelineState.new(conversation_id)
@@ -2996,14 +3027,9 @@ def _step_bundle(
     )
     # An update can move the bundle: the folder is <date>/<participants
     # slug>-<short id>, so a new participant joining the thread changes
-    # the slug. The earlier folder would then sit beside the new one as a
-    # second, stale copy of the same conversation in the wiki.
-    if _read_update_marker(state_dir) is not None:
-        _remove_stale_bundle_folders(
-            settings.output_conversations_dir,
-            bundle.conversation_id,
-            keep=output.folder,
-        )
+    # the slug. Record where this version went, so the next update can
+    # remove exactly this folder (process() does it, after completion).
+    write_json(state_dir / BUNDLE_LOCATION_FILE, {"folder": str(output.folder)})
 
     # #311: refresh per-person lastContact<Channel> recency signal.
     # Post-CM047 retirement, CM048 owns the WhatsApp lastContactWhatsApp
@@ -3089,24 +3115,107 @@ def _stop_gist_only_l3(
 _BUNDLE_ARTEFACTS = ("summary.md", "transcript.md", "todos.md")
 
 
-def _remove_stale_bundle_folders(
-    root: Path, conversation_id: str, *, keep: Path
-) -> list[Path]:
-    """Remove this conversation's artefacts from any folder but ``keep``.
+# The sweep is cleanup after a completed run, so it gets a hard bound.
+_STALE_SWEEP_TIMEOUT_SECONDS = 10.0
 
-    Matches on the short-id folder suffix AND the conversation_id line of
-    each artefact's frontmatter, so a different conversation that happens
-    to share the 8-hex suffix is never touched. Only the three artefact
-    files are removed; the folder goes only if that leaves it empty.
+
+def _read_bundle_location(state_dir: Path) -> Path | None:
+    path = state_dir / BUNDLE_LOCATION_FILE
+    if not path.exists():
+        return None
+    try:
+        folder = read_json(path).get("folder")
+    except (OSError, ValueError, AttributeError):
+        logger.warning("Unreadable %s; no recorded bundle location", path)
+        return None
+    return Path(folder) if folder else None
+
+
+def _pending_stale_bundle_folders(
+    state_dir: Path, state: PipelineState
+) -> list[str] | None:
+    """The earlier version's recorded bundle folders, or None when this
+    run is not an update whose bundle was just written."""
+    if state.failed_step is not None or "09_bundle" not in state.completed_steps:
+        return None
+    marker = _read_update_marker(state_dir)
+    if marker is None:
+        return None
+    folders = [str(f) for f in (marker.get("previous_bundle_folders") or [])]
+    if not folders:
+        logger.info(
+            "Updated conversation %s: no recorded earlier bundle location; "
+            "not sweeping (the conversations tree is never listed)",
+            state.conversation_id,
+        )
+    return folders
+
+
+def _sweep_stale_bundles_bounded(
+    root: Path,
+    conversation_id: str,
+    folders: list[str],
+    *,
+    keep: Path,
+) -> None:
+    """Run the sweep on a daemon thread and wait at most
+    ``_STALE_SWEEP_TIMEOUT_SECONDS``. A sweep stuck in the kernel is
+    abandoned (logged), and being a daemon it cannot hold the process
+    open at exit."""
+    if not folders:
+        return
+
+    def sweep() -> None:
+        try:
+            _remove_stale_bundle_folders(root, conversation_id, folders, keep=keep)
+        except Exception as exc:
+            logger.warning(
+                "Stale bundle sweep for %s failed: %s: %s",
+                conversation_id, type(exc).__name__, exc,
+            )
+
+    t = threading.Thread(
+        target=sweep, name=f"stale-bundle-sweep-{conversation_id}", daemon=True
+    )
+    t.start()
+    t.join(_STALE_SWEEP_TIMEOUT_SECONDS)
+    if t.is_alive():
+        logger.warning(
+            "Stale bundle sweep for %s still running after %.0fs; abandoned "
+            "(the conversation is complete, the earlier folder may remain)",
+            conversation_id, _STALE_SWEEP_TIMEOUT_SECONDS,
+        )
+
+
+_BUNDLE_ARTEFACTS = ("summary.md", "transcript.md", "todos.md")
+
+
+def _remove_stale_bundle_folders(
+    root: Path, conversation_id: str, folders: list[str], *, keep: Path
+) -> list[Path]:
+    """Remove this conversation's artefacts from the RECORDED earlier
+    bundle folders, never from anywhere found by listing the tree.
+
+    The tree is not listed because, under the Hub's launchd agent, an
+    opendir on a folder carrying a com.apple.macl label blocks forever
+    (measured on the v1.0.111 walk box: os_scandir -> __opendir2 ->
+    open$NOCANCEL). A recorded folder is touched only when it sits under
+    ``root`` and is not ``keep``; a file goes only when its frontmatter
+    carries this conversation_id, so a different conversation sharing the
+    8-hex suffix is never touched. The folder goes only if that leaves it
+    empty.
     """
     removed: list[Path] = []
-    if root is None or not Path(root).exists():
+    if root is None:
         return removed
-    suffix = "-" + _conversation_writer._short_id(conversation_id)
+    root_abs = Path(root).absolute()
+    keep_abs = Path(keep).absolute()
     id_line = f"conversation_id: {_conversation_writer._yaml_quote(conversation_id)}"
-    keep_resolved = Path(keep).resolve()
-    for folder in Path(root).glob(f"*/*{suffix}"):
-        if not folder.is_dir() or folder.resolve() == keep_resolved:
+    for entry in folders:
+        folder = Path(entry).absolute()
+        if folder == keep_abs or root_abs not in folder.parents:
+            continue
+        if not folder.is_dir():
             continue
         for name in _BUNDLE_ARTEFACTS:
             f = folder / name

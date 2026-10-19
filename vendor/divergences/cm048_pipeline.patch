@@ -2319,12 +2319,13 @@
  def detect_status(
 --- a/src/processor.py
 +++ b/src/processor.py
-@@ -19,11 +19,17 @@
+@@ -19,12 +19,18 @@
  import hashlib
  import json
  import logging
 +import os
 +import re
+ import threading
 +import time
  import uuid
  from dataclasses import asdict
@@ -2337,7 +2338,7 @@
  from . import prompts
  from . import enrichment_validation
  from . import bulk_classifier as _bulk_classifier
-@@ -170,6 +176,53 @@
+@@ -171,6 +177,53 @@
      if classification is None:
          logger.error("No classification available; aborting.")
          return state
@@ -2391,7 +2392,7 @@
  
      if classification.processing_depth == "none":
          logger.info("processing_depth=none  –  pipeline stops here.")
-@@ -467,6 +520,8 @@
+@@ -482,6 +535,8 @@
  def _should_run_relationship(c: Classification) -> bool:
      if c.processing_depth != "full":
          return False
@@ -2400,7 +2401,7 @@
      if c.setting in ("public", "service"):
          return False
      if c.sensitivity.level == "highly-sensitive":
-@@ -477,6 +532,8 @@
+@@ -492,6 +547,8 @@
  def _should_run_coach(c: Classification) -> bool:
      if c.processing_depth != "full":
          return False
@@ -2409,7 +2410,7 @@
      if c.setting in ("family", "service"):
          return False
      if c.sensitivity.level in ("sensitive", "highly-sensitive"):
-@@ -489,9 +546,99 @@
+@@ -504,9 +561,99 @@
  
  
  MAX_RETRIES = 3
@@ -2509,7 +2510,7 @@
  def _is_retryable(exc: Exception) -> bool:
      """Classify whether an exception is worth retrying.
  
-@@ -502,6 +649,14 @@
+@@ -517,6 +664,14 @@
      JSON parse failures, value errors  –  retrying won't help.
      """
      import httpx
@@ -2524,7 +2525,7 @@
  
      if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
          return True
-@@ -563,6 +718,11 @@
+@@ -578,6 +733,11 @@
                  )
                  state.fail(step, reason)
                  _save_state(state_dir, state)
@@ -2536,7 +2537,7 @@
                  raise RuntimeError(
                      f"Step {step} failed "
                      f"({'permanent error' if not retryable else f'after {MAX_RETRIES} retries'}). "
-@@ -1142,7 +1302,50 @@
+@@ -1173,7 +1333,50 @@
      sidecar_path = state_dir / "02_enrichment_sidecar.json"
      if out_path.exists():
          return
@@ -2587,7 +2588,7 @@
      prompt_name = prompts.enrichment_prompt_name_for(
          classification.suggested_type_slug
      )
-@@ -1185,7 +1388,7 @@
+@@ -1216,7 +1419,7 @@
              full_prompt,
              system=enrichment_system,
              priority="medium",
@@ -2596,7 +2597,7 @@
          )
          rendered, retry_attempted, validation = _validate_and_maybe_retry(
              client=client,
-@@ -1195,6 +1398,29 @@
+@@ -1226,6 +1429,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
@@ -2626,7 +2627,7 @@
          rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
          if _sidecars:
              logger.warning(
-@@ -1262,7 +1488,7 @@
+@@ -1293,7 +1519,7 @@
                  full_prompt,
                  system=enrichment_system,
                  priority="medium",
@@ -2635,7 +2636,7 @@
              )
              per_chunk_outputs.append(result.raw_response)
  
-@@ -1297,6 +1523,29 @@
+@@ -1328,6 +1554,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
@@ -2665,7 +2666,7 @@
          rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
          if _sidecars:
              logger.warning(
-@@ -1334,6 +1583,75 @@
+@@ -1365,6 +1614,75 @@
                  },
              },
          )
@@ -2741,7 +2742,7 @@
  
  
  def _validate_and_maybe_retry(
-@@ -1354,9 +1672,7 @@
+@@ -1385,9 +1703,7 @@
      is still written - downstream consumers will see whatever the model
      produced and the sidecar records the gap.
      """
@@ -2752,7 +2753,7 @@
      if validation.ok:
          if validation.extras:
              logger.info(
-@@ -1378,10 +1694,10 @@
+@@ -1409,10 +1725,10 @@
          full_prompt,
          system=retry_system,
          priority="medium",
@@ -2766,7 +2767,7 @@
      )
      if not retry_validation.ok:
          logger.warning(
-@@ -1439,6 +1755,7 @@
+@@ -1470,6 +1786,7 @@
  Other name: {other_name}
  Locale: {settings.locale}
  
@@ -2774,7 +2775,7 @@
  --- CONVENTIONS ---
  {conventions}
  
-@@ -1497,10 +1814,13 @@
+@@ -1528,10 +1845,13 @@
  Other name: {other_name}
  Locale: {settings.locale}
  
@@ -2788,7 +2789,7 @@
  """
      merge_system = (
          "You are merging multiple enrichment outputs into one coherent "
-@@ -1513,7 +1833,7 @@
+@@ -1544,7 +1864,7 @@
          full_prompt,
          system=merge_system,
          priority="medium",
@@ -2797,7 +2798,7 @@
      )
      return result.raw_response
  
-@@ -1588,6 +1908,13 @@
+@@ -1619,6 +1939,13 @@
      return facts
  
  
@@ -2811,7 +2812,7 @@
  def _build_enrichment_input(
      transcript_chunk: str,
      metadata: dict,
-@@ -1608,8 +1935,18 @@
+@@ -1639,8 +1966,18 @@
          ),
          "other",
      )
@@ -2830,7 +2831,7 @@
  
      body = f"""
  --- CLASSIFICATION ---
-@@ -1628,6 +1965,7 @@
+@@ -1659,6 +1996,7 @@
  """
      if chunk_note:
          body += f"Note: {chunk_note}\n"
@@ -2838,7 +2839,7 @@
      body += f"""
  --- CONVENTIONS ---
  {conventions}
-@@ -1637,17 +1975,10 @@
+@@ -1668,17 +2006,10 @@
  invent your own headings. Do NOT skip sections. If a section has no
  content, write the heading followed by "_Nothing to report._"
  
@@ -2858,7 +2859,7 @@
  
  --- TRANSCRIPT ---
  {transcript_chunk}
-@@ -1811,6 +2142,107 @@
+@@ -1842,6 +2173,107 @@
      write_json(out_path, result.parsed_json)
  
  
@@ -2966,7 +2967,7 @@
  # ── Step 05: fact extraction ────────────────────────────────────────
  
  
-@@ -1830,6 +2262,8 @@
+@@ -1861,6 +2293,8 @@
      # lacks the specific dialogue turns and speaker attributions the
      # model needs to produce evidenced facts.
      raw_transcript = (state_dir / "00_raw_transcript.md").read_text()
@@ -2975,7 +2976,7 @@
      template = prompts.load_prompt("05_fact_extraction")
  
      if dry_run:
-@@ -1886,6 +2320,10 @@
+@@ -1917,6 +2351,10 @@
      # output "other:speaker" or "other:speaker_1" despite the mapping
      # hint. Map these back to actual participant IDs from metadata.
      facts = _fix_speaker_subjects(facts, metadata)
@@ -2986,7 +2987,7 @@
  
      # Stamp every freshly-extracted fact as a candidate. The 08_linked
      # step promotes facts to candidate=False when a second independent
-@@ -2454,13 +2892,20 @@
+@@ -2485,13 +2923,20 @@
          )
          write_json(bundle_json_path, extraction.to_dict())
      else:
