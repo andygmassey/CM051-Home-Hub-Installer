@@ -227,6 +227,27 @@ class BriefLocalStores(unittest.TestCase):
                          ["Pat's flight to London Heathrow Airport XY 123", "Sam's piano lesson"])
         self.assertEqual(body["count"], 2)
 
+    def test_a_shared_bare_number_is_not_a_shared_event(self):
+        # Archie, #3021: "2026" in two titles is a year, not a booking code.
+        # Two different events in one slot keep both rows; a mixed code
+        # ("XY123") still folds.
+        n = _now().replace(hour=10, minute=0, second=0)
+        rows = [
+            {"title": "Review 2026 budget", "start_date": n, "end_date": n + timedelta(hours=1),
+             "attendees": [], "is_all_day": False, "calendar_name": "Work"},
+            {"title": "Plan 2026 offsite", "start_date": n, "end_date": n + timedelta(hours=1),
+             "attendees": [], "is_all_day": False, "calendar_name": "Work"},
+            {"title": "XY123 to the coast", "start_date": n, "end_date": n + timedelta(hours=1),
+             "attendees": [], "is_all_day": False, "calendar_name": "Work"},
+            {"title": "Sam XY123", "start_date": n, "end_date": n + timedelta(hours=1),
+             "attendees": [], "is_all_day": False, "calendar_name": "Work"},
+        ]
+        self._write("calendar_events.json", rows)
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(e["title"] for e in body["events"]),
+                         ["Plan 2026 offsite", "Review 2026 budget", "XY123 to the coast"])
+
 
 class CalendarHandlerWritesTheBuilderReply(unittest.TestCase):
     """The /calendar handler writes what build_calendar_response returned.

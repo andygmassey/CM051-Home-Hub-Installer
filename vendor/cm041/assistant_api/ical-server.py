@@ -8648,9 +8648,11 @@ def _stale_detail(name, age):
 
 def _same_calendar_event(a, b):
     """Two rows for one event: same start, end and calendar, and the titles
-    are two spellings of it (they share a 4+ character token with a digit,
-    such as a flight number, or every significant word of the shorter title
-    is in the longer). Mini16, 2026-10-19: "<name>'s flight to <airport>
+    are two spellings of it (they share a 4+ character token mixing letters
+    and digits, such as a flight or booking code, or every significant word
+    of the shorter title is in the longer). A bare number ("2026", a room
+    number) is not a code: two different events in one slot may both carry
+    it. Mini16, 2026-10-19: "<name>'s flight to <airport>
     XY 123" and "<name>. XY 123" reached the brief as two events "with a
     related event at the same time"."""
     if not a.get("start") or a.get("start") != b.get("start"):
@@ -8663,7 +8665,9 @@ def _same_calendar_event(a, b):
     wb = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", b.get("summary") or "")]
     if not wa or not wb:
         return False
-    if any(len(w) >= 4 and any(c.isdigit() for c in w) and w in wb for w in wa):
+    def _code(w):
+        return len(w) >= 4 and any(c.isdigit() for c in w) and any(c.isalpha() for c in w)
+    if any(_code(w) and w in wb for w in wa):
         return True
     short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
     sig = [w for w in short if len(w) >= 3]
