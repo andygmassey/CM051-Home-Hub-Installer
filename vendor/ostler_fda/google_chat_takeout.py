@@ -888,117 +888,19 @@ def default_state_path() -> Path:
 # ---------------------------------------------------------------------------
 # Persistence: reuse the existing sinks, own no writes
 # ---------------------------------------------------------------------------
-#
-# THE CONVERSATION ROUTE (Archie's ruling for every connector, 2026-10-19):
-# through the CM052 wire's transport into CM048's writer, the canonical path
-# that writes the summaries. No local bundle writer, and no L3 short-circuit
-# before CM048: an L3 conversation still gets its four artefacts, because
-# CM048's writer is the one that skips the gist arm for L3.
-#
-# ``cm052.wire.post`` itself takes a CM052 ``Conversation``, whose roles are
-# user/assistant and whose metadata renderer flattens participants to bare
-# strings (losing the email the People join needs), and it still carries its
-# own L3 short-circuit. So this sends the CM048 payload over the SAME
-# transport wire.post uses: the same endpoint (``CM052_CM048_ENDPOINT``, else
-# the Hub API on ``OSTLER_API_PORT``, default 8090), the same service token
-# (``OSTLER_SERVICE_TOKEN`` / ``PWG_SERVICE_TOKEN`` / ~/.ostler/secrets/
-# service_token), and the same body (``transcript``, ``metadata``,
-# ``transcript_path``, ``metadata_path``; the Hub handler requires the paths
-# to exist, so the pair is staged in an outbox first).
-
-
-def _cm048_endpoint() -> str:
-    override = os.environ.get("CM052_CM048_ENDPOINT")
-    if override:
-        return override
-    port = (os.environ.get("OSTLER_API_PORT") or "8090").strip() or "8090"
-    return f"http://127.0.0.1:{port}/api/v1/conversation/process"
-
-
-def _service_token() -> str:
-    for name in ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN"):
-        value = (os.environ.get(name) or "").strip()
-        if value:
-            return value
-    try:
-        return (Path.home() / ".ostler" / "secrets" / "service_token").read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
-
-
-def default_outbox() -> Path:
-    return Path.home() / ".ostler" / "imports" / "google_chat" / "outbox"
-
-
-def post_to_cm048(payloads: List[dict], *, source: str = SOURCE,
-                  outbox: Optional[Path] = None, endpoint: Optional[str] = None,
-                  timeout: float = 120.0) -> dict:
-    """POST CM048 payloads to the Hub's conversation endpoint, one at a time.
-
-    Same return shape as ``universal_import._persist_conversations`` (counts
-    only). An unreachable endpoint is ``no_pipeline`` (an outage, never a
-    verdict on the conversation); a 502/503/504 or a transport error is also
-    counted ``unavailable``; any other non-2xx is a failure of that
-    conversation. The token is sent as a header and never logged.
-    """
-    import httpx
-
-    url = endpoint or _cm048_endpoint()
-    token = _service_token()
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    root = Path(outbox) if outbox else default_outbox()
-    persisted = failed = unavailable = 0
-    status = "ok"
-    transport = httpx.HTTPTransport(proxy=None)  # a local proxy must not answer for the Hub
-    with httpx.Client(timeout=timeout, transport=transport) as client:
-        for p in payloads:
-            cid = p.get("conversation_id")
-            if not cid or p.get("transcript") is None or p.get("metadata") is None:
-                failed += 1
-                continue
-            d = root / _slugify(str(cid))
-            d.mkdir(parents=True, exist_ok=True)
-            t_file, m_file = d / "transcript.md", d / "metadata.json"
-            t_file.write_text(p["transcript"], encoding="utf-8")
-            m_file.write_text(json.dumps(p["metadata"]), encoding="utf-8")
-            body = {"transcript": p["transcript"], "metadata": p["metadata"],
-                    "transcript_path": str(t_file), "metadata_path": str(m_file)}
-            try:
-                r = client.post(url, json=body, headers=headers)
-            except (httpx.ConnectError, httpx.ConnectTimeout):
-                logger.info("%s: CM048 endpoint unreachable; not persisted", source)
-                return {"persist_status": "no_pipeline", "persisted": persisted,
-                        "persist_failed": failed + 1, "persist_unavailable": unavailable + 1}
-            except httpx.HTTPError as exc:
-                logger.warning("%s: CM048 POST failed (%s)", source, type(exc).__name__)
-                failed += 1
-                unavailable += 1
-                continue
-            if 200 <= r.status_code < 300:
-                persisted += 1
-            else:
-                logger.warning("%s: CM048 rejected a conversation (HTTP %s)", source, r.status_code)
-                failed += 1
-                if r.status_code in (502, 503, 504):
-                    unavailable += 1
-    if failed:
-        status = "partial" if persisted else "error"
-    return {"persist_status": status, "persisted": persisted,
-            "persist_failed": failed, "persist_unavailable": unavailable}
-
 
 
 def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,
             people_fn=None, name_fn=None) -> dict:
-    """Send new or changed conversations to CM048 (:func:`post_to_cm048`) and
-    correspondents to the people sink. The ``*_fn`` hooks default to the real sinks and
+    """Send new or changed conversations to the CM048 sink and correspondents
+    to the people sink. The ``*_fn`` hooks default to the real sinks and
     exist so a test can drive the same code path against fakes.
 
     Returns counts only.
     """
     from . import universal_import as ui
 
-    conversations_fn = conversations_fn or post_to_cm048
+    conversations_fn = conversations_fn or ui._persist_conversations
     people_fn = people_fn or ui._persist_mail_contacts
     if name_fn is None:
         name_fn = _upsert_names

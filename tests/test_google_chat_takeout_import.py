@@ -13,10 +13,8 @@ WHAT THIS PINS, consumer side first:
      (pyoxigraph). A person already holding the address is matched, not
      duplicated; a second import creates no node; the Chat display name
      upgrades an address-named node and never replaces a real name.
-  3. Conversations go to CM048 over the cm052 wire transport (Hub API
-     POST /api/v1/conversation/process, service token, staged paths), with
-     NO L3 short-circuit before CM048. Idempotent re-import: a second run
-     POSTs 0; a changed day re-sends exactly that day; a failed send is retried.
+  3. Idempotent re-import: a second run hands the pipeline 0 payloads; a
+     changed day re-sends exactly that day; a failed send is retried.
   4. Tolerance: renamed fields, unparseable dates, a corrupt messages.json, a
      missing group_info.json each degrade one field or one file and are
      reported per file by relative path, never content.
@@ -31,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -353,118 +352,29 @@ def test_a_failed_send_is_retried_next_run(tmp_path):
     assert s2.sent == ["gchat_20230203_bbbb2222"]
 
 
-class _Hub:
-    """A real HTTP socket standing in for the Hub API's
-    POST /api/v1/conversation/process (the endpoint cm052.wire.post hits)."""
-
-    def __init__(self, status=200):
-        import threading
-        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-        self.requests = []
-        self.status = status
-        outer = self
-
-        class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def do_POST(self):  # noqa: N802
-                n = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(n))
-                outer.requests.append({
-                    "path": self.path,
-                    "auth": self.headers.get("Authorization"),
-                    "ctype": self.headers.get("Content-Type"),
-                    "body": body,
-                    "paths_exist": all(Path(body[k]).is_file() for k in ("transcript_path", "metadata_path")),
-                })
-                self.send_response(outer.status)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"status": "queued"}')
-
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/api/v1/conversation/process"
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-    def close(self):
-        self.httpd.shutdown()
-        self.httpd.server_close()
-
-
-@pytest.fixture
-def hub_env(tmp_path, monkeypatch):
-    pytest.importorskip("httpx")
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("OSTLER_SERVICE_TOKEN", "synthetic-test-token")
-    hubs = []
-
-    def make(status=200):
-        h = _Hub(status)
-        hubs.append(h)
-        monkeypatch.setenv("CM052_CM048_ENDPOINT", h.url)
-        return h
-
-    yield make
-    for h in hubs:
-        h.close()
-
-
-def test_conversations_go_over_the_wire_transport_to_cm048(tmp_path, hub_env):
-    hub = hub_env()
+def test_through_the_real_pwg_convo_call_path(tmp_path, monkeypatch):
+    """persist() drives universal_import._persist_conversations, which execs
+    the pwg-convo command. A stub binary records each call; the second run
+    execs it zero times."""
+    log = tmp_path / "calls.log"
+    stub = tmp_path / "pwg-convo"
+    stub.write_text(f"#!/bin/sh\necho \"$1 $(basename \"$2\")\" >> '{log}'\nexit 0\n")
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("OSTLER_PWG_CONVO_CMD", str(stub))
     root = build_export(tmp_path / "export")
     state = tmp_path / "ledger.json"
     noop_people = lambda contacts, *, source: {"persist_status": "no_graph", "people_created": 0}
     r1 = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(state), people_fn=noop_people)
-    assert r1["conversations_sent"] == 3 and len(hub.requests) == 3
-    for req in hub.requests:
-        assert req["path"] == "/api/v1/conversation/process"
-        assert req["auth"] == "Bearer synthetic-test-token"
-        assert "application/json" in req["ctype"] and req["paths_exist"]
-        b = req["body"]
-        assert set(b) == {"transcript", "metadata", "transcript_path", "metadata_path"}
-        assert b["metadata"]["channel"] == "im" and b["metadata"]["source"] == "google_chat"
-        assert json.loads(Path(b["metadata_path"]).read_text()) == b["metadata"]
-    # Second run: nothing is POSTed.
+    assert r1["conversations_sent"] == 3
+    assert log.read_text().splitlines() == ["process transcript.md"] * 3
     r2 = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(state), people_fn=noop_people)
-    assert r2["conversations_sent"] == 0 and len(hub.requests) == 3
+    assert r2["conversations_sent"] == 0 and len(log.read_text().splitlines()) == 3
 
 
-def test_l3_is_not_short_circuited_before_cm048(tmp_path, hub_env):
-    """Archie's ruling: CM048's writer skips the gist for L3; the importer
-    must still hand an L3 conversation over so its four artefacts exist."""
-    hub = hub_env()
-    ex = gc.parse_export(build_export(tmp_path / "export"))
-    p = gc.export_payloads(ex)[0]
-    p["metadata"]["privacy_level"] = "L3"
-    r = gc.post_to_cm048([p], outbox=tmp_path / "outbox")
-    assert r["persisted"] == 1 and hub.requests[0]["body"]["metadata"]["privacy_level"] == "L3"
-
-
-def test_hub_rejection_is_counted_and_retried(tmp_path, hub_env):
-    hub_env(status=500)
-    root = build_export(tmp_path / "export")
-    state = tmp_path / "ledger.json"
-    noop_people = lambda contacts, *, source: {"persist_status": "no_graph", "people_created": 0}
-    r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(state), people_fn=noop_people)
-    assert (r["conversations_sent"], r["conversations_failed"], r["conversations_status"]) == (0, 3, "error")
-    assert gc.ImportLedger(state).entries == {}
-    hub = hub_env(status=200)
-    r2 = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(state), people_fn=noop_people)
-    assert r2["conversations_sent"] == 3 and len(hub.requests) == 3
-
-
-def test_unreachable_hub_is_no_pipeline_not_recorded(tmp_path, monkeypatch):
-    pytest.importorskip("httpx")
-    import socket
-
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()  # nothing listens here now
+def test_no_pipeline_is_reported_not_recorded(tmp_path, monkeypatch):
+    monkeypatch.setenv("OSTLER_PWG_CONVO_CMD", str(tmp_path / "absent-binary"))
+    monkeypatch.setattr("shutil.which", lambda *_a, **_k: None)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CM052_CM048_ENDPOINT", f"http://127.0.0.1:{port}/api/v1/conversation/process")
     root = build_export(tmp_path / "export")
     state = tmp_path / "ledger.json"
     r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(state),
