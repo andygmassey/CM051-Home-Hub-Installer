@@ -49,7 +49,9 @@ trap 'rm -rf "$WORK"' EXIT
 # Both the create arm and the health arm now open with the same curl, so
 # extract on the DISTINGUISHING TAIL, not the shared prefix. A prefix match
 # would silently test the wrong arm, which is worse than not testing at all.
-GUARD="$(grep -m1 -F 'OLLAMA_PLIST" ]]; then' "$SUBJECT")"
+# 2026-10-18: the guard also requires the plist to serve the PINNED binary
+# (OLLAMA_APP_BIN), so it no longer ends at the plist test. Anchor on its head.
+GUARD="$(grep -m1 -E '^if curl -sf http://localhost:11434/api/tags .*OLLAMA_PLIST' "$SUBJECT")"
 [ -n "$GUARD" ] || { echo "CANNOT-RUN: the ollama guard line was not found in install.sh." >&2
                      echo "  It was extracted by its curl; a rewrite must fail loudly here" >&2
                      echo "  rather than silently testing nothing." >&2; exit 2; }
@@ -57,10 +59,17 @@ GUARD="$(grep -m1 -F 'OLLAMA_PLIST" ]]; then' "$SUBJECT")"
 # Drive it. serving=0/1 and plist=present/absent; echoes SKIP (do nothing) or CREATE.
 _drive() {
     local serving="$1" plist_present="$2" guard="$3" p="${WORK}/com.ostler.ollama.plist"
-    rm -f "$p"; [ "$plist_present" = "present" ] && : > "$p"
+    local bin="/fixture/.ostler/runtime/ollama-0.0.0/ollama"
+    rm -f "$p"
+    # present = our plist serving the pinned binary; stale = a cask-era plist.
+    case "$plist_present" in
+        present) printf '<string>%s</string>\n' "$bin" > "$p" ;;
+        stale)   printf '<string>%s</string>\n' "/Applications/Ollama.app/Contents/Resources/ollama" > "$p" ;;
+    esac
     cat > "${WORK}/run.sh" <<EOF
 set -uo pipefail
 OLLAMA_PLIST="$p"
+OLLAMA_APP_BIN="$bin"
 curl() { return $(( serving == 1 ? 0 : 1 )); }
 ${guard}
     echo SKIP
@@ -82,6 +91,11 @@ r="$(_drive 1 present "$GUARD")"
 [ "$r" = "SKIP" ] \
     && ok "serving + plist present -> SKIP. A complete install is not redone." \
     || bad "serving + plist present -> ${r}. The fix rewrites the agent on every run."
+
+r="$(_drive 1 stale "$GUARD")"
+[ "$r" = "CREATE" ] \
+    && ok "serving + cask-era plist (not the pinned binary) -> CREATE. An upgraded install moves onto the pin." \
+    || bad "serving + cask-era plist -> ${r}. An install upgraded from the cask keeps serving the unpinned, self-updating /Applications/Ollama.app."
 
 r="$(_drive 0 absent "$GUARD")"
 [ "$r" = "CREATE" ] \

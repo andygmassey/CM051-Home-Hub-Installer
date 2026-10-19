@@ -27,6 +27,7 @@ py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	v
 py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	vendor/cm048_pipeline/src/seed.py
 py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	vendor/cm048_pipeline/src/outstanding_todos.py
 py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	tests/test_cm048_participants_as_strings.py
+py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	tests/test_cm048_ios_unnamed_speaker_reaches_naming.py
 py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	tests/test_cm048_gateway_extracts_owner_turns_only.py
 py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	tests/test_cm048_third_party_facts_keep_their_subject.py
 py-matrix	b03	cm048-participants-as-strings.yml::cm048-participants-as-strings	vendor/cm048_pipeline/src/attribution.py

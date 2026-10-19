@@ -101,7 +101,14 @@ TRANSCRIPT='$HOME/.ostler/logs/install.log'
 # trace ever becomes `RECOVERY_KEY=<redacted>` this probe silently counts 0 and
 # FAILS a correct install. Change one, check the other.
 _DISCLOSE_GUI='RECOVERY_KEY value='
-_DISCLOSE_TTY='Your recovery key:'
+# v1.0.109: the TTY reveal now goes to the real terminal (fd 8) ONLY, never
+# through the tee, so 'Your recovery key:' is no longer in the transcript, by
+# design. What the log carries instead is install.sh's non-secret record of
+# the reveal, `recovery key shown (N chars)`, written on BOTH paths right
+# after the reveal. Matched by label; the value was never in the log to read.
+# Coupled to install.sh (search 'recovery key shown ('): change one, check
+# the other.
+_DISCLOSE_TTY='recovery key shown ('
 
 # _decide -- THE ONE DECISION FUNCTION, used by run_probe AND self_test.
 #

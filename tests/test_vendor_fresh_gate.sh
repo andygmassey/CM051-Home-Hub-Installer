@@ -108,8 +108,8 @@ note "=== Scenario 1: CLEAN tree PASSES ==="
 TMP1="$(mktemp -d)"
 make_fixture "$TMP1" >/dev/null
 out1="$(run_gate "$TMP1")"; rc1=$?
-if [ "$rc1" -eq 0 ] && printf '%s' "$out1" | grep -q "GATE: GREEN" \
-    && printf '%s' "$out1" | grep -qE "OK    synthtree"; then
+if [ "$rc1" -eq 0 ] && grep -q "GATE: GREEN" <<< "$out1" \
+    && grep -qE "OK    synthtree" <<< "$out1"; then
     ok "clean tree -> GREEN (exit 0)"
 else
     bad "clean tree did not go GREEN (exit $rc1)"; printf '%s\n' "$out1" | tail -5
@@ -124,8 +124,8 @@ make_fixture "$TMP2" >/dev/null
 printf '\n# DELIBERATE ROT injected by self-test -- not in source\n' >> "$TMP2/vendor/synthtree/pkg/mod.py"
 out2="$(run_gate "$TMP2")"; rc2=$?
 if [ "$rc2" -ne 0 ] \
-    && printf '%s' "$out2" | grep -q "GATE: RED" \
-    && printf '%s' "$out2" | grep -qE "FAIL  synthtree"; then
+    && grep -q "GATE: RED" <<< "$out2" \
+    && grep -qE "FAIL  synthtree" <<< "$out2"; then
     ok "rotted vendored file -> RED, named 'synthtree' (exit $rc2)"
 else
     bad "rot was NOT caught (exit $rc2) -- the gate is blind!"
@@ -144,7 +144,7 @@ SRC3="$TMP3/synthetic-source"
 
 # Sanity: at the pin, the gate is GREEN.
 out3a="$(run_gate "$TMP3")"; rc3a=$?
-if [ "$rc3a" -eq 0 ] && printf '%s' "$out3a" | grep -q "GATE: GREEN"; then
+if [ "$rc3a" -eq 0 ] && grep -q "GATE: GREEN" <<< "$out3a"; then
     ok "synthetic tree at pin -> GREEN"
 else
     bad "synthetic tree at pin did not go GREEN (exit $rc3a)"
@@ -160,9 +160,9 @@ fi
 )
 out3b="$(run_gate "$TMP3")"; rc3b=$?
 if [ "$rc3b" -ne 0 ] \
-    && printf '%s' "$out3b" | grep -q "GATE: RED" \
-    && printf '%s' "$out3b" | grep -qi "UNGRAFTED" \
-    && printf '%s' "$out3b" | grep -qE "FAIL  synthtree"; then
+    && grep -q "GATE: RED" <<< "$out3b" \
+    && grep -qi "UNGRAFTED" <<< "$out3b" \
+    && grep -qE "FAIL  synthtree" <<< "$out3b"; then
     ok "source advanced past pin -> RED, flagged ungrafted commit on 'synthtree' (exit $rc3b)"
 else
     bad "stale-source was NOT caught (exit $rc3b)"
@@ -207,8 +207,8 @@ SHA4="$(advance_source "$TMP4/synthetic-source" "v2 -- held on purpose" "fix: up
 set_hold_ack "$TMP4" "$SHA4" "self-test: held deliberately, nothing un-grafted" "true"
 out4="$(run_gate "$TMP4")"; rc4=$?
 if [ "$rc4" -eq 0 ] \
-    && printf '%s' "$out4" | grep -q "GATE: GREEN" \
-    && printf '%s' "$out4" | grep -q "HELD by hold_ack"; then
+    && grep -q "GATE: GREEN" <<< "$out4" \
+    && grep -q "HELD by hold_ack" <<< "$out4"; then
     ok "fully-acknowledged delta -> GREEN, reported as HELD (exit $rc4)"
 else
     bad "acknowledged delta did not go GREEN (exit $rc4) -- hold_ack is not being honoured"
@@ -229,10 +229,10 @@ UNACKED5="$(advance_source "$SRC5" "v3 -- NOT acknowledged" "fix: second upstrea
 set_hold_ack "$TMP5" "$ACKED5" "self-test: only the first commit is acknowledged" "true"
 out5="$(run_gate "$TMP5")"; rc5=$?
 if [ "$rc5" -ne 0 ] \
-    && printf '%s' "$out5" | grep -q "GATE: RED" \
-    && printf '%s' "$out5" | grep -q "NOT in hold_ack_shas" \
-    && printf '%s' "$out5" | grep -q "${UNACKED5:0:7}" \
-    && ! printf '%s' "$out5" | grep -q "${ACKED5:0:7}"; then
+    && grep -q "GATE: RED" <<< "$out5" \
+    && grep -q "NOT in hold_ack_shas" <<< "$out5" \
+    && grep -q "${UNACKED5:0:7}" <<< "$out5" \
+    && ! grep -q "${ACKED5:0:7}" <<< "$out5"; then
     ok "partial ack -> RED naming only the un-acknowledged commit (exit $rc5)"
 else
     bad "partial ack was NOT caught precisely (exit $rc5)"
@@ -247,7 +247,7 @@ make_fixture "$TMP6" >/dev/null
 SHA6="$(advance_source "$TMP6/synthetic-source" "v2" "fix: upstream change")"
 set_hold_ack "$TMP6" "$SHA6" "" "true"          # reason omitted
 out6a="$(run_gate "$TMP6")"; rc6a=$?
-if [ "$rc6a" -ne 0 ] && printf '%s' "$out6a" | grep -q "hold_ack_reason is empty"; then
+if [ "$rc6a" -ne 0 ] && grep -q "hold_ack_reason is empty" <<< "$out6a"; then
     ok "hold_ack with no reason -> RED"
 else
     bad "hold_ack with no reason was accepted (exit $rc6a) -- an unauditable exemption"
@@ -260,7 +260,7 @@ make_fixture "$TMP6B" >/dev/null
 SHA6B="$(advance_source "$TMP6B/synthetic-source" "v2" "fix: upstream change")"
 set_hold_ack "$TMP6B" "$SHA6B" "self-test: reason present, assertion missing" ""   # grafted omitted
 out6b="$(run_gate "$TMP6B")"; rc6b=$?
-if [ "$rc6b" -ne 0 ] && printf '%s' "$out6b" | grep -q "shipping_bugfixes_grafted is not true"; then
+if [ "$rc6b" -ne 0 ] && grep -q "shipping_bugfixes_grafted is not true" <<< "$out6b"; then
     ok "hold_ack without shipping_bugfixes_grafted -> RED"
 else
     bad "hold_ack without the grafted assertion was accepted (exit $rc6b)"
@@ -283,9 +283,9 @@ git -C "$SRC7" update-ref refs/remotes/origin/main "$PIN7"
 advance_source "$SRC7" "v2 -- on HEAD only, not on origin/main" "feat: unmerged work in progress" >/dev/null
 out7="$(run_gate "$TMP7")"; rc7=$?
 if [ "$rc7" -eq 0 ] \
-    && printf '%s' "$out7" | grep -q "GATE: GREEN" \
-    && printf '%s' "$out7" | grep -q "\[vs origin/main\]" \
-    && printf '%s' "$out7" | grep -q "1 ahead / 0 behind origin/main"; then
+    && grep -q "GATE: GREEN" <<< "$out7" \
+    && grep -q "\[vs origin/main\]" <<< "$out7" \
+    && grep -q "1 ahead / 0 behind origin/main" <<< "$out7"; then
     ok "advance arm used origin/main, named the ref, and reported checkout drift"
 else
     bad "advance arm did not resolve the comparison ref explicitly (exit $rc7)"
@@ -325,9 +325,9 @@ make_fixture "$TMP8" >/dev/null
 remanifest "$TMP8" "$TMP8/there-is-no-repo-here" ""
 out8="$(run_gate "$TMP8")"; rc8=$?
 if [ "$rc8" -ne 0 ] \
-    && printf '%s' "$out8" | grep -q "GATE: RED" \
-    && printf '%s' "$out8" | grep -qE "^WARN  synthtree" \
-    && printf '%s' "$out8" | grep -qE "1 unverifiable \(UNKNOWN\)"; then
+    && grep -q "GATE: RED" <<< "$out8" \
+    && grep -qE "^WARN  synthtree" <<< "$out8" \
+    && grep -qE "1 unverifiable \(UNKNOWN\)" <<< "$out8"; then
     ok "unverifiable + unacknowledged -> RED and counted UNKNOWN (exit $rc8)"
 else
     bad "an unacknowledged unverifiable tree did NOT go RED as UNKNOWN (exit $rc8)"
@@ -341,9 +341,9 @@ make_fixture "$TMP9" >/dev/null
 remanifest "$TMP9" "$TMP9/there-is-no-repo-here" "$ACK_FULL"
 out9="$(run_gate "$TMP9")"; rc9=$?
 if [ "$rc9" -eq 0 ] \
-    && printf '%s' "$out9" | grep -qE "^ACK   synthtree" \
-    && printf '%s' "$out9" | grep -qE "1 acknowledged-unverifiable" \
-    && printf '%s' "$out9" | grep -q "GATE: GREEN WITH 1 ACKNOWLEDGED-UNVERIFIABLE"; then
+    && grep -qE "^ACK   synthtree" <<< "$out9" \
+    && grep -qE "1 acknowledged-unverifiable" <<< "$out9" \
+    && grep -q "GATE: GREEN WITH 1 ACKNOWLEDGED-UNVERIFIABLE" <<< "$out9"; then
     ok "acknowledged unverifiable -> counted separately, exit 0"
 else
     bad "a complete acknowledgement was not honoured/counted (exit $rc9)"
@@ -351,7 +351,7 @@ else
 fi
 # ...and the verdict must NOT be the plain GREEN line. This is the assertion
 # that stops the ack becoming the next "GATE: GREEN with N warning(s)".
-if printf '%s' "$out9" | grep -q "GATE: GREEN -- every vendored tree"; then
+if grep -q "GATE: GREEN -- every vendored tree" <<< "$out9"; then
     bad "the verdict read as a PLAIN GREEN while a tree was unverified -- that is the old hole"
 else
     ok "the verdict does not read as a plain GREEN while an ack is live"
@@ -368,8 +368,8 @@ remanifest "$TMP10" "$TMP10/synthetic-source" "$ACK_FULL"
 printf '\n# DELIBERATE ROT injected by self-test -- not in source\n' >> "$TMP10/vendor/synthtree/pkg/mod.py"
 out10="$(run_gate "$TMP10")"; rc10=$?
 if [ "$rc10" -ne 0 ] \
-    && printf '%s' "$out10" | grep -q "GATE: RED" \
-    && printf '%s' "$out10" | grep -qE "^FAIL  synthtree"; then
+    && grep -q "GATE: RED" <<< "$out10" \
+    && grep -qE "^FAIL  synthtree" <<< "$out10"; then
     ok "acked-but-rotted tree still FAILS -- an ack cannot launder drift (exit $rc10)"
 else
     bad "an ack SILENCED real drift -- it has become the blanket ignore switch (exit $rc10)"
@@ -384,9 +384,9 @@ remanifest "$TMP11" "$TMP11/there-is-no-repo-here" \
     $'unverifiable_ack = true\nunverifiable_ack_reason = "synthetic: a reason with nobody\'s name on it"'
 out11="$(run_gate "$TMP11")"; rc11=$?
 if [ "$rc11" -ne 0 ] \
-    && printf '%s' "$out11" | grep -q "GATE: RED" \
-    && printf '%s' "$out11" | grep -qE "^FAIL  synthtree" \
-    && printf '%s' "$out11" | grep -qi "INCOMPLETE"; then
+    && grep -q "GATE: RED" <<< "$out11" \
+    && grep -qE "^FAIL  synthtree" <<< "$out11" \
+    && grep -qi "INCOMPLETE" <<< "$out11"; then
     ok "ack missing an owner -> RED, named as incomplete (exit $rc11)"
 else
     bad "an incomplete ack was honoured -- an unsigned exemption became permanent (exit $rc11)"
