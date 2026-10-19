@@ -86,7 +86,7 @@ _TOKEN = "test-token-l3-passthrough-not-a-secret"
 def _cm052_payload(level: str) -> dict:
     """What CM052 wire.post sends for a Slack thread (synthetic cast)."""
     return {
-        "transcript": "**Robin Sample:** Why did we park feature X?\n\n"
+        "transcript": "**John Smith:** Why did we park feature X?\n\n"
                       "**Jane Doe:** The licence cost.\n",
         "metadata": {
             "conversation_id": "sk-0123456789abcdef",
@@ -96,9 +96,9 @@ def _cm052_payload(level: str) -> dict:
             "participant_kind": "human",
             "privacy_level": level,
             "participants": [
-                {"id": "robin.sample@example.com", "display": "Robin Sample",
+                {"id": "john.smith@example.com", "display": "John Smith",
                  "role": "other", "slack_user_id": "U0000000002",
-                 "handle": "robin.sample@example.com"},
+                 "handle": "john.smith@example.com"},
                 {"id": "jane.doe@example.com", "display": "Jane Doe",
                  "role": "user", "slack_user_id": "U0000000001",
                  "handle": "jane.doe@example.com"},
@@ -211,7 +211,7 @@ class TestPrivacyLevelReachesCM048(unittest.TestCase):
         # the NEW transcript, not a fresh suffixed id beside the old one.
         first = _cm052_payload("L2")
         grown = _cm052_payload("L2")
-        grown["transcript"] += "**Robin Sample:** One more thing.\n"
+        grown["transcript"] += "**John Smith:** One more thing.\n"
         status, body, seen = self._post_through_real_handler(payloads=[first, grown])
         self.assertEqual(status, 202, body)
         self.assertEqual(body["job_id"], "sk-0123456789abcdef")

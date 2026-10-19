@@ -260,6 +260,14 @@ jobs:
           python tests/test_pinterest_parser.py
           python tests/test_pref_noise_source_cap.py
 
+      - name: Plaintext import staging is removed after persist; L3 is never staged (HR015 #1171 graft)
+        if: always()
+        run: python -m pytest tests/test_ostler_fda_staging_cleanup_vendored.py -q -rs -p no:cacheprovider
+
+      - name: A paused AI conversation is never watermarked as done (CM052 #18 backport)
+        if: always()
+        run: python -m pytest tests/test_cm052_paused_conversation_is_not_watermarked.py -q -rs -p no:cacheprovider
+
       - name: pytest-driven vendored contracts (rc=5 on zero-collected fails the step)
         if: always()
         run: |
@@ -267,8 +275,6 @@ jobs:
           python -m pytest \
             tests/test_resolver_robustness.py \
             tests/test_vendor_knowledge_embed_contract.py \
-            tests/test_ostler_fda_staging_cleanup_vendored.py \
-            tests/test_cm052_paused_conversation_is_not_watermarked.py \
             -q -rs -p no:cacheprovider
 
       # A DEDICATED STEP, NOT A LINE IN THE `for t in` LIST ABOVE, AND THE
