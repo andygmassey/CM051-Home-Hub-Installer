@@ -267,6 +267,7 @@ jobs:
           python -m pytest \
             tests/test_resolver_robustness.py \
             tests/test_vendor_knowledge_embed_contract.py \
+            tests/test_ostler_fda_staging_cleanup_vendored.py \
             -q -rs -p no:cacheprovider
 
       # A DEDICATED STEP, NOT A LINE IN THE `for t in` LIST ABOVE, AND THE
