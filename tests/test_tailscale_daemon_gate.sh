@@ -39,7 +39,7 @@ echo "PASS: install.sh parses"
 
 # Extract the real _ts_daemon_up helper.
 HELPER="$(awk '/^    _ts_daemon_up\(\) \{/{f=1} f{print} f&&/^    \}/{exit}' "$INSTALL_SH")"
-printf '%s\n' "$HELPER" | grep -q 'failed to connect' \
+grep -q 'failed to connect' <<< "$HELPER" \
     || fail "could not extract _ts_daemon_up from install.sh"
 # Strip the leading indentation so it defines cleanly here.
 HELPER="$(printf '%s\n' "$HELPER" | sed 's/^    //')"

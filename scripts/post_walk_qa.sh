@@ -1046,6 +1046,34 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'regression_of_status\tCANNOT-RUN: scripts/walk_regression_triage.sh not present in this tree\n' >> "$RECORD"
     fi
 
+    # ── THE OWNER'S IDENTITY MUST NOT REACH A PUBLIC RECORD ──────────────
+    #
+    # walks/ is committed to a PUBLIC repo. Before this record can be
+    # committed, count (never print) lines carrying any value from the
+    # operator-local owner file, with a positive control that must match. A
+    # hit moves the record OUT of the repo, so there is nothing to commit; a
+    # scan that cannot run does the same and says CANNOT-RUN. (walk #31,
+    # 2026-10-18; see scripts/lib_walk_owner.sh.)
+    # shellcheck source=scripts/lib_walk_owner.sh
+    source "${REPO_ROOT}/scripts/lib_walk_owner.sh"
+    _owner_rc=0
+    walk_owner_scan_record "$RECORD" "$(walk_owner_default_file)" || _owner_rc=$?
+    if [[ "$_owner_rc" -ne 0 ]]; then
+        _q="${OSTLER_WALK_QUARANTINE_DIR:-$HOME/.ostler-walk-quarantine}"
+        mkdir -p "$_q" && chmod 700 "$_q"
+        _qf="${_q}/$(basename "$RECORD").$(date -u +%Y%m%dT%H%M%SZ)"
+        if mv "$RECORD" "$_qf"; then
+            echo "  🔴 walk record QUARANTINED outside the repo: ${_qf}"
+        else
+            rm -f "$RECORD"
+            echo "  🔴 walk record could not be moved and was DELETED; nothing is left to commit"
+        fi
+        [[ "$_owner_rc" -eq 1 ]] && echo "     it carries the operator's owner identity (count above, values not printed)." \
+                                 || echo "     the owner-identity scan could not run, so the record is not safe to commit."
+        echo "  This walk is NOT recorded: CANNOT-RUN."
+        exit 2
+    fi
+
     echo
     echo "  walk record written: ${RECORD}"
     if [[ "$overall" -eq 0 ]]; then

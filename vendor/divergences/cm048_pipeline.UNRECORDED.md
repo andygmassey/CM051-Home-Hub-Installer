@@ -5,13 +5,20 @@ This file is this tree's `unrecorded_divergence` pointer
 by `vendor/divergences/cm048_pipeline.patch` -- see each entry for why. The
 earlier entries were retired on 2026-10-18 (CM051 #2969), when source@0190f448
 plus the patch was measured to reconstruct the tree; this graft landed after.
+The 2026-10-15 start_time graft (in the patch, not here) was RETIRED by the
+14d75c15 re-pin: upstream CM048 #89 reads both key spellings itself.
 
 ## Graft: summaries and todos in the conversation's own language (Lane 9, 2026-10-07)
 
 Tree `cm048_pipeline`. A graft of CM048 branch `claude/great-heisenberg-qrc0f3`
-(written on top of `436c89c1`, merged forward onto the `0190f448` pin), applied as one patch; NOT in
-`cm048_pipeline.patch`: `verify = "skip"` and `$CM048` is not checked out here,
-so the patch cannot be regenerated to carry it.
+(written on top of `436c89c1`, merged forward onto the `0190f448` pin, then onto
+the `14d75c15` pin on 2026-10-18).
+
+NOW CARRIED BY `cm048_pipeline.patch` (2026-10-18, v1.0.109 re-pin): the patch
+was regenerated with `$CM048` cloned, so this graft is no longer an
+unrecorded edit; the entry stays because CM048 main (14d75c15) still has no
+`src/language.py`, i.e. upstream does not carry it yet. Measured:
+`grep -c language.py vendor/divergences/cm048_pipeline.patch` = 4 (was 0).
 
 Product decision (founder, 2026-09-22): the UI stays English; the assistant
 answers, transcribes and summarises in the owner's language. Files:

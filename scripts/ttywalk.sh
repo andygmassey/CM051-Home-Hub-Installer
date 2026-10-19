@@ -1485,20 +1485,36 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
     echo \"  stores:     \$(cat ~/.walk-stores-provenance 2>/dev/null)\"
 " || die "could not write the walk config on the host."
 
-# THE WALK'S OWNER. The installer is given the owner identity from an
-# operator-local file on the DRIVER (never in this repo; CM051 is public), so
-# the owner-in-People probe measures the product against the identity the
-# install really holds. Streamed over ssh into a 0600 file; never an argument,
-# never printed. With no local file the walk installs a synthetic owner, says
-# so, and that probe reads CANNOT-RUN.
+# THE WALK'S OWNER. WHOSE identity the installer is given is DECIDED, never
+# inferred from a file being present on the driver (walk #31, 2026-10-18: a
+# non-owner test account was installed with the operator's real identity
+# because the only predicate was "the owner file exists"). The owner file is
+# staged ONLY when this target's (IOPlatformUUID, account) pair is declared in
+# the operator-local allowlist; every other walk installs the synthetic cast
+# owner. If the predicate cannot be evaluated, the walk REFUSES. Values are
+# streamed over ssh stdin into a 0600 file, never an argument, never printed.
+# See scripts/lib_walk_owner.sh.
+# shellcheck source=scripts/lib_walk_owner.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_owner.sh"
 OWNER_FILE_LOCAL="${OSTLER_WALK_OWNER_FILE:-$HOME/walkdriver/owner_identity.env}"
-if [[ -s "$OWNER_FILE_LOCAL" ]]; then
+OWNER_TARGETS_LOCAL="$(walk_owner_default_targets)"
+# ONE round trip, so the UUID and the account cannot describe different hosts.
+# ioreg's own failure is kept: an empty UUID is a refusal below, never a match.
+OWNER_IDENT="$("${SSH[@]}" 'u=$(ioreg -rd1 -c IOPlatformExpertDevice | awk -F"\"" "/IOPlatformUUID/{print \$4}"); printf "%s\n%s\n" "$u" "$(id -un)"')" \
+    || die "could not read the target's IOPlatformUUID and account to decide whose identity to install."
+OWNER_DECISION="$(walk_owner_decide "$OWNER_FILE_LOCAL" "$OWNER_TARGETS_LOCAL" \
+    "$(printf '%s\n' "$OWNER_IDENT" | sed -n 1p)" "$(printf '%s\n' "$OWNER_IDENT" | sed -n 2p)")" \
+    || die "owner identity: REFUSING to start the walk -- the owner-target predicate could not be evaluated (see above). Fix ${OWNER_TARGETS_LOCAL} or the target; the owner file is never staged on a guess."
+if [[ "$OWNER_DECISION" == owner ]]; then
     "${SSH[@]}" "umask 077; cat > ~/.walk-owner.env && chmod 600 ~/.walk-owner.env" < "$OWNER_FILE_LOCAL" \
         || die "could not stage the owner identity on the host."
-    say "owner identity: staged from ${OWNER_FILE_LOCAL} (values not printed)"
+    say "owner identity: OWNER target (declared in ${OWNER_TARGETS_LOCAL}); staged from ${OWNER_FILE_LOCAL} (values not printed)"
 else
-    "${SSH[@]}" "rm -f ~/.walk-owner.env" || true
-    say "owner identity: no ${OWNER_FILE_LOCAL} -- the walk installs a SYNTHETIC owner; the owner-in-People probe will read CANNOT-RUN"
+    # A stale file from an earlier walk would be answered by walk_drive.py, so
+    # its removal is VERIFIED, not hoped for.
+    "${SSH[@]}" "rm -f ~/.walk-owner.env && test ! -e ~/.walk-owner.env" \
+        || die "could not remove a stale ~/.walk-owner.env on the host; refusing rather than risk installing it."
+    say "owner identity: SYNTHETIC cast owner (${OWNER_DECISION#synthetic: }); the owner-in-People probe will read CANNOT-RUN"
 fi
 
 if [[ "$STAGE_ONLY" -eq 1 ]]; then
