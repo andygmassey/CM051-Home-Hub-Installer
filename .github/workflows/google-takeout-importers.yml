@@ -1,0 +1,68 @@
+name: google-takeout-importers
+
+# Google Takeout importers for Google Chat and Google Keep
+# (vendor/ostler_fda/google_chat_takeout.py, google_keep_takeout.py).
+# UNWIRED: no install or Doctor surface invokes either module yet. This suite
+# proves the modules on their own: a Chat export becomes the four CM048
+# artefacts through the vendored CM048 adapter and writer (control: a
+# source-named channel writes none), people land once through the existing
+# email sink against a real HTTP Oxigraph (pyoxigraph), a re-import sends 0,
+# and a Keep export becomes markdown with trashed notes skipped.
+#
+# The Takeout layouts are UNVERIFIED against a real export: fixtures are built
+# from the community-documented format. macOS runner, Python 3.11 (the Hub's).
+# British English. No em dashes.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/google_chat_takeout.py'
+      - 'vendor/ostler_fda/google_keep_takeout.py'
+      - 'vendor/ostler_fda/universal_import.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/cm048_pipeline/src/channel_adapter.py'
+      - 'vendor/cm048_pipeline/src/seed.py'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'tests/test_google_chat_takeout_import.py'
+      - 'tests/test_google_keep_takeout_import.py'
+      - 'tests/_fake_oxigraph.py'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/google-takeout-importers.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  takeout-importers:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest and the runtime dependencies
+        run: python -m pip install --quiet pytest pyoxigraph httpx phonenumbers nameparser pyyaml
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a suite that collected
+      # zero tests, or skipped the Oxigraph or CM048 arms, must not read green.
+      - name: Google Chat and Keep Takeout importers
+        run: |
+          n="$(python -m pytest tests/test_google_chat_takeout_import.py tests/test_google_keep_takeout_import.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 31 ]; then
+            echo "REFUSING: expected at least 31 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_google_chat_takeout_import.py tests/test_google_keep_takeout_import.py -v -rs > pytest.log 2>&1 || { cat pytest.log; exit 1; }
+          cat pytest.log
+          if grep -q 'SKIPPED' pytest.log; then
+            echo "REFUSING: a test skipped (missing dependency), so an arm did not run." >&2
+            exit 1
+          fi

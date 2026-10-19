@@ -47,7 +47,7 @@ JANE = {"name": "Jane Smith", "email": "jane.smith@example.com", "user_type": "H
 JOHN = {"name": "John Jones", "email": "john.jones@example.com", "user_type": "Human"}
 MARY = {"name": "Mary Patel", "email": "mary.patel@example.com", "user_type": "Human"}
 # A bot WITH an address, so only the user_type guard keeps it out of People.
-BOT = {"name": "Acme Helper", "email": "helper-bot@example.com", "user_type": "Bot"}
+BOT = {"name": "acme-helper", "email": "helper-bot@example.com", "user_type": "Bot"}
 
 
 def _msg(creator, when, text, topic="t-solo", files=None, **extra):
@@ -79,7 +79,7 @@ def build_export(root: Path, *, user_info=True, big_space=False) -> Path:
     ]})
     _write(dm / "File-menu.pdf", "synthetic")
     space = chat / "Groups" / "Space bbbb2222"
-    _write(space / "group_info.json", {"name": "Riverside Book Club", "members": [OWNER, JANE, JOHN, BOT]})
+    _write(space / "group_info.json", {"name": "Book club", "members": [OWNER, JANE, JOHN, BOT]})
     _write(space / "messages.json", {"messages": [
         _msg(JOHN, "February 3, 2023 at 10:00:00 AM UTC", "Next book is chosen", "thr-A"),
         _msg(OWNER, "February 3, 2023 at 10:05:00 AM UTC", "Great pick", "thr-A"),
@@ -94,7 +94,7 @@ def build_export(root: Path, *, user_info=True, big_space=False) -> Path:
             for i in range(12)
         ]
         big = chat / "Groups" / "Space cccc3333"
-        _write(big / "group_info.json", {"name": "Globex Announcements", "members": members})
+        _write(big / "group_info.json", {"name": "Globex news", "members": members})
         _write(big / "messages.json", {"messages": [
             _msg(members[1 + (i % 12)], f"2023-03-0{1 + i % 9}T08:00:00Z", f"notice {i}")
             for i in range(60)
@@ -225,9 +225,9 @@ def test_payloads_one_per_group_day_with_explicit_privacy(tmp_path):
     space = next(p for p in payloads if p["conversation_id"].endswith("bbbb2222"))
     others = {x["email"] for x in space["metadata"]["participants"] if x["role"] == "other"}
     assert others == {"jane.smith@example.com", "john.jones@example.com"}  # bot excluded
-    assert space["metadata"]["group_subject"] == "Riverside Book Club"
+    assert space["metadata"]["group_subject"] == "Book club"
     t = space["transcript"]
-    assert "**Acme Helper (bot)**" in t
+    assert "**acme-helper (bot)**" in t
     assert t.count("[thread ") == 5   # thr-A x3, thr-C x2; thr-B is a single message
     dm2 = next(p for p in payloads if p["conversation_id"] == "gchat_20230202_aaaa1111")
     assert "[attachment: menu.pdf]" in dm2["transcript"]
