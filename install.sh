@@ -24306,17 +24306,30 @@ for d in "${DIRS[@]}"; do
     # the stray-folder case promised above, so it is not a failure, and it
     # must not overwrite the code of a step that really failed. Any other
     # non-zero from this step is a real failure and still fails the run.
+    #
+    # Exit 5 is paused_not_pro (EXIT_PAUSED_NOT_PRO, CM052 first_import.py,
+    # the one code every importer shares). Ostler Pro is not active and this
+    # source's free first import is already used. That is the gate doing its
+    # job, not a failure. The importer has already printed the customer's
+    # refusal text to stdout, in Andy's words, so it is passed through as-is
+    # and not reworded here. A paused run exits 5 only if nothing else failed;
+    # a real failure keeps its own code, because that is what needs fixing.
     if [[ -x "$UIMPORT_PY" ]]; then
         urc=0
         ( PYTHONPATH="${UIMPORT_FDA_DIR}:${PYTHONPATH:-}" \
             "$UIMPORT_PY" -m ostler_fda.universal_import "$d" ) || urc=$?
         if [[ "$urc" -eq 3 ]]; then
             echo "Universal importer: no recognised format in $d (not an error)."
+        elif [[ "$urc" -eq 5 ]]; then
+            paused_not_pro=1
         elif [[ "$urc" -ne 0 ]]; then
             rc=$urc
         fi
     fi
 done
+if [[ "$rc" -eq 0 && "${paused_not_pro:-0}" -eq 1 ]]; then
+    exit 5
+fi
 exit $rc
 IMPORTEOF
 fi
@@ -24522,8 +24535,19 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
         | tee "$_import_log" | while IFS= read -r line; do echo "  $line"; done; then
         ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
     else
-        warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
-        warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
+        # Read the importer's own code FIRST, before any other command resets
+        # PIPESTATUS. Exit 5 is paused_not_pro (CM052 first_import.py): Ostler
+        # Pro is not active and a source's free first import is already used,
+        # for example on a reinstall. Its refusal words were already printed
+        # above by the importer; this is not an error and must not read as one.
+        _gdpr_import_rc="${PIPESTATUS[0]}"
+        if [[ "$_gdpr_import_rc" -eq 5 ]]; then
+            info "$MSG_INFO_GDPR_IMPORT_PAUSED_NOT_PRO"
+        else
+            warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
+            warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
+        fi
+        unset _gdpr_import_rc
     fi
     # The password (if any) was only ever needed for this one call. Drop it
     # from the environment now rather than let it sit for the rest of the
@@ -25853,6 +25877,18 @@ _es_finish() {
 }
 trap '_es_finish $?' EXIT
 
+# The refusal words for exit 5 (paused_not_pro), taken from the importer's own
+# output: the line beginning "You've already imported your" and the line after
+# it (CM052 first_import.refusal_text). One source of copy, so this script
+# never rewords it. If the importer printed none, fall back to a plain line
+# that still says why, never "could not finish".
+_es_refusal_text() {
+    local f="$1" t=""
+    [[ -n "$f" && -r "$f" ]] && t="$(grep -A1 "^You've already imported your " "$f" | head -n 2)"
+    [[ -n "$t" ]] || t="Ostler Pro is not active, so this export was not imported. Everything you've already imported stays here."
+    printf '%s' "$t"
+}
+
 # Could we LOOK at all? An unreadable Downloads globs to nothing and finds to
 # nothing, which is the same zero as an empty one. Ask once, and say which.
 if [[ ! -d "$DOWNLOADS" ]]; then
@@ -26001,8 +26037,21 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
         fi
 
         _imp_rc=0
-        "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
-        if [[ "$_imp_rc" -eq 0 ]]; then
+        _imp_out="$(mktemp "${_ES_STATE}/import-out.XXXXXX" 2>/dev/null)" || _imp_out=""
+        "$IMPORT_SCRIPT" "$DOWNLOADS" >"${_imp_out:-/dev/null}" 2>&1 || _imp_rc=$?
+        if [[ "$_imp_rc" -eq 5 ]]; then
+            # PAUSED, NOT PRO (exit 5). Neither done nor failed: Ostler Pro is
+            # not active and this source's free first import is used. Show the
+            # importer's own refusal words (never a "could not finish"), and
+            # record the export set so the same refusal is not repeated every
+            # tick: one mention per attempt. Re-dropping the export after
+            # subscribing imports it.
+            _refusal="$(_es_refusal_text "$_imp_out")"
+            _notify "${_refusal%%$'\n'*}" "Ostler Pro"
+            echo "$FOUND_HASH" >> "$SCAN_STATE"
+            _es_why="$(printf '%s' "$_refusal" | tr '\n' ' ')"
+            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "paused, not Pro" "$_es_why" "${FOUND[$_i]}"; done
+        elif [[ "$_imp_rc" -eq 0 ]]; then
             _notify "Your latest export is now part of your world." "Done"
             # Record ONLY on success. The comment here used to say exactly that
             # while the write sat outside the branch, so a failed import was
@@ -26024,6 +26073,7 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
             _es_fail_why="the importer stopped with exit code ${_imp_rc}"
             for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "failed" "$_es_fail_why" "${FOUND[$_i]}"; done
         fi
+        [[ -n "$_imp_out" ]] && rm -f "$_imp_out"
     fi
 fi
 
@@ -26039,7 +26089,7 @@ fi
 # not imported again on every 4-hourly tick, and a file that CHANGED (a new
 # calendar export saved over the old name) is. A failed import writes no key,
 # so it is retried next tick, the same rule #1571 set for the platform path.
-_loose_new=0; _loose_fail=0
+_loose_new=0; _loose_fail=0; _loose_paused=0
 _i=0
 while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
     _p="${LOOSE_PATHS[$_i]}"; _l="${LOOSE_LABELS[$_i]}"
@@ -26068,8 +26118,20 @@ while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
         continue
     fi
     _imp_rc=0
-    "$IMPORT_SCRIPT" "$_stage" >/dev/null 2>&1 || _imp_rc=$?
-    if [[ "$_imp_rc" -eq 0 ]]; then
+    # Output goes to a file OUTSIDE the stage: the importer sniffs everything
+    # in the stage folder, so a log file inside it would be imported too.
+    _imp_out="$(mktemp "${_ES_STATE}/import-out.XXXXXX" 2>/dev/null)" || _imp_out=""
+    "$IMPORT_SCRIPT" "$_stage" >"${_imp_out:-/dev/null}" 2>&1 || _imp_rc=$?
+    if [[ "$_imp_rc" -eq 5 ]]; then
+        # PAUSED, NOT PRO: see the platform branch above. Keyed so the same
+        # file is not refused again every tick; one mention per attempt.
+        _refusal="$(_es_refusal_text "$_imp_out")"
+        [[ "$_loose_paused" -eq 0 ]] && _notify "${_refusal%%$'\n'*}" "Ostler Pro"
+        _loose_paused=$((_loose_paused + 1))
+        printf '%s\n' "$_key" >> "$_ES_LEDGER"
+        _es_why="$(printf '%s' "$_refusal" | tr '\n' ' ')"
+        _es_row "$_l" "paused, not Pro" "$_es_why" "$_p"
+    elif [[ "$_imp_rc" -eq 0 ]]; then
         printf '%s\n' "$_key" >> "$_ES_LEDGER"
         _es_imp=$((_es_imp + 1)); _loose_new=$((_loose_new + 1))
         _es_row "$_l" "imported" "" "$_p"
@@ -26079,6 +26141,7 @@ while [[ "$_i" -lt ${#LOOSE_PATHS[@]} ]]; do
         _es_row "$_l" "failed" "$_es_fail_why" "$_p"
     fi
     rm -rf "$_stage"
+    [[ -n "$_imp_out" ]] && rm -f "$_imp_out"
 done
 if [[ "$_loose_fail" -gt 0 ]]; then
     _notify "Ostler could not finish importing ${_loose_fail} file(s) from your Downloads. It will try again." "Import unfinished"
