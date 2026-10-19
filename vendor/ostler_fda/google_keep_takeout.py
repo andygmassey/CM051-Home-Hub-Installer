@@ -29,8 +29,8 @@ Note JSON (UNVERIFIED)::
      "sharees": [{"email": "...", "isOwner": false, "type": "WRITER"}],
      "color": "DEFAULT", "isTrashed": false, "isPinned": false,
      "isArchived": false,
-     "createdTimestampUsec": 1675263845000000,
-     "userEditedTimestampUsec": 1675263845000000}
+     "createdTimestampUsec": <epoch microseconds>,
+     "userEditedTimestampUsec": <epoch microseconds>}
 
 Aliases accepted (the first is the documented name, the rest are guesses at
 a rename and UNVERIFIED): ``textContent | text | content``,

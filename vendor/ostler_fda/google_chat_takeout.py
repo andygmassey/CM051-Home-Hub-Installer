@@ -899,15 +899,77 @@ def default_state_path() -> Path:
 # point, never inside processor.process).
 
 
+# ---------------------------------------------------------------------------
+# G7: Google Chat is an Ostler Pro source (Andy, 2026-10-19)
+# ---------------------------------------------------------------------------
+#
+# ONE shared ostler_fda G7 helper is being built by the small-sources agent as
+# its own PR (its path goes into ~/walkdriver/CONNECTORS_PROGRESS.md under
+# "G7 helper"). Building a second one here is exactly what Archie ruled out,
+# so this module only RESOLVES it. The gate runs at the ENTRY POINT, before
+# any hand-off to pwg-convo, never inside processor.process.
+#
+# Contract (the same as imessage-bundle-tick.sh's `subscription_gate.py
+# --check`: exit 0 active, exit 3 inactive, anything else fail-open):
+#   "active"   -> import proceeds.
+#   "inactive" -> nothing is sent, the ledger is untouched (a later run after
+#                 subscribing sends everything), status "paused".
+#   "unknown"  -> the gate could not ask; fail OPEN, logged. A customer is
+#                 never paused because we could not ask.
+# A build where the shared helper is ABSENT refuses to send
+# ("gate_helper_absent"): that is a missing enforcement surface on a Pro
+# source, a build defect, not a runtime outage.
+#
+# TODO(G7 helper): point SHARED_GATE_MODULE / SHARED_GATE_FUNC at the helper
+# once its PR names them.
+SHARED_GATE_MODULE = "ostler_fda.pro_gate"
+SHARED_GATE_FUNC = "entry_gate"
+GATE_STATES = ("active", "inactive", "unknown")
+
+
+def default_gate() -> str:
+    """Resolve the shared G7 helper and ask it about this source. Returns one
+    of ``GATE_STATES`` or ``"absent"``."""
+    import importlib
+
+    try:
+        mod = importlib.import_module(SHARED_GATE_MODULE)
+        fn = getattr(mod, SHARED_GATE_FUNC)
+    except (ImportError, AttributeError):
+        return "absent"
+    try:
+        verdict = fn(SOURCE)
+    except Exception as exc:  # noqa: BLE001 -- could not ask: fail open
+        logger.info("google_chat: G7 gate raised (%s); failing open", type(exc).__name__)
+        return "unknown"
+    return verdict if verdict in GATE_STATES else "unknown"
+
+
 def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,
-            people_fn=None, name_fn=None) -> dict:
+            people_fn=None, name_fn=None, gate_fn=None) -> dict:
     """Send new or changed conversations to the CM048 sink and correspondents
-    to the people sink. The ``*_fn`` hooks default to the real sinks and
-    exist so a test can drive the same code path against fakes.
+    to the people sink, if the G7 gate allows. The ``*_fn`` hooks default to
+    the real sinks and gate and exist so a test can drive the same code path
+    against fakes.
 
     Returns counts only.
     """
     from . import universal_import as ui
+
+    gate = (gate_fn or default_gate)()
+    if gate in ("inactive", "absent"):
+        reason = "not_pro" if gate == "inactive" else "gate_helper_absent"
+        logger.info("google_chat: import paused (%s); nothing sent", reason)
+        return {
+            "conversations_total": len(export_payloads(export)),
+            "conversations_unchanged": 0, "conversations_sent": 0,
+            "conversations_failed": 0, "conversations_unavailable": 0,
+            "conversations_status": "paused", "paused_reason": reason,
+            "people_status": "paused", "people_created": 0, "names_offered": 0,
+            "gate": gate,
+        }
+    if gate != "active":
+        logger.info("google_chat: G7 gate could not answer; failing open")
 
     conversations_fn = conversations_fn or ui._persist_conversations
     people_fn = people_fn or ui._persist_mail_contacts
@@ -950,6 +1012,7 @@ def persist(export: ChatExport, *, ledger: ImportLedger, conversations_fn=None,
         "people_status": people.get("persist_status"),
         "people_created": int(people.get("people_created", 0)),
         "names_offered": names_upgraded,
+        "gate": gate,
     }
 
 

@@ -102,6 +102,14 @@ def build_export(root: Path, *, user_info=True, big_space=False) -> Path:
     return root
 
 
+@pytest.fixture(autouse=True)
+def _entitled(monkeypatch, request):
+    """Every test runs ENTITLED unless it is a G7 test, which drives the gate
+    itself. The real default (the shared helper) is exercised by name below."""
+    if "g7" not in request.node.name:
+        monkeypatch.setattr(gc, "default_gate", lambda: "active")
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
@@ -124,7 +132,7 @@ def test_parses_dm_and_space_with_owner_from_user_info(tmp_path):
     ("2023-02-01T15:04:05Z", "2023-02-01T15:04:05+00:00"),
     (1675263845, "2023-02-01T15:04:05+00:00"),
     (1675263845000, "2023-02-01T15:04:05+00:00"),
-    (1675263845000000, "2023-02-01T15:04:05+00:00"),
+    (1675263845 * 10**6, "2023-02-01T15:04:05+00:00"),
 ])
 def test_timestamp_formats(raw, iso):
     dt, _ = gc.parse_timestamp(raw)
@@ -453,3 +461,72 @@ def test_people_land_once_matched_and_named(tmp_path, oxigraph):
     assert oxigraph.person_names() == ["Jane Smith", "John Jones"]
     r2 = _people_persist(root, state)
     assert r2["people_created"] == 0 and oxigraph.person_count() == 2
+
+
+# ---------------------------------------------------------------------------
+# G7: Google Chat is Pro (Andy, 2026-10-19). Gate at the entry point.
+# ---------------------------------------------------------------------------
+
+
+class _CountingPeople:
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, contacts, *, source):
+        self.calls += 1
+        return {"persist_status": "ok", "people_created": 0}
+
+
+def _g7_run(root, state, gate):
+    sink, people = _Sink(), _CountingPeople()
+    r = gc.persist(gc.parse_export(root), ledger=gc.ImportLedger(state),
+                   conversations_fn=sink.conversations, people_fn=people,
+                   name_fn=lambda n: 0, gate_fn=lambda: gate)
+    return r, sink, people
+
+
+def test_g7_not_entitled_sends_nothing_then_entitled_sends_all(tmp_path):
+    root = build_export(tmp_path / "export")
+    state = tmp_path / "ledger.json"
+    r, sink, people = _g7_run(root, state, "inactive")
+    assert (r["conversations_status"], r["paused_reason"]) == ("paused", "not_pro")
+    assert sink.sent == [] and people.calls == 0
+    assert gc.ImportLedger(state).entries == {}
+    r, sink, people = _g7_run(root, state, "active")
+    assert r["conversations_sent"] == 3 and len(sink.sent) == 3 and people.calls == 1
+
+
+def test_g7_could_not_ask_fails_open(tmp_path):
+    r, sink, _ = _g7_run(build_export(tmp_path / "export"), tmp_path / "l.json", "unknown")
+    assert r["conversations_sent"] == 3 and r["gate"] == "unknown"
+
+
+def test_g7_default_refuses_when_the_shared_helper_is_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr(gc, "SHARED_GATE_MODULE", "ostler_fda._no_such_g7_helper_for_tests")
+    assert gc.default_gate() == "absent"
+    sink = _Sink()
+    r = gc.persist(gc.parse_export(build_export(tmp_path / "export")),
+                   ledger=gc.ImportLedger(tmp_path / "l.json"),
+                   conversations_fn=sink.conversations, people_fn=_CountingPeople(),
+                   name_fn=lambda n: 0)
+    assert (r["conversations_status"], r["paused_reason"]) == ("paused", "gate_helper_absent")
+    assert sink.sent == []
+
+
+def test_g7_default_resolves_the_shared_helper(tmp_path, monkeypatch):
+    import types
+
+    asked = []
+    fake = types.ModuleType("ostler_fda_g7_fake_helper")
+    fake.entry_gate = lambda source: (asked.append(source), "inactive")[1]
+    monkeypatch.setitem(sys.modules, "ostler_fda_g7_fake_helper", fake)
+    monkeypatch.setattr(gc, "SHARED_GATE_MODULE", "ostler_fda_g7_fake_helper")
+    assert gc.default_gate() == "inactive" and asked == ["google_chat"]
+    fake.entry_gate = lambda source: "entitled-ish"   # an unknown word is not a yes
+    assert gc.default_gate() == "unknown"
+
+    def boom(source):
+        raise RuntimeError("receipt store unreadable")
+
+    fake.entry_gate = boom
+    assert gc.default_gate() == "unknown"

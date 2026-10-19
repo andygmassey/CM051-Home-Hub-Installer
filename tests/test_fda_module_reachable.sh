@@ -271,10 +271,13 @@ fi
 # dormant deliberately -- it repairs 30 of 128 over-merged nodes and leaves
 # 98 by design, so auto-running it on every customer graph is a product call
 # nobody has made yet.
-if grep -qE "^DORMANT \(acknowledged, unwired\)   3" <<< "$out"; then
-    ok "this repo reports 3 dormant modules, visible as three"
+# Bumped 3 -> 5 for google_chat_takeout and google_keep_takeout (CM051 #3022):
+# new Takeout importers that ship UNWIRED by the connectors brief until the
+# wiring PR gives them a caller in universal_import.
+if grep -qE "^DORMANT \(acknowledged, unwired\)   5" <<< "$out"; then
+    ok "this repo reports 5 dormant modules, visible as five"
 else
-    bad "the three dormant modules were absorbed into another count"
+    bad "the five dormant modules were absorbed into another count"
 fi
 # The whole point of the row is that the next person to ship the household
 # split finds it. If that string ever drops out, the handoff is gone.

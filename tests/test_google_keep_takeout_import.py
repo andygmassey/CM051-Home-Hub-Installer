@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE.parent / "vendor"))
 
 from ostler_fda import google_keep_takeout as gk  # noqa: E402
 
-USEC = 1675263845000000  # 2023-02-01T15:04:05Z
+USEC = 1675263845 * 10**6  # 2023-02-01T15:04:05Z, epoch microseconds
 
 
 def _note(keep: Path, name: str, data) -> None:
