@@ -150,6 +150,7 @@ gui_read() { # title kind default help choices id [error]
     [[ -z "$a" && "$2" == choice ]] && a="$3"   # the step's own default, as gui_read gives it
     printf '%s' "$a"
 }
+open() { echo "OPEN $*" >> "$FAKE_LOG"; return "${FAKE_OPEN_RC:-0}"; }   # never a real System Settings window
 . "$HELPERS"
 _assistant_mailbox_flow
 echo "ENABLED=$ASSISTANT_MAILBOX_ENABLED ADDRESS=$ASSISTANT_MAILBOX_ADDRESS PROVIDER=$ASSISTANT_MAILBOX_PROVIDER"
@@ -178,6 +179,29 @@ grep -q '^store ' "$tmp/fake.log" && pass "stored via the Keychain-backed store 
 grep -q '^hello ' "$tmp/fake.log" && pass "hello sent to the owner after a good self-test" || fail "no hello"
 grep -q '^HELLO_ID=<hello-test@example.test>$' <<< "$o" && grep -qxF 'hello_message_id = "<hello-test@example.test>"' <<< "$o" \
     && pass "the hello Message-ID is captured and written to the config block" || fail "hello id not recorded: $o"
+
+# iCloud identity steps (spec 2026-10-19): Internet Accounts, not a two-step screen.
+o="$(run_flow "$tmp/real.sh" "$A_OK")"
+grep -qxF "OPEN x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension" "$tmp/fake.log" \
+    && pass "iCloud: Internet Accounts is opened for the owner" || fail "iCloud: Internet Accounts not opened: $(cat "$tmp/fake.log")"
+grep -q '^PROMPT am_icloud_mail$' "$tmp/fake.log" && ! grep -q '^PROMPT am_two_step$' "$tmp/fake.log" \
+    && pass "iCloud: one iCloud Mail screen, no separate two-step screen" || fail "iCloud screens: $(grep '^PROMPT' "$tmp/fake.log" | tr '\n' ' ')"
+_ord="$(awk '$0=="PROMPT am_create"||$0=="PROMPT am_icloud_mail"||$0=="PROMPT am_app_password"||/^OPEN /{sub(/^PROMPT /,"");sub(/^OPEN .*/,"open");printf "%s,",$0}' "$tmp/fake.log")"
+[ "$_ord" = "am_create,open,am_icloud_mail,am_app_password," ] \
+    && pass "iCloud: create, open pane, iCloud Mail, app password, in that order" || fail "iCloud order: $_ord"
+o="$(FAKE_OPEN_RC=1 run_flow "$tmp/real.sh" "$A_OK")"
+grep -q 'Open it yourself and go to System Settings > Internet Accounts' <<< "$o" && grep -q 'ENABLED=true' <<< "$o" \
+    && pass "iCloud: if System Settings will not open, the owner gets the menu path and setup carries on" || fail "open failure: $o"
+o="$(run_flow "$tmp/real.sh" "am_choose=gmail
+am_address=tess.assistant.123@${GM}
+am_password=abcd-efgh-ijkl-mnop")"
+grep -q '^PROMPT am_two_step$' "$tmp/fake.log" && ! grep -q '^OPEN ' "$tmp/fake.log" \
+    && pass "Gmail keeps its two-step screen and opens no Mac pane" || fail "gmail screens: $(cat "$tmp/fake.log")"
+sed '/_am_open_pane "\$_AM_PANE_INTERNET_ACCOUNTS"/d' "$tmp/real.sh" > "$tmp/noopen.sh"
+if cmp -s "$tmp/real.sh" "$tmp/noopen.sh"; then fail "mutant 'pane not opened' did not change the file"; else
+    run_flow "$tmp/noopen.sh" "$A_OK" >/dev/null
+    grep -q '^OPEN ' "$tmp/fake.log" && fail "mutant NOT caught: pane not opened" || pass "mutant caught: pane not opened"
+fi
 
 o="$(run_flow "$tmp/real.sh" "")"
 grep -q 'ENABLED=false' <<< "$o" && ! grep -q '^probe' "$tmp/fake.log" && ! grep -q '^store' "$tmp/fake.log" \
