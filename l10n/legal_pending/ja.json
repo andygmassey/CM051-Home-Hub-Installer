@@ -54,11 +54,6 @@
   "src_hash": "03eef4cb097a",
   "src": "Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
  },
- "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LOCAL": {
-  "text": "取得した音声をご自身のMac上に置いても、この義務はなくなりません。Ostlerが音声を外部に送信することはありませんが、現地の法律で同意が必要な場合は、同意を得る必要があります。",
-  "src_hash": "55430bb1c4e2",
-  "src": "Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it."
- },
  "install_sh::MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT": {
   "text": "メールの会話: 設定していません。Ostlerが他の人のメッセージを読み取ることに同意されていないためです。",
   "src_hash": "32aca8898998",
@@ -105,7 +100,7 @@
   "src": "WhatsApp connector will be enabled (consent recorded)"
  },
  "install_sh::MSG_PROMPT_AUTOLOGIN_CONSENT": {
-  "text": "再起動後に自動でサインインできるよう、ログインパスワードをこの Mac に保存しますか？ [y/N]",
+  "text": "再起動後に自動でサインインできるよう、ログインパスワードをこの Mac に保存しますか？ [y = はい / N = いいえ]",
   "src_hash": "85e979bb28a6",
   "src": "Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
  },
@@ -115,7 +110,7 @@
   "src": "Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
  },
  "install_sh::MSG_PROMPT_CONSENT_ARTICLE_9_TITLE": {
-  "text": "あなたの決定(Y / N)",
+  "text": "あなたの決定(Y = はい / N = いいえ)",
   "src_hash": "10561852e436",
   "src": "Your decision (Y / N)"
  },
@@ -279,11 +274,6 @@
   "src_hash": "925de39a061f",
   "src": "legal package not bundled with installer. Article 9 / WhatsApp / voice consent gates will raise ModuleNotFoundError until re-installed."
  },
- "viewcopy::consent_article_9/intro_body": {
-  "text": "最後に、OstlerがMac上で確認する内容について\n\nOstlerはパーソナルアシスタントなので、このMacに保存されているあなたの生活の情報を参照して動作します。その中にはセンシティブな情報も含まれます。英国およびEUのプライバシー法では、そのような情報に触れる前に、わかりやすい言葉で確認を取ることが求められています。\n\nデータの保存場所。Ostlerが読み取る情報はすべてこのMac上にとどまり、あなただけが開けられる暗号化フォルダに保存されます。当社がコピーを受け取ることはありません。データの「クラウド」版は存在しません。\n\n対象範囲。有効にするコネクタによっては、Ostlerが法律で「特別カテゴリー」のデータとされる次の種類の情報を処理することがあります:\n\n- メール、メッセージ、カレンダーの予定、文字起こしした会話の中で触れた健康に関する情報\n- 上記のいずれかで触れた宗教的または哲学的信条\n- 上記のいずれかで触れた性的指向\n- 労働組合への加入\n- 声:通話で誰が話しているかを示すラベル付け(話者識別)。これは任意のOstler iPhoneコンパニオンアプリが、あなたのiPhone上でのみ、そのアプリ内の別の同意画面に基づいて行います。このMacでは行いません。このMacが音声データや声紋を受け取ることはありません。(声から気分、感情、感情の傾向、ストレス、虚偽を推測することはありません。)\n- 上記のいずれかで触れた犯罪行為(あなた自身のものも他の人のものも)\n\n感情認識は行いません。今後変更する場合は、新しい同意画面で改めて別途確認します。\n\n上記のカテゴリーはこのMac上で処理され、Macの外に出ません。唯一の例外は声による話者識別で、前述のとおりiPhone上でのみ行われ、このMacには届きません。これらのデータがCreative Machinesや第三者に送信されることはありません。ただし、ostler.ai/privacy のプライバシーポリシーに記載された特定の場合(主に、個人情報を含まない質問の任意のクラウド経由、ソフトウェアアップデートの確認、いくつかの公開メタデータサービス)を除きます。\n\nお気持ちが変わったら、いつでも変更できます。次の操作が可能です:\n\n- 設定で個々のコネクタ(メール、カレンダー、WhatsAppなど)をオフにする。Ostlerはそのソースを読み取らなくなります\n- メニューの「Ostlerをリセット」で、Ostlerが保存したすべてのデータを削除する\n- ~/Documents/Ostler/Uninstall Ostler.app のアンインストーラでOstlerを完全に削除する\n\n同意を撤回すると、その時点以降の処理は停止します。以前の同意のもとでOstlerがすでに行った処理が取り消されることはありません。",
-  "src_hash": "42a21a3d94eb",
-  "src": "One last thing – what Ostler will look at on your Mac\n\nOstler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.\n\nWhere the data lives. Everything Ostler reads stays on this Mac, in encrypted folders only you can unlock. We never get a copy. There is no \"cloud\" version of your data.\n\nWhat's in scope. Depending on which connectors you turn on, Ostler may process the following kinds of information that the law treats as \"special category\" data:\n\n- Health information that you mention in emails, messages, calendar entries or transcribed conversations\n- Religious or philosophical beliefs mentioned in any of the above\n- Sexual orientation mentioned in any of the above\n- Trade union membership\n- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iPhone Companion app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice captures or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)\n- Mentions of criminal offences – your own or other people's – in any of the above\n\nWe do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.\n\nThe categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services).\n\nYou can change your mind any time. You can:\n\n- turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source\n- delete everything Ostler has stored using \"Reset Ostler\" in the menu\n- completely uninstall Ostler using the uninstaller at ~/Documents/Ostler/Uninstall Ostler.app\n\nWithdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent."
- },
  "viewcopy::consent_article_9/legal_note": {
   "text": "法的注記:OstlerがこのMac上で処理するすべての特別カテゴリーデータについて、あなたがデータ管理者です(UK GDPR第4条(7))。Creative Machinesがこれらのデータを受け取ることはありません。処理の適法性の根拠は、上記のあなたの明示的な同意です(UK GDPR第9条(2)(a))。個人または家庭内での利用については、第2条(2)(c)によりさらに適用範囲が限定されます。この同意はいつでも撤回でき、すでに行われた処理には影響しません。",
   "src_hash": "a4fc71a80e6c",
@@ -313,11 +303,6 @@
   "text": "Ostlerは、あなたが取り込んだ通話や会議などの話し言葉の音声を、検索できるテキストに変換できます。入力やメッセージのやり取りには影響しません。法律で必要とされる同意を得る責任は、当社ではなくあなたにあります。",
   "src_hash": "349f97b07f6e",
   "src": "Ostler can turn spoken audio you capture – calls and meetings – into searchable text. Typing and messaging are unaffected. Getting any consent the law requires is your responsibility, not ours."
- },
- "viewcopy::consent_spoken_capture/legal_note": {
-  "text": "法的注記:人の話し声の録音に関する規則は国によって異なり、一部の国(たとえばドイツやフランス)では、参加者全員が事前に同意する必要があります。取り込んだ音声をご自身のMac上にとどめても、この義務はなくなりません。Ostlerが音声をどこかへ送信することはありませんが、お住まいの地域の法律で同意が必要な場合は、同意を得る必要があります。話し言葉の録音は、データ保護法とは別に、国の法律そのものによって規制されることがあります。たとえばドイツ刑法第201条(Verletzung der Vertraulichkeit des Wortes)やフランス刑法第226-1条です。このMacで録音を行う方として、法令を遵守する責任はあなたにあります。Creative Machinesがあなたの録音を受け取ることはなく、当事者にもなりません。",
-  "src_hash": "0a6baeca822d",
-  "src": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
  },
  "viewcopy::consent_third_party/intro_body": {
   "text": "サードパーティから取り込んだデータ(Google Takeout、Metaのダウンロード、LinkedInのエクスポートなど)は、すべてこのMac上にとどまります。Ostlerはそれらをローカルのナレッジグラフに保存し、データがデバイスの外に出ることはありません。\n\n続けることで、このデータをお使いのマシン上で処理・保管する責任は、ハードディスクにすでにあるメールメッセージと同様に、すべてご自身にあることを理解し、同意したものとみなされます。",

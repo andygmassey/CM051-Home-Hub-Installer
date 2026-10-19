@@ -778,6 +778,7 @@ def save_legal_pending(lang, d):
 # --------------------------------------------------------------------------
 
 YN = re.compile(r"\(y/n\)|\(Y/n\)|\(y/N\)|Y / N|Y/N|\[y/N\]|\[Y/n\]")
+YN_LABELLED = re.compile(r"\b[Yy] = [^/\n]{1,20} / [Nn] = ")
 LIT = re.compile(r"https?://\S+|[\w.+-]+@[\w-]+\.[\w.]+|~/\S+|\b(?:127\.0\.0\.1|localhost):\d+")
 
 
@@ -801,7 +802,9 @@ def mech(u, out, cfg):
         if bounded.search(src) and not bounded.search(out):
             errs.append(f"verbatim token {tok!r} lost")
     for m in YN.findall(src):
-        if m not in out:
+        # The cue stays, or is spelled out in the language: "(Y = oui / N = non)",
+        # "[y = ja / N = nein]" (the installer still accepts Y/N; reviewer Veinand, 2026-10-19).
+        if m not in out and not YN_LABELLED.search(out):
             errs.append(f"y/n cue {m!r} lost")
     for m in LIT.findall(src):
         m = m.rstrip(".,;:)")
@@ -1342,6 +1345,10 @@ def cmd_self_test(cfg):
         d = copy.deepcopy(cat_x)
         d["strings"]["Hello %@, %lld new"]["localizations"]["de"]["stringUnit"]["value"] = "Hallo, %lld neu"
         json.dump(d, open(os.path.join(tmp, "L.xcstrings"), "w"))
+        import types
+        _u = types.SimpleNamespace(src="Go on? [y/N]", key="K", ctx="", uid="x::K", kind="other")
+        results["y/n cue spelled out passes"] = not any("y/n cue" in e for e in mech(_u, "Weiter? [y = ja / N = nein]", c2))
+        results["y/n cue dropped fails"] = any("y/n cue" in e for e in mech(_u, "Weiter?", c2))
         results["dropped %@ fails"] = quiet(cmd_check, c2) == 1
         json.dump(cat_x, open(os.path.join(tmp, "L.xcstrings"), "w"))
         # mutant 2: a lost verbatim token in the shell catalogue

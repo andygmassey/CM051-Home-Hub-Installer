@@ -1,6 +1,6 @@
 file	key	state	reason
+gui/OstlerInstaller/Resources/HintCopy.json	editor_frontpage/title	needs_review	Confirm whether the feature name 'Front Page' is translated as 'Primeira Página' consistently across the app.
+gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Source itself uses 'recorded/recordings' for user's own audio; consent sentence, legal check advised
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; 'número licenciado' is unnatural. Needs the full sentence to confirm agreement and word order.
 gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step1	needs_review	Menu label must match WhatsApp's own pt-PT UI wording for 'Linked devices'; needs verification on a pt-PT device.
 gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	Quoted button labels must match WhatsApp's actual pt-PT UI; verify on a pt-PT device.
-gui/OstlerInstaller/Resources/HintCopy.json	editor_frontpage/title	needs_review	Confirm whether the feature name 'Front Page' is translated as 'Primeira Página' consistently across the app.
-gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Source itself uses 'recorded/recordings' for user's own audio; consent sentence, legal check advised
