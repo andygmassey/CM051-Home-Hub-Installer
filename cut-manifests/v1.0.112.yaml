@@ -6883,3 +6883,8 @@ open_issues:
     repo: CM051
     title: 'gen_hub_contract.py lists every gateway route on 8443, but 8443 serves only a frozen allowlist'
     gate: 'NOT BLOCKING for v1.0.109 (Archie, 2026-10-19). Registered so the cut checklist stays the register: #2998 went red on "1 OPEN issue(s) are not in the checklist: [3003]". CODE: scripts/gen_hub_contract.py gives every gateway route ports [8000, companion_port], but since v1.0.108 the 8443 listener serves only ostler-assistant FROZEN_COMPANION_ALLOWLIST. No shipped client chooses its base port from the contract, so nothing a customer does changes. FIX SHAPE: read the allowlist from the lib.rs the generator already parses and add 8443 only for matching routes. Lands with or after the #2988 re-pin (v1.0.110).'
+
+  - issue: 3040
+    repo: CM051
+    title: 'apple_music arm returns status not_found/media_library_not_granted instead of ok with 0 tracks'
+    gate: 'NOT BLOCKING for v1.0.112 (Archie, 2026-10-20): the apple_music arm reports media_library_not_granted (and not_found) as a FAILURE where its own contract says a refused permission or empty library is status ok with 0 tracks. PRODUCT defect in the arm, not yet fixed. It needs the Media and Apple Music grant to measure, which is on Andy''s console list for the 113 walk. Not a tester gate under the F&F rule (no install, data-loss, privacy or core-flow break); the fix PR is owed.'
