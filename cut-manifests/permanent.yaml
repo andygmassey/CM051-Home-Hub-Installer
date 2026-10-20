@@ -177,6 +177,37 @@ entries:
       hold_ack:
         reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission. (N+1) 2026-10-19 v1.0.111 (Archie): pin hub-v0.5.23 = oa graft de05a70a; the 34 oa main commits outside the graft are 15 GRAFTED as cherry-picks (shipping bugfixes and the brief stack) and 19 HELD features (Telegram, i18n, invites, frontpage). Same adjudication as scripts/daemon_hold_ack.tsv row de05a70a."
         shas:
+          - c33f613824  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(gateway): app chat honours the web_fetch egress gate with the pair
+          - 9032d90ee3  # hub-v0.5.25 graft 85bd53af (cherry-picked): test(gateway): app chat through the real /ws/chat handler vs the web_f
+          - e4637c1f2d  # hub-v0.5.25 graft 85bd53af (cherry-picked): Make the owner-write taint TURN-scoped (Archie ruling)
+          - 1549155fa3  # hub-v0.5.25 graft 85bd53af (cherry-picked): Owner-write tools need an owner-originated, untainted turn (prompt-inj
+          - cad9472f9a  # hub-v0.5.25 graft 85bd53af (cherry-picked): tests inside the loop_ tests module
+          - 4647321b73  # hub-v0.5.25 graft 85bd53af (cherry-picked): fmt
+          - 07ebfb780d  # hub-v0.5.25 graft 85bd53af (cherry-picked): clippy: collapse if
+          - 95a6dc1e5d  # hub-v0.5.25 graft 85bd53af (cherry-picked): dispatcher: escape tool-result tags and test the /ws/chat formatting p
+          - 7b1c509099  # hub-v0.5.25 graft 85bd53af (cherry-picked): Escape tool-result framing tags and state tool results are data (promp
+          - 4567e3526c  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(brief): rebase onto main with 594s read-only allow-list; rollback 
+          - 4e2be23ca8  # hub-v0.5.25 graft 85bd53af (cherry-picked): chore: remove two clippy logs committed by mistake
+          - 7ddeb311f2  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(brief): the walks morning-brief-walk-probe copy takes the slotted 
+          - a43600f366  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(brief): stricter voice slots, exact shipped job ids, exact rollbac
+          - d0aa79c1b6  # hub-v0.5.25 graft 85bd53af (cherry-picked): feat(brief): slotted voice is the production path for the morning brie
+          - 6cfab02f2c  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(brief): opening_of keeps a style fragment only; validator rejects 
+          - 2413e3fa3c  # hub-v0.5.25 graft 85bd53af (cherry-picked): fmt
+          - 552afc00ce  # hub-v0.5.25 graft 85bd53af (cherry-picked): Keep digest text after the guidance paragraph; owner card keeps its ow
+          - c8193eabd6  # hub-v0.5.25 graft 85bd53af (cherry-picked): fmt
+          - edd6fb68a5  # hub-v0.5.25 graft 85bd53af (cherry-picked): test: smuggled heading without an instruction marker
+          - 5102d65790  # hub-v0.5.25 graft 85bd53af (cherry-picked): Quote CONTEXT.md as sanitised data in the system prompt (prompt-inject
+          - ccbac9420a  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(agent): egress gate trusts only the owners RAW channel text, whole
+          - e254b68a67  # hub-v0.5.25 graft 85bd53af (cherry-picked): test(agent): egress red cases from review (injected context, non-owner
+          - 5844ce8725  # hub-v0.5.25 graft 85bd53af (cherry-picked): style: cargo fmt
+          - 7b80177664  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(agent): egress gate, web_fetch runs only on an owner-typed URL, ht
+          - e956fa0444  # hub-v0.5.25 graft 85bd53af (cherry-picked): test(agent): hostile forwarded email vs web_fetch on a channel turn (R
+          - 8fb3ecce17  # hub-v0.5.25 graft 85bd53af (cherry-picked): style: cargo fmt
+          - 1d0bb7c616  # hub-v0.5.25 graft 85bd53af (cherry-picked): fix(cron): scheduled agent jobs run with a fixed read-only tool allowl
+          - 81e6492871  # hub-v0.5.25 graft 85bd53af (cherry-picked): test(cron): hostile calendar invite through the real scheduler path (R
+          - 1b649ff936  # hub-v0.5.25 graft 85bd53af (cherry-picked): gitignore: ignore node_modules symlinks as well as directories
+          - 5e125a0fc1  # hub-v0.5.25 graft 85bd53af (cherry-picked): remove stray ds.good and web/node_modules symlink
+          - 186c94d6e5  # hub-v0.5.25 graft 85bd53af (cherry-picked): doctor: Data sources never reads Up to date without a count above zero
           - cf82dab8ef  # fix(doctor): clippy field_reassign_with_default in probe-path tests (#173)
           - ab20c46333  # style: cargo fmt (wrap long closure in doctor no-routes test)
           - 6de15f6622  # fix(doctor+channels+config): v1.0.13 install-log noise cleanup (main variant of R6 in tag)
