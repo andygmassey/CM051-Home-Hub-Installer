@@ -33,6 +33,7 @@ import httpx
 import phonenumbers
 
 from . import forget_tombstone
+from .url_clean import strip_tracking
 from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
 from .role_addresses import is_sender_id_identifier
@@ -2304,7 +2305,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
     skipped_sensitive = 0
     queue: list[dict] = []
     for v in visits:
-        url = (v.get("url") or "").strip()
+        # Strip tracking params here too: safari_history.json files
+        # written by an older extractor still carry them. The cleaned
+        # url feeds the point id, so the dedupe key is the cleaned url.
+        url = strip_tracking((v.get("url") or "").strip())
         if not url:
             continue
         domain = (v.get("domain") or "").strip()
@@ -2542,7 +2546,7 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
     queue: list[dict] = []
     seen_urls: set[str] = set()
     for b in bookmarks:
-        url = (b.get("url") or "").strip()
+        url = strip_tracking((b.get("url") or "").strip())
         if not url or url in seen_urls:
             continue
         domain = (b.get("domain") or "").strip()
