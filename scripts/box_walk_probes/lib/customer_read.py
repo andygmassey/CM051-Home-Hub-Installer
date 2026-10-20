@@ -687,12 +687,19 @@ def judge(f, declared=None):
         add(DECLARED[15], org["wiki front"] == org["Organisations page"], ", ".join("{} {}".format(k, v) for k, v in org.items()))
 
     # sources
+    # An explicit key always wins over an alias: the graph merge ("people") is
+    # only the Contacts answer when the API gave no "contacts" row of its own.
+    # ORing them let people=ok mask contacts=no_data (v1.0.115 walk, H1).
     api = {}
+    aliased = {}
     for s, st in (f.get("api") or {}).get("sources") or []:
         s2 = API_ALIASES.get(s, s)
         if s2:
             c = status_class(st)
-            api[s2] = "ok" if (api.get(s2) == "ok" or c == "ok") else c
+            dest = aliased if s in API_ALIASES else api
+            dest[s2] = "ok" if (dest.get(s2) == "ok" or c == "ok") else c
+    for s2, c in aliased.items():
+        api.setdefault(s2, c)
     wl = (wiki.get("front") or {}).get("sources")
     if wl is None:
         add(DECLARED[16], None, "NOT MEASURED: the wiki source list was not read")
