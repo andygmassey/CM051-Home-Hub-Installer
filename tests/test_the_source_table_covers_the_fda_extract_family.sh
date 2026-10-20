@@ -280,6 +280,7 @@ names = ["_hydrate_payload_count", "_hydrate_payload_is_all_zero",
          "_hydrate_sentinel_record_error", "_hydrate_sentinel_record_cannot_run",
          "_hydrate_fda_decision",
          "_hydrate_fda_record_photos", "_hydrate_fda_record_reminders",
+         "_hydrate_fda_record_apple_music",
          "_hydrate_record_fda_extract"]
 body = []
 for n in names:
@@ -470,6 +471,34 @@ case "$_c" in
     "nothing to read|"*) ok "a source whose store is not on this Mac reads 'nothing to read'" ;;
     "")  bad "a not-found source produced no row" ;;
     *)   bad "the not-found Photos row reads '${_c}'" ;;
+esac
+
+# ── Apple Music (#3040): the arm now says ok with 0 tracks; Doctor still
+# tells refused apart from empty, by native_status, and a real error stays one.
+_am() { printf '{"sources":{"apple_music":{"status":"%s","total_tracks":%s,"total_playlists":0,"native_status":"%s","reason":"%s"}}}' "$1" "$2" "$3" "$4"; }
+_drive "$(_am ok 0 unavailable 'permission not granted')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "could not look|"*) ok "Apple Music ok/0 tracks/permission refused reads 'could not look', not a measured zero" ;;
+    *) bad "Apple Music ok/0 tracks/permission refused rendered '${_c}', expected 'could not look'" ;;
+esac
+_drive "$(_am ok 0 empty 'library empty')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "nothing to read|"*) ok "Apple Music ok/0 tracks/empty library reads 'nothing to read'" ;;
+    *) bad "Apple Music ok/0 tracks/empty library rendered '${_c}', expected 'nothing to read'" ;;
+esac
+_drive "$(_am ok 12 ok '')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "read in|"*) ok "CONTROL: Apple Music with tracks reads 'read in'" ;;
+    *) bad "CONTROL: Apple Music with 12 tracks rendered '${_c}'" ;;
+esac
+_drive "$(_am error 0 not_tried '')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "could not look|"*|"failed|"*|"error|"*) ok "a real Apple Music error is not rendered as healthy (${_c})" ;;
+    *) bad "a real Apple Music error rendered '${_c}'" ;;
 esac
 
 # ── a state the reader has never seen must surface, not be absorbed ──────
