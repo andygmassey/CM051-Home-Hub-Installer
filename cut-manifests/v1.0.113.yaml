@@ -1,6 +1,6 @@
 # cut-manifests/v1.0.113.yaml
-# OPENED 2026-10-20 BY CARRYING v1.0.112's REGISTER FORWARD IN FULL (ORM), for v1.0.113: main + cut/v1.0.112 + hub-v0.5.24
-# (oa graft ccb7b168 = hub-v0.5.23 + oa #591, Doctor Data sources). Rows carried VERBATIM; the 18 v1.0.112 rows await Archie's mapping for v1.0.113.
+# OPENED 2026-10-20 BY CARRYING v1.0.112's REGISTER FORWARD IN FULL (ORM), for v1.0.113: main (111/112 content via #3033) + hub-v0.5.25
+# (oa graft 85bd53af = hub-v0.5.23 + oa #591, then #594 #597 #595 #593 #596 #598 #599: brief and prompt-injection fixes; Andy held the tag for it). Rows carried VERBATIM; the 18 v1.0.112 rows await Archie's mapping for v1.0.113.
 # ============================================================================
 # OPENED 2026-10-19 BY CARRYING v1.0.111's REGISTER FORWARD IN FULL (ORM), for v1.0.112: main 5ddc33d3 + the v1.0.111 cut
 # commits + CM041 #225 (path safety) + the fix Archie rules on the v1.0.111 walk failure. Daemon unchanged: hub-v0.5.23 (oa de05a70a).
