@@ -37,6 +37,22 @@ pr_exemptions:
   # 39041651077 named 16 CM051 PRs open >48h. 15 are below, each with its own
   # reason; #1818's existing row is re-dated in place.
   # -------------------------------------------------------------------------
+  # v1.0.113 PR-AGE EXEMPTIONS, ORM 2026-10-20 under the coordinator's standing ruling (2 over 48h, 3 within 2h of it).
+  - ref: "CM051-Home-Hub-Installer#2973"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.113: open PR on main, NOT taken by the v1.0.113 cut (cut/v1.0.113 pins main as merged at its last main merge and hub-v0.5.25). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
+    review_by: 2026-10-27
+  - ref: "CM051-Home-Hub-Installer#2980"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.113: open PR on main, NOT taken by the v1.0.113 cut (cut/v1.0.113 pins main as merged at its last main merge and hub-v0.5.25). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
+    review_by: 2026-10-27
+  - ref: "CM051-Home-Hub-Installer#2988"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.113: open PR on main, NOT taken by the v1.0.113 cut (cut/v1.0.113 pins main as merged at its last main merge and hub-v0.5.25). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
+    review_by: 2026-10-27
+  - ref: "CM051-Home-Hub-Installer#2989"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.113: open PR on main, NOT taken by the v1.0.113 cut (cut/v1.0.113 pins main as merged at its last main merge and hub-v0.5.25). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
+    review_by: 2026-10-27
+  - ref: "CM051-Home-Hub-Installer#2990"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.113: open PR on main, NOT taken by the v1.0.113 cut (cut/v1.0.113 pins main as merged at its last main merge and hub-v0.5.25). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
+    review_by: 2026-10-27
   # v1.0.112 PR-AGE EXEMPTIONS, ORM 2026-10-19 under the coordinator's standing ruling.
   - ref: "CM051-Home-Hub-Installer#2962"
     reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.112: open PR on main, NOT taken by the v1.0.112 cut (cut/v1.0.112 is branched from main 5ddc33d3 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
