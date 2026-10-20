@@ -1581,6 +1581,14 @@ say "   would block 90s and report a timed-out step every single walk."
 say "   ⚠️  THIS WALK THEREFORE DOES NOT TEST THE REAL AUTOMATION PROBE."
 say "   Only a console walk by a human can. Never shim it to granted-and-working."
 
+# MARK THE INSTALL AS HARNESS-DRIVEN, ON THE BOX. box_walk_probes/lib/db_key_probe.py
+# reads this (with install.log's run header) to tell an ssh-harness install, which
+# has no GUI app to make the DB key file, from a console install, where the same
+# "no database key resolved" refusal is the launch blocker. Written by the box's
+# own clock; absent on any install this script did not start.
+"${SSH[@]}" 'mkdir -p ~/.ostler && printf "ttywalk %s\n" "$(date +%s)" > ~/.ostler/.install-harness' >/dev/null 2>&1 \
+    || say "WARNING: could not write ~/.ostler/.install-harness; db_key_reaches_every_service will treat this install as a console install"
+
 "${SSH[@]}" "cd '${REMOTE_DIR}' && \
     unset OSTLER_GUI_FD OSTLER_MARKER_FD && \
     PWG_IMESSAGE_PROBE_OUTCOME='${IMESSAGE_SHIM}' \
