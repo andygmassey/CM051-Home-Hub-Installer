@@ -210,8 +210,22 @@ def judge(f):
     add("timeline: history is reachable by scrolling",
         len(past) > 0, "0 rows before today after scrolling down")
     kinds = {r.get("kind") for r in rows}
-    add("timeline: rows are not all one type",
-        len(rows) < 10 or len(kinds) > 1, "kinds={}".format(sorted(k for k in kinds if k)))
+    screen_kinds = sorted(k for k in kinds if k)
+    box_kinds = t.get("box_kinds")
+    if not isinstance(box_kinds, list):
+        add("timeline: rows are not all one type", None,
+            "NOT MEASURED: the box's own kinds were not read ({}); screen kinds={}".format(
+                t.get("box_kinds_error") or "no box_kinds fact", screen_kinds))
+    elif not box_kinds:
+        add("timeline: rows are not all one type", None,
+            "NOT MEASURED: the timeline API holds no items; screen kinds={}".format(screen_kinds))
+    elif len(box_kinds) == 1:
+        add("timeline: rows are not all one type", True,
+            "box holds one kind ({}); screen shows {}".format(box_kinds[0], screen_kinds))
+    else:
+        add("timeline: rows are not all one type",
+            len(rows) < 10 or len(screen_kinds) > 1,
+            "box holds {}; screen shows {} over {} rows".format(box_kinds, screen_kinds, len(rows)))
     bare = [r for r in rows if (r.get("title") or "").strip().lower() in BARE_CHANNEL_TITLES]
     add("timeline: no row is titled with a bare channel name",
         not bare, "{} bare titles".format(len(bare)))
@@ -273,6 +287,24 @@ def redact_url(url):
     return _PEOPLE_SEG.sub(r"\1<redacted>", url or "")
 
 PEOPLE_API_PATH = "/api/v1/people?sort=recency"
+TIMELINE_API_PATH = "/api/v1/timeline?days=7&past_days=730&limit=500"
+
+
+def timeline_api_kinds(status, body):
+    """The kinds the Hub's own timeline API holds, as judge facts:
+    {"box_kinds": [sorted kinds]} or {"box_kinds_error": why}. Pure, so
+    --self-test covers it. A non-200 or malformed answer is an error (NOT
+    MEASURED), never an empty list: an empty list would read as "one kind"."""
+    if status != 200:
+        return {"box_kinds_error": "timeline API answered HTTP {}".format(status)}
+    try:
+        doc = json.loads(body)
+    except Exception as exc:
+        return {"box_kinds_error": "timeline API body is not JSON ({})".format(str(exc)[:80])}
+    if not isinstance(doc, dict) or not isinstance(doc.get("items"), list):
+        return {"box_kinds_error": "timeline API body has no items list"}
+    return {"box_kinds": sorted({i.get("kind") for i in doc["items"]
+                                 if isinstance(i, dict) and i.get("kind")})}
 
 
 def people_api_facts(status, body):
@@ -677,6 +709,12 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                   title: e.getAttribute('data-timeline-title')}))""")
         except Exception as exc:
             t["error"] = _err(exc)
+        try:
+            r = page.context.request.get(base + TIMELINE_API_PATH, timeout=60000,
+                                         headers={"Authorization": "Bearer " + token})
+            t.update(timeline_api_kinds(r.status, r.text()))
+        except Exception as exc:
+            t["box_kinds_error"] = "timeline API unreachable: " + _err(exc, 120)
         facts["timeline"] = t
 
         # -- people --------------------------------------------------------
@@ -884,6 +922,7 @@ def _good():
                  "stylesheets": [{"url": "u/assets/main.css", "status": 200,
                                   "content_type": "text/css"}]},
         "timeline": {"today": "2026-09-28", "today_in_view": True, "today_top": 40,
+                     "box_kinds": ["meeting", "message"],
                      "rows": [{"kind": "meeting", "day": "2026-09-28", "title": "Lunch"},
                               {"kind": "message", "day": "2026-09-20",
                                "title": "WhatsApp with A"}] * 6},
@@ -934,6 +973,9 @@ MUTANTS = [
     ("timeline has no history", lambda f: f["timeline"].update(
         rows=[{"kind": "meeting", "day": "2026-09-29", "title": "x"}] * 3)),
     ("timeline all MEETING", lambda f: f["timeline"].update(
+        rows=[{"kind": "meeting", "day": "2026-09-20", "title": "t%d" % i} for i in range(12)])),
+    ("timeline box unknown but all MEETING on screen", lambda f: f["timeline"].update(
+        box_kinds=None, box_kinds_error="HTTP 401",
         rows=[{"kind": "meeting", "day": "2026-09-20", "title": "t%d" % i} for i in range(12)])),
     ("timeline bare channel title", lambda f: f["timeline"]["rows"].append(
         {"kind": "message", "day": "2026-09-20", "title": "whatsapp"})),
@@ -1060,6 +1102,14 @@ def self_test():
         print("SELF-TEST FAIL: people_api_facts misread a good body: {}".format(got))
         return EX_FAIL
     print("  ok    people_api_facts reads every name from a good body")
+    for st, body, want in ((200, json.dumps({"items": [{"kind": "event"}, {"kind": "event"}, {"kind": "message"}, {}]}),
+                            {"box_kinds": ["event", "message"]}),
+                           (401, "{}", None), (200, "not json", None), (200, "{}", None)):
+        got = timeline_api_kinds(st, body)
+        if (want is not None and got != want) or (want is None and "box_kinds_error" not in got):
+            print("SELF-TEST FAIL: timeline_api_kinds misread HTTP {} {!r}: {}".format(st, body[:20], got))
+            return EX_FAIL
+    print("  ok    timeline_api_kinds reads kinds from a good body and errors on a bad one")
     base = judge(_good())
     bad = [n for n, ok, _ in base if not ok]
     if bad:
