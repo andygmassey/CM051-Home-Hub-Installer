@@ -521,3 +521,28 @@ class TestExtractAllArm:
         from ostler_fda import extract_all as ea
         summary = ea.run_all(output_dir=tmp_path / "o", enabled_sources=["safari_history"])
         assert summary["sources"]["call_history"] == {"status": "disabled_by_user"}
+
+
+# ── the twin gate: the vendored reader IS the upstream reader ───────────────
+#
+# vendor/ostler_fda/call_history.py is a byte copy of HR015
+# ostler_fda/call_history.py. Until the ostler_fda pin moves past the HR015 PR
+# that adds it, it is declared vendor-only (vendor/VENDOR_ONLY.tsv). Editing
+# either copy alone changes this digest and fails here; re-copy BOTH and update
+# the digest in the same PR.
+CALL_HISTORY_SHA256 = "1957ab49bfc6ac7a848550fa1b75fb1419573ff24286d95edfffb0fdc807202a"
+
+
+def test_vendored_call_history_is_byte_identical_to_the_pinned_upstream_copy():
+    import hashlib
+    got = hashlib.sha256(
+        (ROOT / "vendor" / "ostler_fda" / "call_history.py").read_bytes()).hexdigest()
+    assert got == CALL_HISTORY_SHA256, (
+        "vendor/ostler_fda/call_history.py drifted from the pinned HR015 copy; "
+        "re-copy it from HR015 and update CALL_HISTORY_SHA256 in the same PR")
+
+
+def test_the_gate_can_fail_a_one_byte_drift(tmp_path):
+    import hashlib
+    src = (ROOT / "vendor" / "ostler_fda" / "call_history.py").read_bytes()
+    assert hashlib.sha256(src + b" ").hexdigest() != CALL_HISTORY_SHA256
