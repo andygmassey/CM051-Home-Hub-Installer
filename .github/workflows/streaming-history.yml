@@ -39,7 +39,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install --quiet pytest httpx
+      # phonenumbers and nameparser: the vendored ostler_fda modules import
+      # them at module top (identifier_quality.py:88 needs nameparser), so
+      # without them pytest collects 0 tests. Same set as catchup-machinery.yml.
+      - run: python -m pip install --quiet pytest httpx phonenumbers nameparser
       - name: Recogniser, writer, consumers and catch-up (collected-count floor)
         run: |
           n="$(python -m pytest tests/test_streaming_history_vendored.py \

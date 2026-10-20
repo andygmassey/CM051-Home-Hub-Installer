@@ -22,6 +22,12 @@ bytes are meant to match the source PR.
 - `vendor/ostler_fda/catchup_browser.py` (vendor-only file, no upstream):
   calls `pwg_ingest.ingest_streaming` on each catch-up window, so history
   older than the install window reaches the same preferences path.
+  HR015 has no `catchup_browser.py` at all (checked: `git ls-tree -r
+  origin/main` has no catchup file), so the HR015 twin of this PR cannot carry
+  this hunk and the two PRs are NOT byte-identical by design: HR015 gets
+  `streaming_history.py`, the `pwg_ingest` hunk and the HR015 tests; CM051
+  adds this hunk and `tests/test_streaming_history_vendored.py`. The
+  `pwg_ingest.py` and `streaming_history.py` bytes ARE identical (`cmp`).
 
 ## Proof
 
