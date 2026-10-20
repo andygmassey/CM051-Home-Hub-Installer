@@ -475,6 +475,7 @@ fi
 if [ "$READ_ONLY" -eq 0 ]; then
     # Flush left: see the grounding seed's comment above this same shape.
 preference_seed_apply || true
+OSTLER_PREF_SEED_STATE="${PREFERENCE_SEED_STATE:-unrun}"; export OSTLER_PREF_SEED_STATE
 else
     printf '  SKIPPED (read-only): preference seed not applied.\n\n'
 fi
