@@ -87,8 +87,21 @@ def judge(f):
     if seed.get("db_state") == "absent":
         # Absent file: before hydration the writer has not had a chance, so
         # CANNOT-RUN; after hydration the observations were lost, so FAIL.
-        if seed.get("hydrated") is True:
-            add(DECLARED[2], False, "the coach db is ABSENT at the writer's path AFTER hydration (conversations were processed, nothing was written)")
+        inst = f.get("install") or {}
+        refused = inst.get("key_refusal") is True
+        via = inst.get("via") or "unknown"
+        if refused and via == "ssh-harness":
+            # The installer refused to create the coach db because no DB key
+            # file reached it, over the non-GUI ssh harness (which cannot make
+            # the key the GUI app makes). The db never existed to be keyed:
+            # the instrument cannot run here. NOT the console case.
+            add(DECLARED[2], None, "CANNOT-RUN: case ssh-harness install refusal. install.log says 'no database key resolved' and the install ran over the ssh harness, so the coach db was never created; a console install is the walk that proves the key")
+        elif seed.get("hydrated") is True:
+            if refused:
+                why = " [case console/unknown install refusal: install.log says 'no database key resolved' and the install was NOT proven to be the ssh harness (via=%s), so this stays FAIL: the launch blocker]" % via
+            else:
+                why = " [case no install refusal recorded: install.log does not say 'no database key resolved' (via=%s)]" % via
+            add(DECLARED[2], False, "the coach db is ABSENT at the writer's path AFTER hydration (conversations were processed, nothing was written)" + why)
         else:
             add(DECLARED[2], None, "NOT MEASURED: the coach db is absent and the box is not hydrated yet (hydrated={})".format(seed.get("hydrated")))
     elif not seed.get("attempted"):
@@ -279,6 +292,40 @@ def seed_and_readback(token, service_token, api_base=ICAL_SERVER_BASE_DEFAULT):
     return out_seed, out_rb, out_raw
 
 
+def install_facts():
+    """Did the installer refuse the coach db for want of a key, and did that
+    install run over the ssh harness? Both are READ, never assumed:
+      key_refusal -- install.log carries the installer's own refusal text;
+      via         -- 'ssh-harness' only if scripts/ttywalk.sh's marker
+                     (~/.ostler/.install-harness, 'ttywalk <epoch>') exists and
+                     the install.log run header is at or after it and within 8h
+                     of it. Anything else is 'console-or-unknown' (stays FAIL)."""
+    import calendar
+    import re
+    import time
+    home = os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler")
+    out = {"key_refusal": None, "via": "unknown"}
+    try:
+        with open(os.path.join(home, "logs", "install.log"), encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return out
+    out["key_refusal"] = "no database key resolved" in text
+    m = re.search(r"=== install\.sh run (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)", text)
+    try:
+        with open(os.path.join(home, ".install-harness"), encoding="utf-8") as fh:
+            kind, start = fh.read().split()[:2]
+        start = int(start)
+        if m and kind == "ttywalk":
+            hdr = calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ"))
+            out["via"] = "ssh-harness" if start <= hdr <= start + 8 * 3600 else "console-or-unknown"
+        else:
+            out["via"] = "console-or-unknown"
+    except (OSError, ValueError):
+        out["via"] = "console-or-unknown"
+    return out
+
+
 def box_main(argv):
     a = dict(zip(argv[0::2], argv[1::2]))
     token = a.get("--token", "ostler-walk-dbkey-{}".format(os.getpid()))
@@ -286,6 +333,7 @@ def box_main(argv):
     api_base = a.get("--api-base") or ICAL_SERVER_BASE_DEFAULT
     facts = {"posture": measure_posture()}
     seed, rb, raw = seed_and_readback(token, service_token, api_base)
+    facts["install"] = install_facts()
     facts["seed"] = seed
     facts["readback"] = rb
     facts["raw_open"] = raw
@@ -403,6 +451,29 @@ def self_test():
             fails.append("absent db with hydrated={} judged {} not {}".format(hyd, row(a, 2), want))
         else:
             print("  ok    absent coach db, hydrated={}: {}".format(hyd, {False: "FAIL", None: "CANNOT-RUN"}[want]))
+
+    # v1.0.112: absent db after hydration. CANNOT-RUN only with BOTH proofs
+    # (install.log refusal AND ssh harness); every other combination is FAIL.
+    for inst, want, label in (
+            ({"key_refusal": True, "via": "ssh-harness"}, None, "refusal + ssh harness"),
+            ({"key_refusal": True, "via": "console-or-unknown"}, False, "refusal on a console install"),
+            ({"key_refusal": True, "via": "unknown"}, False, "refusal, install route unknown"),
+            ({"key_refusal": False, "via": "ssh-harness"}, False, "ssh harness but NO refusal text (db missing, key not blamed)"),
+            ({"key_refusal": None, "via": "ssh-harness"}, False, "install.log unreadable"),
+            (None, False, "no install facts at all")):
+        a = copy.deepcopy(g); a["seed"] = {"attempted": False, "db_state": "absent", "hydrated": True}
+        if inst is not None:
+            a["install"] = inst
+        if row(a, 2) != [want]:
+            fails.append("absent db, {}: judged {} not {}".format(label, row(a, 2), want))
+        else:
+            print("  ok    absent coach db after hydration, {}: {}".format(label, {False: "FAIL", None: "CANNOT-RUN"}[want]))
+    # The db EXISTS and the key is wrong: still a FAIL whatever the install says.
+    e = copy.deepcopy(g); e["install"] = {"key_refusal": True, "via": "ssh-harness"}; e["seed"].update(post_count=0)
+    if row(e, 2) != [False]:
+        fails.append("an existing db whose seed did not land must stay FAIL: {}".format(row(e, 2)))
+    else:
+        print("  ok    the db exists and the seed did not land: FAIL even on an ssh-harness install")
 
     # The probe must open the WRITER's path, never the legacy ~/.pwg decoy.
     _saved = {k: os.environ.pop(k, None) for k in ("OSTLER_COACH_DB",)}

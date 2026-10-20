@@ -1,0 +1,35 @@
+name: walk-harness-faults
+
+# A walk-harness fault must grade CANNOT-RUN, never FAIL, and a real product
+# fault must still grade FAIL. The test runs each judge's negative controls and
+# mutates each fix to prove its self-test goes red.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/lib/pair_offwindow.py'
+      - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
+      - 'scripts/box_walk_probes/lib/wow_moments.py'
+      - 'scripts/box_walk_probes/lib/db_key_probe.py'
+      - 'scripts/box_walk_probes/probes/pair_endpoints_refuse_off_window.sh'
+      - 'scripts/ttywalk.sh'
+      - 'tests/test_walk_harness_faults_are_cannot_run.sh'
+      - '.github/workflows/walk-harness-faults.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  walk-harness-faults:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: harness faults are CANNOT-RUN, real faults stay FAIL
+        run: /bin/bash tests/test_walk_harness_faults_are_cannot_run.sh

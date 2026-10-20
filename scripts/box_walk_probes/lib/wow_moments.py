@@ -185,6 +185,29 @@ def _named(text, name):
 # moment 1: "who do I owe a reply to?"
 # --------------------------------------------------------------------------
 
+IMESSAGE_CONSENT_TICKBOX = "third_party_data_personal_records"
+IMESSAGE_FEED_LABEL = "com.creativemachines.ostler.imessage-bundle"
+
+
+def imessage_grant_state():
+    """What the 'imessage_not_connected' degradation is waiting for, read from
+    the same two places the Hub reads (vendor/cm048_pipeline reply_debt_adapters
+    imessage_connection_state): the consent registry and the feed LaunchAgent.
+    consent: accepted | absent | unreadable.  feed_installed: bool."""
+    path = os.path.join(os.environ.get("OSTLER_HOME", OSTLER), "posture", "consent.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+        rec = (reg.get("records") or {}).get(IMESSAGE_CONSENT_TICKBOX)
+        consent = "accepted" if isinstance(rec, dict) and rec.get("decision") == "accepted" else "absent"
+    except FileNotFoundError:
+        consent = "absent"
+    except (OSError, ValueError, AttributeError):
+        consent = "unreadable"
+    plist = os.path.join(HOME, "Library", "LaunchAgents", IMESSAGE_FEED_LABEL + ".plist")
+    return {"consent": consent, "feed_installed": os.path.isfile(plist)}
+
+
 def box_reply_debt():
     code, body = _hub("/api/v1/reply-debt")
     out = {"endpoint": code}
@@ -196,6 +219,8 @@ def box_reply_debt():
         return out
     out["degraded"] = bool(body.get("degraded"))
     out["reason"] = (body.get("reason") or "")[:120]
+    if out["degraded"] and out["reason"] == "imessage_not_connected":
+        out["imessage_grant"] = imessage_grant_state()
     debts = [d for d in (body.get("debts") or []) if isinstance(d, dict)]
     names = [d.get("person_name") for d in debts
              if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
@@ -231,6 +256,14 @@ def judge_reply_debt(c):
         check("GET /api/v1/reply-debt answers 200 JSON (%s)" % c["endpoint_error"], False)
         return lines, EX_FAIL
     check("GET /api/v1/reply-debt answers 200 JSON", True)
+    g = c.get("imessage_grant")
+    if c.get("degraded") and c.get("reason") == "imessage_not_connected" and g is not None:
+        # Not connected because nobody at a console accepted the third-party
+        # data consent (or it could not be read): a missing grant, not a defect.
+        # Consent accepted and the feed still not connected is the real FAIL.
+        if g.get("consent") in ("absent", "unreadable"):
+            return lines + ["  CANNOT needs console grant: iMessage third-party data consent (%s; feed installed: %s); reply debt was not measured"
+                            % (g.get("consent"), g.get("feed_installed"))], EX_CANNOT
     check("reply debt is not degraded (the detector can read Messages)%s"
           % (": " + c.get("reason", "") if c.get("degraded") else ""), not c.get("degraded"))
     check("every debt carries person_name and waiting_hours", c.get("fields_ok", False))
@@ -420,7 +453,21 @@ def self_test():
         "an L3 person was named": dict(rd_good, l3_named=1),
         "nobody waiting, chat invented someone": dict(rd_good, count=0, graded=0, named=[], says_none=False),
         "endpoint 500": {"endpoint": 500, "endpoint_error": "HTTP 500, unparseable"},
+        "not connected although consent is accepted and the feed installed": dict(
+            rd_good, degraded=True, reason="imessage_not_connected",
+            imessage_grant={"consent": "accepted", "feed_installed": True}),
+        "not connected, consent accepted, feed missing (installer defect)": dict(
+            rd_good, degraded=True, reason="imessage_not_connected",
+            imessage_grant={"consent": "accepted", "feed_installed": False}),
     }
+    for gname, grant in (("consent absent", {"consent": "absent", "feed_installed": False}),
+                         ("consent unreadable", {"consent": "unreadable", "feed_installed": False})):
+        _, rc = judge_reply_debt(dict(rd_good, degraded=True, reason="imessage_not_connected", imessage_grant=grant))
+        print("  %s  reply debt: not connected with %s is CANNOT-RUN, not FAIL" % ("ok   " if rc == EX_CANNOT else "FAIL ", gname))
+        ok &= rc == EX_CANNOT
+    _, rc = judge_reply_debt(dict(rd_good, degraded=True, reason="reply_debt_detector_unavailable"))
+    print("  %s  reply debt: a degradation that is not the missing consent stays FAIL" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
     mb_good = {"prompt_covers_today": True, "answered": True, "run_status": "ok", "owner_promise": True,
                "other_promise": False, "reply_graded": 1, "reply_named": [True], "reply_source": "ok",
                "meetings_graded": 1, "meetings_named": [True], "iso_date_leak": False, "chat_echo": False}
