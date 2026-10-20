@@ -372,3 +372,27 @@ Runs under **bash 3.2**, the system bash on macOS and the shell the installed
 box provides. No associative arrays, no `mapfile`, no `${var,,}`. A syntax error
 in a probe means it never ran, which is the exact failure this suite exists to
 prevent, so `bash -n` every probe before committing it.
+
+## Safari on the walk account: seeded, source-absent, or FDA-blocked
+
+`ingest_coverage` reads the box's own `~/.ostler/imports/fda/extraction_summary.json`
+when `safari_history` answers HTTP 404 (no collection):
+
+| extract status for safari_history | walk seed marker | verdict |
+|---|---|---|
+| `not_found` | not `planted` | CANNOT-RUN, SOURCE-ABSENT (Safari never opened, nothing to ingest) |
+| `no_fda` | any | CANNOT-RUN, FDA-BLOCKED (macOS refused the read) |
+| `ok`, `error`, anything else, or no readable summary | any | FAIL (v1.0.101 rule: a 404 over a source that was read is EMPTY) |
+| `not_found` | `planted` | FAIL (the reader missed a file the walk put there) |
+
+A FAIL elsewhere (another store EMPTY, dying top-up) still wins over these CANNOT-RUNs.
+
+`scripts/ttywalk.sh` plants a SYNTHETIC `History.db` (example domains only,
+`scripts/box_walk_probes/lib/safari_history_fixture.py`) into the walk account's
+`~/Library/Safari` before install (`scripts/lib_walk_safari_seed.sh`) and records the
+outcome in `~/.walk-safari-seed-run` (`planted(visits=N)`, `skipped-real-history-present`
+or `cannot-plant:<reason>`). It never overwrites a History.db that lacks the synthetic
+marker table. `~/Library/Safari` is TCC-protected: the plant can be refused over ssh, and
+even a planted file is unreadable to an installer without Full Disk Access (status
+`no_fda`). Which of these happens on a given walk account is NOT KNOWN until a walk runs;
+the record says which, and neither outcome is read as a pass.

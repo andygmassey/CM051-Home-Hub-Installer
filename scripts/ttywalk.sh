@@ -1517,6 +1517,30 @@ else
     say "owner identity: SYNTHETIC cast owner (${OWNER_DECISION#synthetic: }); the owner-in-People probe will read CANNOT-RUN"
 fi
 
+# ── SAFARI SEED: a SYNTHETIC History.db, planted BEFORE install ──────
+# A walk account that never opened Safari has no ~/Library/Safari, so the
+# reader says not_found and ingest_coverage can only grade the source absent
+# (CANNOT-RUN). Planting a synthetic History.db gives the walk real coverage of
+# the Safari path. Never overwrites a real History.db; records what happened in
+# ~/.walk-safari-seed-run on the box, which ingest_coverage reads. TCC can
+# refuse the plant or, later, the read: both are CANNOT-RUN (FDA), recorded,
+# never a pass. See scripts/lib_walk_safari_seed.sh.
+# shellcheck source=scripts/lib_walk_safari_seed.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_safari_seed.sh"
+_SAFARI_FX_LOCAL="$(mktemp -t walk-safari-fx)" || die "could not create a local scratch file for the Safari fixture."
+if python3 -I "${REPO_ROOT}/scripts/box_walk_probes/lib/safari_history_fixture.py" "$_SAFARI_FX_LOCAL" >/dev/null; then
+    _SAFARI_FX_REMOTE="$("${SSH[@]}" 'f=$(mktemp -t walk-safari-fx) && cat > "$f" && printf "%s" "$f"' < "$_SAFARI_FX_LOCAL")" || _SAFARI_FX_REMOTE=""
+    if [[ -n "$_SAFARI_FX_REMOTE" ]]; then
+        { declare -f walk_safari_seed_apply; printf 'walk_safari_seed_apply %q\nrm -f %q\n' "$_SAFARI_FX_REMOTE" "$_SAFARI_FX_REMOTE"; } \
+            | "${SSH[@]}" 'bash -s' | sed 's/^/  /' | while IFS= read -r _l; do say "$_l"; done
+    else
+        say "safari seed: could not ship the fixture to the host; Safari will be graded SOURCE-ABSENT if the box has none"
+    fi
+else
+    say "safari seed: could not build the fixture locally; Safari will be graded SOURCE-ABSENT if the box has none"
+fi
+rm -f "$_SAFARI_FX_LOCAL"
+
 if [[ "$STAGE_ONLY" -eq 1 ]]; then
     say "staged only, as asked. Not running."
     exit "$PASS"
