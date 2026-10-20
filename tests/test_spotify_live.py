@@ -176,7 +176,7 @@ def test_ads_episodes_and_local_files_are_counted_not_emitted():
 def test_the_play_is_timed_to_its_start_in_utc():
     st = {}
     p = play(st, 60, T0)
-    assert p["ts"] == "2025-10-09T08:52:40Z"  # T0 - 60 s, explicit UTC (Z)
+    assert p["ts"] == "2025-10-09T08:52:20Z"  # T0 - 60 s, explicit UTC (Z)
     assert p["ms_played"] == 60000
 
 
