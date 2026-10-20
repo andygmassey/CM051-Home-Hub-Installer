@@ -15,6 +15,8 @@
 #   5. a refused plant (read-only Library) -> cannot-plant marker, not a claim
 #   6. ttywalk.sh sources the lib and calls the apply BEFORE the RUN step
 #   7. mutant: the real-history guard removed -> check 3 goes red
+#   8. throwaway gate: walk34 plants; andy, empty and odd users do not and record
+#      skipped-not-a-throwaway; OSTLER_WALK_THROWAWAY=1 plants; gate-removed mutant fails
 # bash 3.2; never touches a real keychain, TCC or the box.
 # ============================================================================
 set -uo pipefail
@@ -92,6 +94,52 @@ S4="$(shasum "$H4/Library/Safari/History.db" | cut -d' ' -f1)"
 apply "$H4" "$MUT" >/dev/null
 if [ "$(shasum "$H4/Library/Safari/History.db" | cut -d' ' -f1)" != "$S4" ]; then note "7 MUTANT (real-history guard removed) overwrites a real History.db, so check 3 measures the guard ✅"
 else fail mutant "the guard-less mutant did not overwrite a real History.db; check 3 proves nothing"; fi
+
+# 8. THROWAWAY GATE (#3065, Archie): the REAL ttywalk.sh seed block, run with ssh
+#    stubbed to a local bash on a scratch HOME, plants only for walk[0-9]+ or
+#    OSTLER_WALK_THROWAWAY=1 and otherwise records skipped-not-a-throwaway.
+BLOCK="${WORK}/seed_block.sh"
+awk '/^# ── SAFARI SEED/{f=1} /^# ── Run ─/{f=0} f' "$TTY" > "$BLOCK"
+[ -s "$BLOCK" ] || { echo "CANNOT-RUN: could not slice the SAFARI SEED block from ttywalk.sh" >&2; exit 2; }
+FAKESSH="${WORK}/fakessh"
+printf '#!/bin/bash\nexec /bin/bash -c "$1"\n' > "$FAKESSH"; chmod +x "$FAKESSH"
+# gate $1=HOME $2=expect-user $3=throwaway-env ($4 = block file, default real)
+gate_run() {
+    HOME="$1" OSTLER_WALK_THROWAWAY="$3" EXPECT_USER="$2" REPO_ROOT="$ROOT" TMPDIR="$WORK" /bin/bash -c '
+        say() { printf "%s\n" "$*"; }; die() { echo "DIE: $*" >&2; exit 9; }
+        SSH=("$1"); source "$2"; source "$3"' _ "$FAKESSH" "$LIB" "${4:-$BLOCK}" 2>&1
+}
+gate_case() { # name user env expect(plant|skip)  [block]
+    local h="${WORK}/g_$1" m out
+    mkdir -p "$h"; out="$(gate_run "$h" "$2" "$3" "${5:-}")"
+    m="$(cat "$h/.walk-safari-seed-run" 2>/dev/null)"
+    if [ "$4" = plant ]; then
+        if [ -s "$h/Library/Safari/History.db" ] && case "$m" in planted\(visits=[1-9]*) true;; *) false;; esac; then note "8 $1 (user='$2' env='$3') -> planted, marker ${m} ✅"
+        else fail "gate-$1" "expected a plant, got marker='${m}' out=${out}"; fi
+    else
+        if [ ! -e "$h/Library/Safari/History.db" ] && [ "$m" = skipped-not-a-throwaway ]; then note "8 $1 (user='$2' env='$3') -> no plant, marker ${m} ✅"
+        else fail "gate-$1" "expected skipped-not-a-throwaway and no History.db, got marker='${m}' db=$([ -e "$h/Library/Safari/History.db" ] && echo present || echo absent) out=${out}"; fi
+    fi
+}
+gate_case walk34      walk34   ""  plant
+gate_case walk-digits walk0    ""  plant
+gate_case andy        andy     ""  skip
+gate_case envflag     andy     1   plant
+gate_case env-not-1   andy     yes skip
+gate_case empty-user  ""       ""  skip
+gate_case odd-prefix  xwalk34  ""  skip
+gate_case odd-suffix  walk34x  ""  skip
+gate_case odd-nodigit walk     ""  skip
+gate_case odd-newline "walk34
+x" ""  skip
+gate_case odd-space   "walk 34" "" skip
+# 8m. mutant: gate removed from the ttywalk block -> "andy" plants (the andy arm must go red)
+MB="${WORK}/seed_block_mut.sh"
+sed 's/^if \[\[ "\$(walk_safari_throwaway_decide "\$EXPECT_USER")" != "plant" \]\]; then$/if false; then/' "$BLOCK" > "$MB"
+if cmp -s "$BLOCK" "$MB"; then echo "CANNOT-RUN: gate mutant sed did not change the block; the mutation target moved." >&2; exit 2; fi
+HM="${WORK}/g_mut"; mkdir -p "$HM"; gate_run "$HM" andy "" "$MB" >/dev/null
+if [ -s "$HM/Library/Safari/History.db" ]; then note "8m MUTANT (gate removed) plants for 'andy', so the andy arm measures the gate ✅"
+else fail gate-mutant "the gate-less mutant did not plant for 'andy'; the andy arm proves nothing"; fi
 
 echo
 [ -n "$FAILURES" ] && { printf 'RESULT: FAILURES ->%s\n' "$FAILURES"; exit 1; }

@@ -1532,19 +1532,26 @@ fi
 # never a pass. See scripts/lib_walk_safari_seed.sh.
 # shellcheck source=scripts/lib_walk_safari_seed.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_safari_seed.sh"
-_SAFARI_FX_LOCAL="$(mktemp -t walk-safari-fx)" || die "could not create a local scratch file for the Safari fixture."
-if python3 -I "${REPO_ROOT}/scripts/box_walk_probes/lib/safari_history_fixture.py" "$_SAFARI_FX_LOCAL" >/dev/null; then
-    _SAFARI_FX_REMOTE="$("${SSH[@]}" 'f=$(mktemp -t walk-safari-fx) && cat > "$f" && printf "%s" "$f"' < "$_SAFARI_FX_LOCAL")" || _SAFARI_FX_REMOTE=""
-    if [[ -n "$_SAFARI_FX_REMOTE" ]]; then
-        { declare -f walk_safari_seed_apply; printf 'walk_safari_seed_apply %q\nrm -f %q\n' "$_SAFARI_FX_REMOTE" "$_SAFARI_FX_REMOTE"; } \
-            | "${SSH[@]}" 'bash -s' | sed 's/^/  /' | while IFS= read -r _l; do say "$_l"; done
-    else
-        say "safari seed: could not ship the fixture to the host; Safari will be graded SOURCE-ABSENT if the box has none"
-    fi
+if [[ "$(walk_safari_throwaway_decide "$EXPECT_USER")" != "plant" ]]; then
+    # Not a declared throwaway (--expect-user walk[0-9]+ or OSTLER_WALK_THROWAWAY=1):
+    # never plant synthetic browsing on a box that may be a real person's.
+    { declare -f walk_safari_seed_skip; printf 'walk_safari_seed_skip\n'; } \
+        | "${SSH[@]}" 'bash -s' | sed 's/^/  /' | while IFS= read -r _l; do say "$_l"; done
 else
-    say "safari seed: could not build the fixture locally; Safari will be graded SOURCE-ABSENT if the box has none"
+    _SAFARI_FX_LOCAL="$(mktemp -t walk-safari-fx)" || die "could not create a local scratch file for the Safari fixture."
+    if python3 -I "${REPO_ROOT}/scripts/box_walk_probes/lib/safari_history_fixture.py" "$_SAFARI_FX_LOCAL" >/dev/null; then
+        _SAFARI_FX_REMOTE="$("${SSH[@]}" 'f=$(mktemp -t walk-safari-fx) && cat > "$f" && printf "%s" "$f"' < "$_SAFARI_FX_LOCAL")" || _SAFARI_FX_REMOTE=""
+        if [[ -n "$_SAFARI_FX_REMOTE" ]]; then
+            { declare -f walk_safari_seed_apply; printf 'walk_safari_seed_apply %q\nrm -f %q\n' "$_SAFARI_FX_REMOTE" "$_SAFARI_FX_REMOTE"; } \
+                | "${SSH[@]}" 'bash -s' | sed 's/^/  /' | while IFS= read -r _l; do say "$_l"; done
+        else
+            say "safari seed: could not ship the fixture to the host; Safari will be graded SOURCE-ABSENT if the box has none"
+        fi
+    else
+        say "safari seed: could not build the fixture locally; Safari will be graded SOURCE-ABSENT if the box has none"
+    fi
+    rm -f "$_SAFARI_FX_LOCAL"
 fi
-rm -f "$_SAFARI_FX_LOCAL"
 
 # ── Run ──────────────────────────────────────────────────────────────
 rule "RUN (unattended; OSTLER_GUI=1 with OSTLER_GUI_FD UNSET)"

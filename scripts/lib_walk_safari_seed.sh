@@ -18,12 +18,36 @@
 # account is not knowable from this file; only a walk can say.
 #
 # Marker states (one line): planted(...) | skipped-real-history-present |
-#                           cannot-plant:<reason>
+#                           skipped-not-a-throwaway | cannot-plant:<reason>
+#
+# THROWAWAY GATE (Archie, #3065): the plant runs ONLY on a declared throwaway
+# target: --expect-user matching ^walk[0-9]+$, or OSTLER_WALK_THROWAWAY=1. On a
+# real person's Mac that never opened Safari, a plant would be ingested as
+# theirs. Anything else (a real login, an empty or odd user) records
+# skipped-not-a-throwaway and the probe grades Safari SOURCE-ABSENT as before.
+# An empty --expect-user is NOT a throwaway: absence of a declaration is not one.
 #
 # NEVER overwrites a History.db that lacks the walk_synthetic_marker table: a
 # real browser history is not ours to replace.
 #
 # Use as: walk_safari_seed_apply <fixture.db>   (runs ON the walk account)
+
+# walk_safari_throwaway_decide EXPECT_USER -> prints "plant" or
+# "skipped-not-a-throwaway". Runs locally (never on the box).
+walk_safari_throwaway_decide() {
+    local user="${1-}"
+    if [[ "$user" =~ ^walk[0-9]+$ ]] || [[ "${OSTLER_WALK_THROWAWAY:-}" == "1" ]]; then
+        printf 'plant\n'
+    else
+        printf 'skipped-not-a-throwaway\n'
+    fi
+}
+
+# Runs ON the walk account: record that the plant was deliberately skipped.
+walk_safari_seed_skip() {
+    printf 'skipped-not-a-throwaway\n' > "$HOME/.walk-safari-seed-run"
+    echo "safari seed: not a declared throwaway target; nothing planted"
+}
 
 walk_safari_seed_apply() {
     local fixture="$1" dir db marker err n
