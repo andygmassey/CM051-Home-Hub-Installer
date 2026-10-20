@@ -291,3 +291,15 @@ Why: with `HTTP(S)_PROXY` set and no matching `NO_PROXY`, loopback writes went t
 Retired: re-pinned to 4e023299 (see the manifest note).
 
 Proof: `tests/test_cm019_local_store_ignores_proxy.py` (dead proxy in the env, real loopback server, own control, AST check of all 13 sites); fails on origin/main with 17 failures.
+
+## 2026-10-21 Shazam library export importer (personal-world-graph #420, UNMERGED at time of writing)
+
+Tree: `cm019_preferences`. Regeneration was not attempted: this tree is `verify = "skip"`, so there is no reconstructible baseline; this is the sanctioned fallback. The pin is NOT advanced: #420 is unmerged, so the next re-pin onto a merged SHA retires this section.
+
+Edits, all under `vendor/cm019_preferences/services/ingest/src/`:
+
+- `parsers/shazam.py` (new): byte-identical to personal-world-graph branch `feat/shazam-export-import` at 470410616975.
+- `parsers/__init__.py`, `pipeline.py`: import and register `ShazamParser` straight after `EmailParser` (the same two hunks as #420).
+- `cli.py`: `ingest-dir` prints `result["errors"]` (first 20) on stderr; exit status unchanged (the same hunk as #420). Before, a refused file was logged and dropped.
+
+Proof: `tests/test_shazam_vendored_parser.py` (vendored pipeline, parser, CM059 rules and ingest-dir; fails on origin/main), `tests/test_parser_claims_do_not_cross_services.py` (two new positive controls).

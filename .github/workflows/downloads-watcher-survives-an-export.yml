@@ -59,6 +59,8 @@ on:
       # #30, the Doctor half: the row that reads the watcher's record.
       - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_doctor_shows_why_downloads_exports_did_not_import.sh'
+      # A Shazam library CSV: found, imported, and a refused one said.
+      - 'tests/test_shazam_export_is_found_and_said.sh'
       - '.github/workflows/downloads-watcher-survives-an-export.yml'
   push:
     branches: [main]
@@ -135,3 +137,10 @@ jobs:
       - name: the Doctor says why a Downloads export did not import (#30)
         if: always()
         run: /bin/bash tests/test_doctor_shows_why_downloads_exports_did_not_import.sh
+
+      # A Shazam library CSV dropped in Downloads: found and imported, and a
+      # wrong-shape or tag-less one is listed as not imported with the reason,
+      # in the Doctor row. Control: an unrelated songs.csv is not claimed.
+      - name: a Shazam export is found, and a refused one is said
+        if: always()
+        run: /bin/bash tests/test_shazam_export_is_found_and_said.sh

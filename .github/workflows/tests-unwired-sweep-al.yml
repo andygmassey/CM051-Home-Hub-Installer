@@ -68,7 +68,7 @@ jobs:
       - name: Install python deps for the vendored-module tests
         # cm019 ingest parsers (aiofiles/bs4/lxml/pydantic*), ostler_fda pwg_ingest
         # (httpx/nameparser) and cm041 identity_resolver (rapidfuzz/httpx/phonenumbers).
-        run: python3 -m pip install --quiet aiofiles pydantic pydantic-settings beautifulsoup4 lxml rapidfuzz httpx phonenumbers nameparser pyyaml
+        run: python3 -m pip install --quiet click aiofiles pydantic pydantic-settings beautifulsoup4 lxml rapidfuzz httpx phonenumbers nameparser pyyaml
 
       - name: Shell tests (a..l)
         run: |
@@ -172,6 +172,7 @@ jobs:
             test_appletv_parser.py \
             test_browsing_ingest_ensures_collection.py \
             test_identity_resolver_fuzzy_cache.py \
+            test_shazam_vendored_parser.py \
           ; do
             echo "::group::$t"
             if python3 "tests/$t"; then echo "PASS $t"; else echo "FAIL $t"; fail=1; fi

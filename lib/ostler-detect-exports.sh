@@ -57,6 +57,14 @@ DO_LOOSE=0
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
 #   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, for the name
 #             WhatsApp's "Export chat" gives the file
+#   Shazam library
+#             the CM019 ShazamParser (vendor/cm019_preferences .../parsers/
+#             shazam.py), which accepts only the documented MyShazam CSV
+#             shape (columns Title, Artist, TagTime). The parser REFUSES any
+#             other shape, so the content check below (_lx_shazam_why) says
+#             the same thing here in plain words before the importer runs: a
+#             wrong-shape or tag-less file is listed as skipped with its
+#             reason, never as imported.
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
 #             app's own export. Recognised, so it is never silent, and skipped
@@ -66,8 +74,26 @@ LOOSE=(
   $'Calendar\x1f\\.ics$\x1f1001\x1f'
   $'Evernote\x1f\\.enex$\x1f1\x1f'
   $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1f'
+  $'Shazam library\x1f^shazam.*\\.csv$\x1f1\x1f'
   $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
 )
+
+# Prints the plain-words reason a Shazam-named CSV will not import, or nothing
+# when it will. Same rule as ShazamParser: a header line (within the first
+# three lines) carrying Title, Artist and TagTime, then at least one row.
+# awk, not `grep -q`, so it always reads to the end (the pipefail ratchet).
+_lx_shazam_why() {
+    local _r
+    _r="$(awk 'NR <= 3 && !h { l = tolower($0); if (index(l, "title") && index(l, "artist") && index(l, "tagtime")) { h = NR; next } }
+               h && NF { n++ }
+               END { print (h ? 1 : 0) " " (n + 0) }' "$1" 2>/dev/null)" || _r=""
+    case "$_r" in
+        "0 "*) printf '%s' "this is not in the Shazam library export layout (it needs Title, Artist and TagTime columns), so Ostler did not guess" ;;
+        "1 0") printf '%s' "this Shazam export has no tagged songs in it. If your Shazam library syncs through iCloud the website download can come back empty; export from the Shazam app instead" ;;
+        "1 "*) : ;;
+        *) printf '%s' "Ostler could not read the file" ;;
+    esac
+}
 
 if [[ "$DO_LOOSE" == "1" ]]; then
     _lx_res=""
@@ -102,6 +128,8 @@ if [[ "$DO_LOOSE" == "1" ]]; then
             printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "$_lx_noimp"
         elif [[ "$_lx_size" -eq 0 ]]; then
             printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is empty"
+        elif [[ "$_lx_label" == "Shazam library" && -n "$(_lx_shazam_why "$_lx_path")" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "$(_lx_shazam_why "$_lx_path")"
         elif [[ "$_lx_size" -lt "$_lx_min" ]]; then
             printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is too small to hold anything Ostler can read"
         else

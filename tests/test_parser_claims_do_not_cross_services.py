@@ -471,6 +471,15 @@ def build_fixtures(root: Path) -> dict:
     f["AppleMusicLibraryParser"] = write_file(
         root, "preferences/apple_music/ostler_apple_music_library.json",
         '{"schema": 1, "source": "apple_music_library", "tracks": []}')
+    f["ShazamParser"] = write_file(
+        root, "shazam-export/shazamlibrary.csv",
+        "Shazam Library\nIndex,TagTime,Title,Artist,URL,TrackKey\n"
+        "1,2024-06-13,Synthetic Song,Synthetic Artist,https://example.com/t/1,100001\n")
+    f["ShazamParser_zip"] = write_zip(
+        root, "shazam-export.zip",
+        {"Shazam/shazamlibrary.csv":
+         "Shazam Library\nIndex,TagTime,Title,Artist,URL,TrackKey\n"
+         "1,2024-06-13,Synthetic Song,Synthetic Artist,https://example.com/t/1,100001\n"})
     f["AppleTVParser"] = write_file(
         root, "Apple Media Services information/Apple TV Bookmarks.csv",
         "Title,Bookmark Position\nSynthetic Film,120\n")
@@ -564,6 +573,8 @@ POSITIVE_CONTROLS = [
     ("FoursquareParser", "FoursquareParser", "a Foursquare venueRatings.json"),
     ("FoursquareParser", "foursquare_zip", "4sq-export.zip"),
     ("AppleMusicLibraryParser", "AppleMusicLibraryParser", "the Hub's ostler_apple_music_library.json"),
+    ("ShazamParser", "ShazamParser", "a Shazam shazamlibrary.csv"),
+    ("ShazamParser", "ShazamParser_zip", "a Shazam export ZIP"),
     ("AppleTVParser", "AppleTVParser", "Apple TV Bookmarks.csv"),
     ("NetflixParser", "NetflixParser", "a Netflix report ZIP"),
     ("NetflixParser", "NetflixParser_ratings", "Netflix Ratings.csv"),

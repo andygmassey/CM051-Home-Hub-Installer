@@ -39,7 +39,8 @@ from .parsers import (
     NetflixParser,
     AppleTVParser,
     EmailParser,
-    FoursquareParser
+    FoursquareParser,
+    ShazamParser
 )
 from .rml import RMLMapper
 
@@ -69,6 +70,7 @@ class IngestPipeline:
         self.parsers: List[BaseParser] = [
             AppleMusicLibraryParser(),  # Hub's own Music library export - exact filename
             EmailParser(),  # Email preferences from CM021 - specific .jsonl format
+            ShazamParser(),  # Tight: 'shazam' in name or 'Shazam Library' title line; refuses unknown shapes
             GoogleTakeoutParser(),
             SpotifyParser(),
             AmazonParser(),

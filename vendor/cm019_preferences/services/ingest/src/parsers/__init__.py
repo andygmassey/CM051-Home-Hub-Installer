@@ -24,6 +24,7 @@ from .netflix import NetflixParser
 from .appletv import AppleTVParser
 from .email import EmailParser
 from .foursquare import FoursquareParser
+from .shazam import ShazamParser, ShazamExportShapeError
 
 __all__ = [
     "BaseParser",
@@ -50,5 +51,7 @@ __all__ = [
     "NetflixParser",
     "AppleTVParser",
     "EmailParser",
-    "FoursquareParser"
+    "FoursquareParser",
+    "ShazamParser",
+    "ShazamExportShapeError"
 ]

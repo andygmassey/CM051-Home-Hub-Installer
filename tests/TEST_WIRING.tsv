@@ -690,6 +690,8 @@ test_service_senders_get_no_reconnect_card.py	WIRED	.github/workflows/privacy-sp
 test_settling_contacts_reaches_100_when_sync_finished.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_emails_tells_the_truth.sh	WIRED	.github/workflows/settling-truth.yml
 test_settling_progress_writer.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_shazam_export_is_found_and_said.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
+test_shazam_vendored_parser.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_ship_refuses_an_already_tagged_version.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_shipped_compose_licence_mount.sh	WIRED	.github/workflows/licence-gate.yml
