@@ -327,6 +327,17 @@ async def _run_dir_ingestion(
         click.echo(f"  RDF triples inserted: {result.get('total_triples', 0):,}", err=True)
         click.echo(f"  Vectors inserted: {result.get('total_vectors', 0):,}", err=True)
 
+        # Per-file refusals and store errors used to be logged and dropped, so
+        # an export a parser refused (e.g. an unrecognised Shazam shape) looked
+        # like a clean run. Say them. Exit status is deliberately unchanged.
+        file_errors = result.get('errors') or []
+        if file_errors:
+            click.echo(f"  Errors: {len(file_errors):,}", err=True)
+            for err in file_errors[:20]:
+                click.echo(f"    ERROR: {err}", err=True)
+            if len(file_errors) > 20:
+                click.echo(f"    ... and {len(file_errors) - 20:,} more", err=True)
+
         # Show incremental mode stats
         if incremental and result.get('warmed_from_db', 0) > 0:
             click.echo(f"\nIncremental Mode:", err=True)

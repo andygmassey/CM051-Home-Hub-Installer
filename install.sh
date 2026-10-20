@@ -3637,7 +3637,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8977 and :16635, both of which run
+    # Its two top-level arming calls are :8977 and :16663, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17430, where the note reads
+    # WhatsApp Web session path did it again at :17458, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17447 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17475 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3674,9 +3674,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8977, :16635) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8977, :16663) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19595 / :19773 / :19930 / :20375 path. There the
+    # :19623 / :19801 / :19958 / :20403 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9696,6 +9696,14 @@ DO_LOOSE=0
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
 #   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, for the name
 #             WhatsApp's "Export chat" gives the file
+#   Shazam library
+#             the CM019 ShazamParser (vendor/cm019_preferences .../parsers/
+#             shazam.py), which accepts only the documented MyShazam CSV
+#             shape (columns Title, Artist, TagTime). The parser REFUSES any
+#             other shape, so the content check below (_lx_shazam_why) says
+#             the same thing here in plain words before the importer runs: a
+#             wrong-shape or tag-less file is listed as skipped with its
+#             reason, never as imported.
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
 #             app's own export. Recognised, so it is never silent, and skipped
@@ -9705,8 +9713,26 @@ LOOSE=(
   $'Calendar\x1f\\.ics$\x1f1001\x1f'
   $'Evernote\x1f\\.enex$\x1f1\x1f'
   $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1f'
+  $'Shazam library\x1f^shazam.*\\.csv$\x1f1\x1f'
   $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
 )
+
+# Prints the plain-words reason a Shazam-named CSV will not import, or nothing
+# when it will. Same rule as ShazamParser: a header line (within the first
+# three lines) carrying Title, Artist and TagTime, then at least one row.
+# awk, not `grep -q`, so it always reads to the end (the pipefail ratchet).
+_lx_shazam_why() {
+    local _r
+    _r="$(awk 'NR <= 3 && !h { l = tolower($0); if (index(l, "title") && index(l, "artist") && index(l, "tagtime")) { h = NR; next } }
+               h && NF { n++ }
+               END { print (h ? 1 : 0) " " (n + 0) }' "$1" 2>/dev/null)" || _r=""
+    case "$_r" in
+        "0 "*) printf '%s' "this is not in the Shazam library export layout (it needs Title, Artist and TagTime columns), so Ostler did not guess" ;;
+        "1 0") printf '%s' "this Shazam export has no tagged songs in it. If your Shazam library syncs through iCloud the website download can come back empty; export from the Shazam app instead" ;;
+        "1 "*) : ;;
+        *) printf '%s' "Ostler could not read the file" ;;
+    esac
+}
 
 if [[ "$DO_LOOSE" == "1" ]]; then
     _lx_res=""
@@ -9741,6 +9767,8 @@ if [[ "$DO_LOOSE" == "1" ]]; then
             printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "$_lx_noimp"
         elif [[ "$_lx_size" -eq 0 ]]; then
             printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is empty"
+        elif [[ "$_lx_label" == "Shazam library" && -n "$(_lx_shazam_why "$_lx_path")" ]]; then
+            printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "$(_lx_shazam_why "$_lx_path")"
         elif [[ "$_lx_size" -lt "$_lx_min" ]]; then
             printf '%s\t%s\tskip\t%s\n' "$_lx_label" "$_lx_path" "the file is too small to hold anything Ostler can read"
         else
