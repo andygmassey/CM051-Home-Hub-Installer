@@ -272,9 +272,12 @@ def test_owner_todo_still_extracted_assistant_todo_is_not(settings, gateway, mon
 def test_rendered_transcript_artefact_keeps_every_turn(settings, gateway, monkeypatch):
     transcript, metadata = gateway
     _, _, handed = _run_bundle(settings, transcript, metadata, monkeypatch)
-    # The bundle's transcript artefact is the full conversation, unfiltered.
-    assert handed["transcript"] == transcript
-    assert ASSISTANT_GUESS in handed["transcript"]
+    # CM048 #97 (vendored for v1.0.111): CM052's "manual" channel is gist-only
+    # by declaration, so no Conversations/ bundle is rendered and make_bundle
+    # is never called (CM052 owns the readable copy under AI Conversations/).
+    # This used to assert the rendered bundle transcript kept every turn.
+    assert metadata.get("channel") == "manual", metadata.get("channel")
+    assert handed == {}, "a gist-only channel rendered a Conversations/ bundle"
     # And the stored raw transcript is untouched.
     d = settings.processing_state_dir / metadata["conversation_id"]
     assert (d / "00_raw_transcript.md").read_text() == transcript
@@ -351,6 +354,7 @@ def test_assistant_claim_reaches_neither_enrichment_todos_nor_bundle_topics(
     assert OWNER_CLAIM in points, points  # positive control
     assert ASSISTANT_GUESS not in points, points
     assert ASSISTANT_BOLD_TRAP not in points, points
-    # Raw and rendered transcripts unchanged.
+    # Raw transcript unchanged. No rendered bundle transcript: the "manual"
+    # channel is gist-only since CM048 #97 (see the test above).
     assert (d / "00_raw_transcript.md").read_text() == transcript
-    assert handed["transcript"] == transcript
+    assert handed == {}, "a gist-only channel rendered a Conversations/ bundle"
