@@ -39,7 +39,7 @@ run_probe() {
     box_run "printf %s '$(base64 < "${_HERE}/lib/owner_digest.py" | tr -d '\n')' | base64 -d > ${remote}" >/dev/null 2>&1 \
         || probe_cannot_run "could not stage the owner-digest reader on the box"
     facts="$(mktemp)"
-    box_run "python3 ${remote} box --seed-org '${OSTLER_OWNER_SEED_ORG:-ExampleCo}' --seed-state '${OSTLER_OWNER_SEED_STATE:-unrun}' --neighbour-state '${OSTLER_NEIGHBOUR_SEED_STATE:-unrun}'; rm -f ${remote}" > "${facts}" 2>/dev/null
+    box_run "python3 ${remote} box --seed-org '${OSTLER_OWNER_SEED_ORG:-ExampleCo}' --seed-state '${OSTLER_OWNER_SEED_STATE:-unrun}' --neighbour-state '${OSTLER_NEIGHBOUR_SEED_STATE:-unrun}' --pref-seed-state '${OSTLER_PREF_SEED_STATE:-unrun}'; rm -f ${remote}" > "${facts}" 2>/dev/null
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${facts}" 2>/dev/null \
         || { rm -f "${facts}"; probe_cannot_run "the box-side reader returned no facts"; }
     out="$(python3 "${_HERE}/lib/owner_digest.py" judge "${facts}")"; rc=$?
