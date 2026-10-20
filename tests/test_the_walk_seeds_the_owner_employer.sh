@@ -49,8 +49,8 @@ case "$gate" in *'if [ "$READ_ONLY" -eq 0 ]'*) g=0 ;; *) g=1 ;; esac
 arm "the apply sits inside the READ_ONLY gate" "$g" "nearest gate: $gate"
 
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest, $3 = 1 if the importer writes the fact
-    local h="$T/box-$1-$2-${3:-1}"; mkdir -p "$h/.ostler/bin" "$h/.ostler/assistant-config/workspace" "$h/stub"
+mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest, $3 = 1 if the importer writes the fact, $4 = profile: 1 recompiled (file pre-exists), 2 recompiled (file absent before), 0 never
+    local h="$T/box-$1-$2-${3:-1}-${4:-1}"; mkdir -p "$h/.ostler/bin" "$h/.ostler/assistant-config/workspace" "$h/stub"
     echo 0 > "$h/facts"
     # The importer stub prints a marker line to its log, and writes the fact
     # (the count the stub Oxigraph reports) only when told to.
@@ -62,11 +62,17 @@ mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest, $3 = 1 if t
     chmod +x "$h/stub/oes-curl"
     echo "## old" > "$h/.ostler/assistant-config/workspace/CONTEXT.md"
     touch -t 202001010000 "$h/.ostler/assistant-config/workspace/CONTEXT.md"
-    if [ "$2" -eq 1 ]; then
-        printf '#!/bin/sh\ntouch "%s/.ostler/assistant-config/workspace/CONTEXT.md"\n' "$h" > "$h/stub/launchctl"
-    else
-        printf '#!/bin/sh\nexit 0\n' > "$h/stub/launchctl"
-    fi
+    # launchctl stub acts per LABEL: context-refresh rewrites CONTEXT.md, editor-frontpage
+    # writes interest_profile.json. A stub that touched CONTEXT.md on every kickstart raced
+    # the 1s mtime granularity (CI red on #3038), which a real profile compile never does.
+    mkdir -p "$h/.ostler/preferences"
+    [ "${4:-1}" = 1 ] && { echo '{}' > "$h/.ostler/preferences/interest_profile.json"; touch -t 202001010000 "$h/.ostler/preferences/interest_profile.json"; }
+    {
+        printf '#!/bin/sh\ncase "$*" in\n'
+        [ "$2" -eq 1 ] && printf '*context-refresh*) touch "%s/.ostler/assistant-config/workspace/CONTEXT.md" ;;\n' "$h"
+        [ "${4:-1}" != 0 ] && printf '*editor-frontpage*) echo "{}" > "%s/.ostler/preferences/interest_profile.json" ;;\n' "$h"
+        printf '*) : ;;\nesac\nexit 0\n'
+    } > "$h/stub/launchctl"
     printf '#!/bin/sh\n:\n' > "$h/stub/sleep"
     chmod +x "$h/stub/launchctl" "$h/stub/sleep"
     echo "$h"
@@ -103,6 +109,13 @@ st=$(run_seed "$(mkbox 0 1 0)")
 arm "MUST-FAIL: importer exits 0 but no career fact in the graph reads failed" "$(b [ "$st" = "failed" ])" "got $st"
 st=$(run_seed "$(mkbox 0 0)")
 arm "MUST-FAIL: a digest that is never rewritten reads failed" "$(b [ "$st" = "failed" ])" "got $st"
+st=$(run_seed "$(mkbox 0 1 1 0)")
+arm "MUST-FAIL: profile never recompiled (file present, mtime unchanged) reads failed" "$(b [ "$st" = "failed" ])" "got $st"
+st=$(run_seed "$(mkbox 0 1 1 2)")
+arm "profile file absent before and created by the compile reads seeded" "$(b [ "$st" = "seeded" ])" "got $st"
+H0=$(mkbox 0 1 1 0); rm -f "$H0/.ostler/preferences/interest_profile.json"
+st=$(run_seed "$H0")
+arm "MUST-FAIL: no profile file at all, nothing ever writes one, reads failed (a wait with nothing to see is not success)" "$(b [ "$st" = "failed" ])" "got $st"
 H4=$(mkbox 2 1 0)
 out4=$( ( export HOME="$H4" PATH="$H4/stub:$PATH" OSTLER_OES_CURL="$H4/stub/oes-curl" OSTLER_OES_PY="$(command -v python3)"; unset OSTLER_BOX_HOST
           . "$LIB"; _oes_box() { bash -c "$1"; }; owner_employer_seed_apply 2>&1 ) )

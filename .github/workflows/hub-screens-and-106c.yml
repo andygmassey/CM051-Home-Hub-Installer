@@ -36,6 +36,7 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'vendor/cm041/contact_syncer/linkedin_career.py'
       - 'tests/test_the_walk_seeds_the_owner_employer.sh'
+      - 'tests/test_pref_seed_finds_the_staged_payload.sh'
       - 'tests/test_the_walk_seed_person_reaches_the_digest.py'
       - 'scripts/box_walk_probes/lib/conversation_capture_e2e.py'
       - 'scripts/box_walk_probes/fixtures/conversation_capture_e2e/**'
@@ -260,6 +261,9 @@ jobs:
           fetch-depth: 0
       - name: The walk seeds the owner's employer through the LinkedIn import
         run: bash tests/test_the_walk_seeds_the_owner_employer.sh
+      - name: The walk seeds the owner's employer through the LinkedIn import (staged payload)
+        if: always()
+        run: bash tests/test_pref_seed_finds_the_staged_payload.sh
       # walk #31: the seed person carries an interaction and an organisation, so
       # People and Key organisations can be graded on a synthetic box; the importer
       # log is per-user. Real SPARQL engine, real curl, then the shipped generator.

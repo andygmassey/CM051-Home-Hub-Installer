@@ -169,6 +169,12 @@ def _judge_ostler_list(f, out, add, status):
         add(DECLARED[5], None, "N/A-on-this-build: the daemon reports reminders push is not built in (available=false)")
     elif not rl.get("measured") and rl.get("authorization") in ("not_determined", "denied", "restricted"):
         add(DECLARED[5], None, "CANNOT-RUN (tcc): the list is unmeasured because the daemon's Reminders permission is {} (reminders_list.authorization); only a human at the console can answer the prompt or grant it".format(rl.get("authorization")))
+    elif not rl.get("measured") and (f.get("tcc_reminders") or {}).get("state") in ("absent", "unreadable"):
+        # The watcher cannot measure a list it is not allowed to read. With no
+        # kTCCServiceReminders row the prompt is undecided (or TCC.db could not
+        # be read to say): a missing console grant, not a stalled watcher.
+        add(DECLARED[5], None, "CANNOT-RUN: console grant needed (Reminders). The list is unmeasured and TCC.db {} for the assistant; only a human at the console can answer the prompt".format(
+            "has no kTCCServiceReminders row" if f["tcc_reminders"]["state"] == "absent" else "could not be read"))
     elif not rl.get("measured"):
         add(DECLARED[5], False, "the daemon has not measured the list yet (measured=false) after the wait budget; the watcher is not ticking")
     elif rl.get("removed"):
@@ -266,6 +272,17 @@ def self_test():
         else:
             print("  ok    never claimed with TCC row {}: {}".format(state, label))
 
+    # v1.0.112: unmeasured Ostler list. No Reminders grant -> CANNOT-RUN; the
+    # grant exists and the list is still unmeasured -> a real FAIL (the watcher).
+    for state, want in (("absent", None), ("unreadable", None), ("allowed", False), ("denied", False)):
+        u = copy.deepcopy(g)
+        u["push"] = {"status": "pending", "waited_s": 90}
+        u["reminders_list"] = {"read": True, "present_in_status": True, "available": True, "measured": False}
+        u["tcc_reminders"] = {"state": state}
+        if row(u, 5) != [want]:
+            fails.append("unmeasured list with TCC {} should be {} (f): {}".format(state, want, row(u, 5)))
+        else:
+            print("  ok    unmeasured Ostler list, TCC {}: {}".format(state, "CANNOT-RUN" if want is None else "FAIL"))
     tcc = copy.deepcopy(g); tcc["readback"] = {"attempted": True, "blocked_tcc": True}
     if row(tcc, 2) != [None]:
         fails.append("a TCC-blocked read-back should be CANNOT-RUN (c), got {}".format(row(tcc, 2)))
