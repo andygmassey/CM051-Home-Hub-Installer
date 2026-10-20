@@ -98,6 +98,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib_identity_lookalike.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib_identity_lookalike.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_cm019_bundle.sh"
 REMOTE_DIR="ostler-ttywalk"
 
 PASS=0; FAIL=1; CANNOT_RUN=2
@@ -425,6 +426,9 @@ if [[ -n "${FROM_DMG:-}" ]]; then
         || die "--from-dmg: ${_res} has no install.sh. That is not the payload root."
     STAGE_SRC="$_res"
     STAGE_KIND="artefact"
+    # Every probe on this run (the preference seed runs on the DRIVER) finds
+    # the artefact's cm019 bundle through this, not by guessing a path.
+    walk_export_cm019_bundle "$_res" || true
     # THE VERSION OF THE INSTALLER THAT IS ABOUT TO RUN, read from the bundle
     # this walk actually mounts.
     #
