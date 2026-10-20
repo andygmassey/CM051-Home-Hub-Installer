@@ -20,7 +20,7 @@ import time
 MAC_EPOCH_OFFSET = 978307200
 
 SYNTHETIC_PAGES = [
-    ("https://www.example.com/", "Example Domain"),
+    ("https://www.example.com/", "Walk fixture home page"),
     ("https://www.example.com/news/walk-fixture-1", "Walk fixture article one"),
     ("https://www.example.org/recipes/walk-fixture-soup", "Walk fixture soup recipe"),
     ("https://docs.example.net/guide/getting-started", "Walk fixture getting started"),
