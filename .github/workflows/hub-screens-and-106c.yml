@@ -262,6 +262,7 @@ jobs:
       - name: The walk seeds the owner's employer through the LinkedIn import
         run: bash tests/test_the_walk_seeds_the_owner_employer.sh
       - name: The walk seeds the owner's employer through the LinkedIn import (staged payload)
+        if: always()
         run: bash tests/test_pref_seed_finds_the_staged_payload.sh
       # walk #31: the seed person carries an interaction and an organisation, so
       # People and Key organisations can be graded on a synthetic box; the importer
