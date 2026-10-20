@@ -15,6 +15,8 @@ bytes are meant to match the source PR.
   Pure stdlib, no network. Recognises Netflix, Prime Video, Max, Disney+,
   Apple TV+, YouTube and YouTube Music visits from URL shape plus page title,
   one preference per viewing session, no watch time.
+  Playback only: title/detail pages count as browsing, not watching.
+  Season/episode wording: en, de, fr, es, it, pt, nl plus S1:E2 forms.
 - `vendor/ostler_fda/pwg_ingest.py`: ONE hunk, identical text to the HR015
   PR's hunk: `ingest_streaming()` inserted before the iMessage social-graph
   section, and `("streaming", "ingest_streaming")` after the `bookmarks`

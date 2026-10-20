@@ -6,6 +6,11 @@ preference payload per viewing SESSION, in the shape ``ingest_bookmarks``
 writes into the Qdrant ``preferences`` collection, which is the path
 export importers use and the one interest_profile reads. No new store.
 
+Only PLAYBACK counts as watching. A title or detail page (Netflix
+/title/, Prime /detail/ without autoplay, Max /shows/ and /movies/, Disney+
+/movies/ and /series/, Apple TV+ without a playableId) is the owner browsing
+the catalogue, so it produces nothing.
+
 Services: Netflix, Prime Video, Max, Disney+, Apple TV+, YouTube and
 YouTube Music. A YouTube music video (an "Artist - Song (Official Video)"
 title) feeds music taste, not film and TV.
@@ -14,10 +19,12 @@ Rules, each pinned by tests/test_streaming_history.py:
 
 * Local only. The service, title and artist come from the URL and the page
   title and nothing else. There is no network lookup anywhere in this file.
-* A page is a viewing only if its URL SHAPE says so: a watch page, a video
-  page, a title or detail page. A homepage, a browse page, a search page, a
-  channel page or a playlist page is never a title, however its page title
-  reads ("Netflix", "foo - YouTube").
+* A page is a viewing only if its URL SHAPE says it is PLAYBACK: a watch
+  page, a play page, a video page, or (Prime Video, Apple TV+) a detail page
+  carrying the autoplay / playableId marker the player adds. A detail page
+  without it, a homepage, a browse page, a search page, a channel page or a
+  playlist page is never a title, however its page title reads ("Netflix",
+  "foo - YouTube").
 * Netflix ``/watch/<id>`` carries the bare title "Netflix" in a real
   browser, so a title that cannot be read is NOT a title: the visit is
   dropped and counted, never guessed.
@@ -27,9 +34,8 @@ Rules, each pinned by tests/test_streaming_history.py:
 * Watch time is NOT emitted. History records when a page was opened, not how
   long it played; a first-to-last span would be a guess dressed as a
   measurement, so the field does not exist.
-* Strength rests on evidence only: watching (a watch page or autoplay)
-  outweighs merely opening a title page, and a generic YouTube video
-  weighs least.
+* Strength rests on evidence only: a film or TV playback outweighs a
+  generic YouTube video, which weighs least.
 * The stored URL is rebuilt from the parsed identity, never copied: YouTube
   keeps ``v=`` and ``list=`` and nothing else; every other service keeps
   scheme, host and path. Tracking parameters therefore cannot ride along,
@@ -62,7 +68,6 @@ CAT_VIDEO = "video"
 # Evidence -> base strength. Capped, never derived from time on page.
 _STRENGTH = {
     ("watched", CAT_FILM_TV): 0.60,
-    ("viewed", CAT_FILM_TV): 0.30,
     ("watched", CAT_MUSIC): 0.55,
     ("watched", CAT_VIDEO): 0.25,
 }
@@ -89,7 +94,7 @@ class Viewing:
     subject: str            # what the preference is ABOUT (series, artist, title)
     identity: str           # stable per title/video: the dedupe key
     url: str                # rebuilt, tracking-free
-    evidence: str           # watched | viewed
+    evidence: str           # watched (playback is the only evidence emitted)
     at: datetime
     channel: Optional[str] = None
     artist: Optional[str] = None
@@ -125,10 +130,14 @@ def _strip_site(title: str, site_names: tuple[str, ...]) -> str:
     return _clean(t)
 
 
+# Season / episode words the services put in page titles: en, de, fr, es,
+# it, pt, nl. Accented forms are written out; _clean() has NFC-normalised.
+_SEASON_WORD = r"(?:Season|Staffel|Saison|Temporada|Stagione|Seizoen|Temp\.)"
+_EPISODE_WORD = r"(?:Episode|\u00c9pisode|Folge|Episodio|Epis\u00f3dio|Aflevering|Afl\.|Ep\.?)"
 _EPISODE_TAIL = re.compile(
     r"^(?P<series>.+?)\s*(?:[-:\u2013|]\s*)?"
     r"(?:\bS(?P<s>\d{1,2})\s*[:.]?\s*E(?P<e>\d{1,3})\b"
-    r"|\bSeason\s+(?P<s2>\d{1,2})\b[,:\s-]*(?:Episode|Ep\.?)\s*(?P<e2>\d{1,3})\b)",
+    rf"|\b{_SEASON_WORD}\s*(?P<s2>\d{{1,2}})\b[,:;\s-]*{_EPISODE_WORD}\s*(?P<e2>\d{{1,3}})\b)",
     re.I,
 )
 
@@ -154,90 +163,82 @@ def _viewing(service, category, kind, title, subject, identity, url, evidence, a
 
 
 def _netflix(host, path, query, title, at):
-    m = re.match(r"^/(?:[a-z]{2}(?:-[A-Za-z]{2})?/)?(watch|title)/(\d+)/?$", path)
+    m = re.match(r"^/(?:[a-z]{2}(?:-[A-Za-z]{2})?/)?(watch)/(\d+)/?$", path)
     if not m:
-        return None  # /browse, /search, /latest, /kids, /: never a title
+        return None  # /title/<id> is a detail page; /browse, /search, /kids, /: never a title
     t = _strip_site(title, ("Netflix",))
     if _is_generic(t):
         return None
-    watched = m.group(1) == "watch"
     series = _series_of(t)
-    kind = "episode" if series else ("film" if watched else "show")
-    return _viewing("netflix", CAT_FILM_TV, kind, t, series or t,
-                    f"netflix:{m.group(1)}:{m.group(2)}",
-                    f"https://www.netflix.com/{m.group(1)}/{m.group(2)}",
-                    "watched" if watched else "viewed", at, series=series)
+    return _viewing("netflix", CAT_FILM_TV, "episode" if series else "film", t,
+                    series or t, f"netflix:watch:{m.group(2)}",
+                    f"https://www.netflix.com/watch/{m.group(2)}",
+                    "watched", at, series=series)
 
 
 def _prime(host, path, query, title, at):
-    m = re.match(r"^(?:/gp/video)?/detail/([A-Z0-9]{8,12})(?:/|$)", path)
+    m = re.match(r"^(?:/region/[a-z]{2,3})?(?:/gp/video)?/detail/([A-Z0-9]{8,12})(?:/|$)", path)
     if not m:
         return None  # storefront, /search, /dp product pages, /gp/video/storefront
-    if "amazon." in host and not path.startswith("/gp/video/detail/"):
+    if "amazon." in host and "/gp/video/detail/" not in path:
         return None  # a bare /detail/ on the shop host is not Prime Video
+    # Prime has no separate watch URL: the player runs on the detail URL and
+    # adds autoplay=1. A detail page without it is catalogue browsing.
+    if (query.get("autoplay") or [""])[0] != "1":
+        return None
     t = _strip_site(title, ("Prime Video", "Amazon Prime Video"))
     if _is_generic(t):
         return None
     series = _series_of(t)
-    autoplay = (query.get("autoplay") or [""])[0] == "1"
     return _viewing("prime_video", CAT_FILM_TV, "episode" if series else "film", t,
                     series or t, f"prime:{m.group(1)}",
                     f"https://{host}{path.split('/ref=')[0]}",
-                    "watched" if autoplay else "viewed", at, series=series)
+                    "watched", at, series=series)
 
 
 def _max(host, path, query, title, at):
     m = re.match(r"^/(?:[a-z]{2}(?:-[A-Za-z]{2})?/)?video/watch/([0-9a-f-]{36})(?:/([0-9a-f-]{36}))?/?$", path)
-    kind_path = None
-    if m:
-        ident, evidence = m.group(1) + (m.group(2) or ""), "watched"
-    else:
-        m = re.match(r"^/(?:[a-z]{2}(?:-[A-Za-z]{2})?/)?(shows|movies)/([a-z0-9-]+)/([0-9a-f-]{36})/?$", path)
-        if not m:
-            return None  # /, /search, /browse, /collections, /hubs
-        kind_path, ident, evidence = m.group(1), m.group(3), "viewed"
+    if not m:
+        return None  # /shows/ and /movies/ are detail pages; /, /search, /browse, /hubs
+    ident = m.group(1) + (m.group(2) or "")
     t = _strip_site(title, ("Max", "HBO Max"))
     if _is_generic(t):
         return None
     series = _series_of(t)
-    kind = "episode" if series else ("show" if kind_path == "shows" else "film")
-    return _viewing("max", CAT_FILM_TV, kind, t, series or t, f"max:{ident}",
-                    f"https://{host}{path}", evidence, at, series=series)
+    return _viewing("max", CAT_FILM_TV, "episode" if series else "film", t,
+                    series or t, f"max:{ident}",
+                    f"https://{host}{path}", "watched", at, series=series)
 
 
 def _disney(host, path, query, title, at):
     loc = r"(?:/[a-z]{2}(?:-[a-z]{2})?)?"
     m = re.match(rf"^{loc}/(?:video|play)/([0-9a-f-]{{36}})/?$", path)
-    kind_path = None
-    if m:
-        ident, evidence = m.group(1), "watched"
-    else:
-        m = re.match(rf"^{loc}/(movies|series)/([a-z0-9-]+)/([A-Za-z0-9]+)/?$", path)
-        if not m:
-            return None  # /home, /browse, /search, /welcome
-        kind_path, ident, evidence = m.group(1), m.group(3), "viewed"
+    if not m:
+        return None  # /movies/ and /series/ are detail pages; /home, /browse, /search
+    ident = m.group(1)
     t = _strip_site(title, ("Disney+", "Disney Plus"))
     if _is_generic(t):
         return None
     series = _series_of(t)
-    kind = "episode" if series else ("show" if kind_path == "series" else "film")
-    return _viewing("disney_plus", CAT_FILM_TV, kind, t, series or t, f"disney:{ident}",
-                    f"https://{host}{path}", evidence, at, series=series)
+    return _viewing("disney_plus", CAT_FILM_TV, "episode" if series else "film", t,
+                    series or t, f"disney:{ident}",
+                    f"https://{host}{path}", "watched", at, series=series)
 
 
 def _apple_tv(host, path, query, title, at):
     m = re.match(r"^/(?:[a-z]{2}/)?(show|movie|episode)/([^/]+)/(umc\.cmc\.[a-z0-9]+)/?$", path)
     if not m:
         return None  # /us, /us/room/..., /us/channel/..., /us/search
+    if not query.get("playableId"):
+        return None  # a show, movie or episode page without playableId is a detail page
     kind_word, ident = m.group(1), m.group(3)
     t = _strip_site(title, ("Apple TV+", "Apple TV"))
     if _is_generic(t):
         return None
     series = _series_of(t)
     kind = {"show": "show", "movie": "film", "episode": "episode"}[kind_word]
-    evidence = "watched" if (query.get("playableId") or kind_word == "episode") else "viewed"
     return _viewing("apple_tv_plus", CAT_FILM_TV, kind, t, series or t, f"appletv:{ident}",
-                    f"https://{host}{path}", evidence, at, series=series)
+                    f"https://{host}{path}", "watched", at, series=series)
 
 
 _MUSIC_VIDEO_MARK = re.compile(

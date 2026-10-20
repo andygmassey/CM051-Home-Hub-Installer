@@ -49,26 +49,25 @@ def visit(url, title, minutes=0, **extra):
 POSITIVES = [
     ("https://www.netflix.com/watch/70000001", "Watch Example show S2:E4 | Netflix",
      ("netflix", "movie_tv", "episode", "Example show", "watched")),
-    ("https://www.netflix.com/title/70000002", "Example film | Netflix",
-     ("netflix", "movie_tv", "show", "Example film", "viewed")),
     ("https://www.primevideo.com/detail/B0EXAMPLE01/ref=atv_dp?autoplay=1&utm_source=mail",
      "Prime Video: Example drama",
      ("prime_video", "movie_tv", "film", "Example drama", "watched")),
-    ("https://www.amazon.co.uk/gp/video/detail/B0EXAMPLE02/",
-     "Amazon.co.uk: Watch Example comedy | Prime Video",
-     ("prime_video", "movie_tv", "film", "Example comedy", "viewed")),
     (f"https://play.max.com/video/watch/{UUID_A}/{UUID_B}", "Watch Example saga | Max",
      ("max", "movie_tv", "film", "Example saga", "watched")),
-    (f"https://www.max.com/shows/example-series/{UUID_A}", "Example series | Max",
-     ("max", "movie_tv", "show", "Example series", "viewed")),
     (f"https://www.disneyplus.com/en-gb/play/{UUID_A}", "Watch Example adventure | Disney+",
      ("disney_plus", "movie_tv", "film", "Example adventure", "watched")),
-    ("https://tv.apple.com/gb/show/example-mystery/umc.cmc.abc123xyz",
-     "‎Example mystery - Apple TV+",
-     ("apple_tv_plus", "movie_tv", "show", "Example mystery", "viewed")),
     ("https://tv.apple.com/gb/movie/example-thriller/umc.cmc.def456uvw?playableId=tvs.sbd.1",
      "Example thriller - Apple TV+",
      ("apple_tv_plus", "movie_tv", "film", "Example thriller", "watched")),
+    ("https://www.amazon.co.uk/gp/video/detail/B0EXAMPLE02/?autoplay=1&t=0",
+     "Amazon.co.uk: Watch Example comedy | Prime Video",
+     ("prime_video", "movie_tv", "film", "Example comedy", "watched")),
+    ("https://www.primevideo.com/region/eu/detail/B0EXAMPLE04/ref=atv_dp?autoplay=1",
+     "Prime Video: Example drama S1:E2",
+     ("prime_video", "movie_tv", "episode", "Example drama", "watched")),
+    ("https://tv.apple.com/gb/episode/example-pilot/umc.cmc.ghi789rst?playableId=tvs.sbd.2",
+     "Example pilot - Apple TV+",
+     ("apple_tv_plus", "movie_tv", "episode", "Example pilot", "watched")),
     ("https://www.youtube.com/watch?v=aaaaaaaaaaa&si=TRACK&utm_source=x",
      "(3) How to descale an example kettle - YouTube",
      ("youtube", "video", "video", "How to descale an example kettle", "watched")),
@@ -108,6 +107,19 @@ NEGATIVES = [
     ("https://www.disneyplus.com/browse/entity-" + UUID_A, "Disney+"),
     ("https://tv.apple.com/gb", "Apple TV"),
     ("https://tv.apple.com/gb/room/example-room/edt.item.123", "Example room - Apple TV"),
+    # DETAIL pages: the owner is browsing the catalogue, not watching.
+    ("https://www.netflix.com/title/70000002", "Example film | Netflix"),
+    ("https://www.netflix.com/gb/title/70000002?trackId=1", "Example film | Netflix"),
+    ("https://www.primevideo.com/detail/B0EXAMPLE01/ref=atv_dp", "Prime Video: Example drama"),
+    ("https://www.primevideo.com/detail/B0EXAMPLE01/ref=atv_dp?autoplay=0", "Prime Video: Example drama"),
+    ("https://www.amazon.co.uk/gp/video/detail/B0EXAMPLE02/", "Amazon.co.uk: Watch Example comedy | Prime Video"),
+    (f"https://www.max.com/shows/example-series/{UUID_A}", "Example series | Max"),
+    (f"https://www.max.com/movies/example-movie/{UUID_A}", "Example movie | Max"),
+    (f"https://www.disneyplus.com/movies/example-adventure/abc123XYZ", "Example adventure | Disney+"),
+    (f"https://www.disneyplus.com/en-gb/series/example-saga/abc123XYZ", "Example saga | Disney+"),
+    ("https://tv.apple.com/gb/show/example-mystery/umc.cmc.abc123xyz", "Example mystery - Apple TV+"),
+    ("https://tv.apple.com/gb/movie/example-thriller/umc.cmc.def456uvw", "Example thriller - Apple TV+"),
+    ("https://tv.apple.com/gb/episode/example-pilot/umc.cmc.ghi789rst", "Example pilot - Apple TV+"),
     ("https://example.com/watch?v=aaaaaaaaaaa", "Not A Service - YouTube"),
     ("https://notyoutube.com/watch?v=aaaaaaaaaaa", "Lookalike host - YouTube"),
 ]
@@ -167,8 +179,8 @@ def test_stored_url_keeps_v_and_list_and_drops_everything_else():
         "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=PLexample&index=3"
         "&utm_source=newsletter&si=TRACK&fbclid=Z", "Example - YouTube")])
     assert got[0].url == "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=PLexample"
-    nf = sh.recognise(visit("https://www.netflix.com/title/70000002?trackId=1&utm_medium=x", "Example film | Netflix"))
-    assert nf.url == "https://www.netflix.com/title/70000002"
+    nf = sh.recognise(visit("https://www.netflix.com/watch/70000002?trackId=1&utm_medium=x", "Example film | Netflix"))
+    assert nf.url == "https://www.netflix.com/watch/70000002"
 
 
 def test_no_watch_time_is_ever_emitted():
@@ -179,14 +191,14 @@ def test_no_watch_time_is_ever_emitted():
 
 
 def test_private_flagged_visit_is_dropped():
-    u, t = "https://www.netflix.com/title/70000002", "Example film | Netflix"
+    u, t = "https://www.netflix.com/watch/70000002", "Example film | Netflix"
     assert sh.recognise(visit(u, t)) is not None
     for flag in ("private", "incognito", "is_private", "private_browsing"):
         assert sh.recognise(visit(u, t, **{flag: True})) is None
 
 
 def test_unparseable_time_is_dropped_not_invented():
-    v = visit("https://www.netflix.com/title/70000002", "Example film | Netflix")
+    v = visit("https://www.netflix.com/watch/70000002", "Example film | Netflix")
     v["timestamp"] = "yesterday-ish"
     assert sh.recognise(v) is None
 
@@ -206,9 +218,9 @@ def test_payload_matches_the_preferences_contract_and_music_videos_feed_music():
         by_cat.setdefault(pl["category"], []).append(pl["subject"])
     assert "Sample artist" in by_cat["music"] and "Other artist" in by_cat["music"]
     assert "Example show" in by_cat["movie_tv"]
-    # watching outweighs opening a title page; a generic video weighs least
+    # film/TV playback outweighs a generic video
     st = {p["payload"]["subject"]: p["payload"]["strength"] for p in prefs}
-    assert st["Example show"] > st["Example film"] > st["How to descale an example kettle"]
+    assert st["Example show"] > st["How to descale an example kettle"]
 
 
 def test_ids_are_stable_across_runs():
@@ -252,8 +264,8 @@ def test_ingest_streaming_writes_preferences_and_reports_the_denominator(tmp_pat
 
 
 def test_ingest_streaming_reads_chrome_too_and_drops_sensitive_domains(tmp_path, sink):
-    chrome = visit("https://www.netflix.com/title/70000002", "Example film | Netflix", source="chrome_history")
-    bank = visit("https://www.netflix.com.accounts.google.com/title/70000002", "Example film | Netflix")
+    chrome = visit("https://www.netflix.com/watch/70000002", "Example film | Netflix", source="chrome_history")
+    bank = visit("https://www.netflix.com.accounts.google.com/watch/70000002", "Example film | Netflix")
     _write(tmp_path, [chrome, bank], "chrome_history.json")
     res = pwg_ingest.ingest_streaming(tmp_path)
     assert res["sent"] == 1 and res["skipped_sensitive"] == 1
@@ -351,3 +363,86 @@ def test_a_streaming_outage_retries_the_catchup_window(tmp_path, sink, monkeypat
     ad = catchup_browser.SafariAdapter(db_path=db, now=when + 86400)
     with pytest.raises(ConnectionError):
         ad.process((int(when) - 3600, int(when) + 3600))
+
+
+# ── detail vs playback, and season/episode wording (review MEDIUMs) ──
+
+# (detail URL, playback URL, title): the pair differs ONLY by the playback
+# marker, so a pass on the detail side cannot come from a bad title or host.
+DETAIL_PLAYBACK_PAIRS = [
+    ("https://www.netflix.com/title/70000002", "https://www.netflix.com/watch/70000002",
+     "Example film | Netflix"),
+    ("https://www.primevideo.com/detail/B0EXAMPLE01/", "https://www.primevideo.com/detail/B0EXAMPLE01/?autoplay=1",
+     "Prime Video: Example drama"),
+    ("https://www.amazon.co.uk/gp/video/detail/B0EXAMPLE02/", "https://www.amazon.co.uk/gp/video/detail/B0EXAMPLE02/?autoplay=1",
+     "Amazon.co.uk: Watch Example comedy | Prime Video"),
+    (f"https://www.max.com/shows/example-series/{UUID_A}", f"https://play.max.com/video/watch/{UUID_A}/{UUID_B}",
+     "Example series | Max"),
+    (f"https://www.max.com/movies/example-movie/{UUID_A}", f"https://play.max.com/video/watch/{UUID_A}",
+     "Example movie | Max"),
+    ("https://www.disneyplus.com/movies/example-adventure/abc123XYZ", f"https://www.disneyplus.com/play/{UUID_A}",
+     "Example adventure | Disney+"),
+    ("https://www.disneyplus.com/series/example-saga/abc123XYZ", f"https://www.disneyplus.com/video/{UUID_A}",
+     "Example saga | Disney+"),
+    ("https://tv.apple.com/gb/show/example-mystery/umc.cmc.abc123xyz",
+     "https://tv.apple.com/gb/show/example-mystery/umc.cmc.abc123xyz?playableId=tvs.sbd.1",
+     "Example mystery - Apple TV+"),
+    ("https://tv.apple.com/gb/episode/example-pilot/umc.cmc.ghi789rst",
+     "https://tv.apple.com/gb/episode/example-pilot/umc.cmc.ghi789rst?playableId=tvs.sbd.2",
+     "Example pilot - Apple TV+"),
+]
+
+
+@pytest.mark.parametrize("detail,playback,title", DETAIL_PLAYBACK_PAIRS)
+def test_detail_page_is_not_a_viewing_but_its_playback_is(detail, playback, title):
+    assert sh.recognise(visit(detail, title)) is None
+    v = sh.recognise(visit(playback, title))
+    assert v is not None and v.evidence == "watched"
+
+
+def test_no_film_tv_viewing_is_ever_emitted_as_merely_viewed():
+    got, _ = sh.extract_viewings([visit(u, t) for u, t, _ in POSITIVES])
+    assert got and {v.evidence for v in got} == {"watched"}
+
+
+# (page title, series, ...): wording each service uses per UI language.
+EPISODE_TITLES = [
+    ("Example show: Staffel 1, Folge 2 | Netflix", "Example show"),          # de
+    ("Example show - Saison 1, épisode 2 | Netflix", "Example show"),     # fr
+    ("Example show: Saison 1 : Épisode 2", "Example show"),               # fr, spaced colon
+    ("Example show - Temporada 1, episodio 2 | Netflix", "Example show"),    # es
+    ("Example show - Stagione 1, episodio 2 | Netflix", "Example show"),     # it
+    ("Example show - Temporada 1, episódio 2 | Netflix", "Example show"),  # pt
+    ("Example show - Seizoen 1, aflevering 2 | Netflix", "Example show"),    # nl
+    ("Example show Season 1, Episode 2 | Netflix", "Example show"),          # en
+    ("Example show S1:E2 | Netflix", "Example show"),
+    ("Example show S01E02 | Netflix", "Example show"),
+    ("Example show - S01 E02 | Netflix", "Example show"),
+]
+
+
+@pytest.mark.parametrize("title,series", EPISODE_TITLES)
+def test_episode_wording_is_recognised_in_every_supported_language(title, series):
+    v = sh.recognise(visit("https://www.netflix.com/watch/70000001", title))
+    assert v is not None
+    assert (v.kind, v.series, v.subject) == ("episode", series, series)
+
+
+@pytest.mark.parametrize("title", [
+    "Example film | Netflix",
+    "Example film 2 | Netflix",                 # a sequel number is not an episode
+    "Saison finale party | Netflix",           # season word without numbers
+    "Folge deinem Herzen | Netflix",           # "Folge" is an ordinary German word
+])
+def test_ordinary_titles_are_not_split_into_series_and_episode(title):
+    v = sh.recognise(visit("https://www.netflix.com/watch/70000001", title))
+    assert v is not None and v.kind == "film" and v.series is None
+
+
+def test_non_english_episode_wording_collapses_to_one_series_subject():
+    got, _ = sh.extract_viewings([
+        visit("https://www.netflix.com/watch/70000001", "Example show - Staffel 1, Folge 2 | Netflix", 0),
+        visit("https://www.netflix.com/watch/70000003", "Example show - Saison 2, épisode 5 | Netflix", 60),
+    ])
+    prefs = sh.to_preferences(sh.sessionise(got), "L2", "2026-03-02T00:00:00+00:00")
+    assert {p["payload"]["subject"] for p in prefs} == {"Example show"}
