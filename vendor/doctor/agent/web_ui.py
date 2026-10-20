@@ -2816,6 +2816,20 @@ _FDA_EXTRACT_KINDS = {
     # Apple Music library (CM051 walk #27): chosen in the picker like the
     # two above, so its row appears only once install.sh records it.
     "apple_music": "source",
+    # Spotify listening from the Mac app (CM051 "Spotify ongoing"): present
+    # only once the poll has seen Spotify running, so a customer who has no
+    # Spotify never gets an amber "not run yet" row.
+    "spotify_live": "source",
+}
+# A refusal the owner can fix by a grant that is not Full Disk Access. The
+# activity writer names it in last_detail; the pane is (what Ostler needs,
+# where to turn it on). Anything not listed keeps the Full Disk Access text.
+_ACTIVITY_REFUSALS = {
+    ("spotify_live", "automation_not_granted"): (
+        "Automation access to Spotify", "Automation",
+        "macOS stopped the Ostler assistant reading what is playing in "
+        "Spotify. Turn on Spotify for Ostler Installer under Automation in "
+        "System Settings, Privacy & Security."),
 }
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
@@ -3100,6 +3114,7 @@ _SOURCE_TOTAL_UNITS = {
     "browsing": "web pages",
     "reminders": "reminders",
     "apple_music": "tracks",
+    "spotify_live": "plays",
     "ai_conversations": "chats",
 }
 
@@ -3486,6 +3501,11 @@ def read_source_status(hydrate_dir: Path | None = None,
                                  "Full Disk Access for the Ostler assistant in "
                                  "System Settings, Privacy & Security.")
                 row["_refused_pane"] = "Full Disk Access"
+                for (_src, _why), (_need, _where, _text) in _ACTIVITY_REFUSALS.items():
+                    if (row["source"] == _src
+                            and _why in str(act.get("last_detail") or "")):
+                        row["detail"] = _text
+                        row["_refused_pane"] = (_need, _where)
         else:
             row["ongoing"] = "never"
             row["last_run_at"] = None
@@ -3594,7 +3614,7 @@ def read_source_status(hydrate_dir: Path | None = None,
         if row.get("status") == "cannot_run":
             _hit = _refused_panes.get(str(row.get("detail") or "").strip())
             if _pane:
-                _hit = (_pane, _pane)
+                _hit = _pane if isinstance(_pane, tuple) else (_pane, _pane)
             if _hit:
                 row["needs_access"] = _hit[0]
                 row["reason"] = ("Ostler needs %s (System Settings > Privacy "

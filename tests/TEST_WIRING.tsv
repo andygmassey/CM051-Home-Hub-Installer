@@ -706,6 +706,7 @@ test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/c
 test_spoken_capture_consent_does_not_claim_audio_is_kept.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_spool_sweep_quarantines_a_bad_row.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
+test_spotify_live.py	WIRED	.github/workflows/spotify-live.yml
 test_stage_payload_strips_ambient_pyc.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchagent-success-verification.yml

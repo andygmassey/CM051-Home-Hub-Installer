@@ -48,6 +48,8 @@ struct OstlerInstallerApp: App {
         // --music-refresh (LaunchAgent com.ostler.music-refresh). It must
         // run before any scene exists and then exit; see MusicRefreshMode.
         MusicRefreshMode.runIfRequested()
+        // Likewise --spotify-poll (com.ostler.spotify-live); see SpotifyLiveMode.
+        SpotifyLiveMode.runIfRequested()
     }
 
     var body: some Scene {
