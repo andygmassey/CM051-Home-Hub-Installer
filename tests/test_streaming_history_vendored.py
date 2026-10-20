@@ -47,37 +47,37 @@ def visit(url, title, minutes=0, **extra):
 
 # (url, page title) -> (service, category, kind, subject, evidence)
 POSITIVES = [
-    ("https://www.netflix.com/watch/70000001", "Watch Example Show S2:E4 | Netflix",
-     ("netflix", "movie_tv", "episode", "Example Show", "watched")),
-    ("https://www.netflix.com/title/70000002", "Example Film | Netflix",
-     ("netflix", "movie_tv", "show", "Example Film", "viewed")),
+    ("https://www.netflix.com/watch/70000001", "Watch Example show S2:E4 | Netflix",
+     ("netflix", "movie_tv", "episode", "Example show", "watched")),
+    ("https://www.netflix.com/title/70000002", "Example film | Netflix",
+     ("netflix", "movie_tv", "show", "Example film", "viewed")),
     ("https://www.primevideo.com/detail/B0EXAMPLE01/ref=atv_dp?autoplay=1&utm_source=mail",
-     "Prime Video: Example Drama",
-     ("prime_video", "movie_tv", "film", "Example Drama", "watched")),
+     "Prime Video: Example drama",
+     ("prime_video", "movie_tv", "film", "Example drama", "watched")),
     ("https://www.amazon.co.uk/gp/video/detail/B0EXAMPLE02/",
-     "Amazon.co.uk: Watch Example Comedy | Prime Video",
-     ("prime_video", "movie_tv", "film", "Example Comedy", "viewed")),
-    (f"https://play.max.com/video/watch/{UUID_A}/{UUID_B}", "Watch Example Saga | Max",
-     ("max", "movie_tv", "film", "Example Saga", "watched")),
-    (f"https://www.max.com/shows/example-series/{UUID_A}", "Example Series | Max",
-     ("max", "movie_tv", "show", "Example Series", "viewed")),
-    (f"https://www.disneyplus.com/en-gb/play/{UUID_A}", "Watch Example Adventure | Disney+",
-     ("disney_plus", "movie_tv", "film", "Example Adventure", "watched")),
+     "Amazon.co.uk: Watch Example comedy | Prime Video",
+     ("prime_video", "movie_tv", "film", "Example comedy", "viewed")),
+    (f"https://play.max.com/video/watch/{UUID_A}/{UUID_B}", "Watch Example saga | Max",
+     ("max", "movie_tv", "film", "Example saga", "watched")),
+    (f"https://www.max.com/shows/example-series/{UUID_A}", "Example series | Max",
+     ("max", "movie_tv", "show", "Example series", "viewed")),
+    (f"https://www.disneyplus.com/en-gb/play/{UUID_A}", "Watch Example adventure | Disney+",
+     ("disney_plus", "movie_tv", "film", "Example adventure", "watched")),
     ("https://tv.apple.com/gb/show/example-mystery/umc.cmc.abc123xyz",
-     "‎Example Mystery - Apple TV+",
-     ("apple_tv_plus", "movie_tv", "show", "Example Mystery", "viewed")),
+     "‎Example mystery - Apple TV+",
+     ("apple_tv_plus", "movie_tv", "show", "Example mystery", "viewed")),
     ("https://tv.apple.com/gb/movie/example-thriller/umc.cmc.def456uvw?playableId=tvs.sbd.1",
-     "Example Thriller - Apple TV+",
-     ("apple_tv_plus", "movie_tv", "film", "Example Thriller", "watched")),
+     "Example thriller - Apple TV+",
+     ("apple_tv_plus", "movie_tv", "film", "Example thriller", "watched")),
     ("https://www.youtube.com/watch?v=aaaaaaaaaaa&si=TRACK&utm_source=x",
      "(3) How to descale an example kettle - YouTube",
      ("youtube", "video", "video", "How to descale an example kettle", "watched")),
     ("https://www.youtube.com/watch?v=bbbbbbbbbbb",
-     "Sample Artist - Sample Song (Official Music Video) - YouTube",
-     ("youtube", "music", "music_video", "Sample Artist", "watched")),
+     "Sample artist - Sample song (Official Music Video) - YouTube",
+     ("youtube", "music", "music_video", "Sample artist", "watched")),
     ("https://music.youtube.com/watch?v=ccccccccccc",
-     "Another Song • Other Artist - YouTube Music",
-     ("youtube_music", "music", "track", "Other Artist", "watched")),
+     "Another Song • Other artist - YouTube Music",
+     ("youtube_music", "music", "track", "Other artist", "watched")),
     ("https://youtu.be/ddddddddddd?t=42", "A short example talk - YouTube",
      ("youtube", "video", "video", "A short example talk", "watched")),
     ("https://www.youtube.com/shorts/eeeeeeeeeee", "Quick example trick - YouTube",
@@ -89,25 +89,25 @@ NEGATIVES = [
     ("https://www.youtube.com/", "YouTube"),
     ("https://www.youtube.com/results?search_query=example+kettle", "example kettle - YouTube"),
     ("https://www.youtube.com/feed/subscriptions", "Subscriptions - YouTube"),
-    ("https://www.youtube.com/@examplechannel", "Example Channel - YouTube"),
-    ("https://www.youtube.com/channel/UCexample0000000000000", "Example Channel - YouTube"),
+    ("https://www.youtube.com/@examplechannel", "Example channel - YouTube"),
+    ("https://www.youtube.com/channel/UCexample0000000000000", "Example channel - YouTube"),
     ("https://www.youtube.com/playlist?list=PLexample", "Example mix - YouTube"),
     ("https://www.youtube.com/hashtag/example", "#example - YouTube"),
     ("https://music.youtube.com/", "YouTube Music"),
     ("https://www.netflix.com/browse", "Netflix"),
-    ("https://www.netflix.com/browse?jbv=70000001", "Example Show - Netflix"),
+    ("https://www.netflix.com/browse?jbv=70000001", "Example show - Netflix"),
     ("https://www.netflix.com/search?q=example", "Netflix"),
     ("https://www.netflix.com/browse/my-list", "My List - Netflix"),
     ("https://www.netflix.com/watch/70000009", "Netflix"),  # title unreadable: dropped, not guessed
     ("https://www.primevideo.com/storefront/home", "Prime Video"),
     ("https://www.primevideo.com/search/ref=atv_nb_sr?phrase=example", "Prime Video: Search"),
-    ("https://www.amazon.co.uk/dp/B0EXAMPLE03", "Amazon.co.uk: Example Kettle"),
+    ("https://www.amazon.co.uk/dp/B0EXAMPLE03", "Amazon.co.uk: Example kettle"),
     ("https://www.max.com/", "Max: Stream HBO, TV Series, and Movies"),
     ("https://www.max.com/search?q=example", "Search | Max"),
     ("https://www.disneyplus.com/home", "Home | Disney+"),
     ("https://www.disneyplus.com/browse/entity-" + UUID_A, "Disney+"),
     ("https://tv.apple.com/gb", "Apple TV"),
-    ("https://tv.apple.com/gb/room/example-room/edt.item.123", "Example Room - Apple TV"),
+    ("https://tv.apple.com/gb/room/example-room/edt.item.123", "Example room - Apple TV"),
     ("https://example.com/watch?v=aaaaaaaaaaa", "Not A Service - YouTube"),
     ("https://notyoutube.com/watch?v=aaaaaaaaaaa", "Lookalike host - YouTube"),
 ]
@@ -167,7 +167,7 @@ def test_stored_url_keeps_v_and_list_and_drops_everything_else():
         "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=PLexample&index=3"
         "&utm_source=newsletter&si=TRACK&fbclid=Z", "Example - YouTube")])
     assert got[0].url == "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=PLexample"
-    nf = sh.recognise(visit("https://www.netflix.com/title/70000002?trackId=1&utm_medium=x", "Example Film | Netflix"))
+    nf = sh.recognise(visit("https://www.netflix.com/title/70000002?trackId=1&utm_medium=x", "Example film | Netflix"))
     assert nf.url == "https://www.netflix.com/title/70000002"
 
 
@@ -179,14 +179,14 @@ def test_no_watch_time_is_ever_emitted():
 
 
 def test_private_flagged_visit_is_dropped():
-    u, t = "https://www.netflix.com/title/70000002", "Example Film | Netflix"
+    u, t = "https://www.netflix.com/title/70000002", "Example film | Netflix"
     assert sh.recognise(visit(u, t)) is not None
     for flag in ("private", "incognito", "is_private", "private_browsing"):
         assert sh.recognise(visit(u, t, **{flag: True})) is None
 
 
 def test_unparseable_time_is_dropped_not_invented():
-    v = visit("https://www.netflix.com/title/70000002", "Example Film | Netflix")
+    v = visit("https://www.netflix.com/title/70000002", "Example film | Netflix")
     v["timestamp"] = "yesterday-ish"
     assert sh.recognise(v) is None
 
@@ -204,11 +204,11 @@ def test_payload_matches_the_preferences_contract_and_music_videos_feed_music():
         assert pl["privacy_level"] == "L2" == pl["compartment_level"]
         assert 0 < pl["strength"] <= 1
         by_cat.setdefault(pl["category"], []).append(pl["subject"])
-    assert "Sample Artist" in by_cat["music"] and "Other Artist" in by_cat["music"]
-    assert "Example Show" in by_cat["movie_tv"]
+    assert "Sample artist" in by_cat["music"] and "Other artist" in by_cat["music"]
+    assert "Example show" in by_cat["movie_tv"]
     # watching outweighs opening a title page; a generic video weighs least
     st = {p["payload"]["subject"]: p["payload"]["strength"] for p in prefs}
-    assert st["Example Show"] > st["Example Film"] > st["How to descale an example kettle"]
+    assert st["Example show"] > st["Example film"] > st["How to descale an example kettle"]
 
 
 def test_ids_are_stable_across_runs():
@@ -252,8 +252,8 @@ def test_ingest_streaming_writes_preferences_and_reports_the_denominator(tmp_pat
 
 
 def test_ingest_streaming_reads_chrome_too_and_drops_sensitive_domains(tmp_path, sink):
-    chrome = visit("https://www.netflix.com/title/70000002", "Example Film | Netflix", source="chrome_history")
-    bank = visit("https://www.netflix.com.accounts.google.com/title/70000002", "Example Film | Netflix")
+    chrome = visit("https://www.netflix.com/title/70000002", "Example film | Netflix", source="chrome_history")
+    bank = visit("https://www.netflix.com.accounts.google.com/title/70000002", "Example film | Netflix")
     _write(tmp_path, [chrome, bank], "chrome_history.json")
     res = pwg_ingest.ingest_streaming(tmp_path)
     assert res["sent"] == 1 and res["skipped_sensitive"] == 1
@@ -305,8 +305,8 @@ def test_interest_profile_ranks_them_into_film_tv_and_music(tmp_path, sink):
             for pl in _written(tmp_path, sink)]
     prof = ip.compile_profile(raws, now=datetime(2026, 3, 3, tzinfo=timezone.utc))
     seen = {i["subject"]: b["domain"] for b in prof["domains"] for i in b["interests"]}
-    assert seen["Example Show"] == "Film & TV"
-    assert seen["Sample Artist"] == "Music" and seen["Other Artist"] == "Music"
+    assert seen["Example show"] == "Film & TV"
+    assert seen["Sample artist"] == "Music" and seen["Other artist"] == "Music"
     # nothing from a negative-control page reached the profile
     assert not any("Search" in s or s in ("Netflix", "YouTube", "Home") for s in seen)
     assert prof["stats"]["suppressed_identifier"] == 0
