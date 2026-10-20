@@ -20167,6 +20167,54 @@ print(json.dumps(summary, default=str))
     unset _AM_EXPORT _AM_APP_EXEC
     unset -f _am_cannot
 
+    # Spotify listening, ongoing (CM051 "Spotify ongoing"). The export importer
+    # reads a one-off privacy-request download; what the owner plays NOW never
+    # arrived. Two small agents, same shape as the Apple Music refresh above:
+    #   com.ostler.spotify-live        Aqua session, every 60 s; its program is
+    #       the signed installer app itself (--spotify-poll). It never launches
+    #       Spotify: not running means it exits at once. The Automation consent
+    #       is therefore asked of, and held by, the Ostler Installer.
+    #   com.ostler.spotify-live-apply  no TCC; dedupes plays, applies the 30 s
+    #       rule, and hands them to the same CM019 preference ingest the
+    #       Spotify export uses.
+    # Only when the Spotify app is installed. A refused Automation prompt is a
+    # recorded state (the Doctor says "Ostler needs Automation access to
+    # Spotify"), never an install failure. Nothing here can fail the install.
+    _SP_APP_EXEC="/Applications/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"
+    _sp_cannot() {
+        [[ -n "${OSTLER_PYTHON:-}" ]] || return 0
+        OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" "$OSTLER_PYTHON" \
+            -m ostler_fda.spotify_live cannot-run --reason "$1" >/dev/null 2>&1 || true
+    }
+    if [[ -n "${OSTLER_PYTHON:-}" ]]; then
+        _SP_OUT="$(OSTLER_DIR="${OSTLER_DIR}" PYTHONPATH="${FDA_DIR}" \
+            "$OSTLER_PYTHON" -m ostler_fda.spotify_live install-agents \
+            --app-executable "$_SP_APP_EXEC" --python "$OSTLER_PYTHON" \
+            --fda-parent "${FDA_DIR}" --user "${OSTLER_USER:-ostler}" 2>/dev/null)" || _SP_OUT="failed"
+        case "$_SP_OUT" in
+            run_changed=*)
+                _ostler_launchagent_load_verified "${HOME}/Library/LaunchAgents/com.ostler.spotify-live-apply.plist" || true
+                if _ostler_launchagent_load_verified "${HOME}/Library/LaunchAgents/com.ostler.spotify-live.plist"; then
+                    info "Ostler will note what you play in Spotify, on this Mac only."  # i18n-exempt
+                else
+                    _sp_cannot "agent_did_not_load"
+                    warn "Spotify listening is not being noted; the background check did not start."  # i18n-exempt
+                fi
+                ;;
+            "not installed: Spotify"*) : ;;
+            *"stable path"*)
+                warn "Spotify listening needs Ostler Installer in Applications; it is not being noted."  # i18n-exempt
+                ;;
+            *)
+                _sp_cannot "agents_not_installed"
+                warn "Could not set up Spotify listening; continuing."  # i18n-exempt
+                ;;
+        esac
+        unset _SP_OUT
+    fi
+    unset _SP_APP_EXEC
+    unset -f _sp_cannot
+
     # #259: Apple Mail no-content guidance. The apple_mail extractor
     # arm now reports status "empty_no_content" when Mail is in the
     # source set but the local store holds no messages in the window
@@ -27304,6 +27352,8 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.contact-resync
     com.ostler.music-refresh
     com.ostler.music-refresh-apply
+    com.ostler.spotify-live
+    com.ostler.spotify-live-apply
     com.ostler.deferred-register-device
     com.ostler.aiconv-resume
     com.ostler.colima
