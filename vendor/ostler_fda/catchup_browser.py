@@ -139,8 +139,16 @@ class _BrowserAdapter(oc.Adapter):
             (work / self.json_name).write_text(
                 json.dumps(self.module.to_timeline_entries(entries), default=str))
             res = pwg_ingest.ingest_browser_history(work)
+            # Streaming/listening taste from the same window, so history older
+            # than the install window reaches the preferences path too. Points
+            # are keyed per session, so an overlapping window is a no-op. An
+            # outage retries the whole window (the browsing upsert above is
+            # idempotent); a recognised-nothing window is simply done.
+            streaming = pwg_ingest.ingest_streaming(work)
         finally:
             shutil.rmtree(work, ignore_errors=True)
+        if streaming.get("sink_unavailable"):
+            raise ConnectionError("preferences vector store unavailable")
         status = res.get("status")
         if res.get("sink_unavailable"):
             # Embedder or vector store down: an outage, never a poison attempt.

@@ -2680,6 +2680,95 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
     }
 
 
+# ── Streaming / listening taste from browser history ──────────────
+#
+# What the owner WATCHES and LISTENS to (Netflix, Prime Video, Max, Disney+,
+# Apple TV+, YouTube, YouTube Music), recognised from each visit's URL shape
+# and page title by streaming_history.py (no network lookup), one preference
+# per viewing session. Written to the SAME Qdrant ``preferences`` collection
+# and payload shape as ingest_bookmarks, so project_preferences carries them
+# into the graph and interest_profile reads them: no new store.
+#
+# Reads the same safari_history.json / chrome_history.json the browsing
+# ingest reads (sensitive domains dropped first, same blocklist), at the
+# browsing privacy level. Counts only on the way out.
+
+def ingest_streaming(fda_dir: Path) -> dict:
+    """Ingest recognised streaming/listening sessions as preferences.
+
+    Returns counts only: ``status`` ("ok" | "no_data" | "error"), ``sent``,
+    ``points_created``, ``skipped_sensitive``, ``total`` (sessions to write),
+    ``seen`` (visits examined: a zero ``total`` with a non-zero ``seen`` is
+    "looked and found none", not "could not look"), and ``sink_unavailable``
+    when the embedder or store refused every write (an outage, not poison).
+    """
+    from .streaming_history import (
+        extract_viewings, sessionise, to_preferences,
+    )
+
+    visits = _load_browsing_visits(fda_dir)
+    skipped_sensitive = 0
+    usable: list[dict] = []
+    for v in visits:
+        if _is_sensitive_domain((v.get("domain") or "").strip()):
+            skipped_sensitive += 1
+            continue
+        usable.append(v)
+
+    viewings, counts = extract_viewings(usable)
+    queue = to_preferences(
+        sessionise(viewings), DEFAULT_PRIVACY,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    base = {
+        "sent": 0, "points_created": 0, "skipped_sensitive": skipped_sensitive,
+        "total": len(queue), "seen": counts["seen"],
+    }
+    if not queue:
+        logger.info(
+            "Streaming: 0 sessions from %d visits (%d skipped sensitive).",
+            counts["seen"], skipped_sensitive,
+        )
+        return {"status": "no_data", **base}
+
+    vectors = _ollama_embed_batch([item["doc"] for item in queue])
+    vector_size = PREFERENCES_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+    try:
+        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
+        logger.warning(
+            "Streaming: could not ensure Qdrant collection '%s': %s",
+            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
+        )
+        return {"status": "error", "sink_unavailable": True, **base}
+
+    points = [
+        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+        for item, vec in zip(queue, vectors)
+    ]
+    try:
+        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning("Streaming vector-store write failed: %s", type(exc).__name__)
+        return {"status": "error", "sink_unavailable": True, **base}
+    if sent == 0:
+        logger.warning(
+            "Streaming: had %d sessions to ingest but 0 landed in Qdrant '%s'.",
+            len(queue), PREFERENCES_QDRANT_COLLECTION,
+        )
+        return {"status": "error", "sink_unavailable": True, **base}
+
+    logger.info(
+        "Streaming: %d sessions upserted to Qdrant '%s' (%d skipped sensitive).",
+        sent, PREFERENCES_QDRANT_COLLECTION, skipped_sensitive,
+    )
+    return {"status": "ok", **{**base, "sent": sent, "points_created": sent}}
+
+
 # ── iMessage social-graph signal (Social wiki page) ───────────────
 #
 # extract_all.py writes imessage_conversations.json (iMessage is a
@@ -3585,6 +3674,7 @@ _INGEST_DISPATCH = (
     ("apple_mail", "ingest_mail_contacts"),
     ("browser_history", "ingest_browser_history"),
     ("bookmarks", "ingest_bookmarks"),
+    ("streaming", "ingest_streaming"),
     ("social", "ingest_social"),
     ("people_index", "ingest_people_to_qdrant"),
 )
