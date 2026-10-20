@@ -121,6 +121,7 @@ P=\$HOME/.ostler/preferences/interest_profile.json
 pb=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0)
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.editor-frontpage >/dev/null 2>&1; echo \"OES profile compile rc=\$?\"
 j=0; while [ \$j -lt 24 ]; do pn=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0); [ \"\$pn\" -gt \"\$pb\" ] && { echo 'OES profile recompiled'; break; }; sleep 5; j=\$((j+1)); done
+[ \$j -ge 24 ] && echo 'OES profile NOT recompiled in 120s (no new mtime on interest_profile.json; a missing file counts as not recompiled)'
 C=\$HOME/.ostler/assistant-config/workspace/CONTEXT.md
 before=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0)
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.context-refresh >/dev/null 2>&1; echo \"OES refresh rc=\$?\"
@@ -132,7 +133,7 @@ echo 'OES digest not rewritten in 600s'; exit 3" 2>&1)"
     # says nothing about whether the fact landed. The graph does.
     local cnt
     cnt="$(printf '%s\n' "$out" | sed -n 's/^OES count=\([0-9][0-9]*\)$/\1/p' | tail -1)"
-    if [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && printf '%s' "$out" | grep -q '^OES digest rewritten'; then
+    if [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && printf '%s' "$out" | grep -q '^OES profile recompiled' && printf '%s' "$out" | grep -q '^OES digest rewritten'; then
         OSTLER_OWNER_SEED_STATE="seeded"
     else
         OSTLER_OWNER_SEED_STATE="failed"
