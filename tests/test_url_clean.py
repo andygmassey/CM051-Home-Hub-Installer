@@ -26,6 +26,8 @@ if str(VENDOR) not in sys.path:
 
 COPIES = [VENDOR / "ostler_fda" / "url_clean.py",
           VENDOR / "cm041" / "assistant_api" / "url_clean.py"]
+# Same constant as HR015 ostler_fda/tests/test_url_clean.py.
+URL_CLEAN_SHA256 = "a8ddf79be1fbf9e9473209c41223a011bfd904610a642cc0be2fbf7abf3f9c30"
 
 # (input, expected). Rows marked CONTROL must come out byte-identical.
 TABLE = [
@@ -124,7 +126,7 @@ def test_mutants_are_caught():
 def test_copies_are_byte_identical():
     digests = {p.relative_to(REPO).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                for p in COPIES}
-    assert len(set(digests.values())) == 1, digests
+    assert set(digests.values()) == {URL_CLEAN_SHA256}, digests
 
 
 # ---- the readers -------------------------------------------------------
