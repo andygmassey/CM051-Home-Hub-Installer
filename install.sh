@@ -24348,37 +24348,35 @@ done
 # interest_profile.json, which only the editor-frontpage tick compiles (it
 # projects Qdrant `preferences` into the graph, then compiles). Without this a
 # customer's first import shows "nothing stored" for up to an hour. So when
-# this run wrote preference rows, kickstart that same job, debounced:
-# the first importer to arrive claims a lock dir and, after a short window in
-# the background (so importers finishing together land first), kickstarts
-# once; the others find the lock and leave. Fire-and-forget and bounded: a
-# penalty-boxed job makes kickstart hang (see _ks_bounded in install.sh), and
-# the import must never wait on it. An unloaded label is the NORMAL case
-# during the first install (the agent is created later and RunAtLoad covers
-# it), so it is skipped quietly.
+# this run wrote preference rows, kickstart that same job: launchd then owns
+# the compile.
+#
+# NO BACKGROUND CHILD. ostler-import runs under com.ostler.export-scan (and
+# other launchd jobs) with no AbandonProcessGroup, so launchd kills every
+# process left in the job's group when the job exits. A disowned debounce
+# subshell is reaped that way and the recompile never fires. Everything here
+# is therefore in the foreground and finished before ostler-import exits:
+# the kickstart is polled for at most 10s (a penalty-boxed job makes
+# kickstart hang, see _ks_bounded in install.sh) and killed if it overruns.
+# Importers finishing together each kickstart -k; the last one restarts the
+# compile after every importer's rows are stored. An unloaded label is the
+# NORMAL case during the first install (the agent is created later and
+# RunAtLoad covers it), so it is skipped quietly.
 if [[ "$PREFS_WRITTEN" -eq 1 ]]; then
-    _pr_label="com.creativemachines.ostler.editor-frontpage"
-    _pr_target="gui/$(id -u)/${_pr_label}"
-    _pr_lock="${OSTLER_DIR}/state/prefs-recompile.lock"
-    _pr_win="${OSTLER_PREFS_RECOMPILE_DEBOUNCE_SECONDS:-15}"
+    _pr_target="gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
     if launchctl print "$_pr_target" >/dev/null 2>&1; then
-        mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
-        # A lock left by a crashed claimer must not block compiles forever.
-        [[ -n "$(find "$_pr_lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]] && rmdir "$_pr_lock" 2>/dev/null
-        if mkdir "$_pr_lock" 2>/dev/null; then
-            (
-                sleep "$_pr_win"
-                launchctl kickstart -k "$_pr_target" >/dev/null 2>&1 &
-                _pr_pid=$!
-                ( sleep 10; kill -TERM "$_pr_pid" 2>/dev/null ) >/dev/null 2>&1 &
-                _pr_wd=$!
-                wait "$_pr_pid" 2>/dev/null || true
-                kill -TERM "$_pr_wd" 2>/dev/null || true
-                rmdir "$_pr_lock" 2>/dev/null || true
-            ) >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-            echo "Preferences stored: refreshing your interest profile in the background."
+        launchctl kickstart -k "$_pr_target" >/dev/null 2>&1 &
+        _pr_pid=$!
+        _pr_i=0
+        while kill -0 "$_pr_pid" 2>/dev/null && [[ "$_pr_i" -lt 10 ]]; do
+            sleep 1
+            _pr_i=$((_pr_i + 1))
+        done
+        if kill -0 "$_pr_pid" 2>/dev/null; then
+            kill -TERM "$_pr_pid" 2>/dev/null || true
         fi
+        wait "$_pr_pid" 2>/dev/null || true
+        echo "Preferences stored: refreshing your interest profile."
     fi
 fi
 exit $rc
