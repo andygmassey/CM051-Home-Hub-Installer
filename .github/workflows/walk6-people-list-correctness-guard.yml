@@ -32,6 +32,9 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
+      - 'tests/test_cm041_conversation_process_privacy_passthrough_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_mutants_vendored.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
     paths:
@@ -46,6 +49,9 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
+      - 'tests/test_cm041_conversation_process_privacy_passthrough_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_mutants_vendored.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
 concurrency:
@@ -222,7 +228,31 @@ jobs:
         run: |
           python -m pip install --quiet pytest phonenumbers
           python -m pip install --quiet ./vendor/ostler_security
+      - name: CM052-shaped conversations reach CM048 with their privacy level and stable id (CM041 #221 graft)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm041_conversation_process_privacy_passthrough_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm041_conversation_process_privacy_passthrough_vendored.py -v
+      - name: Conversation routes refuse path traversal, and every guard has a killed mutant (CM041 #225 graft)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm041_conversation_path_safety_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 16 ]; then
+            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm041_conversation_path_safety_vendored.py -v
+          python -m pytest tests/test_cm041_conversation_path_safety_mutants_vendored.py -v
       - name: A deceased person is suggested nowhere; a living relative on the family line stays visible
+        if: always()
         run: |
           n="$(python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py \
                  --collect-only -q | grep -cE '::test_')" || n=0

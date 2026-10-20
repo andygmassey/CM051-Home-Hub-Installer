@@ -2416,7 +2416,10 @@ def _resolve_fallback_conversation_id(base_id, transcript):
     conversation re-posted and reuses base_id (idempotent, no
     duplicate).
     """
-    existing = PROCESSING_DIR / base_id / "00_raw_transcript.md"
+    base_dir = _safe_conversation_dir(base_id)
+    if base_dir is None:
+        return base_id
+    existing = base_dir / "00_raw_transcript.md"
     if not existing.exists():
         return base_id
     try:
@@ -2454,7 +2457,9 @@ def _conversation_process_background(conversation_id, transcript, metadata):
     var). The CLI runs src.processor.process() with the full pipeline
     (classify, enrich, signals, coach, facts, sinks).
     """
-    state_dir = PROCESSING_DIR / conversation_id
+    state_dir = _safe_conversation_dir(conversation_id)
+    if state_dir is None:
+        return
     state_dir.mkdir(parents=True, exist_ok=True)
 
     # Save raw transcript
@@ -2961,6 +2966,31 @@ def api_conversation_retry_failed(payload=None):
     return {"queued": queued, "status": "accepted"}, 202
 
 
+def _id_token(value):
+    """One id component from a client-supplied value: word characters and
+    '-' only (everything else, '/', '.', whitespace, NUL, becomes '_'),
+    capped at 64. Keeps a date / type / name out of the path grammar."""
+    return re.sub(r"[^\w-]", "_", str(value))[:64]
+
+
+def _participant_slug_label(participant):
+    """Slug part for one participant, whatever shape the producer sent.
+
+    iPhone / Watch send strings (sorted speaker labels). CM052's wire sends
+    dicts (``{"id", "display", "role", "handle"}``). This used to call
+    ``str.replace`` on every entry, so a dict was a 500
+    "'dict' object has no attribute 'replace'" and no CM052 conversation that
+    carried participants ever reached CM048 (measured 2026-10-19 with
+    tests/test_conversation_process_privacy_passthrough.py on b9e38dd).
+    Anything else yields "" and is skipped.
+    """
+    if isinstance(participant, dict):
+        participant = participant.get("display") or participant.get("id") or ""
+    if not isinstance(participant, str):
+        return ""
+    return participant.strip().replace(" ", "_").lower()
+
+
 def api_conversation_process(payload):
     """Handle POST /api/v1/conversation/process.
 
@@ -3010,18 +3040,32 @@ def api_conversation_process(payload):
     # fails validation, and guard that fallback against the same
     # collision (see _resolve_fallback_conversation_id).
     meeting_id = metadata.get("meeting_id")
-    date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
+    date = _id_token(metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d")))
     participants = metadata.get("participants", [])
-    conv_type = metadata.get("type", "conversation")
+    conv_type = _id_token(metadata.get("type", "conversation"))
+    producer_id = metadata.get("conversation_id")
     if meeting_id and _is_safe_meeting_id(meeting_id):
         conversation_id = meeting_id
+    elif producer_id and _is_safe_meeting_id(producer_id):
+        # A producer with its own STABLE id (CM052's wire sends one on every
+        # POST: ``sk-``/``cc-``/``og-``/``ch-`` + hash). It used to be thrown
+        # away for the date+participant scheme below, whose collision guard
+        # gives a CHANGED re-post (a Slack day that grew, an edited thread)
+        # a fresh random suffix, so CM048 wrote a second bundle beside the
+        # stale one instead of updating it. Same id rules as meeting_id.
+        conversation_id = producer_id
     elif participants:
-        slug = "_".join(p.replace(" ", "_").lower() for p in participants[:2])
+        labels = [_participant_slug_label(p) for p in participants]
+        labels = [_id_token(label) for label in labels if label]
+        slug = "_".join(labels[:2]) or uuid.uuid4().hex[:8]
         conversation_id = _resolve_fallback_conversation_id(
             f"{date}_{slug}_{conv_type}", transcript
         )
     else:
         conversation_id = f"{date}_{uuid.uuid4().hex[:8]}"
+
+    if not _valid_conversation_id(conversation_id):
+        return {"error": "Invalid conversation id"}, 400
 
     # Spawn background processing
     thread = threading.Thread(
@@ -4699,9 +4743,12 @@ def _assert_resolve_and_write(subject, fact_text, relationship, asserted_via,
 
 def api_conversation_status(conversation_id):
     """Handle GET /api/v1/conversation/status/{id}."""
-    state_file = PROCESSING_DIR / conversation_id / "state.json"
-    if not state_file.exists():
-        return {"error": f"Conversation '{conversation_id}' not found"}, 404
+    conv_dir = _safe_conversation_dir(conversation_id)
+    if conv_dir is None:
+        return {"error": "Invalid conversation_id"}, 400
+    state_file = conv_dir / "state.json"
+    if state_file.is_symlink() or not state_file.is_file():
+        return {"error": "Conversation not found"}, 404
     try:
         state = json.loads(state_file.read_text())
     except Exception as exc:
@@ -4709,19 +4756,41 @@ def api_conversation_status(conversation_id):
     return state, 200
 
 
-def _safe_conversation_dir(conversation_id):
-    """Resolve PROCESSING_DIR/<conversation_id> with path-traversal defence.
+# One path segment: starts with a word character, then word chars, '.' or
+# '-'. No '/', no NUL, no leading '.', no whitespace; '..' is refused
+# separately. Unicode word characters stay legal because the date+name
+# fallback id can carry an accented display name.
+_SAFE_CONVERSATION_ID_RE = re.compile(r"^\w[\w.-]{0,254}$")
 
-    The conversation_id arrives in the URL path and is used as a directory
-    name. A malformed id ('../', absolute path, separators) must not let a
-    caller read outside the processing root. Returns the resolved Path or
-    None if it would escape PROCESSING_DIR.
+
+def _valid_conversation_id(conversation_id):
+    if not isinstance(conversation_id, str):
+        return False
+    if ".." in conversation_id:
+        return False
+    return bool(_SAFE_CONVERSATION_ID_RE.match(conversation_id))
+
+
+def _safe_conversation_dir(conversation_id):
+    """PROCESSING_DIR/<conversation_id>, or None if the id is unsafe.
+
+    The id arrives in a URL path or a POST body and becomes a directory
+    name. Refused: anything that is not a single plain path segment (see
+    _SAFE_CONVERSATION_ID_RE), a candidate that resolves outside
+    PROCESSING_DIR, and a candidate that is itself a symlink.
     """
-    candidate = (PROCESSING_DIR / conversation_id).resolve()
+    if not _valid_conversation_id(conversation_id):
+        return None
     root = PROCESSING_DIR.resolve()
+    raw = PROCESSING_DIR / conversation_id
+    if raw.is_symlink():
+        return None
+    candidate = raw.resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
+        return None
+    if candidate == root:
         return None
     return candidate
 

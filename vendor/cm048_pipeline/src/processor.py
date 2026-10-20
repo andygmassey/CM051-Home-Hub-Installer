@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict
@@ -123,15 +124,45 @@ def process(
             metadata.get("participants")
         )
 
-    # Step 00  –  write raw transcript (always, idempotent)
+    # Update detection. A connector re-POSTs the SAME conversation_id when
+    # the thread grows (a new reply, comment or message). Before this,
+    # _write_raw kept the first transcript and every completed step was
+    # skipped, so the update was answered "complete" and silently lost.
+    # Now: a changed transcript or metadata supersedes the cached step
+    # outputs and the pipeline re-runs; a byte-identical re-POST changes
+    # nothing and makes no LLM call.
+    content_changed = _supersede_if_changed(
+        state_dir, conversation_id, transcript, metadata,
+        cooldown_seconds=0 if dry_run else settings.reprocess_cooldown_seconds,
+    )
+    if content_changed:
+        # The cached completed_steps are gone; a resume point from the
+        # earlier version no longer means anything.
+        resume_from_step = None
+
+    # Step 00  –  write raw transcript (rewritten on an update)
     _write_raw(state_dir, conversation_id, transcript, metadata)
+    _write_content_hash(state_dir, transcript, metadata)
 
     # Load or create state
     state = _load_or_new_state(state_dir, conversation_id)
+    if not content_changed:
+        _restore_completed_steps_reset_by_the_hub(state_dir, state)
     state.advance("00_raw")
     _save_state(state_dir, state)
 
     client = OllamaClient(base_url=settings.ollama_url)
+
+    # Gist-only channel declared L3 by its producer: nothing CM048 makes for
+    # it can land (no gist for L3, no bundle for a gist-only channel), so
+    # stop BEFORE the first model call. See GIST_ONLY_CHANNELS.
+    if _is_gist_only(metadata) and _privacy.normalise(
+        metadata.get("privacy_level") or ""
+    ) == "L3" and metadata.get("privacy_level") is not None:
+        return _stop_gist_only_l3(
+            state_dir, conversation_id, state, settings,
+            ingest_sinks=ingest_sinks, dry_run=dry_run,
+        )
 
     # Step 01  –  classify
     if _should_run("01_classify", state.completed_steps, resume_from_step):
@@ -196,6 +227,13 @@ def process(
 
     if classification.processing_depth == "none":
         logger.info("processing_depth=none  –  pipeline stops here.")
+        # An update reclassified as "do not process" must not keep the
+        # earlier version's facts in the stores either.
+        if ingest_sinks:
+            _retract_previous_gist_if_pending(
+                state_dir, conversation_id, settings, dry_run
+            )
+        _clear_update_marker_if_settled(state_dir, state)
         return state
 
     # Resolve privacy level once and reuse for the rest of the
@@ -215,6 +253,13 @@ def process(
         resolved_privacy_level,
         conversation_id,
     )
+    # Same rule when L3 came from the classifier (a sensitive AI chat):
+    # the one classify call was needed to decide; nothing after it is.
+    if _is_gist_only(metadata) and resolved_privacy_level == "L3":
+        return _stop_gist_only_l3(
+            state_dir, conversation_id, state, settings,
+            ingest_sinks=ingest_sinks, dry_run=dry_run,
+        )
 
     # Andy's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
     # phone/email handle to their NAME so the extraction LLM writes "Jane
@@ -350,19 +395,50 @@ def process(
         and resolved_privacy_level != "L3"
         and _should_run("07_sinks_written", state.completed_steps, resume_from_step)
     ):
+        def _ingest_replacing_earlier_version() -> None:
+            # An update REPLACES its earlier facts: retract first, then
+            # the writers add the current version. Inside the step so a
+            # failed retraction fails (and retries) step 07.
+            _retract_previous_gist_if_pending(
+                state_dir, conversation_id, settings, dry_run
+            )
+            _step_ingest(
+                state_dir, conversation_id, classification, settings, dry_run
+            )
+
         _run_step(
             state_dir,
             state,
             "07_sinks_written",
-            lambda: _step_ingest(
-                state_dir, conversation_id, classification, settings, dry_run
-            ),
+            _ingest_replacing_earlier_version,
         )
     elif resolved_privacy_level == "L3":
         logger.info(
             "L3 short-circuit: skipping step 07 (gist sinks) for %s",
             conversation_id,
         )
+        # An update that turned the conversation L3 (the operator
+        # labelled the chat private, say) must not leave the earlier
+        # version's facts in the stores. This is the only store traffic
+        # an L3 conversation makes, it is a DELETE, and it happens only
+        # when an earlier non-L3 version was actually written. A first
+        # L3 POST has no marker and makes no request at all.
+        if ingest_sinks:
+            try:
+                _retract_previous_gist_if_pending(
+                    state_dir, conversation_id, settings, dry_run
+                )
+            except Exception as exc:
+                state.fail(
+                    "07_sinks_written",
+                    f"retraction of the earlier non-L3 version failed: "
+                    f"{type(exc).__name__}: {exc}",
+                )
+                _save_state(state_dir, state)
+                raise RuntimeError(
+                    "Step 07_sinks_written failed (L3 update retraction). "
+                    "See state.json."
+                ) from exc
 
     # Step 08  –  cross-conversation linking (post-ingest, needs
     # Qdrant populated). Skipped for L3 alongside step 07 -- there
@@ -405,11 +481,27 @@ def process(
             ),
         )
 
+    # Read BEFORE the marker is cleared: the earlier version's bundle
+    # location lives in it.
+    stale_folders = _pending_stale_bundle_folders(state_dir, state)
+    _clear_update_marker_if_settled(state_dir, state)
+    _record_processed_state(state_dir, state)
     logger.info(
         "Pipeline complete for %s. Steps: %s",
         conversation_id,
         state.completed_steps,
     )
+    # After completion is recorded, never before: the sweep is cleanup,
+    # and nothing it does (or fails to do) may change the outcome.
+    if ingest_sinks and stale_folders is not None:
+        keep = _read_bundle_location(state_dir)
+        if keep is not None:
+            _sweep_stale_bundles_bounded(
+                settings.output_conversations_dir,
+                conversation_id,
+                stale_folders,
+                keep=keep,
+            )
     return state
 
 
@@ -666,12 +758,454 @@ def _write_raw(
     transcript: str,
     metadata: dict,
 ) -> None:
+    """Persist the transcript + metadata before any LLM call.
+
+    Written when absent, and REWRITTEN when the content differs (an
+    update, already detected by ``_supersede_if_changed``). Every later
+    step reads these files back (05 facts, 07 sinks, 09 bundle), so a
+    write-once raw file is what made an update invisible downstream.
+    Unchanged content is not rewritten, so the files keep their mtime.
+    """
     raw_path = state_dir / "00_raw_transcript.md"
-    if not raw_path.exists():
+    if not raw_path.exists() or raw_path.read_text() != transcript:
         raw_path.write_text(transcript)
     meta_path = state_dir / "00_metadata.json"
-    if not meta_path.exists():
+    if not meta_path.exists() or _canonical_json(
+        _hashed_metadata(read_json(meta_path))
+    ) != _canonical_json(_hashed_metadata(metadata)):
         write_json(meta_path, metadata)
+
+
+# ── Update detection ────────────────────────────────────────────────
+
+CONTENT_HASH_FILE = "content_hash.json"
+# Written when an update supersedes an earlier version; read by step 07
+# (retract the earlier gist writes first) and step 09 (remove a bundle
+# folder the update no longer writes to); removed once the re-run
+# completes. No step-number prefix, so `cli reprocess --from-step` never
+# archives it.
+UPDATE_MARKER_FILE = "update_pending.json"
+# Where step 09 wrote this version's bundle. Moved to _superseded/ by an
+# update like any step output; its value is first copied into the update
+# marker, so the re-run knows the exact folder to clean up without
+# listing ~/Documents/Ostler/Conversations (an opendir there can block
+# forever under launchd, see _remove_stale_bundle_folders).
+BUNDLE_LOCATION_FILE = "bundle_location.json"
+SUPERSEDED_DIR = "_superseded"
+# Files that belong to the conversation, not to a step's cached output.
+_KEEP_ON_SUPERSEDE = {
+    "state.json",
+    "00_raw_transcript.md",
+    "00_metadata.json",
+    CONTENT_HASH_FILE,
+    UPDATE_MARKER_FILE,
+    SUPERSEDED_DIR,
+}
+
+
+class UpdateDeferred(RuntimeError):
+    """A changed re-POST arrived inside the reprocess cooldown window.
+
+    Nothing was written: the stored version, its artefacts and its facts
+    are untouched, so the caller must re-send later (the CLI exits 75,
+    the HTTP endpoint answers 429). See Settings.reprocess_cooldown_seconds.
+    """
+
+    def __init__(self, conversation_id: str, retry_after_seconds: int) -> None:
+        super().__init__(
+            f"update to {conversation_id} deferred: the previous version was "
+            f"accepted under the reprocess cooldown; retry in "
+            f"{retry_after_seconds}s"
+        )
+        self.conversation_id = conversation_id
+        self.retry_after_seconds = retry_after_seconds
+
+
+def _canonical_json(obj: object) -> str:
+    return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+# Which metadata keys decide "this conversation changed" (CM048 #93).
+#
+# Hashing the WHOLE dict would make any volatile field a producer adds (a
+# post timestamp, a run id, a retry counter) turn every unchanged re-POST
+# into a full re-run: about six LLM calls per conversation per tick. So the
+# change hash covers a DECLARED subset: the keys that reach an artefact, a
+# prompt, or a privacy decision. Every key the shipped producers send was
+# classified on 2026-10-19 (CM051 origin/main):
+#   iMessage  vendor/imessage_source/threader.py:185-200
+#   WhatsApp  vendor/whatsapp_source/renderer.py:215-245
+#   Mail      vendor/email_source/threader.py:298-320
+#   Mbox/import vendor/ostler_fda/universal_import.py:1509-1521
+#   Spoken    vendor/spoken_source/renderer.py:215-243
+#   iOS capture vendor/cm041/assistant_api/ical-server.py:2474-2476
+#     (caller's dict passed through + conversation_id + channel default)
+#   CM052 wire  src/cm052/wire.py:444-457 (CM052 repo; reaches CM048 via
+#     the Hub API above). ``extra`` is the connector's free-form dict and
+#     is NOT hashed: a connector's content belongs in the transcript.
+# tests/test_update_reprocess.py pins that list: a producer key in neither
+# set fails it, so a new key is a decision, not an accident. A key that
+# arrives unclassified at run time is logged and left out of the hash
+# (an extra no-op beats an unbounded re-run loop).
+METADATA_HASH_KEYS: frozenset = frozenset({
+    # identity and routing
+    "conversation_id", "channel", "source", "source_app", "source_subtype",
+    "provenance", "participant_kind",
+    "source_session_id", "chat_identifier", "chat_jid", "service",
+    # who and when (frontmatter, folder slug, speaker mapping)
+    "participants", "date", "started_at", "ended_at",
+    "is_group_chat", "chat_type", "group_subject",
+    # privacy (L3 short-circuit, WhatsApp/email ladders)
+    "privacy_level", "contact_label", "group_label",
+    # content shaping (prompts, titles, language)
+    "subject", "title", "email_thread", "shape", "context", "language",
+    "tags", "location", "user_hint", "is_voice_note",
+})
+# Known keys deliberately NOT hashed: bookkeeping that does not change what
+# is written, or values that move on every send.
+METADATA_IGNORED_KEYS: frozenset = frozenset({
+    "capture_source", "contact_source_tier", "diarization_method", "extra",
+    "duration_seconds", "message_count",
+    "posted_at", "received_at", "ingested_at", "generated_at",
+    "extracted_at", "sent_at", "run_id", "request_id", "attempt",
+    "retry_count", "non_relational", "non_relational_reason",
+})
+
+
+def _hashed_metadata(metadata: dict) -> dict:
+    return {k: metadata[k] for k in metadata if k in METADATA_HASH_KEYS}
+
+
+def content_fingerprint(transcript: str, metadata: dict) -> dict:
+    """sha256 of the transcript and of the declared stable metadata subset."""
+    return {
+        "transcript_sha256": hashlib.sha256(transcript.encode("utf-8")).hexdigest(),
+        "metadata_sha256": hashlib.sha256(
+            _canonical_json(_hashed_metadata(metadata)).encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _log_unclassified_metadata_keys(conversation_id: str, metadata: dict) -> None:
+    unknown = sorted(
+        k for k in metadata
+        if k not in METADATA_HASH_KEYS and k not in METADATA_IGNORED_KEYS
+    )
+    if unknown:
+        logger.info(
+            "metadata keys outside the change hash for %s (unclassified): %s",
+            conversation_id, ", ".join(unknown),
+        )
+
+
+def _read_hash_record(state_dir: Path) -> dict:
+    hash_path = state_dir / CONTENT_HASH_FILE
+    if not hash_path.exists():
+        return {}
+    try:
+        data = read_json(hash_path)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+# Cached step outputs written AFTER the raw file in a normal run. A raw file
+# NEWER than any of them was rewritten after they were made: the Hub API
+# writes the new raw text into the state dir before pwg-convo runs.
+_CACHED_OUTPUTS = ("01_classification.json", "05_facts.json", "09_bundle.json")
+
+
+def _raw_rewritten_after_processing(state_dir: Path) -> bool:
+    raw = state_dir / "00_raw_transcript.md"
+    if not raw.exists():
+        return False
+    raw_mtime = raw.stat().st_mtime
+    return any(
+        (state_dir / name).exists() and (state_dir / name).stat().st_mtime < raw_mtime
+        for name in _CACHED_OUTPUTS
+    )
+
+
+def _legacy_gist_probably_written(state_dir: Path) -> bool:
+    """A pre-content_hash state dir whose state.json the Hub reset: facts
+    exist and the stored metadata is not L3, so step 07 wrote them. A
+    retraction when nothing was written is a harmless no-op delete; an L3
+    conversation never gets one."""
+    if not (state_dir / "05_facts.json").exists():
+        return False
+    try:
+        level = str(read_json(state_dir / "00_metadata.json").get("privacy_level") or "")
+    except (OSError, ValueError, AttributeError):
+        level = ""
+    return level.strip().upper() != "L3"
+
+
+def _record_processed_state(state_dir: Path, state: PipelineState) -> None:
+    """Remember, in a file only CM048 writes, how far this version got."""
+    if state.failed_step is not None:
+        return
+    record = _read_hash_record(state_dir)
+    if not record:
+        return
+    record["completed_steps"] = list(state.completed_steps)
+    if "07_sinks_written" in state.completed_steps:
+        record["gist_written"] = True
+    write_json(state_dir / CONTENT_HASH_FILE, record)
+
+
+def _restore_completed_steps_reset_by_the_hub(
+    state_dir: Path, state: PipelineState
+) -> None:
+    """Unchanged content after the Hub reset state.json: put back the steps
+    this version already completed, so the re-POST is a true no-op (no
+    re-embedding, no sink rewrite) on that path too."""
+    if state.failed_step is not None:
+        return
+    recorded = _read_hash_record(state_dir).get("completed_steps") or []
+    for step in recorded:
+        if step in PIPELINE_STEP_ORDER and step not in state.completed_steps:
+            state.completed_steps.append(step)
+
+
+def _stored_fingerprint(state_dir: Path) -> dict | None:
+    """The fingerprint of the version already processed, or None.
+
+    Prefers content_hash.json; a state dir from before this change has
+    none, so the stored raw files are hashed instead (same function, so
+    an unchanged legacy conversation compares equal and stays a no-op).
+    """
+    hash_path = state_dir / CONTENT_HASH_FILE
+    if hash_path.exists():
+        try:
+            data = read_json(hash_path)
+            if data.get("transcript_sha256") and data.get("metadata_sha256"):
+                return {
+                    "transcript_sha256": data["transcript_sha256"],
+                    "metadata_sha256": data["metadata_sha256"],
+                }
+        except (OSError, ValueError):
+            logger.warning("Unreadable %s; re-deriving from raw files", hash_path)
+    raw_path = state_dir / "00_raw_transcript.md"
+    meta_path = state_dir / "00_metadata.json"
+    if not raw_path.exists() or not meta_path.exists():
+        return None
+    if _raw_rewritten_after_processing(state_dir):
+        # The stored raw is already the NEW text (the Hub wrote it), so
+        # hashing it would compare the update with itself.
+        return {"transcript_sha256": "rewritten-after-processing",
+                "metadata_sha256": "rewritten-after-processing"}
+    return content_fingerprint(raw_path.read_text(), read_json(meta_path))
+
+
+def _write_content_hash(state_dir: Path, transcript: str, metadata: dict) -> None:
+    """Record the accepted version's fingerprint and WHEN it was accepted.
+
+    ``accepted_at`` is only stamped when the fingerprint changes, so an
+    identical re-POST never restarts the cooldown window.
+    """
+    fp = content_fingerprint(transcript, metadata)
+    hash_path = state_dir / CONTENT_HASH_FILE
+    if hash_path.exists():
+        try:
+            if {k: read_json(hash_path).get(k) for k in fp} == fp:
+                return
+        except (OSError, ValueError):
+            pass
+    write_json(hash_path, {
+        **fp,
+        "accepted_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def _cooldown_remaining(state_dir: Path, cooldown_seconds: int) -> int:
+    """Seconds left before an update may supersede the stored version.
+
+    0 when the guard is off, when no accepted_at is recorded (a state dir
+    from before the guard: never deferred, the update runs), or when the
+    window has passed.
+    """
+    if cooldown_seconds <= 0:
+        return 0
+    hash_path = state_dir / CONTENT_HASH_FILE
+    if not hash_path.exists():
+        return 0
+    try:
+        accepted = datetime.fromisoformat(read_json(hash_path)["accepted_at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+    elapsed = (datetime.now(timezone.utc) - accepted).total_seconds()
+    return max(0, int(cooldown_seconds - elapsed + 0.999))
+
+
+def _supersede_if_changed(
+    state_dir: Path,
+    conversation_id: str,
+    transcript: str,
+    metadata: dict,
+    *,
+    cooldown_seconds: int = 0,
+) -> bool:
+    """Detect an updated re-POST and clear the earlier version's caches.
+
+    Raises ``UpdateDeferred`` (and changes nothing) when the update lands
+    inside ``cooldown_seconds`` of the stored version's acceptance.
+
+    Returns True when the incoming content differs from the version
+    already processed. Then:
+
+    - every cached step output moves to ``_superseded/`` (only the most
+      recent superseded set is kept, so a thread that updates daily does
+      not grow the state dir without bound);
+    - state.json's completed_steps is cleared, so every step re-runs on
+      the new transcript;
+    - ``update_pending.json`` records whether the earlier version reached
+      the gist sinks (step 07) and where its bundle was written, so the
+      re-run can retract the old facts and replace the old artefacts.
+
+    Returns False (and touches nothing) for a first POST and for a
+    byte-identical re-POST.
+    """
+    _log_unclassified_metadata_keys(conversation_id, metadata)
+    stored = _stored_fingerprint(state_dir)
+    if stored is None:
+        return False
+    incoming = content_fingerprint(transcript, metadata)
+    if stored == incoming:
+        return False
+
+    remaining = _cooldown_remaining(state_dir, cooldown_seconds)
+    if remaining > 0:
+        logger.info(
+            "Update to %s deferred %ds (reprocess cooldown); nothing written",
+            conversation_id, remaining,
+        )
+        raise UpdateDeferred(conversation_id, remaining)
+
+    previous = _load_or_new_state(state_dir, conversation_id)
+    marker_path = state_dir / UPDATE_MARKER_FILE
+    earlier_marker: dict = {}
+    if marker_path.exists():
+        try:
+            earlier_marker = read_json(marker_path)
+        except (OSError, ValueError):
+            earlier_marker = {}
+    # A second update can arrive before the first one's re-run finished
+    # its retraction (step 07 failed, say). The gist writes still in the
+    # stores then belong to an even earlier version: keep that flag set.
+    # state.json alone cannot answer this: the Hub API's background
+    # processor (CM041 ical-server, the iOS + CM052 path) REWRITES state.json
+    # with completed_steps=["00_raw"] before it runs pwg-convo, so on that
+    # path "07 is not completed" even though the earlier version's facts
+    # are in the stores. content_hash.json is written only by CM048 and
+    # records it durably.
+    hash_record = _read_hash_record(state_dir)
+    gist_written = (
+        "07_sinks_written" in previous.completed_steps
+        or bool(earlier_marker.get("previous_gist_written"))
+        or bool(hash_record.get("gist_written"))
+        or "07_sinks_written" in (hash_record.get("completed_steps") or [])
+        or (not hash_record and _legacy_gist_probably_written(state_dir))
+    )
+
+    # Every earlier bundle folder not yet cleaned up: one from an earlier
+    # update whose re-run never reached the sweep, plus this version's.
+    previous_bundle_folders = [
+        str(f) for f in (earlier_marker.get("previous_bundle_folders") or [])
+    ]
+    location = _read_bundle_location(state_dir)
+    if location is not None and str(location) not in previous_bundle_folders:
+        previous_bundle_folders.append(str(location))
+
+    import shutil
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    superseded_root = state_dir / SUPERSEDED_DIR
+    if superseded_root.exists():
+        shutil.rmtree(superseded_root)
+    dest = superseded_root / stamp
+    moved = []
+    for f in sorted(state_dir.iterdir()):
+        if f.name in _KEEP_ON_SUPERSEDE or ".archive" in f.name:
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        f.rename(dest / f.name)
+        moved.append(f.name)
+
+    write_json(marker_path, {
+        "superseded_at": stamp,
+        "previous": stored,
+        "incoming": incoming,
+        "transcript_changed": stored["transcript_sha256"] != incoming["transcript_sha256"],
+        "metadata_changed": stored["metadata_sha256"] != incoming["metadata_sha256"],
+        "previous_completed_steps": list(previous.completed_steps),
+        "previous_gist_written": gist_written,
+        "previous_bundle_folders": previous_bundle_folders,
+    })
+
+    fresh = PipelineState.new(conversation_id)
+    fresh.created_at = previous.created_at
+    _save_state(state_dir, fresh)
+
+    logger.info(
+        "Updated conversation %s (transcript_changed=%s, metadata_changed=%s): "
+        "superseded %d cached outputs, re-running every step",
+        conversation_id,
+        stored["transcript_sha256"] != incoming["transcript_sha256"],
+        stored["metadata_sha256"] != incoming["metadata_sha256"],
+        len(moved),
+    )
+    return True
+
+
+def _read_update_marker(state_dir: Path) -> dict | None:
+    path = state_dir / UPDATE_MARKER_FILE
+    if not path.exists():
+        return None
+    try:
+        return read_json(path)
+    except (OSError, ValueError):
+        logger.warning("Unreadable %s; treating as no pending update", path)
+        return None
+
+
+def _clear_update_marker_if_settled(state_dir: Path, state: PipelineState) -> None:
+    """Drop the update marker once the re-run has nothing left to do.
+
+    Kept while a step failed (the retry still needs it) or while the
+    earlier version's gist writes are not yet retracted.
+    """
+    marker = _read_update_marker(state_dir)
+    if marker is None or state.failed_step is not None:
+        return
+    if marker.get("previous_gist_written"):
+        return
+    (state_dir / UPDATE_MARKER_FILE).unlink(missing_ok=True)
+
+
+def _retract_previous_gist_if_pending(
+    state_dir: Path,
+    conversation_id: str,
+    settings: Settings,
+    dry_run: bool,
+) -> None:
+    """Delete the earlier version's facts before the update writes its own.
+
+    Runs at most once per update: the marker flag is cleared only after
+    the delete succeeded, so a failed retraction is retried with the
+    step instead of being forgotten.
+    """
+    marker = _read_update_marker(state_dir)
+    if not marker or not marker.get("previous_gist_written"):
+        return
+    if dry_run:
+        logger.info("dry_run: would retract earlier gist writes for %s", conversation_id)
+        return
+    from . import gist_retraction
+
+    gist_retraction.retract_conversation(conversation_id, settings)
+    marker["previous_gist_written"] = False
+    marker["gist_retracted_at"] = datetime.now(timezone.utc).isoformat()
+    write_json(state_dir / UPDATE_MARKER_FILE, marker)
 
 
 # ── Step 01: classify ───────────────────────────────────────────────
@@ -2436,6 +2970,18 @@ def _step_bundle(
         )
 
     # ── Sub-step B: bundle assembly + atomic write ─────────────────
+    if _is_gist_only(metadata):
+        # Declared, not an unimplemented adapter: an AI conversation's
+        # durable readable copy is CM052's own artefact under
+        # ~/Documents/Ostler/AI Conversations/, so a CM048 bundle under
+        # Conversations/ would put the same chat in two folders (and on two
+        # wiki pages). The extraction above still feeds the topic bridge.
+        logger.info(
+            "channel=%r is gist-only: no Conversations/ bundle for %s",
+            metadata.get("channel"), metadata.get("conversation_id"),
+        )
+        return
+
     if not ingest_sinks:
         logger.info(
             "ingest_sinks=False; skipping disk bundle write for %s",
@@ -2479,6 +3025,11 @@ def _step_bundle(
         output.privacy_level,
         output.gist_status,
     )
+    # An update can move the bundle: the folder is <date>/<participants
+    # slug>-<short id>, so a new participant joining the thread changes
+    # the slug. Record where this version went, so the next update can
+    # remove exactly this folder (process() does it, after completion).
+    write_json(state_dir / BUNDLE_LOCATION_FILE, {"folder": str(output.folder)})
 
     # #311: refresh per-person lastContact<Channel> recency signal.
     # Post-CM047 retirement, CM048 owns the WhatsApp lastContactWhatsApp
@@ -2508,6 +3059,182 @@ def _step_bundle(
             "lastContact update failed for %s: %s",
             bundle.conversation_id, type(exc).__name__,
         )
+
+
+# Channels whose conversations get the GIST arm only (facts, summary point,
+# topics) and never a Conversations/ bundle. "manual" is CM052's channel for
+# AI conversations (chatgpt_export, claude_code_watcher, zeroclaw_sessions):
+# their readable copy is CM052's episodic markdown, written by CM052 itself.
+# Before this was declared, make_bundle raised NotImplementedError for
+# "manual" and step 09 logged it as a missing adapter on every AI chat.
+GIST_ONLY_CHANNELS: frozenset = frozenset({"manual"})
+
+
+def _is_gist_only(metadata: dict) -> bool:
+    return str(metadata.get("channel") or "").strip().lower() in GIST_ONLY_CHANNELS
+
+
+def _stop_gist_only_l3(
+    state_dir: Path,
+    conversation_id: str,
+    state: PipelineState,
+    settings: Settings,
+    *,
+    ingest_sinks: bool,
+    dry_run: bool,
+) -> PipelineState:
+    """L3 on a gist-only channel: no gist (L3) and no bundle (gist-only),
+    so every later model call would produce nothing. Stop, after removing
+    an earlier non-L3 version's gist if this is an update (a DELETE, the
+    only store traffic, and only when that version was written)."""
+    logger.info(
+        "L3 on gist-only channel for %s: nothing to write, no model calls",
+        conversation_id,
+    )
+    if ingest_sinks:
+        try:
+            _retract_previous_gist_if_pending(
+                state_dir, conversation_id, settings, dry_run
+            )
+        except Exception as exc:
+            state.fail(
+                "07_sinks_written",
+                f"retraction of the earlier non-L3 version failed: "
+                f"{type(exc).__name__}: {exc}",
+            )
+            _save_state(state_dir, state)
+            raise RuntimeError(
+                "Step 07_sinks_written failed (L3 update retraction). "
+                "See state.json."
+            ) from exc
+    _clear_update_marker_if_settled(state_dir, state)
+    _record_processed_state(state_dir, state)
+    return state
+
+
+_BUNDLE_ARTEFACTS = ("summary.md", "transcript.md", "todos.md")
+
+
+# The sweep is cleanup after a completed run, so it gets a hard bound.
+_STALE_SWEEP_TIMEOUT_SECONDS = 10.0
+
+
+def _read_bundle_location(state_dir: Path) -> Path | None:
+    path = state_dir / BUNDLE_LOCATION_FILE
+    if not path.exists():
+        return None
+    try:
+        folder = read_json(path).get("folder")
+    except (OSError, ValueError, AttributeError):
+        logger.warning("Unreadable %s; no recorded bundle location", path)
+        return None
+    return Path(folder) if folder else None
+
+
+def _pending_stale_bundle_folders(
+    state_dir: Path, state: PipelineState
+) -> list[str] | None:
+    """The earlier version's recorded bundle folders, or None when this
+    run is not an update whose bundle was just written."""
+    if state.failed_step is not None or "09_bundle" not in state.completed_steps:
+        return None
+    marker = _read_update_marker(state_dir)
+    if marker is None:
+        return None
+    folders = [str(f) for f in (marker.get("previous_bundle_folders") or [])]
+    if not folders:
+        logger.info(
+            "Updated conversation %s: no recorded earlier bundle location; "
+            "not sweeping (the conversations tree is never listed)",
+            state.conversation_id,
+        )
+    return folders
+
+
+def _sweep_stale_bundles_bounded(
+    root: Path,
+    conversation_id: str,
+    folders: list[str],
+    *,
+    keep: Path,
+) -> None:
+    """Run the sweep on a daemon thread and wait at most
+    ``_STALE_SWEEP_TIMEOUT_SECONDS``. A sweep stuck in the kernel is
+    abandoned (logged), and being a daemon it cannot hold the process
+    open at exit."""
+    if not folders:
+        return
+
+    def sweep() -> None:
+        try:
+            _remove_stale_bundle_folders(root, conversation_id, folders, keep=keep)
+        except Exception as exc:
+            logger.warning(
+                "Stale bundle sweep for %s failed: %s: %s",
+                conversation_id, type(exc).__name__, exc,
+            )
+
+    t = threading.Thread(
+        target=sweep, name=f"stale-bundle-sweep-{conversation_id}", daemon=True
+    )
+    t.start()
+    t.join(_STALE_SWEEP_TIMEOUT_SECONDS)
+    if t.is_alive():
+        logger.warning(
+            "Stale bundle sweep for %s still running after %.0fs; abandoned "
+            "(the conversation is complete, the earlier folder may remain)",
+            conversation_id, _STALE_SWEEP_TIMEOUT_SECONDS,
+        )
+
+
+_BUNDLE_ARTEFACTS = ("summary.md", "transcript.md", "todos.md")
+
+
+def _remove_stale_bundle_folders(
+    root: Path, conversation_id: str, folders: list[str], *, keep: Path
+) -> list[Path]:
+    """Remove this conversation's artefacts from the RECORDED earlier
+    bundle folders, never from anywhere found by listing the tree.
+
+    The tree is not listed because, under the Hub's launchd agent, an
+    opendir on a folder carrying a com.apple.macl label blocks forever
+    (measured on the v1.0.111 walk box: os_scandir -> __opendir2 ->
+    open$NOCANCEL). A recorded folder is touched only when it sits under
+    ``root`` and is not ``keep``; a file goes only when its frontmatter
+    carries this conversation_id, so a different conversation sharing the
+    8-hex suffix is never touched. The folder goes only if that leaves it
+    empty.
+    """
+    removed: list[Path] = []
+    if root is None:
+        return removed
+    root_abs = Path(root).absolute()
+    keep_abs = Path(keep).absolute()
+    id_line = f"conversation_id: {_conversation_writer._yaml_quote(conversation_id)}"
+    for entry in folders:
+        folder = Path(entry).absolute()
+        if folder == keep_abs or root_abs not in folder.parents:
+            continue
+        if not folder.is_dir():
+            continue
+        for name in _BUNDLE_ARTEFACTS:
+            f = folder / name
+            if not f.exists():
+                continue
+            head = f.read_text(encoding="utf-8").splitlines()[:2]
+            if len(head) == 2 and head[0] == "---" and head[1] == id_line:
+                f.unlink()
+                removed.append(f)
+        try:
+            folder.rmdir()  # only succeeds when empty
+        except OSError:
+            pass
+    if removed:
+        logger.info(
+            "Updated conversation %s moved folder; removed %d stale artefact(s)",
+            conversation_id, len(removed),
+        )
+    return removed
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
