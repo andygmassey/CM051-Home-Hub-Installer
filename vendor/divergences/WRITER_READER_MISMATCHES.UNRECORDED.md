@@ -1617,3 +1617,20 @@ Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollam
 ### What a future sync must preserve
 
 `check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: inside
+`read_source_status`, a nested `_refused_panes` map (`fda_not_granted`, `no_fda`,
+`media_library_not_granted`) turns a `cannot_run` row into `needs_access` plus a
+`reason` ("Ostler needs <X> (System Settings > Privacy & Security > <pane>)"); the
+ongoing-tick refusal branch sets the same. `render_source_status` prints the status
+word "needs access" for such a row. The sentinel status stays `cannot_run`, so the
+writer vocabulary and CM044's reader are unchanged. Any other `cannot_run` detail
+keeps "could not look" and no reason.
+
+### What a future sync must preserve
+
+The map, the `needs_access` key, and the `status_word` choice in the renderer.
+Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (mutant:
+defaulting an unlisted reason to Full Disk Access turns six assertions red).
