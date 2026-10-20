@@ -2387,3 +2387,7 @@ nonperson	scripts/cut_markers.manifest::c6d895b24a3b8a08	PRODUCT: line 137, the 
 phrase	loopback qdrant	code comment heading for the loopback vector-store helpers (vendor/cm041/assistant_api/browsing_enrich.py)
 nonperson	vendor/cm048_pipeline/src/channel_adapter.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.
 nonperson	vendor/cm048_pipeline/src/privacy.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.
+# v1.0.113 cut records (ORM 2026-10-20): the Hub Doctor tab name, PRODUCT.
+nonperson	cuts/DEFECTS_ROLLFORWARD.md::b51f6ee4570f5fbe	PRODUCT: the name of the Hub's Doctor screen tab that lists import sources, quoted in a cut record as the subject of oa #591; two capitalised UI words, not a person's name.
+nonperson	cuts/v1.0.113/MUST_CONTAIN.tsv::b51f6ee4570f5fbe	PRODUCT: the name of the Hub's Doctor screen tab that lists import sources, quoted in a cut record as the subject of oa #591; two capitalised UI words, not a person's name.
+nonperson	cuts/v1.0.113/cut.env::b51f6ee4570f5fbe	PRODUCT: the name of the Hub's Doctor screen tab that lists import sources, quoted in a cut record as the subject of oa #591; two capitalised UI words, not a person's name.
