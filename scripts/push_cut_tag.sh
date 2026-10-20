@@ -84,6 +84,32 @@ fi
 if [ "$conclusion" != "success" ]; then
     echo "push_cut_tag: REFUSED. The tag run's own preflight concluded '$conclusion' at ${full:0:8}; $ver was NOT pushed." >&2; exit 1
 fi
+# PR-AGE LOOKAHEAD, IMMEDIATELY BEFORE THE PUSH. v1.0.114 spent its one tag
+# here (2026-10-20): the candidate's check-pr-age was green, then CM051 #2993
+# crossed 48h in the ~90 min before the tag run reached `make check-pr-age`,
+# which refused, and no DMG was built. The candidate's pass is stale by the tag
+# run, so re-ask now with the limit pulled in by a lookahead: any PR that will
+# cross 48h within OSTLER_PRETAG_PRAGE_LOOKAHEAD_H (default 3) refuses here,
+# before anything is pushed. Same scope as the cut job can see (CM051), same
+# exemption file (this tree's cut-deferrals.yaml), and TZ=UTC because the
+# script parses createdAt in local time. Tests: OSTLER_PRETAG_PRAGE=<cmd>
+# replaces the whole check; OSTLER_PRETAG_PRAGE_GH_PATH prepends a fake gh.
+# `&& prc=0 || prc=$?` because this script runs under set -e, where a bare
+# failing assignment would exit silently with no REFUSED line.
+la="${OSTLER_PRETAG_PRAGE_LOOKAHEAD_H:-3}"
+if [ -n "${OSTLER_PRETAG_PRAGE:-}" ]; then
+    pout="$(bash -c "$OSTLER_PRETAG_PRAGE" 2>&1)" && prc=0 || prc=$?
+else
+    pout="$(cd "$root" && PATH="${OSTLER_PRETAG_PRAGE_GH_PATH:+$OSTLER_PRETAG_PRAGE_GH_PATH:}$PATH" TZ=UTC \
+        PR_AGE_HOURS=$(( 48 - la )) PR_AGE_REPOS="${OSTLER_PRETAG_PRAGE_REPOS:-andygmassey/CM051-Home-Hub-Installer}" \
+        bash scripts/verify_pr_age.sh 2>&1)" && prc=0 || prc=$?
+fi
+if [ "$prc" -ne 0 ]; then
+    printf '%s\n' "$pout" | grep -E '\[RED\]|CANNOT' >&2
+    echo "push_cut_tag: REFUSED. A PR crosses 48h within ${la}h (or already has), so the tag run's check-pr-age would refuse AFTER the push and spend $ver. Merge, close or exempt it in cut-deferrals.yaml on cut/$ver (a new candidate), then re-run; $ver was NOT pushed." >&2
+    exit 1
+fi
+echo "push_cut_tag: PR-age with a ${la}h lookahead: GREEN"
 if [ "${OSTLER_PRETAG_DRY_RUN:-0}" = "1" ]; then
     echo "DRY-RUN: git tag $ver $full && git push origin $ver"; exit 0
 fi
