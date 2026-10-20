@@ -2814,6 +2814,10 @@ _FDA_EXTRACT_KINDS = {
     # Apple Music library (CM051 walk #27): chosen in the picker like the
     # two above, so its row appears only once install.sh records it.
     "apple_music": "source",
+    # Call history (phone + FaceTime): opt-in in the Customise picker only,
+    # so its row appears only once install.sh records it, exactly like the
+    # sources above. Never printed for a customer who did not tick it.
+    "calls": "source",
 }
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
@@ -3098,6 +3102,7 @@ _SOURCE_TOTAL_UNITS = {
     "browsing": "web pages",
     "reminders": "reminders",
     "apple_music": "tracks",
+    "calls": "calls",
     "ai_conversations": "chats",
 }
 
@@ -3114,6 +3119,7 @@ _SENTINEL_COUNT_IN_UNIT = {
     "photos",            # photo_events=N, one per photo asset
     "reminders",         # total_reminders=N
     "apple_music",       # total_tracks=N
+    "calls",             # total_calls=N, one per call record
     "ai_conversations",  # written=N conversations
 }
 
@@ -3141,6 +3147,7 @@ _SETTLING_DONE_FILES = {
 _EXTRACT_SUMMARY_KEYS = {
     "apple_notes": ("apple_notes", "notes"),
     "photos": ("photos", "photo_events"),
+    "calls": ("call_history", "total_calls"),
 }
 
 # Browsing history extracts: one JSON entry per VISIT, each carrying its url.
