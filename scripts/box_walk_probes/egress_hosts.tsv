@@ -200,3 +200,23 @@ app.ticketmaster.com	enrichment: event lookup. KEY-GATED, inert without one.	an 
 #
 # ── THE ONE THAT IS NOT A FIXED DESTINATION AT ALL ───────────────────────────
 <arbitrary>	enrichment: clients/url_fetcher.py, constructed by enricher.py, fetches BOOKMARKED URLS	THE TARGET IS WHATEVER IS IN THE CUSTOMER'S BOOKMARKS. There is no allowlist, so this row cannot name a host: the destination set is the customer's own browsing. It sends a "PWG-BookmarkEnricher" User-Agent and a contact URL pointing at an account that is not ours. This, not the API list, is the widest enrichment surface.
+#
+# ── ADDED 2026-10-21: THE ASSISTANT DAEMON, READ FROM SOURCE. [not for publication until the measured run] ──
+#    The 2026-10-15 consent sweep marked `ostler-assistant` NOT INSTRUMENTED (signed Rust binary, source
+#    not in this repo). Read 2026-10-21 from ostler-ai/ostler-assistant origin/main bb43a2db. Every row
+#    below is tagged [SOURCE: ...] and NONE is [MEASURED]: no socket was sampled, so the probe, not this
+#    file, is what would show one. Paths are relative to that repo.
+#    NOT rows, because the stock config cannot reach them (each is config-gated, installer writes no
+#    section for it): web_search providers brave/duckduckgo/searxng (crates/zeroclaw-tools/src/web_search_tool.rs:637-639;
+#    stock provider is "vane", config schema.rs:3307), firecrawl (schema.rs:2991 enabled=false), notion, jira,
+#    linkedin, image_gen, microsoft365, composio (all enabled=false, schema.rs:9528,9594,3749,4112,2713,2643),
+#    and every chat connector except imessage, email, apple_mail, whatsapp (install.sh:17256-17397 writes only those).
+#    NOT a row because it is not a hostname: web_fetch and http_request can reach ANY host the model names
+#    (schema.rs:3014-3015 and 2891-2892, allowed_domains = ["*"]). Gated since oa #597: web_fetch needs the exact
+#    URL typed by the owner this turn, http_request always asks (crates/zeroclaw-runtime/src/agent/egress_gate.rs:49-65).
+#    The `<arbitrary>` row above is the same shape for enrichment.
+wttr.in	assistant daemon: `weather` tool (crates/zeroclaw-tools/src/weather_tool.rs:14,142-145, registered unconditionally at crates/zeroclaw-runtime/src/tools/mod.rs:392)	A LOCATION STRING CHOSEN BY THE MODEL, in the URL path. Not in the installer's non_cli_excluded_tools list (install.sh:17808) and not in the egress gate's EGRESS_TOOLS (egress_gate.rs:49), so a chat turn can fire it with no prompt. UNDECLARED UNTIL THIS ROW.  [SOURCE: reachable on a stock install; not measured]
+appcast.ostler.ai	assistant gateway: licence and invites proxy (crates/zeroclaw-gateway/src/invites_proxy.rs:39, INVITES_UPSTREAM) and the installer's device registration (gui/OstlerInstaller/Auth/DeviceRegistration.swift:52)	licence ID and machine fingerprint, and the invite payload the app posts. NO graph content. The ledger declared only the apex ostler.ai; this subdomain was named in the 2026-10-15 sweep and in code but had no row.  [SOURCE: reachable; not measured]
+api.github.com	assistant CLI `update` (src/commands/update.rs:8-10, called only from src/main.rs:2608 and 2619, i.e. when the owner runs the subcommand; no scheduler found)	a GET of release metadata, then the binary download. NOTE THE REPO: zeroclaw-labs/zeroclaw, the UPSTREAM project, not an Ostler repo. Manual only.  [SOURCE: reachable only by explicit command; not measured]
+api.open-meteo.com	assistant morning brief thin-data weather (crates/zeroclaw-runtime/src/brief/weather.rs:291)	latitude and longitude only, in the URL.  [SOURCE: DEAD CODE on origin/main bb43a2db -- the fetch has no caller outside its own module (grep for the call, 0 hits). Ships is not runs. Re-check if the brief composer is wired to it.]
+ipapi.co	assistant brief location fallback (crates/zeroclaw-runtime/src/brief/weather.rs:169-196)	NOTHING IN THE BODY, but the customer's public IP address reaches a third party and the answer is their approximate location.  [SOURCE: DEAD CODE on origin/main bb43a2db, same grep as api.open-meteo.com]
