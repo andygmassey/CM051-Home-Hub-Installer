@@ -713,7 +713,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
         c = {"loaded": False}
         try:
             nav("/cost")
-            page.wait_for_selector("text=/model calls/i", timeout=30000)
+            page.wait_for_selector("text=/work done/i", timeout=30000)  # v1.0.112 Bursar copy: "Work done" card; "model calls" no longer on the page
             c["loaded"] = True
             page.screenshot(path=os.path.join(out_dir, "cost.png"))
         except Exception as exc:
