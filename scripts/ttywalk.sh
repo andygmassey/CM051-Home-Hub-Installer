@@ -1517,6 +1517,11 @@ else
     say "owner identity: SYNTHETIC cast owner (${OWNER_DECISION#synthetic: }); the owner-in-People probe will read CANNOT-RUN"
 fi
 
+if [[ "$STAGE_ONLY" -eq 1 ]]; then
+    say "staged only, as asked. Not running."
+    exit "$PASS"
+fi
+
 # ── SAFARI SEED: a SYNTHETIC History.db, planted BEFORE install ──────
 # A walk account that never opened Safari has no ~/Library/Safari, so the
 # reader says not_found and ingest_coverage can only grade the source absent
@@ -1540,11 +1545,6 @@ else
     say "safari seed: could not build the fixture locally; Safari will be graded SOURCE-ABSENT if the box has none"
 fi
 rm -f "$_SAFARI_FX_LOCAL"
-
-if [[ "$STAGE_ONLY" -eq 1 ]]; then
-    say "staged only, as asked. Not running."
-    exit "$PASS"
-fi
 
 # ── Run ──────────────────────────────────────────────────────────────
 rule "RUN (unattended; OSTLER_GUI=1 with OSTLER_GUI_FD UNSET)"
