@@ -1050,5 +1050,6 @@ scripts/tests/test_verify_commit_parity_gate.sh	WIRED	.github/workflows/cut-gate
 scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
+scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml

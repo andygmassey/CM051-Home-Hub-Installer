@@ -21,6 +21,9 @@ on:
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
+      - 'scripts/tests/test_walk_safari_seed.sh'
+      - 'scripts/lib_walk_safari_seed.sh'
+      - 'scripts/ttywalk.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
@@ -37,6 +40,9 @@ on:
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
+      - 'scripts/tests/test_walk_safari_seed.sh'
+      - 'scripts/lib_walk_safari_seed.sh'
+      - 'scripts/ttywalk.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
@@ -70,6 +76,12 @@ jobs:
       - name: ingest_coverage credential + 401/000 adjudication
         if: always()
         run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
+
+      # The walk plants a synthetic Safari History.db before install, and
+      # ingest_coverage grades a source-absent safari_history CANNOT-RUN.
+      - name: walk Safari seed (synthetic History.db, never overwrites a real one)
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_safari_seed.sh
 
       - name: people_count_agreement oxigraph credential + 401/000 adjudication
         if: always()
