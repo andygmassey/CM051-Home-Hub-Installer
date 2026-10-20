@@ -37,6 +37,37 @@ pr_exemptions:
   # 39041651077 named 16 CM051 PRs open >48h. 15 are below, each with its own
   # reason; #1818's existing row is re-dated in place.
   # -------------------------------------------------------------------------
+  # v1.0.112 PR-AGE EXEMPTIONS, ORM 2026-10-19 under the coordinator's standing ruling.
+  - ref: "CM051-Home-Hub-Installer#2962"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.112: open PR on main, NOT taken by the v1.0.112 cut (cut/v1.0.112 is branched from main 5ddc33d3 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2963"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.112: open PR on main, NOT taken by the v1.0.112 cut (cut/v1.0.112 is branched from main 5ddc33d3 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
+    review_by: 2026-10-26
+  # v1.0.111 PR-AGE EXEMPTIONS, ruled 2026-10-19 by the coordinator.
+  - ref: "CM051-Home-Hub-Installer#2954"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2955"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2956"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2957"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2958"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  - ref: "CM051-Home-Hub-Installer#2959"
+    reason: "Coordinator 2026-10-19: open PR on main, NOT taken by the v1.0.111 cut (branched from main 4561df92 and pinned). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset. Archie concurs."
+    review_by: 2026-10-26
+  # v1.0.111 PR-AGE EXEMPTION, ruled 2026-10-19 by Archie (option c). Cut
+  # candidate run 39220981137 named #2939 open 50h at check-pr-age.
+  - ref: "CM051-Home-Hub-Installer#2939"
+    reason: "Archie 2026-10-19: licence-model change, NOT in v1.0.111's scope. It predates Andy's locked 19 Oct model (all ongoing ingestion is Pro, the first export import is a free taster, the G7 check sits at each connector's entry point), is DIRTY against main (28 files, +1762/-83) and has no review. It needs a rework against that model and its own review before any cut takes it."
+    review_by: 2026-10-26
   - ref: "CM051-Home-Hub-Installer#2879"
     reason: "Not in v1.0.108: cut/v1.0.108 is frozen at main 120a756a (launch directive item 4), so an open PR cannot change that DMG. Instagram bare handle shown as @handle rather than a name (S9). Data-display polish, not an install, data-loss, privacy or core-flow break under the F&F ship rule. Next train. Added 2026-10-17 by Archie. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-10-24

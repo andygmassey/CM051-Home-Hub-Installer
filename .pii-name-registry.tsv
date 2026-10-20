@@ -186,6 +186,7 @@ phrase	natural language	Apple's built-in Siri suggestion calendar title 'Found i
 phrase	scheduled reminders	Apple's built-in reminders calendar title, a system calendar the installer sets aside, not a person
 phrase	human name	domain noun
 phrase	given name	domain noun
+phrase	google chat	product noun (the Google Chat app; appears in the byte-identical CM052 first_import.py copy, which cannot be reworded)
 phrase	display name	domain noun
 phrase	alternate name	domain noun
 phrase	personal world	product noun
@@ -2384,3 +2385,5 @@ nonperson	vendor/divergences/doctor.patch::3cd82b59cd3c9a35	PRODUCT: the same pa
 nonperson	scripts/cut_markers.manifest::0d1287e3a96d9684	PRODUCT: line 136, the vector-store product name as it appeared in a fallback heading. It is the exact string a wiki_image_absent LOCK must prove is GONE from the shipped image (CM044 #299); a synthetic substitute would make the lock test a string that was never there, so it would pass by construction.
 nonperson	scripts/cut_markers.manifest::c6d895b24a3b8a08	PRODUCT: line 137, the graph-store product name as it appeared in a fallback heading. Same reason: the LOCK must name the exact leaked string to prove its absence (CM044 #299).
 phrase	loopback qdrant	code comment heading for the loopback vector-store helpers (vendor/cm041/assistant_api/browsing_enrich.py)
+nonperson	vendor/cm048_pipeline/src/channel_adapter.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.
+nonperson	vendor/cm048_pipeline/src/privacy.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.

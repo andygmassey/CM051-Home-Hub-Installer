@@ -434,8 +434,12 @@ if ingest_ran Aprime; then
     fail "A': the pre-fix guard ran the ingest. The original failing input did not reproduce, so A proves nothing."
 elif [ "$(count_in "${WORK}/Aprime/markers.txt" "$NO_DATA_SENTENCE")" = "0" ]; then
     fail "A': the pre-fix guard did not print the sentence the customer saw."
-elif ! grep -qF 'elapsed_s=0' <<< "$_line"; then
-    fail "A': expected the walk's own zero-second skip, got: ${_line:-<none>}"
+# elapsed_s is whole wall-clock seconds, so a skip that starts at x.99s and
+# ends at y.01s reads 1 on a loaded runner. Measured: #3033 sentinel-honesty
+# job 118476946992 failed here on elapsed_s=1 with the skip otherwise intact
+# (no ingest ran, the sentence printed); its re-run passed. A skip is 0 or 1.
+elif ! grep -qE 'elapsed_s=[01]([^0-9]|$)' <<< "$_line"; then
+    fail "A': expected the walk's own skip (elapsed_s 0, or 1 when the step straddles a second), got: ${_line:-<none>}"
 elif grep -qF 'status=ok' <<< "$_line"; then
     # #2318: this arm USED to require status=ok, because that is what the
     # macmini16 walk line said. It no longer can, and the reason is the point.

@@ -92,6 +92,27 @@ class Settings:
     oxigraph_url: str = "http://localhost:7878"
     qdrant_conversations_collection: str = "conversations"
 
+    # Cost guard for updated conversations (CM048 #93). A thread that keeps
+    # growing (an active WhatsApp group, a busy Slack thread) is re-POSTed
+    # whole on every feed tick, and every changed POST re-runs every LLM
+    # step over the WHOLE transcript. Within this many seconds of the last
+    # accepted version, a changed POST is DEFERRED, never dropped: process()
+    # raises UpdateDeferred, the CLI exits 75 (EX_TEMPFAIL) and the HTTP
+    # endpoint answers 429 with Retry-After, so the feed keeps its
+    # watermark and re-sends on a later tick, by which time the burst has
+    # coalesced into one re-run. Bounds the cost at one full re-run per
+    # conversation per window. 0 disables the guard.
+    #
+    # DEFAULT 0 (OFF) ON PURPOSE. A deferral is only safe for a caller that
+    # re-sends on a non-zero exit: the LaunchAgent feeds do (iMessage,
+    # WhatsApp, email, spoken cap their watermark below a failure and retry
+    # next tick), so they opt in by setting OSTLER_REPROCESS_COOLDOWN_SECONDS.
+    # Two shipped callers do NOT re-send: the Hub API's background processor
+    # (ical-server, used by iOS capture and CM052, retries once after 15s
+    # then records failed_step) and universal_import (counts it failed).
+    # Defaulting it on would turn their updates into losses.
+    reprocess_cooldown_seconds: int = 0
+
     # Paths -- two-zone layout per
     # /tmp/tnm_brief_two_zone_architecture_2026-05-02.md.
     # Engine-room state under ~/.ostler/, customer-facing
@@ -142,6 +163,7 @@ _FLAT_KEYS: tuple[str, ...] = (
     "qdrant_url",
     "oxigraph_url",
     "qdrant_conversations_collection",
+    "reprocess_cooldown_seconds",
 )
 
 _PATH_KEYS: tuple[str, ...] = (
@@ -172,6 +194,8 @@ def _apply_env_overrides_to_data(data: dict) -> None:
         data["oxigraph_url"] = v
     if (v := os.environ.get("OSTLER_STATE_DIR")) is not None:
         data["processing_state_dir"] = v
+    if (v := os.environ.get("OSTLER_REPROCESS_COOLDOWN_SECONDS")) is not None:
+        data["reprocess_cooldown_seconds"] = int(v)
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -277,6 +301,8 @@ def settings_from_env_override(s: Settings) -> Settings:
         s.qdrant_url = v
     if (v := os.environ.get("OSTLER_OXIGRAPH_URL")) is not None:
         s.oxigraph_url = v
+    if (v := os.environ.get("OSTLER_REPROCESS_COOLDOWN_SECONDS")) is not None:
+        s.reprocess_cooldown_seconds = int(v)
 
     if (v := _path_env("OSTLER_PROCESSING_DIR", "OSTLER_STATE_DIR",
                        "PWG_PROCESSING_DIR")) is not None:

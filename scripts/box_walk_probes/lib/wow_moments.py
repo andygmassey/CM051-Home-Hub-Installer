@@ -185,6 +185,29 @@ def _named(text, name):
 # moment 1: "who do I owe a reply to?"
 # --------------------------------------------------------------------------
 
+IMESSAGE_CONSENT_TICKBOX = "third_party_data_personal_records"
+IMESSAGE_FEED_LABEL = "com.creativemachines.ostler.imessage-bundle"
+
+
+def imessage_grant_state():
+    """What the 'imessage_not_connected' degradation is waiting for, read from
+    the same two places the Hub reads (vendor/cm048_pipeline reply_debt_adapters
+    imessage_connection_state): the consent registry and the feed LaunchAgent.
+    consent: accepted | absent | unreadable.  feed_installed: bool."""
+    path = os.path.join(os.environ.get("OSTLER_HOME", OSTLER), "posture", "consent.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+        rec = (reg.get("records") or {}).get(IMESSAGE_CONSENT_TICKBOX)
+        consent = "accepted" if isinstance(rec, dict) and rec.get("decision") == "accepted" else "absent"
+    except FileNotFoundError:
+        consent = "absent"
+    except (OSError, ValueError, AttributeError):
+        consent = "unreadable"
+    plist = os.path.join(HOME, "Library", "LaunchAgents", IMESSAGE_FEED_LABEL + ".plist")
+    return {"consent": consent, "feed_installed": os.path.isfile(plist)}
+
+
 def box_reply_debt():
     code, body = _hub("/api/v1/reply-debt")
     out = {"endpoint": code}
@@ -196,6 +219,8 @@ def box_reply_debt():
         return out
     out["degraded"] = bool(body.get("degraded"))
     out["reason"] = (body.get("reason") or "")[:120]
+    if out["degraded"] and out["reason"] == "imessage_not_connected":
+        out["imessage_grant"] = imessage_grant_state()
     debts = [d for d in (body.get("debts") or []) if isinstance(d, dict)]
     names = [d.get("person_name") for d in debts
              if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
@@ -231,6 +256,14 @@ def judge_reply_debt(c):
         check("GET /api/v1/reply-debt answers 200 JSON (%s)" % c["endpoint_error"], False)
         return lines, EX_FAIL
     check("GET /api/v1/reply-debt answers 200 JSON", True)
+    g = c.get("imessage_grant")
+    if c.get("degraded") and c.get("reason") == "imessage_not_connected" and g is not None:
+        # Not connected because nobody at a console accepted the third-party
+        # data consent (or it could not be read): a missing grant, not a defect.
+        # Consent accepted and the feed still not connected is the real FAIL.
+        if g.get("consent") in ("absent", "unreadable"):
+            return lines + ["  CANNOT needs console grant: iMessage third-party data consent (%s; feed installed: %s); reply debt was not measured"
+                            % (g.get("consent"), g.get("feed_installed"))], EX_CANNOT
     check("reply debt is not degraded (the detector can read Messages)%s"
           % (": " + c.get("reason", "") if c.get("degraded") else ""), not c.get("degraded"))
     check("every debt carries person_name and waiting_hours", c.get("fields_ok", False))
@@ -257,6 +290,18 @@ def judge_reply_debt(c):
 # --------------------------------------------------------------------------
 
 OWNER_PROMISE = "Post the walk-probe budget sheet to Philip Coe"
+# Shapes the 2026-10-19 Mini16 brief had and a customer must never see: a raw
+# ISO date ("(due 2026-10-16)"), and the owner's own chats with the assistant
+# retold as yesterday's news ("you greeted me with 'Hola'").
+CHAT_ECHO_PHRASES = ("you greeted me", "you asked me", "you asked why the assistant",
+                     "you asked about the assistant", "i confirmed i am", "i am always online",
+                     "showing as offline", "you said hello")
+
+
+def brief_shape(text):
+    low = (text or "").lower()
+    return {"iso_date_leak": bool(re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", text or "")),
+            "chat_echo": any(p in low for p in CHAT_ECHO_PHRASES)}
 OTHER_PROMISE = "Thomas will share the walk-probe venue list"
 SEED_NS = "urn:ostler-walk-fixture:wow7"
 
@@ -350,6 +395,7 @@ def box_morning(wait_s=600):
             out["cannot"] = "the probe's morning brief did not run within %ds" % wait_s
             return out
         out["answered"] = bool(text.strip())
+        out.update(brief_shape(text))
         out["owner_promise"] = "walk-probe budget sheet" in text.lower()
         out["other_promise"] = "walk-probe venue list" in text.lower()
         out["reply_graded"] = len(reply_names)
@@ -379,6 +425,8 @@ def judge_morning(c):
     check("the brief was written (run status %s)" % c.get("run_status"), c.get("answered", False))
     check("the brief names the owner's open promise", c.get("owner_promise", False))
     check("the brief does NOT present a promise someone else owes as the owner's", not c.get("other_promise", True))
+    check("the brief carries no raw ISO date", not c.get("iso_date_leak", True))
+    check("the brief does not retell the owner's chats with the assistant", not c.get("chat_echo", True))
     rn = c.get("reply_named") or []
     if c.get("reply_graded", 0):
         check("the brief names who is waiting on a reply (%d of %d)" % (sum(rn), len(rn)), all(rn))
@@ -405,10 +453,24 @@ def self_test():
         "an L3 person was named": dict(rd_good, l3_named=1),
         "nobody waiting, chat invented someone": dict(rd_good, count=0, graded=0, named=[], says_none=False),
         "endpoint 500": {"endpoint": 500, "endpoint_error": "HTTP 500, unparseable"},
+        "not connected although consent is accepted and the feed installed": dict(
+            rd_good, degraded=True, reason="imessage_not_connected",
+            imessage_grant={"consent": "accepted", "feed_installed": True}),
+        "not connected, consent accepted, feed missing (installer defect)": dict(
+            rd_good, degraded=True, reason="imessage_not_connected",
+            imessage_grant={"consent": "accepted", "feed_installed": False}),
     }
+    for gname, grant in (("consent absent", {"consent": "absent", "feed_installed": False}),
+                         ("consent unreadable", {"consent": "unreadable", "feed_installed": False})):
+        _, rc = judge_reply_debt(dict(rd_good, degraded=True, reason="imessage_not_connected", imessage_grant=grant))
+        print("  %s  reply debt: not connected with %s is CANNOT-RUN, not FAIL" % ("ok   " if rc == EX_CANNOT else "FAIL ", gname))
+        ok &= rc == EX_CANNOT
+    _, rc = judge_reply_debt(dict(rd_good, degraded=True, reason="reply_debt_detector_unavailable"))
+    print("  %s  reply debt: a degradation that is not the missing consent stays FAIL" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
     mb_good = {"prompt_covers_today": True, "answered": True, "run_status": "ok", "owner_promise": True,
                "other_promise": False, "reply_graded": 1, "reply_named": [True], "reply_source": "ok",
-               "meetings_graded": 1, "meetings_named": [True]}
+               "meetings_graded": 1, "meetings_named": [True], "iso_date_leak": False, "chat_echo": False}
     mb_mut = {
         "prompt still only about yesterday": dict(mb_good, prompt_covers_today=False),
         "owner's promise missing": dict(mb_good, owner_promise=False),
@@ -416,7 +478,16 @@ def self_test():
         "a reply owed left out": dict(mb_good, reply_named=[False]),
         "today's meeting left out": dict(mb_good, meetings_named=[False]),
         "empty brief": dict(mb_good, answered=False),
+        "a raw ISO date reached the owner": dict(mb_good, iso_date_leak=True),
+        "the owner's chats with the assistant retold as news": dict(mb_good, chat_echo=True),
     }
+    # The shape reader itself, on the two real 2026-10-19 shapes (synthetic text).
+    shp = brief_shape("You promised to send the pack (due 2030-01-16). Yesterday you greeted me with 'Hola'.")
+    print("  %s  brief_shape reads a raw ISO date and a chat echo" % ("ok   " if shp == {"iso_date_leak": True, "chat_echo": True} else "FAIL "))
+    ok &= shp == {"iso_date_leak": True, "chat_echo": True}
+    shp = brief_shape("Pat flies at 1:25pm; the venue pack was due on the 16th and is overdue.")
+    print("  %s  brief_shape passes a clean brief" % ("ok   " if shp == {"iso_date_leak": False, "chat_echo": False} else "FAIL "))
+    ok &= shp == {"iso_date_leak": False, "chat_echo": False}
     for name, judge, good, muts in (("reply debt", judge_reply_debt, rd_good, rd_mut),
                                     ("morning brief", judge_morning, mb_good, mb_mut)):
         _, rc = judge(good)

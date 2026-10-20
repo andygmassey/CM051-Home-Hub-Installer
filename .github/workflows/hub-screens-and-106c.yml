@@ -13,6 +13,7 @@ on:
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'tests/test_customer_read_exempts_marked_customer_text.py'
       - 'tests/test_hub_screens_people_judges_every_row.py'
+      - 'tests/test_hub_screens_timeline_kinds_compares_the_box.py'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_walk_probes_bypass_a_local_proxy.sh'
       - 'scripts/box_walk_probes/probes/hub_screens_customer_read.sh'
@@ -36,6 +37,7 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'vendor/cm041/contact_syncer/linkedin_career.py'
       - 'tests/test_the_walk_seeds_the_owner_employer.sh'
+      - 'tests/test_pref_seed_finds_the_staged_payload.sh'
       - 'tests/test_the_walk_seed_person_reaches_the_digest.py'
       - 'scripts/box_walk_probes/lib/conversation_capture_e2e.py'
       - 'scripts/box_walk_probes/fixtures/conversation_capture_e2e/**'
@@ -82,6 +84,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: The screen judge catches every mutant
         run: python3 scripts/box_walk_probes/lib/hub_screens.py --self-test
+      - name: The timeline kinds arm compares the screen with what the box holds
+        if: always()
+        run: python3 tests/test_hub_screens_timeline_kinds_compares_the_box.py
       - name: The screen probe's own self-test
         # Phase-1 contract (run_box_walk.sh): --self-test feeds KNOWN-BAD
         # screens and must report FAIL (exit 1) with the negative control
@@ -260,6 +265,9 @@ jobs:
           fetch-depth: 0
       - name: The walk seeds the owner's employer through the LinkedIn import
         run: bash tests/test_the_walk_seeds_the_owner_employer.sh
+      - name: The walk seeds the owner's employer through the LinkedIn import (staged payload)
+        if: always()
+        run: bash tests/test_pref_seed_finds_the_staged_payload.sh
       # walk #31: the seed person carries an interaction and an organisation, so
       # People and Key organisations can be graded on a synthetic box; the importer
       # log is per-user. Real SPARQL engine, real curl, then the shipped generator.

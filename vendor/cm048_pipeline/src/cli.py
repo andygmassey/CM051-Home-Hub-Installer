@@ -154,6 +154,8 @@ def cmd_process(args, settings) -> int:
         print("metadata.json must include a conversation_id", file=sys.stderr)
         return 2
 
+    from .processor import UpdateDeferred
+
     try:
         state = process(
             conv_id,
@@ -168,6 +170,18 @@ def cmd_process(args, settings) -> int:
         # document. Distinct from 1 (the item failed) so a catch-up caller does
         # not count an outage as a poison attempt.
         print(f"sink unavailable: {exc}", file=sys.stderr)
+        return 75
+    except UpdateDeferred as exc:
+        # EX_TEMPFAIL, the same code a feed already reads as "retry on a
+        # later tick, nothing wrong with this item": the watermark stays
+        # put, so the update is re-sent, never lost, and no poison attempt
+        # is counted. stdout carries a machine-readable status.
+        print(json.dumps({
+            "conversation_id": conv_id,
+            "status": "deferred",
+            "retry_after_seconds": exc.retry_after_seconds,
+        }))
+        print(str(exc), file=sys.stderr)
         return 75
     print(json.dumps(state.to_dict(), indent=2))
     return 0 if state.failed_step is None else 1

@@ -37,6 +37,11 @@ GEN = os.path.join(REPO, "context-refresh", "bin", "generate_pwg_context.py")
 V1_0_108 = "56a5ed21f708e517bc812fa03b6ff49b01bc2fc8"
 PWG = "https://schema.ostler.ai/ontology#"
 SEED = "Jane Doe"
+# The seed person's organisation must be the employer the grounding seed gives
+# her (OS003 gates/seed/seed_fixture.json: "at example.com"). Walk #32: a
+# different one here made the opening-turn probe 1/10, because the reply named
+# the Organisation line and dropped the grounding fact.
+SEED_ORG = "example.com"
 OWNER = "Sam Patel"
 
 
@@ -154,6 +159,8 @@ def main():
 
     print("0. the seed lib never names a shared /tmp path")
     arm("no '/tmp/' in the lib (one account's file blocks the next)", "/tmp/" not in open(new_lib).read())
+    arm("the seed person's default organisation is the grounding seed's employer, not a second one (walk #32)",
+        'OSTLER_OWNER_SEED_CONTACT_ORG:-%s}' % SEED_ORG in open(new_lib).read())
 
     print("1. RED: the v1.0.108 seed lib")
     st = _store(); srv = _serve(st); port = srv.server_address[1]
@@ -161,7 +168,7 @@ def main():
     arm("the seed person has no interaction", _count(st, "?p pwg:lastContactIMessage ?d") == 0)
     people, orgs = _digest(port, os.path.join(tmp, "old"))
     arm("RED: People has no seed person", SEED not in people, repr(people[:80]))
-    arm("RED: Key organisations is empty", "Acme Corp" not in orgs, repr(orgs[:80]))
+    arm("RED: Key organisations is empty", SEED_ORG not in orgs, repr(orgs[:80]))
     srv.shutdown()
 
     print("2. GREEN: this seed lib")
@@ -174,12 +181,12 @@ def main():
     arm("one marked interaction in the graph", "OES interaction marked=1" in out, "")
     arm("the seed person carries an iMessage last-contact typed xsd:date (the ingest's shape)",
         _count(st, '?p pwg:displayName "%s" ; pwg:lastContactIMessage ?d . FILTER(DATATYPE(?d) = <http://www.w3.org/2001/XMLSchema#date>)' % SEED) == 1)
-    arm("and an organisation", _count(st, '?p pwg:displayName "%s" ; pwg:organization "Acme Corp"' % SEED) == 1)
+    arm("and an organisation", _count(st, '?p pwg:displayName "%s" ; pwg:organization "%s"' % (SEED, SEED_ORG)) == 1)
     _run(new_lib, home, port, "owner_employer_seed_apply")
     arm("idempotent: a second apply adds nothing", _count(st, "?p pwg:lastContactIMessage ?d") == 1 and _count(st, "?p pwg:organization ?o") == 1)
     people, orgs = _digest(port, home)
     arm("GREEN: People lists the seed person", SEED in people, repr(people[:120]))
-    arm("GREEN: Key organisations lists its organisation", "Acme Corp" in orgs, repr(orgs[:80]))
+    arm("GREEN: Key organisations lists its organisation", SEED_ORG in orgs, repr(orgs[:80]))
     out = _run(new_lib, home, port, 'OSTLER_OWNER_SEED_STATE=failed; owner_employer_seed_forget')
     arm("forget removes the interaction, the organisation and both markers",
         _count(st, "?p pwg:lastContactIMessage ?d") == 0 and _count(st, "?p pwg:organization ?o") == 0

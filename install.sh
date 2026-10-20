@@ -17745,7 +17745,7 @@ TOMLPREAMBLE
         _brief_channel_esc="${_brief_channel//\"/\\\"}"
         _brief_to_esc="${_brief_to//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
-        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Lead with today: name who is waiting on a reply from the user, the open promises the user made, and the user's meetings today, exactly as given in the \"What needs the user today\" block at the top of your context; if a part says it could not be checked, say you could not check it, never that there is nothing. Then add the most relevant items from yesterday's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If today and yesterday are both quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
+        _morning_prompt="You are the user's personal assistant: sharp, warm and discreet, like a good executive assistant. Write this morning's brief in plain prose for delivery as a short message. The block at the top of your context headed \"What needs the user today\" is the only source of facts: lead with it, and name the people, promises, reminders and calendar items exactly as given there. Every time in it is already the user's local time: copy it as written, never convert or re-read it. If a section says it could not be checked, say you could not check it, never that there is nothing; if it says the calendar was last refreshed hours ago, say so. Use ONLY those facts; do not add, infer or embellish, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. Do not retell the user's own chats with you, and do not look anything up: the facts are already here. Vary the opening and the order from one day to the next so the brief never reads the same way twice; a light day is short and breezy, a heavy day is crisp and ordered by what matters most. One light touch of humour at most, never at anyone's expense and never about a health or medication item. Three to five short sentences. British English. No headings, no lists, no markdown. Output only the brief itself."
         _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
         _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
         _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
@@ -18647,7 +18647,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.22}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.23}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -18760,7 +18760,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="9c5032190b635bf7d1c71a8328a4fc85a4a8c38e27c318e630ad2acc98ba058a"
+DEFAULT_ASSISTANT_TARBALL_SHA256="7fc32c2305ff8fc414c2aac0ee61caf3057c24239b984f4a9542642e688138a3"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -21278,6 +21278,15 @@ services:
       # it, so a writable mount onto the Hub's own editor state is a
       # foothold the wiki compiler has no reason to hold.
       - ${HOME}/.ostler/editor:/editor:ro
+      # v1.0.111 contact photos. CM041's contact syncer runs on the HOST and
+      # writes each contact's photo to PHOTO_DIR (default ~/.pwg/people/photos)
+      # and records that HOST path as foaf:img / profile_photo_path. /Users
+      # does not exist in this container, so without this mount every People
+      # page draws initials whatever the graph holds (#979 shape, sixth time).
+      # CM044 compiler/person_photo.py reads only producer-shaped basenames
+      # from WIKI_PEOPLE_PHOTOS_DIR and copies them into People/_photos.
+      # READ-ONLY: the compiler never writes a photo.
+      - ${OSTLER_PEOPLE_PHOTOS_DIR:-${HOME}/.pwg/people/photos}:/people-photos:ro
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -21423,6 +21432,7 @@ services:
       # the mount would be present and unread, which is the same defect one
       # layer up: a thing that is there and that nothing looks at.
       - OSTLER_FRONT_PAGE_JSON=/editor/front_page.json
+      - WIKI_PEOPLE_PHOTOS_DIR=/people-photos
     extra_hosts:
       # macOS / Colima-friendly way to surface the host gateway so the
       # OLLAMA_URL above resolves to the host's Ollama.
@@ -22757,7 +22767,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.22"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.23"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -39049,6 +39059,11 @@ mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
 # the same class of defect #979 already hit four times. Idempotent and
 # explicit, same as the Wiki tree above.
 mkdir -p "${HOME}/.ostler/editor"
+# v1.0.111: the contact photo directory, bind-mounted read-only into the
+# wiki-compiler. The contact syncer creates it on its first photo; a box with
+# no photos yet still needs a real directory, or Docker root-owns it and the
+# syncer (running as the customer) can never write there afterwards.
+mkdir -p "${OSTLER_PEOPLE_PHOTOS_DIR:-${HOME}/.pwg/people/photos}"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"

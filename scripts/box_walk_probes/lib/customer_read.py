@@ -88,7 +88,8 @@ INTERNAL_SOURCES = {"privacy_backfill", "dedupe"}
 # The API reports the graph merge as its own source; a customer knows it as contacts.
 API_ALIASES = {"people": "contacts", "email_preferences": None, "reminders": None, "reminders_knowledge": None}
 OK_WORDS = ("ok", "up to date", "working", "streaming", "running", "ready now")
-EMPTY_WORDS = ("no_data", "not_run", "nothing found", "not started", "not run yet", "nothing to add")
+EMPTY_WORDS = ("no_data", "not_run", "nothing found", "not started", "not run yet", "nothing to add",
+               "nothing to import")
 
 BARE_TITLE = re.compile(r"^\s*(\w+\s+)?conversation\s*$", re.I)
 DOUBLED_WORD = re.compile(r"\b(\w+)\s+\1\b", re.I)

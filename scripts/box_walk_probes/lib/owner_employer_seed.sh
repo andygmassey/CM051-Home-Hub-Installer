@@ -49,7 +49,16 @@ _OES_TITLE="Staff engineer"
 # contact_syncer: pwg:organization), each paired with a walkSeed marker so the
 # forget removes exactly what was added and nothing that was already there.
 # ONLY for a person the grounding seed declared synthetic.
-OSTLER_OWNER_SEED_CONTACT_ORG="${OSTLER_OWNER_SEED_CONTACT_ORG:-Acme Corp}"
+# THE ORGANISATION IS THE SEED PERSON'S OWN EMPLOYER, NOT A SECOND ONE (walk #32,
+# v1.0.111). This defaulted to "Acme Corp" while the grounding seed says the same
+# person "Works as a submarine cable engineer at example.com" (OS003
+# gates/seed/seed_fixture.json, predicate employer). pwg_people renders the
+# Organisation line first and the daemon tells the model to state it exactly,
+# so assistant_grounds_the_opening_turn went from 10/10 (walk #31) to 1/10:
+# nine replies said "at Acme Corp", faithfully, and dropped example.com. The
+# fixture contradicted itself; the model did not. Keep this equal to the seed
+# fixture's employer value.
+OSTLER_OWNER_SEED_CONTACT_ORG="${OSTLER_OWNER_SEED_CONTACT_ORG:-example.com}"
 _oes_lit() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }
 _oes_b64() { printf '%s' "$1" | /usr/bin/python3 -c 'import base64,sys; print(base64.b64encode(sys.stdin.buffer.read()).decode())'; }
 _oes_interaction_apply_sparql() { # $1 person name  $2 organisation  $3 UTC date
@@ -108,6 +117,11 @@ echo \"OES importer log, last 15 lines (\$L):\"
 tail -n 15 \"\$L\" 2>&1 | sed 's/^/OES log | /'
 c=\$(n); echo \"OES count=\$c\"
 case \"\$c\" in ''|*[!0-9]*|0) echo 'OES no career fact in the graph; not waiting on the digest'; exit 4 ;; esac
+P=\$HOME/.ostler/preferences/interest_profile.json
+pb=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0)
+launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.editor-frontpage >/dev/null 2>&1; echo \"OES profile compile rc=\$?\"
+j=0; while [ \$j -lt 24 ]; do pn=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0); [ \"\$pn\" -gt \"\$pb\" ] && { echo 'OES profile recompiled'; break; }; sleep 5; j=\$((j+1)); done
+[ \$j -ge 24 ] && echo 'OES profile NOT recompiled in 120s (no new mtime on interest_profile.json; a missing file counts as not recompiled)'
 C=\$HOME/.ostler/assistant-config/workspace/CONTEXT.md
 before=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0)
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.context-refresh >/dev/null 2>&1; echo \"OES refresh rc=\$?\"
@@ -119,7 +133,7 @@ echo 'OES digest not rewritten in 600s'; exit 3" 2>&1)"
     # says nothing about whether the fact landed. The graph does.
     local cnt
     cnt="$(printf '%s\n' "$out" | sed -n 's/^OES count=\([0-9][0-9]*\)$/\1/p' | tail -1)"
-    if [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && printf '%s' "$out" | grep -q '^OES digest rewritten'; then
+    if [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && printf '%s' "$out" | grep -q '^OES profile recompiled' && printf '%s' "$out" | grep -q '^OES digest rewritten'; then
         OSTLER_OWNER_SEED_STATE="seeded"
     else
         OSTLER_OWNER_SEED_STATE="failed"
