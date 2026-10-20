@@ -133,9 +133,10 @@ class CallsAdapter(oc.Adapter):
             extract = self.module.extract_calls(self.db_path, since=_dt(lo - 1), until=_dt(hi))
         except (PermissionError, self.module.CallHistorySchemaError) as exc:
             raise self._read_denied(exc) from exc
-        # extract_calls' lower bound is exclusive; lo-1 makes the window
-        # [lo, hi) so a call exactly on a boundary lands in one window only.
-        events = [e for e in extract.events if e.when.timestamp() >= lo]
+        # extract_calls' lower bound is exclusive and its upper bound is
+        # INCLUSIVE; filtering to lo <= t < hi makes the window [lo, hi), so a
+        # call exactly on a boundary lands in one window only.
+        events = [e for e in extract.events if lo <= e.when.timestamp() < hi]
         if not events:
             return True
         work = Path(tempfile.mkdtemp(prefix="ostler-catchup-calls-"))

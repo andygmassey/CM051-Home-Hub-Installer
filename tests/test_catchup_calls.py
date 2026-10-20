@@ -140,3 +140,54 @@ def test_the_runner_is_registered_by_install_sh_and_names_a_real_factory():
     assert "_ostler_catchup_register 25-calls" in text
     assert '"ostler_fda.catchup_calls:adapters"' in text
     assert callable(cc.adapters)
+
+
+# ── unit arms on the adapter's own seams (each kills a named mutant) ────────
+
+def test_process_raises_cannot_run_when_the_database_is_unreadable_mid_walk(world):
+    """The floor is already known, so only process() touches the database."""
+    _, db, _ = world
+    a = cc.CallsAdapter(db_path=db)
+    lo = int(NOW.timestamp()) - 400 * 86400
+    with patch.object(ch.shutil, "copy2", side_effect=PermissionError("EPERM")):
+        with pytest.raises(oc.CannotRun) as e:
+            a.process((lo, lo + 30 * 86400))
+    assert e.value.reason == "read_denied"
+
+
+def test_process_raises_connection_error_on_a_graph_outage_never_returns_false(world):
+    st, db, _ = world
+    a = cc.CallsAdapter(db_path=db)
+    lo = int(NOW.timestamp()) - 3 * 365 * 86400
+    st.fail_query = True
+    with pytest.raises(ConnectionError):
+        a.process((lo, lo + 365 * 86400))
+    assert st.calls() == []
+
+
+def test_four_outage_ticks_quarantine_nothing(world):
+    st, db, _ = world
+    st.fail_query = True
+    for _ in range(4):
+        oc.run([cc.CallsAdapter(db_path=db)], budget_seconds=1e9, busy=lambda: None)
+    wm = json.loads((oc.state_dir() / "calls.json").read_text())
+    assert wm["items_quarantined"] == 0 and not wm["complete"]
+
+
+def test_a_call_exactly_on_a_window_boundary_lands_in_exactly_one_window(world, tmp_path):
+    _, _, _ = world
+    boundary = NOW - timedelta(days=500)
+    rows = [{"address": NUM_A, "when": boundary, "uid": "edge1"}]
+    db = make_call_db(tmp_path / "edge.storedata", rows)
+    seen = []
+    real = pi.ingest_calls
+
+    def spy(work):
+        seen.append(json.loads((Path(work) / "call_history.json").read_text()))
+        return real(work)
+    a = cc.CallsAdapter(db_path=db)
+    lo = int(boundary.timestamp())
+    with patch.object(pi, "ingest_calls", spy):
+        a.process((lo - 30 * 86400, lo))          # [lo-30d, lo): excludes lo
+        a.process((lo, lo + 30 * 86400))          # [lo, lo+30d): includes lo
+    assert sum(len(batch) for batch in seen) == 1

@@ -207,6 +207,19 @@ class TestExtractor:
         assert not os.path.exists(seen["dir"])           # staging copy deleted
         assert sorted(p.name for p in tmp_path.iterdir()) == ["c.storedata"]
 
+    def test_oldest_call_also_removes_its_staging_copy(self, tmp_path):
+        db = make_call_db(tmp_path / "c.storedata", STANDARD_ROWS)
+        seen = []
+        real_mkdtemp = ch.tempfile.mkdtemp
+
+        def spy(*a, **k):
+            d = real_mkdtemp(*a, **k)
+            seen.append(d)
+            return d
+        with patch.object(ch.tempfile, "mkdtemp", side_effect=spy):
+            ch.oldest_call(db)
+        assert len(seen) == 1 and not os.path.exists(seen[0])
+
     def test_a_wal_only_call_is_seen(self, tmp_path):
         """The newest calls live in the -wal until a checkpoint. A reader that
         opened the main file alone (or immutable=1) would miss them."""

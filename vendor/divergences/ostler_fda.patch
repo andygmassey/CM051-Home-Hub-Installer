@@ -2283,10 +2283,10 @@ index 00000000..019dcac2
 +    return out
 diff --git b/catchup_calls.py b/catchup_calls.py
 new file mode 100644
-index 00000000..ad9b4c8f
+index 00000000..6eb8e418
 --- /dev/null
 +++ b/catchup_calls.py
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,169 @@
 +"""Full-history catch-up for call history (phone and FaceTime).
 +
 +extract_all reads OSTLER_CALL_BACKFILL_DAYS (default 365) of calls on every
@@ -2422,9 +2422,10 @@ index 00000000..ad9b4c8f
 +            extract = self.module.extract_calls(self.db_path, since=_dt(lo - 1), until=_dt(hi))
 +        except (PermissionError, self.module.CallHistorySchemaError) as exc:
 +            raise self._read_denied(exc) from exc
-+        # extract_calls' lower bound is exclusive; lo-1 makes the window
-+        # [lo, hi) so a call exactly on a boundary lands in one window only.
-+        events = [e for e in extract.events if e.when.timestamp() >= lo]
++        # extract_calls' lower bound is exclusive and its upper bound is
++        # INCLUSIVE; filtering to lo <= t < hi makes the window [lo, hi), so a
++        # call exactly on a boundary lands in one window only.
++        events = [e for e in extract.events if lo <= e.when.timestamp() < hi]
 +        if not events:
 +            return True
 +        work = Path(tempfile.mkdtemp(prefix="ostler-catchup-calls-"))

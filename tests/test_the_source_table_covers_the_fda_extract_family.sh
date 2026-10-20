@@ -499,6 +499,19 @@ case "$_c" in
     *)   bad "the Calls row reads '${_c}', expected 'read in|318 calls'" ;;
 esac
 
+# The LIVE total: the install-time sentinel above says 318; a later tick
+# rewrites the extract summary, and the row must follow it, not the frozen
+# sentinel. (Kills a mutant that drops the calls entry from _EXTRACT_SUMMARY_KEYS.)
+mkdir -p "${WORK}/imports/fda"
+printf '%s' '{"sources":{"call_history":{"status":"ok","total_calls":405}}}' > "${WORK}/imports/fda/extraction_summary.json"
+_c="$(_cell calls "$(_render)")"
+rm -rf "${WORK}/imports"
+case "$_c" in
+    "read in|405 calls") ok "the Calls row follows the live extract total (405), not the frozen install-time sentinel (318)" ;;
+    "read in|318 calls") bad "the Calls row printed the frozen sentinel 318 although a live extract total of 405 exists" ;;
+    *)  bad "the live-total Calls row reads '${_c}', expected 'read in|405 calls'" ;;
+esac
+
 _drive "$SUMMARY_CALLS_NOFDA"
 _c="$(_cell calls "$(_render)")"
 case "$_c" in
@@ -557,8 +570,8 @@ printf '\n  %d pass, %d fail\n' "$PASS" "$FAIL"
 # this file, which reported seven FAILs and exited 2.
 [ "$FAIL" -eq 0 ] || exit 1
 _TOTAL=$((PASS + FAIL))
-if [ "$_TOTAL" -lt 16 ]; then
-    echo "CANNOT-RUN: only ${_TOTAL} assertions were reached; expected 16 or more" >&2
+if [ "$_TOTAL" -lt 17 ]; then
+    echo "CANNOT-RUN: only ${_TOTAL} assertions were reached; expected 17 or more" >&2
     exit 2
 fi
 echo "PASS: the Doctor source table covers the FDA extract family"

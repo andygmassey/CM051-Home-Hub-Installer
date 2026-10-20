@@ -73,8 +73,8 @@ jobs:
               exit 1
             fi
           }
-          check tests/test_call_history_vendored.py 28
-          check tests/test_catchup_calls.py 7
+          check tests/test_call_history_vendored.py 31
+          check tests/test_catchup_calls.py 11
           python -m pytest tests/test_call_history_vendored.py tests/test_catchup_calls.py -v -rs
       - name: The Doctor Calls row (real recorders, real renderer)
         run: bash tests/test_the_source_table_covers_the_fda_extract_family.sh
