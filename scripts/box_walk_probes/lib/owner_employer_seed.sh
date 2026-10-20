@@ -117,6 +117,10 @@ echo \"OES importer log, last 15 lines (\$L):\"
 tail -n 15 \"\$L\" 2>&1 | sed 's/^/OES log | /'
 c=\$(n); echo \"OES count=\$c\"
 case \"\$c\" in ''|*[!0-9]*|0) echo 'OES no career fact in the graph; not waiting on the digest'; exit 4 ;; esac
+P=\$HOME/.ostler/preferences/interest_profile.json
+pb=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0)
+launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.editor-frontpage >/dev/null 2>&1; echo \"OES profile compile rc=\$?\"
+j=0; while [ \$j -lt 24 ]; do pn=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0); [ \"\$pn\" -gt \"\$pb\" ] && { echo 'OES profile recompiled'; break; }; sleep 5; j=\$((j+1)); done
 C=\$HOME/.ostler/assistant-config/workspace/CONTEXT.md
 before=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0)
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.context-refresh >/dev/null 2>&1; echo \"OES refresh rc=\$?\"
