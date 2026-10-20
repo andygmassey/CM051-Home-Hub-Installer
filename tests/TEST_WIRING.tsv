@@ -840,6 +840,7 @@ test_todo_reminders_cleanup_deletes_what_it_created.py	WIRED	.github/workflows/h
 test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_ttywalk_exports_the_cm019_bundle.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
