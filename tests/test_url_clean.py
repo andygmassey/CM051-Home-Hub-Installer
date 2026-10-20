@@ -71,6 +71,19 @@ TABLE = [
 ]
 
 
+# Cross-language contract: the same table drives the extension's JS port
+# (safari-history-extension tests/url-clean.test.js). Both repos pin the
+# fixture's sha256, so editing it in one place fails the other.
+FIXTURE = REPO / "tests" / "fixtures" / "url_clean_table.json"
+FIXTURE_SHA256 = "fb7443c11e3fec5a8f4e1cc1788ad26ddac72577482966f184debedd517b8bd4"
+
+
+def test_shared_fixture_pinned_and_equals_table():
+    raw = FIXTURE.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == FIXTURE_SHA256
+    assert [list(r) for r in TABLE] == json.loads(raw)
+
+
 def check_table(fn):
     """Return the rows `fn` gets wrong (empty list = all correct)."""
     return [(i, o, fn(i)) for i, o in TABLE if fn(i) != o]
