@@ -15,7 +15,7 @@ is OFF unless explicitly enabled – see policy §2.
 Recognised source names:
     safari_history, safari_bookmarks, imessage, apple_notes,
     photos_metadata, photos_faces, calendar, reminders, apple_mail,
-    apple_music, google_takeout
+    apple_music, google_takeout, call_history
 
 Usage:
     python -m ostler_fda.extract_all [--output-dir DIR]
@@ -55,6 +55,8 @@ DEFAULT_SOURCES = frozenset({
 ALL_SOURCES = DEFAULT_SOURCES | {
     "photos_faces", "google_takeout", "whatsapp_history", "chrome_history",
     "facebook_messenger",
+    # Opt-in: who you phoned and when is sensitive, so it is never on by default.
+    "call_history",
 }
 
 
@@ -318,6 +320,42 @@ def run_all(
             logger.warning("[warn] iMessage: %s", e)
     else:
         summary["sources"]["imessage"] = {"status": "disabled_by_user"}
+
+    # ── Call history ────────────────────────────────────────────────
+    # Opt-in (not in DEFAULT_SOURCES). Metadata only; the DB is copied, never
+    # written (see call_history.py). A schema this reader does not know is an
+    # "error" with the reason, never an empty "ok".
+    if "call_history" in sources:
+        try:
+            from .call_history import (
+                extract_calls, call_stats, to_interaction_events,
+            )
+            # Cheap read (no inference), so a flat window like Chrome's; the
+            # background catch-up (CM051) walks the older history.
+            call_days = _env_days("OSTLER_CALL_BACKFILL_DAYS", 365)
+            extract = extract_calls(since_days=call_days)
+            stats = call_stats(extract)
+
+            (output_dir / "call_history.json").write_text(
+                json.dumps(to_interaction_events(extract.events), indent=2)
+            )
+
+            summary["sources"]["call_history"] = {"status": "ok", **stats}
+            logger.info(
+                "[ok] Calls: %d calls, %d missed, %d contacts",
+                stats["total_calls"], stats["missed"], stats["unique_contacts"],
+            )
+
+        except PermissionError:
+            summary["sources"]["call_history"] = {"status": "no_fda"}
+            logger.info("[skip] Calls: Full Disk Access not granted")
+        except FileNotFoundError:
+            summary["sources"]["call_history"] = {"status": "not_found"}
+        except Exception as e:
+            summary["sources"]["call_history"] = {"status": "error", "error": str(e)}
+            logger.warning("[warn] Calls: %s", e)
+    else:
+        summary["sources"]["call_history"] = {"status": "disabled_by_user"}
 
     # ── WhatsApp historical (CX-85) ─────────────────────────────────
     # Opt-in only: default OFF per the Q3b sign-off (more sensitive
