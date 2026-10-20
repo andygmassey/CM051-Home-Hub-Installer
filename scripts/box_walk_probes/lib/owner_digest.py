@@ -155,10 +155,24 @@ def judge(f):
             miss.append("the '- Work:' line names no organisation")
         if not d.get("top_people_lines"):
             miss.append("'## {}' is empty or absent".format(TOP_PEOPLE))
+        pref_unmeasured = None
         if not d.get("preferences_lines"):
-            miss.append("'## {}' is empty or absent".format(PREFERENCES))
-        add(DECLARED[0], not miss, "; ".join(miss) if miss else "About you {} line(s), {} organisation(s); people {} line(s); preferences {} line(s)".format(
-            d.get("about_you_lines"), d.get("work_orgs"), d.get("top_people_lines"), d.get("preferences_lines")))
+            # The digest shows what clears the compiler's confidence floor, so
+            # an empty section is only a defect when something clears it, or
+            # the walk's preference seed ran and so must have produced one.
+            n_pref = (f.get("stores") or {}).get("preferences")
+            if n_pref is None:
+                pref_unmeasured = "the above-floor preference count could not be read (interest_profile.json)"
+            elif n_pref > 0 or f.get("pref_seed_state") == "seeded":
+                miss.append("'## {}' is empty or absent while {} preference(s) clear the floor".format(PREFERENCES, n_pref))
+            else:
+                pref_unmeasured = "the preference seed did not run (state {}) and no preference clears the floor, so an empty '## {}' is correct".format(
+                    f.get("pref_seed_state", "unrun"), PREFERENCES)
+        if not miss and pref_unmeasured:
+            add(DECLARED[0], None, "NOT MEASURED: " + pref_unmeasured)
+        else:
+            add(DECLARED[0], not miss, "; ".join(miss) if miss else "About you {} line(s), {} organisation(s); people {} line(s); preferences {} line(s)".format(
+                d.get("about_you_lines"), d.get("work_orgs"), d.get("top_people_lines"), d.get("preferences_lines")))
 
         stores = f.get("stores") or {}
         lies, unmeasured = [], []
@@ -263,7 +277,17 @@ def measure_stores():
             return None
 
     out["people"] = qd("people")
-    out["preferences"] = qd("preferences")
+    # What the product SHOWS from: preferences that clear the compiler's
+    # confidence floor (interest_profile.json stats.interests), NOT the raw
+    # Qdrant row count. Walk 34 (v1.0.113): 1 raw row screened out below the
+    # 0.28 floor, digest correctly empty, probe called it a lie.
+    out["preferences_raw"] = qd("preferences")
+    out["preferences"] = None
+    try:
+        pf = os.path.join(os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler"), "preferences", "interest_profile.json")
+        out["preferences"] = int(json.load(open(pf, encoding="utf-8"))["stats"]["interests"])
+    except Exception:
+        pass
     out["people_with_org"] = qd("people", {"exact": True, "filter": {"must_not": [{"is_empty": {"key": "organization"}}]}})
 
     def sparql_count(where):
@@ -546,7 +570,8 @@ def memory_names_neighbour(body):
 def box_main(argv):
     a = dict(zip(argv[0::2], argv[1::2]))
     seed_org = a.get("--seed-org", "")
-    facts = {"seed_state": a.get("--seed-state", "unrun")}
+    facts = {"seed_state": a.get("--seed-state", "unrun"),
+             "pref_seed_state": a.get("--pref-seed-state", "unrun")}
     facts["hydrated"], facts["hydration_state"] = hydration()
     try:
         text = open(os.path.expanduser("~/.ostler/assistant-config/workspace/CONTEXT.md")).read()
