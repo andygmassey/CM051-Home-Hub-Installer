@@ -45,7 +45,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.delenv("OSTLER_CATCHUP_STATE_DIR", raising=False)
     monkeypatch.setenv("OSTLER_CALL_BACKFILL_DAYS", "365")
     st = FakeStore()
-    st.add_person("a", "Alex Example", [("phone", NUM_A)])
+    st.add_person("a", "Alex Doe", [("phone", NUM_A)])
     rows = []
     for i in range(N):
         when = NOW - timedelta(days=1 + i * (YEARS * 365) / N)

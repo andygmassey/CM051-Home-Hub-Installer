@@ -317,13 +317,13 @@ def store():
 @pytest.fixture
 def people(store):
     return {
-        "a": store.add_person("a", "Alex Example", [("phone", NUM_A)]),
-        "b": store.add_person("b", "Bea Example", [("phone", NUM_B)]),
-        "c": store.add_person("c", "Cal Example", [("phone", NUM_C)]),
-        "d": store.add_person("d", "Dee Example", [("phone", NUM_D)], priv="L3"),
-        "f": store.add_person("f", "Fran Example", [("email", EMAIL_F)]),
-        "s1": store.add_person("s1", "Sam Example", [("phone", NUM_SHARED)]),
-        "s2": store.add_person("s2", "Sid Example", [("phone", NUM_SHARED)]),
+        "a": store.add_person("a", "Alex Doe", [("phone", NUM_A)]),
+        "b": store.add_person("b", "Jane Doe", [("phone", NUM_B)]),
+        "c": store.add_person("c", "John Smith", [("phone", NUM_C)]),
+        "d": store.add_person("d", "Mary Jones", [("phone", NUM_D)], priv="L3"),
+        "f": store.add_person("f", "Bob Patel", [("email", EMAIL_F)]),
+        "s1": store.add_person("s1", "Sam Smith", [("phone", NUM_SHARED)]),
+        "s2": store.add_person("s2", "Tom Jones", [("phone", NUM_SHARED)]),
     }
 
 
@@ -388,7 +388,7 @@ class TestIngest:
     def test_deceased_do_not_suggest_gets_no_call_events(
             self, store, people, tmp_path):
         store.add_record("SuggestionSuppression", suppressedIdentifier=NUM_B,
-                         suppressedSlug="bea-example")
+                         suppressedSlug="jane-doe")
         d = _write_json(tmp_path, [
             {"address": NUM_B, "when": _day(1), "uid": "b1"},
             {"address": NUM_A, "when": _day(1), "uid": "a1"}])
@@ -400,7 +400,7 @@ class TestIngest:
             self, store, people, tmp_path):
         store.add_record("MinorFlag", suppressedPerson=people["c"])
         # a second node for the same human carrying the same number
-        store.add_person("c2", "Cal E.", [("phone", NUM_C)])
+        store.add_person("c2", "John S.", [("phone", NUM_C)])
         d = _write_json(tmp_path, [
             {"address": NUM_C, "when": _day(1), "uid": "c1"}])
         res = pi.ingest_calls(d)

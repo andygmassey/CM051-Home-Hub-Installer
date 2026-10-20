@@ -2387,3 +2387,4 @@ nonperson	scripts/cut_markers.manifest::c6d895b24a3b8a08	PRODUCT: line 137, the 
 phrase	loopback qdrant	code comment heading for the loopback vector-store helpers (vendor/cm041/assistant_api/browsing_enrich.py)
 nonperson	vendor/cm048_pipeline/src/channel_adapter.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.
 nonperson	vendor/cm048_pipeline/src/privacy.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.
+phrase	core data	Apple's persistence framework: CallHistory.storedata is a Core Data store. A framework name, not a person.
