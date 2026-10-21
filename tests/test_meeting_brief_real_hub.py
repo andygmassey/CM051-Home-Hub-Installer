@@ -133,9 +133,9 @@ def stage_gate(home, state):
         "now = datetime.now(timezone.utc)\n"
         "iso = lambda d: d.isoformat().replace('+00:00', 'Z')\n"
         f"if {kind!r} == 'trial':\n"
-        f"    g.activate_first_month_free(iso(now - timedelta(days={days})))\n"
+        f"    g.activate_included_pro(iso(now - timedelta(days={days})))\n"
         "else:\n"
-        "    g.activate_first_month_free(iso(now - timedelta(days=90)))\n"
+        "    g.activate_included_pro(iso(now - timedelta(days=90)))\n"
         f"    g.refresh_from_companion('cmVjZWlwdA==', iso(now + timedelta(days={days})))\n"
     )
     subprocess.run([sys.executable, "-c", code, str(svc)], check=True,

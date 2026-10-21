@@ -2,23 +2,23 @@
 #
 # tests/test_install_first_month_free.sh
 #
-# Locks the install.sh G2 first-month-free activation block. This test
+# Locks the install.sh G2 included-Pro activation block. This test
 # verifies the post-licence-verification subscription activation that
-# wires every fresh Hub install to 30 days of Ostler Pro per the G0
+# wires every fresh Hub install to 180 days (founding) of Ostler Pro per the G0
 # subscription_gate contract (CM051 PR #190).
 #
 # Why this test exists:
-#   - The activation is the customer's only path to the first 30 days
+#   - The activation is the customer's only path to the included window
 #     of Pro. A regression silently breaks the trial without any obvious
 #     symptom -- the Hub installs cleanly, the customer never knows.
 #   - The non-fatal posture (warn-only on failure) must hold so a broken
 #     subscription_gate.py never blocks a legitimate install.
 #
 # Verified scenarios:
-#   1. activate_first_month_free() writes a JSON state file when called
+#   1. activate_included_pro() writes a JSON state file when called
 #      with a synthetic OSTLER_SUBSCRIPTION_STATE override.
 #   2. The state has status=active, source=first_month_free, and an
-#      expires_at ~30 days in the future.
+#      expires_at ~180 days in the future.
 #   3. install.sh contains the activation block + the 4 G2 MSG_* keys
 #      are present in the en-GB strings catalogue.
 #   4. install.sh structural sanity (still parses with bash -n).
@@ -59,17 +59,17 @@ fi
 echo "PASS: strings file parses"
 
 # ── Structural sanity: activation block present ─────────────────
-if ! grep -q 'First-month-free subscription activation (G2)' "$INSTALL_SCRIPT"; then
+if ! grep -q 'Included Ostler Pro activation (G2)' "$INSTALL_SCRIPT"; then
     echo "FAIL [struct]: G2 activation section header not found in install.sh" >&2
     exit 1
 fi
 echo "PASS: G2 activation section header present"
 
-if ! grep -q 'from subscription_gate import activate_first_month_free' "$INSTALL_SCRIPT"; then
-    echo "FAIL [struct]: install.sh does not import activate_first_month_free" >&2
+if ! grep -q 'from subscription_gate import activate_included_pro' "$INSTALL_SCRIPT"; then
+    echo "FAIL [struct]: install.sh does not import activate_included_pro" >&2
     exit 1
 fi
-echo "PASS: install.sh imports activate_first_month_free"
+echo "PASS: install.sh imports activate_included_pro"
 
 if ! grep -q "vendor', 'cm041', 'assistant_api'" "$INSTALL_SCRIPT"; then
     echo "FAIL [struct]: install.sh does not reference vendored cm041/assistant_api path" >&2
@@ -79,9 +79,9 @@ echo "PASS: install.sh references vendored cm041/assistant_api path"
 
 # ── Structural sanity: 4 new MSG_* keys present in catalogue ──
 for key in \
-    MSG_INFO_FIRST_MONTH_FREE_ACTIVATING \
-    MSG_OK_FIRST_MONTH_FREE_ACTIVATED \
-    MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL \
+    MSG_INFO_INCLUDED_PRO_ACTIVATING \
+    MSG_OK_INCLUDED_PRO_ACTIVATED \
+    MSG_WARN_INCLUDED_PRO_FAILED_NONFATAL \
     MSG_INFO_SUBSCRIPTION_PRICING_HINT; do
     if ! grep -q "^${key}=" "$STRINGS_FILE"; then
         echo "FAIL [struct]: ${key} not defined in strings catalogue" >&2
@@ -111,9 +111,9 @@ echo "PASS: pricing hint uses 9.99 USD"
 
 # ── No-em-dash check on G2 strings ─────────────────────────────
 for key in \
-    MSG_INFO_FIRST_MONTH_FREE_ACTIVATING \
-    MSG_OK_FIRST_MONTH_FREE_ACTIVATED \
-    MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL \
+    MSG_INFO_INCLUDED_PRO_ACTIVATING \
+    MSG_OK_INCLUDED_PRO_ACTIVATED \
+    MSG_WARN_INCLUDED_PRO_FAILED_NONFATAL \
     MSG_INFO_SUBSCRIPTION_PRICING_HINT; do
     val=$(grep "^${key}=" "$STRINGS_FILE")
     # U+2014 EM DASH is forbidden per CM051 style rule.
@@ -124,7 +124,7 @@ for key in \
 done
 echo "PASS: no em-dashes in G2 strings"
 
-# ── Functional probe: activate_first_month_free writes state ──
+# ── Functional probe: activate_included_pro writes state ──
 STATE_FILE="/tmp/test-state-g2-$$.json"
 trap "rm -f '${STATE_FILE}'" EXIT INT TERM
 
@@ -136,13 +136,13 @@ trap "rm -f '${STATE_FILE}'" EXIT INT TERM
 OSTLER_SUBSCRIPTION_STATE="${STATE_FILE}" python3 -c "
 import sys, os
 sys.path.insert(0, os.path.join('${REPO_ROOT}', 'vendor', 'cm041', 'assistant_api'))
-from subscription_gate import activate_first_month_free
+from subscription_gate import activate_included_pro
 from datetime import datetime, timezone
-activate_first_month_free(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
+activate_included_pro(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
 "
 
 if [[ ! -f "${STATE_FILE}" ]]; then
-    echo "FAIL [func]: activate_first_month_free did not write state file at ${STATE_FILE}" >&2
+    echo "FAIL [func]: activate_included_pro did not write state file at ${STATE_FILE}" >&2
     exit 1
 fi
 echo "PASS: state file written"
@@ -167,18 +167,18 @@ expires_iso = state.get("expires_at")
 assert expires_iso, "expires_at missing"
 expires = datetime.fromisoformat(expires_iso.replace("Z", "+00:00"))
 delta_days = (expires - datetime.now(timezone.utc)).days
-# 30 days +/- 1 day tolerance for clock jitter at the boundary
-assert 28 <= delta_days <= 31, f"expires_at not ~30 days out: {delta_days} days"
-print(f"PASS: expires_at ~30 days out ({delta_days} days)")
+# 180 days +/- 1 day tolerance for clock jitter at the boundary
+assert 178 <= delta_days <= 181, f"expires_at not ~180 days out: {delta_days} days"
+print(f"PASS: expires_at ~180 days out ({delta_days} days)")
 
 grace_iso = state.get("grace_period_end")
 assert grace_iso, "grace_period_end missing"
 grace = datetime.fromisoformat(grace_iso.replace("Z", "+00:00"))
 grace_delta = (grace - datetime.now(timezone.utc)).days
-# 30 + 14 grace = ~44 days; +/- 1 day tolerance
-assert 42 <= grace_delta <= 45, f"grace_period_end not ~44 days out: {grace_delta} days"
-print(f"PASS: grace_period_end ~44 days out ({grace_delta} days)")
+# 180 + 14 grace = ~194 days; +/- 1 day tolerance
+assert 192 <= grace_delta <= 195, f"grace_period_end not ~194 days out: {grace_delta} days"
+print(f"PASS: grace_period_end ~194 days out ({grace_delta} days)")
 PYEOF
 
 echo ""
-echo "ALL TESTS PASSED: G2 first-month-free activation"
+echo "ALL TESTS PASSED: G2 included-Pro activation"

@@ -10,7 +10,7 @@ is copied rather than shared. Copies in this repo:
   ostler_fda sources: the Google Takeout Chat export, Notion, Linear, GitHub)
 
 This test fails if any copy drifts from the others, or from the pinned digest
-(CM052 main 1ec0578, 2026-10-19; HR015 ostler_fda/tests/
+(CM052 pro-included-window PR over main 781e564, 2026-10-21; HR015 ostler_fda/tests/
 test_subscription_gate_parity.py pins the same digest). To change the gate,
 change the CM052 source, re-copy it byte for byte to every path below, and
 re-pin in the same change.
@@ -41,7 +41,7 @@ COPIES = (
     REPO / "vendor" / "ostler_fda" / "subscription_gate.py",
 )
 FDA_GATE = COPIES[2]
-PINNED_SHA256 = "cc5b8989c9e5d8cd8af5b0ef2ff589e8276dd36c51b85635cf76f9923b3ac14d"
+PINNED_SHA256 = "a24fa6062591d202cd7ce539307aff6178e86629c0bfdfc9aaf0d032fd9c09e2"
 
 
 def _env(state: Path) -> dict:
@@ -57,7 +57,7 @@ def _check(state: Path, *args: str) -> subprocess.CompletedProcess:
 
 def _activate(state: Path, purchase: datetime) -> None:
     code = ("import sys, importlib.util as u; s=u.spec_from_file_location('g', sys.argv[1]); "
-            "m=u.module_from_spec(s); s.loader.exec_module(m); m.activate_first_month_free(sys.argv[2])")
+            "m=u.module_from_spec(s); s.loader.exec_module(m); m.activate_included_pro(sys.argv[2])")
     subprocess.run([sys.executable, "-c", code, str(FDA_GATE), purchase.isoformat()],
                    check=True, env=_env(state), timeout=60)
 
