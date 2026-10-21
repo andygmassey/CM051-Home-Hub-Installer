@@ -1112,6 +1112,9 @@ deferrals:
       Customer impact of deferring: NONE. It is release tooling (emit the hub-app
       build-info sidecar instead of hand-writing it), not shipped behaviour.
     until_cut: "v1.0.47"
+  - ref: "daemon:fix/weather-egress-owner-directed"
+    reason: "NOT ORPHANED WORK; IT SHIPS IN THIS CUT (ORM, 2026-10-21, v1.0.116). The branch is oa #609 (head 75c47c57, PR CLOSED). Archie landed its tested change on oa main as ONE commit, #612 13d4f029, because the repo is rebase-only; measured: the changed lines of 2ac8ecf4..13d4f029 equal #609's base..head exactly (11 files, +879/-999). 13d4f029 is cherry-picked into the hub-v0.5.27 graft 3b3e8ebf that this cut pins. The gate sees the branch's own commits, which are not ancestors of main, and cannot know the content landed under a different SHA."
+    until_cut: "v1.0.117"
   - ref: "daemon:fix/log-the-401-that-gates-every-api-call"
     reason: >-
       🔴 THIS IS NOT ORPHANED WORK. IT ALREADY SHIPPED. oa #345 MERGED
