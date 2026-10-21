@@ -1,169 +1,261 @@
 #!/usr/bin/env python3
-"""contact_cards_fixture.py -- put synthetic Contacts cards into a COLD box's graph.
+"""contact_cards_fixture.py -- synthetic Contacts for a COLD walk box, through the SHIPPED paths.
 
-WHY. no_person_holds_two_contact_cards is BLOCKING and refuses to read a zero
-over a graph with no icloud_contact_uid identifiers (its anti-vacuity control).
-A cold walk account has no Contacts and no TCC grant to read any, so on v1.0.115
-(walk34) the control read 0 and the probe was CANNOT-RUN: "ZERO icloud_contact_uid
-identifiers in the graph". CANNOT-RUN is not PASS, so the walk has to supply the
-cards. The probe's predicate is NOT touched: this file only gives it something
-to measure.
+WHY. no_person_holds_two_contact_cards is BLOCKING and refuses to read a zero over
+a graph with no icloud_contact_uid identifiers. A cold walk account has no Contacts
+and no TCC grant to read any, so on v1.0.115 (walk34) it was CANNOT-RUN. The walk
+has to supply cards. #3072 as first built wrote them straight into the graph:
+no syncer, no resolver, no vector, every number unique. That turned CANNOT-RUN
+into a VACUOUS PASS (zero collision opportunities, "GUARD IS UNEXERCISED") and
+left six Persons with no Qdrant point, which fails people_stores_reconcile and
+pushes people_count_agreement past its cap.
 
-WHAT. Six synthetic people, one card each, written in the shape contact_syncer's
-_create_person_oxigraph writes (pwg:Person, displayName, one icloud_contact_uid
-identifier plus phone and email identifiers). Every phone and email is unique
-across the six, so a correct graph has no collision and the probe passes. The
-cast is synthetic: example.com addresses and the Ofcom drama range
-(+44 7700 900xxx). Nothing here is a real person.
+WHAT, NOW. Nothing here writes a triple or a vector itself. This file only builds
+INPUT and names what to delete:
 
-SAFETY. seed writes ONLY when the graph holds ZERO icloud_contact_uid
-identifiers (a box with real contacts is measured as it is). Every node it
-writes carries a URI under FIXTURE_PREFIX, and forget deletes exactly those
-URIs, so no customer triple can be touched.
+  cards_vcf()           a multi-vCard file, handed to the installed command
+                        `python -m contact_syncer.syncer --vcf <file>`, the exact
+                        line install.sh's hydrate_graph runs. The syncer's own
+                        resolver writes the Persons, and its own embed + upsert
+                        writes the Qdrant points.
+  conversations_json()  one iMessage conversation for the nameless number, handed
+                        to ostler_fda.pwg_ingest.ingest_imessage, then
+                        ostler_fda.dedupe_merge.run(), the order install.sh runs.
+  forget                deletes what those paths wrote for THIS cast, through the
+                        syncer's own _delete_node_full (graph + Qdrant point).
 
-State words printed on the last line: seeded | skipped-real-contacts |
-failed-<reason>. forget prints removed | nothing-to-remove | failed-<reason>.
+THE CAST (reserved: registry cast tokens, example.com, Ofcom drama range):
+  1-6  six distinct people, nothing shared.
+  7    a household pair: card 2 and card 7 share a landline, different people,
+       different icloud_contact_uid. The resolver and the sweep must keep them two
+       (RULE 2). That is a REAL collision opportunity: two Person nodes share a
+       phone, so the probe's opportunity count is non-zero and the guard is asked.
+  8    a NAMELESS card on +447700900107, and the same number arriving as a bare
+       handle through ingest. Exactly one Person must hold it afterwards.
+
+SAFETY. seed runs only when the graph holds no icloud_contact_uid outside this
+cast (a box with real contacts is measured as it is). forget touches only nodes
+holding a cast uid, a cast phone or a cast email, plus the merge tombstones that
+point at them.
+
+State words, last line: seeded | skipped-real-contacts | failed-<reason>.
+forget: removed | nothing-to-remove | failed-<reason>.
 """
 import json
 import os
 import re
 import sys
-import urllib.request
 
 PWG = "https://schema.ostler.ai/ontology#"
-FIXTURE_PREFIX = "https://schema.ostler.ai/person/walkfixture-card-"
-ID_PREFIX = "https://schema.ostler.ai/ontology#id_walkfixture_card_"
+UID_PREFIX = "WALKFIXTURE-CARD-"
+NAMELESS_PHONE = "+447700900107"
+HOUSEHOLD_PHONE = "+447700900102"
 
+# (n, given, family, phones, emails, title)
 CARDS = [
-    ("Alice Example", "+447700900101", "alice.example@example.com"),
-    ("Bob Example", "+447700900102", "bob.example@example.com"),
-    ("Carol Example", "+447700900103", "carol.example@example.com"),
-    ("Dan Example", "+447700900104", "dan.example@example.com"),
-    ("Erin Example", "+447700900105", "erin.example@example.com"),
-    ("Frank Example", "+447700900106", "frank.example@example.com"),
+    (1, "Jane", "Doe", ["+447700900101"], ["jane.doe@example.com"], ""),
+    (2, "John", "Smith", [HOUSEHOLD_PHONE], ["john.smith@example.com"], ""),
+    (3, "Mary", "Jones", ["+447700900103"], ["mary.jones@example.com"], ""),
+    (4, "Raj", "Patel", ["+447700900104"], ["raj.patel@example.com"], ""),
+    (5, "Liz", "Brown", ["+447700900105"], ["liz.brown@example.com"], ""),
+    (6, "Alex", "Ross", ["+447700900106"], ["alex.ross@example.com"], ""),
+    (7, "Bob", "Smith", [HOUSEHOLD_PHONE], ["bob.smith@example.com"], ""),
+    (8, "", "", [NAMELESS_PHONE], [], "Plumber"),
 ]
 
 
 def card_uid(n):
-    return "WALKFIXTURE-CARD-%d:ABPerson" % n
+    return "%s%d:ABPerson" % (UID_PREFIX, n)
 
 
-def build_seed_update(cards=CARDS):
-    """INSERT DATA for the cards. Pure, so a test can read it."""
-    t = []
-    for n, (name, phone, email) in enumerate(cards, 1):
-        p = "<%s%d>" % (FIXTURE_PREFIX, n)
-        t.append("%s a pwg:Person" % p)
-        t.append('%s pwg:displayName "%s"' % (p, name))
-        t.append('%s pwg:contactType "person"' % p)
-        for kind, value in (("icloud_contact_uid", card_uid(n)), ("phone", phone), ("email", email)):
-            i = "<%s%d_%s>" % (ID_PREFIX, n, kind)
-            t.append("%s pwg:hasIdentifier %s" % (p, i))
-            t.append("%s a pwg:PersonIdentifier" % i)
-            t.append('%s pwg:identifierType "%s"' % (i, kind))
-            t.append('%s pwg:identifierValue "%s"' % (i, value))
-    return "PREFIX pwg: <%s>\nINSERT DATA {\n  %s .\n}" % (PWG, " .\n  ".join(t))
+def cast_uids():
+    return [card_uid(c[0]) for c in CARDS]
 
 
-def build_forget_update():
-    """Delete every fixture node and identifier, and nothing else."""
-    return (
-        "PREFIX pwg: <%s>\n"
-        "DELETE { ?s ?p ?o } WHERE { ?s ?p ?o . "
-        "FILTER(STRSTARTS(STR(?s), \"%s\") || STRSTARTS(STR(?s), \"%s\")) }"
-        % (PWG, FIXTURE_PREFIX, ID_PREFIX)
-    )
+def cast_values():
+    """Every phone and email in the cast, the keys forget finds nodes by."""
+    out = []
+    for _n, _g, _f, phones, emails, _t in CARDS:
+        out += list(phones) + list(emails)
+    return sorted(set(out))
 
 
-COUNT_Q = ("PREFIX pwg: <%s>\nSELECT (COUNT(DISTINCT ?i) AS ?n) WHERE "
-           "{ ?i pwg:identifierType \"icloud_contact_uid\" }" % PWG)
-FIXTURE_COUNT_Q = ("PREFIX pwg: <%s>\nSELECT (COUNT(DISTINCT ?s) AS ?n) WHERE "
-                   "{ ?s a pwg:Person FILTER(STRSTARTS(STR(?s), \"%s\")) }" % (PWG, FIXTURE_PREFIX))
+def cards_vcf(cards=CARDS):
+    """One concatenated multi-vCard file, the shape an iCloud export has."""
+    out = []
+    for n, given, family, phones, emails, title in cards:
+        out += ["BEGIN:VCARD", "VERSION:3.0", "UID:%s" % card_uid(n),
+                "FN:%s" % ("%s %s" % (given, family)).strip(),
+                "N:%s;%s;;;" % (family, given)]
+        out += ["TEL;TYPE=CELL:%s" % p for p in phones]
+        out += ["EMAIL;TYPE=HOME:%s" % e for e in emails]
+        if title:
+            out.append("TITLE:%s" % title)
+        out.append("END:VCARD")
+    return "\n".join(out) + "\n"
 
 
-def store_headers(home):
-    """The install's own store credential: store-curl.conf header lines, else the token file."""
-    hdrs = {}
-    try:
-        for line in open(os.path.join(home, ".ostler", "secrets", "store-curl.conf")):
-            m = re.match(r'\s*header\s*=\s*"?([^:"]+):\s*([^"]*)"?\s*$', line)
-            if m:
-                hdrs[m.group(1).strip()] = m.group(2).strip()
-    except OSError:
-        pass
-    if not hdrs:
-        tok = os.environ.get("OXIGRAPH_TOKEN") or ""
-        if not tok:
-            try:
-                tok = open(os.path.join(home, ".ostler", "secrets", "oxigraph_token")).read().strip()
-            except OSError:
-                tok = ""
-        if tok:
-            hdrs["Authorization"] = "Bearer " + tok
-    return hdrs
+def conversations_json():
+    """The nameless number as an iMessage handle (the iMessage stager's shape)."""
+    return json.dumps([{"display_name": "", "participants": [NAMELESS_PHONE],
+                        "message_count": 3, "last_message": "2026-10-01T10:00:00Z"}])
 
 
-def _opener():
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+def _lit(s):
+    return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _query(store, headers, q, opener=None):
-    h = {"Content-Type": "application/sparql-query", "Accept": "application/sparql-results+json"}
-    h.update(headers)
-    r = (opener or _opener()).open(urllib.request.Request(store + "/query", data=q.encode(), headers=h), timeout=30)
-    b = json.loads(r.read().decode())["results"]["bindings"]
+def real_contacts_q():
+    """Count of icloud_contact_uid identifiers that are NOT this cast's."""
+    return ("PREFIX pwg: <%s>\nSELECT (COUNT(DISTINCT ?i) AS ?n) WHERE {\n"
+            '  ?i pwg:identifierType "icloud_contact_uid" ; pwg:identifierValue ?v .\n'
+            '  FILTER(!STRSTARTS(STR(?v), "%s")) }' % (PWG, UID_PREFIX))
+
+
+def cast_nodes_q():
+    """Every node holding a cast uid, phone or email."""
+    vals = " ".join(_lit(v) for v in cast_uids() + cast_values())
+    return ("PREFIX pwg: <%s>\nSELECT DISTINCT ?node WHERE {\n"
+            "  ?node pwg:hasIdentifier ?id . ?id pwg:identifierValue ?v .\n"
+            "  VALUES ?v { %s } }" % (PWG, vals))
+
+
+def tombstones_q(nodes):
+    """Untyped merge tombstones pointing at any of nodes."""
+    vals = " ".join("<%s>" % n for n in nodes)
+    return ("PREFIX pwg: <%s>\nSELECT DISTINCT ?node WHERE { ?node pwg:mergedInto ?t . VALUES ?t { %s } }"
+            % (PWG, vals))
+
+
+def _bindings(syncer, q, var="node"):
+    data = syncer._sparql_query(q)
+    return [b[var]["value"] for b in data.get("results", {}).get("bindings", [])]
+
+
+def _scalar(syncer, q):
+    b = syncer._sparql_query(q)["results"]["bindings"]
     return int(b[0]["n"]["value"]) if b else 0
 
 
-def _update(store, headers, u, opener=None):
-    h = {"Content-Type": "application/sparql-update"}
-    h.update(headers)
-    (opener or _opener()).open(urllib.request.Request(store + "/update", data=u.encode(), headers=h, method="POST"), timeout=30).read()
+def cast_present(syncer):
+    return _bindings(syncer, cast_nodes_q())
 
 
-def seed(home, store="http://127.0.0.1:7878", opener=None):
-    hdrs = store_headers(home)
+def forget(syncer):
+    """Delete the cast. Uses the shipped syncer's own full-node delete, so the
+    graph triples AND the Qdrant point go together."""
     try:
-        existing = _query(store, hdrs, COUNT_Q, opener)
-    except Exception as e:
-        return "failed-count-%s" % type(e).__name__
-    if existing > 0:
-        return "skipped-real-contacts"
-    try:
-        _update(store, hdrs, build_seed_update(), opener)
-        # Read it back: a write the store acknowledged but did not keep must not
-        # read as seeded.
-        if _query(store, hdrs, FIXTURE_COUNT_Q, opener) != len(CARDS):
-            return "failed-readback"
-    except Exception as e:
-        return "failed-write-%s" % type(e).__name__
-    return "seeded"
-
-
-def forget(home, store="http://127.0.0.1:7878", opener=None):
-    hdrs = store_headers(home)
-    try:
-        if _query(store, hdrs, FIXTURE_COUNT_Q, opener) == 0:
+        nodes = cast_present(syncer)
+        if not nodes:
             return "nothing-to-remove"
-        _update(store, hdrs, build_forget_update(), opener)
-        return "removed" if _query(store, hdrs, FIXTURE_COUNT_Q, opener) == 0 else "failed-still-present"
-    except Exception as e:
+        for t in _bindings(syncer, tombstones_q(nodes)):
+            if t not in nodes:
+                nodes.append(t)
+        for n in nodes:
+            syncer._delete_node_full(n)
+        return "removed" if not cast_present(syncer) else "failed-still-present"
+    except Exception as e:  # noqa: BLE001 -- the word is the report
         return "failed-%s" % type(e).__name__
 
 
+def holders_q(value):
+    """Live Persons holding exactly this identifier value."""
+    return ("PREFIX pwg: <%s>\nSELECT (COUNT(DISTINCT ?p) AS ?n) WHERE {\n"
+            "  ?p a pwg:Person ; pwg:hasIdentifier ?i . ?i pwg:identifierValue %s .\n"
+            "  FILTER NOT EXISTS { ?p pwg:mergedInto ?x } }" % (PWG, _lit(value)))
+
+
+def handle_ingested_q():
+    """Identifiers on the nameless number that the iMessage ingest wrote (labelled
+    IMESSAGE). Proves the handle ARRIVED through ingest, so one holder is a merge
+    and not an absence."""
+    return ("PREFIX pwg: <%s>\nSELECT (COUNT(DISTINCT ?i) AS ?n) WHERE {\n"
+            '  ?i pwg:identifierLabel "IMESSAGE" ; pwg:identifierValue %s }' % (PWG, _lit(NAMELESS_PHONE)))
+
+
+def live_cast_persons_q():
+    """Live Persons holding a cast icloud_contact_uid."""
+    vals = " ".join(_lit(u) for u in cast_uids())
+    return ("PREFIX pwg: <%s>\nSELECT DISTINCT ?node WHERE {\n"
+            "  ?node a pwg:Person ; pwg:hasIdentifier ?i . ?i pwg:identifierValue ?v .\n"
+            "  FILTER NOT EXISTS { ?node pwg:mergedInto ?x } VALUES ?v { %s } }" % (PWG, vals))
+
+
+def verify(syncer):
+    """What the shipped paths left, read back, fixture-scoped.
+
+    nameless_holders      live Persons holding the nameless number. Must be 1.
+    shared_holders        live Persons holding the household landline. Must be 2
+                          (the guard kept them apart: a real collision opportunity).
+    handle_ingested       IMESSAGE identifiers on the nameless number. Must be >= 1.
+    cast_without_vector   live cast Persons with no Qdrant point. Must be 0.
+    """
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+    persons = _bindings(syncer, live_cast_persons_q())
+    missing = 0
+    for u in persons:
+        pts, _ = syncer.qdrant.scroll(
+            collection_name=syncer.cfg.QDRANT_COLLECTION, limit=1, with_payload=False,
+            scroll_filter=Filter(must=[FieldCondition(key="person_uri", match=MatchValue(value=u))]))
+        if not pts:
+            missing += 1
+    return {"cast_persons": len(persons), "cast_without_vector": missing,
+            "nameless_holders": _scalar(syncer, holders_q(NAMELESS_PHONE)),
+            "handle_ingested": _scalar(syncer, handle_ingested_q()),
+            "shared_holders": _scalar(syncer, holders_q(HOUSEHOLD_PHONE))}
+
+
+def verdict(v):
+    """The state word for a verify() result. Pure, so a test can drive every arm."""
+    if v["cast_persons"] != len(CARDS):
+        return "failed-cast-persons-%d-of-%d" % (v["cast_persons"], len(CARDS))
+    if v["cast_without_vector"]:
+        return "failed-no-vector-%d" % v["cast_without_vector"]
+    if v["handle_ingested"] < 1:
+        return "failed-handle-never-ingested"
+    if v["nameless_holders"] != 1:
+        return "failed-nameless-number-held-by-%d" % v["nameless_holders"]
+    if v["shared_holders"] != 2:
+        return "failed-household-line-held-by-%d" % v["shared_holders"]
+    return "seeded"
+
+
+def real_contacts_present(syncer):
+    return _scalar(syncer, real_contacts_q())
+
+
 def main(argv=None):
+    """Box side, run from ~/.ostler/import-pipeline with its venv python.
+
+    stage <dir>  write cards.vcf and imessage_conversations.json into <dir>
+    forget       delete the cast (needs the pipeline venv: contact_syncer)
+    guard        print the count of real (non-cast) Contacts cards
+    verify       read back what the shipped paths left; last line is the state word
+    """
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd = argv[0] if argv else ""
-    home = os.path.expanduser("~")
-    store = os.environ.get("OSTLER_OXIGRAPH_STORE", "http://127.0.0.1:7878")
-    if cmd == "seed":
-        print(seed(home, store))
-    elif cmd == "forget":
-        print(forget(home, store))
-    else:
-        print("usage: contact_cards_fixture.py seed|forget", file=sys.stderr)
-        return 2
-    return 0
+    if cmd == "stage" and len(argv) == 2:
+        os.makedirs(argv[1], exist_ok=True)
+        with open(os.path.join(argv[1], "cards.vcf"), "w") as fh:
+            fh.write(cards_vcf())
+        with open(os.path.join(argv[1], "imessage_conversations.json"), "w") as fh:
+            fh.write(conversations_json())
+        print("staged")
+        return 0
+    if cmd in ("forget", "guard", "verify"):
+        from contact_syncer.syncer import ContactSyncer
+        s = ContactSyncer()
+        if cmd == "forget":
+            print(forget(s))
+        elif cmd == "guard":
+            print(real_contacts_present(s))
+        else:
+            v = verify(s)
+            print(json.dumps(v, sort_keys=True))
+            print(verdict(v))
+        return 0
+    print("usage: contact_cards_fixture.py stage <dir>|forget|guard|verify", file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":
