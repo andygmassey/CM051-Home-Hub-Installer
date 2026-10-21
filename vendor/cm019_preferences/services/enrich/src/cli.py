@@ -25,6 +25,11 @@ import click
 import httpx
 
 from .config import settings
+# CM051 already defines its own zero-argument require_public_lookup_consent()
+# below (file-only backstop, walk #28), so the upstream gate is imported under
+# another name rather than shadowed by it.
+from .consent import public_lookup_allowed
+from .consent import require_public_lookup_consent as require_enrichment_consent
 from .enricher import EnrichmentService, EnrichmentStats
 
 # Default operator user id for CLI commands. Parameterised so no real owner
@@ -569,6 +574,7 @@ def enrich(
             skip_enriched=skip_enriched,
         ))
     else:
+        require_enrichment_consent("enrich")
         asyncio.run(_run_enrichment(
             user_id=user_id,
             categories=categories_to_process,
@@ -988,7 +994,35 @@ def normalize(verbose: bool):
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    asyncio.run(_run_normalization(verbose))
+    # Without owner consent the Wikidata pass is skipped (zero outbound
+    # requests) and only the local, offline normalisation runs.
+    if public_lookup_allowed():
+        asyncio.run(_run_normalization(verbose))
+    else:
+        asyncio.run(_run_local_normalization(verbose))
+
+
+async def _run_local_normalization(verbose: bool):
+    """Offline normalisation: no consent, so no request leaves this machine."""
+    click.echo("PWG Local Topic Normalization", err=True)
+    click.echo("=" * 50, err=True)
+    click.echo(
+        "Enrichment not accepted by the owner: skipping Wikidata, "
+        "normalizing labels locally.\n",
+        err=True,
+    )
+
+    service = EnrichmentService()
+    try:
+        stats = await service.normalize_topics_locally()
+        click.echo(f"Total topics:     {stats['total_topics']}", err=True)
+        click.echo(f"Normalized:       {stats['normalized']}", err=True)
+        click.echo(f"Failed:           {stats['failed']}", err=True)
+        if verbose and stats["topics"]:
+            for topic, key in list(stats["topics"].items())[:20]:
+                click.echo(f"  '{topic}' -> {key}", err=True)
+    finally:
+        await service.close()
 
 
 async def _run_normalization(verbose: bool):
@@ -1115,6 +1149,8 @@ def parallel(
         # Skip priority ordering (random order)
         python -m src.cli parallel --no-priority
     """
+    require_enrichment_consent("parallel")
+
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
