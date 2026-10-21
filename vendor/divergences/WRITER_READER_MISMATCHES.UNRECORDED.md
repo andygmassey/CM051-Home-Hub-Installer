@@ -1618,6 +1618,18 @@ Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollam
 
 `check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
 
+## The Doctor has a Calls row for the opt-in call-history source -- `doctor`
+
+Tree `doctor`, file `vendor/doctor/agent/web_ui.py`: four one-line additions, all keyed `calls`. `_FDA_EXTRACT_KINDS["calls"] = "source"` (the row exists only once install.sh has recorded a `calls.done` sentinel), `_SOURCE_TOTAL_UNITS["calls"] = "calls"`, `"calls"` in `_SENTINEL_COUNT_IN_UNIT` (the sentinel payload is `total_calls=N`), and `_EXTRACT_SUMMARY_KEYS["calls"] = ("call_history", "total_calls")` (the live total from the extract summary).
+
+### Why
+
+A new FDA source with no row in the Doctor's register is invisible: the sentinel is written and the panel never prints it (the #1587 shape). Call history is opt-in (Customise picker only, default off), so the row must appear for a customer who ticked it and for nobody else. A declined source printing an amber "not run yet" row would invent a failure.
+
+### What a future sync must preserve
+
+The four `calls` entries above. The writer side is `install.sh` (`_hydrate_fda_record_calls`, `OSTLER_FDA_SOURCE_ROWS` `call_history:calls`, `OSTLER_SENTINEL_SOURCES` `calls`); the contract is the row name `calls` and the payload key `total_calls`. Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (workflow `vendor-integrity.yml`), which drives the real recorders and the real renderer: ticked and read, Full Disk Access ungranted, unknown schema, and declined (no row, with a control in the same summary).
+
 ## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
 
 Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: inside

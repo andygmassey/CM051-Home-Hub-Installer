@@ -1729,6 +1729,358 @@ index a0a3d6ff..88d0835e 100644
              # RAISE (do not return []) so the extract_all orchestrator's
              # PermissionError -> no_fda branch fires and the customer gets a
              # Doctor "grant Full Disk Access" card. Returning [] here made a
+diff --git b/call_history.py b/call_history.py
+new file mode 100644
+index 00000000..fc8e1d83
+--- /dev/null
++++ b/call_history.py
+@@ -0,0 +1,346 @@
++"""Extract call history (phone and FaceTime) from macOS CallHistory.storedata.
++
++macOS stores calls (including iPhone calls relayed to the Mac and FaceTime
++calls) in a Core Data SQLite database at:
++
++    ~/Library/Application Support/CallHistoryDB/CallHistory.storedata
++
++Table ``ZCALLRECORD`` (columns this reader uses):
++
++    Z_PK              integer primary key
++    ZUNIQUE_ID        text, Apple's stable id for the call (optional)
++    ZDATE             real, Mac absolute time (seconds since 2001-01-01 UTC)
++    ZDURATION         real, seconds
++    ZORIGINATED       integer, 1 = the owner placed the call, 0 = received
++    ZANSWERED         integer, 1 = the call was picked up
++    ZCALLTYPE         integer, 1 = phone, 8 = FaceTime video, 16 = FaceTime audio
++    ZADDRESS          blob, the number or Apple ID, UTF-8 bytes
++    ZSERVICE_PROVIDER text, e.g. com.apple.Telephony / com.apple.FaceTime
++
++Requires Full Disk Access (FDA) on macOS Sequoia+.
++
++PRIVACY AND SAFETY
++  * Metadata only: who (the address), when, direction, duration, kind,
++    missed. There is no audio in this database and nothing here reads any.
++    ZNAME (the name Apple cached for the number) is deliberately NOT read: a
++    name comes from the owner's contact graph, never from a call log.
++  * Apple's database is never written. The three files (storedata, -wal,
++    -shm) are COPIED into a private temp directory, the copy is queried, and
++    the copy is deleted in ``finally``. Opening the original in place would
++    risk a lock or a WAL checkpoint against a file this process does not own;
++    ``immutable=1`` on the original would ignore the WAL and silently miss the
++    newest calls, so a copy is the one route that sees both safely.
++  * A schema this reader does not recognise raises
++    :class:`CallHistorySchemaError`. It never returns an empty list: "the
++    table changed" and "no calls" must not print identically.
++  * A call whose address is empty (a withheld number) or undecodable cannot be
++    matched to anyone and is counted in ``skipped``, never dropped silently.
++  * An unknown ZCALLTYPE becomes kind ``other`` and is counted, never dropped.
++"""
++from __future__ import annotations
++
++import hashlib
++import logging
++import re
++import shutil
++import sqlite3
++import tempfile
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Optional
++
++logger = logging.getLogger(__name__)
++
++# Mac absolute time epoch offset (2001-01-01 to 1970-01-01)
++MAC_EPOCH_OFFSET = 978307200
++
++DEFAULT_CALL_DB = (
++    Path.home() / "Library" / "Application Support" / "CallHistoryDB"
++    / "CallHistory.storedata"
++)
++
++REQUIRED_COLUMNS = frozenset({
++    "ZDATE", "ZDURATION", "ZORIGINATED", "ZANSWERED", "ZCALLTYPE", "ZADDRESS",
++})
++
++KIND_PHONE = "phone"
++KIND_FACETIME_VIDEO = "facetime_video"
++KIND_FACETIME_AUDIO = "facetime_audio"
++KIND_OTHER = "other"
++KINDS = (KIND_PHONE, KIND_FACETIME_VIDEO, KIND_FACETIME_AUDIO, KIND_OTHER)
++
++_CALLTYPE_KIND = {
++    1: KIND_PHONE,
++    8: KIND_FACETIME_VIDEO,
++    16: KIND_FACETIME_AUDIO,
++}
++
++DIRECTION_INCOMING = "incoming"
++DIRECTION_OUTGOING = "outgoing"
++
++
++class CallHistorySchemaError(RuntimeError):
++    """The database is readable but is not the schema this reader knows."""
++
++
++@dataclass
++class CallEvent:
++    """One call. Metadata only."""
++    event_id: str          # stable, opaque (sha256); never contains the number
++    address: str           # normalised: +digits, digits or lower-case email
++    when: datetime         # UTC
++    direction: str         # incoming | outgoing
++    duration_s: int
++    kind: str              # phone | facetime_video | facetime_audio | other
++    answered: bool
++    missed: bool           # incoming and not answered
++
++
++@dataclass
++class CallExtract:
++    """Events plus the counts of what could not become an event."""
++    events: list
++    skipped_no_address: int = 0
++    skipped_future: int = 0
++    unknown_kind: int = 0
++
++
++_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
++
++
++def normalise_address(raw: str) -> str:
++    """Normalise a call address to the form identifiers are stored in.
++
++    An email is lower-cased. A phone keeps a leading ``+`` and its digits
++    only. Anything else is returned stripped; the caller decides.
++    """
++    s = (raw or "").strip()
++    if not s:
++        return ""
++    if _EMAIL_RE.match(s):
++        return s.lower()
++    digits = re.sub(r"\D", "", s)
++    if not digits:
++        return s
++    return ("+" if s.startswith("+") else "") + digits
++
++
++def _event_id(unique_id: Optional[str], pk: int, ts: float, address: str,
++              originated: int) -> str:
++    basis = unique_id if unique_id else f"pk:{pk}|{ts!r}|{address}|{originated}"
++    return hashlib.sha256(("call|" + basis).encode("utf-8")).hexdigest()
++
++
++def _to_utc(mac_seconds: float) -> datetime:
++    return datetime.fromtimestamp(mac_seconds + MAC_EPOCH_OFFSET, tz=timezone.utc)
++
++
++def _copy_db(db_path: Path, dest_dir: Path) -> Path:
++    """Copy storedata (+ -wal, -shm if present) into ``dest_dir``."""
++    target = dest_dir / db_path.name
++    shutil.copy2(db_path, target)
++    for suffix in ("-wal", "-shm"):
++        side = db_path.with_name(db_path.name + suffix)
++        if side.exists():
++            shutil.copy2(side, dest_dir / (db_path.name + suffix))
++    return target
++
++
++def _open_copy(db_path: Path, work: Path) -> sqlite3.Connection:
++    try:
++        copy = _copy_db(db_path, work)
++    except PermissionError as e:
++        raise PermissionError(
++            "Cannot read call history. Grant Full Disk Access to this "
++            "application in System Settings > Privacy & Security."
++        ) from e
++    try:
++        conn = sqlite3.connect(str(copy))
++    except sqlite3.OperationalError as e:
++        if "authorization denied" in str(e).lower():
++            raise PermissionError(
++                "Cannot read call history. Grant Full Disk Access to this "
++                "application in System Settings > Privacy & Security."
++            ) from e
++        raise
++    conn.row_factory = sqlite3.Row
++    return conn
++
++
++def _check_schema(conn: sqlite3.Connection) -> set:
++    cols = {r["name"] for r in conn.execute("PRAGMA table_info(ZCALLRECORD)")}
++    if not cols:
++        raise CallHistorySchemaError("ZCALLRECORD table not found in call history")
++    missing = REQUIRED_COLUMNS - cols
++    if missing:
++        raise CallHistorySchemaError(
++            "ZCALLRECORD is missing column(s): " + ", ".join(sorted(missing))
++        )
++    return cols
++
++
++def _decode_address(blob) -> str:
++    if blob is None:
++        return ""
++    if isinstance(blob, (bytes, bytearray, memoryview)):
++        try:
++            text = bytes(blob).decode("utf-8")
++        except UnicodeDecodeError:
++            return ""
++    else:
++        text = str(blob)
++    return normalise_address(text.replace("\x00", ""))
++
++
++def extract_calls(
++    db_path: Optional[Path] = None,
++    since_days: Optional[int] = None,
++    since: Optional[datetime] = None,
++    until: Optional[datetime] = None,
++    now: Optional[datetime] = None,
++) -> CallExtract:
++    """Read calls from CallHistory.storedata.
++
++    Args:
++        db_path: Default ~/Library/Application Support/CallHistoryDB/CallHistory.storedata
++        since_days: only calls newer than N days ago (ignored if ``since`` given)
++        since: only calls strictly after this instant (exclusive)
++        until: only calls at or before this instant (inclusive)
++        now: clock, injectable for tests
++
++    Raises:
++        PermissionError: Full Disk Access not granted.
++        FileNotFoundError: the database does not exist.
++        CallHistorySchemaError: the schema is not the one this reader knows.
++    """
++    db_path = Path(db_path) if db_path else DEFAULT_CALL_DB
++    if not db_path.exists():
++        raise FileNotFoundError(f"Call history not found at {db_path}")
++    now = now or datetime.now(timezone.utc)
++    if since is None and since_days is not None:
++        since = datetime.fromtimestamp(now.timestamp() - since_days * 86400,
++                                       tz=timezone.utc)
++
++    work = Path(tempfile.mkdtemp(prefix="ostler-calls-"))
++    work.chmod(0o700)
++    try:
++        conn = _open_copy(db_path, work)
++        try:
++            cols = _check_schema(conn)
++            sel_uid = "ZUNIQUE_ID" if "ZUNIQUE_ID" in cols else "NULL"
++            sql = (
++                f"SELECT Z_PK AS pk, {sel_uid} AS uid, ZDATE, ZDURATION, "
++                "ZORIGINATED, ZANSWERED, ZCALLTYPE, ZADDRESS "
++                "FROM ZCALLRECORD WHERE ZDATE IS NOT NULL"
++            )
++            params: list = []
++            if since is not None:
++                sql += " AND ZDATE > ?"
++                params.append(since.timestamp() - MAC_EPOCH_OFFSET)
++            if until is not None:
++                sql += " AND ZDATE <= ?"
++                params.append(until.timestamp() - MAC_EPOCH_OFFSET)
++            sql += " ORDER BY ZDATE DESC, Z_PK DESC"
++            rows = conn.execute(sql, params).fetchall()
++        finally:
++            conn.close()
++    finally:
++        shutil.rmtree(work, ignore_errors=True)
++
++    out = CallExtract(events=[])
++    for row in rows:
++        address = _decode_address(row["ZADDRESS"])
++        if not address:
++            out.skipped_no_address += 1
++            continue
++        when = _to_utc(row["ZDATE"])
++        if when > now:
++            out.skipped_future += 1
++            continue
++        originated = 1 if row["ZORIGINATED"] else 0
++        answered = bool(row["ZANSWERED"])
++        kind = _CALLTYPE_KIND.get(row["ZCALLTYPE"])
++        if kind is None:
++            kind = KIND_OTHER
++            out.unknown_kind += 1
++        direction = DIRECTION_OUTGOING if originated else DIRECTION_INCOMING
++        out.events.append(CallEvent(
++            event_id=_event_id(row["uid"], row["pk"], row["ZDATE"], address,
++                               originated),
++            address=address,
++            when=when,
++            direction=direction,
++            duration_s=max(0, int(row["ZDURATION"] or 0)),
++            kind=kind,
++            answered=answered,
++            missed=(not originated) and (not answered),
++        ))
++    logger.info("Extracted %d call events (%d without an address, %d future)",
++                len(out.events), out.skipped_no_address, out.skipped_future)
++    return out
++
++
++def oldest_call(db_path: Optional[Path] = None) -> Optional[datetime]:
++    """The oldest call the database still holds, or None if it holds none.
++
++    Raises like :func:`extract_calls` when the database cannot be read, so a
++    caller never mistakes "unreadable" for "empty".
++    """
++    db_path = Path(db_path) if db_path else DEFAULT_CALL_DB
++    if not db_path.exists():
++        raise FileNotFoundError(f"Call history not found at {db_path}")
++    work = Path(tempfile.mkdtemp(prefix="ostler-calls-"))
++    work.chmod(0o700)
++    try:
++        conn = _open_copy(db_path, work)
++        try:
++            _check_schema(conn)
++            row = conn.execute(
++                "SELECT MIN(ZDATE) AS d FROM ZCALLRECORD WHERE ZDATE IS NOT NULL"
++            ).fetchone()
++        finally:
++            conn.close()
++    finally:
++        shutil.rmtree(work, ignore_errors=True)
++    if row is None or row["d"] is None:
++        return None
++    return _to_utc(row["d"])
++
++
++def to_interaction_events(events: list) -> list[dict]:
++    """JSON-ready dicts for the people-graph ingest (``ingest_calls``)."""
++    return [
++        {
++            "type": "call",
++            "event_id": e.event_id,
++            "address": e.address,
++            "timestamp": e.when.isoformat(),
++            "direction": e.direction,
++            "duration_seconds": e.duration_s,
++            "kind": e.kind,
++            "answered": e.answered,
++            "missed": e.missed,
++            "source": "call_history",
++        }
++        for e in events
++    ]
++
++
++def call_stats(extract: CallExtract) -> dict:
++    """Counts for the extract summary and the Doctor row."""
++    by_kind = {k: 0 for k in KINDS}
++    missed = 0
++    for e in extract.events:
++        by_kind[e.kind] += 1
++        if e.missed:
++            missed += 1
++    return {
++        "total_calls": len(extract.events),
++        "missed": missed,
++        "by_kind": by_kind,
++        "unique_contacts": len({e.address for e in extract.events}),
++        "skipped_no_address": extract.skipped_no_address,
++        "skipped_future": extract.skipped_future,
++        "unknown_kind": extract.unknown_kind,
++    }
 diff --git b/catchup_browser.py b/catchup_browser.py
 new file mode 100644
 index 00000000..019dcac2
@@ -1929,6 +2281,181 @@ index 00000000..019dcac2
 +    if not out:
 +        logger.info("browser catch-up: no browser source is enabled")
 +    return out
+diff --git b/catchup_calls.py b/catchup_calls.py
+new file mode 100644
+index 00000000..6eb8e418
+--- /dev/null
++++ b/catchup_calls.py
+@@ -0,0 +1,169 @@
++"""Full-history catch-up for call history (phone and FaceTime).
++
++extract_all reads OSTLER_CALL_BACKFILL_DAYS (default 365) of calls on every
++fda-rerun tick and nothing read further back. This adapter walks
++CallHistory.storedata backwards from that edge in fixed 30-day windows to the
++oldest call the database still holds, through the SAME reader
++(``call_history.extract_calls``) and the SAME sink (``pwg_ingest.ingest_calls``)
++the tick uses, so matching, the do-not-suggest / minor / L3 guards and the
++event shape are identical.
++
++Driven by lib/ostler_catchup.py from com.ostler.export-scan (runner
++``25-calls``, registered by install.sh). Per-source consent is honoured: it
++runs only if ``call_history`` is in OSTLER_FDA_SOURCES, resolved exactly as
++extract_all resolves it.
++
++KEYS AND DUPLICATES. One item is one window; its key is source + the window's
++two epoch bounds. The sink is keyed too: a call event's URI is derived from
++Apple's own call id, so a window repeated after a kill rewrites the same
++triples and adds none.
++
++A READ THAT FAILS IS NOT AN EMPTY WINDOW. An unreadable database (Full Disk
++Access missing) or a schema this reader does not know raises from
++``next_batch`` / ``process`` as ``CannotRun``: the walk stops, is never marked
++complete, and the Doctor says it could not look.
++
++A GRAPH OUTAGE COUNTS NOTHING. ``ingest_calls`` answers ``cannot_run`` when the
++store is down; that is raised as ConnectionError (an outage, not a poison
++attempt), so the window is retried and never quarantined.
++
++KNOWN LIMIT. A call to a number that only LATER becomes a contact stays
++unattached in an old window the walk has already finished; the forward tick
++re-reads the last OSTLER_CALL_BACKFILL_DAYS and picks those up, older ones are
++not revisited.
++
++Counts only in logs. No numbers leave this module except into the sink, via a
++0700 temp directory that is removed in ``finally``.
++"""
++from __future__ import annotations
++
++import json
++import logging
++import os
++import shutil
++import tempfile
++import time
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Optional
++
++import ostler_catchup as oc
++
++logger = logging.getLogger(__name__)
++
++DAY = 86400
++DEFAULT_WINDOW_DAYS = 30
++# extract_all's own default for the forward read; the catch-up edge follows it.
++DEFAULT_FORWARD_DAYS = 365
++
++
++def _env_int(name: str, default: int) -> int:
++    raw = os.environ.get(name, "").strip()
++    if not raw:
++        return default
++    try:
++        return int(raw)
++    except ValueError:
++        return default
++
++
++def _dt(epoch: int) -> datetime:
++    return datetime.fromtimestamp(epoch, tz=timezone.utc)
++
++
++class CallsAdapter(oc.Adapter):
++    source = "calls"
++    doctor_row = "calls"
++    batch_size = 2            # windows per batch: the budget is checked between windows
++
++    def __init__(self, db_path: Optional[Path] = None, now: Optional[float] = None,
++                 window_days: Optional[int] = None):
++        from . import call_history
++        self.module = call_history
++        self.db_path = db_path
++        self.now = now
++        self.window = (window_days or _env_int("OSTLER_CATCHUP_CALLS_WINDOW_DAYS",
++                                               DEFAULT_WINDOW_DAYS)) * DAY
++
++    def _read_denied(self, exc: Exception):
++        if isinstance(exc, PermissionError):
++            return oc.CannotRun("read_denied")
++        if isinstance(exc, self.module.CallHistorySchemaError):
++            return oc.CannotRun("schema_unknown")
++        return None
++
++    def start_cursor(self):
++        now = int(self.now if self.now is not None else time.time())
++        days = _env_int("OSTLER_CALL_BACKFILL_DAYS", DEFAULT_FORWARD_DAYS)
++        return {"end": now - days * DAY, "floor": None}
++
++    def next_batch(self, cursor, limit):
++        end = int(cursor["end"])
++        floor = cursor.get("floor")
++        if floor is None:
++            try:
++                oldest = self.module.oldest_call(self.db_path)
++            except (PermissionError, self.module.CallHistorySchemaError) as exc:
++                raise self._read_denied(exc) from exc
++            if oldest is None:
++                return oc.Batch(items=[], next_cursor={"end": end, "floor": end},
++                                oldest_at=None, exhausted=True)
++            floor = int(oldest.timestamp())
++        if end <= floor:
++            return oc.Batch(items=[], next_cursor={"end": end, "floor": floor},
++                            oldest_at=oc.to_iso(floor), exhausted=True)
++        items = []
++        hi = end
++        while len(items) < limit and hi > floor:
++            lo = hi - self.window
++            items.append((lo, hi))
++            hi = lo
++        exhausted = hi <= floor
++        return oc.Batch(items=items, next_cursor={"end": hi, "floor": floor},
++                        oldest_at=oc.to_iso(max(hi, floor)), exhausted=exhausted)
++
++    def key(self, item):
++        lo, hi = item
++        return f"{self.source}:{lo}:{hi}"
++
++    def process(self, item):
++        from . import pwg_ingest
++        lo, hi = item
++        try:
++            extract = self.module.extract_calls(self.db_path, since=_dt(lo - 1), until=_dt(hi))
++        except (PermissionError, self.module.CallHistorySchemaError) as exc:
++            raise self._read_denied(exc) from exc
++        # extract_calls' lower bound is exclusive and its upper bound is
++        # INCLUSIVE; filtering to lo <= t < hi makes the window [lo, hi), so a
++        # call exactly on a boundary lands in one window only.
++        events = [e for e in extract.events if lo <= e.when.timestamp() < hi]
++        if not events:
++            return True
++        work = Path(tempfile.mkdtemp(prefix="ostler-catchup-calls-"))
++        work.chmod(0o700)
++        try:
++            (work / "call_history.json").write_text(
++                json.dumps(self.module.to_interaction_events(events)))
++            res = pwg_ingest.ingest_calls(work)
++        finally:
++            shutil.rmtree(work, ignore_errors=True)
++        status = res.get("status")
++        if status == "cannot_run":
++            raise ConnectionError("people graph unavailable")
++        ok = status == "ok"
++        if not ok:
++            logger.warning("calls catch-up: window not landed (%s); retrying next tick", status)
++        return ok
++
++
++def adapters():
++    """The runner's factory: the call-history adapter if the customer consented."""
++    from .extract_all import _resolve_enabled_sources
++    if "call_history" not in _resolve_enabled_sources():
++        logger.info("calls catch-up: call_history is not enabled; nothing to read")
++        return []
++    from . import call_history
++    if not call_history.DEFAULT_CALL_DB.exists():
++        logger.info("calls catch-up: no call history on this Mac; nothing to read")
++        return []
++    return [CallsAdapter()]
 diff --git b/catchup_mail.py b/catchup_mail.py
 new file mode 100644
 index 00000000..e3f0ad11
@@ -3659,10 +4186,28 @@ index 8a352c8e..8c975291 100644
  
  def main() -> int:
 diff --git a/extract_all.py b/extract_all.py
-index 65da6f46..97f93bd6 100644
+index 65da6f46..f60337aa 100644
 --- a/extract_all.py
 +++ b/extract_all.py
-@@ -103,6 +103,22 @@ def _env_days(name: str, default: int) -> int:
+@@ -15,7 +15,7 @@ is OFF unless explicitly enabled – see policy §2.
+ Recognised source names:
+     safari_history, safari_bookmarks, imessage, apple_notes,
+     photos_metadata, photos_faces, calendar, reminders, apple_mail,
+-    apple_music, google_takeout
++    apple_music, google_takeout, call_history
+ 
+ Usage:
+     python -m ostler_fda.extract_all [--output-dir DIR]
+@@ -55,6 +55,8 @@ DEFAULT_SOURCES = frozenset({
+ ALL_SOURCES = DEFAULT_SOURCES | {
+     "photos_faces", "google_takeout", "whatsapp_history", "chrome_history",
+     "facebook_messenger",
++    # Opt-in: who you phoned and when is sensitive, so it is never on by default.
++    "call_history",
+ }
+ 
+ 
+@@ -103,6 +105,22 @@ def _env_days(name: str, default: int) -> int:
          return default
  
  
@@ -3685,7 +4230,7 @@ index 65da6f46..97f93bd6 100644
  def run_all(
      output_dir: Optional[Path] = None,
      enabled_sources: Optional[Iterable[str]] = None,
-@@ -134,7 +150,16 @@ def run_all(
+@@ -134,7 +152,16 @@ def run_all(
      if "safari_history" in sources:
          try:
              from .safari_history import extract_history, top_domains, to_timeline_entries
@@ -3703,7 +4248,7 @@ index 65da6f46..97f93bd6 100644
              domains = top_domains(entries, limit=100)
  
              timeline = to_timeline_entries(entries)
-@@ -160,17 +185,15 @@ def run_all(
+@@ -160,17 +187,15 @@ def run_all(
              summary["sources"]["safari_history"] = {"status": "not_found"}
              logger.info("[skip] Safari History: database not found")
          except Exception as e:
@@ -3725,7 +4270,7 @@ index 65da6f46..97f93bd6 100644
      if "chrome_history" in sources:
          try:
              from .chrome_history import (
-@@ -192,9 +215,6 @@ def run_all(
+@@ -192,9 +217,6 @@ def run_all(
                  "status": "ok",
                  "visits": len(chrome_entries),
                  "unique_domains": len(chrome_domains),
@@ -3735,7 +4280,7 @@ index 65da6f46..97f93bd6 100644
                  "top_3": [d.domain for d in chrome_domains[:3]],
              }
              logger.info(
-@@ -208,7 +228,7 @@ def run_all(
+@@ -208,7 +230,7 @@ def run_all(
              summary["sources"]["chrome_history"] = {"status": "not_found"}
              logger.info("[skip] Chrome History: Chrome not installed")
          except Exception as e:
@@ -3744,7 +4289,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Chrome History: %s", e)
      else:
          summary["sources"]["chrome_history"] = {"status": "disabled_by_user"}
-@@ -238,7 +258,7 @@ def run_all(
+@@ -238,7 +260,7 @@ def run_all(
          except FileNotFoundError:
              summary["sources"]["safari_bookmarks"] = {"status": "not_found"}
          except Exception as e:
@@ -3753,7 +4298,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Safari Bookmarks: %s", e)
      else:
          summary["sources"]["safari_bookmarks"] = {"status": "disabled_by_user"}
-@@ -259,11 +279,18 @@ def run_all(
+@@ -259,11 +281,18 @@ def run_all(
              # still arrives, over the settle-in period rather than during
              # onboarding. An explicit env value pins the window and disables
              # the ladder. Andy's call.
@@ -3774,7 +4319,7 @@ index 65da6f46..97f93bd6 100644
              stats = conversation_stats(conversations)
  
              (output_dir / "imessage_conversations.json").write_text(
-@@ -287,7 +314,7 @@ def run_all(
+@@ -287,11 +316,47 @@ def run_all(
          except FileNotFoundError:
              summary["sources"]["imessage"] = {"status": "not_found"}
          except Exception as e:
@@ -3783,7 +4328,47 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] iMessage: %s", e)
      else:
          summary["sources"]["imessage"] = {"status": "disabled_by_user"}
-@@ -306,7 +333,20 @@ def run_all(
+ 
++    # ── Call history ────────────────────────────────────────────────
++    # Opt-in (not in DEFAULT_SOURCES). Metadata only; the DB is copied, never
++    # written (see call_history.py). A schema this reader does not know is an
++    # "error" with the reason, never an empty "ok".
++    if "call_history" in sources:
++        try:
++            from .call_history import (
++                extract_calls, call_stats, to_interaction_events,
++            )
++            # Cheap read (no inference), so a flat window like Chrome's; the
++            # background catch-up (CM051) walks the older history.
++            call_days = _env_days("OSTLER_CALL_BACKFILL_DAYS", 365)
++            extract = extract_calls(since_days=call_days)
++            stats = call_stats(extract)
++
++            (output_dir / "call_history.json").write_text(
++                json.dumps(to_interaction_events(extract.events), indent=2)
++            )
++
++            summary["sources"]["call_history"] = {"status": "ok", **stats}
++            logger.info(
++                "[ok] Calls: %d calls, %d missed, %d contacts",
++                stats["total_calls"], stats["missed"], stats["unique_contacts"],
++            )
++
++        except PermissionError:
++            summary["sources"]["call_history"] = {"status": "no_fda"}
++            logger.info("[skip] Calls: Full Disk Access not granted")
++        except FileNotFoundError:
++            summary["sources"]["call_history"] = {"status": "not_found"}
++        except Exception as e:
++            summary["sources"]["call_history"] = {"status": "error", "error": str(e)}
++            logger.warning("[warn] Calls: %s", e)
++    else:
++        summary["sources"]["call_history"] = {"status": "disabled_by_user"}
++
+     # ── WhatsApp historical (CX-85) ─────────────────────────────────
+     # Opt-in only: default OFF per the Q3b sign-off (more sensitive
+     # than iMessage; third-party app + ToS friction). Customer
+@@ -306,7 +371,20 @@ def run_all(
                  chat_to_dict as _wa_to_dict,
                  TIER_T3_SKIP,
              )
@@ -3805,7 +4390,7 @@ index 65da6f46..97f93bd6 100644
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -338,7 +378,7 @@ def run_all(
+@@ -338,7 +416,7 @@ def run_all(
              summary["sources"]["whatsapp_history"] = {"status": "not_found"}
              logger.info("[skip] WhatsApp: ChatStorage.sqlite not found (install WhatsApp Desktop)")
          except Exception as e:
@@ -3814,7 +4399,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] WhatsApp: %s", e)
      else:
          summary["sources"]["whatsapp_history"] = {"status": "disabled_by_user"}
-@@ -423,7 +463,7 @@ def run_all(
+@@ -423,7 +501,7 @@ def run_all(
              summary["sources"]["facebook_messenger"] = {"status": "not_found"}
              logger.info("[skip] Facebook Messenger: %s", e)
          except Exception as e:
@@ -3823,7 +4408,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Facebook Messenger: %s", e)
      else:
          summary["sources"]["facebook_messenger"] = {"status": "disabled_by_user"}
-@@ -452,7 +492,7 @@ def run_all(
+@@ -452,7 +530,7 @@ def run_all(
          except FileNotFoundError:
              summary["sources"]["apple_notes"] = {"status": "not_found"}
          except Exception as e:
@@ -3832,7 +4417,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Apple Notes: %s", e)
      else:
          summary["sources"]["apple_notes"] = {"status": "disabled_by_user"}
-@@ -482,6 +522,14 @@ def run_all(
+@@ -482,6 +560,14 @@ def run_all(
                      since_days=365,
                      with_people_only=("photos_faces" in sources),
                  )
@@ -3847,7 +4432,7 @@ index 65da6f46..97f93bd6 100644
                  (output_dir / "photos_events.json").write_text(
                      json.dumps([asdict(e) for e in events], indent=2, default=str)
                  )
-@@ -504,7 +552,7 @@ def run_all(
+@@ -504,7 +590,7 @@ def run_all(
          except FileNotFoundError:
              summary["sources"]["photos"] = {"status": "not_found"}
          except Exception as e:
@@ -3856,7 +4441,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Photos: %s", e)
      else:
          summary["sources"]["photos"] = {"status": "disabled_by_user"}
-@@ -599,12 +647,29 @@ def run_all(
+@@ -599,12 +685,29 @@ def run_all(
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -3888,7 +4473,7 @@ index 65da6f46..97f93bd6 100644
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -633,7 +698,7 @@ def run_all(
+@@ -633,7 +736,7 @@ def run_all(
              summary["sources"]["reminders"] = {"status": "not_found"}
              logger.info("[skip] Reminders: database not found")
          except Exception as e:
@@ -3897,7 +4482,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Reminders: %s", e)
      else:
          summary["sources"]["reminders"] = {"status": "disabled_by_user"}
-@@ -645,21 +710,52 @@ def run_all(
+@@ -645,21 +748,52 @@ def run_all(
      # present, so "not_found" surfaces as ok-with-zero-tracks.
      if "apple_music" in sources:
          try:
@@ -3953,7 +4538,7 @@ index 65da6f46..97f93bd6 100644
              )
  
          except PermissionError:
-@@ -669,7 +765,7 @@ def run_all(
+@@ -669,7 +803,7 @@ def run_all(
              summary["sources"]["apple_music"] = {"status": "not_found"}
              logger.info("[skip] Apple Music: library XML not found")
          except Exception as e:
@@ -3962,7 +4547,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Apple Music: %s", e)
      else:
          summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
-@@ -766,7 +862,7 @@ def run_all(
+@@ -766,7 +900,7 @@ def run_all(
              summary["sources"]["google_takeout"] = {"status": "not_found", "error": str(e)}
              logger.info("[skip] Google Takeout: %s", e)
          except Exception as e:
@@ -3971,7 +4556,7 @@ index 65da6f46..97f93bd6 100644
              logger.warning("[warn] Google Takeout: %s", e)
      else:
          summary["sources"]["google_takeout"] = {"status": "disabled_by_user"}
-@@ -775,8 +871,45 @@ def run_all(
+@@ -775,8 +909,45 @@ def run_all(
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -4018,7 +4603,7 @@ index 65da6f46..97f93bd6 100644
              contacts = frequent_contacts(messages)
  
              (output_dir / "apple_mail.json").write_text(
-@@ -785,15 +918,37 @@ def run_all(
+@@ -785,15 +956,37 @@ def run_all(
              (output_dir / "apple_mail_contacts.json").write_text(
                  json.dumps(contacts, indent=2, default=str)
              )
@@ -4065,7 +4650,7 @@ index 65da6f46..97f93bd6 100644
  
          except PermissionError:
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
-@@ -802,11 +957,24 @@ def run_all(
+@@ -802,11 +995,24 @@ def run_all(
              summary["sources"]["apple_mail"] = {"status": "not_found"}
              logger.info("[skip] Apple Mail: not configured on this Mac")
          except Exception as e:
@@ -4091,6 +4676,161 @@ index 65da6f46..97f93bd6 100644
      # ── Save summary ────────────────────────────────────────────────
      (output_dir / "extraction_summary.json").write_text(
          json.dumps(summary, indent=2, default=str)
+diff --git b/first_import.py b/first_import.py
+new file mode 100644
+index 00000000..4ab6b440
+--- /dev/null
++++ b/first_import.py
+@@ -0,0 +1,149 @@
++"""The one-off import taster, next to the G7 gate.
++
++Andy + coordinator, 19 Oct: the FIRST import of an export file is free for
++each source, with or without Pro, once per source, ever. Re-imports, later
++export files for the same source, and every token or ongoing sync are Pro
++(G7, ``subscription_gate.is_active_or_grace``, the single source of Pro).
++
++PARITY NOTE. ostler_fda needs the same contract (Google Chat, Messenger,
++Instagram, Telegram exports go through it). Rule 0.5 forbids a cross-repo
++import, so this module is the reference copy and ostler_fda's must be a copy
++of it: same function names and signatures, same ledger path and JSON shape,
++same copy text. If either changes, change both. At the time of writing NO
++ostler_fda copy exists yet (searched CM051 origin/main and every recently
++pushed branch for a first-import helper: none).
++
++Contract:
++
++    entry_gate(source: str, *, export_import: bool) -> GateDecision
++        Call at the entry point, before reading the export or the API.
++        allowed + reason "pro"               Pro is active (any route)
++        allowed + reason "first_import_free" export_import and this source
++                                             has never used its free import
++        refused + reason "pro_required"      everything else
++        refused + reason "could_not_check"   the ledger could not be read.
++                                             NEVER shown as a refusal: the
++                                             caller says "Try again" (Andy).
++    mark_first_import(source: str) -> None
++        Call ONLY after a successful hand-off of a free import, so a failed
++        first try does not burn the taster.
++    pre_import_notice(source_label) / refusal_text(source_label)
++        Andy's shared copy, verbatim (CONNECTORS_BUILD_BRIEF, 19 Oct).
++
++Ledger: ``~/.ostler/state/first_imports.json``
++(``{"sources": {"<source>": {"used_at": "<ISO8601 Z>"}}}``), override with
++``OSTLER_FIRST_IMPORT_LEDGER``. Same directory as the G7 state file.
++
++KNOWN GAP (for a ruling): Andy asked that a fresh reinstall cannot loop the
++taster. A file under ``~/.ostler`` is removed by the uninstaller, so a
++reinstall resets it. Surviving a reinstall needs a location the uninstaller
++deliberately keeps (a Keychain item, for example). Not decided here.
++"""
++from __future__ import annotations
++
++import json
++import os
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from pathlib import Path
++
++from .subscription_gate import is_active_or_grace
++
++
++# ONE shared exit-code contract (coordinator, 19 Oct). 4 already means bad
++# input in universal_import, and install.sh treats an unknown non-zero code
++# as a failed step, so a Pro refusal is its own code.
++EXIT_PAUSED_NOT_PRO = 5
++# "Could not check" is never a refusal and never success: it is CANNOT-RUN,
++# offer "Try again". 6, not 3: 3 already means unknown format in
++# universal_import (Archie ruling, 19 Oct).
++EXIT_COULD_NOT_CHECK = 6
++
++
++PRE_IMPORT_TEMPLATE = (
++    "Your first import from each app is free. To bring in newer history "
++    "later, or keep {source} up to date automatically, you'll need Ostler Pro."
++)
++REFUSAL_TEMPLATE = (
++    "You've already imported your {source} history once, free. Bringing in "
++    "newer exports, and keeping {source} up to date automatically, is part "
++    "of Ostler Pro.\n"
++    "Everything you've already imported stays here, and you can still "
++    "search it."
++)
++COULD_NOT_CHECK_TEXT = "Couldn't check your Pro status. Try again."
++
++
++def pre_import_notice(source_label: str) -> str:
++    return PRE_IMPORT_TEMPLATE.format(source=source_label)
++
++
++def refusal_text(source_label: str) -> str:
++    return REFUSAL_TEMPLATE.format(source=source_label)
++
++
++@dataclass(frozen=True)
++class GateDecision:
++    allowed: bool
++    reason: str  # "pro" | "first_import_free" | "pro_required" | "could_not_check"
++
++    @property
++    def is_free_import(self) -> bool:
++        return self.allowed and self.reason == "first_import_free"
++
++
++class LedgerUnreadable(Exception):
++    pass
++
++
++def ledger_path() -> Path:
++    raw = os.environ.get("OSTLER_FIRST_IMPORT_LEDGER")
++    if raw:
++        return Path(raw).expanduser()
++    return Path.home() / ".ostler" / "state" / "first_imports.json"
++
++
++def _load() -> dict:
++    path = ledger_path()
++    if not path.exists():
++        return {"sources": {}}
++    try:
++        data = json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, ValueError) as exc:
++        raise LedgerUnreadable(type(exc).__name__) from exc
++    if not isinstance(data, dict) or not isinstance(data.get("sources"), dict):
++        raise LedgerUnreadable("bad shape")
++    return data
++
++
++def first_import_allowed(source: str) -> bool:
++    """True when ``source`` has never used its free import. Raises
++    ``LedgerUnreadable`` rather than guessing either way."""
++    return source not in _load()["sources"]
++
++
++def mark_first_import(source: str) -> None:
++    try:
++        data = _load()
++    except LedgerUnreadable:
++        data = {"sources": {}}
++    stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
++    data["sources"].setdefault(source, {"used_at": stamp})
++    path = ledger_path()
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + ".tmp")
++    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
++    tmp.replace(path)
++
++
++def entry_gate(source: str, *, export_import: bool) -> GateDecision:
++    if is_active_or_grace():
++        return GateDecision(True, "pro")
++    if not export_import:
++        return GateDecision(False, "pro_required")
++    try:
++        if first_import_allowed(source):
++            return GateDecision(True, "first_import_free")
++    except LedgerUnreadable:
++        return GateDecision(False, "could_not_check")
++    return GateDecision(False, "pro_required")
 diff --git b/forget_tombstone.py b/forget_tombstone.py
 new file mode 100644
 index 00000000..c25dc6aa
@@ -5545,7 +6285,7 @@ index 8bf9fcfc..09a3f759 100644
 +    finally:
 +        conn.close()
 diff --git a/pwg_ingest.py b/pwg_ingest.py
-index 0b1e9237..c842712b 100644
+index 0b1e9237..d2dada4c 100644
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
 @@ -30,8 +30,14 @@ from pathlib import Path
@@ -6003,12 +6743,7 @@ index 0b1e9237..c842712b 100644
 +        values.append("+" + local)
 +    return forget_tombstone.is_forgotten(values=values, uri=uri, name=name)
 +
- 
--    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
--    a `+`-prefixed phone so the placeholder reads as a phone contact rather
--    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
--    are returned unchanged. A real name replaces this once contact_syncer or
--    CM046 email enrichment supplies one.
++
 +# Sentinel for "the store could not answer". Distinct from None, which
 +# means "asked, and nobody holds this". Collapsing the two is the
 +# manufactured-clean-input failure: a store that refused to answer would
@@ -6109,7 +6844,12 @@ index 0b1e9237..c842712b 100644
 +        return False
 +    return phonenumbers.is_valid_number(parsed)
 +
-+
+ 
+-    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
+-    a `+`-prefixed phone so the placeholder reads as a phone contact rather
+-    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
+-    are returned unchanged. A real name replaces this once contact_syncer or
+-    CM046 email enrichment supplies one.
 +def _whatsapp_display_name(jid: str) -> str:
 +    """Placeholder display name for an un-named WhatsApp contact.
 +
@@ -6351,7 +7091,17 @@ index 0b1e9237..c842712b 100644
  
  
  # Per-source last-contact predicates (CM041 schema/people.ttl). FDA
-@@ -476,6 +1102,87 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
+@@ -409,6 +1035,9 @@ _SOURCE_PREDICATE = {
+     # can distinguish DM-level signals from group-membership signals
+     # without splitting the freshness signal across two predicates.
+     "whatsapp": "pwg:lastContactWhatsApp",
++    # A call that was CONNECTED (answered, or placed and picked up). A missed
++    # or unanswered call exchanged nothing, so ingest_calls never passes it.
++    "call": "pwg:lastContactCall",
+ }
+ 
+ 
+@@ -476,6 +1105,348 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
          logger.debug("Could not update last_contact: %s", e)
  
  
@@ -6436,10 +7186,271 @@ index 0b1e9237..c842712b 100644
 +        logger.debug("Could not upsert displayName for %s: %s", person_uri, e)
 +
 +
++# ── Call history ingestion ────────────────────────────────────────
++#
++# macOS call history (phone + FaceTime) becomes ONE pwg:CallEvent node per call
++# (who, when, direction, duration, kind, missed) hung off an EXISTING Person,
++# plus the per-source freshness signal pwg:lastContactCall that iMessage and
++# WhatsApp already have (pwg:lastContactIMessage / ...WhatsApp).
++#
++# WHO A CALL BELONGS TO. A call only ever attaches to a Person who is ALREADY
++# in the graph, matched on a stored phone/email identifier. A number nobody
++# holds creates NO Person: a call log is full of delivery drivers, spam and
++# wrong numbers, and the owner must never become a contact by being on the
++# other end of their own calls. Unmatched numbers are COUNTED, not dropped
++# silently. A number held by two differently-keyed people (a family landline)
++# is AMBIGUOUS and attributed to nobody.
++#
++# WHO A CALL MUST NOT BE FILED AGAINST. A person carrying a do-not-suggest
++# record (pwg:SuggestionSuppression, e.g. deceased) or a minor flag
++# (pwg:MinorFlag) gets NO call events at all, and a person at privacy level L3
++# gets none either (writer-side L3 short-circuit). If the suppression records
++# cannot be read the whole run is cannot_run and writes nothing: fail closed.
++#
++# Metadata only. No audio exists in the source and none is read.
++
++_CALL_BATCH = 100
++_CALL_KINDS = ("phone", "facetime_video", "facetime_audio", "other")
++
++
++def _call_digits(s: str) -> str:
++    return re.sub(r"\D", "", s or "")
++
++
++def _call_lookup_keys(address: str) -> list[str]:
++    """Index keys an identifier is filed under, most specific first."""
++    a = (address or "").strip()
++    if "@" in a:
++        return ["e:" + a.lower()]
++    d = _call_digits(a)
++    if not d:
++        return []
++    keys = ["p:" + d]
++    if len(d) >= 9:
++        keys.append("t:" + d[-9:])
++    return keys
++
++
++def _call_person_index() -> tuple[dict, dict]:
++    """(identifier-key -> {person uri}, person uri -> info). Raises on a
++    store failure: the caller turns that into cannot_run, never into "no
++    matches"."""
++    rows = _sparql_query(
++        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++        "SELECT ?person ?v ?name ?priv WHERE {\n"
++        "  ?person a pwg:Person ; pwg:hasIdentifier ?id .\n"
++        "  ?id pwg:identifierType ?t ; pwg:identifierValue ?v .\n"
++        '  FILTER (?t IN ("phone", "email"))\n'
++        "  OPTIONAL { ?person pwg:displayName ?name }\n"
++        "  OPTIONAL { ?person pwg:privacyLevel ?priv }\n"
++        "}"
++    )
++    index: dict[str, set] = {}
++    info: dict[str, dict] = {}
++    for r in rows:
++        uri = r["person"]["value"]
++        val = r["v"]["value"]
++        rec = info.setdefault(uri, {"values": set(), "name": "", "priv": ""})
++        rec["values"].add(val)
++        if "name" in r:
++            rec["name"] = r["name"]["value"]
++        if "priv" in r:
++            rec["priv"] = r["priv"]["value"]
++        for k in _call_lookup_keys(val):
++            index.setdefault(k, set()).add(uri)
++    return index, info
++
++
++def _call_suppression() -> tuple[set, set, set]:
++    """(person uris, identifier values, slugs) under a do-not-suggest or minor
++    record. Raises on a store failure."""
++    rows = _sparql_query(
++        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++        "SELECT ?slug ?idv ?person WHERE {\n"
++        "  VALUES ?cls { pwg:SuggestionSuppression pwg:MinorFlag }\n"
++        "  ?s a ?cls .\n"
++        "  OPTIONAL { ?s pwg:suppressedSlug ?slug }\n"
++        "  OPTIONAL { ?s pwg:suppressedIdentifier ?idv }\n"
++        "  OPTIONAL { ?s pwg:suppressedPerson ?person }\n"
++        "}"
++    )
++    uris, idvs, slugs = set(), set(), set()
++    for r in rows:
++        if "person" in r:
++            uris.add(r["person"]["value"])
++        if "idv" in r:
++            idvs.add(r["idv"]["value"])
++        if "slug" in r:
++            slugs.add(r["slug"]["value"])
++    return uris, idvs, slugs
++
++
++def _call_match(address: str, index: dict) -> tuple[Optional[str], str]:
++    """(person uri, "") on a unique match, else (None, reason) where reason is
++    "unmatched" or "ambiguous"."""
++    keys = _call_lookup_keys(address)
++    if not keys:
++        return None, "unmatched"
++    exact = index.get(keys[0], set())
++    if exact:
++        hit = exact
++    elif "@" not in address and not address.strip().startswith("+") and len(keys) > 1:
++        # A national-format number (no +): fall back to the last nine digits,
++        # which the stored E.164 form shares. Never done for a +number, whose
++        # country is stated and must agree.
++        hit = index.get(keys[1], set())
++    else:
++        hit = set()
++    if not hit:
++        return None, "unmatched"
++    if len(hit) > 1:
++        return None, "ambiguous"
++    return next(iter(hit)), ""
++
++
++def _load_call_events(fda_dir: Path) -> Optional[list]:
++    path = fda_dir / "call_history.json"
++    if not path.exists():
++        return None
++    try:
++        data = json.loads(path.read_text())
++    except (OSError, ValueError) as e:
++        raise ValueError(f"call_history.json unreadable: {e}") from e
++    if not isinstance(data, list):
++        raise ValueError("call_history.json root is not a list")
++    return data
++
++
++def ingest_calls(fda_dir: Path) -> dict:
++    """Ingest call_history.json into the people graph as call events."""
++    try:
++        events = _load_call_events(fda_dir)
++    except ValueError as e:
++        return {"status": "cannot_run", "reason": str(e)}
++    if events is None:
++        logger.info("No call history to ingest")
++        return {"status": "skipped", "reason": "no data"}
++
++    try:
++        index, info = _call_person_index()
++        sup_uris, sup_idvs, sup_slugs = _call_suppression()
++    except Exception as e:  # store down: write nothing, say so
++        logger.warning("Call ingest cannot run: %s", e)
++        return {"status": "cannot_run", "reason": f"graph unavailable: {e}"}
++
++    def _suppressed(uri: str) -> bool:
++        rec = info.get(uri, {})
++        return (
++            uri in sup_uris
++            or bool(rec.get("values", set()) & sup_idvs)
++            or _wiki_slug(rec.get("name", "")) in sup_slugs
++        )
++
++    counts = {
++        "events_written": 0, "matched_people": 0, "unmatched": 0,
++        "ambiguous": 0, "suppressed": 0, "l3_skipped": 0,
++        "unusable": 0, "unknown_kind": 0, "last_contact_updated": 0,
++    }
++    unmatched_numbers: set = set()
++    now_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
++    triples_by_event: list[list[str]] = []
++    matched: set = set()
++    last_connected: dict[str, str] = {}
++
++    for ev in events:
++        try:
++            address = str(ev["address"])
++            ts = str(ev["timestamp"])
++            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
++            if dt.tzinfo is None:
++                dt = dt.replace(tzinfo=timezone.utc)
++            event_id = str(ev["event_id"])
++            direction = ev["direction"]
++            if direction not in ("incoming", "outgoing"):
++                raise ValueError(direction)
++            duration = max(0, int(ev.get("duration_seconds", 0)))
++        except (KeyError, ValueError, TypeError):
++            counts["unusable"] += 1
++            continue
++        kind = ev.get("kind")
++        if kind not in _CALL_KINDS:
++            kind = "other"
++        if kind == "other":
++            counts["unknown_kind"] += 1
++        if dt.strftime("%Y-%m-%d") > now_day:
++            counts["unusable"] += 1
++            continue
++
++        uri, why = _call_match(address, index)
++        if uri is None:
++            counts[why] += 1
++            if why == "unmatched":
++                unmatched_numbers.add(address)
++            continue
++        if _suppressed(uri):
++            counts["suppressed"] += 1
++            continue
++        priv = info.get(uri, {}).get("priv") or DEFAULT_PRIVACY
++        if priv == "L3":
++            counts["l3_skipped"] += 1
++            continue
++
++        answered = bool(ev.get("answered"))
++        missed = bool(ev.get("missed"))
++        ev_uri = f"https://schema.ostler.ai/ontology#call_{event_id[:40]}"
++        triples_by_event.append([
++            f"<{ev_uri}> a pwg:CallEvent",
++            f"<{ev_uri}> pwg:callPerson <{uri}>",
++            f'<{ev_uri}> pwg:occurredAt "{dt.astimezone(timezone.utc).isoformat()}"^^xsd:dateTime',
++            f'<{ev_uri}> pwg:callDirection "{direction}"',
++            f'<{ev_uri}> pwg:callDurationSeconds "{duration}"^^xsd:integer',
++            f'<{ev_uri}> pwg:callKind "{kind}"',
++            f'<{ev_uri}> pwg:callAnswered "{str(answered).lower()}"^^xsd:boolean',
++            f'<{ev_uri}> pwg:callMissed "{str(missed).lower()}"^^xsd:boolean',
++            f'<{ev_uri}> pwg:privacyLevel "{_escape(priv)}"',
++            f'<{ev_uri}> pwg:source "call_history_fda"',
++        ])
++        matched.add(uri)
++        # Contact = something was exchanged: a connected call.
++        if answered and duration > 0:
++            prev = last_connected.get(uri)
++            iso = dt.astimezone(timezone.utc).isoformat()
++            if prev is None or iso > prev:
++                last_connected[uri] = iso
++
++    prefixes = (
++        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
++    )
++    for i in range(0, len(triples_by_event), _CALL_BATCH):
++        chunk = triples_by_event[i:i + _CALL_BATCH]
++        body = " .\n  ".join(t for ev_triples in chunk for t in ev_triples)
++        try:
++            _sparql_update(prefixes + "INSERT DATA {\n  " + body + " .\n}")
++        except Exception as e:
++            logger.warning("Call ingest write failed after %d events: %s",
++                           counts["events_written"], e)
++            counts["matched_people"] = len(matched)
++            counts["unmatched"] = len(unmatched_numbers)
++            return {"status": "error", "error": str(e), **counts}
++        counts["events_written"] += len(chunk)
++
++    for uri, iso in last_connected.items():
++        _update_last_contact(uri, iso, "call")
++        counts["last_contact_updated"] += 1
++
++    counts["matched_people"] = len(matched)
++    counts["unmatched"] = len(unmatched_numbers)
++    logger.info("Calls: %d events for %d people (%d unmatched numbers)",
++                counts["events_written"], counts["matched_people"],
++                counts["unmatched"])
++    return {"status": "ok", **counts}
++
++
  # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
  #
  # Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
-@@ -523,7 +1230,9 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -523,7 +1494,9 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
      chats = json.loads(chats_file.read_text())
      people_created = 0
      people_enriched = 0
@@ -6449,7 +7460,7 @@ index 0b1e9237..c842712b 100644
      tier_t2_intimate = 0
      tier_t2_active = 0
      tier_t3_skipped = 0
-@@ -571,34 +1280,66 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -571,34 +1544,66 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
              # right call -- it consults what OTHER sources have already learned
              # about this identifier, so a channel exposed by mail is refused
              # here too.
@@ -6526,7 +7537,7 @@ index 0b1e9237..c842712b 100644
                      f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                      f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                  ])
-@@ -627,11 +1368,19 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -627,11 +1632,19 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                  # renderer picks the highest one.
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                  if not _identifier_exists(id_uri):
@@ -6548,7 +7559,7 @@ index 0b1e9237..c842712b 100644
                          f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                          f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                      ]
-@@ -647,6 +1396,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -647,6 +1660,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -6561,7 +7572,7 @@ index 0b1e9237..c842712b 100644
              # Always upsert lastContactWhatsApp regardless of person
              # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
              # in _update_last_contact ensures older timestamps never
-@@ -656,14 +1411,16 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -656,14 +1675,16 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                  _update_last_contact(uri, last_msg, "whatsapp")
  
      logger.info(
@@ -6581,7 +7592,7 @@ index 0b1e9237..c842712b 100644
          "tier_t1_dm_chats": tier_t1,
          "tier_t2_intimate_chats": tier_t2_intimate,
          "tier_t2_active_chats": tier_t2_active,
-@@ -688,6 +1445,13 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -688,6 +1709,13 @@ def ingest_calendar(fda_dir: Path) -> dict:
      people_seen: set[str] = set()
      events_processed = 0
      meetings_created = 0
@@ -6595,7 +7606,7 @@ index 0b1e9237..c842712b 100644
  
      for event in events:
          attendees = event.get("attendees", [])
-@@ -704,31 +1468,101 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -704,31 +1732,101 @@ def ingest_calendar(fda_dir: Path) -> dict:
              # calendar attendee who shared it into ONE node (#659). An invite
              # carries no attendee display name, so this contributes nothing to
              # the structural rule -- but it still honours it.
@@ -6702,7 +7713,7 @@ index 0b1e9237..c842712b 100644
  
              # Update last contact from meeting date
              if start_date:
-@@ -780,14 +1614,28 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -780,14 +1878,28 @@ def ingest_calendar(fda_dir: Path) -> dict:
          events_processed += 1
  
      logger.info(
@@ -6733,7 +7744,7 @@ index 0b1e9237..c842712b 100644
      }
  
  
-@@ -814,20 +1662,30 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -814,20 +1926,30 @@ def ingest_photos_people(fda_dir: Path) -> dict:
  
          person_id = _person_id_from_identifier(f"photos_face_{name}")
          uri = _person_uri(person_id)
@@ -6766,7 +7777,7 @@ index 0b1e9237..c842712b 100644
  
              if first_seen:
                  triples.append(
-@@ -846,12 +1704,168 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -846,12 +1968,168 @@ def ingest_photos_people(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
  
@@ -6935,7 +7946,7 @@ index 0b1e9237..c842712b 100644
  def ingest_mail_contacts(fda_dir: Path) -> dict:
      """Ingest frequent email contacts into the people graph.
  
-@@ -865,9 +1879,15 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -865,9 +2143,15 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
  
      contacts = json.loads(contacts_file.read_text())
      people_created = 0
@@ -6952,7 +7963,7 @@ index 0b1e9237..c842712b 100644
              # Skip very infrequent senders
              continue
  
-@@ -875,20 +1895,61 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -875,20 +2159,61 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
          # email correspondent who shared it into ONE node (#659). The frequency
          # map is address->count with no names, so this consults the learned set
          # rather than adding to it.
@@ -7019,7 +8030,7 @@ index 0b1e9237..c842712b 100644
  
              id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
              triples.extend([
-@@ -907,8 +1968,29 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -907,8 +2232,29 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
  
@@ -7051,7 +8062,7 @@ index 0b1e9237..c842712b 100644
  
  
  # ── Browser history ingestion (direct path, v1.0) ─────────────────
-@@ -1104,6 +2186,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
+@@ -1104,6 +2450,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
      return upserted
  
  
@@ -7115,7 +8126,7 @@ index 0b1e9237..c842712b 100644
  def _load_browsing_visits(fda_dir: Path) -> list[dict]:
      """Read safari_history.json + chrome_history.json from ``fda_dir``.
  
-@@ -1250,6 +2389,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
+@@ -1250,6 +2653,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
              "points_created": sent,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7126,7 +8137,7 @@ index 0b1e9237..c842712b 100644
          }
  
      if sent == 0:
-@@ -1266,6 +2409,7 @@ def ingest_browser_history(fda_dir: Path) -> dict:
+@@ -1266,6 +2673,7 @@ def ingest_browser_history(fda_dir: Path) -> dict:
              "points_created": 0,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7134,7 +8145,7 @@ index 0b1e9237..c842712b 100644
          }
  
      logger.info(
-@@ -1898,6 +3042,9 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1898,6 +3306,9 @@ def _load_people_from_oxigraph() -> list[dict]:
          "?givenName ?familyName ?createdAt WHERE {\n"
          "  ?uri a pwg:Person ;\n"
          "       pwg:displayName ?displayName .\n"
@@ -7144,7 +8155,7 @@ index 0b1e9237..c842712b 100644
          "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
          "  OPTIONAL { ?uri pwg:organization ?org }\n"
          "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
-@@ -1916,6 +3063,58 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1916,6 +3327,58 @@ def _load_people_from_oxigraph() -> list[dict]:
          "}"
      )
  
@@ -7203,7 +8214,7 @@ index 0b1e9237..c842712b 100644
      # Second query: identifiers grouped per person.
      id_rows = _sparql_query(
          "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
-@@ -1984,10 +3183,48 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1984,10 +3447,48 @@ def _load_people_from_oxigraph() -> list[dict]:
              # can place this person. Empty -> omitted from those views (no
              # now() fabrication).
              "created_at": created_at,
@@ -7252,7 +8263,7 @@ index 0b1e9237..c842712b 100644
  def _person_embed_doc(person: dict) -> str:
      """Build the descriptive text embedded for semantic people-search.
  
-@@ -2003,6 +3240,29 @@ def _person_embed_doc(person: dict) -> str:
+@@ -2003,6 +3504,29 @@ def _person_embed_doc(person: dict) -> str:
      return " ".join(p for p in parts if p).strip()
  
  
@@ -7282,7 +8293,7 @@ index 0b1e9237..c842712b 100644
  def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
      """Populate the Qdrant ``people`` collection from Oxigraph (#600).
  
-@@ -2024,11 +3284,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2024,11 +3548,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
      stably from the person URI so a re-install is idempotent) with a
      payload matching the reader contract, (5) returns a counts-only
      dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
@@ -7307,7 +8318,7 @@ index 0b1e9237..c842712b 100644
        ``sent``           : points upserted into Qdrant
        ``points_created`` : alias of ``sent``
        ``total``          : Person nodes considered (with a display name)
-@@ -2099,7 +3371,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2099,7 +3635,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
              # diverges from one that recomputes it (iOS Identifiable id + URL).
              "slug": _wiki_slug(person["display_name"]),
              "source": "fda_people_index",
@@ -7332,7 +8343,7 @@ index 0b1e9237..c842712b 100644
          }
          # Surface the REAL pwg:createdAt date so the time-ordered wiki
          # views (year pages, person timeline, "recent people") can place
-@@ -2148,6 +3436,120 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2148,6 +3700,120 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
              "total": len(people),
          }
  
@@ -7453,7 +8464,7 @@ index 0b1e9237..c842712b 100644
      logger.info(
          "People: %d of %d Person nodes indexed into Qdrant '%s'.",
          sent, len(people), PEOPLE_QDRANT_COLLECTION,
-@@ -2157,6 +3559,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2157,6 +3823,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
          "sent": sent,
          "points_created": sent,
          "total": len(people),
@@ -7461,16 +8472,19 @@ index 0b1e9237..c842712b 100644
      }
  
  
-@@ -2178,7 +3581,7 @@ _INGEST_DISPATCH = (
+@@ -2178,8 +3845,10 @@ _INGEST_DISPATCH = (
      ("imessage", "ingest_imessage"),
      ("whatsapp", "ingest_whatsapp"),
      ("calendar", "ingest_calendar"),
 -    ("photos", "ingest_photos_people"),
 +    ("photos", "ingest_photos"),
      ("apple_mail", "ingest_mail_contacts"),
++    # After every Person-writing step: calls only attach to people who exist.
++    ("calls", "ingest_calls"),
      ("browser_history", "ingest_browser_history"),
      ("bookmarks", "ingest_bookmarks"),
-@@ -2195,6 +3598,10 @@ _DISPATCH_EXEMPT = frozenset({
+     ("social", "ingest_social"),
+@@ -2195,6 +3864,10 @@ _DISPATCH_EXEMPT = frozenset({
      # ingest_all IS the dispatcher/runner -- it loops _INGEST_DISPATCH; it is
      # not itself a writer the loop should call.
      "ingest_all",
@@ -7481,7 +8495,7 @@ index 0b1e9237..c842712b 100644
  })
  
  
-@@ -2244,6 +3651,14 @@ def main():
+@@ -2244,6 +3917,14 @@ def main():
      fda_dir = Path(args.fda_dir) if args.fda_dir else None
      results = ingest_all(fda_dir)
      print(json.dumps(results, indent=2))
@@ -8904,6 +9918,895 @@ index 00000000..ff37f6b1
 +def sink_healthy() -> bool:
 +    """Ollama AND the stores. Both must answer."""
 +    return ollama_healthy() and stores_answer()
+diff --git b/subscription_gate.py b/subscription_gate.py
+new file mode 100644
+index 00000000..70f707c6
+--- /dev/null
++++ b/subscription_gate.py
+@@ -0,0 +1,883 @@
++"""Subscription gate -- single source of truth for whether ongoing intelligence is active.
++
++The Hub runs ingestion pipelines (iMessage, email, WhatsApp, Safari, etc.),
++brief composition, and Reminders push under an active subscription. Every
++pipeline calls ``is_active_or_grace()`` at the top of its work loop. When
++False, the pipeline pauses (logs + sleeps + continues) but does NOT crash
++or exit -- the Hub stays healthy and resumes within 60s of reactivation.
++
++Apple-restraint UX language: never "your data is locked". The customer's
++existing data stays accessible regardless of subscription state (Obsidian
++vault, two-zone visible data layout, exports). Only ongoing intelligence
++pauses.
++
++State storage: a single JSON file at ``~/.ostler/state/subscription_state.json``.
++Override via ``OSTLER_SUBSCRIPTION_STATE`` env var for tests.
++
++Fail-open posture: if the Hub cannot reach the iOS Companion (customer on
++holiday, network outage, expired StoreKit cache), we treat the customer as
++legitimate so long as the last successful validation was within the offline
++grace window. We never punish customers on infrastructure problems we
++cannot observe.
++
++Sync paths:
++1. ``activate_first_month_free()`` -- called by install.sh after license
++   verification. Hub gets 30 days of Pro for free.
++2. ``refresh_from_companion()`` -- called when the iOS Companion pushes a
++   fresh StoreKit receipt via ``POST /api/v1/subscription/receipt``.
++3. ``expire_check()`` -- run periodically by the ical-server's
++   subscription ticker (``_start_subscription_expiry_ticker`` in
++   ical-server.py, hourly, under the KeepAlive ``com.ostler.ical-server``
++   LaunchAgent). Walks the state forward through active -> grace ->
++   inactive as time passes.
++
++   🔴 THE TICKER IS NOT WHAT MAKES THE TRIAL END, and must never be the
++   only thing that does. Until 2026-09-16 ``expire_check()`` had ZERO
++   production callers, so the state file said ``status=active`` forever
++   and every Hub buyer kept Ostler Pro for free for life. A scheduler is
++   a thing that can fail to be loaded, so the READER below
++   (``is_active_or_grace``) no longer trusts the stored status: it walks
++   the state forward itself, in-process, on every call. The ticker only
++   persists that walk so the Doctor banner and support can see it.
++
++Paid-once rule (Andy, 2026-07-31, re-made 2026-09-16): "keep it as long
++as they've paid (fully) for Pro at least once. ie. not the 30 days free
++plus a failed card try." Implemented here as the ``has_ever_paid`` sticky
++bit -- see ``_has_ever_paid``. It mirrors the daemon's
++``SubscriptionConfig::has_ever_paid`` (zeroclaw-config schema.rs) and the
++gate at zeroclaw-runtime subscription/gate.rs, which had the rule while
++this file, the one that actually ships to customers, did not.
++
++Helper contract (the only public surface other pipelines depend on):
++
++- ``is_active_or_grace() -> bool`` -- True if the customer's ongoing
++  intelligence should keep running.
++- ``state_dict() -> dict`` -- for the Doctor banner + diagnostics.
++- ``refresh_from_companion(receipt_b64, expires_at_iso) -> None`` --
++  writer called when the iOS Companion pushes a fresh receipt.
++- ``activate_first_month_free(purchase_date_iso, licence_tier,
++  licence_tier_state) -> None`` -- writer called by install.sh, which is
++  the only thing on a customer's Mac that ever opens the licence file.
++- ``licence_tier(state=None) -> (tier, state)`` -- what tier the verified
++  licence was issued at, and how confident we are of it. See
++  ``KEY_LICENCE_TIER`` for why those are two values and not one.
++- ``expiry_warning(now=None, state=None) -> dict | None`` -- what the
++  customer should be TOLD about their window, before it closes and after.
++  The clock is a parameter; see the function for why that is not merely
++  a testing convenience.
++- ``expire_check() -> None`` -- periodic state walker.
++
++Per locked memory feedback_subscription_gating_v1 + the 2026-05-27
++pricing decision: Hub GBP 99 one-time + Pro GBP 9.99/mo with first 30 days
++free at install time.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import sys
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Optional
++
++# Grace window between subscription lapse and ongoing intelligence pausing.
++# Within this window, status is "grace" and pipelines still run.
++GRACE_DAYS = 14
++
++# Offline grace: if the Hub cannot validate (no Companion contact, network
++# outage), pipelines keep running so long as the last successful validation
++# was within this window. Apple-restraint: never block a legitimate customer
++# on infrastructure failure we cannot observe.
++OFFLINE_GRACE_DAYS = 30
++
++# Status enum -- string-typed for JSON-on-disk simplicity.
++STATUS_ACTIVE = "active"
++STATUS_GRACE = "grace"
++STATUS_INACTIVE = "inactive"
++
++# Source enum -- records how the current state landed (for support + UX).
++SOURCE_FIRST_MONTH_FREE = "first_month_free"
++SOURCE_COMPANION = "companion"
++SOURCE_HUB_INITIAL = "hub_initial"
++SOURCE_DEFAULT = "default"
++
++# Sticky bit recording that the customer has fully paid for Ostler Pro at
++# least once. Once true it never goes back to false. See _has_ever_paid.
++KEY_HAS_EVER_PAID = "has_ever_paid"
++
++# ---------------------------------------------------------------------------
++# The licence tier (HR015 #928)
++# ---------------------------------------------------------------------------
++#
++# WHAT WAS WRONG. The customer's licence file is Ed25519-signed and verified
++# twice on every install -- once by the GUI (LicenseVerifier.swift) and once by
++# install.sh's own verifier before anything touches the Mac. Neither of them
++# read a tier, because the schema had no tier field, so the Hub had no way to
++# tell a Hub buyer from a Pro subscriber from a beta tester. Nothing downstream
++# could act on a distinction that was never carried.
++#
++# WHAT IS AND IS NOT GATED HERE. Nothing is gated on the tier yet, on purpose.
++# This records it so that it is CARRIED from day one; retrofitting a tier onto
++# licences already in customers' hands is the expensive version of this change,
++# and it is the version we avoid by landing the cheap one now.
++#
++# THE STATE IS AS LOAD-BEARING AS THE VALUE, and they are stored separately for
++# that reason. "We did not check" and "they are on hub" are different facts and
++# the first must never be readable as the second:
++#
++#   unverified  the licence gate did not run (OSTLER_DEV=1,
++#               --allow-unlicensed, or an install that predates this field).
++#               NOTHING is known about this customer's tier.
++#   absent      a verified licence with no tier field. Legacy, issued before
++#               tiers existed, and it bought the Hub.
++#   known       a verified, recognised tier.
++#   unknown     a verified tier this build does not recognise. Stored verbatim
++#               so support can see what the customer actually holds, and so an
++#               older Hub does not erase a newer tier by round-tripping it.
++KEY_LICENCE_TIER = "licence_tier"
++KEY_LICENCE_TIER_STATE = "licence_tier_state"
++
++# The licence's own update_window_expires_at, recorded at install time
++# (HR015 #929). For a BETA licence this is the beta window, and the beta
++# window is the entitlement -- see activate_first_month_free.
++KEY_LICENCE_EXPIRES_AT = "licence_expires_at"
++
++# How long before a window closes the customer is told it is closing.
++#
++# ANDY'S RULE, AND IT IS NOT A NICETY: "They are warned BEFORE it
++# happens, in the product, not after." A tester who discovers their beta
++# ended by noticing that nothing has updated for three days has been
++# told by the absence of the product, which is the worst possible
++# channel. Seven days is long enough to act on and short enough not to
++# become wallpaper.
++#
++# The Doctor rule carries a twin of this number, because the Doctor is a
++# separately vendored tree and cannot import this module. The guard test
++# pins the two equal, the same way test_licence_gate.sh pins install.sh's
++# public key to the Swift one.
++WARN_BEFORE_EXPIRY_DAYS = 7
++
++TIER_HUB = "hub"
++TIER_PRO = "pro"
++TIER_BETA = "beta"
++KNOWN_TIERS = (TIER_HUB, TIER_PRO, TIER_BETA)
++
++TIER_STATE_UNVERIFIED = "unverified"
++TIER_STATE_ABSENT = "absent"
++TIER_STATE_KNOWN = "known"
++TIER_STATE_UNKNOWN = "unknown"
++TIER_STATES = (
++    TIER_STATE_UNVERIFIED,
++    TIER_STATE_ABSENT,
++    TIER_STATE_KNOWN,
++    TIER_STATE_UNKNOWN,
++)
++
++
++def _state_file() -> Path:
++    """Resolve the state-file path lazily (allows env-override for tests).
++
++    ``OSTLER_SUBSCRIPTION_STATE`` overrides the default. Otherwise the
++    canonical location is ``~/.ostler/state/subscription_state.json``.
++
++    🔴 DO NOT "FIX" THIS TO DERIVE FROM OSTLER_DIR. It looks wrong next
++    to the ical-server plist, which derives PYTHONPATH from OSTLER_DIR
++    precisely so it tracks a non-default install home, and the obvious
++    tidy-up is to make the shell tick wrappers pass
++    OSTLER_SUBSCRIPTION_STATE="$OSTLER_DIR/state/...". That change would
++    PAUSE A PAYING CUSTOMER on any relocated install: the WRITERS
++    (install.sh activation, the receipt endpoint) both land here, on
++    Path.home(), and a reader pointed somewhere else finds no file, reads
++    default-inactive, and stops a Hub that has been paid for.
++
++    Writer and reader must resolve the same path or the gate is a coin
++    toss. If this should follow OSTLER_DIR, move BOTH, in one change,
++    with a migration for state files already written.
++
++    HOME under launchd: every LaunchAgent that reads this runs in the
++    customer's own session, and only the ical-server plist sets HOME at
++    all (to ${HOME}). So Path.home() is the same directory for the
++    writers and for all five tick wrappers.
++    """
++    override = os.environ.get("OSTLER_SUBSCRIPTION_STATE")
++    if override:
++        return Path(override)
++    return Path.home() / ".ostler" / "state" / "subscription_state.json"
++
++
++def _now() -> datetime:
++    return datetime.now(timezone.utc)
++
++
++def _parse_iso(value: Optional[str]) -> Optional[datetime]:
++    """Parse an ISO-8601 string (with either ``Z`` or ``+HH:MM``).
++
++    Returns None on missing or unparseable input. Never raises.
++    """
++    if not value:
++        return None
++    try:
++        return datetime.fromisoformat(value.replace("Z", "+00:00"))
++    except (ValueError, TypeError):
++        return None
++
++
++def _load() -> dict:
++    """Read the state file. Returns a safe default if missing or corrupt.
++
++    Corrupt files do NOT raise -- they degrade to the default-inactive
++    state. The fail-open offline-grace branch in ``is_active_or_grace``
++    handles the case where corruption coincides with a recently-valid
++    customer.
++    """
++    path = _state_file()
++    if not path.exists():
++        return {"status": STATUS_INACTIVE, "source": SOURCE_DEFAULT}
++    try:
++        raw = path.read_text()
++        parsed = json.loads(raw)
++        if not isinstance(parsed, dict):
++            return {"status": STATUS_INACTIVE, "source": SOURCE_DEFAULT}
++        return parsed
++    except (OSError, json.JSONDecodeError):
++        return {"status": STATUS_INACTIVE, "source": SOURCE_DEFAULT}
++
++
++def _write(state: dict) -> None:
++    """Persist state to disk atomically. Creates parent dir if needed.
++
++    Atomic because there are now TWO writers on a live Hub: the hourly
++    expiry ticker, and the receipt endpoint when the phone pushes. A
++    plain write truncates first, so a reader landing in that window gets
++    a half-file. ``_load`` degrades a corrupt read to default-inactive,
++    which for a PAYING customer means no receipt, no source, no
++    has_ever_paid -- and the gate would pause someone who has paid. Rare
++    is not the same as acceptable when the failure mode is a support
++    call from a customer we took money from.
++
++    os.replace is atomic within a filesystem, and the temp file is made
++    in the SAME directory so it never crosses one.
++    """
++    path = _state_file()
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_name(path.name + ".tmp")
++    tmp.write_text(json.dumps(state, indent=2))
++    os.replace(str(tmp), str(path))
++
++
++def _iso_now() -> str:
++    """Return current UTC time as extended ISO-8601 Zulu."""
++    return _now().isoformat().replace("+00:00", "Z")
++
++
++def _carry_tier(new_state: dict, old_state: dict) -> None:
++    """Copy the licence tier from ``old_state`` into ``new_state`` in place.
++
++    Both writers below build a FRESH dict rather than mutating what is on
++    disk, which is the right shape for a status machine and the wrong shape
++    for a fact about the customer that no writer here learns. The tier comes
++    from the licence, and the only thing that reads a licence is install.sh.
++    Without this, the first iOS receipt push after an install would silently
++    erase the tier and the Hub would be back to not knowing.
++    """
++    for key in (KEY_LICENCE_TIER, KEY_LICENCE_TIER_STATE, KEY_LICENCE_EXPIRES_AT):
++        if key in old_state:
++            new_state[key] = old_state.get(key)
++
++
++def licence_tier(state: Optional[dict] = None) -> tuple:
++    """Return ``(tier, state)`` for the installed licence.
++
++    ``tier`` is ``None`` whenever ``state`` is ``unverified``: there is no
++    defensible tier to report when nothing was verified, and returning
++    ``"hub"`` there would be inventing one. Callers that want to GRANT
++    something must branch on the state, not on the tier alone.
++
++    Never raises. An unreadable or absent state file reads as unverified,
++    which is the honest answer rather than the convenient one.
++    """
++    snapshot = _load() if state is None else state
++    if not isinstance(snapshot, dict):
++        return None, TIER_STATE_UNVERIFIED
++    tier_state = snapshot.get(KEY_LICENCE_TIER_STATE)
++    if tier_state not in TIER_STATES:
++        return None, TIER_STATE_UNVERIFIED
++    if tier_state == TIER_STATE_UNVERIFIED:
++        return None, TIER_STATE_UNVERIFIED
++    tier = snapshot.get(KEY_LICENCE_TIER)
++    if not isinstance(tier, str) or not tier:
++        # The state claims a tier was established and the value is missing.
++        # That is a broken record, not a hub customer.
++        return None, TIER_STATE_UNVERIFIED
++    return tier, tier_state
++
++
++def _has_ever_paid(state: dict) -> bool:
++    """Has this customer fully paid for Ostler Pro at least once?
++
++    This is the trust anchor for the 14-day post-lapse grace window and
++    for the 30-day offline fail-open. Andy's ruling: grace is a cushion
++    for people who actually paid, not a second free month for a trialist
++    whose 30 days ran out, and not a reward for a failed card.
++
++    Evidence (any one is enough):
++
++    - the sticky bit is already set;
++    - the state carries a ``receipt``, which only ``refresh_from_companion``
++      writes, and the iOS app only pushes one after a transaction succeeds
++      or is restored. A card that FAILS produces no transaction, so it
++      produces no receipt, so it never reaches here -- which is exactly
++      the case Andy called out;
++    - ``source == "companion"``, same signal on a state written before the
++      receipt field existed.
++
++    The last two are the BACKFILL, and they are why a customer who is
++    already paying does not lose grace by upgrading to this build. Their
++    state file predates the sticky bit, so without the backfill they would
++    read as never-paid and lose the cushion they are owed.
++
++    🔴 ``status == "active"`` IS NOT EVIDENCE OF PAYMENT HERE, and this is
++    the one place this file must NOT copy the daemon. The Rust backfill
++    (``SubscriptionConfig::backfill_has_ever_paid``) does accept Active,
++    because on that side a fresh install defaults to ``Grace``. On THIS
++    side install.sh calls ``activate_first_month_free``, which writes
++    ``status=active`` for the free month. Accepting that as proof would set
++    the bit for every single trialist on day zero, the denominator would
++    be "everybody", and the rule would read as implemented while changing
++    nothing. If you are about to add it, this paragraph is why you should
++    not.
++    """
++    if state.get(KEY_HAS_EVER_PAID) is True:
++        return True
++    receipt = state.get("receipt")
++    if isinstance(receipt, str) and receipt.strip():
++        return True
++    if state.get("source") == SOURCE_COMPANION:
++        return True
++    return False
++
++
++def _walk(state: dict, now: datetime) -> tuple:
++    """Pure state-machine step. Returns ``(effective_status, new_state)``.
++
++    Computes what the subscription status IS at ``now``, rather than what
++    the file happens to say it was when it was last written. Shared by
++    ``expire_check`` (which persists the result) and ``is_active_or_grace``
++    (which decides from it), so a reader can never be ahead of a writer
++    that did not run.
++
++    Transitions:
++
++    - ``active`` and still inside ``expires_at`` -> ``active``.
++    - ``active`` past ``expires_at`` -> the lapse branch below.
++    - lapse, customer HAS ever paid -> ``grace`` until ``grace_period_end``,
++      then ``inactive``.
++    - lapse, customer has NEVER paid -> ``inactive`` immediately. No grace.
++      This is Andy's rule and it is the whole revenue fix: the free month
++      ends on the day it ends.
++
++    Never raises. Never writes.
++    """
++    paid = _has_ever_paid(state)
++    new_state = dict(state)
++    new_state[KEY_HAS_EVER_PAID] = paid
++    status = state.get("status", STATUS_INACTIVE)
++
++    if status == STATUS_ACTIVE:
++        expires = _parse_iso(state.get("expires_at"))
++        if expires is None:
++            # Unparseable or absent expiry. For a customer who has paid we
++            # fail OPEN (Apple restraint: never lock a payer out on a field
++            # we cannot read). For one who never paid we fail CLOSED -- the
++            # free month has no defensible end date, so it is over. That
++            # asymmetry is deliberate: deleting expires_at from the JSON is
++            # the cheapest way to try to farm a permanent free trial.
++            if paid:
++                new_state["status"] = STATUS_ACTIVE
++                return STATUS_ACTIVE, new_state
++            new_state["status"] = STATUS_INACTIVE
++            return STATUS_INACTIVE, new_state
++        if now <= expires:
++            new_state["status"] = STATUS_ACTIVE
++            return STATUS_ACTIVE, new_state
++        status = STATUS_GRACE
++
++    if status == STATUS_GRACE:
++        if not paid:
++            new_state["status"] = STATUS_INACTIVE
++            return STATUS_INACTIVE, new_state
++        grace_end = _parse_iso(state.get("grace_period_end"))
++        if grace_end is None:
++            # refresh_from_companion writes grace_period_end=None on every
++            # successful validation (it clears a previous grace). So a
++            # paying customer who lapses has no grace date on file at the
++            # moment they need one. Derive it from the expiry we just
++            # passed rather than granting an unbounded window -- without
++            # this, a cancelled subscriber whose phone never pushes again
++            # keeps Pro forever, which is the same defect as the trial
++            # never ending, wearing different clothes.
++            expires = _parse_iso(state.get("expires_at"))
++            if expires is not None:
++                grace_end = expires + timedelta(days=GRACE_DAYS)
++                new_state["grace_period_end"] = (
++                    grace_end.isoformat().replace("+00:00", "Z")
++                )
++        if grace_end is not None and now > grace_end:
++            new_state["status"] = STATUS_INACTIVE
++            return STATUS_INACTIVE, new_state
++        new_state["status"] = STATUS_GRACE
++        return STATUS_GRACE, new_state
++
++    new_state["status"] = STATUS_INACTIVE
++    return STATUS_INACTIVE, new_state
++
++
++def _persist_walk(old_state: dict, new_state: dict) -> None:
++    """Write the walked state back if it changed. Best effort, never raises.
++
++    The READ decision must never depend on this succeeding: a Hub whose
++    state dir is read-only still expires trials correctly, it just cannot
++    show the walked status in the Doctor banner.
++    """
++    if new_state == old_state:
++        return
++    try:
++        _write(new_state)
++    except OSError:
++        pass
++
++
++def is_active_or_grace() -> bool:
++    """Return True if ongoing intelligence should keep running.
++
++    Resolution order (each branch short-circuits):
++
++    1. The stored state is WALKED FORWARD to now first (``_walk``). The
++       stored ``status`` field is a cache, not an authority -- this
++       function used to read it directly, and because nothing ever walked
++       it, ``status=active`` written at install time never changed and
++       every Hub buyer had Ostler Pro free for life.
++    2. Effective status ``active`` -> True.
++    3. Effective status ``grace`` -> True. Only a customer who has paid
++       at least once can BE in grace (see ``_walk``), so this branch can
++       no longer hand a never-paid trialist a free fortnight.
++    4. **Fail-open offline grace**, gated on ``has_ever_paid``:
++       ``last_validated_at`` within the last 30 days. A paying customer
++       whose network is down, who is on holiday, or whose StoreKit server
++       is having a bad day keeps running. A trialist who never paid does
++       NOT -- for them "we could not validate" is not a reason to doubt
++       the answer, because there is nothing to validate.
++    5. Otherwise: inactive. Return False.
++
++    Apple-restraint posture is unchanged for anyone who has paid: they
++    cannot be locked out by infrastructure failure we cannot observe.
++    What changed is that the posture no longer extends to someone who has
++    never paid, because for them it was not restraint, it was the product
++    being free.
++    """
++    state = _load()
++    now = _now()
++    effective, walked = _walk(state, now)
++    _persist_walk(state, walked)
++
++    if effective in (STATUS_ACTIVE, STATUS_GRACE):
++        return True
++
++    # Fail-open, for payers only. Note the denominator this branch must
++    # not silently acquire: before the has_ever_paid guard, EVERY install
++    # satisfied it for its first 30 days, because install.sh stamps
++    # last_validated_at at activation time. It read as a safety net and
++    # behaved as a second free month.
++    if _has_ever_paid(state):
++        last_validated = _parse_iso(state.get("last_validated_at"))
++        expires = _parse_iso(state.get("expires_at"))
++        if last_validated is not None and (now - last_validated) < timedelta(
++            days=OFFLINE_GRACE_DAYS
++        ):
++            # 🔴 SILENCE IS NOT THE SAME AS AN ANSWER, and this branch used
++            # to treat them identically. The fail-open exists for the
++            # customer we cannot REACH. If last_validated_at is LATER than
++            # the expiry it reported, we did reach them, after the expiry,
++            # and Apple's answer was "expired" -- overriding that is not
++            # restraint, it is ignoring the only fact we have. And because
++            # the iOS app re-pushes on every foreground, last_validated_at
++            # keeps moving forward: a customer who cancelled would have
++            # kept Ostler Pro for as long as they kept opening the app.
++            # Same defect family as the trial that never ends.
++            heard_after_expiry = expires is not None and last_validated > expires
++            if not heard_after_expiry:
++                return True
++
++    return False
++
++
++def state_dict() -> dict:
++    """Snapshot the current state. Read-only; for Doctor banner + diagnostics."""
++    return _load()
++
++
++# Warning kinds. Two, and they are different events needing different words.
++WARNING_ENDING_SOON = "ending_soon"
++WARNING_ENDED = "ended"
++
++
++def expiry_warning(
++    now: Optional[datetime] = None,
++    state: Optional[dict] = None,
++) -> Optional[dict]:
++    """What should the customer be TOLD about their window, right now?
++
++    Returns ``None`` when there is nothing to say, else a dict carrying
++    ``kind``, ``days_left`` (negative once past), ``expires_at``, ``tier``
++    and ``message``. Never raises. Never writes.
++
++    ANDY'S TWO RULES FOR HR015 #929 LIVE HERE.
++
++    1. EXPIRY DEGRADES TO READ-ONLY, NEVER DESTRUCTIVE. Nothing in this
++       module deletes, truncates or moves a single byte of customer data,
++       and this function is the place that says so in words the customer
++       reads. Every message below states that their data stays. "Paused",
++       never "locked": a lapsed tester keeps everything they have and
++       loses the product WORKING, which is a different sentence and a
++       different feeling. Deleting a tester's life because a date passed
++       is unrecoverable reputationally and we are not going to find out.
++
++    2. THEY ARE WARNED BEFORE IT HAPPENS. ``WARNING_ENDING_SOON`` fires
++       while the customer is still ACTIVE, from
++       ``WARN_BEFORE_EXPIRY_DAYS`` out. ``WARNING_ENDED`` exists so the
++       surfaces that show the first can also explain the second, but it
++       is the consolation prize: a product that only ever prints the
++       second one has told the customer nothing they had not already
++       worked out.
++
++    🔴 THE CLOCK IS INJECTED, AND THAT IS NOT A TESTING CONVENIENCE. A
++    test that reads the wall clock passes today and rots on a date
++    nobody chose -- and a WINDOW is precisely the thing whose tests rot,
++    because the interesting instants are all defined relative to a
++    moment. ``now`` is a parameter, the callers below pass nothing so
++    production gets ``_now()``, and the guard test drives a dozen fixed
++    instants either side of a fixed expiry. There is no environment
++    variable and no module global: a clock the launching process can set
++    is a clock an unpaid install can set to last year.
++
++    WHOSE WINDOW. ``expires_at`` is the state's own window, which for a
++    beta licence IS the beta window (activate_first_month_free puts it
++    there) and for everyone else is the free month or the last receipt.
++    So this one function warns a beta tester about their beta and a
++    subscriber about their subscription, without either case needing to
++    know about the other.
++    """
++    try:
++        now = now or _now()
++        snapshot = _load() if state is None else state
++        if not isinstance(snapshot, dict):
++            return None
++
++        expires = _parse_iso(snapshot.get("expires_at"))
++        if expires is None:
++            # An unreadable or absent window is not a window closing
++            # soon. Saying "your access ends in 0 days" off a date we
++            # could not read would be inventing an event. The gate's own
++            # fail-open / fail-closed asymmetry in _walk already decides
++            # what such a state MEANS; this function only reports.
++            return None
++
++        tier, tier_state = licence_tier(snapshot)
++        # Report the STATE when there is no tier, never a tier we made
++        # up. "unverified" in a message is a fact; "hub" would be a
++        # guess with the same shape as a fact.
++        label = tier if tier else tier_state
++
++        # Whole days, rounded towards the customer. 6.5 days left reads
++        # as 6, not 7: telling someone they have a week when they have
++        # six and a half days is the direction that costs them.
++        seconds_left = (expires - now).total_seconds()
++        days_left = int(seconds_left // 86400)
++
++        if seconds_left > 0:
++            if days_left > WARN_BEFORE_EXPIRY_DAYS:
++                return None
++            if days_left <= 0:
++                when = "today"
++            elif days_left == 1:
++                when = "tomorrow"
++            else:
++                when = "in {n} days".format(n=days_left)
++            return {
++                "kind": WARNING_ENDING_SOON,
++                "days_left": days_left,
++                "expires_at": snapshot.get("expires_at"),
++                "tier": tier,
++                "tier_state": tier_state,
++                "message": (
++                    "Your {label} access ends {when}. Ongoing intelligence "
++                    "will pause after that. Everything already in your Hub "
++                    "stays exactly where it is and stays readable; nothing "
++                    "is deleted. Subscribe in the Ostler app to carry on."
++                ).format(label=label, when=when),
++            }
++
++        # Past the window. Only worth saying while the customer is
++        # actually paused: a payer whose receipt has since landed is not
++        # in this state, and telling them their access ended would be
++        # false.
++        effective, _walked = _walk(snapshot, now)
++        if effective in (STATUS_ACTIVE, STATUS_GRACE):
++            return None
++        return {
++            "kind": WARNING_ENDED,
++            "days_left": days_left,
++            "expires_at": snapshot.get("expires_at"),
++            "tier": tier,
++            "tier_state": tier_state,
++            # NEVER the raw stamp. activate_first_month_free derives
++            # expires_at from datetime.now(), which carries microseconds,
++            # so the raw value reads as "2026-09-13T05:57:41.666985Z" in
++            # a sentence a customer is reading.
++            "message": (
++                "Your {label} access ended on {when}. Ongoing intelligence "
++                "is paused. Everything already in your Hub stays exactly "
++                "where it is and stays readable; nothing has been deleted. "
++                "Subscribe in the Ostler app to start it again."
++            ).format(label=label,
++                     when=expires.strftime("%d %B %Y").lstrip("0")),
++        }
++    except Exception:  # noqa: BLE001
++        # A warning that crashes must not take the caller with it. The
++        # Doctor rule and the tick wrappers both call this on paths that
++        # must never fail; silence is the correct degradation for a
++        # message, unlike for a gate.
++        return None
++
++
++def refresh_from_companion(receipt_b64: str, expires_at_iso: str) -> None:
++    """Called when iOS Companion pushes a fresh StoreKit receipt.
++
++    Writes a new active-state with the provided expiry. Resets
++    ``grace_period_end`` (so a previously-grace state is cleared on
++    successful re-validation). Stores the receipt for support; we never
++    forward it to Apple from the Hub (the Companion does any server-side
++    StoreKit 2 validation on the iOS side first).
++
++    THIS IS THE ONLY PLACE ``has_ever_paid`` IS SET TRUE. A receipt
++    reaching this function is the Hub's proof that the customer completed
++    a real purchase or restore; the iOS app does not push one otherwise.
++    That is what makes the bit mean "paid", and what keeps the free month
++    (which arrives through ``activate_first_month_free``, with no receipt)
++    from claiming it.
++    """
++    new_state = {
++        "status": STATUS_ACTIVE,
++        "last_validated_at": _iso_now(),
++        "expires_at": expires_at_iso,
++        "grace_period_end": None,
++        "source": SOURCE_COMPANION,
++        "receipt": receipt_b64,
++        KEY_HAS_EVER_PAID: True,
++    }
++    _carry_tier(new_state, _load())
++    _write(new_state)
++
++
++def activate_first_month_free(
++    purchase_date_iso: str,
++    licence_tier: Optional[str] = None,
++    licence_tier_state: Optional[str] = None,
++    licence_expires_at: Optional[str] = None,
++) -> None:
++    """Called at install.sh time after license verification succeeds.
++
++    Hub gets 30 days of Pro free with Hub purchase. Customer can then
++    subscribe via the iOS app to extend. Writes the canonical first-
++    month-free state: ``status=active`` for 30 days.
++
++    ``has_ever_paid`` is CARRIED OVER from any existing state, never
++    granted. Two consequences, both intended:
++
++    - A customer who is already paying and re-runs the installer keeps
++      the bit, so re-running install.sh cannot cost them their grace.
++    - A trialist who deletes the state file and reinstalls to farm a
++      second free month gets ``has_ever_paid=False`` again, so their
++      month still ends on day 30 with no grace after it.
++
++    The 14-day ``grace_period_end`` is still written so support and the
++    Doctor banner can see the shape of the window, but it is INERT for a
++    never-paid customer: ``_walk`` refuses grace to anyone without the
++    bit. Do not read the presence of that field as a granted fortnight.
++
++    ``licence_tier`` / ``licence_tier_state`` (HR015 #928) are what
++    install.sh read out of the customer's verified licence. This is the
++    ONLY entry point on a customer's Mac where a verified licence and the
++    Hub's own state meet, which is why the tier is recorded here and not
++    somewhere more obvious: install.sh is the only thing that ever opens
++    the licence file, and it does so exactly once.
++
++    An unrecognised tier is recorded, not rejected. A tier CM050 starts
++    issuing after this build shipped must survive contact with an older
++    Hub rather than being flattened to "hub" by the act of being read.
++    """
++    purchase_dt = _parse_iso(purchase_date_iso)
++    if purchase_dt is None:
++        # Defensive: caller passed garbage. Fall back to now so install
++        # never silently writes a broken state.
++        purchase_dt = _now()
++    expires = purchase_dt + timedelta(days=30)
++
++    # ── A BETA TESTER'S WINDOW IS THEIR BETA, NOT A CALENDAR MONTH ──
++    #
++    # HR015 #929. Before this, every install got 30 days of Pro whatever
++    # the licence said, so a tester on a 90-day beta licence lost the
++    # product on day 31 with their beta still running, and a tester on a
++    # 14-day licence kept it for a fortnight after their beta ended.
++    # Neither is what the licence says, and the licence is the thing the
++    # customer was given.
++    #
++    # ONLY for tier `beta`, and only when the beta window is a date we
++    # can actually read. A hub or pro licence keeps the 30-day free
++    # month unchanged: their update window is about updates, not about
++    # whether the product runs, and reading it as an entitlement would
++    # cut off paying customers.
++    #
++    # Deliberately NOT clamped to 30 days. The beta window IS the grant.
++    licence_dt = _parse_iso(licence_expires_at)
++    if licence_tier == TIER_BETA and licence_dt is not None:
++        expires = licence_dt
++
++    grace_end = expires + timedelta(days=GRACE_DAYS)
++    old_state = _load()
++    new_state = {
++        "status": STATUS_ACTIVE,
++        "last_validated_at": _iso_now(),
++        "expires_at": expires.isoformat().replace("+00:00", "Z"),
++        "grace_period_end": grace_end.isoformat().replace("+00:00", "Z"),
++        "source": SOURCE_FIRST_MONTH_FREE,
++        KEY_HAS_EVER_PAID: _has_ever_paid(old_state),
++    }
++    # An unverified install must not overwrite a tier a previous verified
++    # install established. Re-running install.sh with --allow-unlicensed
++    # would otherwise cost the customer their recorded tier, and the loss
++    # would be invisible. The licence expiry rides with the tier for the
++    # same reason and in the same branch: they come from one reading of
++    # one file, and half of that reading is not a state worth keeping.
++    if licence_tier_state in TIER_STATES and licence_tier_state != TIER_STATE_UNVERIFIED:
++        new_state[KEY_LICENCE_TIER_STATE] = licence_tier_state
++        new_state[KEY_LICENCE_TIER] = (
++            licence_tier if isinstance(licence_tier, str) and licence_tier else TIER_HUB
++        )
++        if isinstance(licence_expires_at, str) and licence_expires_at:
++            new_state[KEY_LICENCE_EXPIRES_AT] = licence_expires_at
++        elif KEY_LICENCE_EXPIRES_AT in old_state:
++            new_state[KEY_LICENCE_EXPIRES_AT] = old_state.get(KEY_LICENCE_EXPIRES_AT)
++    else:
++        _carry_tier(new_state, old_state)
++    _write(new_state)
++
++
++def expire_check() -> None:
++    """Walk state forward as time passes. Idempotent; safe to call often.
++
++    Transitions (all of them live in ``_walk``; this function is the
++    persistence half, so the two can never drift apart):
++
++    - ``active`` past ``expires_at``, customer HAS paid -> ``grace``.
++    - ``active`` past ``expires_at``, customer has NEVER paid ->
++      ``inactive`` immediately.
++    - ``grace`` past ``grace_period_end`` -> ``inactive``.
++
++    Once ``inactive``, the customer must re-validate via an iOS receipt
++    push (``refresh_from_companion``) to come back. This function never
++    writes a backwards transition; subscription comebacks always go
++    through the receipt path.
++
++    Called hourly by ``_start_subscription_expiry_ticker`` in
++    ical-server.py. A missed tick costs nothing: ``is_active_or_grace``
++    walks the same state machine in-process, so the customer-visible
++    answer is right whether or not this ever ran.
++    """
++    state = _load()
++    _, walked = _walk(state, _now())
++    if walked != state:
++        _write(walked)
++
++
++# Exit code the --check CLI uses for "subscription paused". Deliberately
++# NOT 1: a shell caller must be able to tell "the customer is not paying"
++# apart from "this script crashed", because those two need opposite
++# handling. A crash must never silently pause a paying customer's
++# ingestion, and a pause must never look like a bug to be retried.
++EXIT_PAUSED = 3
++
++
++def _main(argv: list) -> int:
++    """``python3 subscription_gate.py --check``.
++
++    The seam for the shell tick wrappers (iMessage, WhatsApp, email,
++    spoken). Those run in their own venvs, in their own staged service
++    directories, and cannot import this module -- but they can run it,
++    because install.sh stages the whole of assistant_api/ (including this
++    file) to ${OSTLER_DIR}/services/ical-server/, a SIBLING of every
++    services/<source> directory the wrappers already know the path to.
++
++    Exit 0 = keep ingesting. Exit 3 = paused, stop before touching new
++    data. Anything else = this script itself failed, and the caller must
++    treat that as "carry on", never as "paused".
++    """
++    if "--tier" in argv:
++        # The seam the Hub's own diagnostics read. Prints
++        # "<state> <tier-or-none>" on one line and exits 0 whatever the
++        # answer: asking what tier a customer holds is not the same
++        # question as whether they may keep ingesting, and a non-zero
++        # exit here would make a Hub-tier customer look like a failure.
++        tier, tier_state = licence_tier()
++        print("{state} {tier}".format(state=tier_state, tier=tier or "none"))
++        return 0
++    if "--warning" in argv:
++        # The seam for anything that shows the customer a message. Prints
++        # the warning if there is one and exits 0 EITHER WAY: "nothing to
++        # say" is a successful answer, and a non-zero here would make a
++        # customer with months left look like a failed check.
++        warning = expiry_warning()
++        if warning:
++            print(warning["message"])
++        return 0
++    if "--check" not in argv:
++        print("usage: subscription_gate.py --check | --tier | --warning",
++              file=sys.stderr)
++        return 2
++    if is_active_or_grace():
++        # STILL ACTIVE, AND STILL EXIT 0. The warning rides the check the
++        # five tick wrappers already make on every tick, so telling the
++        # customer their window is closing costs no new caller and no new
++        # scheduler -- which matters, because a scheduler is a thing that
++        # can fail to be loaded and this is the half that must not.
++        #
++        # Printing on the PASS path is the whole point of HR015 #929's
++        # second rule. A message that only ever prints once the product
++        # has stopped is not a warning, it is an obituary.
++        warning = expiry_warning()
++        if warning and warning["kind"] == WARNING_ENDING_SOON:
++            print(warning["message"])
++        return 0
++    snapshot = state_dict()
++    tier, tier_state = licence_tier(snapshot)
++    # The tier is NAMED in the pause message because it is the first
++    # question support asks and the customer is the one holding the
++    # answer. "unverified" is printed as itself, never as a tier: this
++    # line is read by a person deciding what to do next, and telling
++    # them "hub" when nothing was checked would send them the wrong way.
++    print(
++        "Ostler Pro is not active (status={status}, source={source}, "
++        "licence={tier}). Ongoing intelligence is paused; data already "
++        "ingested stays fully accessible. Subscribe in the Ostler app "
++        "to resume.".format(
++            status=snapshot.get("status", STATUS_INACTIVE),
++            source=snapshot.get("source", SOURCE_DEFAULT),
++            tier=tier if tier else tier_state,
++        )
++    )
++    return EXIT_PAUSED
++
++
++if __name__ == "__main__":
++    sys.exit(_main(sys.argv[1:]))
 diff --git b/tcc_refusal.py b/tcc_refusal.py
 new file mode 100644
 index 00000000..45891837

@@ -165,6 +165,7 @@ test_calendar_attendee_resolve_before_create.py	WIRED	.github/workflows/privacy-
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_calendar_review_is_one_screen.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_set_aside_classification.py	WIRED	.github/workflows/install-gui-contract.yml
+test_call_history_vendored.py	WIRED	.github/workflows/call-history.yml
 test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch-reachable.yml
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -172,6 +173,7 @@ test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.y
 test_canonicalise_syncs_qdrant.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_catchup_browser.py	WIRED	.github/workflows/catchup-browser.yml
+test_catchup_calls.py	WIRED	.github/workflows/call-history.yml
 test_catchup_core.py	WIRED	.github/workflows/catchup-machinery.yml
 test_catchup_first_48h_cadence.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_catchup_mail.py	WIRED	.github/workflows/catchup-mail.yml
@@ -806,7 +808,7 @@ test_the_shipped_compose_mounts_the_editor_feed.sh	WIRED	.github/workflows/edito
 test_the_shipped_compose_mounts_the_people_photos.sh	WIRED	.github/workflows/editor-feed-gate.yml
 test_the_shipped_stores_have_fd_headroom.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
-test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/call-history.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_the_source_table_items_column_shows_the_live_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_the_store_auth_guard_says_when_it_skips.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml

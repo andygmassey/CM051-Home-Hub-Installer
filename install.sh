@@ -3637,7 +3637,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8977 and :16635, both of which run
+    # Its two top-level arming calls are :8977 and :16638, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17430, where the note reads
+    # WhatsApp Web session path did it again at :17433, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17447 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17450 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3674,9 +3674,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8977, :16635) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8977, :16638) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19595 / :19773 / :19930 / :20375 path. There the
+    # :19598 / :19776 / :19933 / :20378 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -12132,6 +12132,9 @@ case "$PRESET" in
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
+        # Call history (who and when, never audio): opt-in, in NO preset, so
+        # the only way it is read is that the customer ticked it here.
+        _ask_source "call_history" "Call history (who and when, never audio)" N
         # Build comma-separated list
         IFS=','
         OSTLER_FDA_SOURCES="${ENABLED[*]}"
@@ -24964,6 +24967,7 @@ _FEEDS = {
     'apple_mail': ('apple_mail',),
     'browser_history': ('safari_history', 'chrome_history'),
     'bookmarks': ('safari_bookmarks',),
+    'calls': ('call_history',),
 }
 # Read by the hourly tick but loaded by no ingest key: a refusal still has to
 # be visible, so these get a record of their own.
@@ -29120,6 +29124,15 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
             "OSTLER_BROWSER_BACKFILL_DAYS=${OSTLER_BROWSER_BACKFILL_DAYS:-1825}" \
             "OSTLER_FDA_SOURCES=${OSTLER_FDA_SOURCES:-}" \
             || warn "browser catch-up runner not registered; history older than the install window will not be read."  # i18n-exempt
+        # Call history catch-up (opt-in source; the adapter answers "nothing
+        # to read" unless call_history is in OSTLER_FDA_SOURCES). Slot 0:
+        # ingest_calls is SPARQL only, no model call.
+        _ostler_catchup_register 25-calls \
+            "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/services/email-ingest/.venv/bin/python3" \
+            "ostler_fda.catchup_calls:adapters" 0 "" \
+            "OSTLER_CALL_BACKFILL_DAYS=${OSTLER_CALL_BACKFILL_DAYS:-365}" \
+            "OSTLER_FDA_SOURCES=${OSTLER_FDA_SOURCES:-}" \
+            || warn "call history catch-up runner not registered; calls older than the forward window will not be read."  # i18n-exempt
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL"
         if [[ -s "${OSTLER_DIAG_DIR}/fda-pip.log" ]]; then
@@ -33613,7 +33626,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar calls contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
 
 # ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
 #
@@ -33656,7 +33669,7 @@ OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calen
 # OSTLER_SENTINEL_SOURCES above, and that every right-hand row RENDERS in the
 # real vendored panel. A source added to the picker and to nothing else is
 # caught by the first of those, which is the durable half of #1587.
-OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders apple_music:apple_music"
+OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders apple_music:apple_music call_history:calls"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -34096,6 +34109,19 @@ _hydrate_fda_record_apple_music() {
     esac
 }
 
+_hydrate_fda_record_calls() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            calls "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    calls "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run calls "$_a" ;;
+        error)      _hydrate_sentinel_record_error      calls 1 "" ;;
+        *)          : ;;
+    esac
+}
+
 _hydrate_record_fda_extract() {
     local summary="${1:-${OSTLER_DIR}/imports/fda/extraction_summary.json}"
     local py="${2:-${OSTLER_PYTHON:-python3}}"
@@ -34148,6 +34174,8 @@ WANT = {
     "reminders": ("reminders", ("pending", "completed", "total_reminders")),
     # Apple Music (CM051 walk #27): the count is the tracks the reader saw.
     "apple_music": ("apple_music", ("total_playlists", "total_tracks")),
+    # Call history (opt-in): the count is the calls the reader saw.
+    "call_history": ("calls", ("total_calls",)),
     }
 try:
     doc = json.loads(open(os.environ["OSTLER_FDA_SUMMARY"],
@@ -34190,6 +34218,7 @@ FDASUMEOF
             photos)    _hydrate_fda_record_photos    "$_status" "$_payload" ;;
             reminders) _hydrate_fda_record_reminders "$_status" "$_payload" ;;
             apple_music) _hydrate_fda_record_apple_music "$_status" "$_payload" ;;
+            calls)     _hydrate_fda_record_calls "$_status" "$_payload" ;;
             *)         : ;;
         esac
     done <<< "$_parsed"

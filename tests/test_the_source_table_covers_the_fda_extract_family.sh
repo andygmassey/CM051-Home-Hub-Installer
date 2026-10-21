@@ -280,7 +280,7 @@ names = ["_hydrate_payload_count", "_hydrate_payload_is_all_zero",
          "_hydrate_sentinel_record_error", "_hydrate_sentinel_record_cannot_run",
          "_hydrate_fda_decision",
          "_hydrate_fda_record_photos", "_hydrate_fda_record_reminders",
-         "_hydrate_fda_record_apple_music",
+         "_hydrate_fda_record_apple_music", "_hydrate_fda_record_calls",
          "_hydrate_record_fda_extract"]
 body = []
 for n in names:
@@ -564,6 +564,66 @@ case "$_c" in
     *)                  bad "an unrecognised extractor status rendered '${_c}'" ;;
 esac
 
+# ── CALL HISTORY (opt-in, Customise picker only) ─────────────────────────
+# Same states as Reminders, for the source whose row must never appear for a
+# customer who did not tick it. Synthetic counts, unlike the others.
+SUMMARY_CALLS_OK='{"sources":{"call_history":{"status":"ok","total_calls":318,"missed":9,"unique_contacts":41}}}'
+SUMMARY_CALLS_NOFDA='{"sources":{"call_history":{"status":"no_fda"}}}'
+SUMMARY_CALLS_OFF='{"sources":{"call_history":{"status":"disabled_by_user"},"reminders":{"status":"ok","total_reminders":87}}}'
+SUMMARY_CALLS_SCHEMA='{"sources":{"call_history":{"status":"error","error":"ZCALLRECORD is missing column(s): ZDATE"}}}'
+
+_drive "$SUMMARY_CALLS_OK"
+_c="$(_cell calls "$(_render)")"
+case "$_c" in
+    "read in|318 calls") ok "a customer who ticked Call history sees 'calls / read in / 318 calls' (total_calls, not the 9 missed)" ;;
+    "")  bad "Call history is ABSENT from the panel after a successful extract: the Doctor row is unwired" ;;
+    *)   bad "the Calls row reads '${_c}', expected 'read in|318 calls'" ;;
+esac
+
+# The LIVE total: the install-time sentinel above says 318; a later tick
+# rewrites the extract summary, and the row must follow it, not the frozen
+# sentinel. (Kills a mutant that drops the calls entry from _EXTRACT_SUMMARY_KEYS.)
+mkdir -p "${WORK}/imports/fda"
+printf '%s' '{"sources":{"call_history":{"status":"ok","total_calls":405}}}' > "${WORK}/imports/fda/extraction_summary.json"
+_c="$(_cell calls "$(_render)")"
+rm -rf "${WORK}/imports"
+case "$_c" in
+    "read in|405 calls") ok "the Calls row follows the live extract total (405), not the frozen install-time sentinel (318)" ;;
+    "read in|318 calls") bad "the Calls row printed the frozen sentinel 318 although a live extract total of 405 exists" ;;
+    *)  bad "the live-total Calls row reads '${_c}', expected 'read in|405 calls'" ;;
+esac
+
+_drive "$SUMMARY_CALLS_NOFDA"
+_c="$(_cell calls "$(_render)")"
+case "$_c" in
+    "needs access|&mdash;") ok "with Full Disk Access ungranted Calls reads 'needs access' (the refused pane is named) with a BLANK count" ;;
+    "could not look|&mdash;") bad "the ungranted-FDA Calls row reads 'could not look'; a refused permission is 'needs access' since the refusal map" ;;
+    "")  bad "Calls vanished when Full Disk Access was ungranted; an absent row reads as fine" ;;
+    *)   bad "the ungranted-FDA Calls row reads '${_c}', expected 'needs access' with a blank count" ;;
+esac
+
+_drive "$SUMMARY_CALLS_SCHEMA"
+_c="$(_cell calls "$(_render)")"
+case "$_c" in
+    "failed|&mdash;") ok "a call-history schema the reader does not know reads 'failed' with a BLANK count, never a zero or 'read in'" ;;
+    "")  bad "an unreadable call-history schema produced no Calls row" ;;
+    *)   bad "the unknown-schema Calls row reads '${_c}', expected 'failed' with a blank count" ;;
+esac
+
+_drive "$SUMMARY_CALLS_OFF"
+OUT_CALLS_OFF="$(_render)"
+_c="$(_cell calls "$OUT_CALLS_OFF")"
+if [ -z "$_c" ]; then
+    ok "a customer who did not tick Call history sees no Calls row (declined is not a failure)"
+else
+    bad "a customer who did not tick Call history was shown a Calls row '${_c}'"
+fi
+# CONTROL for that absence, same run: another opt-in source in the same
+# summary DOES render, so "no calls row" is a decision and not a dead renderer.
+_c="$(_cell reminders "$OUT_CALLS_OFF")"
+[ -n "$_c" ] && ok "control: Reminders in the same summary still renders (${_c})" \
+             || bad "control: the panel rendered no Reminders row beside the declined Calls source"
+
 # ── the summary itself missing: CANNOT-RUN, not zero ─────────────────────
 rm -rf "$WORK_SENT"; mkdir -p "$WORK_SENT"
 rm -f "${WORK}/extraction_summary.json"
@@ -592,8 +652,8 @@ printf '\n  %d pass, %d fail\n' "$PASS" "$FAIL"
 # this file, which reported seven FAILs and exited 2.
 [ "$FAIL" -eq 0 ] || exit 1
 _TOTAL=$((PASS + FAIL))
-if [ "$_TOTAL" -lt 11 ]; then
-    echo "CANNOT-RUN: only ${_TOTAL} assertions were reached; expected 11 or more" >&2
+if [ "$_TOTAL" -lt 17 ]; then
+    echo "CANNOT-RUN: only ${_TOTAL} assertions were reached; expected 17 or more" >&2
     exit 2
 fi
 echo "PASS: the Doctor source table covers the FDA extract family"

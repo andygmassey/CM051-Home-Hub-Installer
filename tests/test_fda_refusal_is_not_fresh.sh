@@ -86,7 +86,7 @@ import os, sys
 # below checks the real module still has it.
 _INGEST_DISPATCH = (
     ("imessage", "x"), ("social", "x"), ("calendar", "x"), ("photos", "x"),
-    ("apple_mail", "x"), ("browser_history", "x"), ("bookmarks", "x"),
+    ("apple_mail", "x"), ("calls", "x"), ("browser_history", "x"), ("bookmarks", "x"),
 )
 
 def ingest_all(fda_dir=None):
@@ -138,6 +138,23 @@ grep -qx photos "${R}/ingested.log" 2>/dev/null \
 [[ "$rc" != "0" ]] \
     && ok "the tick exits non-zero (rc=${rc})" \
     || bad "the tick exited 0 on a refused read"
+
+echo "== 1b. a refused Call history read keeps last_success_at and says cannot_run (opt-in source) =="
+C="${WORK}/callsrefused"; build_root "$C"; seed "$C" calls
+rc="$(tick "$C" '{"call_history":{"status":"no_fda"},"photos":{"status":"ok"}}')"
+F="${C}/.ostler/state/source_activity/calls.tsv"
+[[ "$(field "$F" last_status)" == "cannot_run" ]] \
+    && ok "calls last_status=cannot_run" \
+    || bad "calls last_status=$(field "$F" last_status), want cannot_run (is 'calls' missing from the wrapper's _FEEDS?)"
+[[ "$(field "$F" last_success_at)" == "$OLD_SUCCESS" ]] \
+    && ok "calls last_success_at unchanged (${OLD_SUCCESS})" \
+    || bad "calls last_success_at moved to '$(field "$F" last_success_at)' on a refused read"
+! grep -qx calls "${C}/ingested.log" 2>/dev/null \
+    && ok "the stale call-history JSON was NOT re-ingested" \
+    || bad "calls was re-ingested from the stale file"
+grep -qx photos "${C}/ingested.log" 2>/dev/null \
+    && ok "control: a readable source (photos) in the same tick was still ingested" \
+    || bad "photos was not ingested; the harness or the skip is too broad"
 
 echo "== 2. a good Calendar read still updates (the control) =="
 G="${WORK}/good"; build_root "$G"; seed "$G" calendar

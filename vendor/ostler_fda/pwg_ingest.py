@@ -1035,6 +1035,9 @@ _SOURCE_PREDICATE = {
     # can distinguish DM-level signals from group-membership signals
     # without splitting the freshness signal across two predicates.
     "whatsapp": "pwg:lastContactWhatsApp",
+    # A call that was CONNECTED (answered, or placed and picked up). A missed
+    # or unanswered call exchanged nothing, so ingest_calls never passes it.
+    "call": "pwg:lastContactCall",
 }
 
 
@@ -1181,6 +1184,267 @@ def _upsert_display_name(person_uri: str, value: str) -> None:
         )
     except Exception as e:  # a name upgrade must never break an ingest
         logger.debug("Could not upsert displayName for %s: %s", person_uri, e)
+
+
+# ── Call history ingestion ────────────────────────────────────────
+#
+# macOS call history (phone + FaceTime) becomes ONE pwg:CallEvent node per call
+# (who, when, direction, duration, kind, missed) hung off an EXISTING Person,
+# plus the per-source freshness signal pwg:lastContactCall that iMessage and
+# WhatsApp already have (pwg:lastContactIMessage / ...WhatsApp).
+#
+# WHO A CALL BELONGS TO. A call only ever attaches to a Person who is ALREADY
+# in the graph, matched on a stored phone/email identifier. A number nobody
+# holds creates NO Person: a call log is full of delivery drivers, spam and
+# wrong numbers, and the owner must never become a contact by being on the
+# other end of their own calls. Unmatched numbers are COUNTED, not dropped
+# silently. A number held by two differently-keyed people (a family landline)
+# is AMBIGUOUS and attributed to nobody.
+#
+# WHO A CALL MUST NOT BE FILED AGAINST. A person carrying a do-not-suggest
+# record (pwg:SuggestionSuppression, e.g. deceased) or a minor flag
+# (pwg:MinorFlag) gets NO call events at all, and a person at privacy level L3
+# gets none either (writer-side L3 short-circuit). If the suppression records
+# cannot be read the whole run is cannot_run and writes nothing: fail closed.
+#
+# Metadata only. No audio exists in the source and none is read.
+
+_CALL_BATCH = 100
+_CALL_KINDS = ("phone", "facetime_video", "facetime_audio", "other")
+
+
+def _call_digits(s: str) -> str:
+    return re.sub(r"\D", "", s or "")
+
+
+def _call_lookup_keys(address: str) -> list[str]:
+    """Index keys an identifier is filed under, most specific first."""
+    a = (address or "").strip()
+    if "@" in a:
+        return ["e:" + a.lower()]
+    d = _call_digits(a)
+    if not d:
+        return []
+    keys = ["p:" + d]
+    if len(d) >= 9:
+        keys.append("t:" + d[-9:])
+    return keys
+
+
+def _call_person_index() -> tuple[dict, dict]:
+    """(identifier-key -> {person uri}, person uri -> info). Raises on a
+    store failure: the caller turns that into cannot_run, never into "no
+    matches"."""
+    rows = _sparql_query(
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+        "SELECT ?person ?v ?name ?priv WHERE {\n"
+        "  ?person a pwg:Person ; pwg:hasIdentifier ?id .\n"
+        "  ?id pwg:identifierType ?t ; pwg:identifierValue ?v .\n"
+        '  FILTER (?t IN ("phone", "email"))\n'
+        "  OPTIONAL { ?person pwg:displayName ?name }\n"
+        "  OPTIONAL { ?person pwg:privacyLevel ?priv }\n"
+        "}"
+    )
+    index: dict[str, set] = {}
+    info: dict[str, dict] = {}
+    for r in rows:
+        uri = r["person"]["value"]
+        val = r["v"]["value"]
+        rec = info.setdefault(uri, {"values": set(), "name": "", "priv": ""})
+        rec["values"].add(val)
+        if "name" in r:
+            rec["name"] = r["name"]["value"]
+        if "priv" in r:
+            rec["priv"] = r["priv"]["value"]
+        for k in _call_lookup_keys(val):
+            index.setdefault(k, set()).add(uri)
+    return index, info
+
+
+def _call_suppression() -> tuple[set, set, set]:
+    """(person uris, identifier values, slugs) under a do-not-suggest or minor
+    record. Raises on a store failure."""
+    rows = _sparql_query(
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+        "SELECT ?slug ?idv ?person WHERE {\n"
+        "  VALUES ?cls { pwg:SuggestionSuppression pwg:MinorFlag }\n"
+        "  ?s a ?cls .\n"
+        "  OPTIONAL { ?s pwg:suppressedSlug ?slug }\n"
+        "  OPTIONAL { ?s pwg:suppressedIdentifier ?idv }\n"
+        "  OPTIONAL { ?s pwg:suppressedPerson ?person }\n"
+        "}"
+    )
+    uris, idvs, slugs = set(), set(), set()
+    for r in rows:
+        if "person" in r:
+            uris.add(r["person"]["value"])
+        if "idv" in r:
+            idvs.add(r["idv"]["value"])
+        if "slug" in r:
+            slugs.add(r["slug"]["value"])
+    return uris, idvs, slugs
+
+
+def _call_match(address: str, index: dict) -> tuple[Optional[str], str]:
+    """(person uri, "") on a unique match, else (None, reason) where reason is
+    "unmatched" or "ambiguous"."""
+    keys = _call_lookup_keys(address)
+    if not keys:
+        return None, "unmatched"
+    exact = index.get(keys[0], set())
+    if exact:
+        hit = exact
+    elif "@" not in address and not address.strip().startswith("+") and len(keys) > 1:
+        # A national-format number (no +): fall back to the last nine digits,
+        # which the stored E.164 form shares. Never done for a +number, whose
+        # country is stated and must agree.
+        hit = index.get(keys[1], set())
+    else:
+        hit = set()
+    if not hit:
+        return None, "unmatched"
+    if len(hit) > 1:
+        return None, "ambiguous"
+    return next(iter(hit)), ""
+
+
+def _load_call_events(fda_dir: Path) -> Optional[list]:
+    path = fda_dir / "call_history.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        raise ValueError(f"call_history.json unreadable: {e}") from e
+    if not isinstance(data, list):
+        raise ValueError("call_history.json root is not a list")
+    return data
+
+
+def ingest_calls(fda_dir: Path) -> dict:
+    """Ingest call_history.json into the people graph as call events."""
+    try:
+        events = _load_call_events(fda_dir)
+    except ValueError as e:
+        return {"status": "cannot_run", "reason": str(e)}
+    if events is None:
+        logger.info("No call history to ingest")
+        return {"status": "skipped", "reason": "no data"}
+
+    try:
+        index, info = _call_person_index()
+        sup_uris, sup_idvs, sup_slugs = _call_suppression()
+    except Exception as e:  # store down: write nothing, say so
+        logger.warning("Call ingest cannot run: %s", e)
+        return {"status": "cannot_run", "reason": f"graph unavailable: {e}"}
+
+    def _suppressed(uri: str) -> bool:
+        rec = info.get(uri, {})
+        return (
+            uri in sup_uris
+            or bool(rec.get("values", set()) & sup_idvs)
+            or _wiki_slug(rec.get("name", "")) in sup_slugs
+        )
+
+    counts = {
+        "events_written": 0, "matched_people": 0, "unmatched": 0,
+        "ambiguous": 0, "suppressed": 0, "l3_skipped": 0,
+        "unusable": 0, "unknown_kind": 0, "last_contact_updated": 0,
+    }
+    unmatched_numbers: set = set()
+    now_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    triples_by_event: list[list[str]] = []
+    matched: set = set()
+    last_connected: dict[str, str] = {}
+
+    for ev in events:
+        try:
+            address = str(ev["address"])
+            ts = str(ev["timestamp"])
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            event_id = str(ev["event_id"])
+            direction = ev["direction"]
+            if direction not in ("incoming", "outgoing"):
+                raise ValueError(direction)
+            duration = max(0, int(ev.get("duration_seconds", 0)))
+        except (KeyError, ValueError, TypeError):
+            counts["unusable"] += 1
+            continue
+        kind = ev.get("kind")
+        if kind not in _CALL_KINDS:
+            kind = "other"
+        if kind == "other":
+            counts["unknown_kind"] += 1
+        if dt.strftime("%Y-%m-%d") > now_day:
+            counts["unusable"] += 1
+            continue
+
+        uri, why = _call_match(address, index)
+        if uri is None:
+            counts[why] += 1
+            if why == "unmatched":
+                unmatched_numbers.add(address)
+            continue
+        if _suppressed(uri):
+            counts["suppressed"] += 1
+            continue
+        priv = info.get(uri, {}).get("priv") or DEFAULT_PRIVACY
+        if priv == "L3":
+            counts["l3_skipped"] += 1
+            continue
+
+        answered = bool(ev.get("answered"))
+        missed = bool(ev.get("missed"))
+        ev_uri = f"https://schema.ostler.ai/ontology#call_{event_id[:40]}"
+        triples_by_event.append([
+            f"<{ev_uri}> a pwg:CallEvent",
+            f"<{ev_uri}> pwg:callPerson <{uri}>",
+            f'<{ev_uri}> pwg:occurredAt "{dt.astimezone(timezone.utc).isoformat()}"^^xsd:dateTime',
+            f'<{ev_uri}> pwg:callDirection "{direction}"',
+            f'<{ev_uri}> pwg:callDurationSeconds "{duration}"^^xsd:integer',
+            f'<{ev_uri}> pwg:callKind "{kind}"',
+            f'<{ev_uri}> pwg:callAnswered "{str(answered).lower()}"^^xsd:boolean',
+            f'<{ev_uri}> pwg:callMissed "{str(missed).lower()}"^^xsd:boolean',
+            f'<{ev_uri}> pwg:privacyLevel "{_escape(priv)}"',
+            f'<{ev_uri}> pwg:source "call_history_fda"',
+        ])
+        matched.add(uri)
+        # Contact = something was exchanged: a connected call.
+        if answered and duration > 0:
+            prev = last_connected.get(uri)
+            iso = dt.astimezone(timezone.utc).isoformat()
+            if prev is None or iso > prev:
+                last_connected[uri] = iso
+
+    prefixes = (
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+    )
+    for i in range(0, len(triples_by_event), _CALL_BATCH):
+        chunk = triples_by_event[i:i + _CALL_BATCH]
+        body = " .\n  ".join(t for ev_triples in chunk for t in ev_triples)
+        try:
+            _sparql_update(prefixes + "INSERT DATA {\n  " + body + " .\n}")
+        except Exception as e:
+            logger.warning("Call ingest write failed after %d events: %s",
+                           counts["events_written"], e)
+            counts["matched_people"] = len(matched)
+            counts["unmatched"] = len(unmatched_numbers)
+            return {"status": "error", "error": str(e), **counts}
+        counts["events_written"] += len(chunk)
+
+    for uri, iso in last_connected.items():
+        _update_last_contact(uri, iso, "call")
+        counts["last_contact_updated"] += 1
+
+    counts["matched_people"] = len(matched)
+    counts["unmatched"] = len(unmatched_numbers)
+    logger.info("Calls: %d events for %d people (%d unmatched numbers)",
+                counts["events_written"], counts["matched_people"],
+                counts["unmatched"])
+    return {"status": "ok", **counts}
 
 
 # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
@@ -3583,6 +3847,8 @@ _INGEST_DISPATCH = (
     ("calendar", "ingest_calendar"),
     ("photos", "ingest_photos"),
     ("apple_mail", "ingest_mail_contacts"),
+    # After every Person-writing step: calls only attach to people who exist.
+    ("calls", "ingest_calls"),
     ("browser_history", "ingest_browser_history"),
     ("bookmarks", "ingest_bookmarks"),
     ("social", "ingest_social"),

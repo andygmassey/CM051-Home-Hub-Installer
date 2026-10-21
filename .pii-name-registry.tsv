@@ -2387,6 +2387,7 @@ nonperson	scripts/cut_markers.manifest::c6d895b24a3b8a08	PRODUCT: line 137, the 
 phrase	loopback qdrant	code comment heading for the loopback vector-store helpers (vendor/cm041/assistant_api/browsing_enrich.py)
 nonperson	vendor/cm048_pipeline/src/channel_adapter.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.
 nonperson	vendor/cm048_pipeline/src/privacy.py::7b306d02eb84aa93	PRODUCT: a messaging app's own name for the chat a user keeps with themself, cited in the CM048 #95 privacy comment; a synthetic substitute would misname the third-party feature.
+phrase	core data	Apple's persistence framework: CallHistory.storedata is a Core Data store. A framework name, not a person.
 nonperson	vendor/cm059_editor/compiler/interest_profile.py::ed1712d8189adcea	PRODUCT: line 455, a code comment naming a well-known film (a commercial work) as the example of a real title the dated-subject noise flag would wrongly penalise. It is a work, not a person, and the example only makes sense as that title.
 # cm059_editor interest_profile.py (ORM 2026-10-21): a platform name in an upstream comment, PRODUCT.
 nonperson	vendor/cm059_editor/compiler/interest_profile.py::fcc24845717d3ab3	PRODUCT: the social platform name followed by the word watch in an upstream CM059 code comment describing the facebook_watched source weight; a product and a common noun, not a person.
