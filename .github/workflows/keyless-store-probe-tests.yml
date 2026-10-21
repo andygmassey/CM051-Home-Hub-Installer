@@ -31,6 +31,8 @@ on:
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
       - 'tests/test_contact_cards_seed_runs_the_probe.py'
+      - 'tests/test_install_repairs_merge_consistency_after_dedupe.py'
+      - 'install.sh'
       - 'vendor/cm041/contact_syncer/**'
       - 'vendor/cm041/identity_resolver/**'
       - 'vendor/ostler_fda/pwg_ingest.py'
@@ -55,6 +57,8 @@ on:
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
       - 'tests/test_contact_cards_seed_runs_the_probe.py'
+      - 'tests/test_install_repairs_merge_consistency_after_dedupe.py'
+      - 'install.sh'
       - 'vendor/cm041/contact_syncer/**'
       - 'vendor/cm041/identity_resolver/**'
       - 'vendor/ostler_fda/pwg_ingest.py'
@@ -98,7 +102,7 @@ jobs:
           "${RUNNER_TEMP}/ccs-venv/bin/python" -m pip install --quiet pytest rdflib \
             -r vendor/cm041/contact_syncer/requirements.txt \
             -r vendor/cm041/identity_resolver/requirements.txt
-          out="$("${RUNNER_TEMP}/ccs-venv/bin/python" -m pytest tests/test_contact_cards_seed_runs_the_probe.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          out="$("${RUNNER_TEMP}/ccs-venv/bin/python" -m pytest tests/test_contact_cards_seed_runs_the_probe.py tests/test_install_repairs_merge_consistency_after_dedupe.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
           if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
 
