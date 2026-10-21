@@ -1152,6 +1152,16 @@ entries:
       kind: box_walk_probe
       probe: "owner_knowledge_score"
 
+  # ADVISORY (scripts/walk_promote_scope.tsv, derived_preferences_reach_digest_and_tool
+  # row): smart-prefs, first cut. Declared here because every probe on disk must
+  # be invoked by the cut; the promote scope decides it never refuses a promote.
+  - id: box-walk-derived-preferences-reach-digest-and-tool
+    title: "advisory: derived preferences (What you like) are served by the Hub route, named in the assistant digest, and named by the assistant when asked"
+    incident: "smart-prefs: the derive engine shipped dark, so derived preferences were empty on every box"
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_reach_digest_and_tool"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical
