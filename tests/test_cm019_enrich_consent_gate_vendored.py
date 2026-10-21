@@ -140,7 +140,7 @@ async def _no_sleep(_):
 
 enricher_module.asyncio.sleep = _no_sleep
 
-PREF = {"id": "p1", "category": "book", "subject": "Example Book", "strength": 0.9}
+PREF = {"id": "p1", "category": "book", "subject": "synthetic book title", "strength": 0.9}
 ENTRY = {
     "enrich_preference": lambda s: s.enrich_preference(PREF),
     "enrich_batch": lambda s: s.enrich_batch([PREF], enricher_module.EnrichmentStats()),
