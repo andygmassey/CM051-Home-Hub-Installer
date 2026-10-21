@@ -393,6 +393,7 @@ walk_cleanup() {
         declare -F owner_employer_seed_forget >/dev/null && { owner_employer_seed_forget || true; }
         declare -F conversation_capture_seed_forget >/dev/null && { conversation_capture_seed_forget || true; }
         declare -F scale_fixture_forget >/dev/null && { scale_fixture_forget || true; }
+        declare -F contact_cards_forget >/dev/null && { contact_cards_forget || true; }
         declare -F companion_walk_unpair >/dev/null && { companion_walk_unpair || true; }
     fi
 }
@@ -593,6 +594,18 @@ if [ "$READ_ONLY" -eq 0 ]; then
 scale_fixture_apply || true
 else
     printf '  SKIPPED (read-only): scale fixture not replayed.\n\n'
+fi
+
+# ── AND THE CONTACT CARDS, so no_person_holds_two_contact_cards can run ──
+# lib/contact_cards_seed.sh: v1.0.115 (walk34) graded that BLOCKING probe
+# CANNOT-RUN, "ZERO icloud_contact_uid identifiers in the graph", because a cold
+# account has no Contacts. Six synthetic cards are written when the graph holds
+# none; real contacts are never touched. Gated on READ_ONLY like every writer.
+. "$HERE/lib/contact_cards_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+contact_cards_apply || true
+else
+    printf '  SKIPPED (read-only): contact cards not seeded.\n\n'
 fi
 
 # ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
@@ -952,6 +965,7 @@ owner_employer_seed_forget || true
 conversation_capture_seed_forget || true
 if [ "$READ_ONLY" -eq 0 ]; then
 scale_fixture_forget || true
+contact_cards_forget || true
 companion_walk_unpair || true
 fi
 # Done on the normal path: the EXIT trap (walk_cleanup, above) only acts on an
