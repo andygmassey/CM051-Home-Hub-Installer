@@ -685,8 +685,8 @@ vendor_path      = "vendor/cm019_preferences"
 source_repo      = "$CM019"
 source_path      = "."
 pinned_sha       = "7fd66daf6b329aa44ff2156ac7098fc70e695eea"
-hold_ack_shas            = "aae370bc889ac73f1c35ff41768ccb425ed643ac f371e440982e2b4e50c8118de4589fbb8b96ef69 f58a23df09fd9490757c0d3cc65a492c90bcb43c 9ff66e8daec5f8330338540baa2b6ed4447f336d d63f108bc50ca4ab4e9e145e1a748b64c691c9ca c2b20324d139b507b2133308063548526e9ed9dc 1a88e49d0363ca0fd02c84a4966dbd975b9eee11 9adf081c99fd89352e7b8243b09260c2c6780952 96ff272d9435e6970a82873ccdd7d79711ae8df9"
-hold_ack_reason          = "2026-10-17 (Archie, v1.0.108): the nine commits past the pin are the smart-prefs derive engine (personal-world-graph chunks 0-5, #410 bounces) plus a test-fixture rename (#414). Smart-prefs is DECIDED OUT of v1.0.108 (CM044 #367 unmerged, oa #556 flag defaults off), so the vendored tree deliberately does not carry it; none of the nine is a bugfix to shipped code. PIN HELD, next train re-pins."
+hold_ack_shas            = "aae370bc889ac73f1c35ff41768ccb425ed643ac f371e440982e2b4e50c8118de4589fbb8b96ef69 f58a23df09fd9490757c0d3cc65a492c90bcb43c 9ff66e8daec5f8330338540baa2b6ed4447f336d d63f108bc50ca4ab4e9e145e1a748b64c691c9ca c2b20324d139b507b2133308063548526e9ed9dc 1a88e49d0363ca0fd02c84a4966dbd975b9eee11 9adf081c99fd89352e7b8243b09260c2c6780952 96ff272d9435e6970a82873ccdd7d79711ae8df9 5d1cdf13"
+hold_ack_reason          = "2026-10-21 (ORM): 5d1cdf13 is personal-world-graph #419 (Facebook watched rows emit source facebook_watched, not the declared facebook). GRAFTED, PIN HELD: its one meta.py hunk applied by exact replacement into the vendored meta.py (changed lines equal upstream; the test file is outside the vendored set). The pin is held at 7fd66daf because a re-pin to main would also ship the nine smart-prefs derive commits this row holds (Archie, v1.0.108). Recorded in vendor/divergences/CM019_DIVERGENCE_REGISTRY.md. SCOPE: this sha only. || 2026-10-17 (Archie, v1.0.108): the nine commits past the pin are the smart-prefs derive engine (personal-world-graph chunks 0-5, #410 bounces) plus a test-fixture rename (#414). Smart-prefs is DECIDED OUT of v1.0.108 (CM044 #367 unmerged, oa #556 flag defaults off), so the vendored tree deliberately does not carry it; none of the nine is a bugfix to shipped code. PIN HELD, next train re-pins."
 shipping_bugfixes_grafted = true
 divergence_patch = ""
 unrecorded_divergence = "vendor/divergences/cm019_preferences_usage_journal.UNRECORDED.md"  # 2026-10-15 Ostler #30: see the section appended to this file
@@ -879,7 +879,7 @@ owner = "archie"
 vendor_path      = "vendor/cm059_editor/compiler"
 source_repo      = "$CM059"
 source_path      = "compiler"
-  pinned_sha = "0501afb0b3c87d5896e58b2b599d57be2f6e4970"
+  pinned_sha = "5f3e94ce3a7f6fbeb702d637596052ccd248c0c6"
   divergence_patch = "vendor/divergences/cm059_editor.patch"
   # RECORDED 2026-10-18 (vendor drift reduction): the calls field plus the five later grafts that file listed (#2603, shape sweep, interest provenance, walks #29/#30) now in this tree's divergence patch,
   # written by scripts/regenerate_divergence_patch.sh against the source AT pin 85c87924; the tool
