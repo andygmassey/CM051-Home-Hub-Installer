@@ -119,9 +119,25 @@ def _failure_status(e: BaseException, error: Optional[str] = None) -> dict:
     return {"status": "error", "error": error if error is not None else str(e)}
 
 
+def _previous_summary_entry(output_dir: Path, source: str) -> Optional[dict]:
+    """The entry a previous run recorded for ``source``, or None.
+
+    Unreadable, absent or malformed all read as None: the caller then records
+    that nothing was carried forward, never a made-up good entry.
+    """
+    try:
+        prev = json.loads((output_dir / "extraction_summary.json").read_text())
+        entry = prev["sources"][source]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return dict(entry) if isinstance(entry, dict) else None
+
+
 def run_all(
     output_dir: Optional[Path] = None,
     enabled_sources: Optional[Iterable[str]] = None,
+    skip_sources: Optional[Iterable[str]] = None,
+    writer: str = "install",
 ) -> dict:
     """Run enabled extractors and save results.
 
@@ -131,6 +147,14 @@ def run_all(
         enabled_sources: Iterable of source names to run. None means
             "use the env var or fall back to DEFAULT_SOURCES" – see
             _resolve_enabled_sources.
+        skip_sources: Sources this run must NOT touch. Their output file is
+            left as it is and their previous summary entry is carried forward
+            unchanged (so it keeps the writer that really produced it). Only
+            "apple_music" is honoured: the hourly fda-rerun cannot hold the
+            Media & Apple Music grant, so the daily music-refresh owns it.
+        writer: Which run wrote this summary's fresh entries, stamped on the
+            apple_music entry as ``writer`` (install | fda-rerun |
+            music-refresh) so a walk probe can tell whose read it is judging.
 
     Returns:
         A summary dict suitable for the installer's completion screen.
@@ -708,7 +732,20 @@ def run_all(
     # signal (top artists/genres, playlist counts). extract_library()
     # degrades to an empty library rather than raising when no XML is
     # present, so "not_found" surfaces as ok-with-zero-tracks.
-    if "apple_music" in sources:
+    if "apple_music" in set(skip_sources or ()):
+        # Owned elsewhere for this run (the hourly fda-rerun has no grant).
+        # Do not call extract_library(): it would overwrite apple_music.json
+        # and the summary entry with 0 tracks / reader none every hour.
+        carried = _previous_summary_entry(output_dir, "apple_music")
+        if carried is None:
+            carried = {
+                "status": "not_tried",
+                "reason": "owned by music-refresh; no earlier read recorded",
+                "writer": writer,
+            }
+        summary["sources"]["apple_music"] = carried
+        logger.info("[skip] Apple Music: owned by music-refresh, previous entry kept")
+    elif "apple_music" in sources:
         try:
             from .apple_music import (
                 extract_library, library_stats, to_records,
@@ -750,6 +787,7 @@ def run_all(
             summary["sources"]["apple_music"] = {
                 "status": music_status,
                 **stats,
+                "writer": writer,
             }
             logger.info(
                 "[ok] Apple Music: %d tracks, %d artists, %d playlists "
