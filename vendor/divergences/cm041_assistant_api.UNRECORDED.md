@@ -1412,7 +1412,7 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
 
-## smart-prefs (build after v1.0.108): GET /api/v1/preferences/derived, the "What you like" route (CM041 #215, head ccb66c51, NOT YET MERGED)
+## smart-prefs (build after v1.0.108): GET /api/v1/preferences/derived, the "What you like" route (CM041 #215, head e6c0fcce, NOT YET MERGED)
 
 Tree: `cm041/assistant_api`. Pin HELD at 6c2912fe. **Grafted from an OPEN pull
 request**, because the producer (the cm019 derive engine, grafted and scheduled
@@ -1422,7 +1422,7 @@ add to `hold_ack_shas` yet. When #215 merges, add its squash sha there as
 "ALREADY GRAFTED" (the 8aca5ccc entry above is the template); if #215 changes
 before it merges, re-graft from its final head.
 
-- `vendor/cm041/assistant_api/ical-server.py`: both hunks of e1107d6c..ccb66c51
+- `vendor/cm041/assistant_api/ical-server.py`: both hunks of e1107d6c..e6c0fcce
   for this file: `_sparql_select_unscoped` and `api_preferences_derived` before
   `class Handler`, and the `if parsed.path == "/api/v1/preferences/derived":`
   block in `do_GET` directly before the `/api/v1/preferences` block. Inserted
@@ -1441,9 +1441,9 @@ before it merges, re-graft from its final head.
   ostler-assistant main. 265 routes; against main's committed contract the
   only difference is the derived route.
 - NOT vendored: `assistant_api/tests/test_derived_preferences_route.py`. Tests
-  are excluded from this tree anyway, and that file passes the operator's first
-  name as the user id four times; it needs the same scrub CM041 #217 gave #216's
-  test before #215 merges.
+  are excluded from this tree anyway. #215's head e6c0fcce scrubbed its test of
+  the operator's first name (synthetic ids only); the vendored files above were
+  unchanged by that commit.
 - Proof: `tests/test_derived_route_reads_what_the_engine_writes.py` runs the
   REAL cm019 writer into pyoxigraph and the REAL vendored reader + builder over
   it: healthy response with the contract's exact keys and matchedTitle evidence;
