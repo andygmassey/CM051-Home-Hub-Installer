@@ -77,4 +77,5 @@ jobs:
           check tests/test_catchup_calls.py 11
           python -m pytest tests/test_call_history_vendored.py tests/test_catchup_calls.py -v -rs
       - name: The Doctor Calls row (real recorders, real renderer)
+        if: always()
         run: bash tests/test_the_source_table_covers_the_fda_extract_family.sh
